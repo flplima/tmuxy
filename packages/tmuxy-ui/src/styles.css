@@ -77,6 +77,11 @@
   --accent-blue-bg: rgba(100, 150, 255, 0.1);
   --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
   --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
+  /* Amber reads as "stopped, waiting for you" wherever a status is drawn, and
+     is deliberately NOT --term-yellow (#cdcd00), which is too acid for a dot
+     sitting beside text. Green is unavailable: it already means "the keyboard
+     is here" on an active tab/pane row. */
+  --accent-amber: #e2c08d;
 
   /* Colors - Links */
   --link-color: var(--term-bright-blue);
@@ -649,24 +654,6 @@
   transition:
     transform var(--transition-pane-zoom),
     opacity var(--transition-pane-zoom);
-}
-
-/* The pane growing to full-screen (zoom in) or shrinking back to its slot (zoom
-   out). A FLIP (PaneLayout) rewinds it to its pre-transition box, then this
-   transition morphs it — repeated under the suppression gates so it wins the
-   same commit that sets suppressLayoutTransition (mirrors the enter/leave
-   carve-outs). */
-.pane-layout-item.pane-zoom-growing,
-.pane-layout-no-animations .pane-layout-item.pane-zoom-growing,
-.pane-layout-resizing .pane-layout-item.pane-zoom-growing {
-  z-index: var(--z-pane-anim);
-  transition:
-    left var(--transition-pane-zoom),
-    top var(--transition-pane-zoom),
-    width var(--transition-pane-zoom),
-    height var(--transition-pane-zoom),
-    background-color var(--transition-active);
-  will-change: left, top, width, height;
 }
 
 /* Copy mode: distinct bright-green outline so the mode is unmistakable. */
@@ -1758,7 +1745,6 @@
    from the right. */
 .sidebar-column > .sidebar-body {
   width: var(--sidebar-width);
-  flex-shrink: 0;
 }
 
 .sidebar-column-left > .sidebar-body {
@@ -1905,8 +1891,12 @@
   background: var(--bg-highlight);
 }
 
+/* Basis 0, not auto: the body's height is the column's free space, never its
+   content's. With an auto basis a tree taller than the column sized the body
+   to the whole tree, so the rows past the bottom edge were clipped by the
+   column instead of scrolling inside it. */
 .sidebar-body {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -2035,24 +2025,21 @@
    thing in the tree that routinely outgrow a 30-column column (a path, a
    command with its arguments), and two lines fit most of them. The row grows
    with it; the connector, icon and cue stay on the first line. */
+/* Panes recede under their tab, so scanning the tree reads tab names first.
+   ONE line each: the row now ends in a state indicator, and a label allowed to
+   wrap to a second line would leave that indicator floating beside the wrong
+   half of the row. The name survives truncation because it comes first and is
+   the bold half. */
 .sidebar-tree-pane {
   color: var(--text-dimmed);
-  height: auto;
-  min-height: var(--line-height-terminal);
-  align-items: flex-start;
 }
 
+/* Every child gets the row's own line box. Left to `line-height: normal` a
+   label has no metric anything can reason about — `getComputedStyle` reports
+   the string "normal" rather than a length — and the row's text no longer sits
+   on the same baseline as the connector and the state indicator beside it. */
 .sidebar-tree-pane > * {
   line-height: var(--line-height-terminal);
-}
-
-.sidebar-tree-pane > .sidebar-tree-label {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
 }
 
 /* The box-drawing connector — quieter than the label it points at. */
@@ -2078,13 +2065,125 @@
   opacity: 1;
 }
 
-/* ...and the pane keeps a dot, because "green" alone reads the same on the tab
-   above it — the dot is what says the keyboard is HERE. */
-.sidebar-tree-active-dot {
-  margin-left: auto;
-  padding-left: var(--spacing-md);
-  color: var(--accent-green);
+/* ...and the pane keeps a rail on the LEFT edge, because "green" alone reads
+   the same as the tab above it. The two edges answer different questions: the
+   rail says the keyboard is HERE, the state indicator on the right says what
+   the pane is doing. */
+.sidebar-tree-rail {
+  flex: 0 0 2px;
+  align-self: stretch;
+  margin-right: var(--spacing-sm);
+  border-radius: 1px;
+  background: transparent;
+}
+
+.sidebar-tree-pane.is-active > .sidebar-tree-rail {
+  background: var(--accent-green);
+}
+
+/* The pane id, ahead of the name and quieter than it: it is the tiebreak
+   between two panes running the same program, not something to read first. */
+.sidebar-tree-id {
+  opacity: 0.55;
+}
+
+/* The process name leads and is the bold half; whatever trails it — arguments,
+   the file being edited — recedes. */
+.sidebar-tree-name {
+  font-weight: 600;
+}
+
+.sidebar-tree-detail {
   opacity: 0.7;
+}
+
+/* The fold control. It sits inside the tab row but takes its own clicks, so
+   the row still selects the tab. */
+.sidebar-tree-chevron {
+  flex: 0 0 auto;
+  width: 1.1em;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.sidebar-tree-chevron:hover {
+  opacity: 1;
+}
+
+/* How many panes a tab holds — the other half of what a collapsed tab shows. */
+.sidebar-tree-count {
+  flex: 0 0 auto;
+  padding-left: var(--spacing-sm);
+  font-size: 0.85em;
+  opacity: 0.6;
+}
+
+/* The state indicator, pinned at the right edge. One cell wide so every row's
+   indicator lines up whatever its label did. */
+.sidebar-tree-state {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  margin-left: var(--spacing-sm);
+  line-height: 1;
+}
+
+.sidebar-tree-state.is-needs-input {
+  color: var(--accent-amber);
+}
+
+.sidebar-tree-state.is-error {
+  color: var(--accent-red, #e06c75);
+}
+
+.sidebar-tree-state.is-unread {
+  color: var(--accent-blue-light);
+}
+
+.sidebar-tree-state.is-idle {
+  color: var(--text-dimmed);
+  opacity: 0.5;
+}
+
+/* Working is the only animated state, and that is the whole convention: motion
+   means "busy, leave it alone", stillness means "stopped, it wants you". A
+   spinning ring rather than a glyph cycle, so it needs no font support and
+   never re-renders React. */
+.sidebar-tree-state.is-working::after {
+  content: '';
+  display: inline-block;
+  box-sizing: border-box;
+  width: 0.7em;
+  height: 0.7em;
+  border: 1.5px solid var(--accent-blue-light);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: sidebar-tree-spin 0.8s linear infinite;
+}
+
+@keyframes sidebar-tree-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* With motion off the ring closes and holds still: a complete ring is still
+   distinct from the filled dot (unread) and the hollow one (idle), so the
+   state survives without animating. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-tree-state.is-working::after {
+    border-top-color: var(--accent-blue-light);
+    animation: none;
+  }
 }
 
 /* The keyboard cursor. Only meaningful while the column has focus — an idle
@@ -2183,7 +2282,9 @@
   height: 100%;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  /* Cards per row: `@tmuxy-tab-overview-cols` from tmuxy.conf, set inline by
+     TabOverview. */
+  grid-template-columns: repeat(var(--tab-overview-cols, 3), minmax(0, 1fr));
   gap: var(--spacing-2xl);
   padding: var(--spacing-2xl);
   box-sizing: border-box;
@@ -2192,7 +2293,7 @@
 
 @media (max-width: 600px) {
   .tab-overview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--tab-overview-cols-narrow, 2), minmax(0, 1fr));
     gap: var(--spacing-lg);
     padding: var(--spacing-lg);
   }
@@ -2380,6 +2481,36 @@
      while the way in looked fine: opening adds the class before anything
      moves. */
   transform-origin: 0 0;
+}
+
+/* A trackpad gesture moves the grid with inline transforms (GestureStage).
+   The tab a slide is pulling in: its real panes, one grid width to the side
+   (PaneLayout), riding the grid's transform and never a transition of their
+   own. `pane-swipe-still` holds the landed tab's panes still for the frame the
+   slide hands the grid over to them. */
+.pane-layout .pane-layout-item.pane-swipe-neighbor {
+  pointer-events: none;
+  transition: none;
+}
+
+.pane-layout .pane-layout-item.pane-swipe-still {
+  transition: none;
+}
+
+/* A pane drawn by a pinch - growing out of its slot, or held where the fingers
+   left it until its zoom lands - sits above its siblings and follows the
+   fingers with no transition (GestureStage sets its transform inline). */
+.pane-layout .pane-layout-item.pane-gesture-growing {
+  z-index: var(--z-zoomed);
+  transform-origin: 0 0;
+  transition: none;
+}
+
+/* A two-finger slide switches tabs; Chromium must not also take it as a
+   history swipe. */
+html,
+body {
+  overscroll-behavior-x: none;
 }
 
 .pane-container.tab-overview-open .float-modal,

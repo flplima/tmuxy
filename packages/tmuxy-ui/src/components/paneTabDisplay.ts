@@ -121,3 +121,26 @@ export function getTabText(pane: TmuxPane, titleOverride?: string): string {
 export function getTabLabel(pane: TmuxPane, titleOverride?: string): string {
   return splitTitleIcon(getTabText(pane, titleOverride)).text;
 }
+
+/**
+ * The label split for weighting: the name the row leads with, and whatever
+ * trails it.
+ *
+ * The sidebar tree draws the name bold and the rest dim, so the eye lands on
+ * WHAT is running before WHICH file it has open — `nvim` before `styles.css`,
+ * `cargo` before `test`. The split is the first space, because that is where
+ * both a command and its arguments and an app's own title divide.
+ *
+ * A pane in copy mode is the exception: `[COPY MODE]` is one label, and
+ * splitting it at the space would read as a program called `[COPY`.
+ */
+export function splitTabLabel(
+  pane: TmuxPane,
+  titleOverride?: string,
+): { name: string; detail: string } {
+  const label = getTabLabel(pane, titleOverride);
+  if (pane.inMode) return { name: label, detail: '' };
+  const gap = label.indexOf(' ');
+  if (gap <= 0) return { name: label, detail: '' };
+  return { name: label.slice(0, gap), detail: label.slice(gap + 1).trim() };
+}

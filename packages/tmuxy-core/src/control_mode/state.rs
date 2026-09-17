@@ -289,6 +289,11 @@ pub struct PaneState {
     /// History size (number of lines scrolled off the top)
     pub history_size: u64,
 
+    /// What the pane says it is doing (`@tmuxy-pane-state`), verbatim.
+    /// Written by whatever runs in the pane — agent hooks, a shell's
+    /// precmd/preexec, a build script — never inferred here.
+    pub pane_state: Option<String>,
+
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<std::sync::Arc<PaneContent>>,
 
@@ -348,6 +353,7 @@ impl PaneState {
             selection_start_x: 0,
             selection_start_y: 0,
             history_size: 0,
+            pane_state: None,
             copy_mode_content: None,
             cursor_shape: 0,
             cursor_hidden: false,
@@ -695,6 +701,7 @@ impl PaneState {
             images: self.image_parser.placements.clone(),
             cursor_shape: self.cursor_shape,
             cursor_hidden: self.cursor_hidden,
+            pane_state: self.pane_state.clone(),
         }
     }
 }
@@ -1151,6 +1158,9 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
         images: Vec::new(),
         cursor_shape: 0,
         cursor_hidden: false,
+        // A stash member is a hidden stub, not a running pane: it reports no
+        // state of its own until it is swapped into view as a real pane.
+        pane_state: None,
     }
 }
 
@@ -2520,11 +2530,14 @@ impl StateAggregator {
         // copy_cursor_y, scroll_position. Everything between command and those
         // four fields is pane_title; everything between window_id and the fixed
         // 6-field tail is border_title.
-        let num_tail_fields = 8;
+        let num_tail_fields = 9;
 
         // Tail fields (fixed, never free-text): alternate_on, mouse_any_flag,
         // pane_marked, selection_present, selection_start_x, selection_start_y,
-        // history_size, group_id (`@tmuxy-group-id`, `g<digits>` or empty).
+        // history_size, group_id (`@tmuxy-group-id`, `g<digits>` or empty) and
+        // pane_state (`@tmuxy-pane-state`, a bare word or empty). pane_state is
+        // counted from the END like the rest of the tail, so the free-text
+        // title/border fields in the middle can still hold commas.
         let (
             alternate_on,
             mouse_any_flag,
@@ -2534,21 +2547,24 @@ impl StateAggregator {
             selection_start_y,
             history_size,
             group_id,
-        ) = if parts.len() >= 19 {
+            pane_state,
+        ) = if parts.len() >= 20 {
             let last = parts.len() - 1;
-            let gid = parts[last].trim();
+            let gid = parts[last - 1].trim();
+            let state = parts[last].trim();
             (
+                parts[last - 8] == "1",
                 parts[last - 7] == "1",
                 parts[last - 6] == "1",
                 parts[last - 5] == "1",
-                parts[last - 4] == "1",
-                parts[last - 3].parse::<u32>().unwrap_or(0),
+                parts[last - 4].parse::<u32>().unwrap_or(0),
+                parts[last - 3].parse::<u64>().unwrap_or(0),
                 parts[last - 2].parse::<u64>().unwrap_or(0),
-                parts[last - 1].parse::<u64>().unwrap_or(0),
                 (!gid.is_empty()).then(|| gid.to_string()),
+                (!state.is_empty()).then(|| state.to_string()),
             )
         } else {
-            (false, false, false, false, 0u32, 0u64, 0u64, None)
+            (false, false, false, false, 0u32, 0u64, 0u64, None, None)
         };
 
         let mut title = String::new();
@@ -2653,6 +2669,7 @@ impl StateAggregator {
         pane.selection_start_y = selection_start_y;
         pane.history_size = history_size;
         pane.group_id = group_id;
+        pane.pane_state = pane_state;
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = cursor_x;
@@ -3067,6 +3084,9 @@ impl StateAggregator {
         }
         if prev.history_size != curr.history_size {
             delta.history_size = Some(curr.history_size);
+        }
+        if prev.pane_state != curr.pane_state {
+            delta.pane_state = Some(curr.pane_state.clone());
         }
         if prev.selection_present != curr.selection_present {
             delta.selection_present = Some(curr.selection_present);
@@ -3630,8 +3650,8 @@ mod tests {
         // group_id (final tail field) is left empty here; group parsing has its
         // own test below.
         format!(
-            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,gid
-            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,"
+            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,gid,state
+            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,"
         )
     }
 
@@ -3654,9 +3674,9 @@ mod tests {
         // rather than zero — the anchor scan has to tolerate both around a
         // blank title.
         let mut agg = StateAggregator::new();
-        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,");
+        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,");
         agg.parse_list_panes_line(
-            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,",
+            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,,",
         );
 
         let untitled = agg.panes.get("%0").expect("untitled pane parsed");
@@ -3681,6 +3701,56 @@ mod tests {
         assert_eq!(pane.title, "");
         assert_eq!(pane.command, "zsh");
         assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn list_panes_reads_the_pane_state_tail() {
+        // The new tail field is counted from the END, like group_id, so the
+        // free-text title and border in the middle can still carry commas.
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(
+            "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,needs-input",
+        );
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.pane_state.as_deref(), Some("needs-input"));
+        // The fields before it still land where they did.
+        assert_eq!(pane.window_id, "@4");
+        assert_eq!(pane.command, "claude");
+        assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn list_panes_leaves_an_undeclared_pane_stateless() {
+        // The common case: nothing set `@tmuxy-pane-state`, so the field
+        // arrives empty. Empty must stay None rather than becoming an
+        // empty-string state the client would have to special-case.
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line("nvim", "@4", ""));
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.pane_state, None);
+    }
+
+    #[test]
+    fn pane_delta_carries_a_changed_pane_state() {
+        // An agent moving from working to needs-input has to reach the client
+        // through the delta pass, not just the initial snapshot.
+        let agg = StateAggregator::new();
+        let mut prev = PaneState::new("%3", 80, 24).build_tmux_pane();
+        prev.pane_state = Some("working".to_string());
+        let mut curr = prev.clone();
+        curr.pane_state = Some("needs-input".to_string());
+
+        let delta = agg.compute_pane_delta(&prev, &curr);
+        assert_eq!(delta.pane_state, Some(Some("needs-input".to_string())));
+
+        // An agent clearing the option on exit clears it on the client too.
+        let mut cleared = curr.clone();
+        cleared.pane_state = None;
+        let clearing = agg.compute_pane_delta(&curr, &cleared);
+        assert_eq!(clearing.pane_state, Some(None));
+
+        // ...and an unchanged pane puts nothing on the wire.
+        assert_eq!(agg.compute_pane_delta(&curr, &curr).pane_state, None);
     }
 
     #[test]

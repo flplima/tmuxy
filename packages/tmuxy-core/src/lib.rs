@@ -323,6 +323,15 @@ pub struct TmuxPane {
     /// Whether the cursor is hidden (DECTCEM mode 25 off / ESC[?25l)
     #[serde(default)]
     pub cursor_hidden: bool,
+    /// What the pane says it is doing, from `@tmuxy-pane-state`.
+    ///
+    /// Any process can set it — an agent's hooks, a shell's precmd/preexec, a
+    /// build script — so the sidebar shows a pane's state without tmuxy having
+    /// to infer one. Carried verbatim: the client owns the vocabulary and
+    /// collapses anything it does not recognize, which keeps writers free to
+    /// use their own status names. `None` when the option is unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_state: Option<String>,
 }
 
 /// Window type discriminator. Set on windows tmuxy created or has adopted.
@@ -523,6 +532,11 @@ pub struct PaneDelta {
     /// `Option` = the new value (`None` clears it — the pane left its group).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<Option<String>>,
+    /// Pane state from `@tmuxy-pane-state` (only if changed). Nested the same
+    /// way as `group_id`: the inner `None` clears it, which is what an agent
+    /// unsetting the option on exit looks like.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_state: Option<Option<String>>,
     /// Copy mode state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_mode: Option<bool>,

@@ -386,10 +386,13 @@ export const PaneNodesShowHeaderTitle: Story = {
     for (const p of panes) {
       const row = tree.querySelector(`[data-testid="tree-pane-${p.tmuxId}"]`) as HTMLElement;
       expect(row).not.toBeNull();
-      const label = row.querySelector('.sidebar-tree-label') as HTMLElement;
-      // `%id title` — the pane id disambiguates two panes running the same
-      // program, which is the common case ('bash' twice in the demo shell).
-      expect(label.textContent).toBe(`${p.tmuxId} bash`);
+      // `%id name` — the id leads, dim, because it is what tells two panes
+      // running the same program apart ('bash' twice is the common case); the
+      // process name follows it as the bold half.
+      const id = row.querySelector('.sidebar-tree-id') as HTMLElement;
+      const name = row.querySelector('.sidebar-tree-name') as HTMLElement;
+      expect(id.textContent).toBe(p.tmuxId);
+      expect(name.textContent).toBe('bash');
       // Process icon rendered alongside it, after the tree connector.
       expect(row.querySelector('.sidebar-tree-icon')).not.toBeNull();
       expect(row.querySelector('.sidebar-tree-branch')).not.toBeNull();
@@ -602,6 +605,231 @@ export const DragResizesTheColumn: Story = {
     const treeWindow = app().context.windows.find((w) => w.windowType === 'sidebar-left')!;
     expect(treeWindow.sidebarCols).toBe(
       Math.round(column.getBoundingClientRect().width / app().context.charWidth),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// A tab folds its panes away, leaving the count + rolled-up state behind
+// ---------------------------------------------------------------------------
+
+export const TabsCollapseToHideTheirPanes: Story = {
+  args: { height: 500, initCommands: ['rename-window main', 'split-window -h'] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup({ delay: 5 });
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle tree sidebar/i },
+      { timeout: 8000 },
+    );
+    await user.click(toggle);
+    const tree = await waitForTree();
+
+    const windowId = app().context.activeWindowId!;
+    const paneIds = tabPanes()
+      .filter((p) => p.windowId === windowId)
+      .map((p) => p.tmuxId);
+    expect(paneIds.length).toBeGreaterThanOrEqual(2);
+
+    const paneRow = (id: string) =>
+      tree.querySelector(`[data-testid="tree-pane-${id}"]`) as HTMLElement | null;
+    const treeBox = () => tree.getBoundingClientRect();
+
+    // Expanded by default: every pane row is drawn, and drawn inside the column.
+    for (const id of paneIds) {
+      const row = paneRow(id);
+      expect(row).not.toBeNull();
+      const box = row!.getBoundingClientRect();
+      expect(box.height).toBeGreaterThan(0);
+      expect(box.top).toBeGreaterThanOrEqual(treeBox().top - 1);
+    }
+
+    // Fold it from the chevron — the row itself still selects the tab.
+    const chevron = tree.querySelector(`[data-testid="tree-chevron-${windowId}"]`) as HTMLElement;
+    expect(chevron).not.toBeNull();
+    await user.click(chevron);
+
+    await waitFor(
+      () => {
+        for (const id of paneIds) expect(paneRow(id)).toBeNull();
+      },
+      { timeout: 5000 },
+    );
+
+    // Folded, the tab still says how much it is hiding — that count and the
+    // state beside it are the only signal a collapsed tab has left.
+    const tabRow = tree.querySelector(`[data-testid="tree-tab-${windowId}"]`) as HTMLElement;
+    expect(tabRow.getAttribute('data-collapsed')).toBe('true');
+    expect(tabRow.getAttribute('aria-expanded')).toBe('false');
+    const count = tabRow.querySelector('.sidebar-tree-count') as HTMLElement;
+    expect(count.textContent).toBe(String(paneIds.length));
+    const countBox = count.getBoundingClientRect();
+    expect(countBox.width).toBeGreaterThan(0);
+    expect(countBox.right).toBeLessThanOrEqual(treeBox().right + 1);
+
+    // ...and unfolding brings them back.
+    await user.click(chevron);
+    await waitFor(
+      () => {
+        for (const id of paneIds) expect(paneRow(id)).not.toBeNull();
+      },
+      { timeout: 5000 },
+    );
+    expect(tabRow.getAttribute('aria-expanded')).toBe('true');
+  },
+};
+
+// ---------------------------------------------------------------------------
+// A pane's state is whatever the pane declared, and a tab rolls its panes up
+// ---------------------------------------------------------------------------
+
+export const PaneStateIsWhatThePaneDeclares: Story = {
+  args: { height: 500, initCommands: ['rename-window agents', 'split-window -h'] },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'tmuxy never infers what a pane is doing: the pane says so itself by setting `@tmuxy-pane-state`, which is what `tmuxy pane state <value>` does from inside it — an agent hook, a shell precmd/preexec pair, or a build script on failure. Here the option is set through the same tmux command that CLI issues. A tab rolls its panes up to the most attention-worthy of them, so a tab holding a blocked pane reads as needs-input even when another pane is merely working.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup({ delay: 5 });
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle tree sidebar/i },
+      { timeout: 8000 },
+    );
+    await user.click(toggle);
+    const tree = await waitForTree();
+
+    const windowId = app().context.activeWindowId!;
+    const paneIds = tabPanes()
+      .filter((p) => p.windowId === windowId)
+      .map((p) => p.tmuxId);
+    expect(paneIds.length).toBeGreaterThanOrEqual(2);
+    const [busy, blocked] = paneIds;
+
+    // What `tmuxy pane state` runs, through the same command path.
+    const win = window as unknown as { app: { send(e: unknown): void } };
+    const declare = (paneId: string, state: string) =>
+      win.app.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: `set-option -p -t ${paneId} @tmuxy-pane-state ${state}`,
+      });
+    declare(busy, 'working');
+    declare(blocked, 'needs-input');
+
+    const paneRow = (id: string) =>
+      tree.querySelector(`[data-testid="tree-pane-${id}"]`) as HTMLElement;
+
+    await waitFor(
+      () => {
+        expect(paneRow(busy).getAttribute('data-pane-state')).toBe('working');
+        expect(paneRow(blocked).getAttribute('data-pane-state')).toBe('needs-input');
+      },
+      { timeout: 6000, interval: 100 },
+    );
+
+    // The indicator is really drawn, at the right edge, inside the column.
+    const badge = paneRow(blocked).querySelector(
+      '.sidebar-tree-state.is-needs-input',
+    ) as HTMLElement;
+    expect(badge).not.toBeNull();
+    const badgeBox = badge.getBoundingClientRect();
+    const rowBox = paneRow(blocked).getBoundingClientRect();
+    expect(badgeBox.width).toBeGreaterThan(0);
+    expect(badgeBox.right).toBeLessThanOrEqual(rowBox.right + 1);
+    // Right edge, not left: it is the last thing on the row.
+    expect(badgeBox.left).toBeGreaterThan(rowBox.left + rowBox.width / 2);
+
+    // The tab shows the most attention-worthy state among its panes, so the
+    // blocked pane wins over the working one.
+    const tabRow = tree.querySelector(`[data-testid="tree-tab-${windowId}"]`) as HTMLElement;
+    expect(tabRow.querySelector('.sidebar-tree-state.is-needs-input')).not.toBeNull();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// A tree with more rows than the column is tall scrolls INSIDE the column
+// ---------------------------------------------------------------------------
+
+export const TallTreeScrollsInsideTheColumn: Story = {
+  args: {
+    height: 400,
+    initCommands: ['rename-window main', ...Array.from({ length: 11 }, () => 'new-window')],
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Twelve tabs and their panes are more rows than a 400px column can show. The tree has to scroll within the column: its box stays inside the column (rather than growing past the bottom edge and being clipped away with no way to reach the rest), and walking the keyboard cursor down to the last row brings that row into view.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup({ delay: 1 });
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle tree sidebar/i },
+      { timeout: 8000 },
+    );
+    await user.click(toggle);
+    const tree = await waitForTree();
+    const column = document.querySelector('.sidebar-column-left') as HTMLElement;
+    expect(column).not.toBeNull();
+    await waitFor(() => expect(column.className).not.toContain('is-moving'), { timeout: 3000 });
+
+    // Every tab and its pane got a row — far more rows than the column is tall.
+    const rows = () => [...tree.querySelectorAll('[role="treeitem"]')] as HTMLElement[];
+    await waitFor(() => expect(rows().length).toBeGreaterThanOrEqual(20), { timeout: 8000 });
+
+    // The tree is bounded by its column: a box that grew past the bottom edge
+    // would have its extra rows clipped by the column with nothing to scroll.
+    const columnBox = column.getBoundingClientRect();
+    expect(tree.getBoundingClientRect().bottom).toBeLessThanOrEqual(columnBox.bottom + 1);
+
+    // …and it overflows that box, so it is genuinely scrollable.
+    expect(tree.scrollHeight).toBeGreaterThan(tree.clientHeight + 1);
+
+    // It opens on the active pane's row, at the bottom of a tree this long, so
+    // the top of it starts out scrolled off the column.
+    const firstRow = () => rows()[0];
+    const lastRow = () => rows()[rows().length - 1];
+    const openedAt = tree.scrollTop;
+    expect(openedAt).toBeGreaterThan(0);
+    expect(firstRow().getBoundingClientRect().top).toBeLessThan(columnBox.top);
+
+    // Walking the keyboard cursor up brings the top of the tree back into view —
+    // which is what makes the rows past a fold reachable at all.
+    await user.click(tree);
+    await waitFor(() => expect(tree.getAttribute('data-focused')).toBe('true'), { timeout: 5000 });
+    await user.keyboard('k'.repeat(rows().length));
+    await waitFor(
+      () => {
+        // Scrolled back up (not necessarily to 0 — the tree's top padding sits
+        // above the first row, and `block: 'nearest'` stops at the row itself).
+        expect(tree.scrollTop).toBeLessThan(openedAt);
+        const box = firstRow().getBoundingClientRect();
+        expect(box.top).toBeGreaterThanOrEqual(columnBox.top - 1);
+        expect(box.bottom).toBeLessThanOrEqual(columnBox.bottom + 1);
+      },
+      { timeout: 6000, interval: 100 },
+    );
+
+    // …and walking it back down scrolls the far end into view the same way.
+    await user.keyboard('j'.repeat(rows().length));
+    await waitFor(
+      () => {
+        expect(tree.scrollTop).toBeGreaterThan(0);
+        const box = lastRow().getBoundingClientRect();
+        expect(box.top).toBeGreaterThanOrEqual(columnBox.top - 1);
+        expect(box.bottom).toBeLessThanOrEqual(columnBox.bottom + 1);
+      },
+      { timeout: 6000, interval: 100 },
     );
   },
 };

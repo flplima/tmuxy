@@ -12,6 +12,9 @@
  *    frame is the FLIP target: the live `.pane-layout` is scaled into it
  *    (see the CSS custom properties set on `.pane-container`).
  *  - The trailing slot is a dashed "+" that creates a tab.
+ *  - Each row holds `@tmuxy-tab-overview-cols` cards (tmuxy.conf, default 3).
+ *    A grid taller than the view scrolls, keeping the keyboard cursor's card
+ *    on screen, and the live grid rides its card as the cards scroll.
  *  - Keyboard while open: arrows / hjkl move, Enter opens, Delete / x closes
  *    the selected tab, 1–9 open the Nth tab, Escape or ctrl+0 leaves. The
  *    overview owns the keyboard: nothing reaches tmux.
@@ -31,6 +34,7 @@ import {
   selectPanes,
   selectContainerSize,
   selectCharSize,
+  selectTabOverviewCols,
 } from '../machines/AppContext';
 import {
   DRAG_THRESHOLD_PX,
@@ -83,6 +87,7 @@ function TabOverviewInner() {
   const snapshot = useTabStill(livePanes, true);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
+  const cols = useAppSelector(selectTabOverviewCols);
   // Read by the activate helpers, which are stable callbacks: they must see
   // the slots of the render the click happened in, not the ones they closed
   // over when they were created.
@@ -106,7 +111,26 @@ function TabOverviewInner() {
   const rootRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  // The grid's scroll offset: the current tab's frame moves with it, so the
+  // live grid has to be re-aimed on every scroll.
+  const [scrollTop, setScrollTop] = useState(0);
+  const measuredScrollRef = useRef(0);
   const longPressRef = useRef<number | null>(null);
+
+  // ---- keep the keyboard cursor's card on screen ------------------------------
+  // It starts on the current tab, which in a long grid can sit below the fold.
+  // Only the grid scrolls: scrollIntoView would also move the overflow-hidden
+  // ancestors the live grid is positioned in.
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    const card = grid?.querySelector<HTMLElement>(`#tab-overview-slot-${selected}`);
+    if (!grid || !card) return;
+    const pad = parseFloat(getComputedStyle(grid).paddingTop) || 0;
+    const g = grid.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    if (c.top < g.top + pad) grid.scrollTop -= g.top + pad - c.top;
+    else if (c.bottom > g.bottom - pad) grid.scrollTop += c.bottom - (g.bottom - pad);
+  }, [selected, cols]);
 
   // ---- FLIP: scale the live pane grid into the current tab's frame ----------
   // Measured after layout so the grid's real slot geometry is known. The
@@ -122,12 +146,17 @@ function TabOverviewInner() {
   useLayoutEffect(() => {
     const root = rootRef.current;
     const container = root?.parentElement;
+    // A scroll is a re-aim too: the grid must stay glued to its card, not
+    // chase it through a transition.
+    const scrolled = scrollTop !== measuredScrollRef.current;
+    measuredScrollRef.current = scrollTop;
     if (container) {
       // Moving onto the picked card is a re-aim, not a move to watch: it must
       // land in the frame it is written in, or the grid would slide across
       // the overview on its way there.
-      if (dragOffset || opening) container.style.setProperty('--tab-overview-motion', '0s');
-      else container.style.removeProperty('--tab-overview-motion');
+      if (dragOffset || opening || scrolled) {
+        container.style.setProperty('--tab-overview-motion', '0s');
+      } else container.style.removeProperty('--tab-overview-motion');
     }
     const layout = container?.querySelector<HTMLElement>('.pane-layout');
     const frame = root?.querySelector<HTMLElement>(
@@ -164,7 +193,12 @@ function TabOverviewInner() {
     // would already be back, and the browser would animate the re-aim itself
     // — the grid sliding across the overview, with the grow that follows
     // starting from wherever that slide had got to.
-    if (opening) void getComputedStyle(layout).transform;
+    if (opening || scrolled) void getComputedStyle(layout).transform;
+    // The scroll re-aim is committed; give the duration back so closing the
+    // overview still grows the grid out of its card.
+    if (scrolled && !dragOffset && !opening) {
+      container.style.removeProperty('--tab-overview-motion');
+    }
     // The grid — and the cursor anchor inside it — just moved without any
     // pane rendering; the cursor overlay has to be told.
     nudgeCursorAnchor();
@@ -176,6 +210,8 @@ function TabOverviewInner() {
     frameSize,
     dragOffset,
     opening,
+    cols,
+    scrollTop,
   ]);
 
   // The grid is on the picked card and painted there; hand the clock back and
@@ -423,9 +459,16 @@ function TabOverviewInner() {
       <div
         ref={gridRef}
         className="tab-overview-grid"
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
         role="listbox"
         aria-activedescendant={`tab-overview-slot-${selected}`}
-        style={{ '--tab-overview-aspect': String(aspect) } as React.CSSProperties}
+        style={
+          {
+            '--tab-overview-aspect': String(aspect),
+            '--tab-overview-cols': String(cols),
+            '--tab-overview-cols-narrow': String(Math.min(cols, 2)),
+          } as React.CSSProperties
+        }
       >
         {slots.map((slot, index) => {
           const isActive = slot.window.id === activeWindowId;

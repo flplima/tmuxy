@@ -35,6 +35,9 @@ vi.mock('../components/FloatPane', () => ({
 vi.mock('../components/TabOverview', () => ({
   TabOverview: () => null,
 }));
+vi.mock('../components/GestureStage', () => ({
+  GestureStage: () => null,
+}));
 vi.mock('../components/Sidebar', () => ({
   Sidebar: () => <div data-testid="sidebar" />,
 }));

@@ -74,6 +74,7 @@ const FIELD_OWNERS = {
   sidebarMotion: 'groupsAndFloats',
   leftSidebarClosing: 'groupsAndFloats',
   rightSidebarClosing: 'groupsAndFloats',
+  collapsedTabIds: 'groupsAndFloats',
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
 
@@ -95,6 +96,9 @@ const FIELD_OWNERS = {
   enableAnimations: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
+  tabOverviewCols: 'uiPrefs',
+  gestureFlags: 'uiPrefs',
+  gesture: 'gestures',
 };
 
 const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\.ts$/;

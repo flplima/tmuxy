@@ -2936,9 +2936,10 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       'second window to become active',
     );
 
-    // A pane whose title outgrows the column: the tree gives it a second line
-    // before cutting it, instead of ellipsing everything past line one.
-    const longTitle = 'a very long pane title that certainly needs a second line in this tree';
+    // A pane whose title outgrows the column: the row keeps to ONE line and
+    // truncates. The row now ends in a state indicator, and a label allowed to
+    // wrap would leave that indicator beside the wrong half of the row.
+    const longTitle = 'a very long pane title that certainly needs truncating in this tree';
     await ctx.session.runCommand(`select-pane -t ${ctx.session.name} -T '${longTitle}'`);
 
     // Step 1: Open the sidebar via the real keybinding (prefix t).
@@ -2981,17 +2982,18 @@ describe('Scenario 6d: Sidebar Tree View', () => {
           const column = document.querySelector('.sidebar-column-left').getBoundingClientRect();
           const r = label.getBoundingClientRect();
           const lineHeight = parseFloat(getComputedStyle(label).lineHeight);
-          // Two lines tall, both inside the column — the second line is really
-          // shown, not overflowing under something.
+          // One line, really cut rather than spilling past the column, and
+          // still inside it on every side.
           return (
-            Math.round(r.height / lineHeight) === 2 &&
+            Math.round(r.height / lineHeight) === 1 &&
+            label.scrollWidth > label.clientWidth &&
             r.left >= column.left &&
             r.right <= column.right &&
             r.bottom <= column.bottom
           );
         }, longTitle),
       8000,
-      'the long pane title to wrap onto a second line in the tree',
+      'the long pane title to truncate onto one line in the tree',
     );
 
     // The pane inside the repo shows its branch, drawn inside the column, and

@@ -105,6 +105,15 @@ pub mod tmux_options {
     /// specific cursor (DECSCUSR) is still obeyed; this is what happens when
     /// it has not.
     pub const CURSOR_BLINK: &str = "@tmuxy-cursor-blink";
+    /// Integer: how many cards each row of the "all tabs" view holds.
+    pub const TAB_OVERVIEW_COLS: &str = "@tmuxy-tab-overview-cols";
+    /// `on`/`off`: a two-finger trackpad slide left/right switches tabs.
+    pub const GESTURE_SWIPE_TABS: &str = "@tmuxy-gesture-swipe-tabs";
+    /// `on`/`off`: pinching out zooms the pane under the fingers, pinching in
+    /// unzooms it.
+    pub const GESTURE_PINCH_ZOOM: &str = "@tmuxy-gesture-pinch-zoom";
+    /// `on`/`off`: pinching in on an unzoomed tab opens the "all tabs" view.
+    pub const GESTURE_PINCH_OVERVIEW: &str = "@tmuxy-gesture-pinch-overview";
 }
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
@@ -233,7 +242,8 @@ pub mod tmux_formats {
         "#{window_id},#{T:pane-border-format},",
         "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
         "#{selection_present},",
-        "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id}'",
+        "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id},",
+        "#{@tmuxy-pane-state}'",
     );
 
     /// Enumerates the HIDDEN pane-group members parked in

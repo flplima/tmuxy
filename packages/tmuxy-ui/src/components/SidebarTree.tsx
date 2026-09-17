@@ -12,15 +12,26 @@
  * It reflects the same "tabs" the rest of the UI shows (float/backdrop/sidebar
  * windows filtered out by `selectVisibleWindows`).
  *
+ * Row anatomy, and why it is split across the two edges:
+ *  - the LEFT edge answers "where am I?" — a green rail marks the active pane.
+ *  - the RIGHT edge answers "what is it doing?" — the pane's own declared state
+ *    (`utils/paneState.ts`), with a dead pane's exit status beside it.
+ *  - in between, the process name is bold and whatever trails it is dim, so the
+ *    eye lands on WHAT is running before WHICH file it has open.
+ *  - a tab row carries a chevron and, on its right, the count of panes and the
+ *    most attention-worthy state among them — which is the only signal left
+ *    once the tab is collapsed.
+ *
  * Interactions:
  *  - click a tab → `SELECT_TAB`; click a pane → `select-pane` (tmux switches to
- *    the pane's window too).
+ *    the pane's window too). Clicking a tab's chevron collapses it instead.
  *  - when the sidebar is focused, j/k/↑/↓ move the selection, Enter activates it,
- *    l/→ hand the keyboard back to the panes and q closes the column — driven by
- *    a capture-phase key listener so the keys never reach the pane/tmux (the
- *    keyboard actor also skips forwarding while focused). Escape is deliberately
- *    NOT a tree key: a sidebar pane may run a program that needs it, so no
- *    sidebar ever claims Escape for itself.
+ *    h/← collapses (or steps out to the parent tab), l/→ expands a collapsed tab
+ *    and otherwise hands the keyboard back to the panes, and q closes the
+ *    column — driven by a capture-phase key listener so the keys never reach the
+ *    pane/tmux (the keyboard actor also skips forwarding while focused). Escape
+ *    is deliberately NOT a tree key: a sidebar pane may run a program that needs
+ *    it, so no sidebar ever claims Escape for itself.
  *  - drag a pane node onto a different tab → `join-pane` moves the pane into that
  *    tab (optimistically, via the store).
  *  - right-click a pane or tab row → the same context menu the pane header /
@@ -37,7 +48,7 @@ import {
   selectSessions,
   selectRepositories,
 } from '../machines/AppContext';
-import { getTabLabel, getTabIcon } from './paneTabDisplay';
+import { splitTabLabel, getTabIcon } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
 import {
   findPaneGitContext,
@@ -45,6 +56,13 @@ import {
   summarizeGitContexts,
   type PaneGitContext,
 } from './gitContext';
+import {
+  PANE_STATE_GLYPH,
+  PANE_STATE_LABEL,
+  aggregatePaneState,
+  paneStateFor,
+  type PaneStateName,
+} from '../utils/paneState';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { TmuxPane, TmuxWindow } from '../machines/types';
@@ -65,7 +83,7 @@ type Row =
   /** `position` is the tab's 1-based place in the strip — the number the tab
    *  strip shows. tmux's own window index has gaps where chrome windows sit,
    *  and printing it here made the two disagree. */
-  | { kind: 'tab'; window: TmuxWindow; position: number }
+  | { kind: 'tab'; window: TmuxWindow; position: number; collapsed: boolean }
   | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean }
   | { kind: 'foreign-tab'; sessionName: string; windowId: string; index: number; name: string }
   | {
@@ -145,12 +163,25 @@ function rowDepth(r: Row): number {
   }
 }
 
+/** The state indicator at a row's right edge. `working` is drawn by CSS. */
+function StateBadge({ state }: { state: PaneStateName }) {
+  const label = PANE_STATE_LABEL[state];
+  return (
+    <Tooltip label={label}>
+      <span className={`sidebar-tree-state is-${state}`} role="img" aria-label={label}>
+        {PANE_STATE_GLYPH[state] ?? ''}
+      </span>
+    </Tooltip>
+  );
+}
+
 export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boolean }) {
   const send = useAppSend();
   const windows = useAppSelectorShallow(selectVisibleWindows);
   const panes = useAppSelectorShallow(selectPanes);
   const sessions = useAppSelectorShallow(selectSessions);
   const repositories = useAppSelectorShallow(selectRepositories);
+  const collapsedTabIds = useAppSelectorShallow((ctx) => ctx.collapsedTabIds);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
@@ -160,6 +191,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // one session; a lone session needs no disambiguating header, so it keeps the
   // classic flat tab→pane tree (the common case on web and desktop alike).
   const grouped = sessions.length > 1;
+
+  const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
 
   // Git context per pane, from the poll's cwds and the discovered worktrees
   // (both cover every session, the active one included), and the panes each
@@ -180,13 +213,15 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     return { byPane, panesByWindow };
   }, [sessions, repositories]);
 
-  const gitBadge = (paneIds: readonly string[]): { text: string; title: string } | null => {
-    const summary = summarizeGitContexts(paneIds.map((id) => git.byPane.get(id) ?? null));
-    if (summary.kind !== 'single') return null;
-    const text = gitBadgeText(summary.context);
-    return text ? { text, title: summary.context.worktree.path } : null;
-  };
-  const windowBadge = (windowId: string) => gitBadge(git.panesByWindow.get(windowId) ?? []);
+  const branchOf = useCallback(
+    (paneIds: readonly string[]): { text: string; title: string } | null => {
+      const summary = summarizeGitContexts(paneIds.map((id) => git.byPane.get(id) ?? null));
+      if (summary.kind !== 'single') return null;
+      const text = gitBadgeText(summary.context);
+      return text ? { text, title: summary.context.worktree.path } : null;
+    },
+    [git],
+  );
   const badgeSpan = (badge: { text: string; title: string } | null) =>
     badge && (
       <Tooltip label={badge.title}>
@@ -194,13 +229,29 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       </Tooltip>
     );
 
+  // What each tab rolls up to: how many panes it holds and the most
+  // attention-worthy state among them. Collapsed, this is all a tab shows.
+  const tabSummaries = useMemo(() => {
+    const out = new Map<string, { count: number; state: PaneStateName }>();
+    for (const window of windows) {
+      const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
+      out.set(window.id, {
+        count: windowPanes.length,
+        state: aggregatePaneState(windowPanes.map(paneStateFor)),
+      });
+    }
+    return out;
+  }, [windows, panes]);
+
   // Flatten into the ordered row list (also the keyboard nav order).
   const rows = useMemo<Row[]>(() => {
     // The active session's live subtree (index-ordered tabs, each's panes).
     const liveRows = (): Row[] => {
       const out: Row[] = [];
       windows.forEach((window, i) => {
-        out.push({ kind: 'tab', window, position: i + 1 });
+        const isCollapsed = collapsed.has(window.id);
+        out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
+        if (isCollapsed) return;
         const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
         windowPanes.forEach((pane, i) => {
           out.push({ kind: 'pane', pane, window, last: i === windowPanes.length - 1 });
@@ -241,7 +292,29 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       }
     }
     return out;
-  }, [grouped, sessions, sessionName, windows, panes]);
+  }, [grouped, sessions, sessionName, windows, panes, collapsed]);
+
+  // Which pane rows draw a branch. Repeating one worktree down every row of a
+  // tab is what made the old tree unreadable, so a pane shows its branch only
+  // when it differs from the pane above it in the same tab — the first pane of
+  // each tab always shows one, since the tab row itself no longer carries it.
+  const branchRows = useMemo(() => {
+    const show = new Set<string>();
+    let currentWindow: string | null = null;
+    let previous: string | null = null;
+    for (const row of rows) {
+      if (row.kind === 'tab') {
+        currentWindow = row.window.id;
+        previous = null;
+        continue;
+      }
+      if (row.kind !== 'pane' || row.window.id !== currentWindow) continue;
+      const branch = branchOf([row.pane.tmuxId])?.text ?? null;
+      if (branch && branch !== previous) show.add(row.pane.tmuxId);
+      previous = branch;
+    }
+    return show;
+  }, [rows, branchOf]);
 
   // Keyboard selection cursor, kept on a stable row identity across refreshes.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -284,6 +357,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     [send, activeWindowId],
   );
 
+  const toggleCollapse = useCallback(
+    (windowId: string) => send({ type: 'TOGGLE_TAB_COLLAPSE', windowId }),
+    [send],
+  );
+
   // Move a pane into another tab: join-pane splits that window's active pane and
   // moves the source there (the source window closes if it was its last pane).
   const movePaneToTab = useCallback(
@@ -296,15 +374,21 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
 
   // Capture-phase keyboard nav while the sidebar is focused (fires before the
   // keyboard actor; stops keys from reaching the pane/tmux).
-  const stateRef = useRef({ rows, selectedIndex, activate, send });
-  stateRef.current = { rows, selectedIndex, activate, send };
+  const stateRef = useRef({ rows, selectedIndex, activate, send, toggleCollapse });
+  stateRef.current = { rows, selectedIndex, activate, send, toggleCollapse };
   // Read inside the capture listener, which is installed once per focus.
   const prefixRef = useRef(prefixActive);
   prefixRef.current = prefixActive;
   useEffect(() => {
     if (!focused) return;
     const handler = (e: KeyboardEvent) => {
-      const { rows: rs, selectedIndex: idx, activate: act, send: s } = stateRef.current;
+      const {
+        rows: rs,
+        selectedIndex: idx,
+        activate: act,
+        send: s,
+        toggleCollapse: collapseTab,
+      } = stateRef.current;
       // A context menu opened from a row takes Escape first.
       if (menuOpenRef.current && e.key === 'Escape') {
         e.preventDefault();
@@ -316,52 +400,66 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         const next = Math.max(0, Math.min(rs.length - 1, idx + delta));
         if (rs[next]) setSelectedKey(rowKey(rs[next]));
       };
+      const claim = () => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      };
       switch (e.key) {
         case 'Tab':
           // The tree owns the keyboard; letting Tab move the browser's focus to
           // a header button meant the next Space "clicked" that button.
-          e.preventDefault();
-          e.stopImmediatePropagation();
+          claim();
           return;
         case 'j':
         case 'ArrowDown':
-          e.preventDefault();
-          e.stopImmediatePropagation();
+          claim();
           move(1);
           return;
         case 'k':
         case 'ArrowUp':
-          e.preventDefault();
-          e.stopImmediatePropagation();
+          claim();
           move(-1);
           return;
         case 'Enter':
-          e.preventDefault();
-          e.stopImmediatePropagation();
+          claim();
           if (rs[idx]) act(rs[idx]);
           return;
         case 'q':
           // Close the column from inside it. This is the tree's own command,
           // not a global key: a program pinned in the other sidebar may need
           // every key it gets, Escape included.
-          e.preventDefault();
-          e.stopImmediatePropagation();
+          claim();
           s({ type: 'TOGGLE_LEFT_SIDEBAR' });
           return;
         case 'l':
-        case 'ArrowRight':
-          // Plain l/→ are not tree keys, so they mean the same as nav-right:
-          // leave the column. (Ctrl+l takes the binding path below instead.)
-          e.preventDefault();
-          e.stopImmediatePropagation();
+        case 'ArrowRight': {
+          claim();
+          const row = rs[idx];
+          // On a collapsed tab these open it. Anywhere else there is nothing
+          // deeper to go into, so they mean the same as nav-right: leave.
+          if (row?.kind === 'tab' && row.collapsed) {
+            collapseTab(row.window.id);
+            return;
+          }
           s({ type: 'BLUR_LEFT_SIDEBAR' });
           return;
+        }
         case 'h':
-        case 'ArrowLeft':
-          // Nothing further left — swallow it rather than let it reach tmux.
-          e.preventDefault();
-          e.stopImmediatePropagation();
+        case 'ArrowLeft': {
+          claim();
+          const row = rs[idx];
+          // Close an open tab; from inside one, step out to its tab row first,
+          // which is the move every tree makes.
+          if (row?.kind === 'tab' && !row.collapsed) {
+            collapseTab(row.window.id);
+            return;
+          }
+          if (row?.kind === 'pane') {
+            setSelectedKey(row.window.id);
+            return;
+          }
           return;
+        }
         default:
           // Not a tree key. Plain keys are swallowed: the tree owns the keyboard
           // while focused, and letting them fall through would type them into
@@ -474,7 +572,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               <span className="sidebar-tree-label">
                 {row.index}:{row.name || `Tab ${row.index}`}
               </span>
-              {badgeSpan(windowBadge(row.windowId))}
+              {badgeSpan(branchOf(git.panesByWindow.get(row.windowId) ?? []))}
             </div>
           );
         }
@@ -493,13 +591,15 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               data-testid={`tree-foreign-pane-${row.paneId}`}
               onClick={() => activate(row)}
             >
+              <span className="sidebar-tree-rail" aria-hidden="true" />
               <span className="sidebar-tree-branch" aria-hidden="true">
                 {connector(row.last)}
               </span>
               <span className="sidebar-tree-label">
-                {row.paneId} {row.label}
+                <span className="sidebar-tree-id">{row.paneId}</span>{' '}
+                <span className="sidebar-tree-name">{row.label}</span>
               </span>
-              {badgeSpan(gitBadge([row.paneId]))}
+              {badgeSpan(branchOf([row.paneId]))}
             </div>
           );
         }
@@ -507,19 +607,23 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         if (row.kind === 'tab') {
           const isActive = row.window.id === activeWindowId;
           const isDropTarget = dropWindowId === row.window.id && dragPaneId !== null;
+          const summary = tabSummaries.get(row.window.id);
+          const label = row.window.name || `Tab ${row.position}`;
           return (
             <div
               key={`w${key}`}
               role="treeitem"
               id={rowDomId(key)}
               aria-level={rowLevel(row, grouped)}
+              aria-expanded={!row.collapsed}
               tabIndex={isSelected ? 0 : -1}
               aria-selected={isSelected}
               className={`sidebar-tree-tab${isActive ? ' is-active' : ''}${
                 isSelected ? ' is-selected' : ''
-              }${isDropTarget ? ' is-drop-target' : ''}`}
+              }${isDropTarget ? ' is-drop-target' : ''}${row.collapsed ? ' is-collapsed' : ''}`}
               style={indentStyle}
               data-window-id={row.window.id}
+              data-collapsed={row.collapsed}
               data-testid={`tree-tab-${row.window.id}`}
               onClick={() => activate(row)}
               onContextMenu={(e) => {
@@ -547,6 +651,20 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                 setDropWindowId(null);
               }}
             >
+              <button
+                type="button"
+                className="sidebar-tree-chevron"
+                aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${label}`}
+                aria-expanded={!row.collapsed}
+                data-testid={`tree-chevron-${row.window.id}`}
+                onClick={(e) => {
+                  // The row itself selects the tab; only the chevron folds it.
+                  e.stopPropagation();
+                  toggleCollapse(row.window.id);
+                }}
+              >
+                {row.collapsed ? '▸' : '▾'}
+              </button>
               {renamingWindowId === row.window.id ? (
                 <InlineRename
                   value={row.window.name}
@@ -562,15 +680,25 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                 />
               ) : (
                 <span className="sidebar-tree-label">
-                  {row.position}:{row.window.name || `Tab ${row.position}`}
+                  <span className="sidebar-tree-name">
+                    {row.position}:{label}
+                  </span>
                 </span>
               )}
-              {badgeSpan(windowBadge(row.window.id))}
+              {summary && summary.count > 0 && (
+                <span className="sidebar-tree-count" aria-hidden="true">
+                  {summary.count}
+                </span>
+              )}
+              {summary && <StateBadge state={summary.state} />}
             </div>
           );
         }
 
         const isActive = row.pane.tmuxId === activePaneId;
+        const { name, detail } = splitTabLabel(row.pane);
+        const icon = getTabIcon(row.pane);
+        const state = paneStateFor(row.pane);
         return (
           <div
             key={`p${key}`}
@@ -584,6 +712,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             }${dragPaneId === row.pane.tmuxId ? ' is-dragging' : ''}`}
             style={indentStyle}
             data-pane-id={row.pane.tmuxId}
+            data-pane-state={state}
             data-testid={`tree-pane-${row.pane.tmuxId}`}
             draggable
             onClick={() => activate(row)}
@@ -602,6 +731,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               setDropWindowId(null);
             }}
           >
+            {/* Where the keyboard is. The left edge answers that; the right
+                edge answers what the pane is doing. */}
+            <span className="sidebar-tree-rail" aria-hidden="true" />
             <span className="sidebar-tree-branch" aria-hidden="true">
               {connector(row.last)}
             </span>
@@ -612,22 +744,20 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                 </span>
               </Tooltip>
             )}
-            {getTabIcon(row.pane) && (
+            {icon && (
               <span className="sidebar-tree-icon" aria-hidden="true">
-                {getTabIcon(row.pane)}
+                {icon}
               </span>
             )}
             <span className="sidebar-tree-label">
-              {row.pane.tmuxId} {getTabLabel(row.pane)}
+              {/* The id leads, dim: it is what tells two panes running the same
+                  program apart, which is the common case (two shells in a tab). */}
+              <span className="sidebar-tree-id">{row.pane.tmuxId}</span>{' '}
+              <span className="sidebar-tree-name">{name}</span>
+              {detail && <span className="sidebar-tree-detail"> {detail}</span>}
             </span>
-            {badgeSpan(gitBadge([row.pane.tmuxId]))}
-            {/* Which pane the keyboard actually goes to, at a glance — the
-                green label alone reads the same as the active tab's. */}
-            {isActive && (
-              <span className="sidebar-tree-active-dot" aria-hidden="true">
-                ●
-              </span>
-            )}
+            {branchRows.has(row.pane.tmuxId) && badgeSpan(branchOf([row.pane.tmuxId]))}
+            <StateBadge state={state} />
           </div>
         );
       })}
@@ -637,7 +767,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         <div className="sidebar-tree-hint" aria-hidden="true">
           <span>j/k move</span>
           <span>⏎ open</span>
-          <span>l back</span>
+          <span>h/l fold</span>
           <span>q close</span>
         </div>
       )}

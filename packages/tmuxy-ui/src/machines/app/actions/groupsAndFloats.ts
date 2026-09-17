@@ -364,6 +364,32 @@ export const groupsAndFloatsActions = {
     enqueue(assign({ dockRowsSent: { windowId: dock.id, rows } }));
   }),
 
+  /**
+   * Collapse or expand one tab in the sidebar tree.
+   *
+   * Only collapsed tabs are recorded, so "expanded" needs no entry and a tab
+   * that goes away takes its entry with it — a tmux window id is never reused
+   * within a session.
+   */
+  groupsAndFloats_toggleTabCollapse: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ context, event, enqueue }) => {
+    if (event.type !== 'TOGGLE_TAB_COLLAPSE') return;
+    const { windowId } = event;
+    const collapsedTabIds = context.collapsedTabIds.includes(windowId)
+      ? context.collapsedTabIds.filter((id) => id !== windowId)
+      : [...context.collapsedTabIds, windowId];
+    enqueue(assign({ collapsedTabIds }));
+  }),
+
   groupsAndFloats_toggleLeftSidebar: enqueueActions<
     Ctx,
     Evt,

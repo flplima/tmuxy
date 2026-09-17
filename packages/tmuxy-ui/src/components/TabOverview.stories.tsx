@@ -26,7 +26,9 @@ interface AppSnap {
     windows: Array<{ id: string; index: number; name: string; windowType: string | null }>;
   };
 }
-const app = () => (window as unknown as { app: { getSnapshot(): AppSnap } }).app.getSnapshot();
+const actor = () =>
+  (window as unknown as { app: { getSnapshot(): AppSnap; send(event: unknown): void } }).app;
+const app = () => actor().getSnapshot();
 const tabs = () =>
   app()
     .context.windows.filter((w) => w.windowType === 'tab')
@@ -133,6 +135,114 @@ export const PlusCreatesAndCloseKills: Story = {
     await waitFor(() => expect(tabs().map((w) => w.id)).not.toContain(doomed));
     // Closing keeps the overview open; Escape leaves it.
     expect(document.querySelector('[data-testid="tab-overview"]')).not.toBeNull();
+    await user.keyboard('{Escape}');
+    await waitForOverview(false);
+  },
+};
+
+const APPEARANCE = {
+  opacity: 0.7,
+  activePaneOpacity: 1,
+  inactivePaneOpacity: 0.7,
+  activeTextOpacity: 1,
+  inactiveTextOpacity: 0.7,
+  blur: false,
+  animations: true,
+  cursorBlink: true,
+  tabOverviewCols: 3,
+};
+
+const cards = (grid: HTMLElement) => [...grid.querySelectorAll<HTMLElement>('.tab-overview-slot')];
+
+/** How many cards share the first card's row. */
+function firstRowCount(grid: HTMLElement): number {
+  const all = cards(grid);
+  const top = all[0].getBoundingClientRect().top;
+  return all.filter((c) => Math.abs(c.getBoundingClientRect().top - top) < 2).length;
+}
+
+/** Whether a card is inside the grid's visible box (not clipped by its scroll). */
+function onScreen(card: HTMLElement, grid: HTMLElement): boolean {
+  const c = card.getBoundingClientRect();
+  const g = grid.getBoundingClientRect();
+  return c.top >= g.top - 1 && c.bottom <= g.bottom + 1;
+}
+
+export const ColumnsFromConfigAndScrolling: Story = {
+  args: {
+    height: 500,
+    initCommands: ['rename-window main', ...Array.from({ length: 11 }, () => 'new-window')],
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Each row of the overview holds `@tmuxy-tab-overview-cols` cards: 3 when the config says nothing, and whatever `set -g @tmuxy-tab-overview-cols N` pushes with the appearance. Twelve tabs in rows of three are taller than the view, so the grid scrolls vertically: it opens scrolled to the current tab, the arrow keys scroll it to keep the cursor’s card on screen, and the live pane grid stays on its card through every scroll and reflow.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
+    await waitFor(() => expect(tabs()).toHaveLength(12), { timeout: 8000 });
+    const user = userEvent.setup({ delay: 5 });
+
+    await user.keyboard('{Control>}0{/Control}');
+    const overview = (await waitForOverview(true)) as HTMLElement;
+    const grid = overview.querySelector('.tab-overview-grid') as HTMLElement;
+
+    // The demo has no tmuxy.conf, so this is the default.
+    await waitFor(() => expect(firstRowCount(grid)).toBe(3));
+
+    // 13 cards (12 tabs and "+") in rows of three overflow the 500px view,
+    // and the view opened on the current tab, which is the last one.
+    expect(getComputedStyle(grid).overflowY).toBe('auto');
+    expect(grid.scrollHeight).toBeGreaterThan(grid.clientHeight + 100);
+    const current = overview.querySelector('.tab-overview-slot.is-active') as HTMLElement;
+    expect(current.dataset.windowId).toBe(tabs()[11].id);
+    const first = cards(grid)[0];
+    await waitFor(() => {
+      expect(grid.scrollTop).toBeGreaterThan(0);
+      expect(onScreen(current, grid)).toBe(true);
+    });
+    expect(onScreen(first, grid)).toBe(false);
+
+    // The live pane grid is drawn over the current tab's card wherever the
+    // cards have scrolled to.
+    const layout = document.querySelector('.pane-container > .pane-layout') as HTMLElement;
+    const frame = current.querySelector('.tab-overview-frame') as HTMLElement;
+    const followsCard = () =>
+      waitFor(() => {
+        const f = frame.getBoundingClientRect();
+        const l = layout.getBoundingClientRect();
+        expect(Math.abs(l.top - f.top)).toBeLessThan(2);
+        expect(Math.abs(l.left - f.left)).toBeLessThan(2);
+        expect(Math.abs(l.width - f.width)).toBeLessThan(2);
+      });
+    await followsCard();
+
+    // Walking the cursor up three rows scrolls the grid back to the top.
+    await user.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}');
+    await waitFor(() => {
+      expect(grid.scrollTop).toBeLessThan(2);
+      expect(onScreen(first, grid)).toBe(true);
+    });
+    expect(cards(grid)[2].classList.contains('is-selected')).toBe(true);
+    expect(onScreen(current, grid)).toBe(false);
+    await followsCard();
+
+    // More or fewer cards a row, straight from the config push.
+    for (const cols of [5, 2]) {
+      actor().send({
+        type: 'THEME_SETTINGS_RECEIVED',
+        theme: 'default',
+        mode: 'dark',
+        appearance: { ...APPEARANCE, tabOverviewCols: cols },
+      });
+      await waitFor(() => expect(firstRowCount(grid)).toBe(cols));
+      await followsCard();
+    }
+
     await user.keyboard('{Escape}');
     await waitForOverview(false);
   },

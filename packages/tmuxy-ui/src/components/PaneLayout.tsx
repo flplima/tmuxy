@@ -48,9 +48,14 @@ import {
   selectKeyboardElsewhere,
   selectGroupSwitchPaneIds,
   selectPaneKeyOverrides,
+  selectSwipeNeighbor,
+  selectSwipeStill,
+  selectGesturePaneId,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
 import { findZoomedPane } from '../utils/layout';
+import { parseSwipeNeighbor, swipeOffsetPx } from '../utils/gestures';
+import { takeZoomHandoff } from '../utils/zoomHandoff';
 
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
@@ -116,6 +121,61 @@ function onMorphEnd(node: HTMLElement, done: () => void): () => void {
   return () => node.removeEventListener('transitionend', handler);
 }
 
+/** A pane's `left/top/width/height` from its inline style text; null when it has no box (hidden). */
+function styleBox(style: string): PaneBox | null {
+  const px = (prop: string) => {
+    const m = style.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*(-?[\\d.]+)px`));
+    return m ? parseFloat(m[1]) : null;
+  };
+  const left = px('left');
+  const top = px('top');
+  const width = px('width');
+  const height = px('height');
+  if (left === null || top === null || width === null || height === null) return null;
+  return { left, top, width, height };
+}
+
+const ZOOM_FLIP_TRANSITION = [...MORPH_PROPERTIES]
+  .map((prop) => `${prop} var(--transition-pane-zoom)`)
+  .join(', ');
+
+/**
+ * Animate a pane that just got its zoomed (or unzoomed) box from `from`: put
+ * it back there with transitions off, force a style recalc, then let its own
+ * box morph on the zoom clock. The transition is set inline, so it wins over
+ * the suppression classes the zoom's layout change carries, and is dropped
+ * again when the morph ends.
+ */
+function flipZoom(node: HTMLElement, from: PaneBox): void {
+  const to = {
+    left: node.style.left,
+    top: node.style.top,
+    width: node.style.width,
+    height: node.style.height,
+  };
+  node.style.transition = 'none';
+  node.style.zIndex = 'var(--z-pane-anim)';
+  node.style.left = `${from.left}px`;
+  node.style.top = `${from.top}px`;
+  node.style.width = `${from.width}px`;
+  node.style.height = `${from.height}px`;
+  node.getBoundingClientRect();
+  node.style.transition = ZOOM_FLIP_TRANSITION;
+  Object.assign(node.style, to);
+  let done = false;
+  let timer = 0;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    unlisten();
+    clearTimeout(timer);
+    node.style.transition = '';
+    node.style.zIndex = '';
+  };
+  const unlisten = onMorphEnd(node, finish);
+  timer = window.setTimeout(finish, MORPH_FALLBACK_MS);
+}
+
 // A pane that disappears this soon after entering is a transient (e.g. the
 // intermediate split of a CLI float-create) — drop it instantly instead of
 // running a leave morph for a pane the user never meant to see.
@@ -152,6 +212,11 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     Boolean(ctx.windows.find((w) => w.id === ctx.activeWindowId)?.zoomed),
   );
   const allPanes = useAppSelector((ctx) => ctx.panes);
+  // A trackpad gesture, as far as the panes are concerned. Each of these
+  // changes once per gesture, never per step - GestureStage draws the steps.
+  const swipeNeighbor = useAppSelector(selectSwipeNeighbor);
+  const swipeStill = useAppSelector(selectSwipeStill);
+  const gesturePaneId = useAppSelector(selectGesturePaneId);
   const isDragging = useIsDragging();
   const isResizing = useIsResizing();
 
@@ -241,21 +306,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const [, bumpAnimTick] = useReducer((x: number) => x + 1, 0);
   const enterAnimsRef = useRef(new Map<string, EnterAnim>());
   const shiftAnimsRef = useRef(new Map<string, ShiftAnim>());
-  // Zoom grow/shrink FLIP: the zoomed pane's box jumps to full (or back) in a
-  // frame where the transition is suppressed, so it needs an explicit rewind →
-  // transition like an entering pane. prevZoomedRef tracks the id across
-  // commits; zoomFlipRef holds the pending flip.
+  // The zoomed pane id across commits, for the zoom-out sibling expand. The
+  // zooming pane's own grow/shrink is driven by the DOM instead (see the zoom
+  // MutationObserver below).
   const prevZoomedRef = useRef<string | null>(null);
-  const zoomFlipRef = useRef<{
-    key: string;
-    fromBox: PaneBox;
-    flipped: boolean;
-    timer?: number;
-  } | null>(null);
-  // Each pane's most recent NON-full-extent box, so a zoom-in FLIP can rewind
-  // the pane to its pre-zoom slot even though the box already jumped to full a
-  // render before `zoomedPaneId` caught up (isZoomed lags the geometry).
-  const lastNonZoomBoxRef = useRef(new Map<string, PaneBox>());
   // On zoom-OUT the collapsed siblings drop their `pane-zoom-collapsing` class in
   // the same commit that suppresses layout transitions, so without a carve-out
   // they snap from centre-scaled back to their slots. This holds the sibling
@@ -351,9 +405,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       if (pane.tmuxId === zoomedPaneId) {
         classes.push('pane-zoomed');
       }
-      if (zoomFlipRef.current?.key === key) {
-        classes.push('pane-zoom-growing');
-      }
       if (zoomExpandRef.current?.keys.has(key)) {
         classes.push('pane-zoom-expanding');
       }
@@ -364,9 +415,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       } else if (shiftAnimsRef.current.has(key)) {
         classes.push('pane-shifting');
       }
+      if (swipeStill) classes.push('pane-swipe-still');
       return classes.join(' ');
     },
-    [draggedPaneId, keyboardElsewhere, zoomedPaneId],
+    [draggedPaneId, keyboardElsewhere, zoomedPaneId, swipeStill],
   );
 
   // Merge visible + hidden panes into one stable-ordered list so React
@@ -375,23 +427,35 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // class swap, not an unmount/remount. Sort by the effective React key
   // (paneKeyOverrides honored so placeholder→real transitions stay stable).
   const renderedPanes = useMemo(() => {
-    const items: { pane: TmuxPane; hidden: boolean; zoomCollapsed: boolean }[] = [];
+    const items: {
+      pane: TmuxPane;
+      hidden: boolean;
+      zoomCollapsed: boolean;
+      /** Which side a slide is pulling this pane's tab in from (0: not pulled in). */
+      swipeSide: number;
+    }[] = [];
     for (const pane of visiblePanes) {
       // Zoom-collapsed rather than dropped: the pane keeps its DOM and terminal
       // state (so unzoom restores it instantly and it stays interactive) and,
       // unlike a window-hidden pane, is RENDERED — scaled toward the centre and
       // faded out — so zoom in/out animates instead of hard-cutting.
       const hiddenByZoom = zoomedPaneId !== null && pane.tmuxId !== zoomedPaneId;
-      items.push({ pane, hidden: hiddenByZoom, zoomCollapsed: hiddenByZoom });
+      items.push({ pane, hidden: hiddenByZoom, zoomCollapsed: hiddenByZoom, swipeSide: 0 });
     }
-    for (const pane of hiddenWindowPanes) items.push({ pane, hidden: true, zoomCollapsed: false });
+    // The tab a slide is pulling in is drawn with its real panes - already
+    // mounted, just hidden - so it lines up exactly with the tab it replaces.
+    const [neighborId, side] = parseSwipeNeighbor(swipeNeighbor);
+    for (const pane of hiddenWindowPanes) {
+      const pulledIn = pane.windowId === neighborId;
+      items.push({ pane, hidden: !pulledIn, zoomCollapsed: false, swipeSide: pulledIn ? side : 0 });
+    }
     items.sort((a, b) => {
       const ka = paneKeyOverrides[a.pane.tmuxId] ?? a.pane.tmuxId;
       const kb = paneKeyOverrides[b.pane.tmuxId] ?? b.pane.tmuxId;
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
     return items;
-  }, [visiblePanes, hiddenWindowPanes, paneKeyOverrides, zoomedPaneId]);
+  }, [visiblePanes, hiddenWindowPanes, paneKeyOverrides, zoomedPaneId, swipeNeighbor]);
 
   // ============================================
   // Pane enter/leave/shift lifecycle (split & kill morph animations)
@@ -423,21 +487,28 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     return view;
   }, [renderedPanes, paneKeyOverrides, charWidth, charHeight, centeringOffset]);
 
-  // Record every pane's box while it is NOT the full-extent (zoomed) pane, for
-  // the zoom-in FLIP's pre-zoom source. A pane spanning the whole grid is the
-  // zoomed one; anything smaller keeps its slot box remembered here.
-  const gridPxWidth = totalWidth * charWidth;
-  const gridPxHeight = totalHeight * charHeight;
-  for (const { pane, hidden } of renderedPanes) {
-    if (hidden) continue;
-    const box = computePaneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
-    // Skip the full-extent (zoomed) pane. Its cell height is one row short of the
-    // grid (the pane-border-status header row), so a cell-dimension test misses
-    // it — but its *pixel* box spans the whole grid (computePaneBox adds the
-    // header row back into the height), which is the reliable signal.
-    if (box.width >= gridPxWidth - charWidth && box.height >= gridPxHeight - charHeight) continue;
-    const key = paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId;
-    lastNonZoomBoxRef.current.set(key, box);
+  // The grid's pixel extent, for the zoom MutationObserver to tell a pane
+  // filling the grid from one in its slot. The full-extent (zoomed) pane's
+  // cell height is one row short of the grid (the pane-border-status header
+  // row), so a cell-dimension test misses it - but its *pixel* box spans the
+  // whole grid (computePaneBox adds the header row back), which is the
+  // reliable signal.
+  const zoomGeometryRef = useRef({ gridWidth: 0, gridHeight: 0, charWidth, charHeight });
+  zoomGeometryRef.current = {
+    gridWidth: totalWidth * charWidth,
+    gridHeight: totalHeight * charHeight,
+    charWidth,
+    charHeight,
+  };
+  // The zoomed pane as of this render and the one before it changed, for the
+  // observer to tell a zoom from a pane closing or splitting whether the
+  // zoomed flag lands with the geometry or a render after it.
+  const zoomRenderRef = useRef<{ now: string | null; before: string | null }>({
+    now: null,
+    before: null,
+  });
+  if (zoomRenderRef.current.now !== zoomedPaneId) {
+    zoomRenderRef.current = { now: zoomedPaneId, before: zoomRenderRef.current.now };
   }
 
   const prevView = prevViewRef.current;
@@ -463,34 +534,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     const currBoxes = new Map<string, PaneBox>();
     for (const [key, v] of currView) if (!v.hidden && v.box) currBoxes.set(key, v.box);
 
-    // Zoom transition: the pane entering OR leaving the zoomed state gets a box
-    // FLIP so its grow-to-full / shrink-back animates instead of snapping (the
-    // %layout-change that zooms also sets suppressLayoutTransition). fromBox is
-    // the pane's box in the previous render (small before zoom-in, full before
-    // zoom-out); React's committed box is the target.
+    // Zoom transition. The zooming pane's own grow/shrink is animated by the
+    // zoom MutationObserver, from the geometry the DOM actually had; this only
+    // tags the siblings.
     if (zoomedPaneId !== prevZoomedRef.current) {
       const zoomingIn = zoomedPaneId !== null;
       const changedId = zoomedPaneId ?? prevZoomedRef.current;
       const changedKey = changedId ? (paneKeyOverrides[changedId] ?? changedId) : undefined;
-      // Zoom-in grows from the pane's remembered pre-zoom slot; zoom-out shrinks
-      // from the full box it held in the previous render.
-      const fromBox = changedKey
-        ? zoomingIn
-          ? lastNonZoomBoxRef.current.get(changedKey)
-          : prevBoxes.get(changedKey)
-        : undefined;
-      const toBox = changedKey ? currBoxes.get(changedKey) : undefined;
-      if (
-        changedKey &&
-        fromBox &&
-        toBox &&
-        (fromBox.left !== toBox.left ||
-          fromBox.top !== toBox.top ||
-          fromBox.width !== toBox.width ||
-          fromBox.height !== toBox.height)
-      ) {
-        zoomFlipRef.current = { key: changedKey, fromBox, flipped: false };
-      }
       // Zoom-out: the siblings (everything but the shrinking pane) expand back
       // out of the centre. Tag them so a gated transition survives the
       // suppression class the unzoom sets.
@@ -572,11 +622,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     pane: TmuxPane;
     hidden: boolean;
     zoomCollapsed: boolean;
-  }[] = renderedPanes.map(({ pane, hidden, zoomCollapsed }) => ({
+    swipeSide: number;
+  }[] = renderedPanes.map(({ pane, hidden, zoomCollapsed, swipeSide }) => ({
     key: paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId,
     pane,
     hidden,
     zoomCollapsed,
+    swipeSide,
   }));
 
   // Post-commit: FLIP freshly-entered panes, arm expiry timers, clean up
@@ -653,37 +705,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       shift.timer = window.setTimeout(finish, MORPH_FALLBACK_MS);
     }
 
-    // Zoom FLIP: rewind the zooming pane to its pre-transition box (transitions
-    // off), force a recalc, then restore React's committed box — the
-    // .pane-zoom-growing transition morphs it grow→full / full→shrink.
-    const zf = zoomFlipRef.current;
-    if (zf && !zf.flipped) {
-      zf.flipped = true;
-      const node = container?.querySelector<HTMLElement>(`[data-pane-key="${zf.key}"]`);
-      if (node) {
-        const saved = {
-          left: node.style.left,
-          top: node.style.top,
-          width: node.style.width,
-          height: node.style.height,
-        };
-        node.style.transition = 'none';
-        node.style.left = `${zf.fromBox.left}px`;
-        node.style.top = `${zf.fromBox.top}px`;
-        node.style.width = `${zf.fromBox.width}px`;
-        node.style.height = `${zf.fromBox.height}px`;
-        node.getBoundingClientRect();
-        node.style.transition = '';
-        node.style.left = saved.left;
-        node.style.top = saved.top;
-        node.style.width = saved.width;
-        node.style.height = saved.height;
-      }
-      zf.timer = window.setTimeout(() => {
-        zoomFlipRef.current = null;
-        bumpAnimTick();
-      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
-    }
     const ze = zoomExpandRef.current;
     if (ze && ze.timer === undefined) {
       ze.timer = window.setTimeout(() => {
@@ -724,12 +745,79 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, []);
 
+  // Zoom FLIP, driven by the DOM. A zoom reaches the panes as a box change -
+  // one pane to the full grid, or back to its slot - and the window's zoomed
+  // flag can land a render later, so diffing renders either misses the moment
+  // or catches it after the full box has already been painted. The observer
+  // sees the exact style mutation, before paint, with the box the pane really
+  // had, and animates from there - or from where a committed pinch left the
+  // pane (zoomHandoff), so the zoom carries straight on from the fingers.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const watch = (node: Node) => {
+      if (isPaneItem(node)) {
+        observer.observe(node, {
+          attributes: true,
+          attributeFilter: ['style'],
+          attributeOldValue: true,
+        });
+      }
+    };
+    const isPaneItem = (node: Node) =>
+      node instanceof HTMLElement && node.classList.contains('pane-layout-item');
+    const observer = new MutationObserver((records) => {
+      let removed = false;
+      const before = new Map<HTMLElement, string>();
+      for (const r of records) {
+        if (r.type === 'childList') {
+          r.addedNodes.forEach(watch);
+          r.removedNodes.forEach((n) => {
+            if (isPaneItem(n)) removed = true;
+          });
+        } else if (r.oldValue !== null && !before.has(r.target as HTMLElement)) {
+          before.set(r.target as HTMLElement, r.oldValue);
+        }
+      }
+      const { gridWidth, gridHeight, charWidth: cw, charHeight: ch } = zoomGeometryRef.current;
+      const full = (b: PaneBox) => b.width >= gridWidth - cw && b.height >= gridHeight - ch;
+      const zoom = zoomRenderRef.current;
+      for (const [node, oldStyle] of before) {
+        const from = styleBox(oldStyle);
+        const to = styleBox(node.getAttribute('style') ?? '');
+        if (!from || !to || full(from) === full(to)) continue;
+        const id = node.dataset.paneId ?? '';
+        // Filling the grid is a zoom when this pane is the zoomed one, or when
+        // its siblings are all still here (tmux keeps them while zoomed and
+        // the flag can lag) - not when one of them just closed. Leaving it is
+        // an unzoom only for the pane that was zoomed, not a split.
+        const zooming = full(to)
+          ? zoom.now === id || !removed
+          : zoom.now === id || zoom.before === id;
+        if (!zooming) continue;
+        const handoff = takeZoomHandoff(id);
+        if (handoff) {
+          // The pinch stops drawing the pane - and the grid - this same frame.
+          node.style.transform = '';
+          container.style.transform = '';
+          send({ type: 'GESTURE_SETTLE' });
+        }
+        flipZoom(node, handoff ?? from);
+      }
+      // The FLIP's own writes are not zooms.
+      observer.takeRecords();
+    });
+    observer.observe(container, { childList: true });
+    container.childNodes.forEach(watch);
+    return () => observer.disconnect();
+  }, [send]);
+
   return (
     <div
       ref={containerRef}
       className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing || suppressLayoutTransition ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
     >
-      {renderItems.map(({ key, pane, hidden, zoomCollapsed }) => {
+      {renderItems.map(({ key, pane, hidden, zoomCollapsed, swipeSide }) => {
         if (zoomCollapsed) {
           // A zoomed sibling: keep it at its real box but transform it toward
           // the grid centre, scaled down and faded out, so zoom IN reads as
@@ -751,6 +839,25 @@ export function PaneLayout({ children }: PaneLayoutProps) {
               targetY={0}
               elevated={false}
               collapseTransform={`translate(${zoomCenter.x - cx}px, ${zoomCenter.y - cy}px) scale(var(--zoom-collapse-scale, 0.4))`}
+            >
+              {children(pane)}
+            </AnimatedPaneWrapper>
+          );
+        }
+
+        if (swipeSide !== 0) {
+          // The tab a slide is pulling in: its real panes at their own boxes,
+          // one grid width to the side, moving with the grid's transform.
+          return (
+            <AnimatedPaneWrapper
+              key={key}
+              paneKey={key}
+              pane={pane}
+              className="pane-layout-item pane-inactive pane-swipe-neighbor"
+              style={getPaneStyle(pane)}
+              targetX={swipeSide * swipeOffsetPx(totalWidth, charWidth)}
+              targetY={0}
+              elevated={false}
             >
               {children(pane)}
             </AnimatedPaneWrapper>
@@ -785,16 +892,21 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
         const shouldFollowCursor = isDraggedPane && isDragging;
 
+        // A pinch draws this pane where the fingers have it: no transform of
+        // React's own, so GestureStage's inline one stands.
+        const pinched = pane.tmuxId === gesturePaneId;
+
         return (
           <AnimatedPaneWrapper
             key={key}
             paneKey={key}
             pane={pane}
-            className={getPaneClassName(pane, key)}
+            className={`${getPaneClassName(pane, key)}${pinched ? ' pane-gesture-growing' : ''}`}
             style={style}
             targetX={shouldFollowCursor ? dragOffset.x : 0}
             targetY={shouldFollowCursor ? dragOffset.y : 0}
             elevated={shouldFollowCursor}
+            collapseTransform={pinched ? '' : undefined}
           >
             {children(pane)}
           </AnimatedPaneWrapper>
@@ -842,7 +954,8 @@ interface AnimatedPaneWrapperProps {
   targetY: number;
   elevated: boolean;
   /** When set, overrides the translate3d transform — the zoom-collapse
-   *  translate-to-centre + scale (see the zoom-collapse render branch). */
+   *  translate-to-centre + scale (see the zoom-collapse render branch), or a
+   *  empty while a pinch draws the pane (GestureStage owns its transform). */
   collapseTransform?: string;
   children: ReactNode;
 }

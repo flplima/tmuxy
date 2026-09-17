@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getTabText, getTabLabel, getTabIcon, splitTitleIcon } from '../paneTabDisplay';
+import {
+  getTabText,
+  getTabLabel,
+  getTabIcon,
+  splitTabLabel,
+  splitTitleIcon,
+} from '../paneTabDisplay';
 import type { TmuxPane } from '../../tmux/types';
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
@@ -110,5 +116,44 @@ describe('the icon an application announces', () => {
 
   it('leaves the plain title alone for the places that draw no icon', () => {
     expect(getTabText(pane({ title: '\u273b claude' }))).toBe('\u273b claude');
+  });
+});
+
+describe('splitTabLabel', () => {
+  it('leads with the process name and trails the rest', () => {
+    // The tree weights these differently \u2014 bold name, dim detail \u2014 so the eye
+    // lands on WHAT is running before WHICH file it has open.
+    expect(splitTabLabel(pane({ command: 'nvim', title: 'nvim styles.css' }))).toEqual({
+      name: 'nvim',
+      detail: 'styles.css',
+    });
+    expect(splitTabLabel(pane({ command: 'cargo', title: 'cargo test --all' }))).toEqual({
+      name: 'cargo',
+      detail: 'test --all',
+    });
+  });
+
+  it('gives a one-word label no detail', () => {
+    expect(splitTabLabel(pane({ command: 'zsh', title: '' }))).toEqual({
+      name: 'zsh',
+      detail: '',
+    });
+  });
+
+  it('splits after the icon the app announced, not before it', () => {
+    // getTabLabel has already taken the icon off, so the name is the app's,
+    // not the glyph.
+    expect(splitTabLabel(pane({ command: '2.1.251', title: '\u273b claude' }))).toEqual({
+      name: 'claude',
+      detail: '',
+    });
+  });
+
+  it('keeps [COPY MODE] whole', () => {
+    // Splitting on the space would announce a program called "[COPY".
+    expect(splitTabLabel(pane({ command: 'nvim', inMode: true }))).toEqual({
+      name: '[COPY MODE]',
+      detail: '',
+    });
   });
 });

@@ -3,7 +3,8 @@
  * local action-trace switch (docs/TELEMETRY.md).
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
- * enableAnimations, animationsAllowed, cursorBlink, traceSettings.
+ * enableAnimations, animationsAllowed, cursorBlink, tabOverviewCols, gestureFlags,
+ * traceSettings.
  *
  * Action implementations live in ../actions/uiPrefs.ts.
  *

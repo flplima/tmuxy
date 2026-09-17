@@ -833,6 +833,46 @@ export function selectCursorBlink(context: AppMachineContext): boolean {
   return context.cursorBlink;
 }
 
+/** The config's `@tmuxy-tab-overview-cols`: cards per row in the "all tabs" view. */
+export function selectTabOverviewCols(context: AppMachineContext): number {
+  return context.tabOverviewCols;
+}
+
+/** The trackpad gesture being drawn right now, or null. */
+export function selectGesture(context: AppMachineContext): AppMachineContext['gesture'] {
+  return context.gesture;
+}
+
+/**
+ * The tab a slide is pulling in and the side it comes from, as `windowId:side`
+ * (1 from the right, -1 from the left), or null. A string, so the pane grid
+ * re-renders when the pulled-in tab changes, not on every step of the slide.
+ */
+export function selectSwipeNeighbor(context: AppMachineContext): string | null {
+  const g = context.gesture;
+  if (g?.kind !== 'swipe' || !g.neighborId) return null;
+  const tabs = selectVisibleWindows(context);
+  const at = (id: string | null) => tabs.findIndex((w) => w.id === id);
+  return `${g.neighborId}:${at(g.neighborId) > at(context.activeWindowId) ? 1 : -1}`;
+}
+
+/**
+ * Whether a slide is moving the grid. The panes must not run transitions of
+ * their own while it does: a committed slide changes which tab's panes sit at
+ * rest and which are drawn to the side, and those are position swaps to be
+ * painted at once, not animated.
+ */
+export function selectSwipeStill(context: AppMachineContext): boolean {
+  return context.gesture?.kind === 'swipe';
+}
+
+/** The pane a pinch draws: growing out of its slot, or held until its unzoom lands. */
+export function selectGesturePaneId(context: AppMachineContext): string | null {
+  const g = context.gesture;
+  if (g?.kind !== 'pinch') return null;
+  return g.mode === 'zoom' || (g.mode === 'unzoom' && g.phase === 'handoff') ? g.paneId : null;
+}
+
 /**
  * Select whether layout transitions should be suppressed (command-based resize)
  */

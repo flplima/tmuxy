@@ -33,7 +33,20 @@ pub struct Appearance {
     /// Whether the cursor blinks when the application has not asked for a
     /// particular cursor (`@tmuxy-cursor-blink`).
     pub cursor_blink: bool,
+    /// Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`).
+    pub tab_overview_cols: u32,
+    /// Two-finger slide left/right switches tabs (`@tmuxy-gesture-swipe-tabs`).
+    pub gesture_swipe_tabs: bool,
+    /// Pinch out zooms a pane, pinch in unzooms it (`@tmuxy-gesture-pinch-zoom`).
+    pub gesture_pinch_zoom: bool,
+    /// Pinch in on an unzoomed tab opens the "all tabs" view
+    /// (`@tmuxy-gesture-pinch-overview`).
+    pub gesture_pinch_overview: bool,
 }
+
+/// Widest "all tabs" grid the option accepts; past this a card is too small
+/// to read.
+const MAX_TAB_OVERVIEW_COLS: u32 = 12;
 
 impl Default for Appearance {
     fn default() -> Self {
@@ -46,6 +59,10 @@ impl Default for Appearance {
             blur: true,
             animations: true,
             cursor_blink: true,
+            tab_overview_cols: 3,
+            gesture_swipe_tabs: true,
+            gesture_pinch_zoom: true,
+            gesture_pinch_overview: true,
         }
     }
 }
@@ -69,6 +86,17 @@ pub fn parse_flag(value: &str, default: bool) -> bool {
         "off" | "false" | "no" | "0" => false,
         _ => default,
     }
+}
+
+/// Parse a column-count option value; anything that isn't a whole number of
+/// at least 1 falls back to `default`, and counts above `max` are capped.
+pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
+    value
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|v| *v >= 1)
+        .map_or(default, |v| v.min(max))
 }
 
 async fn read_option(ctx: &Ctx, option: &'static str, op: &'static str) -> String {
@@ -130,6 +158,43 @@ pub async fn get_appearance(ctx: &Ctx) -> Appearance {
         cursor_blink: parse_flag(
             &read_option(ctx, tmux_options::CURSOR_BLINK, "appearance:cursor-blink").await,
             defaults.cursor_blink,
+        ),
+        tab_overview_cols: parse_count(
+            &read_option(
+                ctx,
+                tmux_options::TAB_OVERVIEW_COLS,
+                "appearance:tab-overview-cols",
+            )
+            .await,
+            defaults.tab_overview_cols,
+            MAX_TAB_OVERVIEW_COLS,
+        ),
+        gesture_swipe_tabs: parse_flag(
+            &read_option(
+                ctx,
+                tmux_options::GESTURE_SWIPE_TABS,
+                "appearance:gesture-swipe",
+            )
+            .await,
+            defaults.gesture_swipe_tabs,
+        ),
+        gesture_pinch_zoom: parse_flag(
+            &read_option(
+                ctx,
+                tmux_options::GESTURE_PINCH_ZOOM,
+                "appearance:gesture-zoom",
+            )
+            .await,
+            defaults.gesture_pinch_zoom,
+        ),
+        gesture_pinch_overview: parse_flag(
+            &read_option(
+                ctx,
+                tmux_options::GESTURE_PINCH_OVERVIEW,
+                "appearance:gesture-overview",
+            )
+            .await,
+            defaults.gesture_pinch_overview,
         ),
     }
 }
@@ -265,5 +330,16 @@ mod tests {
         assert_eq!(display_theme_name("tokyo-night"), "Tokyo Night");
         assert_eq!(display_theme_name("default"), "Default");
         assert_eq!(display_theme_name(""), "");
+    }
+
+    #[test]
+    fn parse_count_accepts_whole_numbers_and_caps_them() {
+        assert_eq!(parse_count("5", 3, 12), 5);
+        assert_eq!(parse_count(" 2\n", 3, 12), 2);
+        assert_eq!(parse_count("40", 3, 12), 12);
+        assert_eq!(parse_count("0", 3, 12), 3);
+        assert_eq!(parse_count("-1", 3, 12), 3);
+        assert_eq!(parse_count("2.5", 3, 12), 3);
+        assert_eq!(parse_count("", 3, 12), 3);
     }
 }

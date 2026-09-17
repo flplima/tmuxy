@@ -16,6 +16,7 @@ import { Sidebar } from './components/Sidebar';
 import { SidebarBackdrop } from './components/SidebarBackdrop';
 import { RightSidebar } from './components/RightSidebar';
 import { TabOverview } from './components/TabOverview';
+import { GestureStage } from './components/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
 import {
   useAppSelector,
@@ -141,13 +142,16 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           ref={containerRef}
           // While the Tab Overview is open the live pane grid is FLIP-scaled
           // into its slot (custom properties set by TabOverview, applied by
-          // the `.tab-overview-open .pane-layout` rule).
+          // the `.tab-overview-open .pane-layout` rule). A trackpad gesture in
+          // progress is drawn the same way, by GestureStage.
           className={`pane-container${tabOverviewOpen ? ' tab-overview-open' : ''}`}
           style={{ position: 'relative' }}
         >
           {showLayout && (
             <>
               <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
+              {/* Trackpad slides and pinches, applied to this container per step */}
+              <GestureStage />
               {/* Float panes overlay - renders above tiled panes */}
               <FloatContainer />
               {/* The "all tabs" view, over panes and floats alike */}

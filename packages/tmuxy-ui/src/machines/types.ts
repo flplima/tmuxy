@@ -367,6 +367,12 @@ export interface AppMachineContext {
    * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
    * cursor over the slots in strip order, the last index being the "+" slot.
    */
+  /**
+   * Tabs the user has collapsed in the sidebar tree, by window id. Tabs are
+   * expanded by default, so this holds only the exceptions — a tab that goes
+   * away takes its entry with it.
+   */
+  collapsedTabIds: string[];
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
   /** Whether browser-side animations are enabled */
@@ -384,6 +390,15 @@ export interface AppMachineContext {
    * cursor through DECSCUSR.
    */
   cursorBlink: boolean;
+  /**
+   * The config's `@tmuxy-tab-overview-cols`: cards per row in the "all tabs"
+   * view. Defaults to 3, also on adapters without a config.
+   */
+  tabOverviewCols: number;
+  /** Which trackpad gestures the config allows (`@tmuxy-gesture-*`); all on by default. */
+  gestureFlags: GestureFlags;
+  /** The trackpad gesture being drawn right now, or null with the fingers off the pad. */
+  gesture: GestureState | null;
   /** Keybindings received from the server */
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */
@@ -700,6 +715,8 @@ export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
 export type ToggleLeftSidebarEvent = { type: 'TOGGLE_LEFT_SIDEBAR' };
 export type FocusLeftSidebarEvent = { type: 'FOCUS_LEFT_SIDEBAR' };
 export type BlurLeftSidebarEvent = { type: 'BLUR_LEFT_SIDEBAR' };
+/** Collapse or expand one tab's panes in the tree. Tabs start expanded. */
+export type ToggleTabCollapseEvent = { type: 'TOGGLE_TAB_COLLAPSE'; windowId: string };
 
 // Right sidebar (the pinned terminal — a `sidebar-right`-typed tmux window)
 export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
@@ -926,6 +943,58 @@ export type ThemesListReceivedEvent = {
   themes: Array<{ name: string; displayName: string }>;
 };
 
+// Trackpad gestures (see machines/actors/gestureActor.ts)
+
+/** The trackpad gestures tmuxy.conf allows. */
+export interface GestureFlags {
+  swipeTabs: boolean;
+  pinchZoom: boolean;
+  pinchOverview: boolean;
+}
+
+/**
+ * A gesture in progress.
+ *
+ * A slide carries how far the pane grid is drawn from rest and the tab drawn
+ * beside it (null past either end of the strip, where the grid only gives a
+ * little).
+ *
+ * `tracking`: under the fingers; `dx` is where they have the grid and
+ * `neighborId` the tab being pulled in. `cancelling`: released short, sliding
+ * back to rest. `finishing`: released past the mark - the tab has ALREADY
+ * switched, so `dx` is where the grid has to be put back to keep the picture
+ * still (the new tab's panes now sit at rest, where they were being drawn) and
+ * `neighborId` is the tab just left, sliding out.
+ *
+ * A pinch carries its cumulative scale, what it will do when the fingers lift
+ * (`enter` is a pinch out of the Tab Overview, back into the current tab) and
+ * the pane it acts on. `handoff`: committed to a zoom, with the drawing held
+ * where the fingers left it until the new geometry lands in the DOM.
+ */
+export type GestureState =
+  | {
+      kind: 'swipe';
+      dx: number;
+      neighborId: string | null;
+      phase: 'tracking' | 'finishing' | 'cancelling';
+      /** How long the released slide has to run, from its distance and the speed the fingers had. */
+      settleMs: number;
+    }
+  | {
+      kind: 'pinch';
+      mode: 'zoom' | 'unzoom' | 'overview' | 'enter';
+      scale: number;
+      paneId: string;
+      phase: 'tracking' | 'handoff';
+    };
+
+export type GesturePinchEvent = { type: 'GESTURE_PINCH'; scale: number; paneId: string | null };
+export type GesturePinchEndEvent = { type: 'GESTURE_PINCH_END' };
+export type GestureSwipeEvent = { type: 'GESTURE_SWIPE'; dx: number };
+/** `speed`: how fast the fingers were moving the grid as they left it, signed like `dx` (px/ms). */
+export type GestureSwipeEndEvent = { type: 'GESTURE_SWIPE_END'; speed: number };
+export type GestureSettleEvent = { type: 'GESTURE_SETTLE' };
+
 /** Usefulness↔sensitivity dial for the local action trace (docs/TELEMETRY.md). */
 export type TraceLevel = 'shape' | 'labeled' | 'full';
 
@@ -1001,6 +1070,7 @@ export type AppMachineEvent =
   | CloseFloatEvent
   | CloseTopFloatEvent
   | ToggleLeftSidebarEvent
+  | ToggleTabCollapseEvent
   | FocusLeftSidebarEvent
   | BlurLeftSidebarEvent
   | ToggleRightSidebarEvent
@@ -1015,6 +1085,11 @@ export type AppMachineEvent =
   | SidebarPreviewExpireEvent
   | SetBodySizeEvent
   | ToggleTabOverviewEvent
+  | GesturePinchEvent
+  | GesturePinchEndEvent
+  | GestureSwipeEvent
+  | GestureSwipeEndEvent
+  | GestureSettleEvent
   | CloseTabOverviewEvent
   | TabOverviewMoveEvent
   | TabOverviewSelectEvent

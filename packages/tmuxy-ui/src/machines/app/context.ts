@@ -34,6 +34,7 @@ export type StateName =
   | 'commandUi'
   | 'notifications'
   | 'uiPrefs'
+  | 'gestures'
   | 'parent';
 
 /**
@@ -111,6 +112,7 @@ export const FIELD_OWNERS = {
   sidebarMotion: 'groupsAndFloats',
   leftSidebarClosing: 'groupsAndFloats',
   rightSidebarClosing: 'groupsAndFloats',
+  collapsedTabIds: 'groupsAndFloats',
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
 
@@ -132,6 +134,9 @@ export const FIELD_OWNERS = {
   enableAnimations: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
+  tabOverviewCols: 'uiPrefs',
+  gestureFlags: 'uiPrefs',
+  gesture: 'gestures',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
 /**
@@ -186,11 +191,15 @@ export function createInitialContext(): AppMachineContext {
     sidebarMotion: false,
     leftSidebarClosing: false,
     rightSidebarClosing: false,
+    collapsedTabIds: [],
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
     enableAnimations: false,
     animationsAllowed: true,
     cursorBlink: true,
+    tabOverviewCols: 3,
+    gestureFlags: { swipeTabs: true, pinchZoom: true, pinchOverview: true },
+    gesture: null,
     keybindings: null,
     copyModeStates: {},
     browserStates: {},

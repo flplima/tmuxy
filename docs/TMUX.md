@@ -265,7 +265,7 @@ So the attached session's window list maps 1:1 to the tab strip (minus any open 
 
 ### Schema
 
-Window options are scoped per window (`set-option -w -t <window-id>`). The one pane option (`@tmuxy-group-id`) is scoped per pane (`set-option -p -t <pane-id>`).
+Window options are scoped per window (`set-option -w -t <window-id>`). The pane options (`@tmuxy-group-id`, `@tmuxy-pane-state`) are scoped per pane (`set-option -p -t <pane-id>`).
 
 | Option | Scope | Values | Set on |
 |---|---|---|---|
@@ -277,6 +277,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The one p
 | `@tmuxy-float-bg` | window | `blur` \| `dim` \| unset | floats with a backdrop |
 | `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
 | `@tmuxy-group-id` | pane | `g<n>`, e.g. `g5` | every member of a pane group |
+| `@tmuxy-pane-state` | pane | `idle` \| `working` \| `needs-input` \| `error` \| `unread` \| unset | what the pane says it is doing; set by whatever runs in it |
 | `@tmuxy-focus-request` | session | `left` \| `right` \| `panes` \| unset | a shell helper asking a client to move keyboard focus |
 | `@tmuxy-sidebar-cols` | window | integer (columns) \| unset | a sidebar column the user has dragged off its default width — for the dock these are its own cells: the right column runs in the sidebar font (80% of the pane font), so its cell width is the pane grid's advance scaled to that size (`selectSidebarCellMetrics`) |
 | `@tmuxy-sidebar-hidden` | window | `1` \| unset | a sidebar column the user has closed; its pane stays alive, no client draws it |
@@ -284,6 +285,8 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The one p
 | `@tmuxy-sidebar-rows` | window | integer (rows) \| unset | rows the dock's pane is sized to; the client sets it from its own (shorter, sidebar-font) row height, so the column holds more rows than the viewport |
 
 `@tmuxy-float-parent` is always a **window id**, interpreted by the window's type: on a `float` it is the window the float was launched from (focus returns there on close); on a `float-backdrop` it is the float window the backdrop sits behind. The window-type disambiguates, so there is no separate backdrop-of option.
+
+`@tmuxy-pane-state` is the one tag tmuxy never writes itself: whatever runs in a pane declares its own state through `tmuxy pane state <value>`, which the sidebar tree draws at the row's right edge. An agent sets it from its hooks, a shell from a `precmd`/`preexec` pair, a build script on failure. Nothing infers it — tmux's activity flag means "bytes arrived", which a spinner produces continuously, so activity cannot tell working from waiting. The value rides the ordinary `list-panes` subscription (it is a fixed tail field, like `@tmuxy-group-id`) and is carried verbatim: the client owns the vocabulary and collapses anything it does not recognize to `idle`, so a writer is free to use its own status names without waiting for a release. As with every user option, tmux emits no notification when it changes — the value lands on the next metadata sync, which any pane producing output triggers continuously.
 
 On a float the parent is also **which tab the float belongs to**. A float is an overlay over the tab it was opened from, not over the session: the client shows only the floats whose parent is the active window (`selectVisibleFloats`), so one opened on tab 1 is off screen on tab 2 and comes back when that tab does. A float with no parent, or whose parent window has since closed, is shown on every tab — an orphan nothing could bring on screen could not be closed either. Its backdrop is rendered inside the pane container rather than portaled to the document body, so it dims that tab's content and leaves the sidebars, the tab strip and the status line usable.
 

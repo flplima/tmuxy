@@ -64,6 +64,10 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.selectionStartY === next.selectionStartY &&
     prev.cursorShape === next.cursorShape &&
     prev.cursorHidden === next.cursorHidden &&
+    // A pane declaring its state (`@tmuxy-pane-state`) changes NOTHING else
+    // about itself — no output, no geometry — so omitting it here pins the old
+    // object and the tree never sees the new state at all.
+    (prev.paneState ?? null) === (next.paneState ?? null) &&
     prev.windowId === next.windowId &&
     (prev.images === next.images ||
       JSON.stringify(prev.images ?? null) === JSON.stringify(next.images ?? null));

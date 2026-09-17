@@ -38,6 +38,8 @@ import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
+import { gesturesGlobalEvents } from './states/gestures';
+import { gesturesActions } from './actions/gestures';
 import { tabOverviewActions } from './actions/tabOverview';
 import { layoutActions } from './actions/layout';
 import { isBoxPermutation, samePanes } from './layoutChange';
@@ -64,6 +66,7 @@ import type { KeyboardActorEvent } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
+import type { GestureActorEvent } from '../actors/gestureActor';
 import type { ServersActorEvent } from '../actors/serversActor';
 
 /**
@@ -358,6 +361,7 @@ export const appMachine = setup({
     keyboardActor: fromCallback<KeyboardActorEvent, { parent: AnyActorRef }>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
+    gestureActor: fromCallback<GestureActorEvent, { parent: AnyActorRef }>(() => () => {}),
     serversActor: fromCallback<ServersActorEvent, { parent: AnyActorRef }>(() => () => {}),
     dragMachine,
     resizeMachine,
@@ -370,6 +374,7 @@ export const appMachine = setup({
     ...browserActions,
     ...groupsAndFloatsActions,
     ...tabOverviewActions,
+    ...gesturesActions,
     ...layoutActions,
   },
 }).createMachine({
@@ -410,6 +415,12 @@ export const appMachine = setup({
       src: 'linkModifierActor',
     },
     {
+      // Trackpad slides and pinches → GESTURE_* (see gestureActor).
+      id: 'gestures',
+      src: 'gestureActor',
+      input: ({ self }) => ({ parent: self }),
+    },
+    {
       // Sessions-tree poll (runs on web + desktop; see serversActor).
       id: 'servers',
       src: 'serversActor',
@@ -433,6 +444,7 @@ export const appMachine = setup({
     ...notificationsState.on,
     ...groupsAndFloatsGlobalEvents,
     ...tabOverviewGlobalEvents,
+    ...gesturesGlobalEvents,
 
     LOG_APPEND: {
       actions: assign(({ context, event }) => {

@@ -55,6 +55,13 @@ export interface TmuxPane {
   cursorShape: number;
   /** Whether the cursor is hidden (DECTCEM mode 25 off / ESC[?25l) */
   cursorHidden: boolean;
+  /**
+   * What the pane says it is doing (`@tmuxy-pane-state`), verbatim. Any
+   * process can set it via `tmuxy pane state <value>`; the vocabulary the tree
+   * draws lives in `utils/paneState.ts`, which collapses anything unknown.
+   * Absent when the option is unset.
+   */
+  paneState?: string | null;
 }
 
 /** An image placement on the terminal grid */
@@ -246,6 +253,7 @@ export interface ServerPane {
   images?: ServerImagePlacement[];
   cursor_shape?: number;
   cursor_hidden?: boolean;
+  pane_state?: string | null;
 }
 
 /** Image placement in snake_case from backend */
@@ -329,6 +337,7 @@ export interface PaneDelta {
   images?: ServerImagePlacement[];
   cursor_shape?: number;
   cursor_hidden?: boolean;
+  pane_state?: string | null;
 }
 
 export interface WindowDelta {
@@ -472,6 +481,14 @@ export interface Appearance {
   animations: boolean;
   /** Whether the cursor blinks (`@tmuxy-cursor-blink`), unless the app asks for a steady one. */
   cursorBlink: boolean;
+  /** Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`), 1–12. */
+  tabOverviewCols: number;
+  /** Two-finger slide switches tabs (`@tmuxy-gesture-swipe-tabs`). */
+  gestureSwipeTabs: boolean;
+  /** Pinch out zooms a pane, pinch in unzooms (`@tmuxy-gesture-pinch-zoom`). */
+  gesturePinchZoom: boolean;
+  /** Pinch in opens the "all tabs" view (`@tmuxy-gesture-pinch-overview`). */
+  gesturePinchOverview: boolean;
 }
 
 /** `get_theme_settings` result / `theme-settings` push payload. */

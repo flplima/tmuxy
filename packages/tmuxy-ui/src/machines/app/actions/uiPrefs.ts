@@ -105,6 +105,12 @@ export const uiPrefsActions = {
       assign({
         animationsAllowed: event.appearance?.animations ?? true,
         cursorBlink: event.appearance?.cursorBlink ?? true,
+        tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
+        gestureFlags: {
+          swipeTabs: event.appearance?.gestureSwipeTabs ?? true,
+          pinchZoom: event.appearance?.gesturePinchZoom ?? true,
+          pinchOverview: event.appearance?.gesturePinchOverview ?? true,
+        },
       }),
     );
     // localStorage takes precedence — server defaults only apply when

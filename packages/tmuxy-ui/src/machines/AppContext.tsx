@@ -34,6 +34,7 @@ import { tracer } from '../tmux/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createLinkModifierActor } from './actors/linkModifierActor';
+import { createGestureActor } from './actors/gestureActor';
 import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
@@ -103,6 +104,11 @@ export {
   selectNotifications,
   selectAnimationsAllowed,
   selectCursorBlink,
+  selectTabOverviewCols,
+  selectGesture,
+  selectSwipeNeighbor,
+  selectSwipeStill,
+  selectGesturePaneId,
   selectSidebarFocused,
   selectPrefixActive,
   selectActivePaneCopyMode,
@@ -143,6 +149,7 @@ export function AppProvider({
       tmuxStoreActor: createTmuxStoreActor(store),
       keyboardActor: createKeyboardActor(),
       linkModifierActor: createLinkModifierActor(),
+      gestureActor: createGestureActor(),
       sizeActor: createSizeActor(measureCellMetrics),
       serversActor: createServersActor(adapter),
     };

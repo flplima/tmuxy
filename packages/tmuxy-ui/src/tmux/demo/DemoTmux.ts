@@ -96,6 +96,12 @@ const FLOAT_DEFAULT_ROWS = 15;
 
 export class DemoTmux {
   private panes = new Map<string, FakePane>();
+  /**
+   * `@tmuxy-pane-state` per pane, as a real server would hold it: set by
+   * whatever runs in the pane (`tmuxy pane state working`) and read back out
+   * on every list-panes. Absent means the option was never set.
+   */
+  private paneStates = new Map<string, string>();
   private windows: FakeWindow[] = [];
   private activeWindowId = '@0';
   private activePaneId = '%0';
@@ -245,6 +251,7 @@ export class DemoTmux {
         history_size: pane.shell.getHistorySize(),
         cursor_shape: 0,
         cursor_hidden: false,
+        pane_state: this.paneStates.get(pane.id) ?? null,
         images: pane.images,
       });
     }
@@ -268,6 +275,8 @@ export class DemoTmux {
         sidebar_cols: w.sidebarCols ?? null,
         sidebar_hidden: w.sidebarHidden ?? false,
         collapsible: w.collapsible ?? false,
+        // Zoom applies to the active window alone (switching tabs clears it).
+        zoomed: this.zoomedPaneId !== null && w.id === this.activeWindowId,
         active_pane_id:
           w.id === this.activeWindowId
             ? this.activePaneId
@@ -531,6 +540,17 @@ export class DemoTmux {
   /** Mark a pane (`select-pane -m`) or clear the mark (`select-pane -M`, null). */
   markPane(paneId: string | null): void {
     this.markedPaneId = paneId && this.panes.has(paneId) ? paneId : null;
+  }
+
+  /**
+   * Set `@tmuxy-pane-state` on a pane — what `tmuxy pane state <value>` does
+   * on a real server. An empty value unsets the option, which is how a process
+   * stops declaring anything (an agent's hook on exit, say).
+   */
+  setPaneState(paneId: string, value: string): void {
+    if (!this.panes.has(paneId)) return;
+    if (value) this.paneStates.set(paneId, value);
+    else this.paneStates.delete(paneId);
   }
 
   selectPane(paneId: string): boolean {

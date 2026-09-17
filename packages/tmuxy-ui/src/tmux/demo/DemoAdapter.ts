@@ -499,6 +499,27 @@ export class DemoAdapter implements TmuxAdapter {
         break;
       }
 
+      // `set-option -p -t %id @tmuxy-pane-state <value>` — how a process says
+      // what its pane is doing (`tmuxy pane state`). Only the pane-scoped
+      // tmuxy option is honoured here; the demo has no general option store.
+      case 'set-option':
+      case 'set': {
+        if (!parts.includes('-p')) break;
+        const optIdx = parts.findIndex((p) => p === '@tmuxy-pane-state');
+        if (optIdx === -1) break;
+        const tIdx = parts.indexOf('-t');
+        const target =
+          tIdx !== -1 && tIdx + 1 < parts.length
+            ? parts[tIdx + 1]
+            : this.tmux.getState().active_pane_id;
+        // The CLI single-quotes the value through shquote; a story sending the
+        // command by hand does not.
+        const raw = parts[optIdx + 1] ?? '';
+        const value = raw.replace(/^'(.*)'$/, '$1');
+        if (target) this.tmux.setPaneState(target, value);
+        break;
+      }
+
       case 'new-window':
       case 'neww': {
         this.tmux.newWindow();
@@ -624,7 +645,7 @@ export class DemoAdapter implements TmuxAdapter {
           tIdx !== -1 && tIdx + 1 < parts.length ? parts[tIdx + 1] : (state.active_pane_id ?? '');
         const adjustment = parseInt(parts[parts.length - 1]) || 1;
         if (parts.includes('-Z')) {
-          this.tmux.toggleZoom();
+          this.tmux.toggleZoom(tIdx !== -1 ? paneId : undefined);
         } else if (parts.includes('-U')) {
           this.tmux.resizePane(paneId, 'Up', adjustment);
         } else if (parts.includes('-D')) {

@@ -136,6 +136,7 @@ Commands:
   break         Break pane into own tab
   capture       Capture pane content [%id] [--json]
   send          Send keys to pane <keys...>
+  state         Declare what the pane is doing <state> [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
   group         Pane group operations (add, close, switch, next, prev)
@@ -277,6 +278,38 @@ cmd_pane() {
   shift 2>/dev/null || true
 
   case "$sub" in
+    state)
+      # Declare what this pane is doing, for the sidebar tree to draw. Any
+      # process can call it — an agent's hooks, a shell's precmd/preexec, a
+      # build script on failure — which is why the value is not validated
+      # here: the client owns the vocabulary and collapses what it doesn't
+      # know, so a writer is free to use its own names.
+      local value="" target=""
+      for arg in "$@"; do
+        case "$arg" in
+          --help|-h)
+            echo "Usage: tmuxy pane state <idle|working|needs-input|error|unread> [%id]"
+            return
+            ;;
+          %*) target="$arg" ;;
+          *) value="$arg" ;;
+        esac
+      done
+      if [ -z "$value" ]; then
+        echo "Error: state value required" >&2
+        return 1
+      fi
+      # Default to the calling pane. `set-option -p` with no target resolves
+      # against tmux's idea of the current pane, which under run-shell is the
+      # ACTIVE one, not the caller — so the target is always explicit.
+      target="${target:-${TMUX_PANE:-}}"
+      if [ -z "$target" ]; then
+        echo "Error: no pane to target (pass %id or run inside a pane)" >&2
+        return 1
+      fi
+      run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
+      ;;
+
     list)
       local json=false all=false
       for arg in "$@"; do
