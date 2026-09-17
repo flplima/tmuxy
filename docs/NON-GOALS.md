@@ -77,7 +77,7 @@ We use DOM rendering (spans), not canvas or WebGL.
 
 We do NOT render more than one tmux session at a time. One tmuxy instance is attached to one session; there is no split view across sessions and no cross-session pane layout.
 
-Switching between them *is* supported — `tmuxy session switch` and the sidebar sessions tree (`SidebarTree.tsx`) reattach without a page reload.
+Switching between them *is* supported — the session switcher widget (`tmuxy widget session`), `tmuxy session switch` and the sidebar sessions tree (`SidebarTree.tsx`) reattach without a page reload. The switcher also attaches to a different tmux socket, locally or over SSH, by retargeting the running monitor rather than relaunching.
 
 ### 9. SSH via Web Server
 

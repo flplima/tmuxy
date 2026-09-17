@@ -98,17 +98,88 @@ pub struct Server {
 }
 
 impl Server {
-    /// The always-present local-machine entry.
+    /// The always-present local-machine entry, on the socket this process is
+    /// actually attached to.
     pub fn localhost() -> Self {
+        Self::localhost_on(&crate::session::tmux_socket())
+    }
+
+    /// `localhost` pinned to an explicit socket.
+    ///
+    /// The socket has to follow the live `TMUX_SOCKET` rather than the default
+    /// name: `localhost` is the picker's word for "the server this app is
+    /// attached to", and hardcoding the default made it mean "the server named
+    /// `tmuxy`". An app launched against any other socket then listed a row
+    /// that retargeted the monitor onto a *different* tmux server — including,
+    /// from a sandboxed debug build, the user's real one.
+    ///
+    /// Split from the env-reading wrapper so that resolution can be tested
+    /// without mutating process-wide env vars from a parallel test.
+    pub fn localhost_on(socket: &str) -> Self {
         Server {
             id: LOCALHOST_ID.to_string(),
             label: "localhost".to_string(),
             kind: ServerKind::Local,
             ssh: None,
-            socket: default_socket(),
+            socket: socket.to_string(),
             session: None,
             extra: serde_json::Map::new(),
         }
+    }
+
+    /// Build a server from a single typed destination.
+    ///
+    /// `dest` is what the user types: `[user@]host[:port]`, where `host` may be
+    /// any name their `~/.ssh/config` defines. That is deliberately the whole
+    /// form. tmuxy runs the system `ssh` binary rather than speaking the
+    /// protocol, so User, Port, IdentityFile, ProxyJump, agent forwarding and
+    /// 2FA all come from that file for free — re-asking for them here is how
+    /// other clients ended up with their own half-implementations of it.
+    ///
+    /// An empty `dest` means this machine. `socket` defaults to the dedicated
+    /// `tmuxy` socket.
+    pub fn from_destination(dest: &str, socket: Option<&str>) -> Result<Self, String> {
+        let dest = dest.trim();
+        // An unspecified socket means "the default" for a remote host, but
+        // "wherever this app is attached" for this machine — otherwise a blank
+        // form filled in on a non-default socket saves a server pointing
+        // somewhere the user never named.
+        let live_socket = crate::session::tmux_socket();
+        let socket = match socket.map(str::trim) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ if dest.is_empty() => live_socket.clone(),
+            _ => default_socket(),
+        };
+
+        if dest.is_empty() {
+            let mut server = Server::localhost();
+            // Compared against the LIVE socket, not the default name: typing
+            // the default socket explicitly while attached elsewhere names a
+            // different server, so it must get its own id.
+            if socket != live_socket {
+                server.id = format!("local-{}", slug(&socket));
+                server.label = socket.clone();
+                server.socket = socket;
+            }
+            return Ok(server);
+        }
+
+        let (user, host, port) = parse_destination(dest)?;
+        let label = dest.to_string();
+        Ok(Server {
+            id: format!("ssh-{}-{}", slug(dest), slug(&socket)),
+            label,
+            kind: ServerKind::Ssh,
+            ssh: Some(SshConfig {
+                host,
+                user,
+                port,
+                options: None,
+            }),
+            socket,
+            session: None,
+            extra: serde_json::Map::new(),
+        })
     }
 
     /// The `(TMUX_SOCKET, TMUXY_SSH)` env pair for attaching to this server.
@@ -124,6 +195,59 @@ impl Server {
 }
 
 /// Path to the servers file inside the user's config dir.
+/// Split `[user@]host[:port]` into its parts.
+///
+/// A bracketed IPv6 literal (`[::1]:22`) is handled explicitly; an unbracketed
+/// one is taken whole as the host, because `::1:22` cannot be split without
+/// guessing which colon is the port.
+fn parse_destination(dest: &str) -> Result<(Option<String>, String, Option<u16>), String> {
+    let (user, rest) = match dest.split_once('@') {
+        Some((u, r)) if !u.is_empty() => (Some(u.to_string()), r),
+        Some(_) => return Err("missing user before '@'".to_string()),
+        None => (None, dest),
+    };
+    if rest.is_empty() {
+        return Err("missing host".to_string());
+    }
+
+    let (host, port) = if let Some(rest) = rest.strip_prefix('[') {
+        let (host, tail) = rest
+            .split_once(']')
+            .ok_or_else(|| "unclosed '[' in address".to_string())?;
+        (host.to_string(), tail.strip_prefix(':').map(str::to_string))
+    } else {
+        match rest.split_once(':') {
+            // Only the LAST colon can be a port, and only when the rest parses
+            // as one; anything else is an unbracketed IPv6 address.
+            Some((h, p)) if !p.contains(':') => (h.to_string(), Some(p.to_string())),
+            _ => (rest.to_string(), None),
+        }
+    };
+
+    if host.is_empty() {
+        return Err("missing host".to_string());
+    }
+    let port = match port {
+        Some(p) => Some(
+            p.parse::<u16>()
+                .map_err(|_| format!("'{p}' is not a port number"))?,
+        ),
+        None => None,
+    };
+    Ok((user, host, port))
+}
+
+/// Filesystem-safe fragment of an id, mirroring `tmuxy connect`'s own ids so a
+/// server added from either surface lands on the same key.
+fn slug(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_lowercase()
+}
+
 pub fn servers_path() -> PathBuf {
     config_dir().join("servers.json")
 }
@@ -174,12 +298,16 @@ pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
 }
 
 /// Add (or replace, by `id`) a server and persist. Returns the updated list.
-/// The `localhost` entry can't be replaced away — it's re-guaranteed on read.
+///
+/// The synthetic `localhost` entry is deliberately NOT injected here: its
+/// socket follows the live `TMUX_SOCKET`, so writing it would freeze whichever
+/// socket this app happened to be on into the file and hand that stale value
+/// to every later read. It is re-guaranteed on read instead.
 pub fn add_server(server: Server) -> std::io::Result<Vec<Server>> {
     // Refuse to overwrite a file that exists but can't be parsed — reading it
     // leniently (empty fallback) and writing that back would wipe every saved
     // server on one transient corruption.
-    let mut servers = with_localhost(read_servers_strict()?.unwrap_or_default());
+    let mut servers = read_servers_strict()?.unwrap_or_default();
     match servers.iter_mut().find(|s| s.id == server.id) {
         Some(existing) => *existing = server,
         None => servers.push(server),
@@ -214,9 +342,115 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_bare_host_needs_nothing_else() {
+        // The whole point of the one-field form: everything not typed here —
+        // user, port, key, ProxyJump — comes from the user's ~/.ssh/config,
+        // because it is the system ssh binary that dials.
+        let server = Server::from_destination("box", None).expect("parsed");
+        assert_eq!(server.kind, ServerKind::Ssh);
+        let ssh = server.ssh.expect("ssh config");
+        assert_eq!(ssh.host, "box");
+        assert_eq!(ssh.user, None);
+        assert_eq!(ssh.port, None);
+        assert_eq!(server.socket, DEFAULT_TMUX_SOCKET);
+    }
+
+    #[test]
+    fn user_host_and_port_are_split_out() {
+        let server = Server::from_destination("felipe@box:2222", None).expect("parsed");
+        let ssh = server.ssh.expect("ssh config");
+        assert_eq!(ssh.user.as_deref(), Some("felipe"));
+        assert_eq!(ssh.host, "box");
+        assert_eq!(ssh.port, Some(2222));
+        // The label is what the user typed, so the picker reads back the way
+        // they think of the host.
+        assert_eq!(server.label, "felipe@box:2222");
+    }
+
+    #[test]
+    fn an_empty_destination_is_this_machine() {
+        let server = Server::from_destination("", None).expect("parsed");
+        assert_eq!(server.kind, ServerKind::Local);
+        assert!(server.ssh.is_none());
+        assert_eq!(server.id, LOCALHOST_ID);
+        // "This machine" means the socket we are on, not the default name.
+        assert_eq!(server.socket, crate::session::tmux_socket());
+    }
+
+    #[test]
+    fn localhost_follows_the_live_socket() {
+        // `localhost` means "the server this app is attached to". While it
+        // meant "the socket named `tmuxy`", connecting to that row from an app
+        // launched on another socket retargeted the live monitor onto a
+        // different tmux server.
+        let server = Server::localhost_on("tmuxy-deskdemo");
+        assert_eq!(server.id, LOCALHOST_ID);
+        let (socket, ssh) = server.connect_env();
+        assert_eq!(socket, "tmuxy-deskdemo");
+        assert_eq!(ssh, None);
+    }
+
+    #[test]
+    fn a_local_server_on_the_default_socket_is_its_own_entry_when_attached_elsewhere() {
+        // Typing the default socket explicitly, from an app attached to a
+        // different one, names a server that is NOT this machine's current
+        // one — so it cannot collapse into the `localhost` row.
+        let live = crate::session::tmux_socket();
+        let other = if live == "work" { "other" } else { "work" };
+        let server = Server::from_destination("", Some(other)).expect("parsed");
+        assert_eq!(server.socket, other);
+        assert_ne!(server.id, LOCALHOST_ID);
+    }
+
+    #[test]
+    fn a_local_server_on_another_socket_gets_its_own_id() {
+        // Same machine, different tmux server — the one thing ssh_config
+        // cannot express, which is why the socket is the second field.
+        let server = Server::from_destination("", Some("work")).expect("parsed");
+        assert_eq!(server.kind, ServerKind::Local);
+        assert_eq!(server.socket, "work");
+        assert_eq!(server.id, "local-work");
+    }
+
+    #[test]
+    fn a_bracketed_ipv6_literal_keeps_its_port() {
+        let server = Server::from_destination("[::1]:2222", None).expect("parsed");
+        let ssh = server.ssh.expect("ssh config");
+        assert_eq!(ssh.host, "::1");
+        assert_eq!(ssh.port, Some(2222));
+    }
+
+    #[test]
+    fn an_unbracketed_ipv6_literal_is_taken_whole() {
+        // `::1:22` cannot be split without guessing which colon is the port,
+        // so it is a host. Brackets are how a user says otherwise.
+        let server = Server::from_destination("::1", None).expect("parsed");
+        let ssh = server.ssh.expect("ssh config");
+        assert_eq!(ssh.host, "::1");
+        assert_eq!(ssh.port, None);
+    }
+
+    #[test]
+    fn a_destination_that_cannot_be_read_is_rejected() {
+        assert!(Server::from_destination("box:not-a-port", None).is_err());
+        assert!(Server::from_destination("@box", None).is_err());
+        assert!(Server::from_destination("felipe@", None).is_err());
+    }
+
+    #[test]
+    fn the_same_destination_always_mints_the_same_id() {
+        // Ids are the picker's key and the reconnect target, so adding the
+        // same host twice must not leave two entries behind.
+        let a = Server::from_destination("felipe@box", None).expect("parsed");
+        let b = Server::from_destination("felipe@box", None).expect("parsed");
+        assert_eq!(a.id, b.id);
+        assert!(a.id.starts_with("ssh-"));
+    }
+
+    #[test]
     fn localhost_is_local_with_no_ssh() {
         let (socket, ssh) = Server::localhost().connect_env();
-        assert_eq!(socket, DEFAULT_TMUX_SOCKET);
+        assert_eq!(socket, crate::session::tmux_socket());
         assert_eq!(ssh, None);
     }
 

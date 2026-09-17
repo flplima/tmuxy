@@ -147,7 +147,11 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       send({ type: 'SEND_COMMAND', command: 'command-prompt -I "#S" "rename-session -- \'%%\'"' });
       break;
     case 'session-detach':
-      send({ type: 'SEND_COMMAND', command: 'detach-client' });
+      // Goes through DETACH_CLIENT, not a raw `detach-client`: the backend has
+      // to know the detach was deliberate or its monitor treats the ended
+      // connection as a flap and reattaches, dropping the user straight back
+      // into the session they just left.
+      send({ type: 'DETACH_CLIENT' });
       break;
     case 'session-kill':
       send({ type: 'SEND_COMMAND', command: 'kill-session' });

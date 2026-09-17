@@ -68,6 +68,7 @@ back to a shell. That is what ctrl+c in a widget pane does.
 |--------|-----------|------------------|
 | `browser` | `tmuxy widget browser [--color-filter] <file\|url\|->` | `__SRC__:<path or url>` — one source: an HTML file, a website, a markdown file (rendered, mermaid included), or an image. `--color-filter` writes `__COLOR_FILTER__` first, and a page or image is then recoloured into the theme (luminance onto a foreground → gray → background ramp, `utils/themeColorFilter.ts`); markdown is already drawn in theme colours |
 | `tree` | `tmuxy widget tree` | none — the tabs/panes tree is derived from state the app already holds |
+| `session` | `tmuxy widget session` | none — the sessions come from the same poll the tree uses, the servers from `list_servers`. Switch, rename, kill or detach the session, and attach to another tmux socket locally or over SSH. Replaces the `tmuxy session switch --float` shell prompt; it is also what the detached overlay shows |
 
 A widget registers a **definition**, not just a component, so it can furnish the parts of the pane
 chrome it does not own: its tab `icon`, a `selectTitle` for the tab (the browser names its pane

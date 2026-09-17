@@ -17,10 +17,11 @@
  * everything in, so the three looks can be shown on their own in Storybook.
  */
 
+import type { ReactNode } from 'react';
 import type { LogEntry } from '../machines/types';
 import './ConnectionOverlay.css';
 
-export type ConnectionOverlayMode = 'connecting' | 'reconnecting' | 'fatal';
+export type ConnectionOverlayMode = 'connecting' | 'reconnecting' | 'fatal' | 'detached';
 
 export interface ConnectionOverlayProps {
   mode: ConnectionOverlayMode;
@@ -32,6 +33,12 @@ export interface ConnectionOverlayProps {
   fatalError: string | null;
   log: LogEntry[];
   onRetry: () => void;
+  /**
+   * What `detached` mode puts on the scrim — the session switcher. Passed in
+   * rather than imported so this stays presentational and showable on its own
+   * in Storybook, as the three other modes are.
+   */
+  children?: ReactNode;
 }
 
 function formatLog(log: LogEntry[]): string {
@@ -52,8 +59,10 @@ export function ConnectionOverlay({
   fatalError,
   log,
   onRetry,
+  children,
 }: ConnectionOverlayProps) {
   const isFatal = mode === 'fatal';
+  const isDetached = mode === 'detached';
   return (
     <div
       className={`connection-overlay connection-overlay-${mode}${
@@ -72,11 +81,19 @@ export function ConnectionOverlay({
       )}
       <div className="connection-overlay-scrim" aria-hidden="true" />
       <div className="connection-overlay-card">
-        {!isFatal && <span className="connection-spinner" aria-hidden="true" />}
+        {/* Detached is not a wait: there is nothing to spin for, and the way
+            back in is the switcher below rather than a retry. */}
+        {!isFatal && !isDetached && <span className="connection-spinner" aria-hidden="true" />}
         <p className="connection-overlay-text">
-          {isFatal ? 'Cannot connect to tmux' : 'Connecting…'}
+          {isFatal ? 'Cannot connect to tmux' : isDetached ? 'Detached' : 'Connecting…'}
         </p>
-        {!isFatal && error && <p className="connection-overlay-note">{error}</p>}
+        {isDetached && (
+          <p className="connection-overlay-note">
+            tmux is still running. Pick a session to step back in.
+          </p>
+        )}
+        {isDetached && children}
+        {!isFatal && !isDetached && error && <p className="connection-overlay-note">{error}</p>}
         {isFatal && (
           <>
             <p className="connection-overlay-note">

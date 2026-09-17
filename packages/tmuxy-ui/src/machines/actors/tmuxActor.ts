@@ -136,6 +136,15 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       parent.send({ type: 'TMUX_FATAL', message });
     });
 
+    // The connection ended, with tmux's own `%exit` reason. Optional on the
+    // interface (the demo/v86 sandboxes have nothing to detach from), so fall
+    // back to a noop unsubscribe like the clipboard listener does.
+    const unsubscribeDetached = adapter.onDetached
+      ? adapter.onDetached((reason) => {
+          parent.send({ type: 'TMUX_DETACHED', reason });
+        })
+      : () => {};
+
     // SSE/Tauri channel dropped or recovered. Adapter tracks the attempt
     // count; we surface it as a state-machine event so the UI can show a
     // banner while the channel is down and clear it on recovery.
@@ -341,6 +350,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       unsubscribeError();
       unsubscribeLog();
       unsubscribeFatal();
+      unsubscribeDetached();
       unsubscribeReconnection();
       unsubscribeKeyBindings();
       unsubscribeThemeSettings();

@@ -29,7 +29,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { TmuxAdapter } from '../../tmux/types';
-import type { GitRepository, SessionTreeNode } from '../types';
+import type { GitRepository, SessionTreeNode, TmuxServer } from '../types';
 
 export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 
@@ -160,6 +160,32 @@ export function createServersActor(adapter: TmuxAdapter) {
     // host derives the pane paths from tmux and runs git; a failure (no git on
     // the host, say) just leaves the previous repositories in place.
     let lastDiscovery = 0;
+    /**
+     * The saved servers, on the same cadence as worktree discovery.
+     *
+     * `list_servers` is a desktop-only Tauri command; on web the invoke simply
+     * fails and the `ignore()` below leaves the list empty, which is the
+     * correct answer there — a web client always uses its launch socket.
+     */
+    const listServers = (): Effect.Effect<void> =>
+      Effect.tryPromise(() =>
+        adapter.invoke<{ servers: TmuxServer[]; currentId: string | null } | null>(
+          'list_servers',
+          {},
+        ),
+      ).pipe(
+        Effect.flatMap((result) =>
+          Effect.sync(() =>
+            parent.send({
+              type: 'SERVERS_UPDATED',
+              servers: result?.servers ?? [],
+              currentServerId: result?.currentId ?? null,
+            }),
+          ),
+        ),
+        Effect.ignore,
+      );
+
     const discover = (force: boolean): Effect.Effect<void> =>
       Effect.suspend(() => {
         if (!force && Date.now() - lastDiscovery < DISCOVERY_INTERVAL_MS) return Effect.void;
@@ -190,9 +216,23 @@ export function createServersActor(adapter: TmuxAdapter) {
         // raised as the sidebar opens (whose context commit may not be visible).
         if (!force) {
           const snap = parent.getSnapshot() as
-            | { context?: { leftSidebarOpen?: boolean } }
+            | {
+                context?: {
+                  leftSidebarOpen?: boolean;
+                  windows?: Array<{ windowType?: string | null; name?: string }>;
+                };
+              }
             | undefined;
-          if (snap?.context?.leftSidebarOpen !== true) return Effect.void;
+          const ctx = snap?.context;
+          // Two consumers now, so the gate cannot be the sidebar alone: the
+          // session switcher widget lists the sessions on this socket too, and
+          // it opens as a float named `session` (see openSessionFloat). With
+          // neither open nothing is watching, and these are external tmux
+          // reads — they should not churn against the control-mode pipeline.
+          const watching =
+            ctx?.leftSidebarOpen === true ||
+            ctx?.windows?.some((w) => w.windowType === 'float' && w.name === 'session') === true;
+          if (!watching) return Effect.void;
         }
 
         // Sessions tree (tmux). ignore()d so a failing tick doesn't tear down
@@ -208,6 +248,10 @@ export function createServersActor(adapter: TmuxAdapter) {
               }),
             ),
           ),
+          // On the POLL cadence, not inside discover(): chaining it there made
+          // the server list hostage to the worktree-discovery interval, so most
+          // ticks skipped it and the switcher showed no servers at all.
+          Effect.flatMap(() => listServers()),
           Effect.flatMap(() => discover(force)),
           Effect.ignore,
         );

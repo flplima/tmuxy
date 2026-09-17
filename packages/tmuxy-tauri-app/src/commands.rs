@@ -382,6 +382,34 @@ pub async fn connect_server(state: State<'_, MonitorState>, id: String) -> Resul
     Ok(())
 }
 
+/// Save a server typed into the session switcher and return its id.
+///
+/// `dest` is the whole connection form: `[user@]host[:port]`, empty for this
+/// machine. Everything else about reaching the host — keys, ProxyJump, ports,
+/// 2FA — is the system `ssh` binary's job, read from the user's own
+/// `~/.ssh/config`, so there is nothing else to ask for.
+///
+/// Parsing lives in `tmuxy_core::servers` rather than in the frontend so the
+/// widget and the `tmuxy connect` TUI mint identical ids for the same host.
+#[tauri::command]
+pub async fn add_server(dest: String, socket: Option<String>) -> Result<String, String> {
+    let server = tmuxy_core::servers::Server::from_destination(&dest, socket.as_deref())?;
+    let id = server.id.clone();
+    tmuxy_core::servers::add_server(server).map_err(|e| format!("could not save server: {e}"))?;
+    Ok(id)
+}
+
+/// Detach this client, leaving the tmux server and every session running.
+///
+/// Not a plain `detach-client`: the monitor has to be told this was deliberate
+/// or its loop treats the ended connection as a flap and reattaches, dropping
+/// the user back into the session they just left.
+#[tauri::command]
+pub async fn detach_client(state: State<'_, MonitorState>) -> Result<(), String> {
+    crate::monitor::request_detach(state.inner()).await;
+    Ok(())
+}
+
 /// Relaunch the desktop app in place (Debug ▸ Restart App). tmux keeps every
 /// session; the new process reattaches to the same socket on start.
 #[tauri::command]

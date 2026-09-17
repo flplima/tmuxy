@@ -188,32 +188,8 @@ export const groupsAndFloatsActions = {
         type: 'SEND_COMMAND' as const,
         command: breakOutTaggedWindow(context.windows, {
           splitFrom: context.activePaneId,
-          command: '"tmuxy session switch --float"',
+          command: '"tmuxy widget session"',
           name: 'session',
-          windowType: 'float',
-        }),
-      }),
-    );
-  }),
-
-  groupsAndFloats_openConnectFloat: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: breakOutTaggedWindow(context.windows, {
-          splitFrom: context.activePaneId,
-          command: '"tmuxy session connect"',
-          name: 'connect',
           windowType: 'float',
         }),
       }),

@@ -5,10 +5,10 @@
  * and delegates to the appropriate sub-component.
  */
 
-import { memo, useRef } from 'react';
+import { memo } from 'react';
 import { usePane } from '../machines/AppContext';
 import { LogProfiler } from '../utils/renderLog';
-import { detectWidget } from './widgets';
+import { usePaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { WidgetPane } from './WidgetPane';
 import { TerminalPane } from './TerminalPane';
 
@@ -25,24 +25,12 @@ interface PaneProps {
  */
 export const Pane = memo(function Pane({ paneId }: PaneProps) {
   const pane = usePane(paneId);
-  // Latch the widget/terminal classification across transient EMPTY content:
-  // a pane's content briefly clears while a capture refresh is in flight
-  // (resize, window move), and flipping detectWidget on that gap switches the
-  // rendered component TYPE — React unmounts the whole subtree and remounts
-  // the other, a full-pane blink twice over when the content returns. Keys
-  // can't prevent a type switch, so hold the last definitive classification
-  // until non-empty content says otherwise.
-  const lastWidgetInfoRef = useRef<ReturnType<typeof detectWidget>>(null);
+  // Widget-or-terminal, latched across the transient empty content a capture
+  // refresh leaves behind — see usePaneWidgetInfo, which floats share.
+  const widgetInfo = usePaneWidgetInfo(pane?.content);
 
   // Pane may not exist during transitions
   if (!pane) return null;
-
-  let widgetInfo = detectWidget(pane.content);
-  if (pane.content.length === 0) {
-    widgetInfo = lastWidgetInfoRef.current;
-  } else {
-    lastWidgetInfoRef.current = widgetInfo;
-  }
   // The Profiler sits INSIDE the memo boundary so a memo bail-out records
   // zero commits — it measures real pane work, not parent churn.
   if (widgetInfo) {

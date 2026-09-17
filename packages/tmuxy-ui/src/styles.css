@@ -1461,6 +1461,169 @@
   font-style: italic;
 }
 
+/* The switcher, hosted by the detached overlay rather than by a float pane.
+   It needs a bounded box: the widget fills its container, and the overlay card
+   is sized by its content, so without this there is no height to fill. */
+.connection-overlay-detached .widget-session {
+  width: min(380px, 80vw);
+  max-height: min(320px, 50vh);
+  margin-top: var(--spacing-lg);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--term-background);
+  text-align: left;
+}
+
+/* ============================================
+   Session switcher (the `session` widget)
+   ============================================ */
+
+.widget-session {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: var(--spacing-lg) 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--term-foreground);
+}
+
+.widget-session-heading {
+  padding: 0 var(--spacing-2xl);
+  margin-bottom: var(--spacing-sm);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+}
+
+.widget-session-heading:not(:first-child) {
+  margin-top: var(--spacing-lg);
+}
+
+.widget-session-list {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+/* One row per session or server. The name leads; everything trailing it is
+   metadata and recedes, matching the sidebar tree's weighting. */
+.widget-session-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  height: var(--line-height-terminal);
+  padding: 0 var(--spacing-2xl);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.widget-session-row:hover {
+  background: var(--accent-blue-bg);
+}
+
+.widget-session-row.is-selected {
+  background: var(--accent-blue-bg-hover);
+}
+
+/* Where the client is attached now — the same green the tree uses for "you
+   are here", so the two surfaces agree. */
+.widget-session-row.is-current {
+  color: var(--accent-green);
+}
+
+.widget-session-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.widget-session-meta {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.widget-session-empty {
+  padding: 0 var(--spacing-2xl);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* The verbs, pinned under the list. */
+.widget-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-lg);
+  margin-top: auto;
+  padding: var(--spacing-lg) var(--spacing-2xl) 0;
+  border-top: 1px solid var(--border-medium);
+  font-size: 0.85em;
+  color: var(--text-subtle);
+}
+
+.widget-session-actions kbd {
+  padding: 0 var(--spacing-sm);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-medium);
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+/* The connect form: one field for [user@]host[:port], one for the socket.
+   Everything else — keys, ProxyJump, ports, 2FA — is ssh's job, read from
+   the user's own ~/.ssh/config. */
+.widget-session-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-2xl);
+}
+
+.widget-session-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs, 2px);
+}
+
+.widget-session-field label {
+  font-size: 0.85em;
+  color: var(--text-subtle);
+}
+
+.widget-session-field input {
+  padding: var(--spacing-sm);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-dark);
+  color: var(--term-foreground);
+  font: inherit;
+}
+
+.widget-session-field input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+}
+
+.widget-session-hint {
+  font-size: 0.85em;
+  color: var(--text-subtle);
+}
+
+.widget-session-error {
+  padding: 0 var(--spacing-2xl);
+  color: var(--accent-red, #e06c75);
+  font-size: 0.85em;
+}
+
 /* ============================================
    Markdown rendering (the browser widget's markdown view)
    ============================================ */

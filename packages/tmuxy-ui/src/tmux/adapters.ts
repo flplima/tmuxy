@@ -10,6 +10,7 @@ import {
   LogListener,
   LogEntryKind,
   FatalListener,
+  DetachedListener,
   ClipboardListener,
   ServerState,
   StateUpdate,
@@ -41,6 +42,7 @@ export class TauriAdapter implements TmuxAdapter {
   private themeSettingsListeners = new Set<ThemeSettingsListener>();
   private logListeners = new Set<LogListener>();
   private fatalListeners = new Set<FatalListener>();
+  private detachedListeners = new Set<DetachedListener>();
   private clipboardListeners = new Set<ClipboardListener>();
 
   // Delta protocol state
@@ -113,11 +115,16 @@ export class TauriAdapter implements TmuxAdapter {
           this.notifyStateChange(newState);
         }
 
-        // A successful state update means we're connected
-        if (!this.connected) {
-          this.connected = true;
-        }
-        if (this.reconnectingState) {
+        // A successful state update means we're connected — and is the ONLY
+        // signal that a deliberate detach has ended. The detach path leaves
+        // both flags false (see the `tmux-detached` listener), the monitor
+        // parks, and a user reconnect revives it with no `tmux-error` in
+        // between; gating the recovery notice on `reconnectingState` alone
+        // therefore never fired, and the app stayed blurred behind the
+        // detached overlay over a perfectly live connection.
+        const wasDown = !this.connected || this.reconnectingState;
+        this.connected = true;
+        if (wasDown) {
           this.reconnectingState = false;
           this.reconnectAttempt = 0;
           this.notifyReconnection(false, 0);
@@ -165,6 +172,16 @@ export class TauriAdapter implements TmuxAdapter {
         this.notifyFatal(event.payload.message);
       });
       this.unlistenFns.push(unlistenFatal);
+
+      // The connection ended with tmux's own reason. A deliberate detach is
+      // NOT a failure: clearing `reconnectingState` here is what stops the
+      // adapter presenting it as a retry.
+      const unlistenDetached = await listen<{ reason: string | null }>('tmux-detached', (event) => {
+        this.connected = false;
+        this.reconnectingState = false;
+        this.notifyDetached(event.payload.reason ?? null);
+      });
+      this.unlistenFns.push(unlistenDetached);
 
       // Listen for errors (emitted by monitor.rs on connection failure)
       const unlistenError = await listen<string>('tmux-error', (event) => {
@@ -359,6 +376,11 @@ export class TauriAdapter implements TmuxAdapter {
     return () => this.fatalListeners.delete(listener);
   }
 
+  onDetached(listener: DetachedListener): () => void {
+    this.detachedListeners.add(listener);
+    return () => this.detachedListeners.delete(listener);
+  }
+
   onClipboard(listener: ClipboardListener): () => void {
     this.clipboardListeners.add(listener);
     return () => this.clipboardListeners.delete(listener);
@@ -396,6 +418,10 @@ export class TauriAdapter implements TmuxAdapter {
 
   private notifyFatal(message: string) {
     this.fatalListeners.forEach((listener) => listener(message));
+  }
+
+  private notifyDetached(reason: string | null) {
+    this.detachedListeners.forEach((listener) => listener(reason));
   }
 
   private notifyError(error: string) {

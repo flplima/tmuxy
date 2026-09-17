@@ -10,6 +10,7 @@ import {
   LogListener,
   LogEntryKind,
   FatalListener,
+  DetachedListener,
   ClipboardListener,
   ServerState,
   StateUpdate,
@@ -89,6 +90,7 @@ export class HttpAdapter implements TmuxAdapter {
   private themeSettingsListeners = new Set<ThemeSettingsListener>();
   private logListeners = new Set<LogListener>();
   private fatalListeners = new Set<FatalListener>();
+  private detachedListeners = new Set<DetachedListener>();
   private clipboardListeners = new Set<ClipboardListener>();
   private fatal = false;
 
@@ -394,6 +396,19 @@ export class HttpAdapter implements TmuxAdapter {
       // Backend gave up reconnecting — terminal state, no more events. Flip the
       // flag the retry `while` predicate checks so the loop stops instead of
       // reconnecting into a dead backend, then end the connection.
+      // The connection ended with tmux's own reason. Deliberately does NOT set
+      // `this.fatal`: that flag stops the retry loop for good, and a detach is
+      // something the user steps back from by reconnecting.
+      es.addEventListener('detached', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const reason = (data.data?.reason ?? data.reason ?? null) as string | null;
+          this.notifyDetached(reason);
+        } catch (e) {
+          console.error('Failed to parse detached event:', e);
+        }
+      });
+
       es.addEventListener('fatal', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
@@ -649,6 +664,11 @@ export class HttpAdapter implements TmuxAdapter {
     return () => this.fatalListeners.delete(listener);
   }
 
+  onDetached(listener: DetachedListener): () => void {
+    this.detachedListeners.add(listener);
+    return () => this.detachedListeners.delete(listener);
+  }
+
   onClipboard(listener: ClipboardListener): () => void {
     this.clipboardListeners.add(listener);
     return () => this.clipboardListeners.delete(listener);
@@ -811,6 +831,10 @@ export class HttpAdapter implements TmuxAdapter {
 
   private notifyFatal(message: string): void {
     this.fatalListeners.forEach((listener) => listener(message));
+  }
+
+  private notifyDetached(reason: string | null): void {
+    this.detachedListeners.forEach((listener) => listener(reason));
   }
 
   private notifyClipboard(paneId: string, text: string): void {

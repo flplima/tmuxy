@@ -184,6 +184,8 @@ Commands:
                 from stdin. --color-filter recolours a page or an image
                 into the theme's colours.
   tree          Display the tabs+panes tree (the left sidebar's content)
+  session       Switch, rename, kill or detach the session; connect to
+                another tmux socket, locally or over SSH
 EOF
 }
 
@@ -695,6 +697,13 @@ BEOF
         --help|-h) echo "Usage: tmuxy widget tree"; return ;;
       esac
       exec "$SCRIPTS_DIR/tmuxy-widget-tree"
+      ;;
+
+    session)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy widget session"; return ;;
+      esac
+      exec "$SCRIPTS_DIR/tmuxy-widget-session"
       ;;
 
     --help|-h)

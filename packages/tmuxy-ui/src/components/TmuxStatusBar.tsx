@@ -205,13 +205,16 @@ export function TmuxStatusBar() {
       ? 'localhost'
       : window.location.hostname || 'localhost';
 
+  // The switcher covers connecting now — same float, one surface for "which
+  // session" and "which server" rather than two prompts that knew nothing of
+  // each other.
   const handleHostClick = isDemo
     ? undefined
     : () => {
         if (isTauri()) {
-          send({ type: 'OPEN_CONNECT_FLOAT' });
+          send({ type: 'OPEN_SESSION_FLOAT' });
         } else {
-          send({ type: 'NOTIFY', text: 'SSH only available in desktop app' });
+          send({ type: 'NOTIFY', text: 'Connecting to another server needs the desktop app' });
         }
       };
 

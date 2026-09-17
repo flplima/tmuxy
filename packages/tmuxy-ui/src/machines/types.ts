@@ -215,6 +215,34 @@ export interface GitRepository {
 }
 
 /**
+ * SSH details for a remote tmux server — the wire shape of
+ * `tmuxy-core/src/servers.rs`.
+ *
+ * Deliberately thin. tmuxy runs the system `ssh` binary rather than speaking
+ * the protocol itself, so `~/.ssh/config` supplies User, Port, IdentityFile,
+ * ProxyJump, agent and 2FA behaviour for free; `host` can be any alias that
+ * file defines. `options` is the escape hatch for a raw flag.
+ */
+export interface TmuxSshConfig {
+  host: string;
+  user?: string | null;
+  port?: number | null;
+  options?: string | null;
+}
+
+/** A saved tmux server: a socket on this machine, or one reached over SSH. */
+export interface TmuxServer {
+  id: string;
+  label: string;
+  kind: 'local' | 'ssh';
+  ssh?: TmuxSshConfig | null;
+  /** tmux socket name (`-L`), or a path when it contains a `/` (`-S`). */
+  socket: string;
+  /** Preferred session to attach to on this server, if any. */
+  session?: string | null;
+}
+
+/**
  * One tmux session as shown in the sidebar's sessions→tabs→panes tree.
  *
  * Populated by the `serversActor` poll (`list-windows -a` / `list-panes -a`) on
@@ -484,6 +512,13 @@ export interface AppMachineContext {
    * for SSH-backed servers (their pane paths are remote).
    */
   repositories: GitRepository[];
+  /**
+   * Saved tmux servers (localhost plus anything added through the session
+   * switcher) and which one is attached. Empty on web, which has no server
+   * list of its own — see {@link ServersUpdatedEvent}.
+   */
+  servers: TmuxServer[];
+  currentServerId: string | null;
 }
 
 // ============================================
@@ -899,7 +934,6 @@ export type AppBlurEvent = { type: 'APP_BLUR' };
 // Session events
 export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string };
 export type OpenSessionFloatEvent = { type: 'OPEN_SESSION_FLOAT' };
-export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
 export type SessionSwitchRequestedEvent = {
   type: 'SESSION_SWITCH_REQUESTED';
   sessionName: string;
@@ -914,6 +948,42 @@ export type GitRepositoriesUpdatedEvent = {
   type: 'GIT_REPOSITORIES_UPDATED';
   repositories: GitRepository[];
 };
+/**
+ * The saved tmux servers this client can attach to, from the same poll.
+ *
+ * Desktop only: `list_servers` is a Tauri command reading
+ * `~/.config/tmuxy/servers.json`, so a web client (which always uses the
+ * socket it was launched against) simply never receives this.
+ */
+export type ServersUpdatedEvent = {
+  type: 'SERVERS_UPDATED';
+  servers: TmuxServer[];
+  /** Which of them the app is attached to right now. */
+  currentServerId: string | null;
+};
+/**
+ * Attach to a saved server by id — a different socket on this machine, or one
+ * reached over SSH. The backend retargets the live monitor (socket, ssh and
+ * session) without relaunching the app.
+ */
+export type ConnectServerEvent = { type: 'CONNECT_SERVER'; serverId: string };
+/**
+ * Save a server the user typed into the switcher, then attach to it.
+ *
+ * `dest` is the whole form — `[user@]host[:port]`, empty for this machine —
+ * because the system `ssh` binary reads everything else from `~/.ssh/config`.
+ * The backend parses it, so both this and the `tmuxy connect` TUI mint the
+ * same id for the same host.
+ */
+export type AddServerEvent = { type: 'ADD_SERVER'; dest: string; socket?: string };
+/** Detach this client, leaving the tmux server and its sessions running. */
+export type DetachClientEvent = { type: 'DETACH_CLIENT' };
+/**
+ * The backend reports the connection ended. `reason` is tmux's own `%exit`
+ * text — `detached` when the user detached on purpose, which the UI answers
+ * with the session switcher over a blurred layout rather than a retry.
+ */
+export type TmuxDetachedEvent = { type: 'TMUX_DETACHED'; reason: string | null };
 
 // Display settings events
 export type IncreaseFontSizeEvent = { type: 'INCREASE_FONT_SIZE' };
@@ -1122,10 +1192,14 @@ export type AppMachineEvent =
   | PrefixModeChangeEvent
   | SwitchSessionEvent
   | OpenSessionFloatEvent
-  | OpenConnectFloatEvent
   | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
   | GitRepositoriesUpdatedEvent
+  | ServersUpdatedEvent
+  | ConnectServerEvent
+  | AddServerEvent
+  | DetachClientEvent
+  | TmuxDetachedEvent
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent
   | ResetFontSizeEvent

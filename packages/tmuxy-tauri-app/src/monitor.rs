@@ -84,6 +84,14 @@ pub struct MonitorState {
     /// connection is interrupted with a graceful `Shutdown` so the loop gets
     /// there promptly. See [`request_reconnect`].
     pub pending_reconnect: Arc<RwLock<Option<ConnectTarget>>>,
+    /// Set by `detach_client`: the user asked to step away, so when the
+    /// connection ends the loop must PARK rather than reconnect.
+    ///
+    /// Without it a detach is indistinguishable from a flap — the loop sees a
+    /// healthy connection end, resets its counters and reattaches, putting the
+    /// user straight back in the session they just left. Cleared when a
+    /// deliberate reconnect revives the monitor.
+    pub detached: Arc<RwLock<bool>>,
 }
 
 /// Ask the running monitor to drop its current connection and reconnect to a
@@ -94,6 +102,26 @@ pub struct MonitorState {
 pub async fn request_reconnect(monitor_state: &MonitorState, target: ConnectTarget) {
     if let Ok(mut guard) = monitor_state.pending_reconnect.write() {
         *guard = Some(target);
+    }
+    // Attaching somewhere is the end of being detached — without this the
+    // loop would park again the moment the new connection ended.
+    if let Ok(mut guard) = monitor_state.detached.write() {
+        *guard = false;
+    }
+    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    if let Some(tx) = cmd_tx {
+        let _ = tx.send(MonitorCommand::Shutdown).await;
+    }
+}
+
+/// Detach this client: mark the monitor detached, then close the connection
+/// gracefully. `run()` returns, the loop sees the flag and parks instead of
+/// reconnecting, and the frontend gets `%exit detached` through
+/// `emit_disconnected`. A later [`request_reconnect`] clears the flag and
+/// revives the parked loop.
+pub async fn request_detach(monitor_state: &MonitorState) {
+    if let Ok(mut guard) = monitor_state.detached.write() {
+        *guard = true;
     }
     let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
     if let Some(tx) = cmd_tx {
@@ -163,6 +191,16 @@ impl StateEmitter for TauriEmitter {
         tmuxy_core::debug_log::log(&format!("[monitor ERR] {}", error));
         if let Err(e) = self.app.emit("tmux-error", &error) {
             eprintln!("Failed to emit error: {}", e);
+        }
+    }
+
+    /// The connection ended, carrying tmux's `%exit` reason. The frontend uses
+    /// it to tell a deliberate detach from a dropped link — the former shows
+    /// the session switcher, the latter retries.
+    fn emit_disconnected(&self, reason: Option<String>) {
+        let payload = serde_json::json!({ "reason": reason });
+        if let Err(e) = self.app.emit("tmux-detached", &payload) {
+            eprintln!("Failed to emit detached: {}", e);
         }
     }
 
@@ -347,6 +385,20 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
                     *guard = None;
                 }
 
+                // The user detached. Park instead of reconnecting: a healthy
+                // connection ending would otherwise reset the failure counters
+                // and reattach on the next pass, putting them straight back in
+                // the session they just stepped out of. The park loop already
+                // waits for a deliberate reconnect, which is exactly the
+                // revival the session switcher performs.
+                let detached = monitor_state.detached.read().map(|g| *g).unwrap_or(false);
+                if detached {
+                    tmuxy_core::debug_log::log("[monitor] detached by request — parking");
+                    emit_detached(&app);
+                    parked = true;
+                    continue;
+                }
+
                 // A `tmuxy connect` request drops the connection deliberately
                 // (via Shutdown). Loop straight back to apply the new target —
                 // this is not a failure, so skip the backoff/failure handling.
@@ -515,6 +567,21 @@ fn emit_fatal(app: &AppHandle, message: &str) {
     let payload = serde_json::json!({ "message": message });
     if let Err(e) = app.emit("tmux-fatal", &payload) {
         eprintln!("Failed to emit fatal: {}", e);
+    }
+}
+
+/// Tell the frontend this client detached, from the point where the loop parks.
+///
+/// NOT from the `%exit` arm, which is where this started: a control client that
+/// detaches ITSELF gets a bare `%exit` with no reason — verified against tmux
+/// 3.7c — and the loop has usually already returned by then, so that event may
+/// never be dispatched at all. Here the intent is known from
+/// `MonitorState.detached` rather than inferred from tmux's text, so it cannot
+/// be missed or mistaken for a dropped link.
+fn emit_detached(app: &AppHandle) {
+    let payload = serde_json::json!({ "reason": "detached" });
+    if let Err(e) = app.emit("tmux-detached", &payload) {
+        eprintln!("Failed to emit detached: {}", e);
     }
 }
 

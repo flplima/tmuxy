@@ -399,6 +399,12 @@ export type LogListener = (kind: LogEntryKind, message: string) => void;
 
 /** Terminal failure: backend has exhausted retries and stopped. */
 export type FatalListener = (message: string) => void;
+/**
+ * The connection ended, carrying tmux's own `%exit` reason (`detached` when
+ * the user detached deliberately). Separate from {@link FatalListener}: a
+ * detach is not a failure and must not be retried.
+ */
+export type DetachedListener = (reason: string | null) => void;
 
 export interface TmuxAdapter {
   connect(): Promise<void>;
@@ -417,6 +423,8 @@ export interface TmuxAdapter {
   onLog(listener: LogListener): () => void;
   /** Terminal failure — backend gave up reconnecting. No further events expected. */
   onFatal(listener: FatalListener): () => void;
+  /** Subscribe to connection-ended notices; see {@link DetachedListener}. */
+  onDetached?(listener: DetachedListener): () => void;
   /**
    * OSC 52 clipboard write request from a terminal application. Optional —
    * adapters that don't implement it are treated as "no clipboard plumbing"

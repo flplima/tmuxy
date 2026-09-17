@@ -13,6 +13,8 @@ import React, { useCallback } from 'react';
 import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
+import { getWidget } from './widgets';
+import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
 import {
   useAppSend,
@@ -46,12 +48,25 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   );
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const isFocused = focusedFloatPaneId === floatState.paneId;
+  // A float can hold a widget too — the session switcher opens as one. Same
+  // classification the tiled panes use, so a marker never renders as text.
+  const widgetInfo = usePaneWidgetInfo(pane?.content);
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
 
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
+
+  // A widget in a float writes to its pane the same way one in a tiled pane
+  // does (see WidgetPane) — the browser widget's forms need it, and a widget
+  // should not care which surface is hosting it.
+  const writeStdin = useCallback(
+    (data: string) => {
+      send({ type: 'WRITE_TO_PANE', paneId: floatState.paneId, data });
+    },
+    [send, floatState.paneId],
+  );
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -110,20 +125,12 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
           style={{ width: floatWidth, height: terminalHeight }}
           onClick={handleClick}
         >
-          <Terminal
-            content={pane.content}
-            cursorX={pane.cursorX}
-            cursorY={pane.cursorY}
-            isActive={isFocused}
-            height={terminalRows}
-            inMode={pane.inMode}
-            copyCursorX={pane.copyCursorX}
-            copyCursorY={pane.copyCursorY}
-            width={pane.width}
-            selectionPresent={pane.selectionPresent}
-            selectionStartX={pane.selectionStartX}
-            selectionStartY={pane.selectionStartY}
-            cursorShape={pane.cursorShape}
+          <FloatBody
+            pane={pane}
+            widgetInfo={widgetInfo}
+            isFocused={isFocused}
+            terminalRows={terminalRows}
+            onWriteStdin={writeStdin}
           />
         </div>
       </Modal>
@@ -160,24 +167,73 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
           <PaneHeader paneId={floatState.paneId} isFloat onFloatClose={handleClose} />
         )}
         <div className="float-content" style={{ height: floatState.height }}>
-          <Terminal
-            content={pane.content}
-            cursorX={pane.cursorX}
-            cursorY={pane.cursorY}
-            isActive={isFocused}
-            height={terminalRows}
-            inMode={pane.inMode}
-            copyCursorX={pane.copyCursorX}
-            copyCursorY={pane.copyCursorY}
-            width={pane.width}
-            selectionPresent={pane.selectionPresent}
-            selectionStartX={pane.selectionStartX}
-            selectionStartY={pane.selectionStartY}
-            cursorShape={pane.cursorShape}
+          <FloatBody
+            pane={pane}
+            widgetInfo={widgetInfo}
+            isFocused={isFocused}
+            terminalRows={terminalRows}
+            onWriteStdin={writeStdin}
           />
         </div>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * What a float draws inside its content box: the widget its pane declared, or
+ * the terminal.
+ *
+ * Deliberately NOT `WidgetPane`. That wraps the widget in its own
+ * `pane-wrapper` at `height: 100%` with its own `PaneHeader` — but a float
+ * already draws a header and sizes its body itself, so reusing it would give
+ * the float two headers and a box fighting the float's fixed height.
+ */
+function FloatBody({
+  pane,
+  widgetInfo,
+  isFocused,
+  terminalRows,
+  onWriteStdin,
+}: {
+  pane: TmuxPane;
+  widgetInfo: PaneWidgetInfo;
+  isFocused: boolean;
+  terminalRows: number;
+  onWriteStdin: (data: string) => void;
+}) {
+  const definition = widgetInfo ? getWidget(widgetInfo.widgetName) : undefined;
+  if (widgetInfo && definition) {
+    const WidgetComponent = definition.component;
+    return (
+      <WidgetComponent
+        paneId={pane.tmuxId}
+        widgetName={widgetInfo.widgetName}
+        lines={widgetInfo.contentLines}
+        lastLine={widgetInfo.contentLines.filter((l) => l.trim()).pop() || ''}
+        rawContent={pane.content}
+        writeStdin={onWriteStdin}
+        width={pane.width}
+        height={pane.height}
+      />
+    );
+  }
+  return (
+    <Terminal
+      content={pane.content}
+      cursorX={pane.cursorX}
+      cursorY={pane.cursorY}
+      isActive={isFocused}
+      height={terminalRows}
+      inMode={pane.inMode}
+      copyCursorX={pane.copyCursorX}
+      copyCursorY={pane.copyCursorY}
+      width={pane.width}
+      selectionPresent={pane.selectionPresent}
+      selectionStartX={pane.selectionStartX}
+      selectionStartY={pane.selectionStartY}
+      cursorShape={pane.cursorShape}
+    />
   );
 }
 

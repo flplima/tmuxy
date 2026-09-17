@@ -18,6 +18,7 @@ import { RightSidebar } from './components/RightSidebar';
 import { TabOverview } from './components/TabOverview';
 import { GestureStage } from './components/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
+import { TmuxySession } from './components/widgets/session/TmuxySession';
 import {
   useAppSelector,
   useAppSend,
@@ -51,6 +52,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const cellMetrics = useAppSelector(selectCellMetrics);
   const isConnecting = useAppState('connecting');
   const isReconnecting = useAppState('reconnecting');
+  const isDetached = useAppState('detached');
   const tabOverviewOpen = useAppSelector((ctx) => ctx.tabOverviewOpen);
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const cursorBlink = useAppSelector(selectCursorBlink);
@@ -105,14 +107,18 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // backend gave up) wins, then a dropped channel, then the first connection.
   // The layout, once shown, stays mounted underneath as the blurred last
   // snapshot — even through a fatal, so a Retry has something to come back to.
+  // `detached` sits above `reconnecting`: the user asked to step away, and
+  // presenting that as a retry is the thing comparable clients get wrong.
   const overlayMode: ConnectionOverlayMode | null =
     fatalError != null
       ? 'fatal'
-      : isReconnecting
-        ? 'reconnecting'
-        : !showLayout
-          ? 'connecting'
-          : null;
+      : isDetached
+        ? 'detached'
+        : isReconnecting
+          ? 'reconnecting'
+          : !showLayout
+            ? 'connecting'
+            : null;
   const retry = useCallback(() => window.location.reload(), []);
 
   // Always render .app-container so containerRef is attached and ResizeObserver
@@ -166,7 +172,11 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
               fatalError={fatalError}
               log={log}
               onRetry={retry}
-            />
+            >
+              {/* Detached: the way back in. The same widget the switcher float
+                  runs, here over the blurred session the user stepped out of. */}
+              <TmuxySession />
+            </ConnectionOverlay>
           )}
         </div>
         {showLayout && <RightSidebar />}

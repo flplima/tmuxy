@@ -467,6 +467,14 @@ export const appMachine = setup({
     GIT_REPOSITORIES_UPDATED: {
       actions: assign(({ event }) => ({ repositories: event.repositories })),
     },
+    // Saved servers, from the same poll. Desktop only — a web client never
+    // receives this, so the switcher shows it no server list.
+    SERVERS_UPDATED: {
+      actions: assign(({ event }) => ({
+        servers: event.servers,
+        currentServerId: event.currentServerId,
+      })),
+    },
     // OSC 52 clipboard write request from a terminal application. Mirror it
     // into the system clipboard via navigator.clipboard. Fire-and-forget —
     // a denied permission shouldn't break the rest of the machine. Updates
@@ -617,6 +625,48 @@ export const appMachine = setup({
     // Theme events (global — work in any state)
     // Theme + font-size events — handled by uiPrefsState (see spread at end of on:)
 
+    // Attach to a saved server: another socket on this machine, or one reached
+    // over SSH. Desktop only — `connect_server` is a Tauri command, and it
+    // retargets the live monitor rather than relaunching, so there is no
+    // session teardown to do here: the reconnect delivers a fresh snapshot the
+    // same way a cold start does.
+    CONNECT_SERVER: {
+      actions: sendTo('tmux', ({ event }) => ({
+        type: 'INVOKE' as const,
+        cmd: 'connect_server',
+        args: { id: event.serverId },
+      })),
+    },
+
+    // Save a typed connection. The poll picks the new server up on its next
+    // pass, so the switcher lists it without asking for it back.
+    ADD_SERVER: {
+      actions: sendTo('tmux', ({ event }) => ({
+        type: 'INVOKE' as const,
+        cmd: 'add_server',
+        args: { dest: event.dest, socket: event.socket ?? null },
+      })),
+    },
+
+    // Detach this client. The tmux server and every session keep running; the
+    // user comes back with the switcher.
+    DETACH_CLIENT: {
+      // Not a bare `detach-client`: the backend must know this was deliberate,
+      // or its monitor reattaches on the next pass and the user lands back in
+      // the session they just stepped out of.
+      actions: sendTo('tmux', {
+        type: 'INVOKE' as const,
+        cmd: 'detach_client',
+      }),
+    },
+
+    // The connection ended. `detached` means the user asked for it, so the UI
+    // shows the switcher over the blurred layout instead of retrying.
+    TMUX_DETACHED: {
+      target: '.detached',
+      actions: assign({ connected: false, enableAnimations: false }),
+    },
+
     // Session events (global — work in any state)
     SWITCH_SESSION: {
       actions: enqueueActions(({ event, enqueue }) => {
@@ -658,7 +708,7 @@ export const appMachine = setup({
         });
       }),
     },
-    // OPEN_SESSION_FLOAT, OPEN_CONNECT_FLOAT — handled by groupsAndFloatsGlobalEvents
+    // OPEN_SESSION_FLOAT — handled by groupsAndFloatsGlobalEvents
     SESSION_SWITCH_REQUESTED: {
       actions: enqueueActions(({ event, enqueue }) => {
         enqueue(({ self }) => {
@@ -2049,6 +2099,43 @@ export const appMachine = setup({
               totalHeight: transformed.totalHeight,
             };
           }),
+        },
+      },
+    },
+
+    /**
+     * The user detached. Distinct from `reconnecting` (which retries) and from
+     * `disconnected` (which is terminal): the tmux server and every session are
+     * still running, and stepping back in is a deliberate act.
+     *
+     * The layout stays mounted underneath so the overlay blurs the session the
+     * user just left, with the switcher on top. The three events below are the
+     * ways out — attaching to a server, switching session, or the backend
+     * reporting a connection again after a revive.
+     */
+    detached: {
+      on: {
+        TMUX_CONNECTED: {
+          target: 'idle',
+          actions: assign({ connected: true, error: null }),
+        },
+        // What a reattach actually looks like. TMUX_CONNECTED fires once, from
+        // the tmux actor's initial `connect()`, so it never comes again for a
+        // monitor that parked and revived — the adapter reports the revival as
+        // a recovery instead, once server state starts flowing.
+        TMUX_RECONNECTED: {
+          target: 'idle',
+          actions: assign({ connected: true, reconnectAttempt: 0, error: null }),
+        },
+        TMUX_STATE_UPDATE: {
+          actions: sendTo('tmuxStore', ({ event }) => ({
+            type: 'RECONCILE_SERVER' as const,
+            state: event.state,
+          })),
+        },
+        TMUX_RECONNECTING: {
+          target: 'reconnecting',
+          actions: assign(({ event }) => ({ reconnectAttempt: event.attempt })),
         },
       },
     },

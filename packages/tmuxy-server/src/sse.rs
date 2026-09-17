@@ -141,6 +141,10 @@ impl StateEmitter for SseEmitter {
         self.send_event(&SseEvent::Error { message: error });
     }
 
+    fn emit_disconnected(&self, reason: Option<String>) {
+        self.send_event(&SseEvent::Detached { reason });
+    }
+
     fn on_initial_sync_complete(&self) {
         // Broadcast keybindings now that config has been sourced and settings enforced.
         let keybindings = KeyBindings::current();
@@ -229,6 +233,12 @@ enum SseEvent {
     Log { kind: LogKind, message: String },
     #[serde(rename = "fatal")]
     Fatal { message: String },
+    /// The control-mode connection ended, with tmux's own `%exit` reason when
+    /// it gave one (`detached` when the client was detached deliberately).
+    /// Distinct from `tmux-error` so a client can tell an intentional detach
+    /// from a dropped link and stop presenting one as the other.
+    #[serde(rename = "detached")]
+    Detached { reason: Option<String> },
     /// OSC 52 clipboard request from a terminal application.
     /// Frontend mirrors the text into the system clipboard via navigator.clipboard.
     #[serde(rename = "clipboard")]

@@ -100,6 +100,19 @@ pub trait StateEmitter: super::log::LogSink {
     /// Called when an error occurs
     fn emit_error(&self, error: String);
 
+    /// Called when the control-mode connection ended, with tmux's own reason
+    /// (`%exit [reason]`) when it gave one — `detached` for a client that was
+    /// detached deliberately.
+    ///
+    /// This is what lets a client tell "you detached" from "the link died".
+    /// Without it both arrive as `emit_error` and the UI has to treat an
+    /// intentional detach as a failure to retry, which is the single
+    /// most-complained-about behaviour in comparable terminal clients.
+    ///
+    /// Defaulted so emitters that do not care (the test doubles) are
+    /// unaffected, exactly as `store_images` is.
+    fn emit_disconnected(&self, _reason: Option<String>) {}
+
     /// Called when new images are decoded from terminal output.
     /// Default implementation discards images (for emitters that don't need them).
     fn store_images(&self, _pane_id: &str, _images: Vec<(u32, super::images::StoredImage)>) {}
@@ -638,6 +651,11 @@ impl TmuxMonitor {
     ) -> bool {
         let event = match event {
             Some(ControlModeEvent::Exit { reason }) => {
+                // Carry tmux's own reason before it is collapsed: `%exit
+                // detached` means the user detached, and a client that cannot
+                // tell that from a dropped link has to present a deliberate
+                // detach as a failure to retry.
+                emitter.emit_disconnected(reason.clone());
                 let msg = reason.unwrap_or_else(|| "disconnected".to_string());
                 warn!(reason = %msg, "control mode exit event");
                 emitter.emit_error(format!("Control mode exited: {}", msg));

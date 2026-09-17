@@ -1294,6 +1294,8 @@ pub fn run() {
             // live-reconnect to one (localhost socket switch or remote SSH).
             commands::list_servers,
             commands::connect_server,
+            commands::add_server,
+            commands::detach_client,
             // Local action tracing (docs/TELEMETRY.md): the frontend tracer
             // queries `trace_enabled` and ships batches to `record_trace`.
             commands::trace_enabled,

@@ -3960,8 +3960,8 @@ mod tests {
     #[test]
     fn list_panes_parses_group_id() {
         let mut agg = StateAggregator::new();
-        // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,GID
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5");
+        // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,GID,STATE
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,");
         assert_eq!(
             agg.panes
                 .get("%3")
@@ -3972,7 +3972,7 @@ mod tests {
         );
 
         // Empty tail → no group.
-        agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,");
+        agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,");
         assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
     }
 
@@ -3996,7 +3996,7 @@ mod tests {
     fn stash_members_emit_stubs_only_for_active_groups() {
         let mut agg = StateAggregator::new();
         // Visible member of g5 in window @4.
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5");
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,");
         // Hidden member of g5, plus an orphan in g6 (no visible member).
         agg.handle_command_response(
             "stashmember,%7,@9,g5,vim,hidden-title\nstashmember,%8,@9,g6,top,orphan",
@@ -4669,13 +4669,17 @@ mod marked_pane_tests {
     #[test]
     fn list_panes_carries_the_marked_flag() {
         let mut agg = StateAggregator::new();
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,");
+        agg.parse_list_panes_line(
+            "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,",
+        );
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert!(pane.marked);
         assert_eq!(pane.title, "a, title");
         assert_eq!(pane.history_size, 100);
 
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,0,0,0,0,100,");
+        agg.parse_list_panes_line(
+            "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,0,0,0,0,100,,",
+        );
         assert!(!agg.panes.get("%3").expect("pane parsed").marked);
     }
 }
