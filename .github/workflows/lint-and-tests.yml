@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# No job here writes to the repository: nothing uses GITHUB_TOKEN, and
+# uploading an artifact does not need write access to the contents.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
