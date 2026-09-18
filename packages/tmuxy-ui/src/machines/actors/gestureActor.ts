@@ -118,8 +118,15 @@ export function createGestureActor() {
       if (!swipe) return;
       if (swipe.timer != null) clearTimeout(swipe.timer);
       const speed = swipe.liftSpeed;
+      // Seed the coast with the step the slide ended on. The momentum tail
+      // starts near that size and decays, so this is what the "fingers are back
+      // on the pad" test below has to beat. Starting from 0 meant the FIRST
+      // tail step always won it (any step >= SWIPE_RESTART_STEP beats 0), which
+      // restarted a slide the instant one committed: the grid jumped back to
+      // where the incoming tab started and re-ran its whole finishing
+      // animation, in plain view.
+      coastStep = Math.abs(swipe.prev);
       swipe = null;
-      coastStep = 0;
       cooldownUntil = performance.now() + SWIPE_COOLDOWN_MS;
       send({ type: 'GESTURE_SWIPE_END', speed });
     };

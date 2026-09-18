@@ -19,7 +19,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
 import { SWIPE_COOLDOWN_MS } from '../machines/actors/gestureActor';
-import { SWIPE_EDGE_LIMIT_SHARE } from '../utils/gestures';
+import { SWIPE_COMMIT_SHARE, SWIPE_EDGE_LIMIT_SHARE } from '../utils/gestures';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/Trackpad Gestures',
@@ -35,6 +35,8 @@ interface AppActor {
       activeWindowId: string | null;
       activePaneId: string | null;
       tabOverviewOpen: boolean;
+      /** The pane area's width — what a slide's commit share is measured against. */
+      containerWidth: number;
       gesture: unknown;
       windows: Array<{ id: string; index: number; windowType: string | null; zoomed?: boolean }>;
       panes: Array<{ tmuxId: string; windowId: string }>;
@@ -83,6 +85,27 @@ async function wheelSteps(el: Element, steps: number[], init: WheelEventInit = {
   }
 }
 const repeat = (step: number, n: number) => Array.from({ length: n }, () => step);
+
+/**
+ * Wheel steps that pull the grid `px` to the right (fingers moving right), in a
+ * fixed, small number of steps.
+ *
+ * Long in distance, short in time, because a loaded machine breaks this test
+ * two different ways and they pull against each other. What a release commits
+ * to is `dx + speed × SWIPE_PROJECT_MS`, and `speed` is px per ms BETWEEN wheel
+ * events — one per animation frame here — so a fixed step SIZE reads as a
+ * slower gesture on a busy runner and lands on the other side of the commit
+ * share. Distance is the part a test can hold still. But spreading that
+ * distance over many more steps is worse, not better: one frame stalling longer
+ * than SWIPE_IDLE_MS ends the slide mid-push, and the steps after it are a
+ * second slide.
+ *
+ * So: the same number of frames a slide always took, each step simply longer.
+ * Fewer still would be worse in another way — the cursor overlay eases toward
+ * the panes, so a slide crammed into half the frames is measured while the
+ * cursor is still catching up.
+ */
+const slideSteps = (px: number, count = 16) => repeat(-Math.ceil(px / count), count);
 
 /** A WebKit gesture event (Safari, the desktop app's WKWebView) over `el`. */
 function webkitGesture(el: Element, type: string, scale: number): Event {
@@ -166,8 +189,9 @@ export const SlideBetweenTabs: Story = {
     const cursorStart = cursorLeft();
 
     // Fingers slide right: the grid moves with them, "main" alongside at the
-    // same height, the cursor with it, and nothing has switched yet.
-    await wheelSteps(logsPane, repeat(-24, 16));
+    // same height, the cursor with it, and nothing has switched yet. Far enough
+    // that the DISTANCE alone is past the commit share (see slideSteps).
+    await wheelSteps(logsPane, slideSteps(ctx().containerWidth * SWIPE_COMMIT_SHARE * 1.3));
     const moved = logsPane.getBoundingClientRect();
     expect(moved.left - rest.left).toBeGreaterThan(300);
     expect(mainPane.classList).toContain('pane-swipe-neighbor');
@@ -223,7 +247,14 @@ export const SlideBetweenTabs: Story = {
     // A flick that lifts short of half way: the momentum tail says the fingers
     // are off and how fast they were going, and that carries it to "logs".
     await pause(SWIPE_COOLDOWN_MS);
-    await wheelSteps(mainPane, [44, 44, 44, 40, 26, 15, 8, 4]);
+    // Sized from the pane area, so the tail still reads as a flick however far
+    // apart the frames land: it stops well short of the commit share on
+    // distance, and only the speed it lifts at carries it to "logs".
+    const flick = Math.round(ctx().containerWidth * 0.08);
+    await wheelSteps(
+      mainPane,
+      [1, 1, 1, 0.9, 0.6, 0.34, 0.18, 0.09].map((share) => Math.round(flick * share)),
+    );
     await waitFor(() => expect(ctx().activeWindowId).toBe(logs.id));
     await waitFor(() => expect(settled()).toBe(true));
   },
