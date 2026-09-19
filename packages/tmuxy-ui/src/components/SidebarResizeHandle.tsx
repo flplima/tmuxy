@@ -25,6 +25,7 @@ import {
   useAppSelector,
   selectCharSize,
   selectSidebarCellMetrics,
+  useReadOnly,
 } from '../machines/AppContext';
 import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../machines/constants';
 import { Tooltip } from './Tooltip';
@@ -48,6 +49,7 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
   // The dock is sized in its own (smaller) cells; the tree column in pane cells.
   const charWidth = side === 'right' ? dock.cellWidth : paneCharWidth;
   const [dragging, setDragging] = useState(false);
+  const readOnly = useReadOnly();
   // Read inside the move/up handlers; lastCols is -1 until the first change.
   const dragRef = useRef({ startX: 0, startWidth: width, lastCols: -1 });
 
@@ -109,7 +111,7 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
     [send, side],
   );
 
-  if (!windowId) return null;
+  if (!windowId || readOnly) return null;
 
   return (
     <Tooltip label="Drag to resize · double-click for the default width">

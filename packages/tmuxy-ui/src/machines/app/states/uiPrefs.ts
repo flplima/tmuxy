@@ -14,20 +14,22 @@
  * conversion lands, this state's on: will become its dedicated region's on:.
  */
 
+import { notReadOnly } from '../readOnlyGuard';
+
 export const uiPrefsState = {
   on: {
     SET_THEME: { actions: 'uiPrefs_applyTheme' },
     SET_THEME_MODE: { actions: 'uiPrefs_applyThemeMode' },
     THEME_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptThemeSettings' },
-    TOGGLE_CURSOR_BLINK: { actions: 'uiPrefs_toggleCursorBlink' },
+    TOGGLE_CURSOR_BLINK: { guard: notReadOnly, actions: 'uiPrefs_toggleCursorBlink' },
     THEMES_LIST_RECEIVED: { actions: 'uiPrefs_setAvailableThemes' },
     INCREASE_FONT_SIZE: { actions: 'uiPrefs_increaseFontSize' },
     DECREASE_FONT_SIZE: { actions: 'uiPrefs_decreaseFontSize' },
     RESET_FONT_SIZE: { actions: 'uiPrefs_resetFontSize' },
     FETCH_TRACE_SETTINGS: { actions: 'uiPrefs_fetchTraceSettings' },
     TRACE_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptTraceSettings' },
-    SET_TRACE_ENABLED: { actions: 'uiPrefs_setTraceEnabled' },
-    SET_TRACE_LEVEL: { actions: 'uiPrefs_setTraceLevel' },
+    SET_TRACE_ENABLED: { guard: notReadOnly, actions: 'uiPrefs_setTraceEnabled' },
+    SET_TRACE_LEVEL: { guard: notReadOnly, actions: 'uiPrefs_setTraceLevel' },
     OPEN_TRACE_FILE: { actions: 'uiPrefs_openTraceFile' },
   },
 } as const;

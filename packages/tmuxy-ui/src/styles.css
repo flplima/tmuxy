@@ -534,6 +534,13 @@
   inset: 0 12px 4px;
 }
 
+/* Read-only: the pane area is zoomed to fit (PaneFit in App.tsx). Covers the
+   container's padding box, as .pane-layout's own inset expects. */
+.pane-fit {
+  position: absolute;
+  inset: 0;
+}
+
 .pane-layout-item {
   overflow: hidden;
   /* Every pane paints the theme's terminal background at its own alpha
@@ -960,6 +967,14 @@
 
 .pane-tab:hover {
   color: var(--text-secondary);
+}
+
+/* A group member a read-only client can see listed but not bring into view. */
+.pane-tab-disabled,
+.pane-tab-disabled:hover {
+  color: inherit;
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* Selected tab in a group (but pane not active) */

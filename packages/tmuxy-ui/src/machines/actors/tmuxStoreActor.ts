@@ -28,6 +28,7 @@ import type { TmuxOp } from '../../tmux/store/types';
 import type { ServerState } from '../../tmux/types';
 import { parseCommandToOp } from '../../tmux/store/parseCommand';
 import { tracer } from '../../tmux/tracer';
+import { isInputCommand, READ_ONLY_NOTICE } from '../../tmux/readOnly';
 
 /** Extract only content-free id/direction fields from a typed op for the trace.
  * Deliberately excludes `RenameWindow.name` and any free text. */
@@ -112,6 +113,11 @@ export function createTmuxStoreActor(store: TmuxStore) {
           const failure = Cause.failureOption(exit.cause);
           if (failure._tag === 'Some') {
             const e = failure.value;
+            if (e._tag === 'OpBlockedReadOnly') {
+              if (!isInputCommand(e.command))
+                parent.send({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
+              return;
+            }
             // Trace the failure by its typed code — never the stderr text.
             tracer.event({ layer: 'effect', name: 'fail', code: e._tag });
             const reason =

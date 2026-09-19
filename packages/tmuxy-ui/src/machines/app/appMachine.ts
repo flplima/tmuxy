@@ -12,6 +12,8 @@
  *   - resizeMachine: idle/resizing, spawns pointer listener
  */
 
+import { READ_ONLY_NOTICE } from '../../tmux/readOnly';
+import { notReadOnly } from './readOnlyGuard';
 import {
   setup,
   assign,
@@ -554,6 +556,7 @@ export const appMachine = setup({
           rows: context.totalHeight,
         });
         const shouldResize =
+          !context.readOnly &&
           context.connected &&
           grid.cols > 0 &&
           (event.cols !== grid.cols || event.rows !== grid.rows);
@@ -608,6 +611,7 @@ export const appMachine = setup({
     CONNECTION_INFO: {
       actions: assign(({ event }) => ({
         defaultShell: event.defaultShell,
+        readOnly: event.readOnly,
       })),
     },
 
@@ -617,6 +621,7 @@ export const appMachine = setup({
     // so the "+" button and tab menu items pick up the same optimistic
     // prediction + reconciliation path that the prefix+c keybinding gets.
     CREATE_TAB: {
+      guard: notReadOnly,
       actions: enqueueActions(({ enqueue }) => {
         enqueue.raise({ type: 'SEND_TMUX_COMMAND', command: 'new-window' });
       }),
@@ -651,6 +656,7 @@ export const appMachine = setup({
     // Detach this client. The tmux server and every session keep running; the
     // user comes back with the switcher.
     DETACH_CLIENT: {
+      guard: notReadOnly,
       // Not a bare `detach-client`: the backend must know this was deliberate,
       // or its monitor reattaches on the next pass and the user lands back in
       // the session they just stepped out of.
@@ -968,7 +974,7 @@ export const appMachine = setup({
             // Detect float removal — check for session switch env var
             const prevFloatCount = Object.keys(context.floatPanes).length;
             const newFloatCount = Object.keys(floatPanes).length;
-            if (prevFloatCount > 0 && newFloatCount < prevFloatCount) {
+            if (!context.readOnly && prevFloatCount > 0 && newFloatCount < prevFloatCount) {
               enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
             }
 
@@ -1148,7 +1154,7 @@ export const appMachine = setup({
             // option and we act on it here, then clear it so the next poll
             // doesn't replay it. Acting is idempotent, which is what makes the
             // window between the two harmless.
-            if (transformed.focusRequest) {
+            if (transformed.focusRequest && !context.readOnly) {
               const request = transformed.focusRequest;
               if (request === 'left') enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
               else if (request === 'right') enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
@@ -1169,6 +1175,7 @@ export const appMachine = setup({
             for (const newPane of transformed.panes) {
               const prevPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
               if (
+                !context.readOnly &&
                 newPane.inMode &&
                 (!prevPane || !prevPane.inMode) &&
                 !context.copyModeStates[newPane.tmuxId]
@@ -1351,7 +1358,7 @@ export const appMachine = setup({
             // so SELECT_TAB can restore focus to the right pane on return.
             const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
             for (const pane of transformed.panes) {
-              if (pane.active && pane.windowId) {
+              if (!context.readOnly && pane.active && pane.windowId) {
                 lastActivePaneByWindow[pane.windowId] = pane.tmuxId;
               }
             }
@@ -1435,6 +1442,7 @@ export const appMachine = setup({
               rows: transformed.totalHeight,
             });
             const shouldResize =
+              !context.readOnly &&
               context.targetCols > 0 &&
               context.targetRows > 0 &&
               (context.targetCols !== grid.cols || context.targetRows !== grid.rows);
@@ -1522,6 +1530,10 @@ export const appMachine = setup({
 
             // Intercept command-prompt — enter client-side command mode
             if (tail.match(/^command-prompt\b/)) {
+              if (context.readOnly) {
+                enqueue.raise({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
+                return;
+              }
               const parsed = parseCommandPrompt(tail, context);
               enqueue(
                 assign({
@@ -1676,6 +1688,7 @@ export const appMachine = setup({
         },
         // Drag Events - Forward to drag machine with full context
         DRAG_START: {
+          guard: notReadOnly,
           actions: [
             assign(({ event, context }) => {
               const pane = context.panes.find((p) => p.tmuxId === event.paneId);
@@ -1734,6 +1747,7 @@ export const appMachine = setup({
 
         // Resize Events - Forward to resize machine with full context
         RESIZE_START: {
+          guard: notReadOnly,
           actions: sendTo('resizeLogic', ({ event, context }) => ({
             ...event,
             panes: context.panes,
@@ -1850,6 +1864,10 @@ export const appMachine = setup({
 
             // Intercept command-prompt — enter client-side command mode
             if (tail.match(/^command-prompt\b/)) {
+              if (context.readOnly) {
+                enqueue.raise({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
+                return;
+              }
               const parsed = parseCommandPrompt(tail, context);
               enqueue(
                 assign({
@@ -1916,6 +1934,7 @@ export const appMachine = setup({
         // actor's activePaneId tracks the user's intent (so a Ctrl+C typed
         // right after the click doesn't land in the previously-visible pane).
         SELECT_PANE_GROUP_TAB: {
+          guard: notReadOnly,
           actions: enqueueActions(({ event, context, enqueue }) => {
             const clickedPaneId = event.paneId;
 

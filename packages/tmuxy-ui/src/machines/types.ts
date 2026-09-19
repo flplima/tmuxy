@@ -315,6 +315,11 @@ export interface AppMachineContext {
   cellGap: number;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
+  /**
+   * The server runs `--read-only`: this client watches the session and keeps
+   * its own tab and pane focus, and tmux is never told anything.
+   */
+  readOnly: boolean;
   /** Tmux status line with ANSI escape codes */
   statusLine: string;
   /** Container dimensions for centering calculations */
@@ -660,6 +665,7 @@ export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
   connectionId: number;
   defaultShell: string;
+  readOnly: boolean;
 };
 export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
 

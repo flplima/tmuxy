@@ -7,7 +7,7 @@
  */
 
 import { useRef, useEffect, useState, useCallback, memo } from 'react';
-import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
+import { useAppSend, usePane, usePaneGroup, useReadOnly } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
@@ -32,6 +32,7 @@ const PaneTab = memo(function PaneTab({
   widgetName,
   renaming,
   onRenameEnd,
+  disabled,
   onClick,
   onContextMenu,
 }: {
@@ -44,6 +45,8 @@ const PaneTab = memo(function PaneTab({
   renaming: boolean;
   /** The new title, or null if the edit was abandoned. */
   onRenameEnd: (name: string | null) => void;
+  /** Shown but not selectable: a parked group member, to a client that cannot swap it in. */
+  disabled: boolean;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
@@ -52,8 +55,9 @@ const PaneTab = memo(function PaneTab({
 
   return (
     <div
-      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''}`}
-      onClick={onClick}
+      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''} ${disabled ? 'pane-tab-disabled' : ''}`}
+      onClick={disabled ? undefined : onClick}
+      aria-disabled={disabled}
       onContextMenu={onContextMenu}
       role="tab"
       aria-selected={isSelectedTab}
@@ -109,6 +113,7 @@ export function PaneHeader({
   onFloatClose,
 }: PaneHeaderProps) {
   const send = useAppSend();
+  const readOnly = useReadOnly();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -140,16 +145,20 @@ export function PaneHeader({
     }
   }, [activePaneId]);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, targetPaneId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({
-      visible: true,
-      x: e.clientX,
-      y: e.clientY,
-      targetPaneId,
-    });
-  }, []);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, targetPaneId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (readOnly) return;
+      setContextMenu({
+        visible: true,
+        x: e.clientX,
+        y: e.clientY,
+        targetPaneId,
+      });
+    },
+    [readOnly],
+  );
 
   const handleMenuClick = useCallback(
     (e: React.MouseEvent) => {
@@ -199,7 +208,7 @@ export function PaneHeader({
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.tagName === 'BUTTON') return;
+    if (target.tagName === 'BUTTON' || readOnly) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -354,6 +363,9 @@ export function PaneHeader({
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
+              // A parked member has no content on the wire; showing it takes a
+              // swap in tmux, which a read-only client cannot ask for.
+              disabled={readOnly && !isSelectedTab}
               renaming={renamingPaneId === tabPane.tmuxId}
               onRenameEnd={(name) => {
                 setRenamingPaneId(null);
@@ -370,24 +382,28 @@ export function PaneHeader({
           );
         })}
       </div>
-      <Tooltip label="Pane menu">
-        <button className="pane-header-menu" onClick={handleMenuClick} aria-label="Pane menu">
-          ⋮
-        </button>
-      </Tooltip>
-      <Tooltip label="Close pane">
-        <button
-          className="pane-header-close"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isFloat) onFloatClose?.();
-            else handleClosePane(e);
-          }}
-          aria-label="Close pane"
-        >
-          ✕
-        </button>
-      </Tooltip>
+      {!readOnly && (
+        <>
+          <Tooltip label="Pane menu">
+            <button className="pane-header-menu" onClick={handleMenuClick} aria-label="Pane menu">
+              ⋮
+            </button>
+          </Tooltip>
+          <Tooltip label="Close pane">
+            <button
+              className="pane-header-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isFloat) onFloatClose?.();
+                else handleClosePane(e);
+              }}
+              aria-label="Close pane"
+            >
+              ✕
+            </button>
+          </Tooltip>
+        </>
+      )}
       {contextMenu.visible && (
         <PaneContextMenu
           paneId={contextMenu.targetPaneId}

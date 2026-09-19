@@ -45,6 +45,7 @@ import {
   selectVisibleWindows,
   selectTabDrop,
   selectAnimationsAllowed,
+  useReadOnly,
 } from '../machines/AppContext';
 import { TabContextMenu } from './TabContextMenu';
 import { haptics } from '../utils/haptics';
@@ -96,6 +97,7 @@ interface DragState {
  */
 export const WindowTabs = memo(function WindowTabs() {
   const send = useAppSend();
+  const readOnly = useReadOnly();
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
   const tabDrop = useAppSelector(selectTabDrop);
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
@@ -133,11 +135,15 @@ export const WindowTabs = memo(function WindowTabs() {
     [send],
   );
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, windowId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId });
-  }, []);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, windowId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (readOnly) return;
+      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId });
+    },
+    [readOnly],
+  );
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false }));
@@ -299,7 +305,7 @@ export const WindowTabs = memo(function WindowTabs() {
     dismissPreview();
     const tab = visibleWindows[index];
     // A lone tab is the desktop window's drag handle, not a control.
-    if (!tab || isSingleTab || e.button !== 0) return;
+    if (!tab || isSingleTab || readOnly || e.button !== 0) return;
     // A tab being renamed is a field, not a thing to drag.
     if (renamingId === tab.id) return;
     if ((e.target as HTMLElement).closest('button')) return;

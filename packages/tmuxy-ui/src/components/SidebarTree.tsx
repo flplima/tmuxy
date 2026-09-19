@@ -47,6 +47,7 @@ import {
   selectPanes,
   selectSessions,
   selectRepositories,
+  useReadOnly,
 } from '../machines/AppContext';
 import { splitTabLabel, getTabIcon } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
@@ -177,6 +178,7 @@ function StateBadge({ state }: { state: PaneStateName }) {
 
 export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boolean }) {
   const send = useAppSend();
+  const readOnly = useReadOnly();
   const windows = useAppSelectorShallow(selectVisibleWindows);
   const panes = useAppSelectorShallow(selectPanes);
   const sessions = useAppSelectorShallow(selectSessions);
@@ -495,10 +497,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // menu's own keys) go to the menu rather than to the pane behind the column.
   const openMenu = useCallback(
     (state: Exclude<MenuState, null>) => {
+      if (readOnly) return;
       setMenu(state);
       send({ type: 'FOCUS_LEFT_SIDEBAR' });
     },
-    [send],
+    [send, readOnly],
   );
 
   // Keep the keyboard cursor in view: a long tree scrolls inside the column,
@@ -714,7 +717,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             data-pane-id={row.pane.tmuxId}
             data-pane-state={state}
             data-testid={`tree-pane-${row.pane.tmuxId}`}
-            draggable
+            draggable={!readOnly}
             onClick={() => activate(row)}
             onContextMenu={(e) => {
               e.preventDefault();

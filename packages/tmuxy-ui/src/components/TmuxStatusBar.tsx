@@ -21,6 +21,7 @@ import {
   selectKeyBindings,
   selectPrefixActive,
   selectActivePaneCopyMode,
+  useReadOnly,
 } from '../machines/AppContext';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { isTauri } from '../tmux/adapters';
@@ -183,6 +184,7 @@ export function TmuxStatusBar() {
   const prefixActive = useAppSelector(selectPrefixActive);
   const inCopyMode = useAppSelector(selectActivePaneCopyMode);
   const send = useAppSend();
+  const readOnly = useReadOnly();
   const { isDemo } = useAppConfig();
 
   const gridPixelWidth = totalWidth * charWidth;
@@ -208,17 +210,19 @@ export function TmuxStatusBar() {
   // The switcher covers connecting now — same float, one surface for "which
   // session" and "which server" rather than two prompts that knew nothing of
   // each other.
-  const handleHostClick = isDemo
-    ? undefined
-    : () => {
-        if (isTauri()) {
-          send({ type: 'OPEN_SESSION_FLOAT' });
-        } else {
-          send({ type: 'NOTIFY', text: 'Connecting to another server needs the desktop app' });
-        }
-      };
+  const handleHostClick =
+    isDemo || readOnly
+      ? undefined
+      : () => {
+          if (isTauri()) {
+            send({ type: 'OPEN_SESSION_FLOAT' });
+          } else {
+            send({ type: 'NOTIFY', text: 'Connecting to another server needs the desktop app' });
+          }
+        };
 
-  const handleSessionClick = isDemo ? undefined : () => send({ type: 'OPEN_SESSION_FLOAT' });
+  const handleSessionClick =
+    isDemo || readOnly ? undefined : () => send({ type: 'OPEN_SESSION_FLOAT' });
 
   // Center area: only show status messages (temporary display-message output).
   // The tmux status line content is not displayed — we use hardcoded hints (left)

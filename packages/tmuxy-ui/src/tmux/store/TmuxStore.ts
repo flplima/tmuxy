@@ -30,12 +30,13 @@ import {
   generateOpId,
   makePendingOp,
   rollbackOp,
+  setViewFocus,
   type RollbackEntry,
 } from './model';
 import type { PredictContext } from './ops';
 import { predict } from './ops';
 import type { OpError, OpId, PendingOp, TmuxClientModel, TmuxOp, TmuxSnapshot } from './types';
-import { EMPTY_MODEL, OpRejectedByTmux, OpTransportError } from './types';
+import { EMPTY_MODEL, OpBlockedReadOnly, OpRejectedByTmux, OpTransportError } from './types';
 
 export interface DispatchOptions {
   /** Override the predict-time context (defaults to last-known values). */
@@ -130,7 +131,16 @@ export interface TmuxStore {
 /** Per-store config the appMachine wires in. */
 export interface TmuxStoreConfig {
   readonly adapter: EffectTmuxAdapter;
+  /**
+   * Whether the session is read-only, asked at each dispatch (the adapter only
+   * learns it once connected). A read-only store sends tmux nothing: a focus
+   * op moves this client's own view, and every other op is refused unpredicted.
+   */
+  readonly isReadOnly?: () => boolean;
 }
+
+/** The ops that only move focus — all a read-only client can act on, and only locally. */
+const VIEW_OPS: ReadonlySet<TmuxOp['_tag']> = new Set(['SelectWindow', 'SelectPane', 'Navigate']);
 
 export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore> {
   return Effect.gen(function* () {
@@ -251,8 +261,40 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
         return opId;
       });
 
+    /**
+     * Read-only focus: where `op` would move the focus becomes this client's
+     * view. A pane in another tab takes the view to that tab; a pane in a
+     * float or a sidebar leaves it alone, since those take the keyboard
+     * without tmux's focus moving at all.
+     */
+    const moveView = (op: TmuxOp): void => {
+      const model = Effect.runSync(Ref.get(ref));
+      const ctx = Effect.runSync(Ref.get(ctxRef));
+      const predicted = predict(op, model.derived, ctx, generateOpId());
+      if (!predicted) return;
+      const target = predicted.patch(model.derived);
+      const pane = target.panes.find((p) => p.tmuxId === target.activePaneId);
+      const paneWindow = target.windows.find((w) => w.id === pane?.windowId);
+      let windowId = target.activeWindowId;
+      if (paneWindow && paneWindow.id !== windowId) {
+        if (paneWindow.windowType !== 'tab') return;
+        windowId = paneWindow.id;
+      }
+      if (!windowId) return;
+      const next = Effect.runSync(
+        Ref.updateAndGet(ref, (m) => setViewFocus(m, { windowId, paneId: target.activePaneId })),
+      );
+      notify(next);
+    };
+
     const dispatch = (op: TmuxOp, opts?: DispatchOptions): Effect.Effect<OpId, OpError> =>
       Effect.suspend(() => {
+        if (config.isReadOnly?.()) {
+          const command = opts?.command ?? toTmuxCommand(op);
+          if (!VIEW_OPS.has(op._tag)) return Effect.fail(new OpBlockedReadOnly({ command }));
+          moveView(op);
+          return Effect.succeed(generateOpId());
+        }
         const { opId, command } = applyOptimistic(op, opts);
         return dispatchRemote(opId, command);
       });

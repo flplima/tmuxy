@@ -20,12 +20,14 @@
  * see the JSDoc on layoutActions for the explicit list.
  */
 
+import { notReadOnly } from '../readOnlyGuard';
+
 export const layoutState = {
   on: {
-    SEND_KEYS: { actions: 'layout_sendKeysToTmux' },
-    CLOSE_PANE: { actions: 'layout_closePane' },
-    ZOOM_PANE: { actions: 'layout_zoomPane' },
-    WRITE_TO_PANE: { actions: 'layout_writeToPane' },
+    SEND_KEYS: { guard: notReadOnly, actions: 'layout_sendKeysToTmux' },
+    CLOSE_PANE: { guard: notReadOnly, actions: 'layout_closePane' },
+    ZOOM_PANE: { guard: notReadOnly, actions: 'layout_zoomPane' },
+    WRITE_TO_PANE: { guard: notReadOnly, actions: 'layout_writeToPane' },
     SELECT_TAB: { actions: 'layout_selectTab' },
     KEY_PRESS: { actions: 'layout_forwardKeyToDragResize' },
     RESIZE_STATE_UPDATE: { actions: 'layout_applyResizeState' },

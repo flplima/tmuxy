@@ -19,25 +19,42 @@
  * layout). It will be revisited during the layout migration.
  */
 
+import { notReadOnly } from '../readOnlyGuard';
+
 export const groupsAndFloatsGlobalEvents = {
   SYNC_DOCK_ROWS: { actions: 'groupsAndFloats_syncDockRows' },
   SYNC_FLOAT_FOCUS: { actions: 'groupsAndFloats_syncFloatFocus' },
-  OPEN_SESSION_FLOAT: { actions: 'groupsAndFloats_openSessionFloat' },
-  TOGGLE_LEFT_SIDEBAR: { actions: 'groupsAndFloats_toggleLeftSidebar' },
+  OPEN_SESSION_FLOAT: {
+    guard: notReadOnly,
+    actions: 'groupsAndFloats_openSessionFloat',
+  },
+  TOGGLE_LEFT_SIDEBAR: {
+    guard: notReadOnly,
+    actions: 'groupsAndFloats_toggleLeftSidebar',
+  },
   TOGGLE_TAB_COLLAPSE: { actions: 'groupsAndFloats_toggleTabCollapse' },
   SIDEBAR_START_TIMEOUT: { actions: 'groupsAndFloats_sidebarStartTimeout' },
   SIDEBAR_MOTION_SETTLED: { actions: 'groupsAndFloats_sidebarMotionSettled' },
-  SIDEBAR_RESIZE_PREVIEW: { actions: 'groupsAndFloats_sidebarResizePreview' },
-  SIDEBAR_RESIZE_COMMIT: { actions: 'groupsAndFloats_sidebarResizeCommit' },
+  SIDEBAR_RESIZE_PREVIEW: {
+    guard: notReadOnly,
+    actions: 'groupsAndFloats_sidebarResizePreview',
+  },
+  SIDEBAR_RESIZE_COMMIT: {
+    guard: notReadOnly,
+    actions: 'groupsAndFloats_sidebarResizeCommit',
+  },
   SIDEBAR_PREVIEW_EXPIRE: { actions: 'groupsAndFloats_sidebarPreviewExpire' },
 } as const;
 
 export const groupsAndFloatsIdleEvents = {
-  CLOSE_FLOAT: { actions: 'groupsAndFloats_closeFloat' },
-  CLOSE_TOP_FLOAT: { actions: 'groupsAndFloats_closeTopFloat' },
+  CLOSE_FLOAT: { guard: notReadOnly, actions: 'groupsAndFloats_closeFloat' },
+  CLOSE_TOP_FLOAT: { guard: notReadOnly, actions: 'groupsAndFloats_closeTopFloat' },
   FOCUS_LEFT_SIDEBAR: { actions: 'groupsAndFloats_focusLeftSidebar' },
   BLUR_LEFT_SIDEBAR: { actions: 'groupsAndFloats_blurLeftSidebar' },
-  TOGGLE_RIGHT_SIDEBAR: { actions: 'groupsAndFloats_toggleRightSidebar' },
+  TOGGLE_RIGHT_SIDEBAR: {
+    guard: notReadOnly,
+    actions: 'groupsAndFloats_toggleRightSidebar',
+  },
   FOCUS_RIGHT_SIDEBAR: { actions: 'groupsAndFloats_focusRightSidebar' },
   BLUR_RIGHT_SIDEBAR: { actions: 'groupsAndFloats_blurRightSidebar' },
 } as const;

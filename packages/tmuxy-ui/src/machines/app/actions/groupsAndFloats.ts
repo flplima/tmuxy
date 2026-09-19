@@ -326,6 +326,7 @@ export const groupsAndFloatsActions = {
     never,
     never
   >(({ context, enqueue }) => {
+    if (context.readOnly) return;
     const dock = context.windows.find((w) => w.windowType === 'sidebar-right');
     const rows = selectDockRows(context);
     if (!dock || rows < 1) return;

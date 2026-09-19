@@ -145,7 +145,10 @@ export const copyModeActions = {
   copyMode_enter: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
       if (event.type !== 'ENTER_COPY_MODE') return;
-      const built = buildScrollbackState(context, event.paneId, 'copy', event);
+      // A read-only client cannot put the pane in tmux's copy mode, so the
+      // same request opens the scroll view, which tells tmux nothing.
+      const mode = context.readOnly ? 'scroll' : 'copy';
+      const built = buildScrollbackState(context, event.paneId, mode, event);
       if (!built) return;
 
       enqueue(
@@ -154,12 +157,14 @@ export const copyModeActions = {
         }),
       );
 
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `copy-mode -t ${event.paneId}`,
-        }),
-      );
+      if (!context.readOnly) {
+        enqueue(
+          sendTo('tmux', {
+            type: 'SEND_COMMAND' as const,
+            command: `copy-mode -t ${event.paneId}`,
+          }),
+        );
+      }
 
       enqueue(
         sendTo('tmux', {

@@ -266,6 +266,7 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
         working_dir,
+        observer: false,
     };
 
     // Reconnect with exponential backoff, bounded by MAX_CONSECUTIVE_FAILURES.

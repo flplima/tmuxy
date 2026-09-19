@@ -317,6 +317,20 @@
     color var(--transition-fast);
 }
 
+/* A read-only session says so where the tab actions would be. */
+.read-only-badge {
+  display: flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--bg-medium);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .tab-add:hover {
   color: var(--text-muted);
   background-color: var(--bg-medium);

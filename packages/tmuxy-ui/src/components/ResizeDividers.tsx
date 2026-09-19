@@ -16,7 +16,7 @@
  * therefore the keys) stays constant when only positions/orientations change.
  */
 
-import { useAppSend } from '../machines/AppContext';
+import { useAppSend, useReadOnly } from '../machines/AppContext';
 import type { PaneCellBox, TmuxPane } from '../machines/types';
 import { haptics } from '../utils/haptics';
 import { resizeLimits, isLocked } from '../machines/resize/limits';
@@ -175,6 +175,9 @@ export function ResizeDividers({
   centeringOffset,
 }: ResizeDividersProps) {
   const send = useAppSend();
+  const readOnly = useReadOnly();
+  // The layout is whoever writes' to change; a viewer gets no handles on it.
+  if (readOnly) return null;
   const { horizontal, vertical } = collectDividerSegments(panes);
   const dividers = resolveDividers(horizontal, vertical);
   const geometry: Record<string, PaneCellBox> = Object.fromEntries(

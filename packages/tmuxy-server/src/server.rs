@@ -22,7 +22,7 @@ pub struct ServerArgs {
     pub action: Option<ServerAction>,
 
     /// Port to listen on
-    #[arg(long, default_value = "9000")]
+    #[arg(long, default_value_t = DEFAULT_PORT)]
     pub port: u16,
 
     /// Address to listen on. The default is reachable from this machine only
@@ -49,6 +49,12 @@ pub struct ServerArgs {
     #[arg(long = "allowed-host", value_name = "HOST")]
     pub allowed_hosts: Vec<String>,
 
+    /// Serve viewers only: clients receive the state stream and navigate it
+    /// locally, but every mutating command is refused and no client can
+    /// resize the session. Also read from TMUXY_READ_ONLY.
+    #[arg(long)]
+    pub read_only: bool,
+
     /// Run in development mode (proxy to Vite dev server)
     #[arg(long)]
     pub dev: bool,
@@ -66,6 +72,14 @@ pub struct ServerArgs {
 fn resolve_password(flag: Option<String>) -> Option<String> {
     flag.or_else(|| std::env::var("TMUXY_PASSWORD").ok())
         .filter(|s| !s.is_empty())
+}
+
+/// The port `tmuxy server` listens on unless told otherwise.
+const DEFAULT_PORT: u16 = 9000;
+
+/// A boolean env switch: set to anything but an empty string or `0`.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| !v.is_empty() && v != "0")
 }
 
 /// Wrap the router in the Basic-auth layer when a password is configured.
@@ -216,14 +230,15 @@ pub async fn run(args: ServerArgs) {
                 };
             require_tmux();
             announce_trace(args.trace.clone(), dev_mode);
+            let read_only = args.read_only || env_flag("TMUXY_READ_ONLY");
             if dev_mode {
-                start_dev_server(args.port, listen, password).await
+                start_dev_server(args.port, listen, password, read_only).await
             } else {
-                start_server(args.port, listen, password).await
+                start_server(args.port, listen, password, read_only).await
             }
         }
-        Some(ServerAction::Stop) => stop_server(),
-        Some(ServerAction::Status) => server_status(),
+        Some(ServerAction::Stop) => stop_server(args.port),
+        Some(ServerAction::Status) => server_status(args.port),
         Some(ServerAction::Tree) => {
             if let Err(e) = crate::tree::run_tree_tui() {
                 eprintln!("tmuxy tree: {e}");
@@ -243,7 +258,12 @@ pub async fn run(args: ServerArgs) {
 }
 
 /// Start the development server with Vite and demo proxies
-async fn start_dev_server(requested_port: u16, listen: Listen, password: Option<String>) {
+async fn start_dev_server(
+    requested_port: u16,
+    listen: Listen,
+    password: Option<String>,
+    read_only: bool,
+) {
     // Honor PORT env (legacy) when present, otherwise fall back to the CLI arg.
     let port = std::env::var("PORT")
         .ok()
@@ -282,7 +302,7 @@ async fn start_dev_server(requested_port: u16, listen: Listen, password: Option<
     // direct "Add Pane to Group" menu commands resolve at the absolute
     // `$HOME/.config/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
     tmuxy_core::session::ensure_bin_scripts();
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::new().with_read_only(read_only));
 
     println!(
         "[dev] Starting Vite dev server on port {}...",
@@ -339,13 +359,13 @@ async fn start_dev_server(requested_port: u16, listen: Listen, password: Option<
 }
 
 /// Start the production server with embedded frontend assets
-async fn start_server(port: u16, listen: Listen, password: Option<String>) {
-    write_pid_file();
+async fn start_server(port: u16, listen: Listen, password: Option<String>, read_only: bool) {
+    write_pid_file(port);
     tmuxy_core::session::ensure_config();
     tmuxy_core::session::ensure_themes();
     tmuxy_core::session::ensure_bin_scripts();
 
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::new().with_read_only(read_only));
 
     let app = crate::state::api_routes(listen.policy.clone())
         .fallback(serve_embedded)
@@ -357,6 +377,9 @@ async fn start_server(port: u16, listen: Listen, password: Option<String>) {
 
     println!("tmuxy server running at http://{addr}");
     announce_security(&listen, password_set);
+    if read_only {
+        println!("tmuxy server: read-only — clients can watch the session, not change it");
+    }
 
     let listener = bind_with_retry(addr, 5).await;
 
@@ -367,7 +390,7 @@ async fn start_server(port: u16, listen: Listen, password: Option<String>) {
         error!(error = %e, "axum serve loop exited with error");
     }
 
-    remove_pid_file();
+    remove_pid_file(port);
 }
 
 /// Serve files from embedded frontend assets (SPA with index.html fallback)
@@ -435,25 +458,32 @@ fn mime_for_path(path: &str) -> &'static str {
 // PID file management
 // ============================================
 
-fn pid_file_path() -> std::path::PathBuf {
+/// One pid file per port, so a second server beside the first (a `--read-only`
+/// one for viewers, say) neither overwrites its pid nor gets stopped in its
+/// place. The default port keeps the historical name.
+fn pid_file_path(port: u16) -> std::path::PathBuf {
     let dir = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
         .join(".tmuxy");
     std::fs::create_dir_all(&dir).ok();
-    dir.join("tmuxy.pid")
+    if port == DEFAULT_PORT {
+        dir.join("tmuxy.pid")
+    } else {
+        dir.join(format!("tmuxy-{port}.pid"))
+    }
 }
 
-fn write_pid_file() {
+fn write_pid_file(port: u16) {
     let pid = std::process::id();
-    std::fs::write(pid_file_path(), pid.to_string()).ok();
+    std::fs::write(pid_file_path(port), pid.to_string()).ok();
 }
 
-fn remove_pid_file() {
-    std::fs::remove_file(pid_file_path()).ok();
+fn remove_pid_file(port: u16) {
+    std::fs::remove_file(pid_file_path(port)).ok();
 }
 
-fn read_pid_file() -> Option<u32> {
-    std::fs::read_to_string(pid_file_path())
+fn read_pid_file(port: u16) -> Option<u32> {
+    std::fs::read_to_string(pid_file_path(port))
         .ok()
         .and_then(|s| s.trim().parse().ok())
 }
@@ -468,12 +498,12 @@ fn is_process_alive(_pid: u32) -> bool {
     false
 }
 
-fn stop_server() {
-    match read_pid_file() {
+fn stop_server(port: u16) {
+    match read_pid_file(port) {
         Some(pid) => {
             if !is_process_alive(pid) {
                 println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file();
+                remove_pid_file(port);
                 return;
             }
 
@@ -484,7 +514,7 @@ fn stop_server() {
                 match signal::kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
                     Ok(_) => {
                         println!("Sent SIGTERM to server (pid {})", pid);
-                        remove_pid_file();
+                        remove_pid_file(port);
                     }
                     Err(e) => error!(pid, error = %e, "failed to stop server"),
                 }
@@ -497,14 +527,14 @@ fn stop_server() {
     }
 }
 
-fn server_status() {
-    match read_pid_file() {
+fn server_status(port: u16) {
+    match read_pid_file(port) {
         Some(pid) => {
             if is_process_alive(pid) {
                 println!("Server is running (pid {})", pid);
             } else {
                 println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file();
+                remove_pid_file(port);
             }
         }
         None => println!("Server is not running"),

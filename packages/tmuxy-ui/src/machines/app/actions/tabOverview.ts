@@ -21,8 +21,9 @@ import { isPlaceholderId, reorderCommand } from '../../../utils/tabOverview';
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
 
-/** Slot count including the trailing "+" slot. */
-const slotCount = (context: Ctx) => selectVisibleWindows(context).length + 1;
+/** Slot count including the trailing "+" slot — which a read-only client, with nothing to create, does not have. */
+const slotCount = (context: Ctx) =>
+  selectVisibleWindows(context).length + (context.readOnly ? 0 : 1);
 
 /** The slot of the current tab, where the keyboard cursor starts. */
 const activeSlot = (context: Ctx) => {

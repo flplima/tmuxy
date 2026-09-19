@@ -384,7 +384,12 @@ export type StateUpdate =
 
 export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
-export type ConnectionInfoListener = (connectionId: number, defaultShell: string) => void;
+export type ConnectionInfoListener = (
+  connectionId: number,
+  defaultShell: string,
+  /** The server runs `--read-only`: this client is a viewer. Absent on transports with no such mode. */
+  readOnly?: boolean,
+) => void;
 export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
 /**
  * OSC 52 clipboard request from a terminal application. The frontend mirrors
@@ -440,6 +445,11 @@ export interface TmuxAdapter {
    * be pointless churn. Gates the `serversActor` poll.
    */
   enumeratesSessions?: boolean;
+  /**
+   * The backend serves this client as a viewer (`tmuxy server --read-only`):
+   * it answers reads and refuses everything else. Known once connected.
+   */
+  readOnly?: boolean;
   /**
    * Run a tmux command and resolve with what it printed (`query_tmux`).
    *

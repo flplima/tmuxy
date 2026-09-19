@@ -20,6 +20,8 @@ import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
+import { isReadCommand, READ_ONLY_REASON } from './readOnly';
+import { Cancelled } from './effect/AdapterError';
 import { Effect, Fiber, Queue, Schedule } from 'effect';
 
 /**
@@ -58,7 +60,12 @@ function getSessionFromUrl(): string {
  * HTTP Adapter using SSE for server->client push and POST for client->server commands.
  */
 export class HttpAdapter implements TmuxAdapter {
-  readonly enumeratesSessions = true;
+  /** The server runs `--read-only`; known from the `connection-info` greeting. */
+  readOnly = false;
+  /** Enumerating sessions is a `query_tmux`, which a read-only server refuses. */
+  get enumeratesSessions(): boolean {
+    return !this.readOnly;
+  }
   private eventSource: EventSource | null = null;
   // The supervised reconnect fiber. One Effect.retry loop owns opening the
   // EventSource and reopening it with backoff, so there is never a rival
@@ -284,14 +291,15 @@ export class HttpAdapter implements TmuxAdapter {
           }
 
           const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
-          this.notifyConnectionInfo(this.connectionId, defaultShell);
+          this.readOnly = Boolean(data.data?.read_only ?? data.read_only);
+          this.notifyConnectionInfo(this.connectionId, defaultShell, this.readOnly);
 
           // Action tracing (docs/TELEMETRY.md): the server tells us whether it
           // is recording; only then do we ship our own events, and only through
           // the same-origin /trace sink. The server independently rejects when
           // off, so this is a hint, not the gate.
           const traceEnabled = data.data?.trace_enabled ?? data.trace_enabled ?? false;
-          tracer.setServerEnabled(!!traceEnabled);
+          tracer.setServerEnabled(!!traceEnabled && !this.readOnly);
           tracer.setSink((events) => this.shipTrace(events));
 
           this.resolveConnectWaiters();
@@ -462,6 +470,13 @@ export class HttpAdapter implements TmuxAdapter {
   }
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    if (this.readOnly) {
+      if (!isReadCommand(cmd)) throw new Cancelled({ reason: READ_ONLY_REASON });
+      // A viewer never reports its viewport: the session is sized to its
+      // smallest client, and that would shrink it under whoever writes.
+      if (cmd === 'get_initial_state') args = {};
+    }
+
     // Cache the client size so a seq-gap resync can refetch get_initial_state.
     if (
       (cmd === 'set_client_size' || cmd === 'get_initial_state') &&
@@ -510,6 +525,7 @@ export class HttpAdapter implements TmuxAdapter {
    * mutations use, so tmux itself keeps the order.
    */
   query(command: string): Promise<string> {
+    if (this.readOnly) return Promise.reject(new Cancelled({ reason: READ_ONLY_REASON }));
     return this.invokeInternal<string>('query_tmux', { command });
   }
 
@@ -544,6 +560,7 @@ export class HttpAdapter implements TmuxAdapter {
    * Send a command in order (serialized, but caller doesn't await)
    */
   private sendCommandFireAndForget(cmd: string, args: Record<string, unknown>): void {
+    if (this.readOnly) return;
     if (!this.connected) {
       console.warn('[HttpAdapter] Not connected, cannot send command');
       return;
@@ -719,7 +736,7 @@ export class HttpAdapter implements TmuxAdapter {
    */
   private resyncFullState(): void {
     if (this.resyncFiber) return; // single-flight: a resync is already running
-    if (this.lastCols === 0 || this.lastRows === 0) return;
+    if (!this.readOnly && (this.lastCols === 0 || this.lastRows === 0)) return;
     const program = Effect.tryPromise({
       try: () =>
         this.invoke<ServerState>('get_initial_state', {
@@ -809,8 +826,14 @@ export class HttpAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(connectionId: number, defaultShell: string): void {
-    this.connectionInfoListeners.forEach((listener) => listener(connectionId, defaultShell));
+  private notifyConnectionInfo(
+    connectionId: number,
+    defaultShell: string,
+    readOnly: boolean,
+  ): void {
+    this.connectionInfoListeners.forEach((listener) =>
+      listener(connectionId, defaultShell, readOnly),
+    );
   }
 
   private notifyReconnection(reconnecting: boolean, attempt: number): void {

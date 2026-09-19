@@ -7,7 +7,7 @@ This document describes how data moves through tmuxy in different deployment sce
 The web version uses two HTTP endpoints on the Axum server:
 
 **`GET /events?session=<name>`** — Server-Sent Events stream (server-to-client):
-- `connection-info` — Connection ID and default shell (sent on connect)
+- `connection-info` — Connection ID, default shell, and whether the server is read-only (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
 - `theme-settings` — Theme name/mode and appearance (surface opacities, blur flag) from tmux config; re-sent after a `source-file`
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
@@ -55,6 +55,10 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 6. Server stores the client size, computes the minimum viewport across all clients, and sends a resize command through the monitor's control mode connection
 7. Client receives full state snapshot, then incremental deltas as tmux state changes
 8. On disconnect: server removes the client, recomputes minimum viewport, and shuts down the monitor if no clients remain
+
+### Read-only servers
+
+Against a `tmuxy server --read-only` the lifecycle differs in one direction only: the client still opens the stream and still asks for `get_initial_state`, but without its viewport, and it never sends `set_client_size` — so steps 5 and 6 size nothing, and the viewer draws the grid the writing client sized, scaled down to fit its own window (`selectFitScale` in `tmuxy-ui/src/machines/selectors.ts`). Every other command is refused by the server and never sent by the client (`tmuxy-ui/src/tmux/readOnly.ts`, `HttpAdapter`). The sessions poll is a `query_tmux`, so a viewer's tree shows the attached session only. See [SECURITY.md](SECURITY.md#read-only-server).
 
 ## Connection Lifecycle (Tauri)
 

@@ -21,6 +21,7 @@ import {
   useAppSelector,
   selectSidebarLayout,
   selectRightSidebarPane,
+  useReadOnly,
 } from '../machines/AppContext';
 import { getTabText } from './paneTabDisplay';
 import { CONTAINER_PADDING_X } from '../constants';
@@ -64,6 +65,7 @@ export const StatusBar = memo(function StatusBar({
   const { leftOpen, rightOpen, overlay, leftWidth, rightWidth } =
     useAppSelector(selectSidebarLayout);
   const rightPane = useAppSelector(selectRightSidebarPane);
+  const readOnly = useReadOnly();
   const rightTitle = rightPane ? getTabText(rightPane) : 'shell';
 
   // On the desktop, mousedown on empty bar space hands the click to the OS as
@@ -115,6 +117,11 @@ export const StatusBar = memo(function StatusBar({
             and a button that comes and goes must not push the ones that
             do not. */}
         <TabStripScroll />
+        {readOnly && (
+          <span className="read-only-badge" role="status">
+            Read-only
+          </span>
+        )}
         <NewTabButton />
         <TabOverviewToggle />
       </div>

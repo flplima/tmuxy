@@ -12,7 +12,7 @@ Tmuxy assumes:
 - **Single user** per deployment (no multi-tenant access control)
 - **Trusted network** (localhost, LAN behind firewall, or VPN)
 - **Server runs as the same user** who owns the tmux session
-- **All connected clients are equally trusted** (no per-client permissions)
+- **All clients of one server are equally trusted** (no per-client permissions) — a server is either writable by everyone it serves or, with `--read-only`, by no one (see [Read-Only Server](#read-only-server))
 
 It does **not** assume the user's browser is trusted: the same browser that has tmuxy open visits other sites, and any of them can try to send requests to the tmuxy server. See [Cross-Origin Requests](#cross-origin-requests).
 
@@ -43,6 +43,18 @@ tmuxy server --host 0.0.0.0 --password 'your-secret'      # or on the command li
 When a password is set, **every** route — the frontend, `/events` (SSE), `/commands`, and all `/api/*` endpoints — requires HTTP Basic auth. The browser shows a native login prompt on first load; enter **any username** and the configured password (only the password is checked). Once entered, the browser caches the credentials and attaches them automatically to the SSE stream and every request. The password is compared in constant time, and unauthenticated requests get a `401` with a `WWW-Authenticate` challenge.
 
 Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credentials are base64, not encrypted; combine it with an SSH tunnel, VPN, or a TLS-terminating reverse proxy.
+
+### Read-Only Server
+
+`tmuxy server --read-only` (or `TMUXY_READ_ONLY=1`) serves viewers: every client receives the state stream and none can change the session. It is a property of the server process, not of a client or a URL, so there is nothing for a client to drop or forge. To share a session for watching, run a second server on its own port beside the one you write through (each port keeps its own pid file, so `tmuxy server --port N stop` stops the right one).
+
+What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`:
+
+- **Refuses every command that is not a read** with a 403, decided before dispatch from `ClientCommand::is_read` — state, scrollback, themes, git worktrees and trace settings are reads; everything else is not, including `query_tmux`, which carries an arbitrary tmux command that nothing here can classify.
+- **Never records a client's viewport**, so a viewer's small window cannot resize the session under whoever is writing, and its monitor attaches without the initial resize (`MonitorConfig::observer`).
+- **Refuses `/trace`** and announces the mode in the `connection-info` greeting, which is how the frontend knows to stop offering changes.
+
+What it does not do: it is not confidentiality. A viewer reads everything on screen and in scrollback, and the file routes stay readable. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server.
 
 ### Behind a Reverse Proxy
 
@@ -229,13 +241,14 @@ Implemented:
 - **Optional HTTP Basic auth** — `--password` / `TMUXY_PASSWORD` gates every route
 - **Cross-origin guard** — Fetch Metadata, `Origin` and `Host` checks on every API route; no CORS headers
 - **Sandboxed file routes** — served HTML never runs with the server's origin
+- **Read-only server** — `--read-only` serves viewers that cannot send input, run commands or resize the session
 
 Not yet implemented, but would improve the security posture:
 
 - **Bearer token auth** — token-based auth as an alternative to Basic
 - **TLS support** — Built-in HTTPS with certificate configuration
 - **Command allowlisting** — Restrict which tmux commands clients can execute
-- **Read-only mode** — View terminal output without command execution
+- **Per-client permissions** — writers and viewers on one server, instead of one server per role
 - **Audit logging** — Log all commands and client connections
 - **Path restrictions** — Limit `/api/file` and `/api/browse` to specific directories
 - **Rate limiting** — Prevent command flooding and password guessing

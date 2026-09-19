@@ -30,6 +30,7 @@ import {
   selectCharSize,
   selectContainerSize,
   selectAnimationsAllowed,
+  useReadOnly,
 } from '../machines/AppContext';
 import { Tooltip } from './Tooltip';
 import { slotBoxes } from '../utils/tabOverview';
@@ -79,6 +80,7 @@ export function TabPreview({
   onActivate,
 }: TabPreviewProps) {
   const send = useAppSend();
+  const readOnly = useReadOnly();
   const panes = useAppSelectorShallow(selectPanes);
   const animations = useAppSelector(selectAnimationsAllowed);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
@@ -163,21 +165,23 @@ export function TabPreview({
       {/* Its own row above the picture, so it sits in the card's padding
           rather than over the thing you are looking at. */}
       <div className="tab-preview-bar">
-        <Tooltip label="Close tab">
-          <button
-            type="button"
-            className="tab-preview-close"
-            aria-label={`Close ${card.label}`}
-            data-testid="tab-preview-close"
-            onClick={(e) => {
-              // The one thing in the card that is not "open this tab".
-              e.stopPropagation();
-              send({ type: 'CLOSE_TAB', windowId: card.windowId });
-            }}
-          >
-            ✕
-          </button>
-        </Tooltip>
+        {!readOnly && (
+          <Tooltip label="Close tab">
+            <button
+              type="button"
+              className="tab-preview-close"
+              aria-label={`Close ${card.label}`}
+              data-testid="tab-preview-close"
+              onClick={(e) => {
+                // The one thing in the card that is not "open this tab".
+                e.stopPropagation();
+                send({ type: 'CLOSE_TAB', windowId: card.windowId });
+              }}
+            >
+              ✕
+            </button>
+          </Tooltip>
+        )}
       </div>
       <div className="tab-preview-frame" aria-hidden="true">
         <TabShot

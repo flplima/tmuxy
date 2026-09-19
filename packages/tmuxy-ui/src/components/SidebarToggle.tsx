@@ -11,7 +11,12 @@
  * terminal).
  */
 
-import { useAppSend, useAppSelector, selectSidebarLayout } from '../machines/AppContext';
+import {
+  useAppSend,
+  useAppSelector,
+  selectSidebarLayout,
+  useReadOnly,
+} from '../machines/AppContext';
 import { SidebarGlyph } from './SidebarColumn';
 import { Tooltip } from './Tooltip';
 
@@ -36,6 +41,8 @@ export function SidebarToggle({ side }: SidebarToggleProps) {
   const shown = side === 'left' ? layout.leftOpen : layout.rightOpen;
   const suppressed = open && !shown;
   const labels = LABELS[side];
+  const readOnly = useReadOnly();
+  if (readOnly) return null;
 
   return (
     <Tooltip

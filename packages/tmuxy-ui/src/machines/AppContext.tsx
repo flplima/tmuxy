@@ -24,6 +24,7 @@ import {
   selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
   selectIsSinglePane as selectIsSinglePaneFn,
   selectPaneGroupForPane,
+  selectReadOnly,
   selectPaneGroupPanes as selectPaneGroupPanesFn,
   getActivePaneInGroup,
 } from './selectors';
@@ -93,6 +94,7 @@ export {
   selectIsPaneInActiveWindow,
   selectIsSinglePane,
   selectContainerSize,
+  selectFitScale,
   selectEnableAnimations,
   selectSuppressLayoutTransition,
   selectPaneKeyOverrides,
@@ -143,7 +145,12 @@ export function AppProvider({
   // a passive mirror of the store's derived snapshot.
   const actors = useMemo(() => {
     const adapter = externalAdapter ?? createAdapter();
-    const store = Effect.runSync(makeTmuxStore({ adapter: toEffectAdapter(adapter) }));
+    const store = Effect.runSync(
+      makeTmuxStore({
+        adapter: toEffectAdapter(adapter),
+        isReadOnly: () => adapter.readOnly === true,
+      }),
+    );
     return {
       tmuxActor: createTmuxActor(adapter),
       tmuxStoreActor: createTmuxStoreActor(store),
@@ -320,6 +327,11 @@ export function useCopyModeState(paneId: string): CopyModeState | undefined {
 }
 
 /** Get the app config flags */
+/** Whether this client is a viewer of a read-only session. */
+export function useReadOnly(): boolean {
+  return useAppSelector(selectReadOnly);
+}
+
 export function useAppConfig(): AppConfig {
   return useContext(AppConfigContext);
 }

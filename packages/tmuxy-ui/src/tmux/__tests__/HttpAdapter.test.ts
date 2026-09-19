@@ -288,6 +288,38 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
+  it('a read-only server is sent reads only, and never a viewport', async () => {
+    const adapter = new HttpAdapter();
+    const infos: Array<boolean | undefined> = [];
+    adapter.onConnectionInfo((_id, _shell, readOnly) => infos.push(readOnly));
+    const c = adapter.connect();
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1, read_only: true } });
+    await c;
+    expect(infos).toEqual([true]);
+    expect(adapter.readOnly).toBe(true);
+    expect(adapter.enumeratesSessions).toBe(false);
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: { panes: [], windows: [] } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(adapter.invoke('run_tmux_command', { command: 'kill-server' })).rejects.toThrow();
+    await expect(adapter.invoke('set_client_size', { cols: 10, rows: 5 })).rejects.toThrow();
+    await expect(adapter.query('list-panes')).rejects.toThrow();
+    await adapter.invoke('run_tmux_command', { command: 'send-keys -t %0 -l x' }).catch(() => {});
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await adapter.invoke('get_initial_state', { cols: 10, rows: 5 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      cmd: 'get_initial_state',
+      args: {},
+    });
+    adapter.disconnect();
+  });
+
   it('runs run_tmux_command through the serial queue in issue order', async () => {
     const adapter = new HttpAdapter();
     const c = adapter.connect();

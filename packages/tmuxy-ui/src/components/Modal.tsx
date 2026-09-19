@@ -16,6 +16,8 @@ interface ModalProps {
   backdrop?: 'dim' | 'blur' | 'none';
   /** Hide the header bar (title + close button) */
   hideHeader?: boolean;
+  /** Whether it can be dismissed at all: false drops the close button, and the backdrop and Escape do nothing. */
+  closable?: boolean;
 }
 
 export function Modal({
@@ -31,13 +33,14 @@ export function Modal({
   containerStyle,
   backdrop = 'dim',
   hideHeader = false,
+  closable = true,
 }: ModalProps) {
   const handleBackdropClick = useCallback(() => {
-    if (closeOnBackdrop) onClose();
-  }, [closeOnBackdrop, onClose]);
+    if (closable && closeOnBackdrop) onClose();
+  }, [closable, closeOnBackdrop, onClose]);
 
   useEffect(() => {
-    if (!open || !closeOnEsc) return;
+    if (!open || !closable || !closeOnEsc) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -49,7 +52,7 @@ export function Modal({
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [open, closeOnEsc, onClose]);
+  }, [open, closable, closeOnEsc, onClose]);
 
   if (!open) return null;
 
@@ -77,11 +80,13 @@ export function Modal({
         {showHeader && (
           <div className="modal-header">
             <span className="modal-title">{title}</span>
-            <Tooltip label="Close">
-              <button className="modal-close" onClick={onClose} aria-label="Close">
-                ×
-              </button>
-            </Tooltip>
+            {closable && (
+              <Tooltip label="Close">
+                <button className="modal-close" onClick={onClose} aria-label="Close">
+                  ×
+                </button>
+              </Tooltip>
+            )}
           </div>
         )}
         {children}

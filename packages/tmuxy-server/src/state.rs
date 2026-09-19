@@ -237,6 +237,10 @@ pub struct AppState {
     /// Threaded into `TmuxMonitor` and reused for ad-hoc tmux dispatch via the
     /// Tower stack. Production uses `Ctx::live()`; tests substitute a mock ctx.
     pub ctx: Arc<Ctx>,
+    /// `--read-only`: every client of this server is a viewer. Only the
+    /// commands `ClientCommand::is_read` names are served, and no client's
+    /// viewport is ever recorded, so a viewer cannot resize the session.
+    pub read_only: bool,
 }
 
 impl Default for AppState {
@@ -260,7 +264,14 @@ impl AppState {
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
             ctx,
+            read_only: false,
         }
+    }
+
+    /// Serve every client of this state as a viewer (`--read-only`).
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
     }
 
     /// Spawn a background task into the shutdown-tracked `JoinSet`.
@@ -519,6 +530,44 @@ mod api_guard_tests {
                 r#"{"cmd":"run_tmux_command","args":{"command":"run-shell 'touch /tmp/pwned'"}}"#,
             ))
             .unwrap()
+    }
+
+    fn same_origin_command(body: &'static str) -> Request<Body> {
+        Request::post("/commands")
+            .header("host", "localhost:9000")
+            .header("origin", "http://localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .header("content-type", "application/json")
+            .header("x-connection-id", "1")
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_read_only_server_refuses_every_write() {
+        let state = Arc::new(AppState::new().with_read_only(true));
+        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
+        for body in [
+            r#"{"cmd":"run_tmux_command","args":{"command":"kill-server"}}"#,
+            r#"{"cmd":"query_tmux","args":{"command":"list-panes"}}"#,
+            r#"{"cmd":"set_client_size","args":{"cols":10,"rows":5}}"#,
+            r#"{"cmd":"set_cursor_blink","args":{"enabled":false}}"#,
+        ] {
+            let response = app
+                .clone()
+                .oneshot(same_origin_command(body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{body}");
+        }
+        let trace = Request::post("/trace")
+            .header("host", "localhost:9000")
+            .header("origin", "http://localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::from("[]"))
+            .unwrap();
+        let response = app.clone().oneshot(trace).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

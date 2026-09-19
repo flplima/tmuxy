@@ -29,6 +29,7 @@ import {
   useAppSelectorShallow,
   useAppState,
   selectSessions,
+  useReadOnly,
 } from '../../../machines/AppContext';
 import { InlineRename } from '../../InlineRename';
 
@@ -86,6 +87,9 @@ export const TmuxySession = memo(function TmuxySession() {
 
   const rows = useMemo(() => [...sessionRows, ...serverRows], [sessionRows, serverRows]);
   const selected = rows[Math.min(cursor, rows.length - 1)];
+
+  // A viewer can switch what it watches; renaming, killing and detaching are the writer's.
+  const readOnly = useReadOnly();
 
   /** Close the float this widget runs in — every verb is a one-shot. */
   const close = useCallback(() => send({ type: 'CLOSE_TOP_FLOAT' }), [send]);
@@ -163,6 +167,7 @@ export const TmuxySession = memo(function TmuxySession() {
     renaming,
     connecting,
     openConnect,
+    readOnly,
   });
   stateRef.current = {
     rows,
@@ -174,6 +179,7 @@ export const TmuxySession = memo(function TmuxySession() {
     renaming,
     connecting,
     openConnect,
+    readOnly,
   };
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -204,15 +210,15 @@ export const TmuxySession = memo(function TmuxySession() {
           return;
         case 'r':
           claim();
-          if (s.rows[s.cursor]?.kind === 'session') setRenaming(true);
+          if (!s.readOnly && s.rows[s.cursor]?.kind === 'session') setRenaming(true);
           return;
         case 'x':
           claim();
-          s.killSelected(s.rows[s.cursor]);
+          if (!s.readOnly) s.killSelected(s.rows[s.cursor]);
           return;
         case 'd':
           claim();
-          s.detach();
+          if (!s.readOnly) s.detach();
           return;
         case 'c':
           claim();
@@ -372,23 +378,29 @@ export const TmuxySession = memo(function TmuxySession() {
         <span>
           <kbd>⏎</kbd> switch
         </span>
-        <span>
-          <kbd>r</kbd> rename
-        </span>
-        <span>
-          <kbd>x</kbd> kill
-        </span>
-        <span>
-          <kbd>d</kbd> detach
-        </span>
+        {!readOnly && (
+          <>
+            <span>
+              <kbd>r</kbd> rename
+            </span>
+            <span>
+              <kbd>x</kbd> kill
+            </span>
+            <span>
+              <kbd>d</kbd> detach
+            </span>
+          </>
+        )}
         {canConnect && (
           <span>
             <kbd>c</kbd> connect
           </span>
         )}
-        <span>
-          <kbd>esc</kbd> close
-        </span>
+        {!readOnly && (
+          <span>
+            <kbd>esc</kbd> close
+          </span>
+        )}
       </div>
     </div>
   );

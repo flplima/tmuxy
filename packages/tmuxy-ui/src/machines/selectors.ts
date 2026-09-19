@@ -16,7 +16,7 @@ import type {
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 import type { TabDrop } from '../utils/tabStripDrop';
 import { clampDelta } from './resize/limits';
-import { CONTAINER_PADDING_X } from '../constants';
+import { CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../constants';
 import {
   DEFAULT_CHAR_WIDTH,
   LEFT_SIDEBAR_COLS,
@@ -310,6 +310,7 @@ export const selectSidebarLayout = createMemoizedSelector(
       ctx.charWidth,
       ctx.cellGap,
       ctx.baseFontSize,
+      ctx.readOnly,
       ctx.windows,
       ctx.sidebarColsPreview,
     ] as const,
@@ -367,6 +368,22 @@ export const selectSidebarLayout = createMemoizedSelector(
     if (overlay && leftOpen && rightOpen) rightOpen = false;
     if (overlay && leftOpen && rightClosing) rightClosing = false;
 
+    // A column is opened and closed by whoever writes. A read-only client
+    // cannot close one, so it never draws one over its panes: in a window too
+    // narrow to dock them, the columns stay out of the way.
+    if (overlay && context.readOnly) {
+      return {
+        leftOpen: false,
+        rightOpen: false,
+        leftClosing: false,
+        rightClosing: false,
+        motion: context.sidebarMotion,
+        overlay,
+        leftWidth,
+        rightWidth,
+      };
+    }
+
     return {
       leftOpen,
       rightOpen,
@@ -410,15 +427,49 @@ export function selectLog(context: AppMachineContext): LogEntry[] {
 // Container Size Selector
 // ============================================
 
+/**
+ * How far a read-only client shrinks the pane area so the whole grid shows.
+ * A viewer never reports its viewport — that would resize the session under
+ * whoever writes — so the grid it is sent can be larger than its window. The
+ * pane area is drawn at this zoom, padding included: never above 1, and 1 for
+ * every client that sizes the session itself.
+ */
+export function selectFitScale(context: AppMachineContext): number {
+  if (!context.readOnly) return 1;
+  const { containerWidth, containerHeight, totalWidth, totalHeight, charWidth, charHeight } =
+    context;
+  if (containerWidth <= 0 || containerHeight <= 0 || totalWidth <= 0 || totalHeight <= 0) return 1;
+  const padX = 2 * CONTAINER_PADDING_X;
+  const scale = Math.min(
+    1,
+    (containerWidth + padX) / (totalWidth * charWidth + padX),
+    (containerHeight + CONTAINER_PADDING_BOTTOM) /
+      (totalHeight * charHeight + CONTAINER_PADDING_BOTTOM),
+  );
+  return Math.floor(scale * 1000) / 1000;
+}
+
+/**
+ * The content box the pane area lays itself out in. Under a fit scale that is
+ * the measured box as seen from inside the zoom — larger than the window's, by
+ * exactly as much as the zoom then shrinks it.
+ */
 export const selectContainerSize = createMemoizedSelector(
   (context: AppMachineContext) => ({
     width: context.containerWidth,
     height: context.containerHeight,
+    scale: selectFitScale(context),
   }),
-  (context: AppMachineContext): { width: number; height: number } => ({
-    width: context.containerWidth,
-    height: context.containerHeight,
-  }),
+  (context: AppMachineContext): { width: number; height: number } => {
+    const { containerWidth: width, containerHeight: height } = context;
+    const scale = selectFitScale(context);
+    if (scale === 1) return { width, height };
+    const padX = 2 * CONTAINER_PADDING_X;
+    return {
+      width: (width + padX) / scale - padX,
+      height: (height + CONTAINER_PADDING_BOTTOM) / scale - CONTAINER_PADDING_BOTTOM,
+    };
+  },
 );
 
 // ============================================
@@ -793,6 +844,11 @@ export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<string
 // ============================================
 // Session Selectors
 // ============================================
+
+/** The server runs `--read-only`: the UI offers nothing that would change the session. */
+export function selectReadOnly(context: AppMachineContext): boolean {
+  return context.readOnly;
+}
 
 export function selectSessionName(context: AppMachineContext): string {
   return context.sessionName;

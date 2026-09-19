@@ -154,6 +154,12 @@ pub struct MonitorConfig {
     /// Working directory for the tmux control mode process.
     /// run-shell commands resolve relative paths from this directory.
     pub working_dir: Option<std::path::PathBuf>,
+
+    /// Attach without sizing the session (a `--read-only` server). The initial
+    /// `resizew` exists so a session nobody has sized yet isn't tiny; an
+    /// observer joins one that a writing client already sized, and resizing it
+    /// would change the layout under that client.
+    pub observer: bool,
 }
 
 impl Default for MonitorConfig {
@@ -166,6 +172,7 @@ impl Default for MonitorConfig {
             throttle_threshold: 20,                       // >20 events/100ms triggers throttle
             rate_window: Duration::from_millis(100),
             working_dir: None,
+            observer: false,
         }
     }
 }
@@ -443,12 +450,14 @@ impl TmuxMonitor {
         // Resize the window to the initial size to ensure panes aren't tiny.
         // When running in a background process (pm2), the PTY may start small.
         // The browser will send a proper resize once it connects.
-        self.connection
-            .send_command(&format!(
-                "resizew -t {} -x {} -y {}",
-                self.config.session, INITIAL_PTY_COLS, INITIAL_PTY_ROWS
-            ))
-            .await?;
+        if !self.config.observer {
+            self.connection
+                .send_command(&format!(
+                    "resizew -t {} -x {} -y {}",
+                    self.config.session, INITIAL_PTY_COLS, INITIAL_PTY_ROWS
+                ))
+                .await?;
+        }
 
         // Source tmuxy config to ensure pane-border-status and other settings are applied
         if let Some(config_path) = crate::session::get_config_path() {

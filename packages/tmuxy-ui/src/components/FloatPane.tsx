@@ -22,6 +22,7 @@ import {
   selectCharSize,
   selectContainerSize,
   selectVisibleFloats,
+  useReadOnly,
 } from '../machines/AppContext';
 import { LogProfiler } from '../utils/renderLog';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
@@ -54,6 +55,8 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
 
+  // A float is a tmux window: a viewer cannot close one, only look at it.
+  const readOnly = useReadOnly();
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
@@ -119,6 +122,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
         backdrop={backdrop}
         hideHeader={hideHeader}
         closeOnEsc={false}
+        closable={!readOnly}
       >
         <div
           className="float-content"
@@ -156,6 +160,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       backdrop={backdrop}
       hideHeader
       closeOnEsc={false}
+      closable={!readOnly}
     >
       <div
         className="float-container"

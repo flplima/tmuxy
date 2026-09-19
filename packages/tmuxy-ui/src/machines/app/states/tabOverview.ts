@@ -9,6 +9,8 @@
  * they are valid in any connected state.
  */
 
+import { notReadOnly } from '../readOnlyGuard';
+
 export const tabOverviewGlobalEvents = {
   TOGGLE_TAB_OVERVIEW: { actions: 'tabOverview_toggle' },
   CLOSE_TAB_OVERVIEW: { actions: 'tabOverview_close' },
@@ -16,6 +18,6 @@ export const tabOverviewGlobalEvents = {
   TAB_OVERVIEW_SELECT: { actions: 'tabOverview_select' },
   TAB_OVERVIEW_ACTIVATE: { actions: 'tabOverview_activate' },
   SELECT_TAB_BY_POSITION: { actions: 'tabOverview_selectByPosition' },
-  REORDER_TAB: { actions: 'tabOverview_reorder' },
-  CLOSE_TAB: { actions: 'tabOverview_closeTab' },
+  REORDER_TAB: { guard: notReadOnly, actions: 'tabOverview_reorder' },
+  CLOSE_TAB: { guard: notReadOnly, actions: 'tabOverview_closeTab' },
 } as const;

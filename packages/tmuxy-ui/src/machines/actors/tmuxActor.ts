@@ -4,6 +4,7 @@ import type { TmuxAdapter, ServerState, KeyBindings, ThemeSettings } from '../..
 import type { TraceLevel, TraceSettings } from '../types';
 import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
 import { tracer } from '../../tmux/tracer';
+import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../tmux/readOnly';
 
 export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
@@ -77,6 +78,8 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         onSuccess?: (value: T) => void;
         logPrefix?: string;
         silentFail?: boolean;
+        /** Refused by a read-only session without a notice: input, or a write nobody asked for. */
+        quietWhenReadOnly?: boolean;
       } = {},
     ) => {
       void Effect.runPromiseExit(effect).then((exit) => {
@@ -87,6 +90,14 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         const failure = Cause.failureOption(exit.cause);
         if (failure._tag !== 'Some') return;
         const tagged = failure.value;
+        // A write a read-only session never sent: the user asked for a change
+        // they cannot make, which is not an error of the backend's.
+        if (tagged._tag === 'Cancelled' && tagged.reason === READ_ONLY_REASON) {
+          if (!opts.silentFail && !opts.quietWhenReadOnly) {
+            parent.send({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
+          }
+          return;
+        }
         // Trace the failure by its typed tag (TransportError/ProtocolError/…),
         // never the message text.
         tracer.event({ layer: 'effect', name: 'fail', code: tagged._tag });
@@ -170,8 +181,13 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     const unsubscribeThemeSettings = adapter.onThemeSettings(themeSettingsReceived);
 
     const unsubscribeConnectionInfo = adapter.onConnectionInfo(
-      (connectionId: number, defaultShell: string) => {
-        parent.send({ type: 'CONNECTION_INFO', connectionId, defaultShell });
+      (connectionId: number, defaultShell: string, readOnly?: boolean) => {
+        parent.send({
+          type: 'CONNECTION_INFO',
+          connectionId,
+          defaultShell,
+          readOnly: readOnly === true,
+        });
       },
     );
 
@@ -196,6 +212,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         logCommand(event.command);
         run(eff.invoke<void>('run_tmux_command', { command: event.command }), {
           logPrefix: event.command,
+          quietWhenReadOnly: isInputCommand(event.command),
         });
       } else if (event.type === 'INVOKE') {
         logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);

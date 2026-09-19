@@ -8,7 +8,7 @@
 import { useEffect } from 'react';
 import { ControlledMenu, MenuItem } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
-import { useAppSend } from '../machines/AppContext';
+import { useAppSend, useReadOnly } from '../machines/AppContext';
 import { literalTextCommands } from '../tmux/keyBatching';
 import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
 import './menus/AppMenu.css';
@@ -60,6 +60,7 @@ export function SelectionContextMenu({
   onClose,
 }: SelectionContextMenuProps) {
   const send = useAppSend();
+  const readOnly = useReadOnly();
   useSelectionPinned(selectionRange);
 
   // Either action is the end of the selection's job: the scrollback view (or
@@ -81,18 +82,20 @@ export function SelectionContextMenu({
         <CopyIcon />
         Copy
       </MenuItem>
-      <MenuItem
-        onClick={() => {
-          send({
-            type: 'SEND_COMMAND',
-            command: literalTextCommands(paneId, selectedText),
-          });
-          exitAndClose();
-        }}
-      >
-        <SendKeysIcon />
-        Send keys
-      </MenuItem>
+      {!readOnly && (
+        <MenuItem
+          onClick={() => {
+            send({
+              type: 'SEND_COMMAND',
+              command: literalTextCommands(paneId, selectedText),
+            });
+            exitAndClose();
+          }}
+        >
+          <SendKeysIcon />
+          Send keys
+        </MenuItem>
+      )}
     </ControlledMenu>
   );
 }

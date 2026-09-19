@@ -214,6 +214,8 @@ enum SseEvent {
         connection_id: u64,
         default_shell: String,
         trace_enabled: bool,
+        /// The server runs `--read-only`: this client is a viewer.
+        read_only: bool,
     },
     #[serde(rename = "state-update")]
     StateUpdate(Box<StateUpdate>),
@@ -418,6 +420,7 @@ pub async fn sse_handler(
             connection_id: conn_id,
             default_shell,
             trace_enabled: tmuxy_core::trace::is_enabled(),
+            read_only: state.read_only,
         };
         if let Some(s) = encode_event(&conn_info) {
             yield Ok::<_, std::convert::Infallible>(Event::default().event("connection-info").data(s));
@@ -565,6 +568,19 @@ pub async fn commands_handler(
         }
     };
 
+    // A read-only server serves reads and nothing else. Refused here, ahead of
+    // the dispatch, so no variant added later is writable by default.
+    if state.read_only && !cmd.is_read() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(CommandResponse {
+                result: None,
+                error: Some("read-only server".to_string()),
+            }),
+        )
+            .into_response();
+    }
+
     // Handle the command
     match handle_command(cmd, &session, &state, conn_id).await {
         Ok(result) => (
@@ -599,7 +615,13 @@ const TRACE_MAX_EVENTS: usize = 1000;
 /// body is dropped regardless of what the client believes, so a stale client
 /// flag can never reopen the sink. Every event is re-sanitized server-side
 /// (`trace::record_client_event`) before it touches the file.
-pub async fn trace_handler(body: axum::body::Bytes) -> StatusCode {
+pub async fn trace_handler(
+    State(state): State<Arc<AppState>>,
+    body: axum::body::Bytes,
+) -> StatusCode {
+    if state.read_only {
+        return StatusCode::FORBIDDEN;
+    }
     if !tmuxy_core::trace::is_enabled() {
         return StatusCode::NO_CONTENT;
     }
@@ -626,8 +648,9 @@ async fn handle_command(
 ) -> Result<serde_json::Value, String> {
     match cmd {
         ClientCommand::GetInitialState { cols, rows } => {
-            // Apply client size before capturing state
-            if let (Some(c), Some(r)) = (cols, rows) {
+            // Apply client size before capturing state. A viewer's viewport
+            // never counts: it would shrink the session under whoever writes.
+            if let (Some(c), Some(r), false) = (cols, rows, state.read_only) {
                 if c > 0 && r > 0 {
                     set_client_size(state, session, conn_id, c, r).await;
                 }
@@ -1204,6 +1227,7 @@ pub async fn start_monitoring(
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
         working_dir: Some(crate::state::find_workspace_root()),
+        observer: state.read_only,
     };
 
     let mut backoff = Duration::from_millis(100);
@@ -1422,6 +1446,62 @@ pub async fn start_monitoring(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// A session whose "monitor" is a channel the test reads: it records the
+    /// resizes it is sent and drops every state request, so `get_initial_state`
+    /// fails fast once the sizing step — the part under test — has run.
+    async fn session_with_fake_monitor(
+        state: &Arc<AppState>,
+        session: &str,
+    ) -> Arc<tokio::sync::Mutex<Vec<(u32, u32)>>> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let resizes = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&resizes);
+        tokio::spawn(async move {
+            while let Some(cmd) = rx.recv().await {
+                if let MonitorCommand::ResizeWindow { cols, rows } = cmd {
+                    seen.lock().await.push((cols, rows));
+                }
+            }
+        });
+        let mut conns = SessionConnections::new();
+        conns.connections.push(1);
+        conns.monitor_command_tx = Some(tx);
+        state
+            .sessions
+            .write()
+            .await
+            .insert(session.to_string(), conns);
+        resizes
+    }
+
+    async fn initial_state_with_viewport(state: &Arc<AppState>) {
+        let cmd = ClientCommand::GetInitialState {
+            cols: Some(40),
+            rows: Some(12),
+        };
+        // The fake monitor never answers with a state; only the sizing matters.
+        let _ = handle_command(cmd, "s", state, Some(1)).await;
+    }
+
+    #[tokio::test]
+    async fn a_writable_server_sizes_the_session_to_the_client_asking_for_state() {
+        let state = Arc::new(AppState::new());
+        let resizes = session_with_fake_monitor(&state, "s").await;
+        initial_state_with_viewport(&state).await;
+        let sizes = state.sessions.read().await["s"].client_sizes.clone();
+        assert_eq!(sizes.get(&1), Some(&(40, 12)));
+        assert_eq!(*resizes.lock().await, vec![(40, 12)]);
+    }
+
+    #[tokio::test]
+    async fn a_read_only_server_never_counts_a_viewers_viewport() {
+        let state = Arc::new(AppState::new().with_read_only(true));
+        let resizes = session_with_fake_monitor(&state, "s").await;
+        initial_state_with_viewport(&state).await;
+        assert!(state.sessions.read().await["s"].client_sizes.is_empty());
+        assert!(resizes.lock().await.is_empty());
+    }
 
     /// Round-trip the Clipboard variant so SSE consumers can rely on the
     /// `event=clipboard` discriminator + `{ pane_id, text }` payload shape.

@@ -35,6 +35,7 @@ import {
   selectContainerSize,
   selectCharSize,
   selectTabOverviewCols,
+  useReadOnly,
 } from '../machines/AppContext';
 import {
   DRAG_THRESHOLD_PX,
@@ -77,6 +78,8 @@ export const TabOverview = memo(function TabOverview() {
 
 function TabOverviewInner() {
   const send = useAppSend();
+  // A viewer picks a tab here and nothing else: no reorder, no close, no new tab.
+  const readOnly = useReadOnly();
   const selected = useAppSelector((ctx) => ctx.tabOverviewSelected);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   const windows = useAppSelectorShallow(selectVisibleWindows);
@@ -378,7 +381,7 @@ function TabOverviewInner() {
       active: false,
     };
     setDrag(state);
-    if (e.pointerType === 'touch') {
+    if (e.pointerType === 'touch' && !readOnly) {
       clearLongPress();
       longPressRef.current = window.setTimeout(() => {
         longPressRef.current = null;
@@ -388,7 +391,7 @@ function TabOverviewInner() {
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drag || e.pointerId !== drag.pointerId) return;
+    if (!drag || readOnly || e.pointerId !== drag.pointerId) return;
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     let active = drag.active;
@@ -506,20 +509,22 @@ function TabOverviewInner() {
                 <span className="tab-overview-slot-label">
                   {slot.position}:{slot.window.name || `Tab ${slot.position}`}
                 </span>
-                <Tooltip label="Close tab">
-                  <button
-                    type="button"
-                    className="tab-overview-slot-close"
-                    aria-label={`Close tab ${slot.position}`}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      send({ type: 'CLOSE_TAB', windowId: slot.window.id });
-                    }}
-                  >
-                    ✕
-                  </button>
-                </Tooltip>
+                {!readOnly && (
+                  <Tooltip label="Close tab">
+                    <button
+                      type="button"
+                      className="tab-overview-slot-close"
+                      aria-label={`Close tab ${slot.position}`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        send({ type: 'CLOSE_TAB', windowId: slot.window.id });
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </Tooltip>
+                )}
               </div>
               {/* The active tab's frame is the FLIP target: the live grid is
                   drawn over it, so its wireframe only shows through the
@@ -535,27 +540,29 @@ function TabOverviewInner() {
             </div>
           );
         })}
-        <div
-          id={`tab-overview-slot-${slots.length}`}
-          className={`tab-overview-slot tab-overview-slot-new${
-            selected === slots.length ? ' is-selected' : ''
-          }${dropMarkerAt === slots.length ? ' is-drop-before' : ''}`}
-          role="option"
-          aria-selected={selected === slots.length}
-          aria-label="New tab"
-          data-testid="tab-overview-new"
-          onClick={(e) => {
-            e.stopPropagation();
-            send({ type: 'TAB_OVERVIEW_ACTIVATE', index: slots.length });
-          }}
-        >
-          <div className="tab-overview-slot-header">
-            <span className="tab-overview-slot-label">New tab</span>
+        {!readOnly && (
+          <div
+            id={`tab-overview-slot-${slots.length}`}
+            className={`tab-overview-slot tab-overview-slot-new${
+              selected === slots.length ? ' is-selected' : ''
+            }${dropMarkerAt === slots.length ? ' is-drop-before' : ''}`}
+            role="option"
+            aria-selected={selected === slots.length}
+            aria-label="New tab"
+            data-testid="tab-overview-new"
+            onClick={(e) => {
+              e.stopPropagation();
+              send({ type: 'TAB_OVERVIEW_ACTIVATE', index: slots.length });
+            }}
+          >
+            <div className="tab-overview-slot-header">
+              <span className="tab-overview-slot-label">New tab</span>
+            </div>
+            <div className="tab-overview-frame tab-overview-frame-new" aria-hidden="true">
+              <span className="tab-overview-plus">+</span>
+            </div>
           </div>
-          <div className="tab-overview-frame tab-overview-frame-new" aria-hidden="true">
-            <span className="tab-overview-plus">+</span>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
