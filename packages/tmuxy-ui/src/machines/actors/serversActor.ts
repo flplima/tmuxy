@@ -63,9 +63,7 @@ const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{window_index}${
 /**
  * The app-set pane title, with tmux's default host-name seed filtered out —
  * the same expression the Rust monitor uses (`tmux_formats::APP_PANE_TITLE` in
- * `tmuxy-core/src/constants.rs`); keep the two in step. It must stay free of
- * shell metacharacters: the server's `is_readonly_query` guard rejects a poll
- * command carrying one, and the rejected poll returns no rows.
+ * `tmuxy-core/src/constants.rs`); keep the two in step.
  */
 const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
 

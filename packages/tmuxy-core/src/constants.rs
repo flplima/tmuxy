@@ -208,11 +208,9 @@ pub mod tmux_formats {
     /// Expands to ONE field: the comparison's own comma is consumed by tmux,
     /// never emitted.
     ///
-    /// Deliberately free of shell metacharacters — `||`, `$`, parens and the
-    /// rest. The sidebar's sessions poll sends a format built from this through
-    /// the server's `run_tmux_command`, whose `is_readonly_query` guard
-    /// (`tmuxy-server/src/sse.rs`) rejects any command carrying one, and a
-    /// rejected poll silently returns no rows.
+    /// The sidebar's sessions poll builds its own format from the same
+    /// expression (`serversActor.ts`) and reads the rows back through
+    /// `query_tmux`.
     ///
     /// A macro rather than a `const` because `concat!` only accepts literals.
     macro_rules! app_pane_title {
