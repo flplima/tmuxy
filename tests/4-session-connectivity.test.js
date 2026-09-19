@@ -20,8 +20,11 @@ const {
   assertLayoutInvariants,
   DELAYS,
   TMUXY_URL,
+  TMUXY_PORT,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
+const { startExtraServer } = require('./helpers/extra-server');
+const { startPublicNameProxy } = require('./helpers/public-name-proxy');
 
 // ==================== Scenario 12: Session Reconnect ====================
 
@@ -402,6 +405,80 @@ describe('Scenario 22b: Other origins cannot drive tmux', () => {
       "the app's own command to set the option",
     );
   }, 180000);
+});
+
+// ==================== Scenario 22c: Behind a Reverse Proxy ====================
+
+describe('Scenario 22c: Published under another name by a reverse proxy', () => {
+  const ctx = createTestContext();
+  const PUBLIC_NAME = 'tmuxy.proxy.test';
+  const ALLOWED_PORT = TMUXY_PORT + 110;
+  let refused;
+  let allowed;
+  let stopAllowedServer = () => {};
+
+  beforeAll(async () => {
+    await ctx.beforeAll();
+    // The suite's own server was started without --allowed-host; a second one
+    // is told the public name. Each sits behind a proxy forwarding that name.
+    stopAllowedServer = await startExtraServer(ALLOWED_PORT, ['--allowed-host', PUBLIC_NAME]);
+    refused = await startPublicNameProxy({
+      listenPort: TMUXY_PORT + 111,
+      targetPort: TMUXY_PORT,
+      publicName: PUBLIC_NAME,
+    });
+    allowed = await startPublicNameProxy({
+      listenPort: TMUXY_PORT + 112,
+      targetPort: ALLOWED_PORT,
+      publicName: PUBLIC_NAME,
+    });
+  }, ctx.hookTimeout);
+  afterAll(async () => {
+    refused?.stop();
+    allowed?.stop();
+    stopAllowedServer();
+    await ctx.afterAll();
+  });
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('a name the server was not told about → the page says why instead of "Connecting…" forever → with --allowed-host the same name works', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const session = encodeURIComponent(ctx.session.name);
+
+    // Refused: the app loads (static files are not guarded) but every API route
+    // is a 403. The user has to be shown that, with the server's own reason —
+    // it used to sit on the spinner for good, retrying what could never work.
+    const page = await ctx.browser.newPage();
+    await page.goto(`${refused.url}?session=${session}`, { waitUntil: 'domcontentloaded' });
+    const verdict = page.locator('[data-testid="fatal-display"]');
+    await verdict.waitFor({ state: 'visible', timeout: 20000 });
+    const text = await verdict.innerText();
+    expect(text).toContain('The server refused this page');
+    expect(text).toContain('--allowed-host');
+    // Visibly so: on screen with a real box, not merely present in the DOM.
+    const box = await verdict.locator('.connection-overlay-text').boundingBox();
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.height).toBeGreaterThan(0);
+    expect(await page.locator('[data-testid="loading-display"]').count()).toBe(0);
+    expect(await page.getByRole('button', { name: /retry/i }).isVisible()).toBe(true);
+    // It stays refused rather than flapping back to the spinner.
+    await delay(DELAYS.SYNC * 2);
+    expect(await verdict.isVisible()).toBe(true);
+
+    // Allowed: the same public name, a server that was told about it.
+    await navigateToSession(page, ctx.session.name, allowed.url);
+    await page.bringToFront();
+    expect(await page.locator('[data-testid="fatal-display"]').count()).toBe(0);
+    const token = `PROXIED_${Date.now()}`;
+    await focusPage(page);
+    await typeInTerminal(page, `echo ${token}`);
+    await pressEnter(page);
+    await waitForTerminalText(page, token);
+
+    await page.close();
+  }, 120000);
 });
 
 // ==================== Scenario 24: Multi-Session Sidebar Tree (web) ====================

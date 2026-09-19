@@ -100,6 +100,8 @@ export class HttpAdapter implements TmuxAdapter {
   private detachedListeners = new Set<DetachedListener>();
   private clipboardListeners = new Set<ClipboardListener>();
   private fatal = false;
+  /** The in-flight question to a server whose event stream would not open. */
+  private refusalProbe: AbortController | null = null;
 
   // Delta protocol state
   private currentState: ServerState | null = null;
@@ -430,6 +432,9 @@ export class HttpAdapter implements TmuxAdapter {
       });
 
       es.onerror = () => {
+        // A stream that never opened may have been REFUSED rather than missed:
+        // EventSource reports both as the same bare error, so ask the server.
+        if (!this.connected) void this.explainRefusal(eventsUrl);
         // Establish failure and mid-session drop are the same to the retry
         // loop — end the connection and let the schedule pick the next attempt.
         endConnection(
@@ -445,6 +450,40 @@ export class HttpAdapter implements TmuxAdapter {
         if (this.eventSource === es) this.eventSource = null;
       });
     });
+  }
+
+  /**
+   * Find out why the event stream would not open. `EventSource` hides the
+   * response, so a server that refuses every request looks exactly like one
+   * that is not there yet, and the app would sit on "Connecting…" forever,
+   * retrying something that cannot succeed. A 403 is an answer, not an outage
+   * — the request guard's verdict on this page's Host or origin, with the
+   * reason in the body (a server behind a proxy started without
+   * `--allowed-host` is the usual one). That ends the retrying and is shown.
+   * Anything else — no answer, a 5xx, a stream that does open — keeps it going.
+   */
+  private async explainRefusal(eventsUrl: string): Promise<void> {
+    if (this.refusalProbe || this.fatal) return;
+    const probe = new AbortController();
+    this.refusalProbe = probe;
+    try {
+      const response = await fetch(eventsUrl, {
+        headers: { Accept: 'text/event-stream' },
+        signal: probe.signal,
+      });
+      if (response.status !== 403 || this.connected) return;
+      const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
+      const message = `The server refused this page${reason ? `: ${reason}` : ''}`;
+      // The attempt that asked has already ended; this stops the next one.
+      this.fatal = true;
+      this.notifyFatal(message);
+    } catch {
+      // Unreachable, or aborted below: an outage, which the retry loop owns.
+    } finally {
+      // A stream that did open is held by the server until aborted.
+      probe.abort();
+      this.refusalProbe = null;
+    }
   }
 
   /** Resolve everyone awaiting connect() — a connection-info arrived. */

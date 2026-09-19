@@ -288,6 +288,55 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
+  it('a stream the server refuses ends in its reason, not in endless retrying', async () => {
+    // Behind a proxy without --allowed-host every API route is a 403, and
+    // EventSource reports that as the same bare error as a server that is down.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 403,
+        text: () =>
+          Promise.resolve('forbidden: request Host is not this server (see --allowed-host)\n'),
+      }),
+    );
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
+    const fatals: string[] = [];
+    adapter.onFatal((message) => fatals.push(message));
+    adapter.connect().catch(() => {});
+
+    (await stream(0)).onerror?.(new Event('error'));
+    await vi.waitFor(() => expect(fatals).toHaveLength(1));
+    expect(fatals[0]).toBe(
+      'The server refused this page: request Host is not this server (see --allowed-host)',
+    );
+
+    // Whatever attempt was already scheduled fails too, and nothing follows it.
+    const opened = MockEventSource.instances.length;
+    MockEventSource.instances[opened - 1].onerror?.(new Event('error'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(MockEventSource.instances.length).toBeLessThanOrEqual(opened + 1);
+    expect(fatals).toHaveLength(1);
+    adapter.disconnect();
+  });
+
+  it('a server that is merely unavailable keeps being retried, with no verdict', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ status: 502, text: () => Promise.resolve('') }),
+    );
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
+    const fatals: string[] = [];
+    adapter.onFatal((message) => fatals.push(message));
+    const connecting = adapter.connect();
+
+    (await stream(0)).onerror?.(new Event('error'));
+    (await stream(1)).emit('connection-info', { data: { connection_id: 7 } });
+    await connecting;
+    expect(adapter.isConnected()).toBe(true);
+    expect(fatals).toHaveLength(0);
+    adapter.disconnect();
+  });
+
   it('a read-only server is sent reads only, and never a viewport', async () => {
     const adapter = new HttpAdapter();
     const infos: Array<boolean | undefined> = [];

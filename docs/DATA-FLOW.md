@@ -21,6 +21,10 @@ The web version uses two HTTP endpoints on the Axum server:
 
 SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and the standard `Last-Event-Id` mechanism gives us a clean reconnect path (see below).
 
+### A refused stream is not a dropped one
+
+`EventSource` reports every failure as the same bare error, with no status: a server that is restarting and a server that refuses the request look identical, and retrying the second never ends. So when a stream fails before it ever opened, the adapter asks the same URL with a plain `fetch` and reads the status. A 403 is the request guard's verdict on this page's `Host` or origin (see [SECURITY.md](SECURITY.md)) — the retry loop stops and the reason in the response body is shown as the fatal error. No answer, a 5xx, or a stream that does open are outages, and the supervised retry carries on.
+
 ### SSE resync via `Last-Event-Id`
 
 Every event the server broadcasts is tagged with a monotonic per-session sequence id (set as the SSE `id:` field). `EventSource` persists the last received id across reconnects and sends it back as the `Last-Event-Id` request header on retry. The server keeps a small ring buffer of recent events per session and replays everything strictly newer than the supplied id before resuming the live stream. If the client's id is older than the buffer head (long disconnect), the next full-state snapshot covers the gap — no client-side panic, no data corruption.

@@ -60,6 +60,8 @@ What it does not do: it is not confidentiality. A viewer reads everything on scr
 
 A proxy on the same machine forwards to `127.0.0.1`, but it usually passes its public name through as the `Host` header, which the server does not recognise as itself (see below). Name it: `tmuxy server --allowed-host tmux.example.com` (repeatable, or `TMUXY_ALLOWED_HOSTS` comma-separated).
 
+Forgetting it is easy to diagnose: the page itself still loads (static files are not guarded), every API route answers 403, and the app says so — *The server refused this page: request Host is not this server (see --allowed-host)* — instead of waiting on a connection that cannot open (see `explainRefusal` in `tmuxy-ui/src/tmux/HttpAdapter.ts`).
+
 ### Tauri Desktop App
 
 The desktop app serves no HTTP: all communication is local IPC within the app process. Its webview currently runs with no Content-Security-Policy (`csp: null` in `tmuxy-tauri-app/tauri.conf.json`).
