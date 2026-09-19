@@ -390,7 +390,7 @@ async fn start_server(port: u16, listen: Listen, password: Option<String>, read_
         error!(error = %e, "axum serve loop exited with error");
     }
 
-    remove_pid_file(port);
+    remove_pid_file(port, std::process::id());
 }
 
 /// Serve files from embedded frontend assets (SPA with index.html fallback)
@@ -478,8 +478,24 @@ fn write_pid_file(port: u16) {
     std::fs::write(pid_file_path(port), pid.to_string()).ok();
 }
 
-fn remove_pid_file(port: u16) {
-    std::fs::remove_file(pid_file_path(port)).ok();
+/// Remove the port's pid file if it still names `pid`.
+///
+/// The file outlives the process that wrote it by a moment: a server told to
+/// stop removes it on its way out, by which time a replacement on the same
+/// port may already have written its own. Removing unconditionally deleted
+/// the new server's file, and `stop` then reported a running server as gone.
+fn remove_pid_file(port: u16, pid: u32) {
+    remove_pid_file_at(&pid_file_path(port), pid);
+}
+
+fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
+    let names_pid = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        == Some(pid);
+    if names_pid {
+        std::fs::remove_file(path).ok();
+    }
 }
 
 fn read_pid_file(port: u16) -> Option<u32> {
@@ -503,7 +519,7 @@ fn stop_server(port: u16) {
         Some(pid) => {
             if !is_process_alive(pid) {
                 println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file(port);
+                remove_pid_file(port, pid);
                 return;
             }
 
@@ -514,7 +530,7 @@ fn stop_server(port: u16) {
                 match signal::kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
                     Ok(_) => {
                         println!("Sent SIGTERM to server (pid {})", pid);
-                        remove_pid_file(port);
+                        remove_pid_file(port, pid);
                     }
                     Err(e) => error!(pid, error = %e, "failed to stop server"),
                 }
@@ -534,7 +550,7 @@ fn server_status(port: u16) {
                 println!("Server is running (pid {})", pid);
             } else {
                 println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file(port);
+                remove_pid_file(port, pid);
             }
         }
         None => println!("Server is not running"),
@@ -619,6 +635,28 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stopping_server_leaves_its_replacements_pid_file_alone() {
+        let path = std::env::temp_dir().join(format!("tmuxy-pidfile-{}.pid", std::process::id()));
+
+        // The old server (pid 100) exits after its replacement (pid 200) has
+        // already written the file for the same port.
+        std::fs::write(&path, "200").unwrap();
+        remove_pid_file_at(&path, 100);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "200");
+
+        // The replacement's own exit does remove it.
+        remove_pid_file_at(&path, 200);
+        assert!(!path.exists());
+
+        // A file that is already gone, or holds no pid, is not an error.
+        remove_pid_file_at(&path, 200);
+        std::fs::write(&path, "not a pid").unwrap();
+        remove_pid_file_at(&path, 200);
+        assert!(path.exists());
+        std::fs::remove_file(&path).unwrap();
+    }
 
     fn loopback(allowed: Vec<String>) -> HostPolicy {
         HostPolicy::Loopback { allowed }
