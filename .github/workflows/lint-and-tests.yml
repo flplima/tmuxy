@@ -153,6 +153,7 @@ jobs:
           - { name: '7-regression', path: 'tests/7-regression-bugs.test.js' }
           - { name: '8-tui', path: 'tests/8-tui-alternate-screen.test.js' }
           - { name: '9-animations', path: 'tests/9-pane-animations.test.js', soft: true }
+          - { name: '10-read-only', path: 'tests/10-read-only.test.js' }
     name: e2e (${{ matrix.suite.name }})
 
     # The suite's own tmux socket, for the server started below as much as for
