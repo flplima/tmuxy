@@ -35,6 +35,14 @@ const FAT_THRESHOLD = 1.15;
 const ratios = new Map<string, number>();
 
 /**
+ * Glyphs that were measured and could not be answered for — no layout, or ink
+ * the canvas cannot speak for yet. They are not asked about again until the
+ * fonts change: every ask is a forced layout, there is one per cell per render,
+ * and nothing about the answer moves until a font does.
+ */
+const unanswered = new Set<string>();
+
+/**
  * Measurements are cached, so a caller that already drew a line has no reason
  * to ask again — but the answer changes when the fonts do, and a line drawn
  * with a stale one keeps its stale layout until something re-renders it. This
@@ -46,6 +54,7 @@ const listeners = new Set<() => void>();
 
 function invalidate(): void {
   ratios.clear();
+  unanswered.clear();
   version++;
   for (const listener of listeners) listener();
 }
@@ -148,25 +157,25 @@ function measureRatio(s: string, host: HTMLElement): number | null {
   // The ink is unknown for now. An advance that is already fat is answer
   // enough — it came from the DOM, in the font the terminal is really using —
   // but a glyph that merely advances one cell might still paint past it, and
-  // saying "it fits" would cache exactly the wrong answer. Ask again once the
-  // fonts have settled, and tell whoever is drawing to come back for it.
-  askAgainWhenFontsSettle();
+  // saying "it fits" would cache exactly the wrong answer. A canvas never
+  // fetches a face itself, so ask for the one this glyph needs: when it lands,
+  // `loadingdone` clears the cache and everything drawing is told to come back.
+  requestFace(font, s);
   return advanceRatio > FAT_THRESHOLD ? advanceRatio : null;
 }
 
 /**
- * Wait for the font set once, then drop every measurement taken before it.
- * `loadingdone` fires per batch and can have fired already; `ready` is the
- * point at which a canvas answers about the same typeface the page is using.
+ * Ask the document to load whatever face covers `s`. Deliberately not a wait
+ * on `document.fonts.ready`: once the fonts have settled that promise is
+ * already resolved, so clearing the cache on it re-rendered every terminal,
+ * which measured the same glyph, got the same non-answer and asked again —
+ * forever, with the page never idle. A load that brings a face in fires
+ * `loadingdone`; one that has nothing to bring fires nothing, and the glyph
+ * stays unanswered until some other font change.
  */
-let waiting = false;
-function askAgainWhenFontsSettle(): void {
-  if (waiting || typeof document === 'undefined' || !document.fonts?.ready) return;
-  waiting = true;
-  document.fonts.ready.then(() => {
-    waiting = false;
-    invalidate();
-  });
+function requestFace(font: string, s: string): void {
+  if (typeof document.fonts?.load !== 'function') return;
+  document.fonts.load(font, s).catch(() => {});
 }
 
 /**
@@ -180,8 +189,12 @@ export function glyphFit(s: string, host: HTMLElement = document.body): number |
     if (typeof document === 'undefined') return null;
     // Mid-load the probe would measure the fallback font; wait for the swap.
     if (document.fonts && document.fonts.status === 'loading') return null;
+    if (unanswered.has(s)) return null;
     const measured = measureRatio(s, host);
-    if (measured === null) return null;
+    if (measured === null) {
+      unanswered.add(s);
+      return null;
+    }
     ratio = measured;
     ratios.set(s, ratio);
   }
