@@ -652,12 +652,10 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
 
     // Kill panes to reset
     await killPaneKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     expect(await ctx.session.getPaneCount()).toBe(1);
 
     // Step 2: Drag vertical divider (via tmux resize)
     await splitPaneKeyboard(ctx.page, 'vertical');
-    await delay(DELAYS.SYNC);
     await waitForPaneCount(ctx.page, 2);
     panesBefore = await ctx.session.getPaneInfo();
     await resizePaneKeyboard(ctx.page, 'R', 10);

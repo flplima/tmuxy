@@ -95,11 +95,8 @@ describe('Scenario 18: Rapid Operations', () => {
 
     // Step 2: Kill ×3
     await killPaneKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await killPaneKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await killPaneKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     expect(await ctx.session.getPaneCount()).toBe(2);
 
     // Step 3: Split-close-split
@@ -107,11 +104,8 @@ describe('Scenario 18: Rapid Operations', () => {
       ctx,
       async () => {
         await splitPaneKeyboard(ctx.page, 'horizontal');
-        await delay(DELAYS.SYNC);
         await killPaneKeyboard(ctx.page);
-        await delay(DELAYS.SYNC);
         await splitPaneKeyboard(ctx.page, 'vertical');
-        await delay(DELAYS.SYNC);
       },
       { operationType: 'split' },
     );
@@ -120,9 +114,7 @@ describe('Scenario 18: Rapid Operations', () => {
 
     // Kill to reset
     await killPaneKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await killPaneKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     expect(await ctx.session.getPaneCount()).toBe(1);
 
     // Step 4: 6-pane grid
@@ -150,7 +142,6 @@ describe('Scenario 18: Rapid Operations', () => {
     // Kill back to 1 pane for next steps
     for (let i = 0; i < 5; i++) {
       await killPaneKeyboard(ctx.page);
-      await delay(DELAYS.SYNC);
     }
     expect(await ctx.session.getPaneCount()).toBe(1);
 
@@ -166,11 +157,9 @@ describe('Scenario 18: Rapid Operations', () => {
 
     // Step 6: Swap panes
     await splitPaneKeyboard(ctx.page, 'horizontal');
-    await delay(DELAYS.SYNC);
     const panesBefore = await ctx.session.getPaneInfo();
     const firstPaneIdBefore = panesBefore[0].id;
     await swapPaneKeyboard(ctx.page, 'down');
-    await delay(DELAYS.SYNC);
     const panesAfterSwap = await ctx.session.getPaneInfo();
     expect(
       panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].y !== panesBefore[0].y,

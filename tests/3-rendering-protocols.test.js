@@ -75,7 +75,6 @@ describe('Scenario 14: OSC Protocols', () => {
     // Step 3: Malformed OSC 8 - terminal should survive
     await typeInTerminal(ctx.page, 'echo -e "\\e]8;;http://broken.com\\e\\\\BROKEN_LINK"');
     await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC * 2);
     await runCommand(ctx.page, 'echo "AFTER_MALFORMED"', 'AFTER_MALFORMED', 15000);
 
     // Step 4: OSC 52 doesn't crash

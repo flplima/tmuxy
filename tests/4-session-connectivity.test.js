@@ -41,7 +41,6 @@ describe('Scenario 12: Session Reconnect', () => {
 
     // Step 1: Create 2 panes
     await splitPaneKeyboard(ctx.page, 'horizontal');
-    await delay(DELAYS.SYNC);
     await waitForPaneCount(ctx.page, 2);
     // Wait for XState to reflect 2 panes
     await ctx.page.waitForFunction(
@@ -77,7 +76,6 @@ describe('Scenario 12: Session Reconnect', () => {
 
     // Step 4: Split via keyboard
     await splitPaneKeyboard(ctx.page, 'vertical');
-    await delay(DELAYS.SYNC);
     await waitForPaneCount(ctx.page, 3);
 
     // Step 5: 3 rapid splits (wait for each to complete)
@@ -86,7 +84,6 @@ describe('Scenario 12: Session Reconnect', () => {
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 5, 10000);
     await splitPaneKeyboard(ctx.page, 'horizontal');
-    await delay(DELAYS.SYNC);
 
     // Step 6: UI synced
     const tmuxCount = await ctx.session.getPaneCount();
