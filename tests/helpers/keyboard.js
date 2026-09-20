@@ -183,26 +183,29 @@ async function typeChar(page, char) {
 }
 
 /**
- * Resolve once the app is holding browser focus, so the next keystroke is
- * routed to a pane instead of being dropped by a page that is not listening.
- * Falls through after `timeout` rather than failing: a few callers type into
- * surfaces that never take the hidden input (the tree widget).
+ * Resolve once the app is really holding the keyboard.
+ *
+ * The app keeps a hidden 1px `<input>` focused on every device
+ * (utils/mobileKeyboard.ts) and routes what lands in it to a pane, so that
+ * input BEING the active element is the signal that a keystroke will arrive.
+ * Anything looser — "the clicked terminal is the active element" — is true
+ * the instant the click lands, before the app has taken focus, and the first
+ * characters of a long command are then typed into nothing.
+ *
+ * Falls through after `timeout` with the beat the old fixed wait gave: a few
+ * surfaces (the tree widget) never hand the input focus at all.
  */
-async function waitForKeyboardFocus(page, timeout = 2000) {
+async function waitForKeyboardFocus(page, timeout = 3000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const ready = await page.evaluate(() => {
       const el = document.activeElement;
-      if (!el || el === document.body) return false;
-      return (
-        el.tagName === 'INPUT' ||
-        el.tagName === 'TEXTAREA' ||
-        Boolean(el.closest('[role="log"], .pane-layout-item, .app-container'))
-      );
+      return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
     });
     if (ready) return;
     await delay(40);
   }
+  await delay(DELAYS.MEDIUM);
 }
 
 /**
@@ -236,7 +239,7 @@ async function typeInTerminal(page, text, { target } = {}) {
   // requests, preventing transposition.
   for (const char of text) {
     await page.keyboard.type(char);
-    await delay(15);
+    await delay(30);
   }
 }
 
