@@ -1,0 +1,173 @@
+name: nightly v86 sweep
+
+# The full ~110-story v86 probe. It used to hang off the per-commit
+# `storybook-v86-probe` job behind a step-level `continue-on-error`: 20 minutes
+# on the critical path of every pull request, producing a result no one was
+# obliged to look at. Here it runs once a night, it BLOCKS nothing, and a
+# failure opens (or updates) an issue so the result actually reaches someone.
+#
+# The three blocking gate stories still run per commit in lint-and-tests.yml.
+
+on:
+  schedule:
+    # 04:30 UTC daily — after the day's merges, before the next morning.
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-v86
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-tree binary
+          # that build-v86-snapshot.mjs cross-compiles on a cache miss.
+          targets: wasm32-unknown-unknown,i686-unknown-linux-musl
+
+      - uses: swatinem/rust-cache@v2
+
+      # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
+      # version is read from the lockfile rather than written here.
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/{f=1; next} f && /^version = /{gsub(/["]/,""); sub(/version = /,""); print; exit}' Cargo.lock)
+          test -n "$version" || { echo "no wasm-bindgen in Cargo.lock"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build tmuxy-wasm
+        run: npm run build:wasm
+
+      - name: Cache v86 guest assets
+        id: v86-assets-cache
+        uses: actions/cache@v6
+        with:
+          path: packages/tmuxy-ui/v86-assets
+          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'bin/tmuxy-cli', 'bin/tmuxy/**') }}
+
+      - name: Build v86 guest assets (cache miss)
+        if: steps.v86-assets-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends zstd
+          npm run fetch:v86-image -w tmuxy-ui
+          npm run build:v86-snapshot -w tmuxy-ui
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Start Storybook (dev server)
+        run: |
+          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
+          node -e "
+            const start = Date.now();
+            const check = async () => {
+              while (Date.now() - start < 180000) {
+                try {
+                  const res = await fetch('http://localhost:6006/index.json');
+                  if (res.ok) process.exit(0);
+                } catch {}
+                await new Promise(r => setTimeout(r, 1000));
+              }
+              process.exit(1);
+            };
+            check();
+          "
+
+      # PROBE_TIMINGS_JSON is the per-story timing record (docs/PERFORMANCE.md
+      # Axis A). Nothing collected it before, so the numbers were written to a
+      # file inside a container that was then thrown away.
+      - name: Probe v86 stories (shared engine, single page)
+        run: |
+          mkdir -p perf
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          PROBE_TIMINGS_JSON="$PWD/perf/v86-probe-timings.json" \
+            npm run test-storybook:v86 -w tmuxy-ui
+
+      - name: Upload probe timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: v86-probe-timings-${{ github.run_id }}
+          path: perf/v86-probe-timings.json
+          if-no-files-found: warn
+
+      - name: Storybook logs (debug)
+        if: failure()
+        run: tail -200 /tmp/storybook.log
+
+      - name: Upload Storybook log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: v86-storybook-log-${{ github.run_id }}
+          path: /tmp/storybook.log
+          if-no-files-found: warn
+
+  # A nightly that fails into an empty room is the same as no nightly. One
+  # issue is kept open and commented on, rather than a new one every night.
+  report-failure:
+    needs: sweep
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE="Nightly v86 sweep is failing"
+          BODY="The nightly full v86 story sweep failed.
+
+          Run: $RUN_URL
+          Commit: ${{ github.sha }}
+
+          Per-story timings and the Storybook log are attached to that run as artifacts."
+
+          EXISTING=$(gh issue list --state open --label ci-nightly \
+            --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh label create ci-nightly --color B60205 \
+              --description "Opened by the nightly CI sweep" 2>/dev/null || true
+            gh issue create --title "$TITLE" --label ci-nightly --body "$BODY"
+          fi

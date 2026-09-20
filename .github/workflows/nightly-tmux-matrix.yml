@@ -1,0 +1,339 @@
+name: nightly tmux version matrix
+
+# Every other workflow pins ONE tmux (3.7a, source-built and cache-shared), so
+# nothing in CI has ever executed the version-specific paths docs/TMUX.md is
+# full of: the 3.5a `neww` crash and the `splitw ; breakp` rewrite, the 3.4
+# auto-adopt race on `@tmuxy-window-type`, the control-mode differences the
+# router works around. This job runs the tmux-facing suites against each
+# supported version once a night, so those workarounds are exercised by
+# something other than a user's machine.
+#
+# Scope per version:
+#   - the tmuxy-core integration tests that drive a real `tmux -CC`
+#   - the snapshot E2E suite
+#   - tests/8-tui-alternate-screen.test.js (alternate-screen / TUI path)
+#
+# Blocking policy: the three RELEASED versions gate this workflow. `HEAD`
+# (tmux master) does not — upstream can break, or change behaviour, on any
+# commit, and a red nightly nobody can fix is a nightly nobody reads. A HEAD
+# failure is reported into the tracking issue and the job still passes.
+
+on:
+  schedule:
+    # 03:30 UTC — an hour before the v86 sweep, so the two nightlies do not
+    # contend for runners.
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-tmux-matrix
+  cancel-in-progress: false
+
+jobs:
+  # The frontend bundle and the release server, built once and handed to all
+  # four matrix entries — neither depends on the tmux version under test.
+  build-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build -w tmuxy-ui
+
+      - name: Build server (release)
+        run: cargo build --release -p tmuxy-server
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload server binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: tmuxy-server-release
+          path: target/release/tmuxy-server
+          if-no-files-found: error
+          retention-days: 1
+
+  suites:
+    needs: build-artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    name: tmux ${{ matrix.tmux.name }}
+    permissions:
+      contents: read
+      # The failure report is written from inside this job so that a soft
+      # (HEAD) failure can be reported without failing the workflow.
+      issues: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        tmux:
+          # `version` is the release tag; `soft` marks a version whose failure
+          # must not fail the workflow.
+          - { name: '3.4', version: '3.4' }
+          - { name: '3.5a', version: '3.5a' }
+          - { name: '3.7a', version: '3.7a' }
+          - { name: 'HEAD', version: 'HEAD', soft: true }
+
+    # The suite's own tmux socket — the tests pin it themselves
+    # (tests/helpers/tmux-socket.js), this is what puts the server on it too.
+    env:
+      TMUX_SOCKET: tmuxy-test
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # The core integration tests are compiled here, so this job needs a
+      # toolchain (unlike the per-commit e2e job, which only consumes the
+      # prebuilt server).
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison \
+            autoconf automake pkg-config \
+            fzf neovim
+
+      # Released versions are cached exactly like the per-commit jobs cache
+      # 3.7a — and the 3.7a entry shares that cache key, so it costs nothing
+      # extra. HEAD is a moving target and is deliberately never cached.
+      - name: Cache tmux ${{ matrix.tmux.version }}
+        id: tmux-cache
+        if: matrix.tmux.version != 'HEAD'
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-${{ matrix.tmux.version }}-v1
+
+      - name: Build tmux ${{ matrix.tmux.version }} (cache miss)
+        if: matrix.tmux.version != 'HEAD' && steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          v='${{ matrix.tmux.version }}'
+          curl -sL "https://github.com/tmux/tmux/releases/download/$v/tmux-$v.tar.gz" | tar xz
+          cd "tmux-$v" && ./configure && make -j"$(nproc)" && sudo make install
+          cd .. && rm -rf "tmux-$v"
+
+      # master has no release tarball and no generated configure script.
+      - name: Build tmux from master
+        if: matrix.tmux.version == 'HEAD'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/tmux/tmux.git tmux-head
+          cd tmux-head
+          echo "tmux master commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          sh autogen.sh
+          ./configure
+          make -j"$(nproc)"
+          sudo make install
+          cd .. && rm -rf tmux-head
+
+      - name: Confirm tmux version
+        run: tmux -V
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
+
+      - name: Download server binary
+        uses: actions/download-artifact@v8
+        with:
+          name: tmuxy-server-release
+          path: target/release
+
+      # Artifacts do not preserve the executable bit.
+      - name: Make the server executable
+        run: chmod +x target/release/tmuxy-server
+
+      - name: Link tmuxy CLI onto PATH
+        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+
+      # Every test step below is `continue-on-error` so that ALL three suites
+      # report on every version — a 3.4 crash in the core tests should not hide
+      # whether the snapshot suite also breaks there. The gate step at the end
+      # turns the collected outcomes back into a job result.
+      - name: tmuxy-core integration tests (real tmux)
+        id: core
+        continue-on-error: true
+        run: |
+          mkdir -p packages/tmuxy-ui/dist
+          cargo test -p tmuxy-core \
+            --test initial_state \
+            --test initial_state_history \
+            --test reply_channel \
+            --test pinned_split_race \
+            --test enforced_settings
+
+      - name: Start server
+        id: server
+        continue-on-error: true
+        run: |
+          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
+          node -e "
+            const start = Date.now();
+            const check = async () => {
+              while (Date.now() - start < 30000) {
+                try {
+                  const res = await fetch('http://localhost:9000');
+                  if (res.ok) process.exit(0);
+                } catch {}
+                await new Promise(r => setTimeout(r, 500));
+              }
+              process.exit(1);
+            };
+            check();
+          "
+
+      - name: Snapshot suite
+        id: snapshots
+        continue-on-error: true
+        run: npx jest tests/snapshots/
+
+      - name: TUI alternate-screen suite
+        id: tui
+        continue-on-error: true
+        run: npx jest tests/8-tui-alternate-screen.test.js
+
+      - name: Server logs (debug)
+        if: always()
+        run: tail -2000 /tmp/tmuxy-server.log || true
+
+      - name: Upload server log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tmux-${{ matrix.tmux.name }}-server-log-${{ github.run_id }}
+          path: /tmp/tmuxy-server.log
+          if-no-files-found: warn
+
+      - name: Summarise this version
+        if: always()
+        run: |
+          {
+            echo "### tmux ${{ matrix.tmux.name }}"
+            echo ""
+            echo "| suite | result |"
+            echo "| --- | --- |"
+            echo "| core integration | ${{ steps.core.outcome }} |"
+            echo "| server start | ${{ steps.server.outcome }} |"
+            echo "| snapshots | ${{ steps.snapshots.outcome }} |"
+            echo "| 8-tui-alternate-screen | ${{ steps.tui.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # One issue is kept open and commented on, the same pattern as
+      # nightly-v86.yml. Reported from inside the job because a HEAD failure
+      # must reach someone WITHOUT the job (or the workflow) going red.
+      - name: Open or update the tracking issue
+        if: always() && github.event_name == 'schedule' && (steps.core.outcome == 'failure' || steps.server.outcome == 'failure' || steps.snapshots.outcome == 'failure' || steps.tui.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SOFT: ${{ matrix.tmux.soft == true }}
+        run: |
+          set -euo pipefail
+          TITLE="Nightly tmux version matrix is failing"
+          if [ "$SOFT" = "true" ]; then
+            NOTE="tmux \`${{ matrix.tmux.name }}\` is NON-BLOCKING: upstream master can break at any time, so this did not fail the workflow."
+          else
+            NOTE="tmux \`${{ matrix.tmux.name }}\` is a released, supported version — this failure blocks the nightly."
+          fi
+
+          BODY="Nightly tmux matrix failure on **tmux ${{ matrix.tmux.name }}**.
+
+          $NOTE
+
+          | suite | result |
+          | --- | --- |
+          | core integration | ${{ steps.core.outcome }} |
+          | server start | ${{ steps.server.outcome }} |
+          | snapshots | ${{ steps.snapshots.outcome }} |
+          | 8-tui-alternate-screen | ${{ steps.tui.outcome }} |
+
+          Run: $RUN_URL
+          Commit: ${{ github.sha }}
+
+          The server log for this version is attached to that run as an artifact."
+
+          EXISTING=$(gh issue list --state open --label ci-nightly \
+            --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh label create ci-nightly --color B60205 \
+              --description "Opened by the nightly CI sweep" 2>/dev/null || true
+            gh issue create --title "$TITLE" --label ci-nightly --body "$BODY"
+          fi
+
+      # The released versions gate; HEAD only reports.
+      - name: Gate on the result
+        if: always()
+        run: |
+          failed=""
+          if [ "${{ steps.core.outcome }}" = "failure" ]; then failed="$failed core"; fi
+          if [ "${{ steps.server.outcome }}" = "failure" ]; then failed="$failed server"; fi
+          if [ "${{ steps.snapshots.outcome }}" = "failure" ]; then failed="$failed snapshots"; fi
+          if [ "${{ steps.tui.outcome }}" = "failure" ]; then failed="$failed 8-tui"; fi
+
+          if [ -z "$failed" ]; then
+            echo "all suites passed on tmux ${{ matrix.tmux.name }}"
+            exit 0
+          fi
+
+          if [ "${{ matrix.tmux.soft == true }}" = "true" ]; then
+            echo "::warning title=tmux ${{ matrix.tmux.name }}::failed:$failed (non-blocking — upstream master)"
+            exit 0
+          fi
+
+          echo "::error title=tmux ${{ matrix.tmux.name }}::failed:$failed"
+          exit 1

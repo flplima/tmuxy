@@ -1,0 +1,252 @@
+name: nightly perf
+
+# Two performance measurements that nothing in CI runs today.
+#
+# 1. `core-bench` — the criterion `core_pipeline` bench (docs/PERFORMANCE.md
+#    Axis A: parse → aggregate → delta, the exact code tmuxy-wasm runs).
+#    Nightly, compared against a stored per-platform baseline, WARN-only.
+# 2. `interaction-baseline` — a manual (workflow_dispatch) run of the Axis-C
+#    interaction harness on `ubuntu-latest` whose only product is a refreshed
+#    `perf/interaction-baseline.json` for a human to review and commit.
+#
+# Neither job gates anything. Absolute milliseconds/nanoseconds from a shared
+# GitHub runner are not a merge signal — the ratio gate in the per-commit
+# `interaction-latency` job is.
+
+on:
+  schedule:
+    # 05:30 UTC — after the v86 sweep (04:30) and the tmux matrix (03:30), so
+    # the three nightlies do not contend for runners, and the bench in
+    # particular gets a machine to itself.
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-perf
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Axis A — the criterion core_pipeline bench.
+  #
+  # HOW TO REFRESH THE BASELINE (perf/core-pipeline-baseline.json):
+  #
+  #   1. Run this workflow (Actions → "nightly perf" → Run workflow), or wait
+  #      for a nightly run whose numbers you trust.
+  #   2. Download the `core-pipeline-bench-<run id>` artifact from that run; it
+  #      contains `core-pipeline-report.json`, which is already in baseline
+  #      shape (`{schema, platforms: {<platform>: <report>}}` after merging).
+  #   3. Locally:
+  #        node perf/compare-core-bench.mjs \
+  #          --criterion-dir <dir from the artifact or your own cargo bench run> \
+  #          --update-baseline
+  #      — or, for the CI platform, paste the artifact's report under
+  #      `platforms["linux-x64"]` in perf/core-pipeline-baseline.json.
+  #   4. Commit the file. CI never writes it, so a baseline change is always a
+  #      reviewed one — same rule as perf/interaction-baseline.json.
+  #
+  # The file ships with an empty `platforms` map on purpose: a baseline must be
+  # MEASURED on the platform it describes, and nobody has recorded a CI one yet.
+  # Until then the job simply records the numbers and warns about nothing.
+  # ---------------------------------------------------------------------------
+  core-bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      # `criterion_group!` in the bench already caps measurement_time at 3s per
+      # benchmark, so the whole thing is a couple of minutes.
+      - name: Run the core_pipeline bench
+        run: cargo bench -p tmuxy-core --bench core_pipeline
+
+      # Reads target/criterion/**/new/estimates.json, writes the report, and
+      # prints a table into the job summary. Exits 0 even when a benchmark is
+      # over the threshold — warn, never fail (see the script's header).
+      - name: Compare against the stored baseline (warn at +20%)
+        run: node perf/compare-core-bench.mjs --threshold 20
+
+      - name: Upload bench report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-pipeline-bench-${{ github.run_id }}
+          path: perf/core-pipeline-report.json
+          if-no-files-found: warn
+
+      # The raw criterion output, so a baseline can be regenerated from a run
+      # after the fact without re-running the bench.
+      - name: Upload raw criterion output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-pipeline-criterion-${{ github.run_id }}
+          path: target/criterion
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Axis C — generate a linux baseline for perf/interaction-baseline.json.
+  #
+  # The committed baseline holds only `darwin-arm64`, so the per-commit
+  # `interaction-latency` job (which runs on ubuntu-latest) leaves its absolute
+  # "baseline p50" column blank and rides on the ratio gate alone.
+  #
+  # The missing numbers CANNOT be written by hand: milliseconds only mean
+  # something when they were measured by this harness, on this platform, on a
+  # GitHub runner. So this job measures them where they apply and uploads the
+  # result; a human downloads it, reviews it and commits it. CI never pushes a
+  # baseline, exactly as docs/PERFORMANCE.md requires.
+  #
+  # HOW TO ADD / REFRESH THE LINUX BASELINE:
+  #   1. Actions → "nightly perf" → Run workflow (workflow_dispatch).
+  #   2. Download the `interaction-baseline-<run id>` artifact.
+  #   3. Replace perf/interaction-baseline.json with the file inside it — it
+  #      already contains the existing `darwin-arm64` entry plus the new
+  #      `linux-x64` one (the script merges rather than replaces).
+  #   4. Sanity-check the numbers (a runner having a bad night produces a
+  #      baseline that hides real regressions), then commit.
+  #
+  # Manual only: a nightly-refreshed baseline would silently ratchet to
+  # whatever the runner did last, which is the opposite of a baseline.
+  # ---------------------------------------------------------------------------
+  interaction-baseline:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison
+
+      # Same source-built 3.7a and cache key as every other job: the binding
+      # set and the run-shell cost this harness measures are version-sensitive,
+      # and the baseline has to describe the tmux the gate job runs against.
+      - name: Cache tmux 3.7a
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a (cache miss)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
+
+      - name: Confirm tmux version
+        run: tmux -V
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Build frontend
+        run: npm run build -w tmuxy-ui
+
+      # Release, like the gate job: a debug server's own slowness would be
+      # baked into the baseline.
+      - name: Build server (release)
+        run: cargo build --release -p tmuxy-server
+
+      - name: Link tmuxy CLI onto PATH
+        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+
+      - name: Start server
+        run: |
+          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
+          node -e "
+            const start = Date.now();
+            const check = async () => {
+              while (Date.now() - start < 30000) {
+                try {
+                  const res = await fetch('http://localhost:9000');
+                  if (res.ok) process.exit(0);
+                } catch {}
+                await new Promise(r => setTimeout(r, 500));
+              }
+              process.exit(1);
+            };
+            check();
+          "
+
+      # More samples than the 12 the gate job uses: this number is committed
+      # and lived with, so it is worth a steadier p50.
+      - name: Measure interactions
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run perf:interactions -- \
+            --url http://localhost:9000 \
+            --samples 25 \
+            --label ci-baseline \
+            --out perf/interaction-report.json
+
+      # --update-baseline merges this run into the committed file under its own
+      # platform key, leaving `darwin-arm64` alone. continue-on-error because
+      # the script exits non-zero when a RATIO budget is breached; that is the
+      # gate job's business, and here it must not swallow the artifact.
+      - name: Write the baseline
+        continue-on-error: true
+        run: |
+          npm run perf:compare -- \
+            --report perf/interaction-report.json \
+            --update-baseline
+
+      - name: Upload the refreshed baseline
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: interaction-baseline-${{ github.run_id }}
+          path: |
+            perf/interaction-baseline.json
+            perf/interaction-report.json
+          if-no-files-found: error
+
+      - name: Remind the reader that nothing was committed
+        if: always()
+        run: |
+          {
+            echo "### Interaction baseline"
+            echo ""
+            echo "Nothing was committed. Download the \`interaction-baseline-${{ github.run_id }}\` artifact,"
+            echo "review the numbers, and commit \`perf/interaction-baseline.json\` yourself."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Server logs (debug)
+        if: failure()
+        run: tail -2000 /tmp/tmuxy-server.log
