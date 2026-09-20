@@ -3,14 +3,30 @@
 # Confirm a tagged release actually reached brew users.
 #
 # Usage: verify-release <version>
+#        verify-release <version> --quick   # skip the asset downloads
 #
-# Checks the two things that decide whether `brew upgrade` serves the new
-# build: the 5 release assets, and the cask + formula bumps on the tap.
-# Exit 0 only when both are in place.
+# Checks the three things that decide whether `brew upgrade` serves the new
+# build, and serves the RIGHT bytes:
+#   1. the 5 release assets exist on the tag
+#   2. the cask + formula on the tap pin the new version
+#   3. the published assets, downloaded, hash to exactly the sha256 the tap
+#      declares — a cask whose sha256 drifted from the DMG fails at install
+#      time on the user's machine, and nothing before this step notices.
+# Exit 0 only when all three hold.
 
 set -euo pipefail
 
-VERSION="${1:?Usage: verify-release <version>}"
+QUICK=0
+VERSION=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --quick) QUICK=1; shift ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^#[ ]?/,""); print; next} {exit}' "$0"; exit 0 ;;
+    -*) echo "unknown flag: $1" >&2; exit 2 ;;
+    *) VERSION="$1"; shift ;;
+  esac
+done
+[ -n "$VERSION" ] || { echo "Usage: verify-release <version> [--quick]" >&2; exit 2; }
 VERSION="${VERSION#v}"
 TAG="v$VERSION"
 TAP="flplima/homebrew-tap"
@@ -42,10 +58,16 @@ fi
 
 echo
 echo "=== tap bumps on $TAP ==="
+CASK_BODY=""
+FORMULA_BODY=""
 check_tap() {
   local path=$1 label=$2
   local body
   body=$(gh api "repos/$TAP/contents/$path" -q '.content' 2>/dev/null | base64 -d 2>/dev/null || true)
+  case "$path" in
+    Casks/*)   CASK_BODY="$body" ;;
+    Formula/*) FORMULA_BODY="$body" ;;
+  esac
   if [ -z "$body" ]; then
     echo "  MISSING $label ($path not readable)"
     FAIL=1
@@ -59,12 +81,79 @@ check_tap() {
 check_tap "Casks/tmuxy.rb"   "cask (macOS)"
 check_tap "Formula/tmuxy.rb" "formula (Linux)"
 
+# --- 3. the bytes brew will actually download ---------------------------
+#
+# The tap declares a sha256 per asset. Homebrew aborts the install if the
+# download does not hash to it, so a drift here is a broken install for
+# every user — and the only way to see it is to fetch the asset and hash it.
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# Pull `sha256 "..."` out of a ruby block. $2 is the block name (on_arm /
+# on_intel) or empty for the top-level declaration in the cask.
+declared_sha() {
+  local body=$1 block=${2:-}
+  if [ -z "$block" ]; then
+    printf '%s\n' "$body" | awk '/^[[:space:]]*sha256 "/{gsub(/.*sha256 "|".*/,""); print; exit}'
+  else
+    printf '%s\n' "$body" | awk -v b="$block" '
+      $0 ~ "^[[:space:]]*" b "[[:space:]]+do" {inb=1; next}
+      inb && /^[[:space:]]*end[[:space:]]*$/ {exit}
+      inb && /sha256 "/ {gsub(/.*sha256 "|".*/,""); print; exit}'
+  fi
+}
+
+check_asset_sha() {
+  local asset=$1 want=$2 label=$3
+  if [ -z "$want" ]; then
+    echo "  NO SHA  $label — the tap declares no sha256 for $asset"
+    FAIL=1
+    return
+  fi
+  if ! gh release download "$TAG" --pattern "$asset" --dir "$TMPDIR_DL" --clobber >/dev/null 2>&1; then
+    echo "  NO DL   $label — could not download $asset from $TAG"
+    FAIL=1
+    return
+  fi
+  local got
+  got=$(sha256_of "$TMPDIR_DL/$asset")
+  if [ "$got" = "$want" ]; then
+    echo "  ok      $label sha256 matches ($asset)"
+  else
+    echo "  MISMATCH $label"
+    echo "            asset  $got"
+    echo "            tap    $want"
+    FAIL=1
+  fi
+  rm -f "$TMPDIR_DL/$asset"
+}
+
+echo
+if [ "$QUICK" -eq 1 ]; then
+  echo "=== published asset sha256 vs tap === (skipped: --quick)"
+else
+  echo "=== published asset sha256 vs tap ==="
+  TMPDIR_DL=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR_DL"' EXIT
+  check_asset_sha "tmuxy_${VERSION}_universal.dmg"     "$(declared_sha "$CASK_BODY")"                "cask (macOS)"
+  check_asset_sha "tmuxy_${VERSION}_aarch64.AppImage"  "$(declared_sha "$FORMULA_BODY" on_arm)"      "formula on_arm (Linux arm64)"
+  check_asset_sha "tmuxy_${VERSION}_amd64.AppImage"    "$(declared_sha "$FORMULA_BODY" on_intel)"    "formula on_intel (Linux amd64)"
+fi
+
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "READY — brew update && brew upgrade --cask flplima/tap/tmuxy  (macOS)"
   echo "        brew update && brew upgrade flplima/tap/tmuxy         (Linux)"
 else
-  echo "NOT READY — brew still serves the previous tag."
+  echo "NOT READY — brew still serves the previous tag, or would serve bad bytes."
   echo "If bump-cask/bump-formula logged 'already at v...', that is benign; re-check."
+  echo "A sha256 MISMATCH is not benign: re-run the tag build so the tap is"
+  echo "recomputed from the assets that are actually published."
   exit 1
 fi

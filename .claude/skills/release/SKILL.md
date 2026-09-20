@@ -13,9 +13,10 @@ The mechanical steps are scripted under `scripts/` in this skill directory; run 
 |---|---|
 | 2. Wait for CI green | `.claude/skills/release/scripts/wait-ci commit [<sha>]` |
 | 3. Bump the version | `.claude/skills/release/scripts/bump-version [<version>]` |
-| 4. Tag and push | `.claude/skills/release/scripts/tag-and-push <version>` |
-| 5. Wait for the tag run | `.claude/skills/release/scripts/wait-ci tag <version>` |
-| 6. Verify brew is ready | `.claude/skills/release/scripts/verify-release <version>` |
+| 4. Pre-tag checklist | manual — see §4, every box ticked before step 5 |
+| 5. Tag and push | `.claude/skills/release/scripts/tag-and-push <version>` |
+| 6. Wait for the tag run | `.claude/skills/release/scripts/wait-ci tag <version>` |
+| 7. Verify brew is ready | `.claude/skills/release/scripts/verify-release <version>` |
 
 ## 0. macOS signing (one-time setup)
 
@@ -64,15 +65,41 @@ The next version is the existing version with the alpha number incremented. Six 
 
 It commits as `🚀 v<new-version>` with no body, stops `tmuxy-dev` in pm2 first (cargo racing the dev-mode binary yields transient `Permission denied`), and prints the file list to compare against `git show --stat v<previous-version>`.
 
-## 4. Tag and push
+## 4. Pre-tag checklist
+
+**A step, not a footnote.** The bump commit is green; that only covers what runs per commit. Everything below runs on a different cadence (nightly, on demand, by hand), so nothing else will notice it is red before a user does. Tick every box, out loud, before running `tag-and-push`:
+
+| # | Check | How |
+|---|---|---|
+| 1 | **Nightly tmux matrix green** | last `nightly v86 sweep` run succeeded (`gh run list --workflow nightly-v86.yml --limit 3`). A red nightly means the tmux/emulator matrix is broken on a version a user runs; it blocks nothing per commit, so it must block here |
+| 2 | **Soak green** | the long-running stability soak completed without a crash, leak or stuck pane since the last release. A soak that was never started counts as **not green** |
+| 3 | **No expired quarantine entries** | every entry in `packages/tmuxy-ui/scripts/probe-quarantine.json` has an `expires` date still in the future. An entry past its expiry is a story whose failure is no longer shielded and no longer explained — fix, delete or consciously renew it, never ship past it |
+| 4 | **Axis B transport latency re-measured** | only required if this release touched SSE, the HTTP/Tauri adapters, the key batcher, or anything else on the input → paint path. Re-run `packages/tmuxy-ui/scripts/measure-latency.mjs` / `measure-keypaint.mjs` (optionally through `latency-proxy.mjs`) and compare p50/p95/p99 against the previous release's numbers. See [docs/PERFORMANCE.md](../../../docs/PERFORMANCE.md) § Axis B |
+| 5 | **Criterion bench within baseline** | `cargo bench -p tmuxy-core --bench core_pipeline`; no benchmark regressed beyond its documented baseline in [docs/PERFORMANCE.md](../../../docs/PERFORMANCE.md) § Axis A. Criterion reports the delta against the last local run — regenerate the baseline on the previous tag if unsure |
+
+If a box cannot be ticked, either fix it first or state explicitly, in the release notes, which check was skipped and why. "I did not run it" is not a tick.
+
+## 5. Tag and push
 
 ```
 .claude/skills/release/scripts/tag-and-push <new-version>
 ```
 
-Verifies you're on a clean `main` and that `Cargo.toml` matches the tag, then runs `git tag` → `git push origin main` → `git push origin <tag>`. **Order matters:** main goes first so the tag's commit is on the remote when the tag arrives.
+Verifies you're on a clean `main` and that `Cargo.toml` matches the tag, then runs `git push origin main` → **blocks on CI for the exact sha being tagged** → `git tag` → `git push origin <tag>`. **Order matters:** main goes first, and not only so the tag's commit is on the remote when the tag arrives — CI does not run on a commit GitHub has never seen, so gating before the push would wait out the timeout on a sha that could never go green. The tag, which is the half brew serves, is what the gate protects.
 
-## 5. Wait for the tag-triggered Build App run
+### The CI gate
+
+The gate asks about the **version-bump commit itself, not its parent**. That distinction is the whole point: v0.0.10-alpha.40 was tagged on a commit whose `lint and tests` had *failed*, because the only thing anyone had checked was the commit before the bump. The gate reuses `wait-ci commit <sha>` verbatim, so it inherits the rule that the path-filtered `Deploy Demo` may legitimately report "not triggered by this commit", while `lint and tests` and `Build App` must be `completed (success)`.
+
+A run that is queued, in progress, or has not reported a conclusion yet **blocks** — the gate waits for it (`--ci-timeout <seconds>`, default 2700) rather than guessing.
+
+```
+tag-and-push <version> --allow-red   # override, deliberately
+```
+
+`--allow-red` prints a loud banner and tags anyway. It exists so a human can override with their eyes open; it is never the answer to "CI is annoying". If you use it, say so in the release notes.
+
+## 6. Wait for the tag-triggered Build App run
 
 ```
 .claude/skills/release/scripts/wait-ci tag <new-version>
@@ -86,13 +113,47 @@ Pushing the tag triggers a **second** `Build App` run (this one with `github.ref
 
 **This run is what makes `brew install --cask flplima/tap/tmuxy` (macOS) and `brew install flplima/tap/tmuxy` (Linux) pick up the new version.** Until it finishes green, brew still points at the previous tag.
 
-## 6. Verify brew is ready
+## 7. Verify brew is ready
 
 ```
 .claude/skills/release/scripts/verify-release <new-version>
+.claude/skills/release/scripts/verify-release <new-version> --quick   # skip downloads
 ```
 
-Asserts the 5 release assets exist and that both `Casks/tmuxy.rb` and `Formula/tmuxy.rb` on the tap pin the new version. Exit 0 means a user running `brew update && brew upgrade --cask flplima/tap/tmuxy` (macOS) or `brew update && brew upgrade flplima/tap/tmuxy` (Linux) now gets the new build.
+Asserts three things:
+
+1. the 5 release assets exist on the tag;
+2. both `Casks/tmuxy.rb` and `Formula/tmuxy.rb` on the tap pin the new version;
+3. **the published assets, downloaded and hashed, match the sha256 each tap file declares** — the DMG against the cask's `sha256`, and both AppImages against the formula's `on_arm` / `on_intel` blocks.
+
+Check 3 is the one that catches a tap pinned to bytes that are not the bytes on the release. Homebrew aborts the install on a sha mismatch, so a drift here is a hard install failure on every user's machine, and filenames and version strings alone cannot see it. A MISMATCH is never benign — re-run the tag build so the tap is recomputed from the assets that actually shipped.
+
+Exit 0 means a user running `brew update && brew upgrade --cask flplima/tap/tmuxy` (macOS) or `brew update && brew upgrade flplima/tap/tmuxy` (Linux) now gets the new build.
+
+## Release-candidate soak policy
+
+22 tags in two months, and three of them were superseded by a bug fix within four hours (.59 → .60 in 1h35, .60 → .61 in 3h43, .43 → .44 in 1h34). Every one of those shipped to brew users first and was found broken second. The fix is not more gates before the tag — it is a tag that nobody is asked to install yet.
+
+**Every alpha is a release candidate until it has been dogfooded for a day.**
+
+1. **Tag the RC.** Cut the tag exactly as documented (steps 3–7). Nothing about the mechanics changes.
+2. **The release is published as a pre-release, not `--latest`.** `brew upgrade` and the GitHub "Latest" badge keep pointing at the last promoted build, so an RC reaches only people who ask for it by tag.
+3. **Dogfood it for a full working day.** Install the actual published artifact — the DMG from the release, not `cargo run` — and use it as your daily driver: real sessions, real panes, real reconnects, the soak left running. A day is the unit because the three superseded releases all died inside four hours; a shorter window would have caught none of them by design.
+4. **Promote.** Once the day passes with no fix worth shipping, mark that release `--latest` (or, equivalently, cut the promotion by re-running the release job with the promote input). Only then do the tap bumps mean "install this".
+5. **A fix during the soak resets the clock.** The bug fix becomes the next RC and gets its own day. Do not promote the broken one "since the fix is coming anyway".
+
+Until the workflow change below lands, the `--latest` flag is applied unconditionally by `.github/workflows/build-app.yml`, so step 2 is not yet enforced by CI. In the meantime demote by hand right after the tag run finishes: `gh release edit v<version> --prerelease --latest=false`, and promote with `gh release edit v<version> --prerelease=false --latest`.
+
+## Workflow-side changes this skill assumes
+
+These live in `.github/workflows/build-app.yml`, which this skill does not own. Until they land, the gaps below are real and the skill compensates for them by hand. Keep the two in step — if you change one, say so here.
+
+| # | Change | Why |
+|---|---|---|
+| a | The `release` job must depend on the **test workflow for the tag ref**, not just `needs: build` | A tag push today triggers `Build App` only; `lint and tests` never runs on the tag ref at all, so the artifacts that reach users were never tested as tagged. `tag-and-push`'s CI gate covers the sha, not the ref — the job-level dependency is what makes it structural |
+| b | Smoke-test the artifacts that **actually ship** | Smoke today runs the raw `target/release` binary, which is not what any user installs: mount the macOS DMG and launch the signed app out of it; run the Linux AppImage; install the `.deb` in a clean container and launch it |
+| c | Assert signing and notarization on tag builds, and **fail** when they were skipped | With `APPLE_CERTIFICATE` absent the Tauri CLI skips signing *silently* (see §0), so a missing secret ships an unsigned DMG that looks identical in the logs. On a tag build assert `codesign --verify --deep --strict`, `spctl -a`, and `xcrun stapler validate`, and fail the job rather than warn |
+| d | Stop marking every alpha `--latest` | Required by the RC soak policy above: pre-release tags get `--prerelease`, only a promoted build gets `--latest` |
 
 ## Common failures
 

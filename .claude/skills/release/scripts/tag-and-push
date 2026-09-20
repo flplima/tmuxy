@@ -2,8 +2,17 @@
 #
 # Tag a release and push it in the only order that works.
 #
-# Usage: tag-and-push <version> [<commit-sha>]   # sha defaults to HEAD
-#        tag-and-push <version> --yes            # skip the confirmation
+# Usage: tag-and-push <version> [<commit-sha>]      # sha defaults to HEAD
+#        tag-and-push <version> --yes               # skip the confirmation
+#        tag-and-push <version> --ci-timeout <s>    # how long to wait for CI
+#        tag-and-push <version> --allow-red         # tag anyway (DANGEROUS)
+#
+# Refuses to tag a commit whose CI is not green. The check runs against the
+# EXACT sha being tagged — the version-bump commit itself, not its parent.
+# v0.0.10-alpha.40 shipped from a commit whose `lint and tests` had failed
+# because nothing ever asked about that sha. A run still in progress blocks
+# too: the check waits for it (reusing wait-ci, which also knows that the
+# path-filtered Deploy Demo legitimately reports "not triggered").
 #
 # main is pushed BEFORE the tag, so the tag's commit already exists on the
 # remote when the tag lands. Pushing the tag alone leaves the release job
@@ -11,23 +20,29 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 
 VERSION=""
 SHA=""
 YES=0
-for arg in "$@"; do
-  case "$arg" in
-    --yes|-y) YES=1 ;;
-    -*) echo "unknown flag: $arg" >&2; exit 2 ;;
-    *) if [ -z "$VERSION" ]; then VERSION="$arg"; else SHA="$arg"; fi ;;
+ALLOW_RED=0
+CI_TIMEOUT=2700
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes|-y) YES=1; shift ;;
+    --allow-red) ALLOW_RED=1; shift ;;
+    --ci-timeout) CI_TIMEOUT="${2:?--ci-timeout needs seconds}"; shift 2 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^#[ ]?/,""); print; next} {exit}' "$SCRIPT_DIR/$(basename "$0")"; exit 0 ;;
+    -*) echo "unknown flag: $1" >&2; exit 2 ;;
+    *) if [ -z "$VERSION" ]; then VERSION="$1"; else SHA="$1"; fi; shift ;;
   esac
 done
 
 [ -n "$VERSION" ] || { echo "usage: tag-and-push <version> [<commit-sha>]" >&2; exit 2; }
 VERSION="${VERSION#v}"
-SHA="${SHA:-$(git rev-parse HEAD)}"
+SHA=$(git rev-parse --verify "${SHA:-HEAD}^{commit}")
 TAG="v$VERSION"
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -50,11 +65,12 @@ TREE_VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
   exit 1
 }
 
+# --- what is about to happen ---------------------------------------------
 echo "tag:    $TAG"
 echo "commit: $(git log -1 --oneline "$SHA")"
 echo "remote: $(git remote get-url origin)"
 echo
-echo "will run:  git tag $TAG $SHA && git push origin main && git push origin $TAG"
+echo "will run:  git push origin main && <CI gate> && git tag $TAG $SHA && git push origin $TAG"
 
 if [ "$YES" -eq 0 ]; then
   printf 'proceed? [y/N] '
@@ -62,8 +78,41 @@ if [ "$YES" -eq 0 ]; then
   case "$reply" in y|Y|yes) ;; *) echo "aborted"; exit 1 ;; esac
 fi
 
-git tag "$TAG" "$SHA"
+# main goes first, and not only so the tag's commit exists on the remote when
+# the tag arrives: CI does not run on a commit GitHub has never seen, so the
+# gate below would otherwise wait out its timeout on a sha that can never go
+# green. Pushing a commit to main is the cheap half to undo; the tag is the
+# half brew serves, and that is what the gate protects.
 git push origin main
+
+# --- CI gate -------------------------------------------------------------
+# No tag may be cut from a sha whose CI is not green. alpha.40 shipped from a
+# commit whose `lint and tests` had failed, because nothing checked.
+WAIT_CI="$SCRIPT_DIR/wait-ci"
+if [ "$ALLOW_RED" -eq 1 ]; then
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "!!  --allow-red: TAGGING WITHOUT A GREEN CI CHECK"
+  echo "!!  $TAG will be cut from ${SHA:0:12} with its CI state UNKNOWN or RED."
+  echo "!!  brew users get this build. Only do this if you know exactly why."
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+else
+  echo
+  echo "=== CI gate on the commit being tagged (${SHA:0:12}) ==="
+  if [ ! -x "$WAIT_CI" ]; then
+    echo "cannot find wait-ci next to this script — refusing to tag blind" >&2
+    exit 1
+  fi
+  if ! "$WAIT_CI" commit "$SHA" --timeout "$CI_TIMEOUT"; then
+    echo >&2
+    echo "REFUSING to tag $TAG: CI on ${SHA:0:12} is not green." >&2
+    echo "main already carries it. Fix it and re-run tag-and-push (or override" >&2
+    echo "deliberately with --allow-red)." >&2
+    exit 1
+  fi
+  echo
+fi
+
+git tag "$TAG" "$SHA"
 git push origin "$TAG"
 
 echo
