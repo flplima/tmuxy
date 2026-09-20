@@ -413,10 +413,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install tmux
+      # The AppImage is the desktop app, and it links the GUI stack even when
+      # all it is asked to do is `server` — without these it dies with
+      # `libEGL.so.1: cannot open shared object file` before it binds a port.
+      - name: Install tmux and the runtime libraries the AppImage links
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tmux
+          sudo apt-get install -y --no-install-recommends \
+            tmux libwebkit2gtk-4.1-0 libgtk-3-0 libsoup-3.0-0 \
+            libegl1 libgl1 libgbm1 libasound2t64
           tmux -V
 
       - name: Download the AppImage built here

@@ -119,8 +119,13 @@ async function getTerminalText(page, { scope } = {}) {
 
 /**
  * Whether `text` is not merely present in the log at `index`, but READABLE:
- * the line carrying it has a real box, inside its pane and inside the
- * viewport. A line scrolled out of its pane is in the DOM and not on screen.
+ * the line carrying it has a real box and that box is inside its pane. A line
+ * scrolled out of its pane is in the DOM and not on screen.
+ *
+ * The pane's own visibility is already established by `visibleTerminals`, so
+ * the line is not re-tested against the viewport: terminal content lives in a
+ * container taller than the window, and a line can sit outside the viewport's
+ * box while being exactly what the user is reading.
  */
 async function textIsReadable(page, index, text) {
   return await page.evaluate(
@@ -136,13 +141,6 @@ async function textIsReadable(page, index, text) {
       if (rect.width < 1 || rect.height < 1) return { ok: false, why: 'the line has no box' };
       if (rect.bottom <= pane.top || rect.top >= pane.bottom)
         return { ok: false, why: 'the line is clipped outside its pane' };
-      if (
-        rect.right <= 0 ||
-        rect.bottom <= 0 ||
-        rect.left >= window.innerWidth ||
-        rect.top >= window.innerHeight
-      )
-        return { ok: false, why: 'the line is outside the viewport' };
       return { ok: true };
     },
     [index, text],
