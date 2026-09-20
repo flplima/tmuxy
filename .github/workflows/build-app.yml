@@ -137,7 +137,7 @@ jobs:
 
       - name: Install tauri-driver (Linux, cache miss)
         if: matrix.platform == 'linux' && steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked
+        run: cargo install tauri-driver --version 2.0.6 --locked --force
 
       # ubuntu-22.04's apt tmux is 3.2a, below the 3.3 the app refuses to
       # launch without. Same source-built 3.7a as lint-and-tests.yml, keyed

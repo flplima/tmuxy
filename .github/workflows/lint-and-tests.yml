@@ -642,7 +642,7 @@ jobs:
 
       - name: Install tauri-driver (cache miss)
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked
+        run: cargo install tauri-driver --version 2.0.6 --locked --force
 
       - name: Install npm dependencies
         run: npm ci
@@ -903,7 +903,7 @@ jobs:
 
       - name: Install tauri-driver (cache miss)
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked
+        run: cargo install tauri-driver --version 2.0.6 --locked --force
 
       - name: Install npm dependencies
         run: npm ci

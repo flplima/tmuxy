@@ -98,19 +98,21 @@ describe('App Lifecycle', () => {
     const terminal = await driver.$('[role="log"]');
     expect(await terminal.isDisplayed()).toBe(true);
     const rect = await driver.execute(() => {
-      const log = document.querySelector('[role="log"]');
-      if (!log) return null;
-      const r = log.getBoundingClientRect();
-      return {
-        width: r.width,
-        height: r.height,
-        // How much of it is actually inside the window. A terminal lives in a
-        // scrollback container taller than the viewport, so its own `top` is
-        // legitimately negative once there is history above — what matters is
-        // that a readable part of it is on screen, not where its top edge is.
-        visibleHeight: Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0),
-        visibleWidth: Math.min(r.right, window.innerWidth) - Math.max(r.left, 0),
-      };
+      // The first [role="log"] in the DOM is not necessarily one on screen —
+      // a pane in a background tab and a closed sidebar keep theirs mounted.
+      // Take the largest visible area across all of them: "the app launched
+      // showing a terminal" is a claim about what is on the screen.
+      let best = null;
+      for (const log of document.querySelectorAll('[role="log"]')) {
+        const r = log.getBoundingClientRect();
+        const visibleWidth = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
+        const visibleHeight = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
+        const area = Math.max(0, visibleWidth) * Math.max(0, visibleHeight);
+        if (!best || area > best.area) {
+          best = { width: r.width, height: r.height, visibleWidth, visibleHeight, area };
+        }
+      }
+      return best;
     });
     expect(rect).not.toBeNull();
     expect(rect.width).toBeGreaterThan(200);
