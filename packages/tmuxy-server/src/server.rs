@@ -636,26 +636,102 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
 mod tests {
     use super::*;
 
+    /// A scratch pid-file path unique to this test, cleaned up on drop.
+    struct PidFile(std::path::PathBuf);
+
+    impl PidFile {
+        fn new(tag: &str) -> Self {
+            Self(
+                std::env::temp_dir()
+                    .join(format!("tmuxy-pidfile-{}-{tag}.pid", std::process::id())),
+            )
+        }
+        fn write(&self, contents: &str) {
+            std::fs::write(&self.0, contents).unwrap();
+        }
+        fn read(&self) -> Option<String> {
+            std::fs::read_to_string(&self.0).ok()
+        }
+    }
+
+    impl Drop for PidFile {
+        fn drop(&mut self) {
+            std::fs::remove_file(&self.0).ok();
+        }
+    }
+
     #[test]
     fn a_stopping_server_leaves_its_replacements_pid_file_alone() {
-        let path = std::env::temp_dir().join(format!("tmuxy-pidfile-{}.pid", std::process::id()));
+        let file = PidFile::new("takeover");
 
         // The old server (pid 100) exits after its replacement (pid 200) has
         // already written the file for the same port.
-        std::fs::write(&path, "200").unwrap();
-        remove_pid_file_at(&path, 100);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "200");
+        file.write("200");
+        remove_pid_file_at(&file.0, 100);
+        assert_eq!(file.read().as_deref(), Some("200"));
 
         // The replacement's own exit does remove it.
-        remove_pid_file_at(&path, 200);
-        assert!(!path.exists());
+        remove_pid_file_at(&file.0, 200);
+        assert!(!file.0.exists());
 
         // A file that is already gone, or holds no pid, is not an error.
-        remove_pid_file_at(&path, 200);
-        std::fs::write(&path, "not a pid").unwrap();
-        remove_pid_file_at(&path, 200);
-        assert!(path.exists());
-        std::fs::remove_file(&path).unwrap();
+        remove_pid_file_at(&file.0, 200);
+        file.write("not a pid");
+        remove_pid_file_at(&file.0, 200);
+        assert!(file.0.exists());
+    }
+
+    /// The whole takeover sequence, in the order it happens on a restart:
+    /// the new server writes its pid while the old one is still shutting down,
+    /// and the old one's cleanup must be a no-op. Getting this wrong is how
+    /// `tmuxy server stop` came to report a live server as gone.
+    #[test]
+    fn a_restart_leaves_the_running_server_findable() {
+        let file = PidFile::new("restart");
+        let old_pid = 4242;
+        let new_pid = 4343;
+
+        // 1. The old server is running and owns the file.
+        file.write(&old_pid.to_string());
+        // 2. The replacement starts and takes the file over.
+        file.write(&new_pid.to_string());
+        // 3. The old server finishes shutting down and cleans up.
+        remove_pid_file_at(&file.0, old_pid);
+
+        // `stop`/`status` read the file next; it must still name the live one.
+        let found: u32 = file.read().unwrap().trim().parse().unwrap();
+        assert_eq!(
+            found, new_pid,
+            "a stopping server deleted its replacement's pid file"
+        );
+    }
+
+    /// Trailing whitespace is what a shell redirect leaves behind, and the
+    /// comparison is on the parsed number, not the bytes.
+    #[test]
+    fn a_pid_file_written_with_a_trailing_newline_still_matches_its_owner() {
+        let file = PidFile::new("newline");
+        file.write("777\n");
+        remove_pid_file_at(&file.0, 776);
+        assert!(file.0.exists(), "a different pid removed the file");
+        remove_pid_file_at(&file.0, 777);
+        assert!(!file.0.exists(), "the owning pid did not remove the file");
+    }
+
+    /// Two servers on two ports must not share a pid file, or stopping the
+    /// second stops the first.
+    #[test]
+    fn each_port_owns_its_own_pid_file() {
+        let default = pid_file_path(DEFAULT_PORT);
+        let other = pid_file_path(DEFAULT_PORT + 1);
+        assert_ne!(default, other);
+        // The default port keeps the historical name, which `stop` and every
+        // existing install already look for.
+        assert_eq!(default.file_name().unwrap(), "tmuxy.pid");
+        assert_eq!(
+            other.file_name().unwrap(),
+            format!("tmuxy-{}.pid", DEFAULT_PORT + 1).as_str()
+        );
     }
 
     fn loopback(allowed: Vec<String>) -> HostPolicy {
@@ -699,5 +775,106 @@ mod tests {
         let listen =
             resolve_listen("127.0.0.1", false, false, vec!["tmux.example.com".into()]).unwrap();
         assert_eq!(listen.policy, loopback(vec!["tmux.example.com".into()]));
+    }
+
+    /// The app exactly as `start_server` assembles it, optionally behind the
+    /// password layer.
+    fn served_app(password: Option<&str>) -> axum::Router {
+        let app = crate::state::api_routes(loopback(vec![]))
+            .fallback(serve_embedded)
+            .with_state(Arc::new(AppState::new()));
+        with_optional_auth(app, password.map(str::to_string))
+    }
+
+    /// Every path a password is meant to cover — the API, the SSE stream and
+    /// the frontend itself. The layer wraps the whole router, so a route that
+    /// answered without credentials would be a hole in all three.
+    const AUTHED_TARGETS: &[&str] = &[
+        "/events",
+        "/commands",
+        "/trace",
+        "/api/file?path=/etc/hosts",
+        "/api/browse/etc/hosts",
+        "/api/images/1/0",
+        "/",
+        "/index.html",
+    ];
+
+    fn probe(target: &str, auth: Option<&str>) -> axum::http::Request<axum::body::Body> {
+        let mut request = axum::http::Request::get(target)
+            .header("host", "localhost:9000")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        if let Some(value) = auth {
+            request.headers_mut().insert(
+                axum::http::header::AUTHORIZATION,
+                axum::http::HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        request
+    }
+
+    fn basic(user: &str, pass: &str) -> String {
+        use base64::Engine as _;
+        format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"))
+        )
+    }
+
+    #[tokio::test]
+    async fn with_a_password_every_route_challenges_an_anonymous_request() {
+        use tower::ServiceExt;
+        for target in AUTHED_TARGETS {
+            let response = served_app(Some("s3cret"))
+                .oneshot(probe(target, None))
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::UNAUTHORIZED,
+                "{target} was served without credentials"
+            );
+            // Without the challenge the browser never prompts, and the app
+            // looks broken rather than locked.
+            assert!(response
+                .headers()
+                .get(axum::http::header::WWW_AUTHENTICATE)
+                .is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_wrong_password_is_refused_and_the_right_one_reaches_the_route() {
+        use tower::ServiceExt;
+        for target in AUTHED_TARGETS {
+            let refused = served_app(Some("s3cret"))
+                .oneshot(probe(target, Some(&basic("anyone", "wrong"))))
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), StatusCode::UNAUTHORIZED, "{target}");
+
+            // Any username is accepted — the browser prompt only has to carry
+            // the shared password.
+            let allowed = served_app(Some("s3cret"))
+                .oneshot(probe(target, Some(&basic("whoever", "s3cret"))))
+                .await
+                .unwrap();
+            assert_ne!(
+                allowed.status(),
+                StatusCode::UNAUTHORIZED,
+                "{target} rejected the correct password"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn with_no_password_the_layer_is_not_installed() {
+        use tower::ServiceExt;
+        let response = served_app(None)
+            .oneshot(probe("/api/file?path=/etc/hosts", None))
+            .await
+            .unwrap();
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }

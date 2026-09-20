@@ -1,0 +1,138 @@
+{
+  "data": {
+    "delta": {
+      "active_pane_id": "%4",
+      "active_window_id": "@2",
+      "focus_request": "",
+      "new_panes": [
+        {
+          "active": true,
+          "alternate_on": false,
+          "border_title": "",
+          "command": "fish",
+          "content": [
+            [
+              {
+                "c": "n"
+              }
+            ]
+          ],
+          "copy_cursor_x": 0,
+          "copy_cursor_y": 0,
+          "cursor_hidden": false,
+          "cursor_shape": 0,
+          "cursor_x": 1,
+          "cursor_y": 0,
+          "height": 12,
+          "history_size": 11,
+          "id": 4,
+          "in_mode": false,
+          "mouse_any_flag": false,
+          "paused": false,
+          "selection_present": false,
+          "selection_start_x": 0,
+          "selection_start_y": 0,
+          "title": "",
+          "tmux_id": "%4",
+          "width": 40,
+          "window_id": "@1",
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "new_windows": [
+        {
+          "active": false,
+          "float_parent": "@2",
+          "id": "@3",
+          "index": 2,
+          "name": "added",
+          "window_type": "float-backdrop",
+          "zoomed": false
+        }
+      ],
+      "panes": {
+        "%2": {
+          "active": false,
+          "alternate_on": false,
+          "border_title": "new border",
+          "command": "bash",
+          "content": {
+            "1": [
+              {
+                "c": "x"
+              },
+              {
+                "c": "y",
+                "s": {
+                  "bg": 4,
+                  "bold": true,
+                  "dim": true,
+                  "fg": {
+                    "b": 40,
+                    "g": 40,
+                    "r": 200
+                  },
+                  "inverse": true,
+                  "italic": true,
+                  "underline": true,
+                  "url": "https://example.com"
+                }
+              }
+            ]
+          },
+          "copy_cursor_x": 7,
+          "copy_cursor_y": 8,
+          "cursor_hidden": false,
+          "cursor_shape": 2,
+          "cursor_x": 5,
+          "cursor_y": 6,
+          "group_id": null,
+          "height": 30,
+          "history_size": 4321,
+          "images": [],
+          "in_mode": false,
+          "marked": false,
+          "mouse_any_flag": false,
+          "pane_state": "idle",
+          "paused": false,
+          "selection_present": false,
+          "selection_start_x": 9,
+          "selection_start_y": -10,
+          "title": "new title",
+          "width": 100,
+          "window_id": "@2",
+          "x": 1,
+          "y": 2
+        },
+        "%3": null
+      },
+      "seq": 42,
+      "status_line": "[tmuxy] 1:renamed*",
+      "total_height": 60,
+      "total_width": 100,
+      "windows": {
+        "@1": {
+          "active": false,
+          "active_pane_id": "%4",
+          "collapsible": false,
+          "float_bg": "blur",
+          "float_drawer": "top",
+          "float_height": 25,
+          "float_noheader": true,
+          "float_parent": null,
+          "float_width": 70,
+          "index": 1,
+          "name": "renamed",
+          "sidebar_cols": 40,
+          "sidebar_hidden": true,
+          "window_type": "sidebar-left",
+          "zoomed": false
+        },
+        "@2": null
+      }
+    },
+    "type": "delta"
+  },
+  "event": "state-update"
+}

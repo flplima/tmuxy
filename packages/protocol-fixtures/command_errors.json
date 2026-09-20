@@ -1,0 +1,14 @@
+[
+  {
+    "error": "invalid command payload: unknown variant `frobnicate`"
+  },
+  {
+    "error": "read-only server"
+  },
+  {
+    "error": "No monitor connection available"
+  },
+  {
+    "error": "tmux monitor did not answer with the initial state"
+  }
+]

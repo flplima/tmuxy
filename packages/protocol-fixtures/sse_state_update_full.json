@@ -1,0 +1,144 @@
+{
+  "data": {
+    "state": {
+      "active_pane_id": "%2",
+      "active_window_id": "@1",
+      "focus_request": "left",
+      "panes": [
+        {
+          "active": true,
+          "alternate_on": true,
+          "border_title": "border",
+          "command": "zsh",
+          "content": [
+            [
+              {
+                "c": "h"
+              },
+              {
+                "c": "i"
+              }
+            ],
+            [
+              {
+                "c": "!",
+                "s": {
+                  "bg": 4,
+                  "bold": true,
+                  "dim": true,
+                  "fg": {
+                    "b": 40,
+                    "g": 40,
+                    "r": 200
+                  },
+                  "inverse": true,
+                  "italic": true,
+                  "underline": true,
+                  "url": "https://example.com"
+                }
+              }
+            ]
+          ],
+          "copy_cursor_x": 3,
+          "copy_cursor_y": 4,
+          "cursor_hidden": true,
+          "cursor_shape": 6,
+          "cursor_x": 2,
+          "cursor_y": 0,
+          "group_id": "g5",
+          "height": 24,
+          "history_size": 1234,
+          "id": 2,
+          "images": [
+            {
+              "col": 4,
+              "height_cells": 5,
+              "id": 7,
+              "protocol": "kitty",
+              "row": 3,
+              "width_cells": 10
+            }
+          ],
+          "in_mode": true,
+          "marked": true,
+          "mouse_any_flag": true,
+          "pane_state": "working",
+          "paused": true,
+          "selection_present": true,
+          "selection_start_x": 1,
+          "selection_start_y": -2,
+          "title": "pane title",
+          "tmux_id": "%2",
+          "width": 80,
+          "window_id": "@1",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "active": false,
+          "alternate_on": false,
+          "border_title": "",
+          "command": "nvim",
+          "content": [
+            []
+          ],
+          "copy_cursor_x": 0,
+          "copy_cursor_y": 0,
+          "cursor_hidden": false,
+          "cursor_shape": 0,
+          "cursor_x": 0,
+          "cursor_y": 0,
+          "height": 24,
+          "history_size": 0,
+          "id": 3,
+          "in_mode": false,
+          "mouse_any_flag": false,
+          "paused": false,
+          "selection_present": false,
+          "selection_start_x": 0,
+          "selection_start_y": 0,
+          "title": "",
+          "tmux_id": "%3",
+          "width": 80,
+          "window_id": "@1",
+          "x": 0,
+          "y": 25
+        }
+      ],
+      "session_name": "tmuxy",
+      "status_line": "[tmuxy] 0:main*",
+      "total_height": 50,
+      "total_width": 80,
+      "windows": [
+        {
+          "active": true,
+          "active_pane_id": "%2",
+          "collapsible": true,
+          "id": "@1",
+          "index": 0,
+          "name": "main",
+          "window_type": "tab",
+          "zoomed": true
+        },
+        {
+          "active": false,
+          "float_bg": "dim",
+          "float_drawer": "bottom",
+          "float_height": 20,
+          "float_noheader": true,
+          "float_parent": "@1",
+          "float_width": 60,
+          "id": "@2",
+          "index": 1,
+          "name": "float",
+          "sidebar_cols": 30,
+          "sidebar_hidden": true,
+          "window_type": "float",
+          "zoomed": false
+        }
+      ]
+    },
+    "type": "full"
+  },
+  "event": "state-update"
+}

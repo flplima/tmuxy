@@ -39,25 +39,22 @@ const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 /// payload. We peek at the `event` field rather than deserialising into the
 /// full `SseEvent` enum because the discriminator is the only thing we need
 /// and StateUpdate / Box<...> deserialisation is expensive on the hot path.
-/// Falls back to `"state-update"` for unknown shapes to match the legacy
-/// fallback behaviour.
-fn sse_event_type(payload: &str) -> &'static str {
+/// The name is the serde tag verbatim, so a variant added to `SseEvent`
+/// reaches the browser under the name it serialises with. An allowlist here
+/// used to decide the name instead, and every variant missing from it — the
+/// `detached` and `theme-settings` frames — went out labelled `state-update`,
+/// where the client's listener for them never fired and its state-update
+/// listener got a payload with no `type`.
+///
+/// Falls back to `"state-update"` for a payload with no `event` field.
+fn sse_event_type(payload: &str) -> &str {
     // serde_json::from_str is faster than a full enum decode because we stop
     // at the first matching field, but we still avoid building a Value if we
     // can — match the literal `"event":"..."` substring.
     if let Some(idx) = payload.find("\"event\":\"") {
         let rest = &payload[idx + "\"event\":\"".len()..];
         if let Some(end) = rest.find('"') {
-            return match &rest[..end] {
-                "state-update" => "state-update",
-                "tmux-error" => "tmux-error",
-                "connection-info" => "connection-info",
-                "keybindings" => "keybindings",
-                "log" => "log",
-                "fatal" => "fatal",
-                "clipboard" => "clipboard",
-                _ => "state-update",
-            };
+            return &rest[..end];
         }
     }
     "state-update"
@@ -296,6 +293,21 @@ impl SessionQuery {
 // SSE Handler (GET /events)
 // ============================================
 
+/// Whether the ring buffer can resume a reconnecting client without a gap.
+///
+/// `last_event_id` is the `Last-Event-Id` header the browser replays;
+/// `oldest` is the lowest seq still buffered. The client needs everything
+/// strictly after `last_event_id`, so the buffer serves it only when it still
+/// holds that event's successor. A client that fell further behind than the
+/// buffer is resynced with a full snapshot instead — serving it a partial
+/// replay would leave the UI silently diverged from tmux.
+fn can_replay_from(last_event_id: Option<u64>, oldest: Option<u64>) -> bool {
+    match (last_event_id, oldest) {
+        (Some(last), Some(oldest)) => last >= oldest.saturating_sub(1),
+        _ => false,
+    }
+}
+
 pub async fn sse_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SessionQuery>,
@@ -450,11 +462,7 @@ pub async fn sse_handler(
         // can't serve the gap (server restart resets the seq counter, or a
         // >buffer disconnect), freezing the UI.
         let mut last_replayed: u64 = 0;
-        let oldest = session_broadcast.oldest_seq();
-        let buffer_can_serve = match (last_event_id, oldest) {
-            (Some(le), Some(old)) => le >= old.saturating_sub(1),
-            _ => false,
-        };
+        let buffer_can_serve = can_replay_from(last_event_id, session_broadcast.oldest_seq());
         if buffer_can_serve {
             let replay = session_broadcast.replay_since(last_event_id.unwrap_or(0));
             for (seq, msg) in replay {
@@ -1524,5 +1532,661 @@ mod tests {
         assert_eq!(parsed["event"], "clipboard");
         assert_eq!(parsed["data"]["pane_id"], "%4");
         assert_eq!(parsed["data"]["text"], "hello world");
+    }
+
+    // ----------------------------------------------------------------
+    // Lifecycle: a client that stops reading, and a client that vanishes
+    // ----------------------------------------------------------------
+
+    /// A slow consumer — a backgrounded tab, a stalled TCP window — stops
+    /// draining its broadcast receiver while tmux keeps producing. Tokio drops
+    /// the overflow and reports `Lagged`; the handler then replays the ring
+    /// buffer. The invariant is that the client's event stream has no gap and
+    /// no duplicate across that recovery, because a gap is state silently
+    /// diverging from tmux.
+    #[tokio::test]
+    async fn a_client_that_stops_reading_recovers_from_the_ring_with_no_gap() {
+        let b = crate::state::SessionBroadcast::new();
+        let mut rx = b.subscribe();
+
+        // Deliver a few events normally, then stop reading and overflow the
+        // channel by half a buffer.
+        for i in 0..3 {
+            b.broadcast(format!("m{i}"));
+        }
+        let mut received: Vec<u64> = Vec::new();
+        let mut last_replayed = 0u64;
+        for _ in 0..3 {
+            let (seq, _) = rx.try_recv().unwrap();
+            received.push(seq);
+            last_replayed = seq;
+        }
+        for i in 3..(crate::state::EVENT_BUFFER_SIZE + 50) {
+            b.broadcast(format!("m{i}"));
+        }
+
+        // The next read reports the drop, exactly as the handler's Lagged arm
+        // sees it.
+        let lagged = matches!(
+            rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Lagged(_))
+        );
+        assert!(lagged, "the receiver should have reported a lag");
+
+        // The handler's recovery: replay everything above what it already sent.
+        for (seq, _) in b.replay_since(last_replayed) {
+            received.push(seq);
+            last_replayed = seq;
+        }
+        // Then resume live delivery, deduping against the replay.
+        while let Ok((seq, _)) = rx.try_recv() {
+            if seq <= last_replayed {
+                continue;
+            }
+            received.push(seq);
+            last_replayed = seq;
+        }
+
+        let newest = b.broadcast("final".into());
+        for (seq, _) in b.replay_since(last_replayed) {
+            received.push(seq);
+        }
+
+        // The tail is contiguous and each event was delivered once.
+        let unique: std::collections::BTreeSet<u64> = received.iter().copied().collect();
+        assert_eq!(unique.len(), received.len(), "an event was delivered twice");
+        assert_eq!(*received.last().unwrap(), newest);
+        let tail: Vec<u64> = received
+            .iter()
+            .copied()
+            .skip_while(|s| *s < newest - 10)
+            .collect();
+        for pair in tail.windows(2) {
+            assert_eq!(
+                pair[1],
+                pair[0] + 1,
+                "gap in the recovered stream: {tail:?}"
+            );
+        }
+    }
+
+    /// A client that fell further behind than the buffer cannot be resumed
+    /// without a gap, and must be told to resync rather than served a partial
+    /// replay. This is the "Connecting… forever" shape: the buffer answers, the
+    /// client believes it is caught up, and the UI never matches tmux again.
+    #[test]
+    fn a_client_beyond_the_buffer_is_not_resumed_from_it() {
+        let b = crate::state::SessionBroadcast::new();
+        for i in 0..(crate::state::EVENT_BUFFER_SIZE + 20) {
+            b.broadcast(format!("m{i}"));
+        }
+        let oldest = b.oldest_seq();
+        assert_eq!(oldest, Some(20));
+
+        // Disconnected at seq 5, far behind the buffer's floor: no replay.
+        assert!(!can_replay_from(Some(5), oldest));
+        // Disconnected at 19 — the buffer still holds its successor.
+        assert!(can_replay_from(Some(19), oldest));
+        assert!(can_replay_from(Some(100), oldest));
+        // A first connection sends no Last-Event-Id, and an empty buffer has
+        // nothing to serve; both take the full-snapshot path.
+        assert!(!can_replay_from(None, oldest));
+        assert!(!can_replay_from(Some(19), None));
+    }
+
+    /// A stream that dies mid-frame is just a dropped connection to the
+    /// server: the session must lose that client's viewport and resize to the
+    /// clients still watching. Leaving it behind pins the session to the size
+    /// of a browser tab that is gone — panes stay small for everyone.
+    #[tokio::test]
+    async fn a_client_that_disconnects_stops_holding_the_session_small() {
+        let state = Arc::new(AppState::new());
+        let resizes = session_with_fake_monitor(&state, "s").await;
+        {
+            let mut sessions = state.sessions.write().await;
+            let conns = sessions.get_mut("s").unwrap();
+            conns.connections = vec![1, 2];
+            conns.client_sizes.insert(1, (200, 50));
+            // The narrow client drags the whole session down to its size.
+            conns.client_sizes.insert(2, (80, 24));
+            conns.last_resize = Some((80, 24));
+        }
+
+        cleanup_connection(&state, "s", 2).await;
+
+        let sessions = state.sessions.read().await;
+        let conns = &sessions["s"];
+        assert_eq!(conns.connections, vec![1]);
+        assert!(!conns.client_sizes.contains_key(&2));
+        assert_eq!(conns.last_resize, Some((200, 50)));
+        drop(sessions);
+        tokio::task::yield_now().await;
+        assert_eq!(*resizes.lock().await, vec![(200, 50)]);
+    }
+
+    /// The last client leaving does NOT tear the monitor down on the spot —
+    /// a page reload reconnects within a second, and killing the control-mode
+    /// connection there is what a reload used to look like from tmux's side.
+    #[tokio::test]
+    async fn the_last_client_leaving_keeps_the_monitor_through_the_grace_period() {
+        let state = Arc::new(AppState::new());
+        session_with_fake_monitor(&state, "s").await;
+
+        cleanup_connection(&state, "s", 1).await;
+
+        let sessions = state.sessions.read().await;
+        let conns = &sessions["s"];
+        assert!(conns.connections.is_empty());
+        assert!(
+            conns.monitor_command_tx.is_some(),
+            "the monitor was torn down before the grace period elapsed"
+        );
+    }
+
+    /// The viewport the session is sized to is the smallest any client
+    /// reports, so nobody gets a pane wider than their window. With no client
+    /// reporting one, the 80x24 default stands in.
+    #[test]
+    fn the_session_is_sized_to_the_smallest_viewport_watching_it() {
+        assert_eq!(compute_min_client_size(&HashMap::new()), (80, 24));
+        let sizes = HashMap::from([(1, (200, 50)), (2, (120, 60)), (3, (150, 30))]);
+        assert_eq!(compute_min_client_size(&sizes), (120, 30));
+    }
+}
+
+/// Canonical wire-shape fixtures, written by Rust and read back by the
+/// TypeScript decoders (`packages/tmuxy-ui/src/tmux/__tests__/`).
+///
+/// There is no ts-rs/specta/typeshare in this workspace: the Effect schemas
+/// and `deltaProtocol.ts` mirror these Rust types by hand, and a field that
+/// drifts between the two (`history_size` did) is invisible to both test
+/// suites. These fixtures are the shared artefact — Rust emits them from the
+/// live types, TypeScript decodes the committed files, and either side
+/// changing shape turns one of the two suites red.
+///
+/// Regenerate with:
+///
+/// ```sh
+/// UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-server protocol_fixtures
+/// ```
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod protocol_fixtures {
+    use super::*;
+    use std::collections::HashMap;
+    use tmuxy_core::control_mode::images::{ImagePlacement, ImageProtocol};
+    use tmuxy_core::{
+        CellStyle, PaneDelta, TerminalCell, TmuxDelta, TmuxPane, TmuxState, TmuxWindow,
+        WindowDelta, WindowType,
+    };
+
+    /// Where the committed fixtures live, shared with the Vitest suite.
+    fn fixture_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol-fixtures")
+    }
+
+    /// Write `value` to `name` when regenerating, otherwise assert the
+    /// committed file is byte-for-byte what the code emits today.
+    fn assert_fixture(name: &str, value: &serde_json::Value) {
+        let path = fixture_dir().join(name);
+        let rendered = format!("{}\n", serde_json::to_string_pretty(value).unwrap());
+        if std::env::var("UPDATE_PROTOCOL_FIXTURES").is_ok() {
+            std::fs::create_dir_all(fixture_dir()).unwrap();
+            std::fs::write(&path, &rendered).unwrap();
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "protocol fixture {name} is missing ({e}). \
+                 Regenerate with UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-server protocol_fixtures"
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "protocol fixture {name} no longer matches what the Rust types emit. \
+             The TypeScript decoders are pinned to this file — update both sides, then \
+             regenerate with UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-server protocol_fixtures"
+        );
+    }
+
+    fn cell(c: &str) -> TerminalCell {
+        TerminalCell::new(c.to_string())
+    }
+
+    fn styled_cell(c: &str) -> TerminalCell {
+        TerminalCell::with_style(
+            c.to_string(),
+            CellStyle {
+                fg: Some(tmuxy_core::CellColor::Rgb {
+                    r: 200,
+                    g: 40,
+                    b: 40,
+                }),
+                bg: Some(tmuxy_core::CellColor::Indexed(4)),
+                bold: true,
+                dim: true,
+                italic: true,
+                underline: true,
+                inverse: true,
+                url: Some("https://example.com".to_string()),
+            },
+        )
+    }
+
+    /// A state that populates EVERY field of every type on the wire. A field
+    /// left at its default would be skipped by `skip_serializing_if` and
+    /// never reach the TypeScript decoder, which is exactly the hole a
+    /// fixture is supposed to close.
+    fn canonical_state() -> TmuxState {
+        TmuxState {
+            session_name: "tmuxy".to_string(),
+            active_window_id: Some("@1".to_string()),
+            active_pane_id: Some("%2".to_string()),
+            panes: vec![
+                TmuxPane {
+                    id: 2,
+                    tmux_id: "%2".to_string(),
+                    window_id: "@1".to_string(),
+                    content: std::sync::Arc::new(vec![
+                        vec![cell("h"), cell("i")],
+                        vec![styled_cell("!")],
+                    ]),
+                    cursor_x: 2,
+                    cursor_y: 0,
+                    width: 80,
+                    height: 24,
+                    x: 0,
+                    y: 0,
+                    active: true,
+                    command: "zsh".to_string(),
+                    title: "pane title".to_string(),
+                    border_title: "border".to_string(),
+                    group_id: Some("g5".to_string()),
+                    in_mode: true,
+                    copy_cursor_x: 3,
+                    copy_cursor_y: 4,
+                    alternate_on: true,
+                    mouse_any_flag: true,
+                    marked: true,
+                    paused: true,
+                    history_size: 1234,
+                    selection_present: true,
+                    selection_start_x: 1,
+                    selection_start_y: -2,
+                    images: vec![ImagePlacement {
+                        id: 7,
+                        row: 3,
+                        col: 4,
+                        width_cells: 10,
+                        height_cells: 5,
+                        protocol: ImageProtocol::Kitty,
+                    }],
+                    cursor_shape: 6,
+                    cursor_hidden: true,
+                    pane_state: Some("working".to_string()),
+                },
+                TmuxPane {
+                    id: 3,
+                    tmux_id: "%3".to_string(),
+                    window_id: "@1".to_string(),
+                    content: std::sync::Arc::new(vec![vec![]]),
+                    cursor_x: 0,
+                    cursor_y: 0,
+                    width: 80,
+                    height: 24,
+                    x: 0,
+                    y: 25,
+                    active: false,
+                    command: "nvim".to_string(),
+                    title: String::new(),
+                    border_title: String::new(),
+                    group_id: None,
+                    in_mode: false,
+                    copy_cursor_x: 0,
+                    copy_cursor_y: 0,
+                    alternate_on: false,
+                    mouse_any_flag: false,
+                    marked: false,
+                    paused: false,
+                    history_size: 0,
+                    selection_present: false,
+                    selection_start_x: 0,
+                    selection_start_y: 0,
+                    images: vec![],
+                    cursor_shape: 0,
+                    cursor_hidden: false,
+                    pane_state: None,
+                },
+            ],
+            windows: vec![
+                TmuxWindow {
+                    id: "@1".to_string(),
+                    index: 0,
+                    name: "main".to_string(),
+                    active: true,
+                    window_type: Some(WindowType::Tab),
+                    float_parent: None,
+                    float_width: None,
+                    float_height: None,
+                    float_drawer: None,
+                    float_bg: None,
+                    float_noheader: false,
+                    sidebar_cols: None,
+                    sidebar_hidden: false,
+                    collapsible: true,
+                    zoomed: true,
+                    active_pane_id: Some("%2".to_string()),
+                },
+                TmuxWindow {
+                    id: "@2".to_string(),
+                    index: 1,
+                    name: "float".to_string(),
+                    active: false,
+                    window_type: Some(WindowType::Float),
+                    float_parent: Some("@1".to_string()),
+                    float_width: Some(60),
+                    float_height: Some(20),
+                    float_drawer: Some("bottom".to_string()),
+                    float_bg: Some("dim".to_string()),
+                    float_noheader: true,
+                    sidebar_cols: Some(30),
+                    sidebar_hidden: true,
+                    collapsible: false,
+                    zoomed: false,
+                    active_pane_id: None,
+                },
+            ],
+            total_width: 80,
+            total_height: 50,
+            status_line: "[tmuxy] 0:main*".to_string(),
+            focus_request: Some("left".to_string()),
+        }
+    }
+
+    /// A delta touching every field the client merges, including the removal
+    /// shapes (`null` pane / window) and the sparse content map.
+    fn canonical_delta() -> TmuxDelta {
+        let mut panes: HashMap<String, Option<PaneDelta>> = HashMap::new();
+        panes.insert(
+            "%2".to_string(),
+            Some(PaneDelta {
+                window_id: Some("@2".to_string()),
+                content: Some(HashMap::from([(1usize, vec![cell("x"), styled_cell("y")])])),
+                cursor_x: Some(5),
+                cursor_y: Some(6),
+                width: Some(100),
+                height: Some(30),
+                x: Some(1),
+                y: Some(2),
+                active: Some(false),
+                command: Some("bash".to_string()),
+                title: Some("new title".to_string()),
+                border_title: Some("new border".to_string()),
+                group_id: Some(None),
+                pane_state: Some(Some("idle".to_string())),
+                in_mode: Some(false),
+                copy_cursor_x: Some(7),
+                copy_cursor_y: Some(8),
+                alternate_on: Some(false),
+                mouse_any_flag: Some(false),
+                marked: Some(false),
+                paused: Some(false),
+                history_size: Some(4321),
+                selection_present: Some(false),
+                selection_start_x: Some(9),
+                selection_start_y: Some(-10),
+                images: Some(vec![]),
+                cursor_shape: Some(2),
+                cursor_hidden: Some(false),
+            }),
+        );
+        panes.insert("%3".to_string(), None);
+
+        let mut windows: HashMap<String, Option<WindowDelta>> = HashMap::new();
+        windows.insert(
+            "@1".to_string(),
+            Some(WindowDelta {
+                index: Some(1),
+                name: Some("renamed".to_string()),
+                active: Some(false),
+                window_type: Some(Some(WindowType::SidebarLeft)),
+                float_parent: Some(None),
+                float_width: Some(Some(70)),
+                float_height: Some(Some(25)),
+                float_drawer: Some(Some("top".to_string())),
+                float_bg: Some(Some("blur".to_string())),
+                float_noheader: Some(true),
+                sidebar_cols: Some(Some(40)),
+                sidebar_hidden: Some(true),
+                collapsible: Some(false),
+                zoomed: Some(false),
+                active_pane_id: Some(Some("%4".to_string())),
+            }),
+        );
+        windows.insert("@2".to_string(), None);
+
+        TmuxDelta {
+            seq: 42,
+            panes: Some(panes),
+            windows: Some(windows),
+            new_panes: Some(vec![TmuxPane {
+                id: 4,
+                tmux_id: "%4".to_string(),
+                window_id: "@1".to_string(),
+                content: std::sync::Arc::new(vec![vec![cell("n")]]),
+                cursor_x: 1,
+                cursor_y: 0,
+                width: 40,
+                height: 12,
+                x: 0,
+                y: 0,
+                active: true,
+                command: "fish".to_string(),
+                title: String::new(),
+                border_title: String::new(),
+                group_id: None,
+                in_mode: false,
+                copy_cursor_x: 0,
+                copy_cursor_y: 0,
+                alternate_on: false,
+                mouse_any_flag: false,
+                marked: false,
+                paused: false,
+                history_size: 11,
+                selection_present: false,
+                selection_start_x: 0,
+                selection_start_y: 0,
+                images: vec![],
+                cursor_shape: 0,
+                cursor_hidden: false,
+                pane_state: None,
+            }]),
+            new_windows: Some(vec![TmuxWindow {
+                id: "@3".to_string(),
+                index: 2,
+                name: "added".to_string(),
+                active: false,
+                window_type: Some(WindowType::FloatBackdrop),
+                float_parent: Some("@2".to_string()),
+                float_width: None,
+                float_height: None,
+                float_drawer: None,
+                float_bg: None,
+                float_noheader: false,
+                sidebar_cols: None,
+                sidebar_hidden: false,
+                collapsible: false,
+                zoomed: false,
+                active_pane_id: None,
+            }]),
+            active_window_id: Some("@2".to_string()),
+            active_pane_id: Some("%4".to_string()),
+            status_line: Some("[tmuxy] 1:renamed*".to_string()),
+            focus_request: Some(String::new()),
+            total_width: Some(100),
+            total_height: Some(60),
+        }
+    }
+
+    /// `get_initial_state`'s 200 body — the `CommandResponse` envelope the
+    /// adapter unwraps before decoding a `ServerState` out of `result`.
+    #[test]
+    fn get_initial_state_response_matches_its_fixture() {
+        let response = CommandResponse {
+            result: Some(serde_json::to_value(canonical_state()).unwrap()),
+            error: None,
+        };
+        assert_fixture(
+            "get_initial_state.json",
+            &serde_json::to_value(&response).unwrap(),
+        );
+    }
+
+    /// The two `state-update` frames, exactly as they go down the SSE wire:
+    /// the `event:` name the browser dispatches on, and the `data:` payload.
+    #[test]
+    fn state_update_frames_match_their_fixtures() {
+        for (name, update) in [
+            (
+                "sse_state_update_full.json",
+                StateUpdate::Full {
+                    state: canonical_state(),
+                },
+            ),
+            (
+                "sse_state_update_delta.json",
+                StateUpdate::Delta {
+                    delta: canonical_delta(),
+                },
+            ),
+        ] {
+            let payload = encode_event(&SseEvent::StateUpdate(Box::new(update))).unwrap();
+            assert_fixture(name, &frame(&payload));
+        }
+    }
+
+    /// Every SSE frame other than `state-update`. One list, so the fixture
+    /// and the naming check below can never disagree about what the server
+    /// can emit.
+    fn every_other_sse_event() -> Vec<SseEvent> {
+        vec![
+            SseEvent::ConnectionInfo {
+                connection_id: 3,
+                default_shell: "/bin/zsh".to_string(),
+                trace_enabled: true,
+                read_only: false,
+            },
+            SseEvent::Error {
+                message: "unknown command: frobnicate".to_string(),
+            },
+            SseEvent::KeyBindings(KeyBindings {
+                prefix_key: "C-b".to_string(),
+                prefix_bindings: vec![tmuxy_core::KeyBinding {
+                    key: "c".to_string(),
+                    command: "new-window".to_string(),
+                    description: "new window".to_string(),
+                    repeat: false,
+                }],
+                root_bindings: vec![tmuxy_core::KeyBinding {
+                    key: "M-Left".to_string(),
+                    command: "select-pane -L".to_string(),
+                    description: "pane left".to_string(),
+                    repeat: true,
+                }],
+            }),
+            SseEvent::ThemeSettings(serde_json::json!({
+                "name": "default",
+                "mode": "dark",
+                "opacity": 0.9,
+            })),
+            SseEvent::Log {
+                kind: LogKind::Command,
+                message: "tmux has-session -t tmuxy".to_string(),
+            },
+            SseEvent::Fatal {
+                message: "tmux exited and will not be retried".to_string(),
+            },
+            SseEvent::Detached {
+                reason: Some("detached".to_string()),
+            },
+            SseEvent::Clipboard {
+                pane_id: "%2".to_string(),
+                text: "copied".to_string(),
+            },
+        ]
+    }
+
+    /// Every other SSE frame, in one fixture the TypeScript suite walks so a
+    /// new variant cannot be added without the client learning to read it.
+    #[test]
+    fn every_sse_frame_matches_its_fixture() {
+        let frames: Vec<serde_json::Value> = every_other_sse_event()
+            .iter()
+            .map(|e| frame(&encode_event(e).unwrap()))
+            .collect();
+        assert_fixture("sse_frames.json", &serde_json::Value::Array(frames));
+    }
+
+    /// The `/commands` error bodies a client has to render.
+    #[test]
+    fn command_error_responses_match_their_fixture() {
+        let bodies: Vec<serde_json::Value> = [
+            "invalid command payload: unknown variant `frobnicate`",
+            "read-only server",
+            "No monitor connection available",
+            "tmux monitor did not answer with the initial state",
+        ]
+        .into_iter()
+        .map(|error| {
+            serde_json::to_value(CommandResponse {
+                result: None,
+                error: Some(error.to_string()),
+            })
+            .unwrap()
+        })
+        .collect();
+        assert_fixture("command_errors.json", &serde_json::Value::Array(bodies));
+    }
+
+    /// An SSE frame as the browser sees it: the `event:` name comes from
+    /// `sse_event_type`, the `data:` line from the serialised payload.
+    fn frame(payload: &str) -> serde_json::Value {
+        serde_json::json!({
+            "event": sse_event_type(payload),
+            "data": serde_json::from_str::<serde_json::Value>(payload).unwrap()["data"],
+        })
+    }
+
+    /// The SSE `event:` name must be the variant's own serde tag. An
+    /// allowlist here once silently relabelled `detached` and
+    /// `theme-settings` as `state-update`, and the client's listeners for
+    /// them never fired.
+    #[test]
+    fn every_frames_sse_name_is_its_own_serde_tag() {
+        let names: Vec<String> = every_other_sse_event()
+            .iter()
+            .map(|e| {
+                let payload = encode_event(e).unwrap();
+                let tag = serde_json::from_str::<serde_json::Value>(&payload).unwrap()["event"]
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                assert_eq!(
+                    sse_event_type(&payload),
+                    tag,
+                    "an SSE frame lost its own name on the way to the browser"
+                );
+                tag
+            })
+            .collect();
+        assert!(names.contains(&"detached".to_string()));
+        assert!(names.contains(&"theme-settings".to_string()));
+        // No two variants may share a name, or one of them is unroutable.
+        let unique: std::collections::HashSet<&String> = names.iter().collect();
+        assert_eq!(
+            unique.len(),
+            names.len(),
+            "duplicate SSE event names: {names:?}"
+        );
     }
 }

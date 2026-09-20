@@ -1,0 +1,73 @@
+[
+  {
+    "data": {
+      "connection_id": 3,
+      "default_shell": "/bin/zsh",
+      "read_only": false,
+      "trace_enabled": true
+    },
+    "event": "connection-info"
+  },
+  {
+    "data": {
+      "message": "unknown command: frobnicate"
+    },
+    "event": "tmux-error"
+  },
+  {
+    "data": {
+      "prefix_bindings": [
+        {
+          "command": "new-window",
+          "description": "new window",
+          "key": "c",
+          "repeat": false
+        }
+      ],
+      "prefix_key": "C-b",
+      "root_bindings": [
+        {
+          "command": "select-pane -L",
+          "description": "pane left",
+          "key": "M-Left",
+          "repeat": true
+        }
+      ]
+    },
+    "event": "keybindings"
+  },
+  {
+    "data": {
+      "mode": "dark",
+      "name": "default",
+      "opacity": 0.9
+    },
+    "event": "theme-settings"
+  },
+  {
+    "data": {
+      "kind": "command",
+      "message": "tmux has-session -t tmuxy"
+    },
+    "event": "log"
+  },
+  {
+    "data": {
+      "message": "tmux exited and will not be retried"
+    },
+    "event": "fatal"
+  },
+  {
+    "data": {
+      "reason": "detached"
+    },
+    "event": "detached"
+  },
+  {
+    "data": {
+      "pane_id": "%2",
+      "text": "copied"
+    },
+    "event": "clipboard"
+  }
+]
