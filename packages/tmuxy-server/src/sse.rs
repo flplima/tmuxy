@@ -417,6 +417,7 @@ pub async fn sse_handler(
             .await;
     }
 
+    let stream_shutdown = state.shutdown.clone();
     let stream = async_stream::stream! {
         // Keep the drop sender alive for the lifetime of the stream.
         // When this generator is dropped (client disconnect), _drop_guard is dropped,
@@ -477,6 +478,14 @@ pub async fn sse_handler(
 
         loop {
             tokio::select! {
+                // End the stream when the server is shutting down. Without this
+                // the generator only ends when the broadcast channel closes, so
+                // an open tab holds the connection open and axum's graceful
+                // shutdown waits on it forever.
+                _ = stream_shutdown.cancelled() => {
+                    info!(conn_id, "server shutting down, ending stream");
+                    break;
+                }
                 // Handle session-specific state changes
                 result = session_rx.recv() => {
                     match result {
@@ -1691,6 +1700,50 @@ mod tests {
         assert_eq!(compute_min_client_size(&HashMap::new()), (80, 24));
         let sizes = HashMap::from([(1, (200, 50)), (2, (120, 60)), (3, (150, 30))]);
         assert_eq!(compute_min_client_size(&sizes), (120, 30));
+    }
+    /// A live stream must end when the server shuts down. While it did not,
+    /// axum's graceful shutdown waited on every open tab, so a server with a
+    /// browser attached never exited on SIGTERM and the next one could not
+    /// take its port.
+    #[tokio::test]
+    async fn open_stream_ends_when_the_server_shuts_down() {
+        let state = Arc::new(AppState::new());
+        {
+            let mut conns = SessionConnections::new();
+            // A handle that never finishes, so the handler does not start a
+            // real tmux monitor for this session.
+            conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
+            state.sessions.write().await.insert("s".to_string(), conns);
+        }
+
+        let response = sse_handler(
+            State(Arc::clone(&state)),
+            Query(SessionQuery {
+                session: Some("s".to_string()),
+            }),
+            HeaderMap::new(),
+        )
+        .await;
+
+        let body = response.into_body();
+        let drained = tokio::spawn(async move { axum::body::to_bytes(body, usize::MAX).await });
+
+        // The stream is live: it is still open a moment later.
+        tokio::task::yield_now().await;
+        assert!(!drained.is_finished(), "the stream ended before shutdown");
+
+        state.shutdown.cancel();
+
+        let bytes = tokio::time::timeout(std::time::Duration::from_secs(5), drained)
+            .await
+            .expect("the stream never ended after shutdown was signalled")
+            .expect("the drain task panicked")
+            .expect("the body failed to drain");
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            text.contains("event: connection-info"),
+            "the stream should have served its prologue, got: {text}"
+        );
     }
 }
 

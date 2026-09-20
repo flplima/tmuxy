@@ -580,6 +580,9 @@ async fn bind_with_retry(addr: std::net::SocketAddr, max_retries: u32) -> tokio:
     unreachable!()
 }
 
+/// How long shutdown waits for tracked tasks to finish before giving up.
+const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChild>>) {
     // Signal handler installation only fails on platforms without sigaction (none we
     // target) or when the process has already taken too many file descriptors —
@@ -618,13 +621,24 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
     state.shutdown.cancel();
     let mut join_set = state.join_set.lock().await;
     let mut drained = 0usize;
-    while let Some(res) = join_set.join_next().await {
-        if let Err(e) = res {
-            tracing::warn!(error = %e, "joined task exited with error");
+    // Bounded: a task that misses the cancellation must not keep the process
+    // alive. Whatever is left is abandoned when the runtime goes down.
+    let drain = async {
+        while let Some(res) = join_set.join_next().await {
+            if let Err(e) = res {
+                tracing::warn!(error = %e, "joined task exited with error");
+            }
+            drained += 1;
         }
-        drained += 1;
+    };
+    if tokio::time::timeout(SHUTDOWN_DRAIN_TIMEOUT, drain)
+        .await
+        .is_err()
+    {
+        tracing::warn!(tasks = drained, "shutdown drain timed out; exiting anyway");
+    } else {
+        tracing::info!(tasks = drained, "structured shutdown complete");
     }
-    tracing::info!(tasks = drained, "structured shutdown complete");
 
     for child in children.into_iter().flatten() {
         child.kill();

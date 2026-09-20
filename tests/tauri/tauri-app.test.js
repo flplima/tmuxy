@@ -97,23 +97,33 @@ describe('App Lifecycle', () => {
     // zero-height strip clipped by a parent.
     const terminal = await driver.$('[role="log"]');
     expect(await terminal.isDisplayed()).toBe(true);
-    const rect = await driver.execute(() => {
-      // The first [role="log"] in the DOM is not necessarily one on screen —
-      // a pane in a background tab and a closed sidebar keep theirs mounted.
-      // Take the largest visible area across all of them: "the app launched
-      // showing a terminal" is a claim about what is on the screen.
-      let best = null;
-      for (const log of document.querySelectorAll('[role="log"]')) {
-        const r = log.getBoundingClientRect();
-        const visibleWidth = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
-        const visibleHeight = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
-        const area = Math.max(0, visibleWidth) * Math.max(0, visibleHeight);
-        if (!best || area > best.area) {
-          best = { width: r.width, height: r.height, visibleWidth, visibleHeight, area };
+    const measure = () =>
+      driver.execute(() => {
+        // The first [role="log"] in the DOM is not necessarily one on screen —
+        // a pane in a background tab and a closed sidebar keep theirs mounted.
+        // Take the largest visible area across all of them: "the app launched
+        // showing a terminal" is a claim about what is on the screen.
+        let best = null;
+        for (const log of document.querySelectorAll('[role="log"]')) {
+          const r = log.getBoundingClientRect();
+          const visibleWidth = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
+          const visibleHeight = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
+          const area = Math.max(0, visibleWidth) * Math.max(0, visibleHeight);
+          if (!best || area > best.area) {
+            best = { width: r.width, height: r.height, visibleWidth, visibleHeight, area };
+          }
         }
-      }
-      return best;
-    });
+        return best;
+      });
+    // The window lays out over the first frames after launch: a terminal can
+    // still be sized but parked below the viewport when the app has just
+    // opened. Wait for one to be on screen rather than sampling once.
+    let rect = await measure();
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline && !(rect && rect.area > 0)) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      rect = await measure();
+    }
     expect(rect).not.toBeNull();
     expect(rect.width).toBeGreaterThan(200);
     expect(rect.height).toBeGreaterThan(100);
