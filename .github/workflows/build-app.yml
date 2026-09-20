@@ -560,7 +560,14 @@ jobs:
           done
           case "${OLD_STAT:-gone}" in
             gone|Z*) echo "the previous release exited after the takeover" ;;
-            *) echo "note: the previous release is still running ($OLD_STAT)" ;;
+            *)
+              # Releases before the graceful-shutdown fix hold their streams
+              # open past SIGTERM, which keeps the tab attached to a server
+              # that is no longer serving the port. Put it down so the next
+              # step measures the reconnect rather than that old defect.
+              echo "note: the previous release is still running ($OLD_STAT); killing it"
+              kill -9 "$OLD_PID" 2>/dev/null || true
+              ;;
           esac
 
           # 5. The open tab recovers: the stream it reconnects to delivers a

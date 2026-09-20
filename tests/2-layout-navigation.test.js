@@ -1718,7 +1718,7 @@ describe('Scenario 6f: Float Tab Scope', () => {
     // Step 2: the float is tagged with the tab it was opened over, and the
     // backdrop dims that tab's content and nothing else — the tab strip above
     // it stays uncovered, so the user can still switch tabs.
-    const scope = await ctx.page.evaluate(() => {
+    const measureScope = () => {
       const backdrop = document.querySelector('.modal-backdrop');
       const container = document.querySelector('.pane-container');
       const strip = document.querySelector('.tab-list');
@@ -1737,7 +1737,17 @@ describe('Scenario 6f: Float Tab Scope', () => {
             window.app?.getSnapshot()?.context?.focusedFloatPaneId
           ]?.parentWindowId,
       };
-    });
+    };
+    // The float opening reflows the grid, so the backdrop and the container
+    // reach their final boxes a frame or two apart. Wait for them to agree
+    // rather than measuring into the middle of that.
+    let scope = await ctx.page.evaluate(measureScope);
+    const aligned = (s) => s && s.dTop <= 1 && s.dBottom <= 1 && s.dLeft <= 1 && s.dRight <= 1;
+    const scopeDeadline = Date.now() + 5000;
+    while (Date.now() < scopeDeadline && !aligned(scope)) {
+      await delay(100);
+      scope = await ctx.page.evaluate(measureScope);
+    }
     expect(scope).not.toBeNull();
     expect(scope.dTop).toBeLessThanOrEqual(1);
     expect(scope.dBottom).toBeLessThanOrEqual(1);
