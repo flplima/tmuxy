@@ -337,6 +337,22 @@ async function probeStory(browser, id, attempt) {
   return result;
 }
 
+/**
+ * A probe-level error that says nothing about the story.
+ *
+ * `storybook dev` compiles on demand and pushes the result over HMR, and some
+ * of those updates reload the preview iframe — which tears the execution
+ * context out from under whatever the probe was evaluating. It shows up when
+ * several stories are compiling at once, so it is a concurrency artefact, not
+ * a verdict: the same story passes on its own. Worth one more attempt on a
+ * fresh context before it is called a failure.
+ */
+function isTornContext(result) {
+  return (
+    result.reason === 'probe-error' && /Execution context was destroyed/.test(result.message ?? '')
+  );
+}
+
 async function runPool(items, n, fn) {
   const queue = [...items];
   const results = [];
@@ -344,7 +360,11 @@ async function runPool(items, n, fn) {
     Array.from({ length: n }, async () => {
       while (queue.length) {
         const item = queue.shift();
-        const result = await fn(item);
+        let result = await fn(item);
+        if (isTornContext(result)) {
+          process.stdout.write(`  RETRY ${result.id} (storybook reloaded the preview)\n`);
+          result = await fn(item);
+        }
         results.push(result);
         const status = quarantineStatus(result.id);
         const tag = result.ok ? 'PASS' : status.shielded ? 'FLAKY' : 'FAIL';
