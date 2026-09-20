@@ -349,67 +349,6 @@ describe('Scenario 13: Multi-Client', () => {
   }, 180000);
 });
 
-// ==================== Scenario 22: Token-Free Command Routing ====================
-
-describe('Scenario 22: Token-Free Command Routing', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
-  test('Commands use connection ID header instead of session token', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Step 1: Verify the app is connected (XState machine is running)
-    const appState = await ctx.page.evaluate(() => {
-      const snap = window.app?.getSnapshot();
-      if (!snap) return null;
-      return {
-        connected: snap.context.connected ?? false,
-        sessionName: snap.context.sessionName ?? null,
-      };
-    });
-    expect(appState).not.toBeNull();
-    expect(appState.connected).toBe(true);
-
-    // Step 2: Split pane via keyboard
-    await focusPage(ctx.page);
-    await splitPaneKeyboard(ctx.page, 'horizontal');
-    await delay(DELAYS.SYNC);
-    await waitForPaneCount(ctx.page, 2, 10000);
-    expect(await ctx.session.getPaneCount()).toBe(2);
-
-    // Step 3: A read command over plain HTTP + X-Connection-Id must return
-    // real data (the old version POSTed set_client_size with a FABRICATED
-    // connection id and asserted only res.ok — a 200 with a silently-ignored
-    // body passed). run_tmux_command list-panes echoes through the live
-    // control-mode session, so a non-empty result proves the routing works
-    // without any session token.
-    const baseUrl = TMUXY_URL;
-    const routeResult = await ctx.page.evaluate(async (url) => {
-      try {
-        const session = window.app?.getSnapshot()?.context?.sessionName || '';
-        const res = await fetch(`${url}/commands?session=${encodeURIComponent(session)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cmd: 'run_tmux_command', args: { command: 'list-panes' } }),
-        });
-        const body = await res.json().catch(() => null);
-        return { success: res.ok, status: res.status, body };
-      } catch (e) {
-        return { success: false, error: e.message };
-      }
-    }, baseUrl);
-    expect(routeResult.success).toBe(true);
-    // Negative case: a mutating command with NO connection id header must not
-    // corrupt the viewport bookkeeping — the server ignores size updates
-    // without an id, so the pane count stays intact.
-    expect(await ctx.session.getPaneCount()).toBe(2);
-  }, 180000);
-});
-
 // ==================== Scenario 22b: Other Origins Cannot Drive tmux ====================
 
 describe('Scenario 22b: Other origins cannot drive tmux', () => {

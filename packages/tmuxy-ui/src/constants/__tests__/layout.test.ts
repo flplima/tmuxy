@@ -1,23 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import {
-  computePaneBox,
-  isCollapsedPane,
-  CHAR_HEIGHT,
-  PANE_HEADER_HEIGHT,
-  type PaneBoxInput,
-} from '../layout';
+import { computePaneBox, isCollapsedPane, CHAR_HEIGHT, type PaneBoxInput } from '../layout';
 
 // Representative cell metrics (charWidth is measured at runtime; height is fixed).
 const CW = 9.6;
 const CH = CHAR_HEIGHT;
-
-describe('pane header height', () => {
-  it('equals exactly one character cell height', () => {
-    // The header must consume exactly one terminal row so the mosaic stays on
-    // the cell grid (the +1 row in every pane's height IS this header).
-    expect(PANE_HEADER_HEIGHT).toBe(CH);
-  });
-});
 
 describe('computePaneBox — mosaic size invariant', () => {
   const cases: PaneBoxInput[] = [

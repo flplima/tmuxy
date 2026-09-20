@@ -90,35 +90,37 @@ async function setupApp(options = {}) {
 // ==================== App Lifecycle ====================
 
 describe('App Lifecycle', () => {
-  test('launches and renders terminal UI', async () => {
+  test('launching the app shows a terminal of real size, on the Tauri adapter, over its own tmux session', async () => {
     await setupApp();
 
-    // Terminal should be visible
+    // The terminal is on screen with an area a user could read, not a
+    // zero-height strip clipped by a parent.
     const terminal = await driver.$('[role="log"]');
     expect(await terminal.isDisplayed()).toBe(true);
+    const rect = await driver.execute(() => {
+      const log = document.querySelector('[role="log"]');
+      if (!log) return null;
+      const r = log.getBoundingClientRect();
+      return { width: r.width, height: r.height, top: r.top, left: r.left };
+    });
+    expect(rect).not.toBeNull();
+    expect(rect.width).toBeGreaterThan(200);
+    expect(rect.height).toBeGreaterThan(100);
+    expect(rect.top).toBeGreaterThanOrEqual(0);
+    expect(rect.left).toBeGreaterThanOrEqual(0);
 
-    // Should have terminal content (shell prompt)
+    // The shell prompt rendered into it.
     const text = await getTerminalText(driver);
     expect(text.length).toBeGreaterThan(0);
-  });
 
-  test('uses TauriAdapter', async () => {
-    await setupApp();
-
+    // The desktop build talks IPC, not HTTP/SSE, and names its session after
+    // TMUXY_SESSION (default `tmuxy`).
     const state = await getAppState(driver);
     expect(state).not.toBeNull();
-    // The adapter type should indicate Tauri
     expect(state.adapterType).toBe('tauri');
-  });
-
-  test('creates tmux session with TMUXY_SESSION name', async () => {
-    await setupApp();
-
-    // Verify the tmux session exists with the expected name
-    const state = await getAppState(driver);
     expect(state.sessionName).toBe(sessionName);
 
-    // Verify via tmux CLI
+    // The session the app reports really exists in tmux.
     try {
       tmuxQuery(`has-session -t ${sessionName}`);
     } catch {
@@ -367,41 +369,6 @@ describe('IPC Commands', () => {
     // The bug-3 invocation surface (an unknown command name) returns
     // `{ __error: ... }` from invokeCommand's wrapper; assert no error.
     expect(result.__error).toBeUndefined();
-  });
-});
-
-// ==================== Tauri-Specific Features ====================
-
-describe('Tauri Features', () => {
-  test('default session name is used', async () => {
-    await setupApp();
-
-    const state = await getAppState(driver);
-    expect(state.sessionName).toBe('tmuxy');
-  });
-
-  test('window opacity attribute is set when configured', async () => {
-    await setupApp();
-
-    // Set @tmuxy-opacity via tmux and restart would be needed for full test.
-    // Instead, verify the frontend can read the data-opacity attribute.
-    const hasOpacitySupport = await driver.execute(() => {
-      // Check that the TauriAdapter is loaded (Tauri-specific feature)
-      return typeof window.__TAURI_INTERNALS__ !== 'undefined';
-    });
-
-    expect(hasOpacitySupport).toBe(true);
-  });
-
-  test('vibrancy detection available', async () => {
-    await setupApp();
-
-    // Verify Tauri API is available in the webview
-    const hasTauriApi = await driver.execute(() => {
-      return !!window.__TAURI_INTERNALS__?.invoke;
-    });
-
-    expect(hasTauriApi).toBe(true);
   });
 });
 

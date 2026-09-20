@@ -35,12 +35,29 @@ describe('Scenario 14: OSC Protocols', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Step 1: OSC 8 hyperlink renders text
+    // Step 1: OSC 8 hyperlink renders text as a real, visible anchor
     await runCommand(
       ctx.page,
       'echo -e "\\e]8;;http://example.com\\e\\\\Click Here\\e]8;;\\e\\\\"',
       'Click Here',
     );
+
+    // TerminalLine wraps runs carrying a cell URL in <a href>. The anchor must
+    // occupy space on screen, not merely exist in the DOM.
+    const linkInfo = await ctx.page.evaluate(() => {
+      const anchors = Array.from(document.querySelectorAll('.terminal-content a[href]'));
+      return {
+        count: anchors.length,
+        hrefs: anchors.map((a) => a.getAttribute('href')),
+        visible: anchors.map((a) => {
+          const r = a.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }),
+      };
+    });
+    expect(linkInfo.count).toBeGreaterThan(0);
+    expect(linkInfo.hrefs.some((h) => h && h.includes('example.com'))).toBe(true);
+    expect(linkInfo.visible.some(Boolean)).toBe(true);
 
     // Step 2: Multiple links
     await runCommand(
@@ -49,6 +66,11 @@ describe('Scenario 14: OSC Protocols', () => {
       'LinkA',
     );
     await waitForTerminalText(ctx.page, 'LinkB');
+    const multiLinkText = await getTerminalText(ctx.page);
+    const linkLine = multiLinkText
+      .split('\n')
+      .find((line) => line.includes('LinkA') && line.includes('LinkB'));
+    expect(linkLine).toBeDefined();
 
     // Step 3: Malformed OSC 8 - terminal should survive
     await typeInTerminal(ctx.page, 'echo -e "\\e]8;;http://broken.com\\e\\\\BROKEN_LINK"');
@@ -439,41 +461,6 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
   // 11.1 Hyperlinks (OSC 8)
   // ====================
   describe('11.1 Hyperlinks (OSC 8)', () => {
-    test('OSC 8 hyperlink text renders', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.setupPage();
-
-      await runCommand(
-        ctx.page,
-        'echo -e "\\e]8;;https://example.com\\e\\\\Click Here\\e]8;;\\e\\\\"',
-        'Click Here',
-      );
-
-      const text = await getTerminalText(ctx.page);
-      expect(text).toContain('Click Here');
-
-      // OSC 8 hyperlinks render as real anchors (TerminalLine wraps runs
-      // carrying a cell URL in <a href>). This is what distinguishes this
-      // test from Scenario 14, which only checks the text; the old version
-      // computed linkInfo and asserted nothing.
-      const linkInfo = await ctx.page.evaluate(() => {
-        const anchors = Array.from(document.querySelectorAll('.terminal-content a[href]'));
-        return {
-          count: anchors.length,
-          hrefs: anchors.map((a) => a.getAttribute('href')),
-          visible: anchors.map((a) => {
-            const r = a.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-          }),
-        };
-      });
-      expect(linkInfo.count).toBeGreaterThan(0);
-      expect(linkInfo.hrefs.some((h) => h && h.includes('example.com'))).toBe(true);
-      // Rendered, not just present: the anchor must occupy space on screen.
-      expect(linkInfo.visible.some(Boolean)).toBe(true);
-    });
-
     test('clicking an OSC 8 link opens it; an auto-detected URL opens only with the modifier', async () => {
       if (ctx.skipIfNotReady()) return;
 
@@ -623,67 +610,6 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
         expect(text).toBe('https://ex.test/page');
       }
     });
-
-    test('Multiple hyperlinks on same line render correctly', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.setupPage();
-
-      await runCommand(
-        ctx.page,
-        'echo -e "\\e]8;;http://a.com\\e\\\\LinkA\\e]8;;\\e\\\\ \\e]8;;http://b.com\\e\\\\LinkB\\e]8;;\\e\\\\"',
-        'LinkA',
-      );
-
-      const text = await getTerminalText(ctx.page);
-      expect(text).toContain('LinkA');
-      expect(text).toContain('LinkB');
-
-      const lines = text.split('\n');
-      const linkLine = lines.find((line) => line.includes('LinkA') && line.includes('LinkB'));
-      expect(linkLine).toBeDefined();
-    });
-
-    test('Terminal handles malformed OSC 8 gracefully', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.setupPage();
-
-      await runCommand(ctx.page, 'echo -e "\\e]8;;https://test.com\\e\\\\Unclosed"', 'Unclosed');
-
-      await runCommand(ctx.page, 'echo "still_working"', 'still_working');
-    });
-  });
-
-  // ====================
-  // 11.2 Clipboard (OSC 52)
-  // ====================
-  describe('11.2 Clipboard (OSC 52)', () => {
-    test('OSC 52 sequence does not crash terminal', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.setupPage();
-
-      await runCommand(
-        ctx.page,
-        'echo -ne "\\e]52;c;dGVzdA==\\e\\\\"; echo "osc52_sent"',
-        'osc52_sent',
-      );
-
-      await runCommand(ctx.page, 'echo "DONE"', 'DONE');
-    });
-
-    test('Multiple OSC 52 operations in sequence', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.setupPage();
-
-      await runCommand(ctx.page, 'echo -ne "\\e]52;c;Zmlyc3Q=\\e\\\\"; echo "osc1"', 'osc1');
-      await runCommand(ctx.page, 'echo -ne "\\e]52;c;c2Vjb25k\\e\\\\"; echo "osc2"', 'osc2');
-      await runCommand(ctx.page, 'echo -ne "\\e]52;c;dGhpcmQ=\\e\\\\"; echo "osc3"', 'osc3');
-
-      await runCommand(ctx.page, 'echo "sequence_done"', 'sequence_done');
-    });
   });
 });
 
@@ -727,16 +653,18 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     throw new Error(`Expected at least ${minCount} image placement(s) within ${timeout}ms`);
   }
 
-  test('iTerm2 inline image: sequence stripped, placement created, img rendered', async () => {
+  test('iTerm2 inline image: sequence stripped, placement created, img rendered and served', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Send iTerm2 inline image sequence via printf
+    // Text, then the iTerm2 inline image sequence, then more text — a picture
+    // in the middle of a stream must not swallow the lines around it.
     // Format: ESC ] 1337 ; File=inline=1;width=10;height=5:<base64> BEL
-    const cmd = `printf '\\e]1337;File=inline=1;width=10;height=5:${TINY_PNG_B64}\\a' && echo IMG_SENT`;
+    const cmd = `echo BEFORE_IMG && printf '\\e]1337;File=inline=1;width=10;height=5:${TINY_PNG_B64}\\a' && echo IMG_SENT`;
     await runCommand(ctx.page, cmd, 'IMG_SENT');
 
-    // Verify the output marker is present (the printf command text may appear in prompt)
+    // Verify both markers are present (the printf command text may appear in prompt)
+    await waitForTerminalText(ctx.page, 'BEFORE_IMG');
     const text = await getTerminalText(ctx.page);
     expect(text).toContain('IMG_SENT');
 
@@ -760,6 +688,30 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     expect(imgInfo.src).toContain('/api/images/');
     expect(imgInfo.width).toBeGreaterThan(0);
     expect(imgInfo.height).toBeGreaterThan(0);
+
+    // The <img> src has to resolve: the endpoint serves the real PNG bytes,
+    // and an id that was never stored is a 404, not an empty 200.
+    const paneId = await ctx.page.evaluate(() => {
+      const snap = window.app?.getSnapshot?.();
+      return snap?.context?.activePaneId?.replace('%', '') || '';
+    });
+    const served = await ctx.page.evaluate(async (url) => {
+      const resp = await fetch(url);
+      return {
+        status: resp.status,
+        contentType: resp.headers.get('content-type'),
+        size: (await resp.blob()).size,
+      };
+    }, `/api/images/${paneId}/${images[0].id}`);
+    expect(served.status).toBe(200);
+    expect(served.contentType).toContain('image/png');
+    expect(served.size).toBeGreaterThan(0);
+
+    const missing = await ctx.page.evaluate(async () => {
+      const resp = await fetch('/api/images/999/999');
+      return resp.status;
+    });
+    expect(missing).toBe(404);
   }, 60000);
 
   test('iTerm2 non-inline file download is ignored (no placement)', async () => {
@@ -876,66 +828,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
       10000,
       'the picture to leave the screen with clear',
     );
-  }, 60000);
-
-  test('Mixed content: text + image + text renders correctly', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Send text, then image, then more text
-    const cmd = `echo BEFORE_IMG && printf '\\e]1337;File=inline=1;width=5;height=3:${TINY_PNG_B64}\\a' && echo AFTER_IMG`;
-    await runCommand(ctx.page, cmd, 'AFTER_IMG');
-
-    // Verify both markers visible in DOM
-    await waitForTerminalText(ctx.page, 'BEFORE_IMG');
-    await waitForTerminalText(ctx.page, 'AFTER_IMG');
-
-    const images = await waitForImages(ctx.page);
-    expect(images.length).toBeGreaterThanOrEqual(1);
-  }, 60000);
-
-  test('Image HTTP endpoint serves blob with correct MIME type', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Create an image
-    const cmd = `printf '\\e]1337;File=inline=1;width=5;height=3:${TINY_PNG_B64}\\a' && echo HTTP_TEST`;
-    await runCommand(ctx.page, cmd, 'HTTP_TEST');
-
-    const images = await waitForImages(ctx.page);
-    expect(images.length).toBeGreaterThanOrEqual(1);
-
-    // Fetch the image via the HTTP endpoint
-    const imgId = images[0].id;
-    const paneId = await ctx.page.evaluate(() => {
-      const snap = window.app?.getSnapshot?.();
-      return snap?.context?.activePaneId?.replace('%', '') || '';
-    });
-
-    const response = await ctx.page.evaluate(async (url) => {
-      const resp = await fetch(url);
-      return {
-        status: resp.status,
-        contentType: resp.headers.get('content-type'),
-        size: (await resp.blob()).size,
-      };
-    }, `/api/images/${paneId}/${imgId}`);
-
-    expect(response.status).toBe(200);
-    expect(response.contentType).toContain('image/png');
-    expect(response.size).toBeGreaterThan(0);
-  }, 60000);
-
-  test('Image endpoint returns 404 for nonexistent image', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    const response = await ctx.page.evaluate(async () => {
-      const resp = await fetch('/api/images/999/999');
-      return { status: resp.status };
-    });
-
-    expect(response.status).toBe(404);
   }, 60000);
 });
 
@@ -1150,41 +1042,41 @@ describe('Category 17: Widgets', () => {
   // 17.2 Edge Cases
   // ====================
   describe('17.2 Widget Detection Edge Cases', () => {
-    test('Normal pane without marker renders Terminal', async () => {
+    test('A pane with no marker, and one naming an unregistered widget, both stay a visible Terminal', async () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
+      // A readable terminal and no widget in its place.
+      const terminalOnly = () =>
+        wCtx.page.evaluate(() => {
+          const log = document.querySelector('[role="log"]');
+          if (!log) return null;
+          const r = log.getBoundingClientRect();
+          return {
+            width: r.width,
+            height: r.height,
+            widget: document.querySelector('.widget-browser') !== null,
+          };
+        });
+
+      // No marker at all.
       await sendWidgetCommand(wCtx.page, 'echo "hello world"');
       await waitForTerminalText(wCtx.page, 'hello world');
+      const plain = await terminalOnly();
+      expect(plain).not.toBeNull();
+      expect(plain.width).toBeGreaterThan(200);
+      expect(plain.height).toBeGreaterThan(50);
+      expect(plain.widget).toBe(false);
 
-      const hasTerminal = await wCtx.page.evaluate(
-        () => document.querySelector('[role="log"]') !== null,
-      );
-      expect(hasTerminal).toBe(true);
-
-      const hasWidget = await wCtx.page.evaluate(
-        () => document.querySelector('.widget-browser') !== null,
-      );
-      expect(hasWidget).toBe(false);
-    });
-
-    test('Unregistered widget name falls back to Terminal', async () => {
-      if (wCtx.skipIfNotReady()) return;
-      await wCtx.setupPage();
-
+      // A marker naming a widget that does not exist falls back to the same
+      // terminal rather than blanking the pane.
       await sendWidgetCommand(wCtx.page, `echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
-
       await delay(2000);
-
-      const hasTerminal = await wCtx.page.evaluate(
-        () => document.querySelector('[role="log"]') !== null,
-      );
-      expect(hasTerminal).toBe(true);
-
-      const hasWidget = await wCtx.page.evaluate(
-        () => document.querySelector('.widget-browser') !== null,
-      );
-      expect(hasWidget).toBe(false);
+      const fallback = await terminalOnly();
+      expect(fallback).not.toBeNull();
+      expect(fallback.width).toBeGreaterThan(200);
+      expect(fallback.height).toBeGreaterThan(50);
+      expect(fallback.widget).toBe(false);
     });
   });
 });

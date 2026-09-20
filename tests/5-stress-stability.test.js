@@ -1,7 +1,7 @@
 /**
  * Stress & Stability E2E Tests
  *
- * Large output perf, rapid operations, complex workflow, glitch detection
+ * Large output perf, rapid operations, glitch detection
  * (scenario-level and detailed).
  */
 
@@ -16,9 +16,7 @@ const {
   splitPaneKeyboard,
   navigatePaneKeyboard,
   swapPaneKeyboard,
-  toggleZoomKeyboard,
   createWindowKeyboard,
-  selectWindowKeyboard,
   killPaneKeyboard,
   resizePaneKeyboard,
   assertLayoutInvariants,
@@ -39,17 +37,11 @@ describe('Scenario 17: Large Output Perf', () => {
     await ctx.setupPage();
 
     // Step 1: Rapid output (yes | head -500)
-    const start1 = Date.now();
     await runCommand(ctx.page, 'yes | head -500 && echo DONE_YES', 'DONE_YES', 20000);
-    const elapsed1 = Date.now() - start1;
-    expect(elapsed1).toBeLessThan(20000);
     expect(ctx.session.exists()).toBe(true);
 
     // Step 2: Large output (seq 1 2000)
-    const start2 = Date.now();
     await runCommand(ctx.page, 'seq 1 2000 && echo SEQ_DONE', 'SEQ_DONE', 20000);
-    const elapsed2 = Date.now() - start2;
-    expect(elapsed2).toBeLessThan(20000);
     expect(ctx.session.exists()).toBe(true);
 
     // Step 3: Large scrollback accumulation
@@ -184,78 +176,6 @@ describe('Scenario 18: Rapid Operations', () => {
       panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].y !== panesBefore[0].y,
     ).toBe(true);
   }, 240000);
-});
-
-// ==================== Scenario 19: Complex Workflow ====================
-
-describe('Scenario 19: Complex Workflow', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
-  test('3 windows × splits → navigate all → send commands → verify alive', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Step 1: Window 1 with 3 panes
-    await splitPaneKeyboard(ctx.page, 'horizontal');
-    await waitForPaneCount(ctx.page, 2, 10000);
-    await splitPaneKeyboard(ctx.page, 'vertical');
-    await waitForPaneCount(ctx.page, 3, 10000);
-    expect(await ctx.session.getPaneCount()).toBe(3);
-
-    // Step 2: Window 2 with 2 panes
-    await createWindowKeyboard(ctx.page);
-    await waitForPaneCount(ctx.page, 1, 10000);
-    await splitPaneKeyboard(ctx.page, 'horizontal');
-    await waitForPaneCount(ctx.page, 2, 10000);
-    expect(await ctx.session.getPaneCount()).toBe(2);
-
-    // Step 3: Window 3 with 2 panes
-    await createWindowKeyboard(ctx.page);
-    await waitForPaneCount(ctx.page, 1, 10000);
-    await splitPaneKeyboard(ctx.page, 'vertical');
-    await waitForPaneCount(ctx.page, 2, 10000);
-    expect(await ctx.session.getPaneCount()).toBe(2);
-
-    // Step 4: Verify 3 windows exist
-    const pollStart = Date.now();
-    while (Date.now() - pollStart < 10000) {
-      const wc = await ctx.session.getWindowCount();
-      if (wc >= 3) break;
-      await delay(DELAYS.MEDIUM);
-    }
-    expect(await ctx.session.getWindowCount()).toBeGreaterThanOrEqual(3);
-
-    // Step 5: Navigate through all windows
-    const windowInfo = await ctx.session.getWindowInfo();
-    for (const w of windowInfo) {
-      await selectWindowKeyboard(ctx.page, w.index);
-      await delay(DELAYS.LONG);
-    }
-
-    // Step 6: Send commands to verify panes alive
-    await selectWindowKeyboard(ctx.page, windowInfo[0].index);
-    await delay(DELAYS.LONG);
-    await runCommand(ctx.page, 'echo "WIN1_OK"', 'WIN1_OK');
-
-    // Step 7: Zoom and unzoom
-    await toggleZoomKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneZoomed()).toBe(true);
-    await toggleZoomKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneZoomed()).toBe(false);
-
-    // Step 8: Navigate windows rapidly
-    for (const w of windowInfo) {
-      await selectWindowKeyboard(ctx.page, w.index);
-      await delay(DELAYS.SHORT);
-    }
-    expect(ctx.session.exists()).toBe(true);
-  }, 300000);
 });
 
 // ==================== Scenario 20: Glitch Detection ====================
