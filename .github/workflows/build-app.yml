@@ -9,6 +9,23 @@ permissions:
   contents: write
 
 jobs:
+  # The full test suite, run against the TAG ref itself.
+  #
+  # `lint and tests` triggers on pushes to main and on pull requests, so a tag
+  # push used to run nothing but this workflow: the artifacts that became a
+  # release had never been tested as tagged. The release skill's CI gate checks
+  # the version-bump *sha*, which is close but not the same thing and is not
+  # structural — a `needs:` is.
+  #
+  # `workflow_call` rather than adding `push: tags` to lint-and-tests.yml: a
+  # separate tag-triggered run is a different run that `release` cannot depend
+  # on, so the gate would have to be a poll-and-hope step. Called as a job, the
+  # dependency is enforced by Actions itself, and a red suite leaves the tag
+  # with no GitHub Release and no tap bump at all.
+  tests:
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/lint-and-tests.yml
+
   build:
     strategy:
       fail-fast: false
@@ -219,6 +236,130 @@ jobs:
         if: matrix.platform == 'macos'
         run: node tests/smoke/macos-sparse-path-test.js "${{ matrix.binary }}"
 
+      # --- Smoke-test the artifacts that actually ship ---
+      #
+      # Everything above runs `target/release/tmuxy` (or the debug build),
+      # which is not what any user installs. These steps exercise the DMG, the
+      # AppImage and the .deb themselves — the bundle layout, the bundled
+      # resources and, for the .deb, its declared dependencies. They are an
+      # extra layer on top of tests/smoke/smoke-test.js, not a replacement:
+      # that one drives the GUI, these one prove the package is installable
+      # and launchable.
+
+      - name: Smoke-test the shipped DMG (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          set -euo pipefail
+          DMG=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          MOUNT=$(mktemp -d "${RUNNER_TEMP}/tmuxy-dmg.XXXXXX")
+          hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT"
+          trap 'hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true' EXIT
+
+          APP="$MOUNT/tmuxy.app"
+          BIN="$APP/Contents/MacOS/tmuxy"
+          test -x "$BIN"
+
+          # Launched out of the mounted image, exactly as a user's first run
+          # does before dragging it to /Applications.
+          VERSION_LINE=$("$BIN" --version)
+          echo "$VERSION_LINE"
+          case "$VERSION_LINE" in
+            "tmuxy "*) ;;
+            *) echo "unexpected --version output from the DMG"; exit 1 ;;
+          esac
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            EXPECTED="tmuxy ${GITHUB_REF_NAME#v}"
+            [ "$VERSION_LINE" = "$EXPECTED" ] || {
+              echo "DMG reports '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
+          fi
+
+          hdiutil detach "$MOUNT"
+          trap - EXIT
+
+      # Signing and notarization are silent no-ops when the Apple secrets are
+      # absent (see the env block above), so an unsigned DMG looks identical in
+      # the logs. On a tag that is a release nobody can install without the
+      # Gatekeeper dialog — assert it, and fail. No continue-on-error, no
+      # `|| true`: a release that cannot be verified is not a release.
+      - name: Assert the DMG is signed, notarized and stapled (macOS, tags)
+        if: matrix.platform == 'macos' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          DMG=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          MOUNT=$(mktemp -d "${RUNNER_TEMP}/tmuxy-sign.XXXXXX")
+          hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT"
+          trap 'hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true' EXIT
+          APP="$MOUNT/tmuxy.app"
+
+          echo "--- codesign ---"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # The signing identity must be a Developer ID, not an ad-hoc or
+          # Apple Development cert — those verify but fail on every other Mac.
+          codesign -dvv "$APP" 2>&1 | tee "${RUNNER_TEMP}/codesign-info.txt"
+          grep -q 'Authority=Developer ID Application' "${RUNNER_TEMP}/codesign-info.txt"
+
+          echo "--- spctl ---"
+          set +e
+          spctl -a -vvv -t exec "$APP" > "${RUNNER_TEMP}/spctl.txt" 2>&1
+          SPCTL_STATUS=$?
+          set -e
+          cat "${RUNNER_TEMP}/spctl.txt"
+          [ "$SPCTL_STATUS" -eq 0 ] || { echo "spctl rejected the app"; exit 1; }
+          grep -q 'accepted' "${RUNNER_TEMP}/spctl.txt"
+          grep -q 'source=Notarized Developer ID' "${RUNNER_TEMP}/spctl.txt"
+
+          echo "--- stapler ---"
+          xcrun stapler validate "$APP"
+
+          hdiutil detach "$MOUNT"
+          trap - EXIT
+
+      - name: Smoke-test the shipped AppImage (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(ls target/release/bundle/appimage/*.AppImage | head -1)
+          chmod +x "$APPIMAGE"
+
+          # FUSE is usually unavailable on the runners; the AppImage runtime
+          # then has to unpack itself instead of mounting.
+          if ! VERSION_LINE=$("$APPIMAGE" --version 2>/dev/null); then
+            echo "direct launch failed (no FUSE?), retrying with extract-and-run"
+            VERSION_LINE=$(APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE" --appimage-extract-and-run --version)
+          fi
+          echo "$VERSION_LINE"
+          case "$VERSION_LINE" in
+            "tmuxy "*) ;;
+            *) echo "unexpected --version output from the AppImage"; exit 1 ;;
+          esac
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            EXPECTED="tmuxy ${GITHUB_REF_NAME#v}"
+            [ "$VERSION_LINE" = "$EXPECTED" ] || {
+              echo "AppImage reports '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
+          fi
+
+      # In a clean container, not on the runner: the runner already has every
+      # Tauri build dependency installed, so a `Depends:` line missing from the
+      # .deb cannot fail there. Here apt has to resolve the package's declared
+      # dependencies on a bare debian, and the binary then has to dynamically
+      # link against exactly what those pulled in.
+      - name: Install the shipped .deb in a clean container (Linux amd64)
+        if: matrix.platform == 'linux' && matrix.arch == 'amd64'
+        run: |
+          set -euo pipefail
+          ls -lh target/release/bundle/deb/
+          docker run --rm -v "$PWD/target/release/bundle/deb:/w:ro" debian:bookworm \
+            sh -euc '
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y /w/tmuxy_*_amd64.deb
+              command -v tmuxy
+              tmuxy --version
+            ' | tee "${RUNNER_TEMP}/deb-install.txt"
+          grep -q '^tmuxy ' "${RUNNER_TEMP}/deb-install.txt"
+
       # --- Collect & Upload Artifacts ---
       # Linux uploads .deb and .AppImage as separate artifacts
 
@@ -248,8 +389,192 @@ jobs:
 
   # --- Release (only on tag push, after all builds + smoke tests pass) ---
 
-  release:
+  # --- Upgrade path: the previous release, replaced by this build ---
+  #
+  # The bug class here is f1905d7 (a stopping server deleted the pid file of
+  # the one that replaced it, so the replacement reported itself as not
+  # running) and 722bd14 (a client that could not be served sat on
+  # "Connecting…" forever). Both are cross-version: they only appear when a
+  # build that is already installed and running is replaced by a new one, which
+  # is exactly the sequence no other job performs.
+  #
+  # Runs on every push, not only tags, so a regression surfaces before the tag
+  # rather than at it. With no previous release published (the very first tag,
+  # or a fork) the job says so and passes.
+  upgrade-path:
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tmux
+          tmux -V
+
+      - name: Download the AppImage built here
+        uses: actions/download-artifact@v8
+        with:
+          name: tmuxy-linux-appimage-amd64
+          path: new-build
+
+      - name: Fetch the previous release's AppImage
+        id: previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The newest published release that is not the tag being built.
+          PREV=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 \
+                   --json tagName,isDraft \
+                   --jq '[.[] | select(.isDraft | not) | .tagName]
+                         | map(select(. != env.GITHUB_REF_NAME)) | .[0] // ""')
+          if [ -z "$PREV" ]; then
+            echo "no previous release to upgrade from; skipping"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "previous release: $PREV"
+          mkdir -p old-build
+          gh release download "$PREV" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*amd64.AppImage' --dir old-build
+          echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+
+      - name: Previous release runs, new build takes over, open tab recovers
+        if: steps.previous.outputs.tag != ''
+        env:
+          TMUX_SOCKET: tmuxy-upgrade
+          PORT: '9123'
+        run: |
+          set -euo pipefail
+          export APPIMAGE_EXTRACT_AND_RUN=1
+
+          OLD=$(ls old-build/*.AppImage | head -1)
+          NEW=$(ls new-build/*.AppImage | head -1)
+          chmod +x "$OLD" "$NEW"
+          echo "old: $("$OLD" --version)"
+          echo "new: $("$NEW" --version)"
+
+          wait_for_page() {
+            for _ in $(seq 1 60); do
+              if curl -fsS "http://127.0.0.1:${PORT}/" | grep -qi '<html'; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
+
+          # $1 = how many seconds to keep looking, $2 = pattern, $3 = file.
+          wait_for_line() {
+            for _ in $(seq 1 "$1"); do
+              grep -q "$2" "$3" && return 0
+              sleep 1
+            done
+            return 1
+          }
+
+          # 1. The previous release is installed and running.
+          "$OLD" server --port "$PORT" > "${RUNNER_TEMP}/old-server.log" 2>&1 &
+          wait_for_page || { echo "previous release never served the page"; \
+            cat "${RUNNER_TEMP}/old-server.log"; exit 1; }
+          "$OLD" server --port "$PORT" status | tee "${RUNNER_TEMP}/old-status.txt"
+          grep -q 'Server is running' "${RUNNER_TEMP}/old-status.txt"
+
+          # 2. A tab is open against it: hold the SSE stream the frontend
+          #    holds, and record that it was delivering state before the swap.
+          export SSE_LOG="${RUNNER_TEMP}/sse.log"
+          : > "$SSE_LOG"
+          node -e '
+            const port = process.env.PORT;
+            const out = require("fs").createWriteStream(process.env.SSE_LOG);
+            let reconnects = 0;
+            const connect = async () => {
+              try {
+                const res = await fetch(`http://127.0.0.1:${port}/events`);
+                out.write(`open ${res.status}\n`);
+                for await (const chunk of res.body) {
+                  const text = Buffer.from(chunk).toString();
+                  for (const line of text.split("\n")) {
+                    if (line.startsWith("event:")) out.write(line.trim() + "\n");
+                  }
+                }
+              } catch (e) {
+                out.write(`error ${e.message}\n`);
+              }
+              out.write("closed\n");
+              // Exactly what the frontend does when the stream drops.
+              if (++reconnects <= 60) setTimeout(connect, 1000);
+            };
+            connect();
+            setTimeout(() => process.exit(0), 90000);
+          ' &
+          SSE_PID=$!
+          wait_for_line 30 'event:[[:space:]]*connection-info' "${RUNNER_TEMP}/sse.log" \
+            || { echo "the tab never got a stream from the old build"; \
+                 cat "${RUNNER_TEMP}/sse.log"; exit 1; }
+
+          # 3. The new build takes over: its own binary stops the running
+          #    server through the pid file, then binds the same port. Started
+          #    immediately, with no sleep — f1905d7 was a race between the
+          #    old server's exit and the new server's pid file.
+          "$NEW" server --port "$PORT" stop | tee "${RUNNER_TEMP}/stop.txt"
+          grep -q 'Sent SIGTERM' "${RUNNER_TEMP}/stop.txt" \
+            || { echo "the new build did not recognise the running server"; exit 1; }
+          "$NEW" server --port "$PORT" > "${RUNNER_TEMP}/new-server.log" 2>&1 &
+          wait_for_page || { echo "the new build never served the page"; \
+            cat "${RUNNER_TEMP}/new-server.log"; exit 1; }
+
+          # 4. The takeover is complete: status names the NEW server, not a
+          #    stale or deleted pid file (f1905d7).
+          "$NEW" server --port "$PORT" status | tee "${RUNNER_TEMP}/new-status.txt"
+          grep -q 'Server is running' "${RUNNER_TEMP}/new-status.txt" \
+            || { echo "the replacement server reports itself as not running"; exit 1; }
+          OLD_PID=$(sed -n 's/.*pid \([0-9]*\).*/\1/p' "${RUNNER_TEMP}/old-status.txt")
+          NEW_PID=$(sed -n 's/.*pid \([0-9]*\).*/\1/p' "${RUNNER_TEMP}/new-status.txt")
+          [ -n "$NEW_PID" ] && [ "$OLD_PID" != "$NEW_PID" ] \
+            || { echo "pid file still names the old server ($OLD_PID)"; exit 1; }
+          # A zombie is gone as far as this check is concerned: the old
+          # server is a child of this shell, so it stays in the table until
+          # the shell reaps it, and `kill -0` would still succeed.
+          OLD_STAT=$(ps -p "$OLD_PID" -o stat= 2>/dev/null | tr -d ' ' || true)
+          case "${OLD_STAT:-gone}" in
+            gone|Z*) ;;
+            *) echo "the old server is still alive after the takeover ($OLD_STAT)"; exit 1 ;;
+          esac
+
+          # 5. The open tab recovers: the stream it reconnects to delivers a
+          #    fresh snapshot rather than hanging on "Connecting…" (722bd14).
+          for _ in $(seq 1 30); do
+            if [ "$(grep -c '^open 200' "${RUNNER_TEMP}/sse.log")" -ge 2 ] \
+               && [ "$(grep -c 'event:[[:space:]]*connection-info' "${RUNNER_TEMP}/sse.log")" -ge 2 ]; then
+              RECOVERED=1
+              break
+            fi
+            sleep 1
+          done
+          kill $SSE_PID 2>/dev/null || true
+          cat "${RUNNER_TEMP}/sse.log"
+          [ "${RECOVERED:-}" = 1 ] \
+            || { echo "the open tab never got a stream back from the new build"; exit 1; }
+
+          "$NEW" server --port "$PORT" stop || true
+
+      - name: Server logs (debug)
+        if: failure()
+        run: |
+          tail -200 "${RUNNER_TEMP}/old-server.log" 2>/dev/null || true
+          tail -200 "${RUNNER_TEMP}/new-server.log" 2>/dev/null || true
+
+  release:
+    needs: [build, tests, upgrade-path]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -493,8 +818,35 @@ jobs:
               EOS
             end
 
+            # `assert_path_exists` only proved a file landed — it would pass on
+            # a truncated download, an AppImage for the wrong arch, or a build
+            # that cannot start. This runs the thing: version out of the binary
+            # that was installed, then the server serving its page on a free
+            # port. APPIMAGE_EXTRACT_AND_RUN because `brew test` has no FUSE.
             test do
               assert_path_exists bin/"tmuxy"
+
+              ENV["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+              assert_match "tmuxy #{version}", shell_output("#{bin}/tmuxy --version")
+
+              port = free_port
+              # `spawn` wants Strings; `bin/"tmuxy"` is a Pathname.
+              pid = spawn((bin/"tmuxy").to_s, "server", "--port", port.to_s)
+              begin
+                page = nil
+                20.times do
+                  sleep 1
+                  # `|| true` so a connection refused while the server is still
+                  # binding is a retry, not an exception. The assert below is
+                  # what decides the test.
+                  page = shell_output("curl -fsS http://127.0.0.1:#{port}/ || true")
+                  break if page.include?("<html")
+                end
+                assert_match "<html", page.to_s
+              ensure
+                Process.kill "TERM", pid
+                Process.wait pid
+              end
             end
           end
           FORMULA
@@ -513,3 +865,73 @@ jobs:
             git commit -m "chore: bump tmuxy formula to v${VERSION}"
             git push origin HEAD
           fi
+
+  # --- Verify the published install path (only on tag push, after the bumps) ---
+  #
+  # Everything above verifies bytes we built. This verifies what a user gets:
+  # a clean macOS runner with no tmuxy on it, installing the cask straight from
+  # the tap the job above just pushed, and then running it. It is the only step
+  # that exercises the whole chain — release assets reachable, cask sha256
+  # matching the published DMG, the postflight wrapper landing on PATH, the app
+  # launching from /Applications.
+  #
+  # It runs AFTER the tap is bumped, so it cannot prevent a bad cask from being
+  # published — it tells you within minutes that the published one is bad,
+  # which is the difference between a same-hour fix and a user bug report.
+  verify-brew-cask:
+    needs: [release, bump-cask, bump-formula]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Refuse to start with tmuxy already present
+        run: |
+          set -euo pipefail
+          test ! -e /Applications/tmuxy.app
+          test ! -e "$HOME/.local/bin/tmuxy"
+
+      # The cask the bump job pushed seconds ago; brew's tap clone can serve a
+      # cached ref, so fetch before installing.
+      - name: Install the cask from flplima/homebrew-tap
+        run: |
+          set -euo pipefail
+          brew tap flplima/tap
+          git -C "$(brew --repository flplima/tap)" fetch --depth 1 origin HEAD
+          git -C "$(brew --repository flplima/tap)" reset --hard FETCH_HEAD
+          brew install --cask flplima/tap/tmuxy
+
+      - name: The installed CLI reports the tag's version
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v tmuxy
+          VERSION_LINE=$(tmuxy --version)
+          echo "$VERSION_LINE"
+          EXPECTED="tmuxy ${GITHUB_REF_NAME#v}"
+          [ "$VERSION_LINE" = "$EXPECTED" ] || {
+            echo "brew installed '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
+
+      - name: The installed build serves its page
+        env:
+          PORT: '9124'
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          tmuxy server --port "$PORT" > "${RUNNER_TEMP}/brew-server.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORT}/" | grep -qi '<html'; then
+              SERVED=1
+              break
+            fi
+            sleep 1
+          done
+          [ "${SERVED:-}" = 1 ] || {
+            echo "the brew-installed build never served its page"
+            cat "${RUNNER_TEMP}/brew-server.log"; exit 1; }
+          tmuxy server --port "$PORT" status | grep -q 'Server is running'
+          tmuxy server --port "$PORT" stop
+
+      - name: Server logs (debug)
+        if: failure()
+        run: tail -200 "${RUNNER_TEMP}/brew-server.log" 2>/dev/null || true

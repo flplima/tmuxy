@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Callable as a job, so another workflow can make a real `needs:` dependency
+  # on this suite. `Build App` calls it on the TAG ref: the artifacts that
+  # become a release are then gated on the same tests, for the same ref.
+  workflow_call:
 
 # No job here writes to the repository: nothing uses GITHUB_TOKEN, and
 # uploading an artifact does not need write access to the contents.
@@ -15,6 +19,9 @@ permissions:
 # request. Pushes to main (and anything else) get a group keyed by run_id,
 # which is unique per run, so they can never cancel each other — every commit
 # that lands on main keeps its own complete, uncancelled result.
+#
+# A `workflow_call` run inherits the CALLER's event and run_id, so a tag build
+# lands in the run_id branch too: unique per run, never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
   cancel-in-progress: true
