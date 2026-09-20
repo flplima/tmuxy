@@ -549,10 +549,19 @@ jobs:
           # A zombie is gone as far as this check is concerned: the old
           # server is a child of this shell, so it stays in the table until
           # the shell reaps it, and `kill -0` would still succeed.
-          OLD_STAT=$(ps -p "$OLD_PID" -o stat= 2>/dev/null | tr -d ' ' || true)
+          # The old server shuts down gracefully: it detaches its control-mode
+          # client and drains its tasks, so it is still running for a moment
+          # after the new one has taken the port over. Poll rather than sample.
+          for _ in $(seq 1 30); do
+            OLD_STAT=$(ps -p "$OLD_PID" -o stat= 2>/dev/null | tr -d ' ' || true)
+            case "${OLD_STAT:-gone}" in
+              gone|Z*) break ;;
+            esac
+            sleep 1
+          done
           case "${OLD_STAT:-gone}" in
             gone|Z*) ;;
-            *) echo "the old server is still alive after the takeover ($OLD_STAT)"; exit 1 ;;
+            *) echo "the old server never exited after the takeover ($OLD_STAT)"; exit 1 ;;
           esac
 
           # 5. The open tab recovers: the stream it reconnects to delivers a
