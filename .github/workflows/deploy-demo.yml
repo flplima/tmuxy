@@ -21,6 +21,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -29,13 +30,21 @@ jobs:
           node-version: 22
           cache: npm
 
+      # `npm ci` (not `npm install`): deploy exactly the locked tree.
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build demo
         run: npm run build -w tmuxy-demo
         env:
           NEXT_PUBLIC_GA_ID: ${{ vars.NEXT_PUBLIC_GA_ID }}
+
+      # upload-pages-artifact has no if-no-files-found input, so the
+      # equivalent guard is explicit: never deploy an empty export.
+      - name: Fail if the demo produced no output
+        run: |
+          test -d packages/tmuxy-demo/out || { echo "demo export missing"; exit 1; }
+          test -n "$(ls -A packages/tmuxy-demo/out)" || { echo "demo export is empty"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
@@ -45,6 +54,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

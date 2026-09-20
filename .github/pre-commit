@@ -81,12 +81,16 @@ else
 fi
 
 # --- Rust ---
+# tmuxy-tauri-app is formatted here too: CI checks all three, so leaving it out
+# made the tauri crate the one reliable source of fmt drift turning main red.
 echo "Formatting Rust (cargo fmt)..."
-cargo fmt -p tmuxy-core -p tmuxy-server
+cargo fmt -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app
 
 # Re-stage any staged files formatted by cargo fmt
-restage packages/tmuxy-core packages/tmuxy-server
+restage packages/tmuxy-core packages/tmuxy-server packages/tmuxy-tauri-app
 
+# -D warnings matches CI exactly. Without it a clippy warning passed here and
+# failed there — the single largest source of avoidable CI reds.
 echo "Checking Rust (cargo clippy)..."
 mkdir -p packages/tmuxy-ui/dist
-cargo clippy -p tmuxy-core -p tmuxy-server
+cargo clippy -p tmuxy-core -p tmuxy-server -- -D warnings

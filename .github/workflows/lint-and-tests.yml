@@ -11,9 +11,18 @@ on:
 permissions:
   contents: read
 
+# Supersede an in-flight run only when a new commit lands on the SAME pull
+# request. Pushes to main (and anything else) get a group keyed by run_id,
+# which is unique per run, so they can never cancel each other — every commit
+# that lands on main keeps its own complete, uncancelled result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v7
@@ -26,6 +35,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          # tmuxy-wasm only compiles for wasm32; clippy on it needs the target.
+          targets: wasm32-unknown-unknown
 
       - uses: swatinem/rust-cache@v2
 
@@ -45,8 +56,15 @@ jobs:
         run: npx prettier --check src
         working-directory: packages/tmuxy-ui
 
+      # `npm run format` already rewrites these; without a check nothing
+      # enforced it, so test files drifted out of Prettier's shape silently.
+      - name: Prettier check (tests)
+        run: npx prettier --check 'tests/**/*.js'
+
       - name: Rust format check
-        run: cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app
+        run: |
+          cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
+            -p tmuxy-tree -p tmuxy-connect -p tmuxy-wasm
 
       # --- Linting ---
 
@@ -59,7 +77,15 @@ jobs:
       - name: Clippy
         run: |
           mkdir -p packages/tmuxy-ui/dist
-          cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -- -D warnings
+          cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
+            -p tmuxy-tree -p tmuxy-connect -- -D warnings
+
+      # tmuxy-wasm has no host build: same target and feature set as the
+      # `build:wasm` script, so clippy sees the code as it actually ships.
+      - name: Clippy (tmuxy-wasm)
+        run: |
+          cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown \
+            --no-default-features -- -D warnings
 
       # --- Type Check ---
 
@@ -67,8 +93,77 @@ jobs:
         run: npx tsc --noEmit
         working-directory: packages/tmuxy-ui
 
+  # The frontend bundle and the release server, built ONCE and handed to every
+  # job that needs them. Both used to be rebuilt inside each of the e2e matrix
+  # entries and the latency job — the same two builds a dozen times over, for
+  # the largest share of this workflow's runner minutes.
+  #
+  # Every consumer runs on ubuntu-latest, so one linux-x86_64 binary serves
+  # them all. Artifacts do not carry the executable bit; consumers chmod it.
+  build-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build -w tmuxy-ui
+
+      - name: Build server (release)
+        run: cargo build --release -p tmuxy-server
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload server binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: tmuxy-server-release
+          path: target/release/tmuxy-server
+          if-no-files-found: error
+          retention-days: 1
+
+  # The demo site was only ever built by deploy-demo.yml, post-merge and
+  # path-filtered — so a demo break landed on main before anyone saw it.
+  demo-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build demo
+        run: npm run build -w tmuxy-demo
+
   unit-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7
@@ -84,10 +179,54 @@ jobs:
       - name: Vitest
         run: npm test -- --run
 
+  # macOS is the primary user platform, and every test job above runs on Linux
+  # only — a macOS-only bug (feab950) reached a release because nothing on CI
+  # ever executed this code on a Mac. Same three cheap suites, one runner.
+  macos-tests:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      # The three tmuxy-core integration tests drive a real `tmux -CC`.
+      # Homebrew's tmux, not a source build: this job exists to catch macOS
+      # platform differences, and brew's is what macOS users actually run.
+      - name: Install tmux
+        run: |
+          brew list tmux >/dev/null 2>&1 || brew install tmux
+          tmux -V
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Vitest
+        run: npm test -- --run
+
+      - name: CLI suite
+        run: npm run test:cli
+
+      # The tauri crate's build script expects a frontend dist to exist.
+      - name: Frontend dist placeholder
+        run: mkdir -p packages/tmuxy-ui/dist
+
+      - name: Cargo test
+        run: cargo test --workspace
+
   # Rust unit + integration tests across the workspace. Previously nothing ran
   # `cargo test` in CI, so every `#[cfg(test)]` module went unexecuted.
   rust-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -100,8 +239,32 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison \
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev librsvg2-dev
+
+      # initial_state.rs, reply_channel.rs and pinned_split_race.rs drive a
+      # real `tmux -CC`, so this job was testing against whatever tmux the
+      # runner image happened to ship. Same source-built, cache-shared 3.7a
+      # the e2e/latency/tauri jobs pin — one cache entry serves all of them.
+      - name: Cache tmux 3.7a
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a (cache miss)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
+
+      - name: Confirm tmux version
+        run: tmux -V
 
       # Clippy/build for the tauri crate expects the frontend dist to exist.
       - name: Frontend dist placeholder
@@ -114,6 +277,7 @@ jobs:
   # isolation. It has its own jest config and was referenced by no workflow.
   cli-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7
@@ -134,26 +298,40 @@ jobs:
   # job (~10 min total); matrix puts walltime at max-of-suites.
   e2e:
     runs-on: ubuntu-latest
-    # `soft` suites still run and report, but don't fail the build. Reserved for
-    # suites whose assertions sample live CSS animation frames — inherently
-    # timing-sensitive under runner load, the same reason the v86 storybook
-    # sweep is non-blocking. Keeps the signal without a perpetually red main.
-    continue-on-error: ${{ matrix.suite.soft == true }}
+    timeout-minutes: 30
+    needs: build-artifacts
     strategy:
       fail-fast: false
       matrix:
+        # `filter` (jest -t) splits one oversized file across two runners.
+        # 2-layout is 3,181 lines / 22 flows and the longest suite here once
+        # the v86 job stops being the critical path. jest's own --shard only
+        # divides at FILE granularity, so it cannot split a single file;
+        # a name filter on the top-level `Scenario N:` describes can.
+        # The second half is a negative lookahead on the first, so a newly
+        # added scenario always lands in a shard instead of silently
+        # running nowhere.
         suite:
           - { name: snapshots, path: 'tests/snapshots/' }
           - { name: '1-input', path: 'tests/1-input-interaction.test.js' }
-          - { name: '2-layout', path: 'tests/2-layout-navigation.test.js' }
+          - name: '2-layout-a'
+            path: 'tests/2-layout-navigation.test.js'
+            filter: '^Scenario (4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):'
+          - name: '2-layout-b'
+            path: 'tests/2-layout-navigation.test.js'
+            filter: '^Scenario (?!(4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):)'
           - { name: '3-rendering', path: 'tests/3-rendering-protocols.test.js' }
           - { name: '4-session', path: 'tests/4-session-connectivity.test.js' }
           - { name: '5-stress', path: 'tests/5-stress-stability.test.js' }
           - { name: '6-nvim', path: 'tests/6-nvim-performance.test.js' }
           - { name: '7-regression', path: 'tests/7-regression-bugs.test.js' }
           - { name: '8-tui', path: 'tests/8-tui-alternate-screen.test.js' }
-          - { name: '9-animations', path: 'tests/9-pane-animations.test.js', soft: true }
           - { name: '10-read-only', path: 'tests/10-read-only.test.js' }
+          # WebKit is the only proxy CI has for WKWebView, where the selection
+          # and focus bugs escaped. It needs its own browser download, so only
+          # this entry pays for it.
+          - { name: '11-webkit', path: 'tests/11-webkit.test.js', webkit: true }
+          - { name: '12-touch', path: 'tests/12-touch.test.js' }
     name: e2e (${{ matrix.suite.name }})
 
     # The suite's own tmux socket, for the server started below as much as for
@@ -172,17 +350,13 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-
+      # No Rust toolchain here any more: the release server arrives as an
+      # artifact from `build-artifacts`, and nothing else in this job compiles.
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison fzf neovim \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev
+            libevent-dev libncurses-dev bison fzf neovim
 
       # Cache the tmux binary so we don't recompile from source every run.
       # Build cost is ~30-60s; cache restore is ~2s. 3.7a matches the
@@ -209,14 +383,39 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # The browser download is ~130MB and identical every run; only the apt
+      # side of `--with-deps` still has to happen on a hit.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
       - name: Install Chromium
         run: npx playwright install chromium --with-deps
 
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
+      # Only the WebKit suite; every other entry would pay the download for a
+      # browser it never launches.
+      - name: Install WebKit
+        if: matrix.suite.webkit
+        run: npx playwright install webkit --with-deps
 
-      - name: Build server (release)
-        run: cargo build --release -p tmuxy-server
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
+
+      - name: Download server binary
+        uses: actions/download-artifact@v8
+        with:
+          name: tmuxy-server-release
+          path: target/release
+
+      # Artifacts do not preserve the executable bit.
+      - name: Make the server executable
+        run: chmod +x target/release/tmuxy-server
 
       # Put the `tmuxy` CLI on PATH so panes spawned by the server (e.g. the
       # sidebar's `tmuxy tree` TUI) resolve it — mirrors brew/AppImage installs.
@@ -242,8 +441,10 @@ jobs:
             check();
           "
 
+      # No --forceExit: it masked leaked handles by killing the process before
+      # jest could report them.
       - name: Run ${{ matrix.suite.name }}
-        run: npx jest --forceExit ${{ matrix.suite.path }}
+        run: npx jest ${{ matrix.suite.path }} ${{ matrix.suite.filter && format('--testNamePattern={0}', toJSON(matrix.suite.filter)) || '' }}
 
       - name: Server logs (debug)
         if: failure()
@@ -260,6 +461,8 @@ jobs:
   # only; they never fail the build. See docs/PERFORMANCE.md.
   interaction-latency:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build-artifacts
 
     steps:
       - uses: actions/checkout@v7
@@ -268,10 +471,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
 
       - name: Install system dependencies
         run: |
@@ -300,16 +499,33 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
       - name: Install Chromium
         run: npx playwright install chromium --with-deps
 
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
 
       # Release, not debug: a debug server's own slowness would swamp the
-      # differences between interactions this harness exists to see.
-      - name: Build server (release)
-        run: cargo build --release -p tmuxy-server
+      # differences between interactions this harness exists to see. Built
+      # once in `build-artifacts` with the same release profile.
+      - name: Download server binary
+        uses: actions/download-artifact@v8
+        with:
+          name: tmuxy-server-release
+          path: target/release
+
+      - name: Make the server executable
+        run: chmod +x target/release/tmuxy-server
 
       - name: Link tmuxy CLI onto PATH
         run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
@@ -361,6 +577,7 @@ jobs:
   # longer sits on the longest job.
   tauri-e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v7
@@ -407,8 +624,18 @@ jobs:
       - name: Confirm tmux version
         run: tmux -V
 
-      - name: Install tauri-driver
-        run: cargo install tauri-driver
+      # `cargo install tauri-driver` compiles from source on every run
+      # (~2 min). Pinned so the cache key describes exactly what is in it.
+      - name: Cache tauri-driver
+        id: tauri-driver-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: ${{ runner.os }}-tauri-driver-2.0.6
+
+      - name: Install tauri-driver (cache miss)
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version 2.0.6 --locked
 
       - name: Install npm dependencies
         run: npm ci
@@ -425,6 +652,7 @@ jobs:
   # stories compile on demand.
   storybook-probe:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -436,6 +664,13 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
 
       - name: Install Chromium
         run: npx playwright install chromium --with-deps
@@ -468,19 +703,31 @@ jobs:
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run test-storybook -w tmuxy-ui
 
+      # A screenshot, a DOM dump and the real stack for every story that
+      # failed — the probe used to report only `playFunctionThrewException`,
+      # which nobody could act on.
+      - name: Probe failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-probe-artifacts
+          path: packages/tmuxy-ui/probe-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Storybook logs (debug)
         if: failure()
         run: tail -200 /tmp/storybook.log
 
   storybook-v86-probe:
     runs-on: ubuntu-latest
-    # Two tiers on one shared setup: the GATE step (three optimistic-UX
-    # stories the pane-stability review promoted once the correlation fixes
-    # proved stable) BLOCKS merges; the full ~110-story sweep stays
-    # non-blocking (continue-on-error at the step level) because one shared
-    # v86 engine at that scale is inherently timing-sensitive under runner
-    # load. The deterministic `storybook-probe` job (fresh page per story,
-    # no shared engine) is also blocking.
+    timeout-minutes: 30
+    # Only the blocking GATE (three optimistic-UX stories the pane-stability
+    # review promoted once the correlation fixes proved stable) runs per
+    # commit. The full ~110-story sweep used to run here too, behind a
+    # step-level continue-on-error — 20 minutes on the critical path producing
+    # a result nobody was obliged to read. It moved to nightly-v86.yml, where
+    # a failure opens an issue and the per-story timings are kept.
 
     steps:
       - uses: actions/checkout@v7
@@ -536,6 +783,13 @@ jobs:
           npm run fetch:v86-image -w tmuxy-ui
           npm run build:v86-snapshot -w tmuxy-ui
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
       - name: Install Chromium
         run: npx playwright install chromium --with-deps
 
@@ -562,11 +816,17 @@ jobs:
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run test-storybook:v86 -w tmuxy-ui -- 6006 split-optimistic-timeline split-rejected-rollback resize-pane-drag
 
-      - name: Probe v86 stories (shared engine, single page)
-        continue-on-error: true
-        run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
-          npm run test-storybook:v86 -w tmuxy-ui
+      # A screenshot, a DOM dump and the real stack for every story that
+      # failed — the probe used to report only `playFunctionThrewException`,
+      # which nobody could act on.
+      - name: Probe failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-v86-probe-artifacts
+          path: packages/tmuxy-ui/probe-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Storybook logs (debug)
         if: failure()
@@ -576,8 +836,103 @@ jobs:
   # (dev tooling — Storybook, Puppeteer, wdio — is audited by Dependabot but
   # would keep this job permanently red) and the Rust workspace, with the
   # policy and its reasons in .cargo/audit.toml.
+  # The packaged desktop app used to be exercised only by build-app.yml, which
+  # never runs on a pull request — so a launch-environment regression (6 of the
+  # last 8 Build App failures, 5 of them on dependabot Tauri bumps) was found
+  # only after it had already landed on main. This runs the same Linux smoke
+  # test against a release --no-bundle build, per commit and per PR.
+  desktop-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev \
+            webkit2gtk-driver xvfb x11-utils
+
+      # The app refuses to launch below tmux 3.3; apt's is older on some
+      # images. Same source-built 3.7a and cache key as every other job.
+      - name: Cache tmux 3.7a
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a (cache miss)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
+
+      - name: Confirm tmux version
+        run: tmux -V
+
+      - name: Cache tauri-driver
+        id: tauri-driver-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: ${{ runner.os }}-tauri-driver-2.0.6
+
+      - name: Install tauri-driver (cache miss)
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version 2.0.6 --locked
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Release profile like build-app.yml (that is the binary users launch),
+      # but without the bundlers — the smoke test runs the raw executable.
+      - name: Build Tauri app (release)
+        run: npx tauri build --no-bundle
+        working-directory: packages/tmuxy-tauri-app
+
+      - name: Run smoke test
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
+          XVFB_PID=$!
+          export DISPLAY=:99
+
+          for i in $(seq 1 20); do
+            xdpyinfo -display :99 >/dev/null 2>&1 && break
+            sleep 0.25
+          done
+
+          tauri-driver --port 4444 &
+          DRIVER_PID=$!
+          sleep 2
+
+          node tests/smoke/smoke-test.js target/release/tmuxy
+          RESULT=$?
+
+          kill $DRIVER_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
+
+          exit $RESULT
+
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7

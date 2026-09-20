@@ -1,0 +1,32 @@
+#!/bin/sh
+set -e
+
+# Pre-push: the two gates that fail in CI but not in pre-commit.
+#
+# pre-commit deliberately stays fast — it formats, lints and runs only the unit
+# tests related to what is staged. It does NOT type-check, and until recently it
+# ran clippy without -D warnings. Those two gaps account for every avoidable red
+# run we have had (clippy 6x, tsc 2x): the work was already pushed before
+# anything told the author.
+#
+# Push is the right place for them. It runs once per push rather than once per
+# commit, and it is the last moment a failure is still cheap.
+#
+# TMUXY_SKIP_PREPUSH=1 git push  — escape hatch for a genuine emergency.
+
+if [ -n "$TMUXY_SKIP_PREPUSH" ]; then
+  echo "pre-push: skipped (TMUXY_SKIP_PREPUSH set)."
+  exit 0
+fi
+
+echo "Type checking (tsc --noEmit)..."
+(cd packages/tmuxy-ui && npx tsc --noEmit)
+
+# Same crates and the same -D warnings CI uses, so a green hook means a green
+# lint job. The tauri crate's build script wants a frontend dist to exist.
+echo "Checking Rust (cargo clippy -D warnings)..."
+mkdir -p packages/tmuxy-ui/dist
+cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
+  -p tmuxy-tree -p tmuxy-connect -- -D warnings
+
+echo "pre-push: OK"

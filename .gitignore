@@ -59,3 +59,6 @@ split-smooth-animations.png
 
 # Interaction-latency run output (the baseline next to it IS tracked)
 perf/interaction-report.json
+
+# Failure screenshots, DOM dumps and stacks written by the storybook probe.
+packages/tmuxy-ui/probe-artifacts/

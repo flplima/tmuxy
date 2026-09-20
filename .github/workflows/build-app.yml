@@ -34,6 +34,7 @@ jobs:
             binary: target/universal-apple-darwin/release/tmuxy
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
 
     # macOS signing + notarization credentials. Read by the Tauri CLI itself
     # during `tauri build` — it imports the cert into a throwaway keychain,
@@ -57,6 +58,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -72,7 +74,9 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev librsvg2-dev
 
-      - run: npm install
+      # `npm ci` (not `npm install`): the release build must use exactly the
+      # locked dependency tree, not whatever the ranges resolve to today.
+      - run: npm ci
 
       # --- Build ---
 
@@ -105,7 +109,18 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison webkit2gtk-driver xvfb x11-utils
-          cargo install tauri-driver
+
+      - name: Cache tauri-driver (Linux)
+        if: matrix.platform == 'linux'
+        id: tauri-driver-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: ${{ matrix.os }}-tauri-driver-2.0.6
+
+      - name: Install tauri-driver (Linux, cache miss)
+        if: matrix.platform == 'linux' && steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version 2.0.6 --locked
 
       # ubuntu-22.04's apt tmux is 3.2a, below the 3.3 the app refuses to
       # launch without. Same source-built 3.7a as lint-and-tests.yml, keyed
@@ -168,42 +183,6 @@ jobs:
 
           exit $RESULT
 
-      # Regression test for the macOS Finder-launch failure pattern. Runs
-      # only on Linux because it needs to spawn the binary with a custom
-      # HOME (the macOS .app on the runner can't be relaunched the same
-      # way). Tries to validate the bounded-retry safety net by planting a
-      # tmux.conf that should make every CC attach die within ms, then
-      # asserts the debug log shows FATAL within ~45s.
-      #
-      # Marked continue-on-error because tmux 3.x's pane-death detection
-      # and hook firing are too non-deterministic to reproducibly trigger
-      # the failure mode within the test window — across four iterations
-      # of the planted config (nonexistent path / /bin/false / kill-server
-      # hook / belt-and-suspenders) the run is roughly 60% pass rate. The
-      # bug class this test was meant to catch (silent reconnect storms)
-      # is also covered by the smoke-test debug-log healthcheck which
-      # asserts <=2 connect events on the happy path; that one IS reliable
-      # and runs above.
-      - name: Run hostile-config regression test (Linux)
-        if: matrix.platform == 'linux'
-        continue-on-error: true
-        run: |
-          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
-          XVFB_PID=$!
-          export DISPLAY=:99
-
-          for i in $(seq 1 20); do
-            xdpyinfo -display :99 >/dev/null 2>&1 && break
-            sleep 0.25
-          done
-
-          node tests/smoke/hostile-config-test.js "${{ matrix.binary }}"
-          RESULT=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-
-          exit $RESULT
-
       - name: Run smoke test (macOS)
         if: matrix.platform == 'macos'
         run: |
@@ -249,7 +228,7 @@ jobs:
         with:
           name: tmuxy-linux-appimage-${{ matrix.arch }}
           path: target/release/bundle/appimage/*.AppImage
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload .deb
         if: matrix.platform == 'linux'
@@ -257,7 +236,7 @@ jobs:
         with:
           name: tmuxy-linux-deb-${{ matrix.arch }}
           path: target/release/bundle/deb/*.deb
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload .dmg
         if: matrix.platform == 'macos'
@@ -265,7 +244,7 @@ jobs:
         with:
           name: tmuxy-macos-dmg
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # --- Release (only on tag push, after all builds + smoke tests pass) ---
 
@@ -273,6 +252,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -313,6 +293,7 @@ jobs:
     needs: release
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -436,6 +417,7 @@ jobs:
     needs: [release, bump-cask]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v8
         with:
