@@ -101,13 +101,22 @@ describe('App Lifecycle', () => {
       const log = document.querySelector('[role="log"]');
       if (!log) return null;
       const r = log.getBoundingClientRect();
-      return { width: r.width, height: r.height, top: r.top, left: r.left };
+      return {
+        width: r.width,
+        height: r.height,
+        // How much of it is actually inside the window. A terminal lives in a
+        // scrollback container taller than the viewport, so its own `top` is
+        // legitimately negative once there is history above — what matters is
+        // that a readable part of it is on screen, not where its top edge is.
+        visibleHeight: Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0),
+        visibleWidth: Math.min(r.right, window.innerWidth) - Math.max(r.left, 0),
+      };
     });
     expect(rect).not.toBeNull();
     expect(rect.width).toBeGreaterThan(200);
     expect(rect.height).toBeGreaterThan(100);
-    expect(rect.top).toBeGreaterThanOrEqual(0);
-    expect(rect.left).toBeGreaterThanOrEqual(0);
+    expect(rect.visibleWidth).toBeGreaterThan(200);
+    expect(rect.visibleHeight).toBeGreaterThan(100);
 
     // The shell prompt rendered into it.
     const text = await getTerminalText(driver);
