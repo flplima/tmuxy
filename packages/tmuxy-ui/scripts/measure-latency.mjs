@@ -36,6 +36,13 @@ async function main() {
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem('tmuxy-risk-notice-ack', '1');
+    } catch {
+      /* no storage, no notice */
+    }
+  });
   const page = await context.newPage();
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -44,7 +51,9 @@ async function main() {
   await page.waitForFunction(
     () => {
       const logs = document.querySelectorAll('[role="log"]');
-      const content = Array.from(logs).map((l) => l.textContent || '').join('\n');
+      const content = Array.from(logs)
+        .map((l) => l.textContent || '')
+        .join('\n');
       const hasPrompt = content.length > 5 && /[$#%>❯]/.test(content);
       const connected = window.app?.getSnapshot?.()?.context?.connected;
       return hasPrompt && connected;

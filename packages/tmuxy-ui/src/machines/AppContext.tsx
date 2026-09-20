@@ -9,7 +9,7 @@
  * - useIsResizing() - check if resize is in progress
  */
 
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { appMachine, type AppMachineActor } from './app';
 import type {
@@ -30,7 +30,8 @@ import {
 } from './selectors';
 import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
 import type { TmuxAdapter } from '../tmux/types';
-import { createAdapter } from '../tmux/adapters';
+import { createAdapter, isDemoUrl } from '../tmux/adapters';
+import { riskNoticeAcknowledged } from '../utils/riskNotice';
 import { tracer } from '../tmux/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
@@ -162,6 +163,11 @@ export function AppProvider({
     };
   }, []);
 
+  // Decided once, at mount: the answer must not change under a running app.
+  const [needsRiskNotice] = useState(
+    () => !externalAdapter && !config?.isDemo && !isDemoUrl() && !riskNoticeAcknowledged(),
+  );
+
   const actorRef = useActorRef(
     appMachine.provide({
       actors,
@@ -184,6 +190,10 @@ export function AppProvider({
       return originalSend(event as Parameters<typeof originalSend>[0]);
     };
     (window as unknown as { app: typeof actorRef }).app = actorRef;
+    // The first-run notice is about a real backend — a server or the desktop
+    // app. The in-browser sandboxes (demo, v86, stories) have no shell to warn
+    // about, and they are the ones that hand an adapter in.
+    if (needsRiskNotice) actorRef.send({ type: 'OPEN_RISK_NOTICE' });
     // Let the Tauri native menu reuse the exact same action dispatch the
     // in-app menu uses, so its items (including `tab-new`) route through the
     // control-mode-safe adapter path instead of raw external tmux subprocesses.
@@ -197,7 +207,7 @@ export function AppProvider({
         activeCloseTarget(activePaneId, focusedFloatPaneId),
       );
     };
-  }, [actorRef]);
+  }, [actorRef, needsRiskNotice]);
 
   return (
     <AppConfigContext.Provider value={config ?? {}}>

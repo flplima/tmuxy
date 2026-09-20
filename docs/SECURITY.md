@@ -6,6 +6,10 @@ Tmuxy is a **development tool** that is **not production-ready**. It provides di
 
 Tmuxy is under active development and has not undergone a security audit. It is designed for use on **trusted networks** (localhost, LAN, VPN) by a **single user**. Do not deploy it on untrusted networks without additional security layers.
 
+## The First-Run Notice
+
+The web app and the desktop app open with a notice saying what this document says at length: alpha software, written largely by AI agents, and — on the web — a remote control for a shell, with the three rules that follow from it (localhost or a tunnel, a password on any other address, never the internet). It is modal: the keyboard is kept from the panes while it is up, and focus starts on the dialog rather than its button, so someone already typing does not dismiss it with a space. *I understand* closes it for that load; *Don't show this again* remembers the answer in that browser's storage (`tmuxy-ui/src/utils/riskNotice.ts`). A read-only viewer is not shown it, and neither are the in-browser sandboxes (demo, v86), which have no shell behind them.
+
 ## Threat Model
 
 Tmuxy assumes:

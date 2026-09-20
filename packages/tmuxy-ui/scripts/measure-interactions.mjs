@@ -281,6 +281,14 @@ async function main() {
   const context = CDP
     ? (browser.contexts()[0] ?? (await browser.newContext()))
     : await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  // The first-run notice is modal and takes the keyboard; measure past it.
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem('tmuxy-risk-notice-ack', '1');
+    } catch {
+      /* no storage, no notice */
+    }
+  });
   const page = await context.newPage();
   if (CDP) await page.setViewportSize({ width: 1400, height: 900 });
 

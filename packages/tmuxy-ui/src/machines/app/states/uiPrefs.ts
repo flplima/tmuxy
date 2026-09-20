@@ -23,6 +23,8 @@ export const uiPrefsState = {
     THEME_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptThemeSettings' },
     TOGGLE_CURSOR_BLINK: { guard: notReadOnly, actions: 'uiPrefs_toggleCursorBlink' },
     THEMES_LIST_RECEIVED: { actions: 'uiPrefs_setAvailableThemes' },
+    OPEN_RISK_NOTICE: { actions: 'uiPrefs_openRiskNotice' },
+    DISMISS_RISK_NOTICE: { actions: 'uiPrefs_dismissRiskNotice' },
     INCREASE_FONT_SIZE: { actions: 'uiPrefs_increaseFontSize' },
     DECREASE_FONT_SIZE: { actions: 'uiPrefs_decreaseFontSize' },
     RESET_FONT_SIZE: { actions: 'uiPrefs_resetFontSize' },

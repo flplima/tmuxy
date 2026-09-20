@@ -38,6 +38,11 @@ beforeAll(async () => {
     // still reports the panes it saw at the time, so every structural check
     // fails against ids tmux no longer has. Reloading rebuilds the state from
     // the server's current view while still not opening an extra tab.
+    // A page this suite did not open has no init script: acknowledge the
+    // first-run notice on it before the reload brings it up.
+    await page
+      .evaluate(() => window.localStorage.setItem('tmuxy-risk-notice-ack', '1'))
+      .catch(() => {});
     await page.goto(TMUXY_URL, { waitUntil: 'load' });
   } else {
     // No existing page — open a new one (CI environment)

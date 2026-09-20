@@ -8,6 +8,7 @@
 const {
   createTestContext,
   delay,
+  navigateToSession,
   focusPage,
   focusTerminal,
   getTerminalText,
@@ -1469,5 +1470,74 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
 
     // The pane is back at its prompt and takes input.
     await runCommand(ctx.page, 'echo AFTER_COPY_DRAG', 'AFTER_COPY_DRAG');
+  }, 120000);
+});
+
+// ==================== Scenario 31: First-Run Notice ====================
+
+describe('Scenario 31: First-run notice', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('a new browser gets the notice and no keystroke reaches the shell → "I understand" lets typing through → it returns until "don\'t show this again" is ticked', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // A context of its own: the suite's pages are pre-acknowledged.
+    const context = await ctx.browser._browser.newContext({
+      viewport: { width: 1280, height: 720 },
+    });
+    const page = await context.newPage();
+    const notice = page.locator('[data-testid="risk-notice"]');
+    const open = async () => {
+      await navigateToSession(page, ctx.session.name);
+      await page.bringToFront();
+    };
+
+    // Shown, on top, and saying the two things it exists to say.
+    await open();
+    await notice.waitFor({ state: 'visible', timeout: 10000 });
+    const text = await notice.innerText();
+    expect(text).toContain('written by AI agents');
+    expect(text).toContain('remote control for your shell');
+    const accept = page.getByRole('button', { name: 'I understand' });
+    const box = await accept.boundingBox();
+    const topmost = await page.evaluate(
+      ([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-testid="risk-notice"]')),
+      [box.x + box.width / 2, box.y + box.height / 2],
+    );
+    expect(topmost).toBe(true);
+
+    // Modal: what is typed while it is up never reaches the pane.
+    const BLOCKED = `BLOCKED_${Date.now()}`;
+    await page.keyboard.type(`echo ${BLOCKED}`);
+    await page.keyboard.press('Enter');
+    await delay(DELAYS.SYNC);
+    expect(await getTerminalText(page)).not.toContain(BLOCKED);
+
+    // Accepted without the checkbox: typing works, and the next load asks again.
+    await accept.click();
+    await notice.waitFor({ state: 'hidden' });
+    const TYPED = `TYPED_${Date.now()}`;
+    await focusPage(page);
+    await typeInTerminal(page, `echo ${TYPED}`);
+    await pressEnter(page);
+    await waitForTerminalText(page, TYPED);
+
+    await open();
+    await notice.waitFor({ state: 'visible', timeout: 10000 });
+    await page.getByLabel("Don't show this again").check();
+    await page.getByRole('button', { name: 'I understand' }).click();
+    await notice.waitFor({ state: 'hidden' });
+
+    // Ticked: it does not come back.
+    await open();
+    await delay(DELAYS.SYNC);
+    expect(await notice.count()).toBe(0);
+
+    await context.close();
   }, 120000);
 });

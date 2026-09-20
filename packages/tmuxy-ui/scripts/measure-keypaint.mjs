@@ -29,13 +29,23 @@ async function main() {
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
-  const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem('tmuxy-risk-notice-ack', '1');
+    } catch {
+      /* no storage, no notice */
+    }
+  });
+  const page = await context.newPage();
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector('[role="log"]', { timeout: 15000 });
   await page.waitForFunction(
     () => {
-      const c = [...document.querySelectorAll('[role="log"]')].map((l) => l.textContent || '').join('');
+      const c = [...document.querySelectorAll('[role="log"]')]
+        .map((l) => l.textContent || '')
+        .join('');
       return c.length > 5 && /[$#%>❯]/.test(c) && window.app?.getSnapshot?.()?.context?.connected;
     },
     { timeout: 20000, polling: 100 },
@@ -54,7 +64,7 @@ async function main() {
       (ch) =>
         new Promise((resolve) => {
           const pane = document.querySelector('[role="log"]');
-          const countOf = () => ((pane.textContent || '').split(ch).length - 1);
+          const countOf = () => (pane.textContent || '').split(ch).length - 1;
           const base = countOf();
           let t0 = 0;
           document.addEventListener(

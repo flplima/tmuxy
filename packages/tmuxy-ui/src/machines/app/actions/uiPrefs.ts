@@ -26,6 +26,7 @@ import {
   DEFAULT_FONT_SIZE,
 } from '../../../utils/fontSizeManager';
 import { isTauri } from '../../../tmux/adapters';
+import { acknowledgeRiskNotice } from '../../../utils/riskNotice';
 import { applyAppearance } from '../../../utils/appearanceManager';
 
 type Ctx = AppMachineContext;
@@ -255,6 +256,40 @@ export const uiPrefsActions = {
     saveFontSizeToStorage(newSize);
     enqueue(assign({ baseFontSize: newSize }));
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
+  }),
+
+  // The notice is modal: what is typed while it is up must not reach a shell
+  // the user has not yet been told about.
+  uiPrefs_openRiskNotice: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ enqueue }) => {
+    enqueue(assign({ riskNoticeOpen: true }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: false }));
+  }),
+
+  uiPrefs_dismissRiskNotice: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ event, context, enqueue }) => {
+    if (event.type !== 'DISMISS_RISK_NOTICE') return;
+    if (event.remember) acknowledgeRiskNotice();
+    enqueue(assign({ riskNoticeOpen: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: context.appFocused }));
   }),
 
   uiPrefs_resetFontSize: enqueueActions<

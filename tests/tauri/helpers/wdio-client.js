@@ -96,6 +96,15 @@ async function waitForAppReady(driver, timeout = 30000) {
   // Wait for terminal to have content (shell prompt)
   const start = Date.now();
   while (Date.now() - start < timeout) {
+    // The first-run notice is modal and takes the keyboard. No init script
+    // exists for a WebKit webview, so acknowledge it here, for this profile
+    // and for the run in progress.
+    await driver.execute(() => {
+      window.localStorage.setItem('tmuxy-risk-notice-ack', '1');
+      if (window.app?.getSnapshot().context.riskNoticeOpen) {
+        window.app.send({ type: 'DISMISS_RISK_NOTICE', remember: true });
+      }
+    });
     const hasContent = await driver.execute(() => {
       const logs = document.querySelectorAll('[role="log"]');
       const content = Array.from(logs)

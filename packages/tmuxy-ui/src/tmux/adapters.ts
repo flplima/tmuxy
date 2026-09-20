@@ -481,7 +481,7 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-function isDemo(): boolean {
+export function isDemoUrl(): boolean {
   return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('demo');
 }
 
@@ -489,7 +489,7 @@ export function createAdapter(): TmuxAdapter {
   if (isTauri()) {
     return new TauriAdapter();
   }
-  if (isDemo()) {
+  if (isDemoUrl()) {
     return new DemoAdapter();
   }
   return new HttpAdapter();

@@ -423,6 +423,8 @@ export interface AppMachineContext {
    * cursor through DECSCUSR.
    */
   cursorBlink: boolean;
+  /** The first-run notice (alpha, AI-written, a remote shell) is up; the keyboard is kept from the panes while it is. */
+  riskNoticeOpen: boolean;
   /**
    * The config's `@tmuxy-tab-overview-cols`: cards per row in the "all tabs"
    * view. Defaults to 3, also on adapters without a config.
@@ -986,6 +988,9 @@ export type AddServerEvent = { type: 'ADD_SERVER'; dest: string; socket?: string
 export type DetachClientEvent = { type: 'DETACH_CLIENT' };
 /** The user asked for a reconnect attempt now, rather than at the next backoff tick. */
 export type ReconnectNowEvent = { type: 'RECONNECT_NOW' };
+export type OpenRiskNoticeEvent = { type: 'OPEN_RISK_NOTICE' };
+/** `remember`: the user ticked "don't show this again". */
+export type DismissRiskNoticeEvent = { type: 'DISMISS_RISK_NOTICE'; remember: boolean };
 /**
  * The backend reports the connection ended. `reason` is tmux's own `%exit`
  * text — `detached` when the user detached on purpose, which the UI answers
@@ -1208,6 +1213,8 @@ export type AppMachineEvent =
   | AddServerEvent
   | DetachClientEvent
   | ReconnectNowEvent
+  | OpenRiskNoticeEvent
+  | DismissRiskNoticeEvent
   | TmuxDetachedEvent
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent
