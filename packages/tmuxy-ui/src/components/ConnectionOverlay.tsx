@@ -33,6 +33,8 @@ export interface ConnectionOverlayProps {
   fatalError: string | null;
   log: LogEntry[];
   onRetry: () => void;
+  /** `reconnecting` only: try again now instead of waiting out the backoff. Absent hides the button. */
+  onReconnectNow?: () => void;
   /**
    * What `detached` mode puts on the scrim — the session switcher. Passed in
    * rather than imported so this stays presentational and showable on its own
@@ -59,6 +61,7 @@ export function ConnectionOverlay({
   fatalError,
   log,
   onRetry,
+  onReconnectNow,
   children,
 }: ConnectionOverlayProps) {
   const isFatal = mode === 'fatal';
@@ -94,6 +97,11 @@ export function ConnectionOverlay({
         )}
         {isDetached && children}
         {!isFatal && !isDetached && error && <p className="connection-overlay-note">{error}</p>}
+        {mode === 'reconnecting' && onReconnectNow && (
+          <button type="button" className="connection-overlay-retry" onClick={onReconnectNow}>
+            Retry now
+          </button>
+        )}
         {isFatal && (
           <>
             <p className="connection-overlay-note">

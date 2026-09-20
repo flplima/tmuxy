@@ -288,6 +288,77 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
+  it('ten drops in a row each reconnect at once, on the real backoff schedule', async () => {
+    // One schedule for the channel's whole life only ever climbed: by the
+    // fifth drop a reconnect waited 16s, then 30s for good, however briefly
+    // the link had been down. The default schedule, deliberately — a 1ms one
+    // cannot show this.
+    const adapter = new HttpAdapter();
+    const first = adapter.connect();
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+    await first;
+
+    for (let drop = 1; drop <= 10; drop++) {
+      const droppedAt = Date.now();
+      MockEventSource.instances[drop - 1].onerror?.(new Event('error'));
+      await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(drop + 1), {
+        timeout: 1500,
+      });
+      expect(Date.now() - droppedAt).toBeLessThan(1500);
+      MockEventSource.instances[drop].emit('connection-info', { data: { connection_id: drop } });
+      await vi.waitFor(() => expect(adapter.isConnected()).toBe(true));
+    }
+    expect(openStreams().length).toBe(1);
+    adapter.disconnect();
+  }, 20000);
+
+  it('retries at once when the browser comes back online, not at the next backoff tick', async () => {
+    // A long backoff, so only the hint can explain a prompt second attempt.
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 hours') });
+    const connecting = adapter.connect();
+    (await stream(0)).onerror?.(new Event('error'));
+    expect(MockEventSource.instances.length).toBe(1);
+
+    window.dispatchEvent(new Event('online'));
+    (await stream(1)).emit('connection-info', { data: { connection_id: 2 } });
+    await connecting;
+    expect(adapter.isConnected()).toBe(true);
+    expect(openStreams().length).toBe(1);
+
+    // Connected: a hint has nothing to do, and must not bounce the stream.
+    window.dispatchEvent(new Event('online'));
+    adapter.reconnectNow();
+    expect(MockEventSource.instances.length).toBe(2);
+    adapter.disconnect();
+  });
+
+  it('a pinged stream that goes silent is dropped and reopened', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    try {
+      const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
+      const first = adapter.connect();
+      const es = await stream(0);
+      es.emit('connection-info', { data: { connection_id: 1 } });
+      await first;
+
+      // No ping seen yet (an older server): silence proves nothing.
+      vi.advanceTimersByTime(60_000);
+      expect(adapter.isConnected()).toBe(true);
+
+      es.emit('ping', 1);
+      vi.advanceTimersByTime(3_000);
+      expect(adapter.isConnected()).toBe(true);
+      vi.advanceTimersByTime(4_000);
+      expect(es.closed).toBe(true);
+      expect(adapter.isConnected()).toBe(false);
+      vi.useRealTimers();
+      await stream(1);
+      adapter.disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a stream the server refuses ends in its reason, not in endless retrying', async () => {
     // Behind a proxy without --allowed-host every API route is a 403, and
     // EventSource reports that as the same bare error as a server that is down.

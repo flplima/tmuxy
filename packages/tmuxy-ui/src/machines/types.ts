@@ -984,6 +984,8 @@ export type ConnectServerEvent = { type: 'CONNECT_SERVER'; serverId: string };
 export type AddServerEvent = { type: 'ADD_SERVER'; dest: string; socket?: string };
 /** Detach this client, leaving the tmux server and its sessions running. */
 export type DetachClientEvent = { type: 'DETACH_CLIENT' };
+/** The user asked for a reconnect attempt now, rather than at the next backoff tick. */
+export type ReconnectNowEvent = { type: 'RECONNECT_NOW' };
 /**
  * The backend reports the connection ended. `reason` is tmux's own `%exit`
  * text — `detached` when the user detached on purpose, which the UI answers
@@ -1205,6 +1207,7 @@ export type AppMachineEvent =
   | ConnectServerEvent
   | AddServerEvent
   | DetachClientEvent
+  | ReconnectNowEvent
   | TmuxDetachedEvent
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent

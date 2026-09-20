@@ -12,6 +12,7 @@ The web version uses two HTTP endpoints on the Axum server:
 - `theme-settings` — Theme name/mode and appearance (surface opacities, blur flag) from tmux config; re-sent after a `source-file`
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
+- `ping` — keepalive on an idle stream, once a second; the client times a silent link out by it (see Reconnecting below)
 - `log`, `tmux-error`, `fatal` — Diagnostic and error notifications. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
 
 **`POST /commands?session=<name>`** — HTTP POST (client-to-server):
@@ -20,6 +21,14 @@ The web version uses two HTTP endpoints on the Axum server:
 - **Loopback by default** — a routable `--host` needs an HTTP Basic password (or an explicit `--no-auth`), and every API route refuses requests from other origins — see [SECURITY.md](SECURITY.md).
 
 SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and the standard `Last-Event-Id` mechanism gives us a clean reconnect path (see below).
+
+### Reconnecting
+
+The adapter reopens a dropped stream on an exponential backoff (1s, 2s, 4s … capped at 30s), and three rules keep that from turning into a long wait on a link that drops often and briefly — a laptop waking, a Wi-Fi roam:
+
+- **The backoff belongs to one outage.** A connection that was established and then dropped starts the next one on a fresh schedule, after a short beat. One schedule for the page's whole life only climbs, and a few drops in every reconnect waited out the cap.
+- **A reason to retry now beats the timer.** The browser's `online` event, the tab becoming visible, and the overlay's *Retry now* button (`RECONNECT_NOW` → `adapter.reconnectNow()`) all abandon the current wait and try immediately. None of them does anything while connected.
+- **Silence is a drop.** The server's keepalive is a named `ping` event rather than an SSE comment (a page never sees comments), sent whenever the stream has been idle for a second. Once a client has seen one, five seconds without any event ends the connection — a link that dies without an error is otherwise noticed minutes later, if at all. A server that sends no pings is never timed out.
 
 ### A refused stream is not a dropped one
 

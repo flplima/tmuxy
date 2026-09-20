@@ -444,6 +444,11 @@ export interface TmuxAdapter {
    * in-browser sandboxes (demo, v86), where the sidebar's sessions poll would
    * be pointless churn. Gates the `serversActor` poll.
    */
+  /**
+   * Retry a dropped connection now instead of at the next backoff tick. For
+   * transports that reconnect on a schedule; a no-op while connected.
+   */
+  reconnectNow?(): void;
   enumeratesSessions?: boolean;
   /**
    * The backend serves this client as a viewer (`tmuxy server --read-only`):

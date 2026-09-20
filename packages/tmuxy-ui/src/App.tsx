@@ -124,6 +124,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             ? 'connecting'
             : null;
   const retry = useCallback(() => window.location.reload(), []);
+  const reconnectNow = useCallback(() => send({ type: 'RECONNECT_NOW' }), [send]);
 
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
@@ -178,6 +179,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
               fatalError={fatalError}
               log={log}
               onRetry={retry}
+              onReconnectNow={reconnectNow}
             >
               {/* Detached: the way back in. The same widget the switcher float
                   runs, here over the blurred session the user stepped out of. */}

@@ -515,7 +515,15 @@ pub async fn sse_handler(
     };
 
     Sse::new(stream)
-        .keep_alive(KeepAlive::default().interval(Duration::from_secs(1)))
+        // A named event rather than the default comment line: a page never sees
+        // a comment, and the client times a silent link out by these (the
+        // `ping` watchdog in HttpAdapter). An event with no data is dropped by
+        // the browser before dispatch, hence the placeholder.
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(1))
+                .event(Event::default().event("ping").data("1")),
+        )
         .into_response()
 }
 

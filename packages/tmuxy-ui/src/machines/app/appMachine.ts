@@ -653,6 +653,10 @@ export const appMachine = setup({
       })),
     },
 
+    RECONNECT_NOW: {
+      actions: sendTo('tmux', { type: 'RECONNECT_NOW' as const }),
+    },
+
     // Detach this client. The tmux server and every session keep running; the
     // user comes back with the switcher.
     DETACH_CLIENT: {

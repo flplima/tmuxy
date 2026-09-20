@@ -18,6 +18,7 @@ export type TmuxActorEvent =
   | { type: 'OPEN_TRACE_FILE' }
   | { type: 'FETCH_THEMES_LIST' }
   | { type: 'SWITCH_SESSION'; sessionName: string }
+  | { type: 'RECONNECT_NOW' }
   | { type: 'CHECK_SESSION_SWITCH' };
 
 export interface TmuxActorInput {
@@ -333,6 +334,8 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           logPrefix: 'get_themes_list',
           silentFail: true,
         });
+      } else if (event.type === 'RECONNECT_NOW') {
+        adapter.reconnectNow?.();
       } else if (event.type === 'SWITCH_SESSION') {
         run(eff.switchSession(event.sessionName), {
           logPrefix: `switch-session ${event.sessionName}`,

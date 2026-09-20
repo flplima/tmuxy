@@ -191,6 +191,84 @@ describe('Scenario 12b: Connection overlay', () => {
     await pressEnter(page);
     await waitForTerminalText(page, 'OVERLAY_OK', 15000);
   }, 150000);
+
+  // Over a LAN the link drops often and briefly (sleep/wake, a Wi-Fi roam). The
+  // backoff used to belong to the page rather than to the outage, so it only
+  // climbed: a few drops in, every reconnect waited out the 30s cap, and
+  // nothing told the sleeping retry that the network was back.
+  test('six drops in a row → each reconnects within seconds of the network returning → "Retry now" retries on the spot', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    await page.addInitScript(() => {
+      const streams = [];
+      window.__eventSources = streams;
+      const Native = window.EventSource;
+      window.EventSource = function (url, init) {
+        const es = new Native(url, init);
+        streams.push(es);
+        return es;
+      };
+      window.EventSource.prototype = Native.prototype;
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForPaneCount(page, 1, 15000);
+
+    const overlayShown = async () => (await page.$('[data-mode="reconnecting"]')) !== null;
+    const dropTheLink = async () => {
+      await page.context().setOffline(true);
+      await page.evaluate(() => {
+        const es = window.__eventSources[window.__eventSources.length - 1];
+        es.dispatchEvent(new Event('error'));
+      });
+      await waitForCondition(page, overlayShown, 20000, 'the reconnecting overlay');
+    };
+
+    for (let drop = 1; drop <= 6; drop++) {
+      await dropTheLink();
+      // Long enough offline for a few attempts to fail and the backoff to climb.
+      await delay(2500);
+      const backAt = Date.now();
+      await page.context().setOffline(false);
+      await waitForCondition(
+        page,
+        async () => (await page.$('[data-mode]')) === null,
+        15000,
+        `drop ${drop}: the overlay to clear`,
+      );
+      expect(Date.now() - backAt).toBeLessThan(4000);
+    }
+
+    // The button is the user's own way to say "now": visible on the overlay,
+    // and pressing it opens a stream immediately rather than at the next tick.
+    await dropTheLink();
+    await delay(2500);
+    const retryNow = page.getByRole('button', { name: 'Retry now' });
+    const box = await retryNow.boundingBox();
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.height).toBeGreaterThan(0);
+    const before = await page.evaluate(() => window.__eventSources.length);
+    await retryNow.click();
+    await waitForCondition(
+      page,
+      async () => (await page.evaluate(() => window.__eventSources.length)) > before,
+      1000,
+      'a new stream right after "Retry now"',
+    );
+
+    await page.context().setOffline(false);
+    await waitForCondition(
+      page,
+      async () => (await page.$('[data-mode]')) === null,
+      15000,
+      'the overlay to clear',
+    );
+    await focusPage(page);
+    await typeInTerminal(page, 'echo RECONNECT_OK');
+    await pressEnter(page);
+    await waitForTerminalText(page, 'RECONNECT_OK', 15000);
+  }, 240000);
 });
 
 // ==================== Scenario 13: Multi-Client ====================

@@ -40,6 +40,29 @@ const RECONNECT_SCHEDULE = Schedule.exponential('1 seconds').pipe(
   Schedule.either(Schedule.spaced('30 seconds')),
 );
 
+/** A connection that had been established ended — as opposed to one that never opened. */
+class ConnectionDropped extends Error {}
+
+/** A beat before reopening a dropped stream, so a server that accepts and drops cannot spin us. */
+const REOPEN_AFTER_DROP_MS = 250;
+
+/** Quiet for this long on a stream the server pings every second means it is gone. */
+const STREAM_SILENCE_MS = 5000;
+
+/** Every event the server sends; any of them shows the stream is alive. */
+const STREAM_EVENTS = [
+  'ping',
+  'connection-info',
+  'state-update',
+  'keybindings',
+  'theme-settings',
+  'tmux-error',
+  'clipboard',
+  'log',
+  'detached',
+  'fatal',
+] as const;
+
 /** A connect() caller waiting for the channel to (re)reach the connected state. */
 interface ConnectWaiter {
   resolve: () => void;
@@ -100,6 +123,8 @@ export class HttpAdapter implements TmuxAdapter {
   private detachedListeners = new Set<DetachedListener>();
   private clipboardListeners = new Set<ClipboardListener>();
   private fatal = false;
+  /** Removes the `online` / `visibilitychange` listeners; null while none are installed. */
+  private networkHints: (() => void) | null = null;
   /** The in-flight question to a server whose event stream would not open. */
   private refusalProbe: AbortController | null = null;
 
@@ -172,14 +197,32 @@ export class HttpAdapter implements TmuxAdapter {
     // does NOT open a rival EventSource — it just waits for the same connected
     // transition, so a stream can never be orphaned.
     if (!this.channelFiber) this.startChannel();
+    this.watchForTheNetwork();
 
     return new Promise<void>((resolve, reject) => {
       this.connectWaiters.push({ resolve, reject });
     });
   }
 
+  /** The browser's own hints that a retry is worth making now rather than at the next backoff tick. */
+  private watchForTheNetwork(): void {
+    if (this.networkHints || typeof window === 'undefined') return;
+    const retry = (): void => this.reconnectNow();
+    const retryWhenVisible = (): void => {
+      if (document.visibilityState === 'visible') this.reconnectNow();
+    };
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', retryWhenVisible);
+    this.networkHints = () => {
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', retryWhenVisible);
+    };
+  }
+
   disconnect(): void {
     this.intentionalDisconnect = true;
+    this.networkHints?.();
+    this.networkHints = null;
     this.reconnectAttempts = 0;
     this.reconnecting = false;
 
@@ -230,8 +273,23 @@ export class HttpAdapter implements TmuxAdapter {
     const host = window.location.host || 'localhost:3853';
     const eventsUrl = `${protocol}//${host}/events?session=${encodeURIComponent(session)}`;
 
-    const program = this.openConnection(eventsUrl).pipe(
-      Effect.retry({ schedule: this.reconnectSchedule, while: () => !this.fatal }),
+    // The backoff belongs to ONE outage. A connection that was established and
+    // then dropped leaves the retry (`while` turns false for it) and the loop
+    // comes round to a fresh schedule — one `Effect.retry` for the channel's
+    // whole life only ever climbs, so after a handful of sleep/wake cycles
+    // every reconnect waited out the 30s cap however briefly the link was down.
+    const oneOutage = this.openConnection(eventsUrl).pipe(
+      Effect.retry({
+        schedule: this.reconnectSchedule,
+        while: (cause) => !this.fatal && !(cause instanceof ConnectionDropped),
+      }),
+      Effect.catchIf(
+        (cause) => cause instanceof ConnectionDropped && !this.fatal,
+        () => Effect.sleep(`${REOPEN_AFTER_DROP_MS} millis`),
+      ),
+    );
+    const program = oneOutage.pipe(
+      Effect.forever,
       // The loop only ends un-interrupted when retrying stops (fatal). Settle
       // any outstanding connect() callers with that terminal error.
       Effect.catchAll((cause) =>
@@ -239,13 +297,26 @@ export class HttpAdapter implements TmuxAdapter {
           this.failConnectWaiters(cause instanceof Error ? cause : new Error(String(cause))),
         ),
       ),
-      Effect.ensuring(
-        Effect.sync(() => {
-          this.channelFiber = null;
-        }),
-      ),
     );
-    this.channelFiber = Effect.runFork(program);
+    const fiber = Effect.runFork(program);
+    this.channelFiber = fiber;
+    // Only while it is still the current one: `reconnectNow` replaces the
+    // fiber, and the old one ending must not clear its successor's slot.
+    fiber.addObserver(() => {
+      if (this.channelFiber === fiber) this.channelFiber = null;
+    });
+  }
+
+  /**
+   * Stop waiting out the backoff and try again now. Called when there is a
+   * reason to think the network is back — the browser says so (`online`), the
+   * tab came to the front, the user pressed Retry — because none of those reach
+   * a fiber asleep for up to 30s. A no-op while connected, fatal or stopped.
+   */
+  reconnectNow(): void {
+    if (this.connected || this.fatal || this.intentionalDisconnect || !this.channelFiber) return;
+    Effect.runFork(Fiber.interrupt(this.channelFiber));
+    this.startChannel();
   }
 
   /**
@@ -260,6 +331,26 @@ export class HttpAdapter implements TmuxAdapter {
       const es = new EventSource(eventsUrl);
       this.eventSource = es;
 
+      // A link that dies silently — a sleeping laptop, a Wi-Fi roam, a proxy
+      // that holds the socket open — raises no error for minutes. The server
+      // pings an otherwise idle stream every second, so a connected stream
+      // that has been quiet for several is gone. Armed only once a ping has
+      // been seen: an older server sends comments, which never reach a page.
+      let lastHeard = Date.now();
+      let pinged = false;
+      for (const type of STREAM_EVENTS) {
+        es.addEventListener(type, () => {
+          lastHeard = Date.now();
+          if (type === 'ping') pinged = true;
+        });
+      }
+      const watchdog = setInterval(() => {
+        if (!pinged || !this.connected) return;
+        if (Date.now() - lastHeard > STREAM_SILENCE_MS) {
+          endConnection(new ConnectionDropped('SSE stream went silent'));
+        }
+      }, 1000);
+
       // End this connection exactly once: close the stream, mark disconnected,
       // announce reconnection (unless intentional/fatal), then fail the effect
       // so the retry schedule takes over.
@@ -267,6 +358,7 @@ export class HttpAdapter implements TmuxAdapter {
       const endConnection = (error: Error): void => {
         if (ended) return;
         ended = true;
+        clearInterval(watchdog);
         es.close();
         if (this.eventSource === es) this.eventSource = null;
         this.connected = false;
@@ -438,7 +530,9 @@ export class HttpAdapter implements TmuxAdapter {
         // Establish failure and mid-session drop are the same to the retry
         // loop — end the connection and let the schedule pick the next attempt.
         endConnection(
-          new Error(this.connected ? 'SSE connection lost' : 'Failed to connect to SSE'),
+          this.connected
+            ? new ConnectionDropped('SSE connection lost')
+            : new Error('Failed to connect to SSE'),
         );
       };
 
@@ -446,6 +540,7 @@ export class HttpAdapter implements TmuxAdapter {
       return Effect.sync(() => {
         if (ended) return;
         ended = true;
+        clearInterval(watchdog);
         es.close();
         if (this.eventSource === es) this.eventSource = null;
       });
