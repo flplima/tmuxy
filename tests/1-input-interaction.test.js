@@ -302,16 +302,36 @@ describe('Scenario 2: Keyboard Basics', () => {
     // Count occurrences BEFORE recall — the typed command + its output already
     // put 2 on screen, so an absolute threshold was satisfied before the
     // feature under test ever ran (the old assertion could not fail).
-    const before = (await getTerminalText(ctx.page)).split('history_test_123').length - 1;
+    const occurrences = async (text) => (await getTerminalText(ctx.page)).split(text).length - 1;
+    const before = await occurrences('history_test_123');
+    const secondBefore = await occurrences('second_command');
+    // Each ArrowUp walks one line back through the shell's history and puts it
+    // on the prompt, where it shows up as one more occurrence. Polled rather
+    // than slept on: every step here is a keystroke → tmux → SSE round trip,
+    // and a fixed wait is either flaky or slower than it needs to be.
     await ctx.page.keyboard.press('ArrowUp');
-    await delay(DELAYS.SHORT);
+    await waitForCondition(
+      ctx.page,
+      async () => (await occurrences('second_command')) > secondBefore,
+      10000,
+      'the last command to be recalled onto the prompt',
+    );
     await ctx.page.keyboard.press('ArrowUp');
-    await delay(DELAYS.SHORT);
+    await waitForCondition(
+      ctx.page,
+      async () => (await occurrences('history_test_123')) > before,
+      10000,
+      'the command before it to be recalled onto the prompt',
+    );
     await pressEnter(ctx.page);
-    await delay(DELAYS.LONG);
-    const after = (await getTerminalText(ctx.page)).split('history_test_123').length - 1;
-    // Recall re-types the command and re-runs it: at least 2 new occurrences.
-    expect(after).toBeGreaterThanOrEqual(before + 2);
+    // Running it adds the echoed line and its output: two more occurrences.
+    await waitForCondition(
+      ctx.page,
+      async () => (await occurrences('history_test_123')) >= before + 2,
+      15000,
+      'the recalled command to run again',
+    );
+    expect(await occurrences('history_test_123')).toBeGreaterThanOrEqual(before + 2);
     await assertContentMatch(ctx.page, 'Scenario 2 end');
   }, 180000);
 });

@@ -183,6 +183,29 @@ async function typeChar(page, char) {
 }
 
 /**
+ * Resolve once the app is holding browser focus, so the next keystroke is
+ * routed to a pane instead of being dropped by a page that is not listening.
+ * Falls through after `timeout` rather than failing: a few callers type into
+ * surfaces that never take the hidden input (the tree widget).
+ */
+async function waitForKeyboardFocus(page, timeout = 2000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const ready = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return false;
+      return (
+        el.tagName === 'INPUT' ||
+        el.tagName === 'TEXTAREA' ||
+        Boolean(el.closest('[role="log"], .pane-layout-item, .app-container'))
+      );
+    });
+    if (ready) return;
+    await delay(40);
+  }
+}
+
+/**
  * Type text in terminal
  */
 async function typeInTerminal(page, text, { target } = {}) {
@@ -203,13 +226,17 @@ async function typeInTerminal(page, text, { target } = {}) {
   // (split-pane, new-window) can cause the page to lose keyboard focus.
   // bringToFront() re-establishes it at the CDP level.
   await page.bringToFront();
-  await delay(DELAYS.MEDIUM);
+  // Wait for the app to be holding the keyboard rather than sleeping and
+  // hoping. The hidden input (utils/mobileKeyboard.ts) owns browser focus on
+  // every device, so its being the active element is the signal that a
+  // keystroke will land in a pane.
+  await waitForKeyboardFocus(page);
   // Per-character typing with delay — the HttpAdapter batches literal
   // characters into a single send-keys -l command and serializes HTTP
   // requests, preventing transposition.
   for (const char of text) {
     await page.keyboard.type(char);
-    await delay(30);
+    await delay(15);
   }
 }
 
@@ -285,6 +312,7 @@ async function tmuxCommandKeyboard(page, cmd) {
 }
 
 module.exports = {
+  waitForKeyboardFocus,
   focusTerminal,
   sendKeyCombo,
   getPrefixKey,

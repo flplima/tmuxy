@@ -58,7 +58,7 @@ async function getBrowser() {
       return page;
     },
     async close() {
-      // No-op — shared browser persists across suites
+      // No-op — shared browser persists across suites (see disconnectBrowser).
     },
   };
 }
@@ -77,6 +77,25 @@ async function acknowledgeRiskNotice(context) {
       // A page with no storage (about:blank) has no notice either.
     }
   });
+}
+
+/**
+ * Let go of the shared browser at the end of a run.
+ *
+ * It is deliberately kept alive across suites, which leaves one open handle
+ * when the last suite ends — the handle `--forceExit` used to paper over. A
+ * CDP connection is only disconnected (the browser is the user's, or CI's);
+ * a browser this process launched is closed.
+ */
+async function disconnectBrowser() {
+  if (!sharedBrowser) return;
+  const browser = sharedBrowser;
+  sharedBrowser = null;
+  try {
+    await (browser.isConnected?.() === false ? Promise.resolve() : browser.close());
+  } catch {
+    // Already gone — nothing to release.
+  }
 }
 
 /**
@@ -334,6 +353,7 @@ async function waitForCondition(page, fn, timeout = 10000, description = 'condit
 
 module.exports = {
   acknowledgeRiskNotice,
+  disconnectBrowser,
   delay,
   getBrowser,
   waitForServer,

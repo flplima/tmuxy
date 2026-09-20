@@ -5,7 +5,10 @@ describe('CLI run escape hatch', () => {
     test('routes arbitrary command through run-shell', () => {
       const { exitCode, tmuxCalls } = runCLI(['run', 'swap-pane', '-s', '%0', '-t', '%1']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy swap-pane '-s' '%0' '-t' '%1'"]);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy swap-pane '-s' '%0' '-t' '%1'",
+      ]);
     });
 
     test('errors with no command', () => {
@@ -25,10 +28,7 @@ describe('CLI run escape hatch', () => {
       // list (mirrors `tmuxy tab create`) — never a direct external tmux
       // invocation, which would crash tmux 3.5a with control mode attached.
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        'tmux -L tmuxy splitw \\; breakp',
-      ]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw \\; breakp']);
     });
 
     test('intercepts neww alias', () => {
@@ -36,10 +36,7 @@ describe('CLI run escape hatch', () => {
       expect(exitCode).toBe(0);
       expect(stderr).toContain('new-window intercepted');
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        'tmux -L tmuxy splitw \\; breakp',
-      ]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw \\; breakp']);
     });
 
     test('intercepts new-window with -n name', () => {
@@ -78,19 +75,13 @@ describe('CLI run escape hatch', () => {
       // `rename-window "my tab"` reached tmux as two separate words.
       const { exitCode, tmuxCalls } = runCLI(['run', 'rename-window', 'my tab']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        "tmux -L tmuxy rename-window 'my tab'",
-      ]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy rename-window 'my tab'"]);
     });
 
     test('doubles # so run-shell does not format-expand it', () => {
       const { exitCode, tmuxCalls } = runCLI(['run', 'rename-window', '#{pane_id}']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        "tmux -L tmuxy rename-window '##{pane_id}'",
-      ]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy rename-window '##{pane_id}'"]);
     });
   });
 
@@ -98,7 +89,10 @@ describe('CLI run escape hatch', () => {
     test('passes send-keys through', () => {
       const { exitCode, tmuxCalls } = runCLI(['run', 'send-keys', '-t', '%3', 'ls', 'Enter']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy send-keys '-t' '%3' 'ls' 'Enter'"]);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy send-keys '-t' '%3' 'ls' 'Enter'",
+      ]);
     });
 
     test('passes list-panes through', () => {

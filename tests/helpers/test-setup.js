@@ -17,6 +17,7 @@ const {
 const TmuxTestSession = require('./TmuxTestSession');
 const { TMUXY_URL, DELAYS } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
+const { tmuxExec } = require('./tmux-socket');
 const { assertStateMatches } = require('./consistency');
 const { splitPaneKeyboard, navigatePaneKeyboard } = require('./ui');
 const { tmuxRun } = require('./cli');
@@ -156,11 +157,7 @@ function createTestContext({ snapshot = false } = {}) {
     if (ctx.page) {
       await ctx.page.close().catch(() => {});
       ctx.page = null;
-      // Wait for the web server's deferred cleanup to complete.
-      // The server has a 2s grace period after the last SSE client disconnects,
-      // then the monitor shuts down. The readiness gate on new connections
-      // ensures the next test waits for a fully-initialized monitor.
-      await delay(4000);
+      await waitForMonitorGone(ctx.session?.name);
     }
 
     if (ctx.session) {
@@ -171,6 +168,39 @@ function createTestContext({ snapshot = false } = {}) {
     // Re-throw after cleanup so the test still fails
     if (assertionError) throw assertionError;
   };
+
+  /**
+   * Wait until the server's monitor for `session` has let go of tmux.
+   *
+   * The monitor attaches to tmux as a control-mode client, so tmux itself
+   * says when it is gone: the session disappears (the test killed it) and no
+   * client remains for it. This replaced a flat `delay(4000)` in every
+   * teardown — ~6.5 minutes of pure sleep across the suite, and a coupling
+   * that let one test's slow shutdown fail the next one.
+   */
+  async function waitForMonitorGone(session, timeout = 10000) {
+    if (!session) return await delay(DELAYS.LONG);
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      let clients = '';
+      try {
+        // Errors mean "no such session", which is the state we are waiting for.
+        tmuxExec(`has-session -t ${session} 2>/dev/null`, { timeout: 2000 });
+        clients = tmuxExec(`list-clients -t ${session} -F '#{client_name}' 2>/dev/null`, {
+          timeout: 2000,
+        });
+      } catch {
+        clients = '';
+      }
+      if (clients.trim() === '') {
+        // The server drops the monitor a beat after its last client leaves;
+        // give that its grace period before the next test connects.
+        await delay(DELAYS.LONG);
+        return;
+      }
+      await delay(100);
+    }
+  }
 
   /**
    * Check if test prerequisites are available
@@ -249,8 +279,14 @@ function createTestContext({ snapshot = false } = {}) {
       ? `server not reachable at ${TMUXY_URL}`
       : `browser/CDP not available (is Chrome running with --remote-debugging-port=9222?)` +
         (ctx.browserError ? `\n   cause: ${ctx.browserError}` : '');
-    if (process.env.CI) {
-      throw new Error(`E2E prerequisites not met (${reason}); refusing to skip in CI`);
+    // Skipping is opt-in. A missing Chrome on 9222 used to make every E2E test
+    // pass vacuously on a developer's machine, which is worse than a failure:
+    // it reports a suite as green that never ran.
+    if (!process.env.TMUXY_E2E_ALLOW_SKIP) {
+      throw new Error(
+        `E2E prerequisites not met (${reason}). ` +
+          `Set TMUXY_E2E_ALLOW_SKIP=1 to skip instead of fail.`,
+      );
     }
     console.warn(`⚠️  Skipping test — ${reason}`);
     return true;

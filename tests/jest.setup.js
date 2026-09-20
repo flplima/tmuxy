@@ -27,7 +27,7 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-const { waitForServer } = require('./helpers/browser');
+const { waitForServer, disconnectBrowser } = require('./helpers/browser');
 const { TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
 
 let _weStartedServer = false;
@@ -95,6 +95,10 @@ beforeAll(async () => {
 }, 180000);
 
 afterAll(async () => {
+  // Release the shared browser so the process can exit on its own; without
+  // this the run needed `--forceExit`, which also hid every other leak.
+  await disconnectBrowser();
+
   if (_weStartedServer && _serverPid) {
     try {
       process.kill(_serverPid);

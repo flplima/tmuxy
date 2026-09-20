@@ -59,10 +59,7 @@ describe('CLI tab subcommands', () => {
       // set-option tags the new window as a managed tab so the frontend
       // picks it up on the next list-windows refresh.
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        'tmux -L tmuxy splitw \\; breakp',
-      ]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw \\; breakp']);
     });
 
     test('creates tab with name', () => {
@@ -145,10 +142,7 @@ describe('CLI tab subcommands', () => {
       // became a stray argument.
       const { exitCode, tmuxCalls } = runCLI(['tab', 'rename', 'my tab']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        "tmux -L tmuxy rename-window 'my tab'",
-      ]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy rename-window 'my tab'"]);
     });
 
     test('escapes quotes and doubles # in a name', () => {
