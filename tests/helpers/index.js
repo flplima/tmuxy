@@ -65,3 +65,10 @@ module.exports = {
   // Mouse capture helpers
   ...mouseCapture,
 };
+
+// Suites that drive a browser of their own (a second engine, a touch context)
+// and the pointer-selection geometry they share. Appended so the two new
+// modules are reachable through this index like every other helper; the
+// suites themselves require them directly, so a rewrite of this file cannot
+// break them.
+Object.assign(module.exports, require('./own-browser'), require('./selection-drag'));
