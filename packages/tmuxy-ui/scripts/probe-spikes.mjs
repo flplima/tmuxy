@@ -16,6 +16,9 @@
  * (default 6006). Optional substrings filter which v86 stories run. Exits
  * non-zero if any story fails to render or its play function throws.
  *
+ * A failing story's screenshot and error text land in PROBE_ARTIFACT_DIR
+ * (default `probe-artifacts/` beside package.json), for CI to upload.
+ *
  * Set PROBE_TIMINGS_JSON=<path> to also write a machine-readable per-story
  * timings report ({ generatedAt, storybookPort, stories: [{id, ok, retried,
  * secs}], totals }). This turns the v86 sweep's wall-clock into an Axis-A
@@ -24,13 +27,17 @@
  */
 
 import { chromium } from 'playwright';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const PORT = /^\d+$/.test(args[0] ?? '') ? Number(args.shift()) : 6006;
 const FILTERS = args;
 const STORYBOOK_URL = `http://localhost:${PORT}`;
 const PER_STORY_TIMEOUT_MS = 240000;
+const PACKAGE_DIR = resolvePath(dirname(fileURLToPath(import.meta.url)), '..');
+const ARTIFACT_DIR = resolvePath(PACKAGE_DIR, process.env.PROBE_ARTIFACT_DIR || 'probe-artifacts');
 
 async function fetchIndex() {
   const res = await fetch(`${STORYBOOK_URL}/index.json`);
@@ -87,6 +94,7 @@ await page.addInitScript(() => {
         // storyRendered's payload is the story id; error events carry objects.
         storyId: typeof payload === 'string' ? payload : (payload?.storyId ?? null),
         message: payload?.error?.message || payload?.message || undefined,
+        stack: payload?.error?.stack || payload?.stack || undefined,
       });
     for (const ev of [
       'storyRendered',
@@ -106,13 +114,19 @@ await page.goto(`${STORYBOOK_URL}/iframe.html?id=${ids[0]}&viewMode=story&global
 });
 
 async function awaitOutcome(id) {
-  // Success must name THIS story (stale rendered events from the previous
-  // story can trail in); failure events count regardless — they abort the run
-  // for the story on screen.
+  // Every event has to name THIS story. Storybook keeps running the story it
+  // was on while the probe moves to the next one, so a failure trailing in
+  // from the previous story used to be reported against whichever story was on
+  // screen — which is how a red v86 run could name a story that never failed.
+  const mine = (e, storyId) => e.storyId === null || e.storyId === storyId;
   try {
     await page.waitForFunction(
       (storyId) =>
-        (window.__probeEvents ?? []).some((e) => e.ev !== 'storyRendered' || e.storyId === storyId),
+        (window.__probeEvents ?? []).some(
+          (e) =>
+            (e.storyId === null || e.storyId === storyId) &&
+            (e.ev !== 'storyRendered' || e.storyId === storyId),
+        ),
       id,
       { timeout: PER_STORY_TIMEOUT_MS },
     );
@@ -120,9 +134,40 @@ async function awaitOutcome(id) {
     return { id, ok: false, reason: 'timeout' };
   }
   const events = await page.evaluate(() => window.__probeEvents);
-  const failure = events.find((e) => e.ev !== 'storyRendered');
-  if (failure) return { id, ok: false, reason: failure.ev, message: failure.message };
+  const failure = events.find((e) => e.ev !== 'storyRendered' && mine(e, id));
+  if (failure) {
+    return { id, ok: false, reason: failure.ev, message: failure.message, stack: failure.stack };
+  }
   return { id, ok: true };
+}
+
+/** A failing story's screenshot and error text, for CI to upload. */
+async function writeArtifacts(result) {
+  mkdirSync(ARTIFACT_DIR, { recursive: true });
+  const base = resolvePath(ARTIFACT_DIR, `v86-${result.id.replace(/[^a-z0-9._-]/gi, '_')}`);
+  try {
+    await page.screenshot({ path: `${base}.png` });
+  } catch {
+    // A crashed renderer has no screenshot to give; the text report still does.
+  }
+  writeFileSync(
+    `${base}.txt`,
+    [
+      `story:   ${result.id}`,
+      `reason:  ${result.reason}`,
+      `message: ${result.message ?? '(none)'}`,
+      '',
+      'stack:',
+      result.stack ?? '(none)',
+      '',
+      `page errors so far (${pageErrors.length}):`,
+      ...pageErrors.map((e) => `  ${e}`),
+      '',
+      `console errors for this story:`,
+      ...(consoleErrorsByStory.get(result.id) ?? []).map((e) => `  ${e}`),
+    ].join('\n') + '\n',
+  );
+  return `${base}.png`;
 }
 
 // channel.emit only sends OUTBOUND (to a manager that doesn't exist on
@@ -175,13 +220,17 @@ for (let i = 0; i < ids.length; i++) {
     retried = true;
   }
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
+  if (!result.ok) result.artifact = await writeArtifacts(result);
   console.log(
     `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
-      result.ok
-        ? ''
-        : ` — ${result.reason}${result.message ? `: ${result.message.slice(0, 200)}` : ''}`
+      result.ok ? '' : ` — ${result.reason}${result.message ? `: ${result.message}` : ''}`
     }`,
   );
+  if (!result.ok) {
+    if (result.stack)
+      for (const line of result.stack.split('\n').slice(0, 12)) console.log(`    ${line}`);
+    console.log(`    screenshot: ${result.artifact}`);
+  }
   results.push({ ...result, retried, secs });
 }
 

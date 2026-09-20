@@ -86,19 +86,25 @@ export const OpenClickSlotSwitchesTab: Story = {
     const frame = active.querySelector('.tab-overview-frame') as HTMLElement;
     const layout = document.querySelector('.pane-layout') as HTMLElement;
     // The zoom-out is a transition: wait for the grid to settle in the frame.
-    await waitFor(() => {
-      const f = frame.getBoundingClientRect();
-      const l = layout.getBoundingClientRect();
-      expect(l.left).toBeGreaterThanOrEqual(f.left - 1);
-      expect(l.right).toBeLessThanOrEqual(f.right + 1);
-    });
+    // Generously — on a loaded machine the transition alone can outlast
+    // waitFor's one-second default, which is a slow runner, not a bug.
+    await waitFor(
+      () => {
+        const f = frame.getBoundingClientRect();
+        const l = layout.getBoundingClientRect();
+        expect(l.left).toBeGreaterThanOrEqual(f.left - 1);
+        expect(l.right).toBeLessThanOrEqual(f.right + 1);
+      },
+      { timeout: 8000 },
+    );
 
     // Click "logs": it becomes current and the overview closes.
     const logs = tabs()[1];
     await user.click(slots[1]);
     await waitForOverview(false);
-    await waitFor(() => expect(app().context.activeWindowId).toBe(logs.id));
-    await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'));
+    await waitFor(() => expect(app().context.activeWindowId).toBe(logs.id), { timeout: 8000 });
+    // The zoom-back-in is a transition too; same reasoning as above.
+    await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'), { timeout: 8000 });
 
     // The header's grid button is the same toggle: open, pressed, close.
     const toggle = canvas.getByTestId('tab-overview-toggle');

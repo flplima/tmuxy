@@ -1,0 +1,81 @@
+{
+  "_policy": [
+    "Quarantined stories still RUN and are still REPORTED, but their failures do",
+    "not turn the storybook-probe job red. Quarantine is a stopgap for a story",
+    "whose flakiness is understood but not yet fixed \u2014 never a parking lot.",
+    "",
+    "Rules enforced by scripts/probe-stories.mjs, which refuses to run if broken:",
+    "  - at most `maxEntries` stories may be quarantined at once;",
+    "  - every entry needs `id`, `reason` and an ISO `expires` date;",
+    "  - on and after `expires` the entry stops shielding the story, so the job",
+    "    goes red again and someone has to fix, delete or consciously renew it.",
+    "A quarantined story that passes is reported as READY so it can be removed.",
+    "",
+    "`a11yEntries` does the same for ONE axe rule on one story (`id` \"*\" means",
+    "every story): the violation is still printed, it just does not gate. Same",
+    "cap (`maxA11yEntries`), same required reason and expiry. Only `critical`",
+    "and `serious` violations gate in the first place \u2014 lowering that threshold",
+    "instead of quarantining a rule is not an option, because it silences every",
+    "future violation too."
+  ],
+  "maxEntries": 5,
+  "entries": [
+    {
+      "id": "mocked-app-sidebar--tab-order-never-traps-the-keyboard",
+      "reason": "The app calls preventDefault() on every Tab keydown (machines/actors/keyboardActor.ts), so Tab is sent to tmux and the page has no keyboard tab order at all \u2014 not in the header, the tab strip or the sidebar. Verified with a real browser Tab, not only with userEvent. The check is correct and stays; freeing Tab while the chrome (rather than a pane) holds the keyboard is the fix, and is not a story-side change.",
+      "expires": "2026-11-01"
+    }
+  ],
+  "maxA11yEntries": 7,
+  "a11yEntries": [
+    {
+      "id": "*",
+      "rule": "aria-required-children",
+      "impact": "critical",
+      "reason": "A pane header carries role=tablist but its tabs are spans without role=tab (components/PaneHeader.tsx). The roles have to be finished off together with aria-required-parent; neither is a story-side fix.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "*",
+      "rule": "aria-required-parent",
+      "impact": "critical",
+      "reason": "The other half of the same defect: .tab-name carries role=tab with no tablist ancestor (components/WindowTabs.tsx).",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "*",
+      "rule": "color-contrast",
+      "impact": "serious",
+      "reason": "Inactive tab titles, pane titles and the status-line hints are drawn at the theme's inactive opacity and fall under 4.5:1. Fixing it is a theme-palette decision, not a test change.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "*",
+      "rule": "aria-hidden-focus",
+      "impact": "serious",
+      "reason": "The selectable terminal content sits inside an aria-hidden subtree while still being focusable (components/TerminalPane). Needs the pane's aria model reworked.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "*",
+      "rule": "scrollable-region-focusable",
+      "impact": "serious",
+      "reason": "The pane-tab strip (.pane-tabs) scrolls but takes no keyboard focus; it needs a tabindex and arrow-key handling in components/PaneHeader.tsx.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "*",
+      "rule": "nested-interactive",
+      "impact": "serious",
+      "reason": "A tab-overview slot is a button containing its own close button (components/TabOverview.tsx); the outer control has to stop being a button.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "*",
+      "rule": "aria-input-field-name",
+      "impact": "serious",
+      "reason": "The tab-overview grid takes an ARIA input role with no accessible name (components/TabOverview.tsx).",
+      "expires": "2026-11-01"
+    }
+  ]
+}

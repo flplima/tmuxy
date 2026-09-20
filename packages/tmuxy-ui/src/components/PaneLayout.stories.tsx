@@ -40,14 +40,17 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     // inactive pane's is the dim frame colour.
     app().send({ type: 'SET_THEME', name: 'default' });
     await waitFor(() => expect(activeOutline()).toBe('rgb(0, 205, 0)'), { timeout: 8000 });
-    const inactive = document.querySelector<HTMLElement>('.pane-layout-item.pane-inactive')!;
-    expect(getComputedStyle(inactive).outlineColor).not.toBe('rgb(0, 205, 0)');
+    const inactivePane = () =>
+      document.querySelector<HTMLElement>('.pane-layout-item.pane-inactive')!;
+    expect(getComputedStyle(inactivePane()).outlineColor).not.toBe('rgb(0, 205, 0)');
 
-    // Clicking the other pane moves the green with the keyboard.
+    // Clicking the other pane moves the green with the keyboard. The node is
+    // looked up at click time: the theme change above re-renders the layout,
+    // and clicking a node captured before it can land on a replaced element.
     const before = app().getSnapshot().context.activePaneId;
-    await userEvent.click(inactive.querySelector('[role="group"]')!);
+    await userEvent.click(inactivePane().querySelector('[role="group"]')!);
     await waitFor(() => expect(app().getSnapshot().context.activePaneId).not.toBe(before), {
-      timeout: 5000,
+      timeout: 8000,
     });
     await waitFor(() => {
       const active = document.querySelector<HTMLElement>('.pane-layout-item.pane-active')!;
@@ -70,12 +73,12 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     await waitFor(
       () => expect(document.querySelector('.pane-layout-item.pane-active')).toBeNull(),
       {
-        timeout: 5000,
+        timeout: 8000,
       },
     );
     // `l` hands the keyboard back: the green returns.
     await user.keyboard('l');
-    await waitFor(() => expect(activeOutline()).toBe('rgb(215, 153, 33)'), { timeout: 5000 });
+    await waitFor(() => expect(activeOutline()).toBe('rgb(215, 153, 33)'), { timeout: 8000 });
   },
 };
 

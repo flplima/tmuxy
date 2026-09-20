@@ -122,17 +122,19 @@ async function sampleBoxes(
 }
 
 /**
- * Which geometry properties actually started transitioning while `act` ran.
+ * Which geometry properties actually started transitioning after `act` ran.
  *
  * This is what "on a clock" means, and unlike counting sampled frames it does
  * not depend on the machine keeping up: a loaded CI runner can paint twice
  * across a 150ms animation and see only a before and an after.
+ *
+ * It waits for the evidence instead of sampling for a fixed stretch. The
+ * command is a round trip through the demo engine, and on a loaded runner that
+ * round trip alone outlasted the window, so the story read "no transition
+ * started" off a transition that had simply not begun yet. Returns as soon as
+ * a geometry transition starts, plus a settling beat for the rest of them.
  */
-async function geometryTransitions(
-  canvasElement: HTMLElement,
-  act: () => void,
-  ms = 700,
-): Promise<Set<string>> {
+async function geometryTransitions(canvasElement: HTMLElement, act: () => void): Promise<string[]> {
   const layout = getPaneLayout(canvasElement);
   const seen = new Set<string>();
   const onStart = (e: Event) => {
@@ -140,10 +142,19 @@ async function geometryTransitions(
     if (['left', 'top', 'width', 'height'].includes(property)) seen.add(property);
   };
   layout.addEventListener('transitionstart', onStart);
-  act();
-  await new Promise((r) => setTimeout(r, ms));
-  layout.removeEventListener('transitionstart', onStart);
-  return seen;
+  try {
+    act();
+    await waitFor(() => expect(seen.size, 'no geometry transition started').toBeGreaterThan(0), {
+      timeout: 8000,
+    });
+    // The transitions land together; give the ones that started a frame later
+    // than the first the chance to be recorded too, then let them finish so
+    // the caller measures settled boxes.
+    await new Promise((r) => setTimeout(r, 700));
+  } finally {
+    layout.removeEventListener('transitionstart', onStart);
+  }
+  return [...seen];
 }
 
 /** How many distinct values a pane's measurement took across the samples. */
@@ -206,7 +217,7 @@ export const AResizeGrowsOnAClock: Story = {
     });
 
     // The boxes moved on a clock rather than arriving in one frame.
-    expect([...animated], 'no geometry transition started').not.toEqual([]);
+    expect(animated).not.toEqual([]);
     const after = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().width);
     expect(Math.max(...after.map((w, i) => Math.abs(w - before[i])))).toBeGreaterThan(4);
   },
@@ -242,7 +253,7 @@ export const AStackOpensTheRowItMovesTo: Story = {
 
     // Both rows moved, and on a clock: a stack opening one row closes another,
     // and they have to share the clock or the boxes shear apart mid-flight.
-    expect([...animated], 'no geometry transition started').not.toEqual([]);
+    expect(animated).not.toEqual([]);
     const after = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().height);
     const moved = after.filter((h, i) => Math.abs(h - before[i]) > 4);
     expect(moved.length).toBeGreaterThan(1);

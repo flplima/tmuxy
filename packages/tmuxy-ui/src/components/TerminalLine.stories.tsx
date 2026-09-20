@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, within } from 'storybook/test';
+import { expect, waitFor, within } from 'storybook/test';
 import { TerminalLine } from './TerminalLine';
 import type { CellLine } from '../tmux/types';
 import { CellGridDecorator, cellGridReady, cellWidthOf, runCells } from '../stories/cellGrid';
@@ -345,9 +345,12 @@ export const UnfilledWidthTakesTheLastCellsBackground: Story = {
  * it was given, straight over whatever comes next. Measuring the advance alone
  * misses it entirely.
  */
+/** A Nerd Font branch icon — private-use area, so no fallback font has it. */
+const ICON = '';
+
 export const FatInkIcon: Story = {
   args: {
-    line: [...text('  '), { c: '' }, ...text('  main')],
+    line: [...text('  '), { c: ICON }, ...text('  main')],
   },
   play: async ({ canvasElement }) => {
     await cellGridReady();
@@ -358,30 +361,46 @@ export const FatInkIcon: Story = {
     // than its cell here and exactly one cell on a CI runner. So the contract
     // is asserted rather than the glyph — too wide to paint means shrunk to
     // fit, and fitting already means left alone.
-    const probe = document.createElement('canvas').getContext('2d')!;
     const paneStyle = getComputedStyle(grid(canvasElement).querySelector('.terminal-content')!);
-    probe.font =
+    const font =
       paneStyle.font ||
       `${paneStyle.fontStyle} ${paneStyle.fontWeight} ${paneStyle.fontSize} ${paneStyle.fontFamily}`;
-    const metrics = probe.measureText('\uf51e');
+
+    // The component and this play function have to be looking at the SAME
+    // typeface. A canvas answers from the faces the document has already
+    // loaded and never fetches one itself, so both `glyphFit` and the probe
+    // below can measure the fallback font while the page is laid out in the
+    // real one — and they can do it at different moments, which is how the
+    // branch below ended up disagreeing with the DOM. Asking for the face this
+    // glyph needs, and waiting for it, takes the moment out of the question.
+    await document.fonts.load(font, ICON);
+    await document.fonts.ready;
+
+    const probe = document.createElement('canvas').getContext('2d')!;
+    probe.font = font;
+    const metrics = probe.measureText(ICON);
     const naturalInk = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight;
 
-    const box = canvasElement.querySelector('.terminal-fit') as HTMLElement | null;
-    if (naturalInk > cellW + 0.5) {
-      expect(
-        box,
-        'the icon paints past its cell and was not given a box to shrink in',
-      ).not.toBeNull();
-      const glyph = box!.querySelector('.terminal-fit-glyph') as HTMLElement;
-      const scale = Number(getComputedStyle(glyph).getPropertyValue('--glyph-fit'));
-      expect(scale, 'the icon was not shrunk at all').toBeLessThan(1);
-      expect(scale).toBeGreaterThan(0);
-      expect(naturalInk * scale).toBeLessThanOrEqual(cellW + 1);
-    } else {
-      // This font draws it inside its cell, so there is nothing to correct —
-      // and correcting it anyway would shrink a glyph that already fit.
-      expect(box, 'the icon fits its cell here and should have been left alone').toBeNull();
-    }
+    // The face landing invalidates the fit cache and re-renders the line, so
+    // the box the assertion wants may still be a render away.
+    await waitFor(() => {
+      const box = canvasElement.querySelector('.terminal-fit') as HTMLElement | null;
+      if (naturalInk > cellW + 0.5) {
+        expect(
+          box,
+          'the icon paints past its cell and was not given a box to shrink in',
+        ).not.toBeNull();
+        const glyph = box!.querySelector('.terminal-fit-glyph') as HTMLElement;
+        const scale = Number(getComputedStyle(glyph).getPropertyValue('--glyph-fit'));
+        expect(scale, 'the icon was not shrunk at all').toBeLessThan(1);
+        expect(scale).toBeGreaterThan(0);
+        expect(naturalInk * scale).toBeLessThanOrEqual(cellW + 1);
+      } else {
+        // This font draws it inside its cell, so there is nothing to correct —
+        // and correcting it anyway would shrink a glyph that already fit.
+        expect(box, 'the icon fits its cell here and should have been left alone').toBeNull();
+      }
+    });
 
     // ...and the text after it starts where the grid says, not shifted along.
     const label = runCells(spanWithText(canvasElement, '  main'), cellW);

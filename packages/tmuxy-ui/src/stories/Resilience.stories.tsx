@@ -312,12 +312,19 @@ export const KillPaneRejected: Story = {
     win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
 
     // Sample through the rejection window: the pane never visibly disappears.
-    for (let i = 0; i < 10; i++) {
-      expect(paneCount()).toBe(2);
+    // The loop is the assertion, so it keeps sampling until the rejection has
+    // actually surfaced rather than for a fixed stretch — on a loaded machine
+    // the round trip outlived the old ten-sample window and the story failed
+    // on a notification that had simply not arrived yet.
+    const rejected = () => win.app!.getSnapshot().context.notifications.length > 0;
+    for (let i = 0; i < 120 && !rejected(); i++) {
+      expect(paneCount(), 'the pane disappeared before the rejection landed').toBe(2);
       await wait(70);
     }
     // The rejection reaches the user as a snackbar entry.
-    expect(win.app!.getSnapshot().context.notifications.length).toBeGreaterThan(0);
+    expect(rejected(), 'the rejection never reached the user').toBe(true);
+    // ...and the rollback left both panes standing.
+    expect(paneCount()).toBe(2);
   },
 };
 

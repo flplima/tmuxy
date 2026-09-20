@@ -153,20 +153,27 @@ export const SplitPane: Story = {
     };
     layout.addEventListener('transitionstart', onTransitionStart);
 
-    const enterSamples: { area: number; opacity: number }[] = [];
-    let sampling = true;
-    const sampleFrame = () => {
-      const entering = layout.querySelector<HTMLElement>('.pane-layout-item.pane-entering');
-      if (entering) {
-        const r = entering.getBoundingClientRect();
-        enterSamples.push({
-          area: r.width * r.height,
-          opacity: parseFloat(getComputedStyle(entering).opacity),
-        });
-      }
-      if (sampling) requestAnimationFrame(sampleFrame);
-    };
-    requestAnimationFrame(sampleFrame);
+    // What box and opacity the new pane was GIVEN, read the moment its node
+    // lands. A per-frame sampler can miss that frame entirely on a loaded
+    // machine and then compare two frames of an already-finished morph, which
+    // is what made this story flaky; a MutationObserver callback runs right
+    // after the commit that inserted the node, so the FLIP-rewound start state
+    // is what it reads, however few frames the machine paints.
+    let entering: HTMLElement | null = null;
+    let enterStart: { area: number; opacity: number } | null = null;
+    const enterObserver = new MutationObserver(() => {
+      if (enterStart) return;
+      const el = layout.querySelector<HTMLElement>('.pane-layout-item.pane-entering');
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      entering = el;
+      enterStart = { area: r.width * r.height, opacity: parseFloat(getComputedStyle(el).opacity) };
+    });
+    enterObserver.observe(layout, {
+      childList: true,
+      subtree: true,
+      attributeFilter: ['class'],
+    });
 
     const recorder = new LayoutMutationRecorder(layout);
     try {
@@ -185,7 +192,7 @@ export const SplitPane: Story = {
           expect(enterStarts.has('opacity')).toBe(true);
           expect(enterStarts.has('width') || enterStarts.has('left')).toBe(true);
         },
-        { timeout: 2000 },
+        { timeout: 8000 },
       );
 
       // The morph settles: lifecycle classes drop off and the two panes are
@@ -196,26 +203,27 @@ export const SplitPane: Story = {
             canvasElement.querySelectorAll('.pane-entering, .pane-shifting, .pane-leaving').length,
           ).toBe(0);
         },
-        { timeout: 2000 },
+        { timeout: 8000 },
       );
-      sampling = false;
 
       // Per the sketch: the new pane starts at (≈) the source pane's full
       // pre-split box at reduced opacity and converges to its half-box — so
-      // the first painted sample is materially larger than the last, and it
-      // starts translucent.
-      expect(enterSamples.length).toBeGreaterThan(1);
-      const first = enterSamples[0];
-      const last = enterSamples[enterSamples.length - 1];
-      expect(first.area).toBeGreaterThan(last.area * 1.3);
-      expect(first.opacity).toBeLessThan(1);
+      // the box it was given is materially larger than the one it settled in,
+      // and it started translucent.
+      expect(enterStart, 'the entering pane was never seen').not.toBeNull();
+      const settledArea = (() => {
+        const r = entering!.getBoundingClientRect();
+        return r.width * r.height;
+      })();
+      expect(enterStart!.area).toBeGreaterThan(settledArea * 1.3);
+      expect(enterStart!.opacity).toBeLessThan(1);
 
       const [a, b] = paneNodes(canvasElement).map((n) => n.getBoundingClientRect());
       const ovX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
       const ovY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
       expect(Math.min(ovX, ovY)).toBeLessThanOrEqual(1); // mosaic panes share only their 1px edge
     } finally {
-      sampling = false;
+      enterObserver.disconnect();
       recorder.disconnect();
       layout.removeEventListener('transitionstart', onTransitionStart);
     }

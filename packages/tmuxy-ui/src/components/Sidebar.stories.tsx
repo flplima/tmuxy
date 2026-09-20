@@ -211,6 +211,20 @@ export const KeyboardNavigate: Story = {
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
+    // Every row the two tabs and their panes produce has to be drawn before a
+    // key is pressed: the tree fills in as the demo engine answers, and `j`
+    // counted against a half-built tree lands on a different row.
+    await waitFor(
+      () => {
+        for (const w of app().context.windows.filter((win) => win.windowType === 'tab')) {
+          expect(tree.querySelector(`[data-testid="tree-tab-${w.id}"]`)).not.toBeNull();
+        }
+        for (const pane of tabPanes()) {
+          expect(tree.querySelector(`[data-testid="tree-pane-${pane.tmuxId}"]`)).not.toBeNull();
+        }
+      },
+      { timeout: 8000 },
+    );
 
     // Focus the tree (a click dispatches FOCUS_LEFT_SIDEBAR), then drive it by keyboard.
     await userEvent.click(document.querySelector('[data-testid="sidebar-content"]') as HTMLElement);
@@ -222,7 +236,7 @@ export const KeyboardNavigate: Story = {
     await user.keyboard('jjjj');
     // A selected row exists.
     await waitFor(() => expect(tree.querySelector('.is-selected')).not.toBeNull(), {
-      timeout: 3000,
+      timeout: 8000,
     });
     await user.keyboard('{Enter}');
     // Enter activated a tab or pane — the active tab or pane changed from the
@@ -553,8 +567,10 @@ export const DragResizesTheColumn: Story = {
     const handle = column.querySelector('.sidebar-resize-handle') as HTMLElement;
     expect(handle).not.toBeNull();
     // The column slides open; measure it once it has stopped moving, or the
-    // widths below are mid-slide and a column short.
-    await waitFor(() => expect(column.className).not.toContain('is-moving'), { timeout: 3000 });
+    // widths below are mid-slide and a column short. Generously — on a loaded
+    // machine the slide alone can take seconds, which is a slow runner rather
+    // than a column that never settles.
+    await waitFor(() => expect(column.className).not.toContain('is-moving'), { timeout: 8000 });
 
     const startWidth = column.getBoundingClientRect().width;
     // The width the grid has left. A column that grew without the grid giving
@@ -585,8 +601,12 @@ export const DragResizesTheColumn: Story = {
     handle.dispatchEvent(pointer('pointerdown', startX));
     // The drag state lands on the next render; a real drag has human-scale
     // delay here, so wait for it rather than moving synchronously.
-    await waitFor(() => expect(handle.className).toContain('is-dragging'), { timeout: 3000 });
+    await waitFor(() => expect(handle.className).toContain('is-dragging'), { timeout: 8000 });
     handle.dispatchEvent(pointer('pointermove', startX + 90));
+    // A real mouse never releases in the same task as the move it finished on.
+    // The handler applies the move on the next frame, so releasing immediately
+    // let the release be handled first and the drag end where it started.
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     handle.dispatchEvent(pointer('pointerup', startX + 90));
 
     // The column is drawn wider, and the pane grid gave space up for it — the
@@ -864,5 +884,89 @@ export const TogglesKeepTheirPlace: Story = {
     await waitFor(() => expect(left).toHaveAttribute('aria-pressed', 'false'), { timeout: 8000 });
     await waitFor(() => expect(right).toHaveAttribute('aria-pressed', 'false'), { timeout: 8000 });
     expect(place()).toEqual(closed);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Keyboard only: Tab walks the chrome in order and always finds its way back
+// ---------------------------------------------------------------------------
+
+/**
+ * Someone driving the app from the keyboard alone has to be able to walk the
+ * chrome and get back where they started. With the tree column open, Tab is
+ * pressed from the sidebar toggle until the focus wraps round to it again, and
+ * every stop is recorded.
+ *
+ * The walk has to complete the loop rather than stalling or circling inside
+ * one surface, take in the tab strip and the app menu on the way, stop only on
+ * controls the user can actually see, and move in document order, which is the
+ * order the controls are read in.
+ */
+export const TabOrderNeverTrapsTheKeyboard: Story = {
+  args: {
+    height: 500,
+    initCommands: ['rename-window main', 'new-window', 'rename-window logs'],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle tree sidebar/i },
+      { timeout: 8000 },
+    );
+    await userEvent.click(toggle);
+    await waitForTree();
+
+    const sidebar = document.querySelector('.sidebar-column-left') as HTMLElement;
+    expect(sidebar).not.toBeNull();
+    // The column slides in; walking it mid-slide measures boxes that are still
+    // moving and can tab onto a control that has not arrived yet.
+    await waitFor(() => expect(sidebar.className).not.toContain('is-moving'), { timeout: 8000 });
+
+    // Start on the toggle: it is the last control in the header, so the first
+    // press wraps round to the first one and the walk covers the whole cycle.
+    // (Starting from nothing focused is not the same journey — with a pane
+    // focused, Tab belongs to the terminal, not to the page.)
+    toggle.focus();
+    const stops: HTMLElement[] = [];
+    for (let press = 0; press < 30; press++) {
+      await userEvent.tab();
+      const focused = document.activeElement as HTMLElement;
+      expect(focused, 'Tab dropped the focus onto nothing').not.toBe(document.body);
+      if (focused === toggle) break; // wrapped round to where the walk started
+
+      // Every stop is a control the user can see — a focus ring on a clipped
+      // or zero-sized element is a stop nobody can find.
+      const box = focused.getBoundingClientRect();
+      expect(box.width, `a stop with no width: ${focused.className}`).toBeGreaterThan(0);
+      expect(box.height, `a stop with no height: ${focused.className}`).toBeGreaterThan(0);
+
+      expect(focused, 'Tab did not move the focus').not.toBe(stops[stops.length - 1]);
+      expect(
+        stops.includes(focused),
+        `Tab came back to ${focused.className} without wrapping — the focus is stuck`,
+      ).toBe(false);
+      stops.push(focused);
+    }
+    expect(stops.length, 'the walk never wrapped round').toBeLessThan(30);
+
+    // In document order: the reading order and the tab order are the same.
+    for (let i = 1; i < stops.length; i++) {
+      const follows =
+        stops[i - 1].compareDocumentPosition(stops[i]) & Node.DOCUMENT_POSITION_FOLLOWING;
+      expect(
+        Boolean(follows),
+        `${stops[i].className} is reached after ${stops[i - 1].className} but comes before it`,
+      ).toBe(true);
+    }
+
+    // The tab strip is on the way: its "new tab" control is a stop. The trace
+    // goes in the message so a walk that changes shape says how it changed.
+    const trace = stops.map((el) => el.className || el.tagName).join(' -> ');
+    expect(
+      stops.some((el) => el.closest('.tab-add') !== null),
+      `the tab strip is not in the tab order: ${trace}`,
+    ).toBe(true);
+    expect(stops.length, `too few stops to be the whole chrome: ${trace}`).toBeGreaterThan(2);
   },
 };

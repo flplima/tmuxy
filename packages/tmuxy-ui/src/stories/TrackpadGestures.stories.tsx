@@ -205,9 +205,20 @@ export const SlideBetweenTabs: Story = {
     // They lift: the tab switches at once - the keyboard and the strip do not
     // wait for any animation - and only then does "main" slide the rest of the
     // way in, one way only.
-    const released = performance.now();
-    await waitFor(() => expect(ctx().activeWindowId).toBe(main.id), { timeout: 1000 });
-    expect(performance.now() - released).toBeLessThan(250);
+    //
+    // "At once" is measured against the slide, not against a clock: the frame
+    // the switch is first seen on still has "main" a long way from its resting
+    // place, so the switch cannot have waited for the slide to finish. A
+    // wall-clock budget here read a loaded runner's slow frames as a product
+    // bug and was the single biggest source of red runs for this story.
+    const switchLeft = await (async () => {
+      for (let frame = 0; frame < 240; frame++) {
+        if (ctx().activeWindowId === main.id) return mainPane.getBoundingClientRect().left;
+        await nextFrame();
+      }
+      throw new Error('the fingers lifted past the commit share and the tab never switched');
+    })();
+    expect(rest.left - switchLeft, 'the switch waited for the slide to finish').toBeGreaterThan(20);
     const inbound = await sampleUntil(
       () => mainPane.getBoundingClientRect().left,
       () => settled() && ctx().activeWindowId === main.id,
