@@ -546,12 +546,11 @@ jobs:
           NEW_PID=$(sed -n 's/.*pid \([0-9]*\).*/\1/p' "${RUNNER_TEMP}/new-status.txt")
           [ -n "$NEW_PID" ] && [ "$OLD_PID" != "$NEW_PID" ] \
             || { echo "pid file still names the old server ($OLD_PID)"; exit 1; }
-          # A zombie is gone as far as this check is concerned: the old
-          # server is a child of this shell, so it stays in the table until
-          # the shell reaps it, and `kill -0` would still succeed.
-          # The old server shuts down gracefully: it detaches its control-mode
-          # client and drains its tasks, so it is still running for a moment
-          # after the new one has taken the port over. Poll rather than sample.
+          # Whether the OLD process also exits is a property of the already
+          # published binary, which this branch cannot change, so it is
+          # reported and not asserted. Step 6 asserts it of the new build.
+          # A zombie counts as gone: the old server is a child of this shell,
+          # so it stays in the table until the shell reaps it.
           for _ in $(seq 1 30); do
             OLD_STAT=$(ps -p "$OLD_PID" -o stat= 2>/dev/null | tr -d ' ' || true)
             case "${OLD_STAT:-gone}" in
@@ -560,8 +559,8 @@ jobs:
             sleep 1
           done
           case "${OLD_STAT:-gone}" in
-            gone|Z*) ;;
-            *) echo "the old server never exited after the takeover ($OLD_STAT)"; exit 1 ;;
+            gone|Z*) echo "the previous release exited after the takeover" ;;
+            *) echo "note: the previous release is still running ($OLD_STAT)" ;;
           esac
 
           # 5. The open tab recovers: the stream it reconnects to delivers a
@@ -574,12 +573,26 @@ jobs:
             fi
             sleep 1
           done
-          kill $SSE_PID 2>/dev/null || true
           cat "${RUNNER_TEMP}/sse.log"
           [ "${RECOVERED:-}" = 1 ] \
             || { echo "the open tab never got a stream back from the new build"; exit 1; }
 
+          # 6. The new build shuts down with that tab still attached. While the
+          #    live stream ignored the shutdown signal, the open connection kept
+          #    axum's graceful shutdown waiting and the server never exited.
           "$NEW" server --port "$PORT" stop || true
+          for _ in $(seq 1 30); do
+            NEW_STAT=$(ps -p "$NEW_PID" -o stat= 2>/dev/null | tr -d ' ' || true)
+            case "${NEW_STAT:-gone}" in
+              gone|Z*) break ;;
+            esac
+            sleep 1
+          done
+          kill $SSE_PID 2>/dev/null || true
+          case "${NEW_STAT:-gone}" in
+            gone|Z*) ;;
+            *) echo "the new build never exited with a tab attached ($NEW_STAT)"; exit 1 ;;
+          esac
 
       - name: Server logs (debug)
         if: failure()
