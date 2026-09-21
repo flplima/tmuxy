@@ -28,7 +28,6 @@
     "lint": "eslint tests/ && npm run lint -w tmuxy-ui",
     "lint:tests": "eslint tests/",
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",
-    "agents": "bash bin/devcontainer --name agents run bash .agents/start.sh",
     "prepare": "git config core.hooksPath .github",
     "agent:bootstrap": "bash bin/agent-bootstrap",
     "agent:fast-check": "npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",

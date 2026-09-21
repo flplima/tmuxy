@@ -98,8 +98,3 @@ Use [gitmoji](https://gitmoji.dev/) for commit messages:
 | 🚀 | Version bump / release |
 
 The release process lives in the `release` skill (`.agents/skills/release/`) — invoke it when shipping a version.
-
-
-## Multi-agent QA workflow
-
-See `.agents/README.md` for the optional event-driven multi-agent QA system.
