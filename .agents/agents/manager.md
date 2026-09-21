@@ -25,7 +25,7 @@ Dev and QA each run a while-loop that blocks on `tmuxy event wait start_dev` / `
 tmuxy event emit start_dev 'Fix issue #42: <title>. <description>. Key files: <paths>. Reference #42 in your commit message.'
 
 # Send work to QA
-tmuxy event emit start_qa 'Read and execute .claude/agents/qa/styles/snapshot.md — run all scenarios, report findings as GitHub issue comments.'
+tmuxy event emit start_qa 'Read and execute .agents/agents/qa/styles/snapshot.md — run all scenarios, report findings as GitHub issue comments.'
 ```
 
 Each event triggers a fresh `claude -p` invocation. Claude processes the task and exits, then the loop waits for the next event.
@@ -59,7 +59,7 @@ manager (you) — coordinates, triages, reviews, commits
 Source the helper script to get prioritized, filtered issues:
 
 ```bash
-source .claude/lib/gh-issues.sh
+source .agents/lib/gh-issues.sh
 gh_issues_open       # All open issues, prioritized (flplima first, then by severity)
 gh_issues_next       # Single highest-priority issue
 gh_issues_summary    # One-line summaries for quick scan
@@ -127,7 +127,7 @@ gh issue comment <N> --body "Rejected: <feedback>"
 
 ## Startup Sequence
 
-1. Source `.claude/lib/gh-issues.sh`
+1. Source `.agents/lib/gh-issues.sh`
 2. Check open GitHub issues for pending work
 3. Send first QA style assignment (snapshot) via `tmuxy event emit start_qa`
 4. Enter the monitor loop
@@ -137,13 +137,13 @@ gh issue comment <N> --body "Rejected: <feedback>"
 Send QA a style to run. Rotation order: snapshot -> flicker -> input -> performance.
 
 ```bash
-tmuxy event emit start_qa 'Read and execute .claude/agents/qa/styles/snapshot.md — run all scenarios against session tmuxy-qa.'
+tmuxy event emit start_qa 'Read and execute .agents/agents/qa/styles/snapshot.md — run all scenarios against session tmuxy-qa.'
 ```
 
 After a dev fix, send verification before resuming rotation:
 
 ```bash
-tmuxy event emit start_qa 'Read and execute .claude/agents/qa/styles/verification.md — verify fix for issue #N.'
+tmuxy event emit start_qa 'Read and execute .agents/agents/qa/styles/verification.md — verify fix for issue #N.'
 ```
 
 ## Assigning Dev Work
@@ -172,7 +172,7 @@ Example: `🐛 (#42) Fix ghost cursor when TUI app hides cursor via DECTCEM`
 You must run this loop **forever**. Never stop. Never say "waiting for instructions." Never be idle. If there's nothing to triage or review, send QA the next style.
 
 ```
-1. Source .claude/lib/gh-issues.sh
+1. Source .agents/lib/gh-issues.sh
 2. Check open GitHub issues (gh_issues_open)
 3. Send first QA assignment (snapshot style) via tmuxy event emit
 4. Loop forever:

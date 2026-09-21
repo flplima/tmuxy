@@ -1,22 +1,22 @@
 # QA Agent System
 
-Continuous QA for tmuxy using 3 Claude Code agents coordinated via `tmuxy event` and GitHub Issues.
+Continuous QA for tmuxy using 3 AI agents coordinated via `tmuxy event` and GitHub Issues.
 
 ## Architecture
 
 ### Agents
 
 ```
-manager  <- persistent Claude session, coordinates everything, owns git + GitHub Issues
-  ├── dev  <- event-driven while-loop: waits for event → claude -p → exit → repeat
-  └── qa   <- event-driven while-loop: waits for event → claude -p → exit → repeat
+manager  <- persistent AI-agent session, coordinates everything, owns git + GitHub Issues
+  ├── dev  <- event-driven while-loop: waits for event → agent CLI -p → exit → repeat
+  └── qa   <- event-driven while-loop: waits for event → agent CLI -p → exit → repeat
 ```
 
 | Agent | Role | Socket | Agent File | Communication |
 |-------|------|--------|------------|--------------|
-| **Manager** | Triages bugs, reviews fixes, manages git | prod | `.claude/agents/manager.md` | Emits events via `tmuxy event emit start_dev` / `start_qa` |
-| **Dev** | Implements bug fixes | dev | `.claude/agents/dev.md` | Blocks on `tmuxy event wait start_dev`, runs `claude -p` per task |
-| **QA** | Runs test styles, files issues | prod | `.claude/agents/qa.md` | Blocks on `tmuxy event wait start_qa`, runs `claude -p` per task |
+| **Manager** | Triages bugs, reviews fixes, manages git | prod | `.agents/agents/manager.md` | Emits events via `tmuxy event emit start_dev` / `start_qa` |
+| **Dev** | Implements bug fixes | dev | `.agents/agents/dev.md` | Blocks on `tmuxy event wait start_dev`, runs a single-shot agent task per event |
+| **QA** | Runs test styles, files issues | prod | `.agents/agents/qa.md` | Blocks on `tmuxy event wait start_qa`, runs a single-shot agent task per event |
 
 ### Event System
 
@@ -49,7 +49,7 @@ The manager rotates QA through test styles:
 | `performance` | Latency and memory regressions |
 | `verification` | Validates a specific bug fix |
 
-Style definitions are in `.claude/agents/qa/styles/`.
+Style definitions are in `.agents/agents/qa/styles/`.
 
 ## Bug Lifecycle (GitHub Issues)
 
@@ -92,9 +92,9 @@ TMUX_SOCKET=tmuxy-prod tmuxy event emit start_qa 'Run snapshot style'
 ## Directory Structure
 
 ```
-.claude/
+.agents/
 ├── start.sh                        # Launcher (pm2 servers + 3 agents + heartbeat)
-├── agents/                         # Claude agent definitions (loaded via --agent flag)
+├── agents/                         # Agent definitions (loaded via --agent flag)
 │   ├── manager.md                  # Manager agent (persistent)
 │   ├── dev.md                      # Dev agent (single-shot per event)
 │   ├── qa.md                       # QA agent (single-shot per event)
@@ -119,7 +119,7 @@ All agents run as tabs in the tmuxy production web UI at `http://localhost:9000`
 
 Bug tracking is via GitHub Issues:
 ```bash
-source .claude/lib/gh-issues.sh
+source .agents/lib/gh-issues.sh
 gh_issues_open                                    # Prioritized open issues
 gh_issues_summary                                 # Quick status
 gh issue list --label qa-bug --state closed -L 10 # Recently resolved

@@ -18,7 +18,7 @@ You run on the **production** tmux socket (`tmuxy-prod`) with `TMUX_SOCKET=tmuxy
 Connect to Chrome via CDP on port 9222.
 
 ### Style Files
-Test scenarios for each style are at `.claude/agents/qa/styles/<style>.md`.
+Test scenarios for each style are at `.agents/agents/qa/styles/<style>.md`.
 
 ## How You Work
 

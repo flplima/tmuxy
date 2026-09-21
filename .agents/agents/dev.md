@@ -37,7 +37,7 @@ You are invoked as a single-shot `claude -p` execution. Your prompt contains the
 
 4. **Keep changes minimal** — fix the bug, don't refactor surrounding code
 
-5. **Follow project coding guidelines** (see `/workspace/CLAUDE.md`):
+5. **Follow project coding guidelines** (see `/workspace/AGENTS.md`):
    - All tmux commands must go through control mode (never external subprocess calls)
    - Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc.
    - `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead

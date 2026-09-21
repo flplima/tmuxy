@@ -42,6 +42,6 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 
 ## Related
 
-- `/home/runner/work/tmuxy/tmuxy/docs/TESTS.md`
-- `/home/runner/work/tmuxy/tmuxy/docs/PERFORMANCE.md`
-- `/home/runner/work/tmuxy/tmuxy/docs/AGENT-RUNBOOK.md`
+- `docs/TESTS.md`
+- `docs/PERFORMANCE.md`
+- `docs/AGENT-RUNBOOK.md`

@@ -10,5 +10,5 @@ target
 **/dist
 **/.next
 **/build
-.claude/worktrees
+.agents/worktrees
 **/*.log

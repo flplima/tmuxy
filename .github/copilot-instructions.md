@@ -2,7 +2,7 @@
 
 ## First commands to run
 
-1. `bash /home/runner/work/tmuxy/tmuxy/bin/agent-bootstrap`
+1. `bash bin/agent-bootstrap`
 2. `npm run copilot:fast-check`
 
 ## Repository constraints
@@ -23,9 +23,9 @@
 
 ## Key docs
 
-- `/home/runner/work/tmuxy/tmuxy/docs/ARCHITECTURE.md`
-- `/home/runner/work/tmuxy/tmuxy/docs/TMUX.md`
-- `/home/runner/work/tmuxy/tmuxy/docs/DATA-FLOW.md`
-- `/home/runner/work/tmuxy/tmuxy/docs/TESTS.md`
-- `/home/runner/work/tmuxy/tmuxy/docs/CI-TRIAGE.md`
-- `/home/runner/work/tmuxy/tmuxy/docs/ARCHITECTURE-INDEX.md`
+- `docs/ARCHITECTURE.md`
+- `docs/TMUX.md`
+- `docs/DATA-FLOW.md`
+- `docs/TESTS.md`
+- `docs/CI-TRIAGE.md`
+- `docs/ARCHITECTURE-INDEX.md`

@@ -117,4 +117,4 @@ git push origin "$TAG"
 
 echo
 echo "pushed. The tag-triggered Build App run is what publishes the release:"
-echo "  .claude/skills/release/scripts/wait-ci tag $VERSION"
+echo "  .agents/skills/release/scripts/wait-ci tag $VERSION"

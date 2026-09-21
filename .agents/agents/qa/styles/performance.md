@@ -7,7 +7,7 @@ Measure operation latency and detect performance regressions against stored base
 - Session name: `tmuxy-qa`
 - Browser URL: `http://localhost:9000/?session=tmuxy-qa`
 - Key helpers: `performance.js`, `browser.js`, `keyboard.js`, `pane-ops.js`, `window-ops.js`, `pane-groups.js`, `consistency.js`
-- Baseline file: `.claude/baselines/performance.json`
+- Baseline file: `.agents/baselines/performance.json`
 
 ## Thresholds
 
@@ -92,4 +92,4 @@ For each failure, report:
 ### 12. Baseline Management
 - After all measurements, compare current vs stored baselines
 - Report any >50% regressions as failures
-- Update `.claude/baselines/performance.json` with latest measurements
+- Update `.agents/baselines/performance.json` with latest measurements

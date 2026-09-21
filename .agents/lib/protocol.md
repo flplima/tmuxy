@@ -49,7 +49,7 @@ All issues also get the `qa-bug` label.
 
 ## User Filtering (Script-Level)
 
-Only issues authored by `flplima` or `laika-assistant` are processed. This is enforced at the script level in `.claude/lib/gh-issues.sh` — not via prompts.
+Only issues authored by `flplima` or `laika-assistant` are processed. This is enforced at the script level in `.agents/lib/gh-issues.sh` — not via prompts.
 
 Priority: `flplima` issues always take precedence over `laika-assistant` issues.
 
@@ -100,7 +100,7 @@ event. Frontend hides cursor block when application requests DECTCEM off.
 
 ```bash
 # Source the helper script for filtered issue queries
-source .claude/lib/gh-issues.sh
+source .agents/lib/gh-issues.sh
 gh_issues_open          # All open issues, prioritized (flplima first)
 gh_issues_next          # Single highest-priority issue
 gh_issues_summary       # One-line summaries

@@ -45,7 +45,7 @@ impl Default for KeyBindingsState {
 ///
 /// `cmd_tx` is the channel for issuing tmux mutations through the existing
 /// CC connection. Spawning external `tmux <cmd>` while CC is attached crashes
-/// tmux 3.5a — see CLAUDE.md and `docs/TMUX.md`. The SSE server avoids this
+/// tmux 3.5a — see AGENTS.md and `docs/TMUX.md`. The SSE server avoids this
 /// by routing every mutation through `MonitorCommand::RunCommand`; the Tauri
 /// app now does the same.
 ///

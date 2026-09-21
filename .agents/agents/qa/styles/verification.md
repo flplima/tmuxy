@@ -55,7 +55,7 @@ All tests must pass. A regression means the fix failed.
 #### performance issues
 - Re-measure the operation timing
 - Verify within acceptable threshold
-- Compare against baselines in `.claude/baselines/performance.json`
+- Compare against baselines in `.agents/baselines/performance.json`
 
 ## Verification Checklist
 

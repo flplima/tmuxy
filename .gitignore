@@ -22,13 +22,13 @@ target/
 
 # Claude Code (user-specific, not checked in)
 CLAUDE.local.md
-.claude/*
+.agents/*
 # Track agent definitions, skills, lib, and startup script
-!.claude/agents/
-!.claude/skills/
-!.claude/lib/
-!.claude/start.sh
-!.claude/README.md
+!.agents/agents/
+!.agents/skills/
+!.agents/lib/
+!.agents/start.sh
+!.agents/README.md
 
 # BDG session files
 .bdg/

@@ -167,7 +167,7 @@ step_done "Manager session ready"
 
 # Send initial prompt to manager
 step_start "Sending initial prompt to manager"
-tmux -L tmuxy-prod send-keys -t tmuxy:manager 'Start the monitor loop. Source .claude/lib/gh-issues.sh for issue helpers. Check open GitHub issues (gh_issues_open). Send QA the first style rotation (snapshot) via tmuxy event emit start_qa. Assign dev the highest-priority open issue via tmuxy event emit start_dev if any.'
+tmux -L tmuxy-prod send-keys -t tmuxy:manager 'Start the monitor loop. Source .agents/lib/gh-issues.sh for issue helpers. Check open GitHub issues (gh_issues_open). Send QA the first style rotation (snapshot) via tmuxy event emit start_qa. Assign dev the highest-priority open issue via tmuxy event emit start_dev if any.'
 sleep 1
 tmux -L tmuxy-prod send-keys -t tmuxy:manager Enter
 step_done "Manager prompted"
@@ -207,7 +207,7 @@ while true; do
   PANE_OUT=$(tmux -L tmuxy-prod capture-pane -t tmuxy:manager -p 2>/dev/null | tail -3)
   if echo "$PANE_OUT" | grep -q 'bypass permissions'; then
     # Build issue summary for the heartbeat prompt (script-level user filtering)
-    source "$WORKSPACE/.claude/lib/gh-issues.sh"
+    source "$WORKSPACE/.agents/lib/gh-issues.sh"
     ISSUE_SUMMARY=$(gh_issues_summary 2>/dev/null || echo "Could not fetch issues.")
     tmux -L tmuxy-prod send-keys -t tmuxy:manager "Continue the monitor loop. Check QA and dev status (capture-pane). If either is idle, assign work immediately via tmuxy event emit. QA: send next style rotation. Dev: assign next open issue. Open issues: ${ISSUE_SUMMARY}. Never be idle."
     sleep 1

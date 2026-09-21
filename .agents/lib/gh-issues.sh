@@ -6,7 +6,7 @@
 # This is enforced at the script level so agent prompts cannot bypass it.
 #
 # Usage:
-#   source .claude/lib/gh-issues.sh
+#   source .agents/lib/gh-issues.sh
 #   gh_issues_open          # All open issues from allowed authors, prioritized
 #   gh_issues_next          # Single highest-priority issue to work on
 #   gh_issues_by_status "status:fixing"  # Filter by status label

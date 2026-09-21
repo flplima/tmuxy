@@ -8,7 +8,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 **After finishing work:** If your changes affect behavior described here, update the relevant docs or flag the misalignment.
 
-**For AI agents:** The project's `CLAUDE.md` references these docs and includes rules about reviewing them. Key constraints (e.g., all tmux commands must go through control mode) are documented here because they prevent crashes and data loss.
+**For AI agents:** The project's `AGENTS.md` references these docs and includes rules about reviewing them. Key constraints (e.g., all tmux commands must go through control mode) are documented here because they prevent crashes and data loss.
 
 ## Document Guide
 

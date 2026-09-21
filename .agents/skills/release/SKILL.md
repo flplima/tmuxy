@@ -11,12 +11,12 @@ The mechanical steps are scripted under `scripts/` in this skill directory; run 
 
 | Step | Script |
 |---|---|
-| 2. Wait for CI green | `.claude/skills/release/scripts/wait-ci commit [<sha>]` |
-| 3. Bump the version | `.claude/skills/release/scripts/bump-version [<version>]` |
+| 2. Wait for CI green | `.agents/skills/release/scripts/wait-ci commit [<sha>]` |
+| 3. Bump the version | `.agents/skills/release/scripts/bump-version [<version>]` |
 | 4. Pre-tag checklist | manual — see §4, every box ticked before step 5 |
-| 5. Tag and push | `.claude/skills/release/scripts/tag-and-push <version>` |
-| 6. Wait for the tag run | `.claude/skills/release/scripts/wait-ci tag <version>` |
-| 7. Verify brew is ready | `.claude/skills/release/scripts/verify-release <version>` |
+| 5. Tag and push | `.agents/skills/release/scripts/tag-and-push <version>` |
+| 6. Wait for the tag run | `.agents/skills/release/scripts/wait-ci tag <version>` |
+| 7. Verify brew is ready | `.agents/skills/release/scripts/verify-release <version>` |
 
 ## 0. macOS signing (one-time setup)
 
@@ -42,16 +42,16 @@ Stage files explicitly, commit with a gitmoji prefix, push to `origin/main`. CI 
 ## 2. Wait for CI green on the change commit
 
 ```
-.claude/skills/release/scripts/wait-ci commit
+.agents/skills/release/scripts/wait-ci commit
 ```
 
-Polls until all three workflows reach a terminal state; exits non-zero on the first failure. If `lint and tests` fails on something pre-existing (e.g. `cargo fmt --check` drift in a file you didn't touch), fix it as a separate commit per the "Testing & Bug Fixes" rule in the root `CLAUDE.md`, then wait again.
+Polls until all three workflows reach a terminal state; exits non-zero on the first failure. If `lint and tests` fails on something pre-existing (e.g. `cargo fmt --check` drift in a file you didn't touch), fix it as a separate commit per the "Testing & Bug Fixes" rule in the root `AGENTS.md`, then wait again.
 
 ## 3. Bump the version
 
 ```
-.claude/skills/release/scripts/bump-version            # alpha number + 1
-.claude/skills/release/scripts/bump-version --dry-run  # preview
+.agents/skills/release/scripts/bump-version            # alpha number + 1
+.agents/skills/release/scripts/bump-version --dry-run  # preview
 ```
 
 The next version is the existing version with the alpha number incremented. Six files must stay consistent, and the script refuses to run if they already disagree:
@@ -82,7 +82,7 @@ If a box cannot be ticked, either fix it first or state explicitly, in the relea
 ## 5. Tag and push
 
 ```
-.claude/skills/release/scripts/tag-and-push <new-version>
+.agents/skills/release/scripts/tag-and-push <new-version>
 ```
 
 Verifies you're on a clean `main` and that `Cargo.toml` matches the tag, then runs `git push origin main` → **blocks on CI for the exact sha being tagged** → `git tag` → `git push origin <tag>`. **Order matters:** main goes first, and not only so the tag's commit is on the remote when the tag arrives — CI does not run on a commit GitHub has never seen, so gating before the push would wait out the timeout on a sha that could never go green. The tag, which is the half brew serves, is what the gate protects.
@@ -102,7 +102,7 @@ tag-and-push <version> --allow-red   # override, deliberately
 ## 6. Wait for the tag-triggered Build App run
 
 ```
-.claude/skills/release/scripts/wait-ci tag <new-version>
+.agents/skills/release/scripts/wait-ci tag <new-version>
 ```
 
 Pushing the tag triggers a **second** `Build App` run (this one with `github.ref = refs/tags/v...`). It executes `build` → `release` → `bump-cask` → `bump-formula`:
@@ -116,8 +116,8 @@ Pushing the tag triggers a **second** `Build App` run (this one with `github.ref
 ## 7. Verify brew is ready
 
 ```
-.claude/skills/release/scripts/verify-release <new-version>
-.claude/skills/release/scripts/verify-release <new-version> --quick   # skip downloads
+.agents/skills/release/scripts/verify-release <new-version>
+.agents/skills/release/scripts/verify-release <new-version> --quick   # skip downloads
 ```
 
 Asserts three things:
