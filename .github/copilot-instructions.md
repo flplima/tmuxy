@@ -2,8 +2,8 @@
 
 ## First commands to run
 
-1. `bash bin/agent-bootstrap`
-2. `npm run agent:fast-check`
+1. `bash bin/bootstrap`
+2. `npm run check:fast`
 
 ## Repository constraints
 
@@ -14,14 +14,14 @@
 
 ## High-signal command map
 
-- Fast validation: `npm run agent:fast-check`
-- Full validation: `npm run agent:full-check`
+- Fast validation: `npm run check:fast`
+- Full validation: `npm run check:full`
 - E2E only: `npm run test:e2e`
 - Tauri E2E only: `npm run test:tauri`
 - Rust workspace tests: `cargo test --workspace`
 - CI parity lint: `(cd packages/tmuxy-ui && npx prettier --check src) && npx prettier --check 'tests/**/*.js' && npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)`
 
-Before wrapping up a task, run `npm run agent:fast-check` and the CI parity lint command above.
+Before wrapping up a task, run `npm run check:fast` and the CI parity lint command above.
 
 ## Key docs
 

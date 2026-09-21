@@ -29,16 +29,13 @@
     "lint:tests": "eslint tests/",
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",
     "prepare": "git config core.hooksPath .github",
-    "agent:bootstrap": "bash bin/agent-bootstrap",
-    "agent:fast-check": "npm run check:deterministic && npm run agent:preflight:fast && npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
-    "agent:full-check": "npm run check:deterministic && npm run agent:preflight:full && npm run agent:fast-check && npm run test:cli && TERM=xterm-256color cargo test --workspace",
-    "copilot:bootstrap": "npm run agent:bootstrap",
-    "copilot:fast-check": "npm run agent:fast-check",
-    "copilot:full-check": "npm run agent:full-check",
-    "check:deterministic": "node bin/check-agent-determinism.mjs",
-    "agent:preflight:fast": "bash bin/agent-preflight fast",
-    "agent:preflight:full": "bash bin/agent-preflight full",
-    "agent:preflight:tauri": "bash bin/agent-preflight tauri"
+    "bootstrap": "bash bin/bootstrap",
+    "preflight": "bash bin/preflight fast",
+    "preflight:full": "bash bin/preflight full",
+    "preflight:tauri": "bash bin/preflight tauri",
+    "check:policy": "node bin/check-repo-policy.mjs",
+    "check:fast": "npm run check:policy && npm run preflight && npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
+    "check:full": "npm run check:policy && npm run preflight:full && npm run check:fast && npm run test:cli && TERM=xterm-256color cargo test --workspace"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",

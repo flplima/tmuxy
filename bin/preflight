@@ -21,19 +21,23 @@ require_pkg() {
 
 require_cmd node
 require_cmd npm
-require_cmd cargo
-require_cmd rustup
-require_cmd tmux
 
 case "$PROFILE" in
-  bootstrap|fast)
+  fast)
+    ;;
+  bootstrap)
+    require_cmd cargo
+    require_cmd rustup
     ;;
   rust|full)
+    require_cmd cargo
+    require_cmd tmux
     require_cmd pkg-config
     require_pkg libevent
     require_pkg ncurses
     ;;
   tauri)
+    require_cmd cargo
     require_cmd pkg-config
     require_pkg libevent
     require_pkg ncurses

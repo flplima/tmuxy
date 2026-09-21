@@ -127,7 +127,7 @@ function checkDocsToScriptsConsistency() {
   const commandDocs = [
     'AGENTS.md',
     '.github/copilot-instructions.md',
-    'docs/AGENT-RUNBOOK.md',
+    'docs/RUNBOOK.md',
     'docs/CI-TRIAGE.md',
   ];
 
@@ -180,8 +180,8 @@ function checkDocsToScriptsConsistency() {
 
   for (const docPath of wrapperStrictDocs) {
     const content = fs.readFileSync(path.join(root, docPath), 'utf8');
-    if (/npm run (?:agent|copilot):(?:bootstrap|fast-check|full-check)/.test(content)) {
-      addError(`[docs] ${docPath} should use canonical direct wrappers (bootstrap/check:*), not agent/copilot aliases.`);
+    if (/npm run (?:agent|copilot):/.test(content)) {
+      addError(`[docs] ${docPath} should use the canonical commands (bootstrap/check:*), not agent/copilot aliases.`);
     }
   }
 }
@@ -191,11 +191,11 @@ checkWorkflowInvariants();
 checkDocsToScriptsConsistency();
 
 if (errors.length > 0) {
-  console.error('Deterministic policy checks failed:\n');
+  console.error('Repo policy checks failed:\n');
   for (const err of errors) {
     console.error(`- ${err}`);
   }
   process.exit(1);
 }
 
-console.log('Deterministic policy checks passed.');
+console.log('Repo policy checks passed.');

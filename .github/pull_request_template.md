@@ -4,10 +4,10 @@
 
 ## Validation
 
-- [ ] `npm run agent:fast-check`
-- [ ] `npm run agent:full-check` (or explain why not required)
+- [ ] `npm run check:fast`
+- [ ] `npm run check:full` (or explain why not required)
 
-## Agent-produced changes checklist
+## Checklist
 
 - [ ] Commands executed are listed in this PR
 - [ ] Docs updated (or confirmed not needed)

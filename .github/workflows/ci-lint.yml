@@ -22,8 +22,8 @@ jobs:
         with:
           profile: lint
 
-      - name: Deterministic policy checks
-        run: npm run check:deterministic
+      - name: Repo policy checks
+        run: npm run check:policy
 
       - name: Prettier check
         run: npx prettier --check src

@@ -21,5 +21,5 @@ Feature-to-files retrieval map for agents.
 - `docs/STATE-MANAGEMENT.md`
 - `docs/DATA-FLOW.md`
 - `docs/TMUX.md`
-- `docs/AGENT-RUNBOOK.md`
+- `docs/RUNBOOK.md`
 - `docs/CI-TRIAGE.md`
