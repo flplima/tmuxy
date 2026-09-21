@@ -79,7 +79,7 @@ step_done "Prod server ready"
 # Dev server: reuse the release binary (no cargo-watch needed for agents)
 step_start "Starting dev server (port 9001)"
 pm2 start bash --name tmuxy-dev --cwd "$WORKSPACE" --silent -- -c '
-  cd /workspace
+  cd '"$WORKSPACE"'
   tmux -L tmuxy-dev has-session -t tmuxy 2>/dev/null \
     || tmux -L tmuxy-dev new-session -d -s tmuxy -x 200 -y 50
   exec env TMUX_SOCKET=tmuxy-dev cargo run --release -p tmuxy-server -- --port 9001
@@ -119,7 +119,7 @@ DEV_PANE=$(TMUX_SOCKET=tmuxy-prod tmuxy tab create dev 2>/dev/null || echo "")
 if [ -n "$DEV_PANE" ]; then
   tmux -L tmuxy-prod set-option -wt tmuxy:dev automatic-rename off 2>/dev/null || true
   tmux -L tmuxy-prod send-keys -t "$DEV_PANE" \
-    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_dev); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-dev claude -p \"\$data\" --agent dev --dangerously-skip-permissions --verbose --output-format stream-json | while IFS= read -r line; do echo \"\$line\" | yq -P; echo '---'; done; echo 'task complete, waiting for next...'; done" Enter
+    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_dev); echo \"received task, starting claude...\"; cd $WORKSPACE && TMUX_SOCKET=tmuxy-dev claude -p \"\$data\" --agent dev --dangerously-skip-permissions --verbose --output-format stream-json | while IFS= read -r line; do echo \"\$line\" | yq -P; echo '---'; done; echo 'task complete, waiting for next...'; done" Enter
 fi
 step_done "Dev agent launched"
 
@@ -129,7 +129,7 @@ QA_PANE=$(TMUX_SOCKET=tmuxy-prod tmuxy tab create qa 2>/dev/null || echo "")
 if [ -n "$QA_PANE" ]; then
   tmux -L tmuxy-prod set-option -wt tmuxy:qa automatic-rename off 2>/dev/null || true
   tmux -L tmuxy-prod send-keys -t "$QA_PANE" \
-    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_qa); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-prod claude -p \"\$data\" --agent qa --dangerously-skip-permissions --verbose --output-format stream-json | while IFS= read -r line; do echo \"\$line\" | yq -P; echo '---'; done; echo 'task complete, waiting for next...'; done" Enter
+    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_qa); echo \"received task, starting claude...\"; cd $WORKSPACE && TMUX_SOCKET=tmuxy-prod claude -p \"\$data\" --agent qa --dangerously-skip-permissions --verbose --output-format stream-json | while IFS= read -r line; do echo \"\$line\" | yq -P; echo '---'; done; echo 'task complete, waiting for next...'; done" Enter
 fi
 step_done "QA agent launched"
 
@@ -142,9 +142,16 @@ tmux -L tmuxy-prod send-keys -t "$MANAGER_PANE" \
   "cd $WORKSPACE && TMUX_SOCKET=tmuxy-prod claude --agent manager --dangerously-skip-permissions" Enter
 step_done "Manager agent launched"
 
-# Complete first-run onboarding if needed (runs claude -p once to initialize config)
+# Complete first-run onboarding if needed (runs one non-interactive check)
 step_start "Initializing Claude"
-claude --dangerously-skip-permissions -p 'echo initialized' >/dev/null 2>&1 || true
+if ! command -v claude >/dev/null 2>&1; then
+  step_fail "Claude CLI not found on PATH"
+  exit 1
+fi
+if ! claude --dangerously-skip-permissions -p 'Reply with: initialized' >/dev/null 2>&1; then
+  step_fail "Claude initialization failed"
+  exit 1
+fi
 step_done "Claude initialized"
 
 # Wait for manager's Claude session to reach the folder trust prompt, then confirm

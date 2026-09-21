@@ -31,7 +31,7 @@
     "agents": "bash bin/devcontainer --name agents run bash .agents/start.sh",
     "prepare": "git config core.hooksPath .github",
     "copilot:bootstrap": "bash bin/agent-bootstrap",
-    "copilot:fast-check": "npm run lint -w tmuxy-ui && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
+    "copilot:fast-check": "npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
     "copilot:full-check": "npm run copilot:fast-check && npm run test:cli && cargo test --workspace"
   },
   "devDependencies": {
