@@ -25,6 +25,7 @@ CLAUDE.local.md
 .agents/*
 # Track reusable agent skills
 !.agents/skills/
+!.agents/skills/**
 
 # BDG session files
 .bdg/

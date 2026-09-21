@@ -31,7 +31,7 @@
     "prepare": "git config core.hooksPath .github",
     "agent:bootstrap": "bash bin/agent-bootstrap",
     "agent:fast-check": "npm run check:deterministic && npm run agent:preflight:fast && npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
-    "agent:full-check": "npm run check:deterministic && npm run agent:preflight:full && npm run agent:fast-check && npm run test:cli && cargo test --workspace",
+    "agent:full-check": "npm run check:deterministic && npm run agent:preflight:full && npm run agent:fast-check && npm run test:cli && TERM=xterm-256color cargo test --workspace",
     "copilot:bootstrap": "npm run agent:bootstrap",
     "copilot:fast-check": "npm run agent:fast-check",
     "copilot:full-check": "npm run agent:full-check",
