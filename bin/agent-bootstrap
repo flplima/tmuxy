@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+echo "[agent-bootstrap] Preflight checks"
+bash "$ROOT_DIR/bin/agent-preflight" bootstrap
+
 echo "[agent-bootstrap] Installing npm dependencies"
 npm ci
 
