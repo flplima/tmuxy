@@ -29,7 +29,10 @@
     "lint:tests": "eslint tests/",
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",
     "agents": "bash bin/devcontainer --name agents run bash .claude/start.sh",
-    "prepare": "git config core.hooksPath .github"
+    "prepare": "git config core.hooksPath .github",
+    "copilot:bootstrap": "bash bin/agent-bootstrap",
+    "copilot:fast-check": "npm run lint -w tmuxy-ui && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
+    "copilot:full-check": "npm run copilot:fast-check && npm run test:cli && cargo test --workspace"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",

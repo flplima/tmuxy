@@ -1,0 +1,31 @@
+name: Install Linux dependencies
+inputs:
+  profile:
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        case "${{ inputs.profile }}" in
+          lint)
+            sudo apt-get install -y --no-install-recommends \
+              libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+              libjavascriptcoregtk-4.1-dev librsvg2-dev
+            ;;
+          rust)
+            sudo apt-get install -y --no-install-recommends \
+              libevent-dev libncurses-dev bison \
+              libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+              libjavascriptcoregtk-4.1-dev librsvg2-dev
+            ;;
+          demo)
+            sudo apt-get install -y --no-install-recommends ca-certificates
+            ;;
+          *)
+            echo "Unknown dependency profile: ${{ inputs.profile }}" >&2
+            exit 1
+            ;;
+        esac

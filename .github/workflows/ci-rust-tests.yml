@@ -1,0 +1,48 @@
+name: ci rust tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          install-npm: 'false'
+
+      - uses: ./.github/actions/install-linux-deps
+        with:
+          profile: rust
+
+      - name: Cache tmux 3.7a
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a (cache miss)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
+
+      - name: Confirm tmux version
+        run: tmux -V
+
+      - name: Frontend dist placeholder
+        run: mkdir -p packages/tmuxy-ui/dist
+
+      - name: Cargo test
+        run: cargo test --workspace
