@@ -266,9 +266,9 @@ Commands:
   list                  Show pending events across all channels
 
 Examples:
-  tmuxy event emit start_qa '{"issue": 42}'
-  echo "payload" | tmuxy event emit start_dev -
-  data=$(tmuxy event wait start_qa)
+  tmuxy event emit build_done '{"sha":"abc123"}'
+  echo "payload" | tmuxy event emit deploy_request -
+  data=$(tmuxy event wait deploy_request)
   tmuxy event list
 EOF
 }

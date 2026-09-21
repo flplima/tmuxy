@@ -1,0 +1,33 @@
+name: Setup Node + Rust
+inputs:
+  node-version:
+    required: false
+    default: '22'
+  rust-targets:
+    required: false
+    default: ''
+  install-npm:
+    required: false
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+
+    - uses: dtolnay/rust-toolchain@stable
+      if: inputs.rust-targets != ''
+      with:
+        targets: ${{ inputs.rust-targets }}
+
+    - uses: dtolnay/rust-toolchain@stable
+      if: inputs.rust-targets == ''
+
+    - uses: swatinem/rust-cache@v2
+
+    - name: Install npm dependencies
+      if: inputs.install-npm == 'true'
+      shell: bash
+      run: npm ci

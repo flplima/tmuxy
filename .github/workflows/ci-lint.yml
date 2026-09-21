@@ -1,0 +1,59 @@
+name: ci lint
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          rust-targets: wasm32-unknown-unknown
+
+      - uses: ./.github/actions/install-linux-deps
+        with:
+          profile: lint
+
+      - name: Deterministic policy checks
+        run: npm run check:deterministic
+
+      - name: Prettier check
+        run: npx prettier --check src
+        working-directory: packages/tmuxy-ui
+
+      - name: Prettier check (tests)
+        run: npx prettier --check 'tests/**/*.js'
+
+      - name: Rust format check
+        run: |
+          cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
+            -p tmuxy-tree -p tmuxy-connect -p tmuxy-wasm
+
+      - name: ESLint
+        run: npm run lint -w tmuxy-ui
+
+      - name: ESLint (E2E tests)
+        run: npm run lint:tests
+
+      - name: Clippy
+        run: |
+          mkdir -p packages/tmuxy-ui/dist
+          cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
+            -p tmuxy-tree -p tmuxy-connect -- -D warnings
+
+      - name: Clippy (tmuxy-wasm)
+        run: |
+          cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown \
+            --no-default-features -- -D warnings
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+        working-directory: packages/tmuxy-ui

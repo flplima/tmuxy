@@ -28,77 +28,7 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-          # tmuxy-wasm only compiles for wasm32; clippy on it needs the target.
-          targets: wasm32-unknown-unknown
-
-      - uses: swatinem/rust-cache@v2
-
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      # --- Formatting ---
-
-      - name: Prettier check
-        run: npx prettier --check src
-        working-directory: packages/tmuxy-ui
-
-      # `npm run format` already rewrites these; without a check nothing
-      # enforced it, so test files drifted out of Prettier's shape silently.
-      - name: Prettier check (tests)
-        run: npx prettier --check 'tests/**/*.js'
-
-      - name: Rust format check
-        run: |
-          cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-            -p tmuxy-tree -p tmuxy-connect -p tmuxy-wasm
-
-      # --- Linting ---
-
-      - name: ESLint
-        run: npm run lint -w tmuxy-ui
-
-      - name: ESLint (E2E tests)
-        run: npm run lint:tests
-
-      - name: Clippy
-        run: |
-          mkdir -p packages/tmuxy-ui/dist
-          cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-            -p tmuxy-tree -p tmuxy-connect -- -D warnings
-
-      # tmuxy-wasm has no host build: same target and feature set as the
-      # `build:wasm` script, so clippy sees the code as it actually ships.
-      - name: Clippy (tmuxy-wasm)
-        run: |
-          cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown \
-            --no-default-features -- -D warnings
-
-      # --- Type Check ---
-
-      - name: TypeScript type check
-        run: npx tsc --noEmit
-        working-directory: packages/tmuxy-ui
+    uses: ./.github/workflows/ci-lint.yml
 
   # The frontend bundle and the release server, built ONCE and handed to every
   # job that needs them. Both used to be rebuilt inside each of the e2e matrix
@@ -148,43 +78,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The demo site was only ever built by deploy-demo.yml, post-merge and
-  # path-filtered — so a demo break landed on main before anyone saw it.
-  demo-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build demo
-        run: npm run build -w tmuxy-demo
-
-  unit-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Vitest
-        run: npm test -- --run
+  node-checks:
+    uses: ./.github/workflows/ci-node-checks.yml
 
   # macOS is the primary user platform, and every test job above runs on Linux
   # only — a macOS-only bug (feab950) reached a release because nothing on CI
@@ -229,76 +124,8 @@ jobs:
       - name: Cargo test
         run: cargo test --workspace
 
-  # Rust unit + integration tests across the workspace. Previously nothing ran
-  # `cargo test` in CI, so every `#[cfg(test)]` module went unexecuted.
   rust-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev
-
-      # initial_state.rs, reply_channel.rs and pinned_split_race.rs drive a
-      # real `tmux -CC`, so this job was testing against whatever tmux the
-      # runner image happened to ship. Same source-built, cache-shared 3.7a
-      # the e2e/latency/tauri jobs pin — one cache entry serves all of them.
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
-
-      - name: Confirm tmux version
-        run: tmux -V
-
-      # Clippy/build for the tauri crate expects the frontend dist to exist.
-      - name: Frontend dist placeholder
-        run: mkdir -p packages/tmuxy-ui/dist
-
-      - name: Cargo test
-        run: cargo test --workspace
-
-  # CLI dispatcher suite — hermetic (mocked tmux), enforces tmux-socket
-  # isolation. It has its own jest config and was referenced by no workflow.
-  cli-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: CLI suite
-        run: npm run test:cli
+    uses: ./.github/workflows/ci-rust-tests.yml
 
   # E2E + snapshot suites run in parallel — one matrix entry per suite,
   # one runner per suite. Previously these were serial inside a single

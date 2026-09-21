@@ -1,0 +1,53 @@
+name: ci node checks
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  demo-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Build demo
+        run: npm run build -w tmuxy-demo
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Vitest
+        run: npm test -- --run
+
+  cli-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install npm dependencies
+        run: npm ci
+      - name: CLI suite
+        run: npm run test:cli

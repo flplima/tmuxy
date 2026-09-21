@@ -1,0 +1,60 @@
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/**
+      - bin/agent-bootstrap
+      - package-lock.json
+      - Cargo.lock
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/**
+      - bin/agent-bootstrap
+      - package-lock.json
+      - Cargo.lock
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          rust-targets: wasm32-unknown-unknown,i686-unknown-linux-musl
+
+      - uses: ./.github/actions/install-linux-deps
+        with:
+          profile: rust
+
+      - name: Install extra test/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            webkit2gtk-driver xvfb x11-utils fzf neovim zstd
+
+      - name: Cache tmux 3.7a
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a cache (best effort)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j"$(nproc)" && sudo make install
+          cd .. && rm -rf tmux-3.7a
+
+      - name: Bootstrap repository for agents
+        run: bash bin/agent-bootstrap

@@ -8,7 +8,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 **After finishing work:** If your changes affect behavior described here, update the relevant docs or flag the misalignment.
 
-**For AI agents:** The project's `CLAUDE.md` references these docs and includes rules about reviewing them. Key constraints (e.g., all tmux commands must go through control mode) are documented here because they prevent crashes and data loss.
+**For AI agents:** The project's `AGENTS.md` references these docs and includes rules about reviewing them. Key constraints (e.g., all tmux commands must go through control mode) are documented here because they prevent crashes and data loss.
 
 ## Document Guide
 
@@ -41,12 +41,15 @@ This directory contains architectural and design documentation for the tmuxy pro
 | [TESTS.md](TESTS.md) | Every test layer and the CI job that runs it, where a new test belongs, known coverage gaps, and the guidelines for each test type | Writing, placing or debugging tests; reading a CI failure |
 | [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each | Benchmarking, profiling, or investigating latency |
 | [TELEMETRY.md](TELEMETRY.md) | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: schema, instrumentation seams, redaction boundary, and phased plan | Debugging complex cross-layer issues; adding instrumentation |
+| [AGENT-RUNBOOK.md](AGENT-RUNBOOK.md) | Task-to-command matrix and practical execution order for AI agents | Choosing the right command set for a specific change |
+| [CI-TRIAGE.md](CI-TRIAGE.md) | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points | Investigating red GitHub Actions runs |
 
 ### Protocols & Rendering
 
 | Document | What it covers | When to read it |
 |----------|---------------|-----------------|
 | [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (iTerm2, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
+| [ARCHITECTURE-INDEX.md](ARCHITECTURE-INDEX.md) | Compact feature-to-files lookup index optimized for retrieval by AI agents | Quickly locating implementation entry points |
 
 ## Conventions
 

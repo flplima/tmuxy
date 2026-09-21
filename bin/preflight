@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROFILE="${1:-fast}"
+
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "[preflight] missing command: $cmd"
+    exit 1
+  fi
+}
+
+require_pkg() {
+  local pkg="$1"
+  if ! pkg-config --exists "$pkg"; then
+    echo "[preflight] missing pkg-config package: $pkg"
+    exit 1
+  fi
+}
+
+require_cmd node
+require_cmd npm
+require_cmd cargo
+require_cmd rustup
+require_cmd tmux
+
+case "$PROFILE" in
+  bootstrap|fast)
+    ;;
+  rust|full)
+    require_cmd pkg-config
+    require_pkg libevent
+    require_pkg ncurses
+    ;;
+  tauri)
+    require_cmd pkg-config
+    require_pkg libevent
+    require_pkg ncurses
+    require_pkg glib-2.0
+    require_pkg gobject-2.0
+    require_pkg gio-2.0
+    require_pkg gtk+-3.0
+    require_pkg webkit2gtk-4.1
+    require_pkg javascriptcoregtk-4.1
+    require_pkg libsoup-3.0
+    require_pkg librsvg-2.0
+    ;;
+  *)
+    echo "[preflight] unknown profile: $PROFILE"
+    echo "[preflight] expected one of: bootstrap, fast, rust, tauri, full"
+    exit 1
+    ;;
+esac
+
+echo "[preflight] OK ($PROFILE)"
