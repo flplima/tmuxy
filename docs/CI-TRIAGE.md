@@ -14,7 +14,7 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 
 | Workflow job | Local command | Primary failure surface |
 |---|---|---|
-| `lint` | `npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)` | JS/TS lint/type + clippy/fmt |
+| `lint` | `(cd packages/tmuxy-ui && npx prettier --check src)`<br>`npx prettier --check 'tests/**/*.js'`<br>`cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-tree -p tmuxy-connect -p tmuxy-wasm`<br>`npm run lint -w tmuxy-ui && npm run lint:tests`<br>`mkdir -p packages/tmuxy-ui/dist`<br>`cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-tree -p tmuxy-connect -- -D warnings`<br>`cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown --no-default-features -- -D warnings`<br>`(cd packages/tmuxy-ui && npx tsc --noEmit)` | JS/TS + Rust lint/type/format |
 | `unit-tests` | `npm test -- --run` | UI unit tests |
 | `cli-tests` | `npm run test:cli` | CLI dispatcher behavior |
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
