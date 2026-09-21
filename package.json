@@ -13,7 +13,7 @@
     "yolo-mode": "bash bin/devcontainer run claude --dangerously-skip-permissions",
     "build": "npm run build -w tmuxy-ui && cargo build --release -p tmuxy-server && cd packages/tmuxy-tauri-app && tauri build",
     "build:wasm": "cargo build -p tmuxy-wasm --target wasm32-unknown-unknown --release --no-default-features && wasm-bindgen --target web --out-dir packages/tmuxy-wasm/pkg --out-name tmuxy_wasm target/wasm32-unknown-unknown/release/tmuxy_wasm.wasm",
-    "start": "pm2 start ./bin/dev --name tmuxy-dev --interpreter bash --cwd /tmuxy",
+    "start": "pm2 start ./bin/dev --name tmuxy-dev --interpreter bash",
     "stop": "pm2 stop tmuxy-dev 2>/dev/null; pm2 stop tmuxy-prod 2>/dev/null; true",
     "logs": "pm2 logs",
     "tauri:dev": "cargo tauri dev --manifest-path packages/tmuxy-tauri-app/Cargo.toml",

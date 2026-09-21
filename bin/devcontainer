@@ -37,6 +37,8 @@ cd "$(dirname "$0")/.."
 
 IMAGE_NAME="tmuxy-dev"
 DOCKERFILE=".devcontainer/Dockerfile"
+# Same path Codespaces and VS Code Dev Containers use, so the three hosts agree.
+WORKSPACE="/workspaces/tmuxy"
 
 # ---------------------------------------------------------------------------
 # Parse the global --name flag from anywhere in the args; keep the rest.
@@ -108,7 +110,15 @@ prepare() {
 
     MOUNTS=(
         # Workspace (each worktree maps its own directory)
-        -v "$(pwd):/tmuxy"
+        -v "$(pwd):$WORKSPACE"
+        # node_modules lives in container-private volumes, NOT the bind mount.
+        # npm installs platform-specific binaries (rollup, esbuild, swc); a
+        # macOS host and a linux container need different ones, and sharing the
+        # directory means whichever installed last wins and the other breaks
+        # ("Cannot find module @rollup/rollup-linux-*"). Keyed per container so
+        # worktrees don't fight over one tree. bin/bootstrap populates them.
+        -v "tmuxy-node-modules-${CONTAINER_NAME}:$WORKSPACE/node_modules"
+        -v "tmuxy-node-modules-ui-${CONTAINER_NAME}:$WORKSPACE/packages/tmuxy-ui/node_modules"
         # Cargo cache (shared across instances — cargo uses file locks)
         -v tmuxy-cargo-registry:/usr/local/cargo/registry
         -v tmuxy-cargo-git:/usr/local/cargo/git
@@ -133,7 +143,7 @@ prepare() {
         echo "gitdir: /git-main/worktrees/$WORKTREE_NAME" > "$DOTGIT_TMP"
         MOUNTS+=(
             -v "$MAIN_GIT_DIR:/git-main"
-            -v "$DOTGIT_TMP:/tmuxy/.git"
+            -v "$DOTGIT_TMP:$WORKSPACE/.git"
         )
     fi
 
@@ -156,40 +166,38 @@ prepare() {
         -e TMUX_SESSION=dev
         -e CLAUDE_CONFIG_DIR=/home/user/.claude
         -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config
-        -w /tmuxy
+        -w "$WORKSPACE"
         --user 0:0
         "${HOST_ID_ENV[@]}"
     )
 
     # Every container command is launched through the entrypoint, which remaps
     # `user` to the host uid/gid (as root) and then execs the command as `user`.
-    ENTRY=(/tmuxy/.devcontainer/entrypoint.sh)
+    ENTRY=("$WORKSPACE/.devcontainer/entrypoint.sh")
 
     # First-run setup, replayed on every (re)start — all steps are idempotent.
-    INIT_SCRIPT='
+    INIT_SCRIPT="
         # Restore ~/.claude.json (Claude Code onboarding flag + oauthAccount) from
         # the persisted volume copy and start the backup daemon. .claude.json lives
-        # in $HOME, NOT in the ~/.claude volume, and CLAUDE_CONFIG_DIR does not
+        # in \$HOME, NOT in the ~/.claude volume, and CLAUDE_CONFIG_DIR does not
         # relocate it — so without this restore every fresh container re-prompts
         # for login and replays the welcome/intro screen.
-        /tmuxy/.devcontainer/persist-claude-login.sh || true
-        ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
-        mkdir -p ~/.config/tmuxy ~/.local/bin
-        # Symlink both conf files into the XDG path so edits in the repo take
-        # effect immediately. The Rust ensure_config skips overwriting when the
-        # target is a symlink, so it leaves these alone.
-        ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.config/tmuxy/tmuxy.conf
-        ln -sf /tmuxy/.devcontainer/.tmuxy.defaults.conf ~/.config/tmuxy/tmuxy.defaults.conf
-        ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy
-        gh auth setup-git 2>/dev/null
-        git -C /tmuxy remote set-url origin "$(git -C /tmuxy remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
-    '
+        $WORKSPACE/.devcontainer/persist-claude-login.sh || true
+        # Conf symlinks, the tmuxy CLI link and git/gh wiring — the same script
+        # devcontainer.json runs as its postStartCommand.
+        bash $WORKSPACE/.devcontainer/setup.sh || true
+        # Populate the container-private node_modules volumes on first run. The
+        # marker makes restarts cheap; delete the volume to force a reinstall.
+        if [ ! -f $WORKSPACE/node_modules/.tmuxy-installed ]; then
+            (cd $WORKSPACE && npm ci && touch node_modules/.tmuxy-installed)
+        fi
+    "
 
     # The dev server owns 9000 (the port mapped to the host); 9001 is vite's
     # hard-coded port, which tmuxy-server refuses to bind.
-    SERVER_SCRIPT='
-        TMUX_SOCKET=tmuxy-dev pm2 start /tmuxy/bin/dev --name tmuxy-dev --interpreter bash --cwd /tmuxy 2>/dev/null
-    '
+    SERVER_SCRIPT="
+        TMUX_SOCKET=tmuxy-dev pm2 start $WORKSPACE/bin/dev --name tmuxy-dev --interpreter bash 2>/dev/null
+    "
 }
 
 # ---------------------------------------------------------------------------

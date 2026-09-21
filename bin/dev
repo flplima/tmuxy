@@ -19,7 +19,7 @@
 
 set -e
 
-cd /tmuxy
+cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 PORT="${DEV_PORT:-9000}"
 # Match the server's socket resolution: TMUX_SOCKET override (slash → full

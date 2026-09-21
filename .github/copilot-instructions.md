@@ -35,4 +35,4 @@ Before wrapping up a task, run `npm run check:fast` and the CI parity lint comma
 ## Copilot-specific note
 
 - GitHub Copilot cloud agent runs `.github/workflows/copilot-setup-steps.yml` before session start.
-- The local devcontainer is a contributor environment and is not used by Copilot cloud sessions.
+- `.devcontainer/` is a contributor environment (plain Docker, VS Code Dev Containers, GitHub Codespaces) and is not used by Copilot cloud sessions.

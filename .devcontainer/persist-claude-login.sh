@@ -15,11 +15,16 @@
 # So we copy on start and run a polling daemon to copy back.
 #
 # Must be idempotent and safe to re-run on every container start.
+#
+# Codespaces has no ~/.claude named volume to mirror into (and manages its own
+# secrets), so the mirror/daemon has nothing to do there — skip it.
 set -euo pipefail
 
-HOME_FILE=/home/user/.claude.json
-VOLUME_FILE=/home/user/.claude/.claude.json
-DAEMON_PID_FILE=/home/user/.claude/.persist-daemon.pid
+if [ -n "${CODESPACES:-}" ]; then exit 0; fi
+
+HOME_FILE="$HOME/.claude.json"
+VOLUME_FILE="$HOME/.claude/.claude.json"
+DAEMON_PID_FILE="$HOME/.claude/.persist-daemon.pid"
 
 # Stop any prior daemon from a previous container generation. The PID file lives
 # in the volume so it survives restarts; the process does not (and PIDs aren't

@@ -11,7 +11,7 @@
 
 set -e
 
-cd /tmuxy
+cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 # Ensure tmuxy-prod tmux server has a session
 tmux -L tmuxy-prod has-session -t tmuxy 2>/dev/null \

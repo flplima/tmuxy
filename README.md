@@ -93,6 +93,24 @@ npm run devcontainer
 # Good luck!
 ```
 
+The same `.devcontainer/` works in three places:
+
+| Where | How it starts | Credentials |
+|---|---|---|
+| `bin/devcontainer` (plain Docker) | `npm run devcontainer` | Named volumes; log in once inside |
+| VS Code Dev Containers | "Reopen in Container" | Same named volumes |
+| GitHub Codespaces | "Create codespace" on the repo | Injected by Codespaces |
+
+No script hardcodes a workspace path — each derives the repo root from its own
+location — so the workspace may live wherever the host puts it. Codespaces
+ignores `runArgs` and the credential volumes; the scripts that maintain those
+no-op when `$CODESPACES` is set. Enable **prebuilds** for the repo before using
+Codespaces in anger: the image builds tmux and the Rust toolchain from source
+and is slow cold.
+
+GitHub Copilot's cloud coding agent uses neither — it bootstraps from
+`.github/workflows/copilot-setup-steps.yml`.
+
 ## license
 
 [MIT](LICENSE)

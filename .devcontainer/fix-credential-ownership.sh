@@ -15,26 +15,35 @@
 #   - devcontainer.json's postStartCommand, as `user`: elevates ONLY chown/chmod
 #     via the scoped NOPASSWD sudoers rule the Dockerfile installs.
 # Idempotent and safe to re-run on every container start.
+#
+# Codespaces has no credential named volumes (it injects its own git/gh auth and
+# owns $HOME), so there is nothing to repair there and the scoped sudo rule may
+# not apply — skip the whole script.
 set -euo pipefail
+
+if [ -n "${CODESPACES:-}" ]; then exit 0; fi
 
 # No sudo needed when already root.
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO=sudo; fi
 
+OWNER="$(id -un user 2>/dev/null || echo user)"
+
 DIRS=(
-  /home/user/.claude
-  /home/user/.config/gh
-  /home/user/.config/git
-  /home/user/.ssh
+  "$HOME/.claude"
+  "$HOME/.config/gh"
+  "$HOME/.config/git"
+  "$HOME/.ssh"
 )
 
 for d in "${DIRS[@]}"; do
   [ -d "$d" ] || continue
   # Skip the recursive chown unless the top dir is owned by someone other than
   # `user` — avoids walking the (large) ~/.claude tree on every start.
-  if [ "$(stat -c %U "$d")" != user ]; then
-    $SUDO chown -R user:user "$d"
+  if [ "$(stat -c %U "$d")" != "$OWNER" ]; then
+    $SUDO chown -R "$OWNER:$OWNER" "$d"
   fi
 done
 
 # .ssh must be 0700 or ssh/sshd refuse to use it.
-[ -d /home/user/.ssh ] && $SUDO chmod 700 /home/user/.ssh
+[ -d "$HOME/.ssh" ] && $SUDO chmod 700 "$HOME/.ssh"
+exit 0

@@ -85,11 +85,15 @@ RUN mkdir /commandhistory \
     && touch /commandhistory/.bash_history \
     && chown -R user /commandhistory
 
-WORKDIR /tmuxy
+# The default workspace path for both Codespaces and VS Code Dev Containers.
+# bin/devcontainer bind-mounts the worktree here too, so all hosts agree — and
+# no script depends on it, each derives the repo root from its own location.
+WORKDIR /workspaces/tmuxy
 
-# Trust the workspace bind mount so git doesn't complain about "dubious ownership"
-# when the container user's uid differs from the bind mount owner.
-RUN git config --system --add safe.directory /tmuxy
+# Trust any workspace path so git doesn't complain about "dubious ownership"
+# when the container user's uid differs from the mount owner. A wildcard is
+# needed because the path differs per host (Codespaces can relocate it).
+RUN git config --system --add safe.directory '*'
 
 # Switch to non-root user
 USER user

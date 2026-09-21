@@ -6,7 +6,7 @@
 #
 # Why: the workspace is bind-mounted from the host and the credential named
 # volumes are pre-created owned by uid 1000. If the host account isn't uid 1000
-# (common on Linux), running directly as that uid leaves /tmuxy and the volumes
+# (common on Linux), running directly as that uid leaves the workspace and volumes
 # unwritable and yields an "I have no name!" shell. Remapping `user` to the host
 # uid/gid makes a single chown fix all of /home/user, the workspace, and the
 # volumes — for ANY host uid.
@@ -16,6 +16,8 @@
 #
 # Idempotent: on restart the target uid already matches and the remap is skipped.
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 TARGET_UID="${HOST_UID:-$(id -u user)}"
 TARGET_GID="${HOST_GID:-$(id -g user)}"
@@ -30,9 +32,13 @@ if [ "$TARGET_UID" != "$(id -u user)" ]; then
     chown -R "$TARGET_UID:$TARGET_GID" /home/user
 fi
 
+# Make the container-private node_modules volumes writable by `user` (fresh
+# named volumes mount root-owned). Runs as root here, so no sudo is needed.
+"$SCRIPT_DIR/fix-node-modules-ownership.sh" "$TARGET_UID" "$TARGET_GID" || true
+
 # Repair credential named-volume ownership (older volumes, stale uids). Runs as
 # root here, so it chowns directly with no sudo dependency.
-/tmuxy/.devcontainer/fix-credential-ownership.sh || true
+"$SCRIPT_DIR/fix-credential-ownership.sh" || true
 
 # Drop privileges to `user` (now the host uid/gid) and run the command. HOME is
 # forced because setpriv preserves root's environment otherwise.

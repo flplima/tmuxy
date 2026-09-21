@@ -30,6 +30,17 @@ Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> -
 | `CONTAINER_NAME` | Container name (e.g., `tmuxy-worktree-1`) |
 | `HOST_PORT` | Port exposed on the host (e.g., `14089`) |
 | `PORT` | Internal server port (`9000`) |
+| `CODESPACES` | Set by GitHub Codespaces; the credential-volume scripts no-op when present |
+
+One `.devcontainer/` serves `bin/devcontainer` (plain Docker), VS Code Dev
+Containers and GitHub Codespaces. **Never hardcode the workspace path** — every
+script derives the repo root from its own location, because Codespaces picks the
+path and ignores a custom `workspaceMount`. Anything essential must stay out of
+`runArgs` (Codespaces ignores it). Shared start-up work belongs in
+`.devcontainer/setup.sh`, which all hosts run.
+
+Copilot's cloud agent uses none of this; it bootstraps from
+`.github/workflows/copilot-setup-steps.yml`.
 
 ## Coding Guidelines
 
