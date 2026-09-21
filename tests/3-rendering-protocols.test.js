@@ -56,7 +56,16 @@ describe('Scenario 14: OSC Protocols', () => {
       };
     });
     expect(linkInfo.count).toBeGreaterThan(0);
-    expect(linkInfo.hrefs.some((h) => h && h.includes('example.com'))).toBe(true);
+    expect(
+      linkInfo.hrefs.some((h) => {
+        if (!h) return false;
+        try {
+          return new URL(h).hostname === 'example.com';
+        } catch {
+          return false;
+        }
+      }),
+    ).toBe(true);
     expect(linkInfo.visible.some(Boolean)).toBe(true);
 
     // Step 2: Multiple links
