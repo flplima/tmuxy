@@ -30,11 +30,18 @@ const {
 
 const TUI_SCRIPT = path.join(WORKSPACE_ROOT, 'tests/fixtures/heavy-tui.sh');
 
-/** Put the keyboard on the active pane, the way a user starts typing. */
-async function clickActivePane(page) {
+/**
+ * Put the keyboard on the active pane and get a prompt on screen.
+ *
+ * On tmux 3.4 a freshly attached pane renders nothing until it produces new
+ * output, so the Enter is what makes the first prompt appear. On every other
+ * version it costs one blank line.
+ */
+async function wakePane(page) {
   const terminal = (await page.$('.pane-active [role="log"]')) || (await page.$('[role="log"]'));
   if (terminal) await terminal.click();
   await page.bringToFront();
+  await pressEnter(page);
 }
 
 describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pane', () => {
@@ -53,7 +60,7 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
     // a path that does not exist. The click comes first because on tmux 3.4
     // the pane stays blank until a client touches it, so waiting for the
     // prompt before that never finishes.
-    await clickActivePane(ctx.page);
+    await wakePane(ctx.page);
     await waitForShellPrompt(ctx.page, 30000);
 
     // Launch the TUI script. It enters alt-screen, draws the layout, and
@@ -109,7 +116,7 @@ describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before
     await ctx.setupPage();
     await focusPage(ctx.page);
     const page = ctx.page;
-    await clickActivePane(page);
+    await wakePane(page);
     await waitForShellPrompt(page, 30000);
 
     // A program that turns on the alternate screen and SGR mouse tracking,
