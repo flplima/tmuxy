@@ -89,18 +89,29 @@ describe('Phone width (400px) with a touchscreen', () => {
     // 1. Nothing runs off the side of the screen. A 400px-wide page that
     //    scrolls sideways is the whole class of phone layout bug, and it costs
     //    one number to rule out.
-    const layout = await ctx.page.evaluate(() => {
-      const box = (el) => {
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { left: r.left, right: r.right, top: r.top, width: r.width, height: r.height };
-      };
-      return {
-        docScrollWidth: document.documentElement.scrollWidth,
-        pane: box(document.querySelector('.pane-active [role="log"]')),
-        tabs: box(document.querySelector('.tab-list')),
-      };
-    });
+    const measureLayout = () =>
+      ctx.page.evaluate(() => {
+        const box = (el) => {
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, width: r.width, height: r.height };
+        };
+        return {
+          docScrollWidth: document.documentElement.scrollWidth,
+          pane: box(document.querySelector('.pane-active [role="log"]')),
+          tabs: box(document.querySelector('.tab-list')),
+        };
+      });
+    // The grid reflows to the phone viewport over the first frames, so a
+    // single sample can catch the terminal still at its pre-resize width.
+    let layout = await measureLayout();
+    const fits = (l) =>
+      l && l.pane && l.pane.right <= PHONE.width + 1 && l.docScrollWidth <= PHONE.width + 1;
+    const layoutDeadline = Date.now() + 5000;
+    while (Date.now() < layoutDeadline && !fits(layout)) {
+      await delay(100);
+      layout = await measureLayout();
+    }
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);
     expectOnScreen(layout.pane, 'the terminal');
     expectOnScreen(layout.tabs, 'the tab strip');

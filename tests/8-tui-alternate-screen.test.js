@@ -43,8 +43,10 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
     await focusPage(ctx.page);
     // Keys typed before the shell is reading stdin are swallowed: on a slower
     // tmux the command arrived with its first characters missing and bash ran
-    // a path that does not exist.
-    await waitForShellPrompt(ctx.page, 15000);
+    // a path that does not exist. The older tmux versions in the nightly
+    // matrix take their time putting the first prompt on screen, hence the
+    // generous budget.
+    await waitForShellPrompt(ctx.page, 30000);
 
     // Launch the TUI script. It enters alt-screen, draws the layout, and
     // prints TUI_READY as the final cell — that marker is what the test
@@ -99,7 +101,7 @@ describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before
     await ctx.setupPage();
     await focusPage(ctx.page);
     const page = ctx.page;
-    await waitForShellPrompt(page, 15000);
+    await waitForShellPrompt(page, 30000);
 
     // A program that turns on the alternate screen and SGR mouse tracking,
     // then echoes every byte it receives as visible text.
