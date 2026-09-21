@@ -30,6 +30,13 @@ const {
 
 const TUI_SCRIPT = path.join(WORKSPACE_ROOT, 'tests/fixtures/heavy-tui.sh');
 
+/** Put the keyboard on the active pane, the way a user starts typing. */
+async function clickActivePane(page) {
+  const terminal = (await page.$('.pane-active [role="log"]')) || (await page.$('[role="log"]'));
+  if (terminal) await terminal.click();
+  await page.bringToFront();
+}
+
 describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pane', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
@@ -43,9 +50,10 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
     await focusPage(ctx.page);
     // Keys typed before the shell is reading stdin are swallowed: on a slower
     // tmux the command arrived with its first characters missing and bash ran
-    // a path that does not exist. The older tmux versions in the nightly
-    // matrix take their time putting the first prompt on screen, hence the
-    // generous budget.
+    // a path that does not exist. The click comes first because on tmux 3.4
+    // the pane stays blank until a client touches it, so waiting for the
+    // prompt before that never finishes.
+    await clickActivePane(ctx.page);
     await waitForShellPrompt(ctx.page, 30000);
 
     // Launch the TUI script. It enters alt-screen, draws the layout, and
@@ -101,6 +109,7 @@ describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before
     await ctx.setupPage();
     await focusPage(ctx.page);
     const page = ctx.page;
+    await clickActivePane(page);
     await waitForShellPrompt(page, 30000);
 
     // A program that turns on the alternate screen and SGR mouse tracking,
