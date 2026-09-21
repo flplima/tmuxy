@@ -60,10 +60,11 @@ describe('Scenario 14: OSC Protocols', () => {
       linkInfo.hrefs.some((h) => {
         if (!h) return false;
         try {
-          const url = new URL(h);
+          const parsed = new URL(h);
           return (
-            (url.protocol === 'http:' || url.protocol === 'https:') &&
-            url.hostname === 'example.com'
+            (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+            parsed.hostname === 'example.com'
+
           );
         } catch {
           return false;
