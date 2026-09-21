@@ -2,22 +2,4 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT_DIR"
-
-echo "[agent-bootstrap] Preflight checks"
-bash "$ROOT_DIR/bin/agent-preflight" bootstrap
-
-echo "[agent-bootstrap] Installing npm dependencies"
-npm ci
-
-echo "[agent-bootstrap] Ensuring Rust targets"
-rustup target add wasm32-unknown-unknown i686-unknown-linux-musl >/dev/null
-
-echo "[agent-bootstrap] Ensuring frontend dist placeholder"
-mkdir -p packages/tmuxy-ui/dist
-
-echo "[agent-bootstrap] Linking tmuxy CLI"
-mkdir -p "$HOME/.local/bin"
-ln -sf "$ROOT_DIR/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
-
-echo "[agent-bootstrap] Done"
+exec "$ROOT_DIR/bin/bootstrap" "$@"

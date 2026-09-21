@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+echo "[bootstrap] Preflight checks"
+bash "$ROOT_DIR/bin/preflight" bootstrap
+
+echo "[bootstrap] Installing npm dependencies"
+npm ci
+
+echo "[bootstrap] Ensuring Rust targets"
+rustup target add wasm32-unknown-unknown i686-unknown-linux-musl >/dev/null
+
+echo "[bootstrap] Ensuring frontend dist placeholder"
+mkdir -p packages/tmuxy-ui/dist
+
+echo "[bootstrap] Linking tmuxy CLI"
+mkdir -p "$HOME/.local/bin"
+ln -sf "$ROOT_DIR/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
+
+echo "[bootstrap] Done"
