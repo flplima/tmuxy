@@ -67,6 +67,12 @@ Key rules:
 
 **NEVER commit skipped tests** (`it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, `xdescribe`). If a test is failing, either fix the test, fix the underlying bug, or ask the user whether to remove the test entirely. ESLint enforces this via `jest/no-disabled-tests` (error) — the pre-commit hook and CI will reject skipped tests.
 
+Before wrapping up a task, run local checks that mirror CI lint gates:
+- `npm run agent:fast-check`
+- `(cd packages/tmuxy-ui && npx prettier --check src)`
+- `npx prettier --check 'tests/**/*.js'`
+- `npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)`
+
 ## Documentation
 
 The `docs/` directory contains architectural and design documentation. **Review relevant docs before and after working on a task** — they provide critical context (especially `TMUX.md`, `STATE-MANAGEMENT.md`, `DATA-FLOW.md`, and `COPY-MODE.md`).

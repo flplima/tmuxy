@@ -19,7 +19,9 @@
 - E2E only: `npm run test:e2e`
 - Tauri E2E only: `npm run test:tauri`
 - Rust workspace tests: `cargo test --workspace`
-- CI parity lint: `npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)`
+- CI parity lint: `(cd packages/tmuxy-ui && npx prettier --check src) && npx prettier --check 'tests/**/*.js' && npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)`
+
+Before wrapping up a task, run `npm run agent:fast-check` and the CI parity lint command above.
 
 ## Key docs
 
