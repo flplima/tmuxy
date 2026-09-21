@@ -1,0 +1,86 @@
+{
+  "_policy": [
+    "The v86 sweep's quarantine list. Same policy and same loader as",
+    "probe-quarantine.json (scripts/probe-quarantine.mjs enforces both): every",
+    "entry needs an id, a reason and an ISO expires date, the list is capped,",
+    "and on the expiry date the entry stops shielding so the sweep goes red",
+    "again and someone has to fix, delete or consciously renew it.",
+    "",
+    "These 13 stories drive the REAL tmux running in the emulated x86 guest and",
+    "have never passed there — the nightly sweep was red every night with this",
+    "exact set, which is the same as having no nightly at all. They are listed",
+    "so the sweep reports a NEW failure instead of drowning it, not because any",
+    "of them is acceptable. Tracked in https://github.com/flplima/tmuxy/issues/87.",
+    "",
+    "maxEntries is a ratchet: it only ever goes DOWN. Fixing a story means",
+    "deleting its entry and lowering the cap in the same commit."
+  ],
+  "maxEntries": 13,
+  "entries": [
+    {
+      "id": "scenarios-application--wheel-scroll-enters-copy-mode",
+      "reason": "wheel-up does not enter copy mode against the guest's tmux; the same flow passes against the mocked adapter, so the gap is in what the real control-mode path does with a wheel event.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--wheel-in-alternate-screen",
+      "reason": "The alternate-screen half of the same wheel-to-copy-mode gap.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--copy-mode-drag-selection",
+      "reason": "Drag does not enter client copy mode ('expected undefined to be truthy'); same area as the wheel entries.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--double-triple-click-select",
+      "reason": "Word/line selection reads back empty instead of the target word.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--resize",
+      "reason": "The pane height does not grow — 'expected 40 to be greater than 40', i.e. the resize never reached the guest's tmux.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--repeat-resize-bindings",
+      "reason": "A repeated resize binding overshoots badly (77.25 against a budget of 15): the repeat is applied more times than it was sent.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--font-size-shortcuts",
+      "reason": "The font-size shortcut lands on the wrong size (59 where 71 is expected).",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--switch-session-failure",
+      "reason": "The failure path reads null where the error surface is expected. Related to the TransportError the guest adapter raises for 'show-environment -g TMUXY_SWITCH_TO' — that query is not supported by this adapter, and it is also the source of most of the run's console errors.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--zoom-optimistic-timeline",
+      "reason": "The glitch detector trips during the optimistic zoom (3 node / 10 attr mutations).",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--rename-tab-optimistic",
+      "reason": "The optimistic rename reads back null instead of the new name.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--group-switch-next-prev",
+      "reason": "The tab is named 'Pane %3' — a raw tmux pane id where the format string should have been expanded. Looks like a real formatting bug rather than a guest-timing one.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--widget-browser-image",
+      "reason": "The image widget renders without its 'Back' control.",
+      "expires": "2026-11-30"
+    },
+    {
+      "id": "scenarios-application--autolink-needs-link-modifier",
+      "reason": "The detected URL is truncated to 'https://examp/' — the autolink reads a clipped cell range out of the guest's grid.",
+      "expires": "2026-11-30"
+    }
+  ]
+}

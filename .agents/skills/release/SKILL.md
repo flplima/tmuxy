@@ -37,7 +37,13 @@ Signing changes nothing about the cask — Homebrew already strips the quarantin
 
 ## 1. Land the change on main
 
-Stage files explicitly, commit with a gitmoji prefix, push to `origin/main`. CI runs three workflows: `lint and tests`, `Build App`, `Deploy Demo`. The `Build App` workflow on a non-tag push builds and uploads artifacts but **skips** the `release` and `bump-cask` jobs — those are tag-gated.
+Stage files explicitly, commit with a gitmoji prefix, push to `origin/main`. A push to main runs `lint and tests` and (when it touched the demo or UI sources) `Deploy Demo`. **`Build App` does not run on a push to main** — it triggers on tags, on a daily schedule, and on manual dispatch. The 3-platform build that matters for the release is the tag-triggered one in step 6, whose `release` job depends on `build`, `upgrade-path` and `tests` (the full suite re-run on the tag ref).
+
+If you want a 3-platform build before tagging — a change that touched the desktop app, packaging or the macOS path — dispatch one and wait for it:
+
+```
+gh workflow run build-app.yml --ref main && gh run watch
+```
 
 ## 2. Wait for CI green on the change commit
 
@@ -89,7 +95,7 @@ Verifies you're on a clean `main` and that `Cargo.toml` matches the tag, then ru
 
 ### The CI gate
 
-The gate asks about the **version-bump commit itself, not its parent**. That distinction is the whole point: v0.0.10-alpha.40 was tagged on a commit whose `lint and tests` had *failed*, because the only thing anyone had checked was the commit before the bump. The gate reuses `wait-ci commit <sha>` verbatim, so it inherits the rule that the path-filtered `Deploy Demo` may legitimately report "not triggered by this commit", while `lint and tests` and `Build App` must be `completed (success)`.
+The gate asks about the **version-bump commit itself, not its parent**. That distinction is the whole point: v0.0.10-alpha.40 was tagged on a commit whose `lint and tests` had *failed*, because the only thing anyone had checked was the commit before the bump. The gate reuses `wait-ci commit <sha>` verbatim, so it inherits the rule that the path-filtered `Deploy Demo` may legitimately report "not triggered by this commit", while `lint and tests` must be `completed (success)`.
 
 A run that is queued, in progress, or has not reported a conclusion yet **blocks** — the gate waits for it (`--ci-timeout <seconds>`, default 2700) rather than guessing.
 

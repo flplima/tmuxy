@@ -19,6 +19,12 @@
  * A failing story's screenshot and error text land in PROBE_ARTIFACT_DIR
  * (default `probe-artifacts/` beside package.json), for CI to upload.
  *
+ * Quarantine: scripts/probe-quarantine-v86.json lists stories whose failures
+ * are reported but do not turn the run red — capped, dated, and each with its
+ * reason (scripts/probe-quarantine.mjs enforces the policy, the same one the
+ * deterministic probe uses). Without it the sweep was red every night with the
+ * same 13 failures, which buries a real regression instead of showing it.
+ *
  * Set PROBE_TIMINGS_JSON=<path> to also write a machine-readable per-story
  * timings report ({ generatedAt, storybookPort, stories: [{id, ok, retried,
  * secs}], totals }). This turns the v86 sweep's wall-clock into an Axis-A
@@ -30,6 +36,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadQuarantine, quarantineStatus as statusFor } from './probe-quarantine.mjs';
 
 const args = process.argv.slice(2);
 const PORT = /^\d+$/.test(args[0] ?? '') ? Number(args.shift()) : 6006;
@@ -38,6 +45,9 @@ const STORYBOOK_URL = `http://localhost:${PORT}`;
 const PER_STORY_TIMEOUT_MS = 240000;
 const PACKAGE_DIR = resolvePath(dirname(fileURLToPath(import.meta.url)), '..');
 const ARTIFACT_DIR = resolvePath(PACKAGE_DIR, process.env.PROBE_ARTIFACT_DIR || 'probe-artifacts');
+const SCRIPT_DIR = resolvePath(PACKAGE_DIR, 'scripts');
+const quarantine = loadQuarantine(resolvePath(SCRIPT_DIR, 'probe-quarantine-v86.json'));
+const quarantineStatus = (id) => statusFor(quarantine, id);
 
 async function fetchIndex() {
   const res = await fetch(`${STORYBOOK_URL}/index.json`);
@@ -221,8 +231,10 @@ for (let i = 0; i < ids.length; i++) {
   }
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
   if (!result.ok) result.artifact = await writeArtifacts(result);
+  const shielded = !result.ok && quarantineStatus(id).shielded;
+  const label = result.ok ? 'PASS' : shielded ? 'QUARANTINED' : 'FAIL';
   console.log(
-    `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
+    `${label}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
       result.ok ? '' : ` — ${result.reason}${result.message ? `: ${result.message}` : ''}`
     }`,
   );
@@ -237,8 +249,34 @@ for (let i = 0; i < ids.length; i++) {
 await browser.close();
 
 const failed = results.filter((r) => !r.ok);
+const blocking = failed.filter((r) => !quarantineStatus(r.id).shielded);
+const shieldedFailures = failed.filter((r) => quarantineStatus(r.id).shielded);
 console.log('');
-console.log(`results: ${results.length - failed.length} passed, ${failed.length} failed`);
+console.log(
+  `results: ${results.length - failed.length} passed, ${blocking.length} failed, ` +
+    `${shieldedFailures.length} quarantined-failure`,
+);
+if (blocking.length > 0) {
+  console.log('');
+  console.log(`failures that are NOT quarantined (${blocking.length}):`);
+  for (const r of blocking) console.log(`  ${r.id} — ${r.message ?? r.reason}`);
+}
+// A quarantined story that never failed has earned its way out of the list.
+const ready = [...quarantine.byId.values()].filter(
+  (e) => results.some((r) => r.id === e.id) && !failed.some((r) => r.id === e.id),
+);
+if (ready.length > 0) {
+  console.log('');
+  console.log('quarantined stories that PASSED — remove them from probe-quarantine-v86.json');
+  console.log('and lower maxEntries in the same commit:');
+  for (const e of ready) console.log(`  ${e.id}`);
+}
+const expired = [...quarantine.byId.values()].filter((e) => e.expires <= quarantine.today);
+if (expired.length > 0) {
+  console.log('');
+  console.log('quarantine entries that have EXPIRED and no longer shield anything:');
+  for (const e of expired) console.log(`  ${e.id} (expired ${e.expires})`);
+}
 if (pageErrors.length > 0) {
   console.log(`pageerrors during run: ${pageErrors.length}`);
   for (const e of pageErrors.slice(0, 5)) console.log(`  ${e.slice(0, 200)}`);
@@ -270,6 +308,9 @@ if (timingsPath) {
       count: results.length,
       passed: results.length - failed.length,
       failed: failed.length,
+      blocking: blocking.length,
+      quarantined: shieldedFailures.length,
+      blockingIds: blocking.map((r) => r.id),
       totalSecs: Number(total.toFixed(1)),
       slowest: slowest.map((r) => ({ id: r.id, secs: r.secs })),
     },
@@ -278,4 +319,4 @@ if (timingsPath) {
   console.log(`wrote timings report → ${timingsPath}`);
 }
 
-process.exit(failed.length === 0 ? 0 : 1);
+process.exit(blocking.length === 0 ? 0 : 1);

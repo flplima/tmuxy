@@ -26,7 +26,13 @@ done
 # The workflows that must pass on a plain push to main. Deploy Demo is
 # path-filtered (tmuxy-demo / tmuxy-ui sources), so it only has to pass when
 # the commit triggered it.
-EXPECTED=("lint and tests" "Build App" "Deploy Demo")
+#
+# NOT "Build App": it triggers on tags, a daily schedule and manual dispatch,
+# never on a plain push to main, so waiting for it here would time out on
+# every release. The tag run in step 6 is what gates shipping, and its own
+# `release` job needs `tests` (lint-and-tests on the TAG ref) + `build` +
+# `upgrade-path` — so nothing reaches brew without a green 3-platform build.
+EXPECTED=("lint and tests" "Deploy Demo")
 OPTIONAL=("Deploy Demo")
 
 case "$MODE" in

@@ -19,8 +19,7 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 | `cli-tests` | `npm run test:cli` | CLI dispatcher behavior |
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
 | `e2e (...)` | `npm run test:e2e` | Browser + tmux integration |
-| `tauri-e2e` | `npm run test:tauri` | Desktop IPC + Tauri runtime |
-| `desktop-smoke` | See `tests/smoke/smoke-test.js` invocation in workflow | Release-like desktop launch path |
+| `desktop` | `npm run test:tauri` (with `TAURI_BINARY` pointing at the release build) + `tests/smoke/smoke-test.js` | Desktop IPC, Tauri runtime, and the release launch path — one release build serves both |
 | `interaction-latency` | `npm run perf:interactions` + `npm run perf:compare` | Performance budgets |
 | `storybook-probe` / `storybook-v86-probe` | `npm run test-storybook -w tmuxy-ui` / `npm run test-storybook:v86 -w tmuxy-ui` | Story play-function regressions |
 | `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit` | Dependency security alerts |

@@ -64,7 +64,6 @@ describe('Scenario 14: OSC Protocols', () => {
           return (
             (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
             parsed.hostname === 'example.com'
-
           );
         } catch {
           return false;

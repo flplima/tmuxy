@@ -11,7 +11,10 @@ const path = require('path');
 const { DRIVER_PORT } = require('./tauri-driver');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
-const TAURI_BINARY = path.join(WORKSPACE_ROOT, 'target/debug/tmuxy');
+// `npx tauri build --debug` is what a local run produces, so that stays the
+// default. CI builds the release binary once and drives both the smoke test
+// and this suite against it — the binary users actually launch.
+const TAURI_BINARY = process.env.TAURI_BINARY || path.join(WORKSPACE_ROOT, 'target/debug/tmuxy');
 
 // WebDriver Unicode key codes for special keys
 const KEYS = {

@@ -1,9 +1,21 @@
 name: Build App
 
+# Tags publish. The daily run is the safety net: `desktop` in lint-and-tests
+# already proves per-commit that the Linux release binary builds and launches,
+# so what is left for this workflow to catch is macOS and arm64 breakage and
+# the installer/bundle paths (DMG, AppImage, .deb, the upgrade path) — real
+# risks, but ones a day of latency is fine for. It used to run on every push
+# to main, putting a 3-platform build and notarization behind every commit.
+#
+# Everything that PUBLISHES (release, bump-cask, bump-formula, verify) is
+# gated on a tag ref, so a scheduled run builds and smoke-tests only.
 on:
   push:
-    branches: [main]
     tags: ['v*']
+  schedule:
+    # 06:30 UTC — after the three nightlies, so they do not contend for runners.
+    - cron: '30 6 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write

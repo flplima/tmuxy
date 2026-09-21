@@ -7,6 +7,13 @@ name: nightly v86 sweep
 # failure opens (or updates) an issue so the result actually reaches someone.
 #
 # The three blocking gate stories still run per commit in lint-and-tests.yml.
+#
+# The stories that do not pass against the guest's real tmux are quarantined
+# in packages/tmuxy-ui/scripts/probe-quarantine-v86.json — same capped, dated,
+# reasoned policy as the deterministic probe's list. They still run and are
+# still reported; they just do not turn this job red, so a NEW failure is
+# visible instead of buried. Before that, the sweep was red every night with
+# the same 13 failures, which is the same as having no nightly at all.
 
 on:
   schedule:
@@ -155,6 +162,8 @@ jobs:
           set -euo pipefail
           TITLE="Nightly v86 sweep is failing"
           BODY="The nightly full v86 story sweep failed.
+
+          A story failed that is NOT quarantined in \`packages/tmuxy-ui/scripts/probe-quarantine-v86.json\` — the run log lists them under 'failures that are NOT quarantined'. The log also names quarantined stories that have started passing (remove them) and entries that have expired.
 
           Run: $RUN_URL
           Commit: ${{ github.sha }}

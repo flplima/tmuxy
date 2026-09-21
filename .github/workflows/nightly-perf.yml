@@ -1,4 +1,4 @@
-name: nightly perf
+name: perf measurements
 
 # Two performance measurements that nothing in CI runs today.
 #
@@ -12,13 +12,15 @@ name: nightly perf
 # Neither job gates anything. Absolute milliseconds/nanoseconds from a shared
 # GitHub runner are not a merge signal — the ratio gate in the per-commit
 # `interaction-latency` job is.
+#
+# So this is ON DEMAND, not nightly. Both jobs exist to hand a human a number:
+# the bench report to compare against the stored baseline, and the refreshed
+# `perf/interaction-baseline.json` to review and commit. A nightly schedule
+# produced neither — it wrote artifacts nobody opened, and the baseline it
+# exists to feed has never been refreshed from one. Run it (Actions → "perf
+# measurements" → Run workflow) when you want the number.
 
 on:
-  schedule:
-    # 05:30 UTC — after the v86 sweep (04:30) and the tmux matrix (03:30), so
-    # the three nightlies do not contend for runners, and the bench in
-    # particular gets a machine to itself.
-    - cron: '30 5 * * *'
   workflow_dispatch:
 
 permissions:

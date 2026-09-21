@@ -83,7 +83,12 @@ jobs:
 
   # macOS is the primary user platform, and every test job above runs on Linux
   # only — a macOS-only bug (feab950) reached a release because nothing on CI
-  # ever executed this code on a Mac. Same three cheap suites, one runner.
+  # ever executed this code on a Mac.
+  #
+  # Only the platform-SENSITIVE suites: the CLI (shell, paths, PATH lookup) and
+  # cargo test (a real `tmux -CC` against Homebrew's tmux). Vitest ran here too
+  # and was dropped — it is pure JS logic with no platform surface, already
+  # covered by `node-checks / unit-tests`.
   macos-tests:
     runs-on: macos-latest
     timeout-minutes: 30
@@ -110,9 +115,6 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
-
-      - name: Vitest
-        run: npm test -- --run
 
       - name: CLI suite
         run: npm run test:cli
@@ -405,82 +407,6 @@ jobs:
         if: failure()
         run: tail -2000 /tmp/tmuxy-server.log
 
-  # Tauri E2E runs as its own parallel job. Previously chained after the
-  # E2E suite, adding ~3 min to the critical path. Still builds a debug
-  # Tauri binary (different profile from build-app's release), but no
-  # longer sits on the longest job.
-  tauri-e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev \
-            webkit2gtk-driver xvfb x11-utils
-
-      # Match the `e2e` job's tmux version (3.7a — the devcontainer / v86
-      # guest / docs/TMUX.md target). Ubuntu's apt ships tmux 3.4, which has a
-      # race where the initial auto-adopt of `@tmuxy-window-type=tab` gets
-      # clobbered by an in-flight list-windows response under the load the
-      # Ctx/Tower Tauri path puts on the CC stream at startup.
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
-
-      - name: Confirm tmux version
-        run: tmux -V
-
-      # `cargo install tauri-driver` compiles from source on every run
-      # (~2 min). Pinned so the cache key describes exactly what is in it.
-      - name: Cache tauri-driver
-        id: tauri-driver-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo/bin/tauri-driver
-          key: ${{ runner.os }}-tauri-driver-2.0.6
-
-      - name: Install tauri-driver (cache miss)
-        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked --force
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build Tauri app (debug)
-        run: npx tauri build --debug --no-bundle
-        working-directory: packages/tmuxy-tauri-app
-
-      - name: Tauri E2E tests
-        run: npm run test:tauri
-
   # Storybook probes. Both jobs drive stories in a real Chromium against a
   # `storybook dev` server — dev (not static) on purpose: no build step, and
   # stories compile on demand.
@@ -670,12 +596,23 @@ jobs:
   # (dev tooling — Storybook, Puppeteer, wdio — is audited by Dependabot but
   # would keep this job permanently red) and the Rust workspace, with the
   # policy and its reasons in .cargo/audit.toml.
-  # The packaged desktop app used to be exercised only by build-app.yml, which
-  # never runs on a pull request — so a launch-environment regression (6 of the
-  # last 8 Build App failures, 5 of them on dependabot Tauri bumps) was found
-  # only after it had already landed on main. This runs the same Linux smoke
-  # test against a release --no-bundle build, per commit and per PR.
-  desktop-smoke:
+  # The packaged desktop app: built ONCE, then both desktop suites run against
+  # that one binary.
+  #
+  # These were two jobs — `tauri-e2e` (debug build, WebdriverIO suite) and
+  # `desktop-smoke` (release build, launch smoke test). They installed the same
+  # WebKitGTK/Xvfb apt set, shared the same tauri-driver and tmux 3.7a caches,
+  # and compiled the Tauri app twice between them, for the two jobs that
+  # between them produced most of this workflow's failures.
+  #
+  # Release, not debug: build-app.yml ships release, so that is the binary a
+  # user launches, and the smoke test needs it anyway. The E2E suite takes the
+  # path through TAURI_BINARY; a local `npx tauri build --debug` still works
+  # with no env set.
+  #
+  # The smoke test runs FIRST and brings its own tauri-driver up and down; the
+  # jest suite then starts its own on the same port.
+  desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -700,8 +637,12 @@ jobs:
             libjavascriptcoregtk-4.1-dev librsvg2-dev \
             webkit2gtk-driver xvfb x11-utils
 
-      # The app refuses to launch below tmux 3.3; apt's is older on some
-      # images. Same source-built 3.7a and cache key as every other job.
+      # Match the `e2e` job's tmux version (3.7a — the devcontainer / v86
+      # guest / docs/TMUX.md target). Ubuntu's apt ships tmux 3.4, which has a
+      # race where the initial auto-adopt of `@tmuxy-window-type=tab` gets
+      # clobbered by an in-flight list-windows response under the load the
+      # Ctx/Tower Tauri path puts on the CC stream at startup. The app also
+      # refuses to launch below tmux 3.3.
       - name: Cache tmux 3.7a
         id: tmux-cache
         uses: actions/cache@v6
@@ -721,6 +662,8 @@ jobs:
       - name: Confirm tmux version
         run: tmux -V
 
+      # `cargo install tauri-driver` compiles from source on every run
+      # (~2 min). Pinned so the cache key describes exactly what is in it.
       - name: Cache tauri-driver
         id: tauri-driver-cache
         uses: actions/cache@v6
@@ -735,23 +678,24 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # Release profile like build-app.yml (that is the binary users launch),
-      # but without the bundlers — the smoke test runs the raw executable.
+      # Without the bundlers — both suites run the raw executable.
       - name: Build Tauri app (release)
         run: npx tauri build --no-bundle
         working-directory: packages/tmuxy-tauri-app
 
-      - name: Run smoke test
+      - name: Start Xvfb
         run: |
           Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
-          XVFB_PID=$!
-          export DISPLAY=:99
-
+          echo "XVFB_PID=$!" >> "$GITHUB_ENV"
           for i in $(seq 1 20); do
             xdpyinfo -display :99 >/dev/null 2>&1 && break
             sleep 0.25
           done
 
+      - name: Run smoke test
+        env:
+          DISPLAY: ':99'
+        run: |
           tauri-driver --port 4444 &
           DRIVER_PID=$!
           sleep 2
@@ -760,9 +704,17 @@ jobs:
           RESULT=$?
 
           kill $DRIVER_PID 2>/dev/null || true
-          kill $XVFB_PID 2>/dev/null || true
-
           exit $RESULT
+
+      - name: Tauri E2E tests
+        env:
+          DISPLAY: ':99'
+          TAURI_BINARY: ${{ github.workspace }}/target/release/tmuxy
+        run: npm run test:tauri
+
+      - name: Stop Xvfb
+        if: always()
+        run: kill "$XVFB_PID" 2>/dev/null || true
 
   audit:
     runs-on: ubuntu-latest
