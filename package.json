@@ -30,9 +30,12 @@
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",
     "agents": "bash bin/devcontainer --name agents run bash .agents/start.sh",
     "prepare": "git config core.hooksPath .github",
-    "copilot:bootstrap": "bash bin/agent-bootstrap",
-    "copilot:fast-check": "npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
-    "copilot:full-check": "npm run copilot:fast-check && npm run test:cli && cargo test --workspace"
+    "agent:bootstrap": "bash bin/agent-bootstrap",
+    "agent:fast-check": "npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
+    "agent:full-check": "npm run agent:fast-check && npm run test:cli && cargo test --workspace",
+    "copilot:bootstrap": "npm run agent:bootstrap",
+    "copilot:fast-check": "npm run agent:fast-check",
+    "copilot:full-check": "npm run agent:full-check"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",

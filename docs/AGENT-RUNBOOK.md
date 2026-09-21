@@ -5,8 +5,8 @@ Task-to-command matrix for AI coding agents working in tmuxy.
 | Task | Commands | Notes |
 |---|---|---|
 | Bootstrap environment | `bash bin/agent-bootstrap` | Idempotent and non-interactive. |
-| Quick validation before commit | `npm run copilot:fast-check` | Lint + TS + unit checks. |
-| Deeper pre-merge validation | `npm run copilot:full-check` | Adds CLI + Rust workspace tests. |
+| Quick validation before commit | `npm run agent:fast-check` | Lint + TS + unit checks. |
+| Deeper pre-merge validation | `npm run agent:full-check` | Adds CLI + Rust workspace tests. |
 | UI-only change (`packages/tmuxy-ui/src/**`) | `npm run lint -w tmuxy-ui`<br>`(cd packages/tmuxy-ui && npx tsc --noEmit)`<br>`npm test -- --run` | Matches core CI checks for UI logic. |
 | E2E behavior/debug | `npm run test:e2e` | Requires Playwright + tmux runtime. |
 | Tauri behavior/debug | `npm run test:tauri` | Linux CI uses `tauri-driver` + Xvfb. |

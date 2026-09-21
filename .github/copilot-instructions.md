@@ -1,9 +1,9 @@
-# Copilot Instructions for tmuxy
+# Agent Instructions for tmuxy (Copilot profile)
 
 ## First commands to run
 
 1. `bash bin/agent-bootstrap`
-2. `npm run copilot:fast-check`
+2. `npm run agent:fast-check`
 
 ## Repository constraints
 
@@ -14,8 +14,8 @@
 
 ## High-signal command map
 
-- Fast validation: `npm run copilot:fast-check`
-- Full validation: `npm run copilot:full-check`
+- Fast validation: `npm run agent:fast-check`
+- Full validation: `npm run agent:full-check`
 - E2E only: `npm run test:e2e`
 - Tauri E2E only: `npm run test:tauri`
 - Rust workspace tests: `cargo test --workspace`
@@ -29,3 +29,8 @@
 - `docs/TESTS.md`
 - `docs/CI-TRIAGE.md`
 - `docs/ARCHITECTURE-INDEX.md`
+
+## Copilot-specific note
+
+- GitHub Copilot cloud agent runs `.github/workflows/copilot-setup-steps.yml` before session start.
+- The local devcontainer is a contributor environment and is not used by Copilot cloud sessions.

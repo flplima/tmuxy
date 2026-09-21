@@ -4,8 +4,8 @@
 
 ## Validation
 
-- [ ] `npm run copilot:fast-check`
-- [ ] `npm run copilot:full-check` (or explain why not required)
+- [ ] `npm run agent:fast-check`
+- [ ] `npm run agent:full-check` (or explain why not required)
 
 ## Agent-produced changes checklist
 
