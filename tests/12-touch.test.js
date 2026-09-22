@@ -57,10 +57,17 @@ async function typeOnVirtualKeyboard(page, text) {
 }
 
 /** Every box the user should be able to reach has to be inside the screen. */
-function expectOnScreen(box, label, width = PHONE.width) {
-  expect({ label, visible: box.width > 0 && box.height > 0 }).toEqual({ label, visible: true });
-  expect({ label, left: box.left >= -1 }).toEqual({ label, left: true });
-  expect({ label, right: box.right <= width + 1 }).toEqual({ label, right: true });
+/**
+ * `diag` rides along in both halves of the comparison so a failure prints the
+ * geometry that produced it. "right: false" on its own says a box is off the
+ * screen and nothing about why, which is a poor thing to read in a CI log for
+ * a layout that only misbehaves on another machine's fonts.
+ */
+function expectOnScreen(box, label, width = PHONE.width, diag = {}) {
+  const of = (value) => ({ label, ...diag, box, ...value });
+  expect(of({ visible: box.width > 0 && box.height > 0 })).toEqual(of({ visible: true }));
+  expect(of({ left: box.left >= -1 })).toEqual(of({ left: true }));
+  expect(of({ right: box.right <= width + 1 })).toEqual(of({ right: true }));
 }
 
 describe('Phone width (400px) with a touchscreen', () => {
@@ -96,10 +103,21 @@ describe('Phone width (400px) with a touchscreen', () => {
           const r = el.getBoundingClientRect();
           return { left: r.left, right: r.right, top: r.top, width: r.width, height: r.height };
         };
+        const ctx = window.app?.getSnapshot()?.context;
         return {
           docScrollWidth: document.documentElement.scrollWidth,
           pane: box(document.querySelector('.pane-active [role="log"]')),
           tabs: box(document.querySelector('.tab-list')),
+          // What the grid was sized from, for a failure to be readable.
+          grid: ctx && {
+            containerWidth: ctx.containerWidth,
+            charWidth: ctx.charWidth,
+            totalWidth: ctx.totalWidth,
+            targetCols: ctx.targetCols,
+            sidebarMotion: ctx.sidebarMotion ?? null,
+            leftSidebar: ctx.leftSidebarOpen ?? null,
+            rightSidebar: ctx.rightSidebarOpen ?? null,
+          },
         };
       });
     // The grid reflows to the phone viewport over the first frames, so a
@@ -113,8 +131,8 @@ describe('Phone width (400px) with a touchscreen', () => {
       layout = await measureLayout();
     }
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);
-    expectOnScreen(layout.pane, 'the terminal');
-    expectOnScreen(layout.tabs, 'the tab strip');
+    expectOnScreen(layout.pane, 'the terminal', PHONE.width, { grid: layout.grid });
+    expectOnScreen(layout.tabs, 'the tab strip', PHONE.width, { grid: layout.grid });
     // A terminal squeezed to nothing is "on screen" too; it has to be usable.
     expect(layout.pane.height).toBeGreaterThan(200);
 

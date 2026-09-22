@@ -5,7 +5,11 @@
 const path = require('path');
 
 // Ports and URLs
-const CDP_PORT = 9222;
+// The dev environment's Chrome answers on 9222 and the suites attach to it.
+// Pointing TMUXY_CDP_PORT at a closed port is how you make a run launch its
+// own headless browser instead — the shape CI runs in, and the only way to
+// chase a failure that only happens there from a machine that has a Chrome.
+const CDP_PORT = Number(process.env.TMUXY_CDP_PORT || 9222);
 const TMUXY_PORT = parseInt(process.env.TMUXY_PORT || '9000', 10);
 const TMUXY_URL = `http://localhost:${TMUXY_PORT}`;
 
