@@ -11,6 +11,14 @@
  *
  * Rows are bottom-anchored like the terminal itself (`bottom: 0` in
  * TerminalPane), so strip `i` counts up from the last row.
+ *
+ * The RIGHT strip is painted only for a row that reaches the last column. A
+ * row's last CELL is not the same thing as its right EDGE: tmux reports a row
+ * as long as its content, so the last cell of `▀▀▀▀` drawn eight columns into
+ * a 76-column pane is artwork, not a bar running off the side. Extending it
+ * ran the colour of an ASCII-art logo's last pixel across the rest of the row
+ * (and, before this, across the whole line). A status line does reach the
+ * last column, which is the case the padding was painted for.
  */
 
 import { memo } from 'react';
@@ -19,15 +27,17 @@ import { rowEdgeBackground } from './terminalRendering';
 
 interface RowEdgesProps {
   lines: CellLine[];
+  /** The grid's width; a row shorter than this does not reach the right edge. */
+  cols: number;
 }
 
-export const RowEdges = memo(function RowEdges({ lines }: RowEdgesProps) {
+export const RowEdges = memo(function RowEdges({ lines, cols }: RowEdgesProps) {
   const strips: React.ReactNode[] = [];
   const count = lines.length;
   for (let i = 0; i < count; i++) {
     const line = lines[i];
     const left = rowEdgeBackground(line[0]?.s);
-    const right = rowEdgeBackground(line[line.length - 1]?.s);
+    const right = line.length >= cols ? rowEdgeBackground(line[line.length - 1]?.s) : undefined;
     if (left === undefined && right === undefined) continue;
     const bottom = `calc(${count - 1 - i} * var(--line-height-terminal))`;
     if (left !== undefined) {

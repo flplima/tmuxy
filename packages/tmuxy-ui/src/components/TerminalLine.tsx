@@ -15,7 +15,6 @@ import { memo, useMemo, useCallback, useSyncExternalStore, CSSProperties } from 
 import { LogProfiler } from '../utils/renderLog';
 import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
-import { rowEdgeBackground } from './terminalRendering';
 import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls } from '../utils/urlDetect';
@@ -320,23 +319,9 @@ export const TerminalLine = memo(
       return spans;
     };
 
-    // Row edges reach the pane border in the first / last cell's colours
-    // (`.terminal-line::before` / `::after`).
-    const edgeLeft = rowEdgeBackground(line[0]?.s);
-    const edgeRight = rowEdgeBackground(line[line.length - 1]?.s);
-    const edgeStyle =
-      edgeLeft !== undefined || edgeRight !== undefined
-        ? ({
-            ...(edgeLeft !== undefined && { '--row-edge-left': edgeLeft }),
-            ...(edgeRight !== undefined && { '--row-edge-right': edgeRight }),
-          } as CSSProperties)
-        : undefined;
-
     return (
       <LogProfiler id="TerminalLine">
-        <div className="terminal-line" style={edgeStyle}>
-          {renderCells()}
-        </div>
+        <div className="terminal-line">{renderCells()}</div>
       </LogProfiler>
     );
   },

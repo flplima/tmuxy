@@ -368,7 +368,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
         <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
           {/* The padding columns, row by row, in the first / last cell's colours.
               Beside the scroll container on purpose: it would clip them. */}
-          {!copyState && <RowEdges lines={pane.content} />}
+          {!copyState && <RowEdges lines={pane.content} cols={pane.width} />}
           <div
             ref={scrollRef}
             className="pane-scroll-container hide-scrollbar"

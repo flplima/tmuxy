@@ -385,16 +385,6 @@
   z-index: 1;
 }
 
-/* Whatever a row does not fill takes its last cell's background, so a status
-   line that stops short of the width still reads edge to edge (the colour
-   comes from the renderer as --row-edge-right). The pane's padding columns
-   are painted by RowEdges — see below. */
-.terminal-line::after {
-  content: '';
-  flex: 1 1 auto;
-  background-color: var(--row-edge-right, transparent);
-}
-
 /* RowEdges: the pane's horizontal padding, painted row by row in the first /
    last cell's background. Lives in .pane-content beside the scroll container
    (which would clip anything the rows painted there themselves). */

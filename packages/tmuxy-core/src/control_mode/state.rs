@@ -103,6 +103,40 @@ pub enum ChangeType {
     FlowContinue { pane_id: String },
 }
 
+/// Is this "title" a graphics escape tmux mistook for one?
+///
+/// tmux reads a lone APC string as a pane title (`input_exit_apc`), so a
+/// program that probes for Kitty graphics support without wrapping the escape
+/// in tmux's DCS passthrough names the pane after its own query — the pane
+/// running Antigravity's CLI was titled `Ga=q,f=32,s=1,v=1,i=31;AAAAAA==`
+/// while it drew. The payload is protocol, never something a user asked to
+/// read, so the pane falls back to its process name as if no title were set.
+///
+/// Matched strictly — `G` then Kitty's `key=value` pairs, then an optional
+/// `;payload` — so a program whose real title merely starts with a G keeps it.
+/// See docs/RICH-RENDERING.md for why wrapping the escape is the fix on the
+/// sending side.
+fn is_graphics_payload(title: &str) -> bool {
+    let Some(rest) = title.strip_prefix('G') else {
+        return false;
+    };
+    let keys = rest.split(';').next().unwrap_or("");
+    if keys.is_empty() {
+        return false;
+    }
+    keys.split(',').all(|pair| {
+        let mut halves = pair.splitn(2, '=');
+        let key = halves.next().unwrap_or("");
+        let value = halves.next().unwrap_or("");
+        key.len() == 1
+            && key.chars().all(|c| c.is_ascii_alphabetic())
+            && !value.is_empty()
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.' | '_'))
+    })
+}
+
 /// Result of processing a control mode event
 #[derive(Debug, Default)]
 pub struct ProcessEventResult {
@@ -2657,7 +2691,11 @@ impl StateAggregator {
         let was_resized = pane.resize(width, height);
         pane.active = active;
         pane.command = command;
-        pane.title = title;
+        pane.title = if is_graphics_payload(&title) {
+            String::new()
+        } else {
+            title
+        };
         pane.border_title = border_title;
         let was_in_mode = pane.in_mode;
         pane.in_mode = in_mode;
@@ -3681,6 +3719,47 @@ mod tests {
         assert_eq!(pane.window_id, "@4");
         assert_eq!(pane.title, "nvim");
         assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn a_kitty_graphics_query_is_not_a_pane_title() {
+        // What a pane running agy is called while it probes for graphics
+        // support: tmux takes the unwrapped APC string for a title. The pane
+        // keeps the process name instead of being named after a protocol.
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line(
+            "Ga=q,f=32,s=1,v=1,i=31;AAAAAA==",
+            "@4",
+            "",
+        ));
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.title, "");
+
+        // A query with no payload is the same thing.
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line("Ga=q,i=31", "@4", ""));
+        assert_eq!(agg.panes.get("%3").expect("pane parsed").title, "");
+    }
+
+    #[test]
+    fn a_real_title_that_starts_with_g_is_kept() {
+        // The guard above must not eat an application's own title, however it
+        // starts — only the shape of a Kitty escape counts.
+        for title in [
+            "Go build ./...",
+            "G",
+            "Gemini",
+            "Ga=q, and then some prose",
+            "Gruvbox: colors=8",
+        ] {
+            let mut agg = StateAggregator::new();
+            agg.parse_list_panes_line(&list_panes_line(title, "@4", ""));
+            let pane = agg.panes.get("%3").expect("pane parsed");
+            assert_eq!(
+                pane.title, title,
+                "{title} is a title, not a graphics payload"
+            );
+        }
     }
 
     #[test]
