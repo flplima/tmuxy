@@ -15,25 +15,23 @@ RUN usermod -l user -d /home/user -m node \
     && groupmod -n user node
 
 # System dependencies
+# What only an IMAGE needs: its base tools, its build deps, its browser. The
+# agent tooling on top of this — fzf, neovim, jq, zstd, the CJK face, Xvfb and
+# the WebKit driver — is `bin/install-dev-tools` below, shared with the cloud
+# agent's runner so the two environments cannot drift apart again.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools (openssh-client for git-over-SSH and ssh-keygen credential setup;
     # openssh-server so `gh codespace ssh` can reach a Codespace — the Codespaces
     # agent starts sshd but does not install it)
-    less git procps sudo fzf unzip openssh-client openssh-server jq zstd \
+    less git procps sudo unzip openssh-client openssh-server \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
     libevent-dev libncurses-dev bison \
-    # Chromium (agent-browser; ARM64 has no playwright-bundled build so we use system)
+    # Chromium (agent-browser; ARM64 has no downloadable build so we use system)
     chromium \
-    # CJK + fullwidth glyphs, so headless Chromium renders them at their real
-    # width. Without a CJK face the wide-glyph TerminalLine stories measure a
-    # 1-cell fallback box and fail locally while passing on CI runners that
-    # ship fonts. wqy-zenhei is ~16MB, against ~250MB for fonts-noto-cjk.
-    fonts-wqy-zenhei \
-    # Tauri build deps (WebKitGTK) and E2E test deps (Xvfb, WebKitWebDriver)
+    # Tauri build deps (WebKitGTK)
     libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
     libjavascriptcoregtk-4.1-dev librsvg2-dev \
-    webkit2gtk-driver xvfb x11-utils \
     # Scoped passwordless sudo for chown/chmod so the credential-volume ownership
     # fix (.devcontainer/fix-credential-ownership.sh) can repair root-owned/stale-UID
     # named volumes on container start.
@@ -73,9 +71,18 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     && rustup target add wasm32-unknown-unknown \
     # i686-musl for the v86 guest's tmuxy-tree binary (scripts/build-v86-snapshot.mjs)
     && rustup target add i686-unknown-linux-musl \
-    && cargo install cargo-watch tauri-driver \
-    && cargo install wasm-bindgen-cli --version 0.2.111 --locked \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
+    && chown -R user:user /usr/local/cargo /usr/local/rustup
+
+# The shared agent tooling (bin/install-dev-tools), run as root while apt still
+# works: apt extras, cargo-watch, and — with --full — the Tauri E2E driver and
+# the wasm-bindgen the v86 build needs. The env var above is what tells it a
+# browser is already here, so it downloads none.
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+COPY bin/install-dev-tools /tmp/install-dev-tools
+RUN /tmp/install-dev-tools --full \
+    && rm /tmp/install-dev-tools \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 
 # Ensure `user` has access to /usr/local/share
@@ -135,14 +142,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
     && mkdir -p -m 700 /home/user/.ssh
 
-# Global npm packages: pm2, agent-browser
-# The system chromium (installed above) is the single Chromium for every
-# Playwright-driven test: the e2e suite (tests/helpers/browser.js launch
-# fallback) and the storybook probe (packages/tmuxy-ui/scripts/probe-stories.mjs)
-# both read this env var and pass it as Playwright's `executablePath`. ARM64 has
-# no Playwright-bundled build, so the system binary is required there; we use it
-# on all arches for consistency, which is why no `playwright install` step is
-# needed for the test browsers.
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-RUN npm install -g pm2 agent-browser \
-    && if [ "$(dpkg --print-architecture)" != "arm64" ]; then agent-browser install; fi
+# pm2 runs the dev server (`npm start`). The single Chromium for everything
+# Playwright-driven — the e2e suite (tests/helpers/browser.js launch fallback),
+# the storybook probe (packages/tmuxy-ui/scripts/probe-stories.mjs) and
+# agent-browser — is the system one, named by PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+# above: arm64 has no downloadable build, so a system binary is required there
+# and used on every arch for consistency. Hence no `playwright install` step.
+RUN npm install -g pm2

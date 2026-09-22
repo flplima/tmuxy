@@ -1,38 +1,24 @@
-# Agent Instructions for tmuxy (Copilot profile)
+# Agent instructions for tmuxy
 
-## First commands to run
+**[AGENTS.md](../AGENTS.md) is the instruction file for every agent, this one
+included.** Read it: the coding rules, the tmux control-mode constraint, the
+test guidelines, the doc index and the commands to run before wrapping up all
+live there, and they are not repeated here. A copy would only be a second thing
+to keep current, and the copy is what goes stale.
+
+## First commands
 
 1. `bash bin/bootstrap`
 2. `npm run check:fast`
 
-## Repository constraints
+## What is different about the Copilot cloud session
 
-- Route tmux mutations through control mode; do not add shell/subprocess tmux paths.
-- Use existing scripts/workflows/tests; do not introduce new tooling unless required.
-- Keep changes surgical and update docs when behavior changes.
-- Run checks that match changed areas before finalizing.
-
-## High-signal command map
-
-- Fast validation: `npm run check:fast`
-- Full validation: `npm run check:full`
-- E2E only: `npm run test:e2e`
-- Tauri E2E only: `npm run test:tauri`
-- Rust workspace tests: `cargo test --workspace`
-- CI parity lint: `(cd packages/tmuxy-ui && npx prettier --check src) && npx prettier --check 'tests/**/*.js' && npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)`
-
-Before wrapping up a task, run `npm run check:fast` and the CI parity lint command above.
-
-## Key docs
-
-- `docs/ARCHITECTURE.md`
-- `docs/TMUX.md`
-- `docs/DATA-FLOW.md`
-- `docs/TESTS.md`
-- `docs/CI-TRIAGE.md`
-- `docs/ARCHITECTURE-INDEX.md`
-
-## Copilot-specific note
-
-- GitHub Copilot cloud agent runs `.github/workflows/copilot-setup-steps.yml` before session start.
-- `.devcontainer/` is a contributor environment (plain Docker, VS Code Dev Containers, GitHub Codespaces) and is not used by Copilot cloud sessions.
+- The environment is an ephemeral GitHub Actions runner built by
+  `.github/workflows/copilot-setup-steps.yml`. `.devcontainer/` does not apply
+  here — a custom container image and `devcontainer.json` are not supported for
+  this agent.
+- The tooling on top of Node, Rust and tmux comes from `bin/install-dev-tools`,
+  the same list the devcontainer image installs. If something an agent needs is
+  missing, add it there rather than to this file or the workflow.
+- The browser is `agent-browser`'s, and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
+  points the Playwright-driven suites at that same binary.

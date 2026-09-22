@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# The tooling an agent needs on top of `npm ci` and a Rust toolchain.
+#
+# One list, two environments: the devcontainer image (.devcontainer/Dockerfile)
+# and the cloud agent's ephemeral runner (.github/workflows/copilot-setup-steps.yml).
+# They drifted for as long as each kept its own copy — the runner ended up with
+# the `wasm32` and `i686-musl` targets but not the `wasm-bindgen` that consumes
+# them, and with no browser at all — so both now call this.
+#
+# What stays OUT of here, on purpose: anything only one host can do. The image's
+# base packages, its user, its rust toolchain and its tmux build are the
+# Dockerfile's; the runner's node/rust setup and its cached tmux are the
+# workflow's. This file is the overlap and nothing else.
+#
+# Usage: bin/install-dev-tools [--full]
+#
+#   default   what a session needs to run the app, drive it in a browser, and
+#             read its trace: apt extras, cargo-watch, agent-browser.
+#   --full    also the toolchains for the tiers a container is expected to run
+#             locally — the Tauri E2E driver and the wasm build for v86.
+#
+# Idempotent: every step is safe to replay on a warm machine.
+set -euo pipefail
+
+FULL=0
+if [ "${1:-}" = "--full" ]; then
+    FULL=1
+fi
+
+# Root in an image build, a sudoer on a runner.
+SUDO=""
+if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+fi
+
+echo "[dev-tools] apt packages"
+# fzf and neovim are driven BY the tests (the float fzf round trip, the nvim
+# performance suite); jq reads the NDJSON trace; zstd unpacks the v86 image;
+# xvfb + webkit2gtk-driver are the Tauri E2E display and driver. The CJK face
+# is here because without one headless Chromium measures a fullwidth glyph as a
+# 1-cell fallback box, and the wide-glyph stories assert real cell widths.
+$SUDO apt-get update
+$SUDO apt-get install -y --no-install-recommends \
+    jq zstd fzf neovim \
+    fonts-wqy-zenhei \
+    xvfb x11-utils webkit2gtk-driver
+
+# Prebuilt binaries where there is one: `cargo install` from source costs
+# minutes per tool on a cold machine, and these are all published as releases.
+# Best effort — if binstall cannot be had, the fallback is the slow path, not a
+# failed setup.
+if ! command -v cargo-binstall >/dev/null 2>&1; then
+    curl -fsSL https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+        | bash || echo "[dev-tools] no cargo-binstall; building from source" >&2
+fi
+
+install_crate() {
+    local crate="$1"
+    shift
+    if command -v cargo-binstall >/dev/null 2>&1; then
+        cargo binstall --no-confirm "$crate" "$@"
+    else
+        cargo install "$crate" "$@"
+    fi
+}
+
+echo "[dev-tools] cargo tools"
+# `npm start` is `bin/dev` is `cargo watch`: without it there is no dev server.
+install_crate cargo-watch
+
+if [ "$FULL" -eq 1 ]; then
+    # `npm run test:tauri` drives the desktop build through this.
+    install_crate tauri-driver
+    # `npm run build:wasm` — the CLI version must match the wasm-bindgen crate
+    # pinned in Cargo.lock, which is why this one is not floating.
+    install_crate wasm-bindgen-cli --version 0.2.111 --locked
+fi
+
+echo "[dev-tools] agent-browser"
+# The browser an agent drives the app with, and the same binary the test
+# suites launch: they read PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH and pass it as
+# Playwright's `executablePath` (tests/helpers/browser.js, probe-stories.mjs),
+# so one Chrome serves both and no `playwright install` is needed.
+npm install -g agent-browser
+
+if [ -n "${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ] && [ -x "${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}" ]; then
+    # The host already provides one — the devcontainer image's system chromium.
+    echo "[dev-tools] browser provided: $PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
+elif [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
+    echo "[dev-tools] arm64 has no downloadable build: install a system chromium" \
+        "and point PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH at it" >&2
+else
+    # No --with-deps: that shells out to apt, and the libraries a headless
+    # Chrome needs are already here — from the apt list above on a runner, and
+    # from the image's own chromium package in a container.
+    agent-browser install
+fi
+
+# Hand the browser to Playwright when the environment has a way to carry it.
+# A GitHub runner does: whatever lands in $GITHUB_ENV is in the environment of
+# every later step, and of the agent session that follows them.
+if [ -n "${GITHUB_ENV:-}" ] && [ -z "${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ]; then
+    CHROME="$(find "$HOME/.cache/puppeteer" -type f -name chrome -perm -u+x 2>/dev/null | sort | tail -1 || true)"
+    if [ -z "$CHROME" ] && [ -x /usr/bin/chromium ]; then
+        CHROME=/usr/bin/chromium
+    fi
+    if [ -n "$CHROME" ]; then
+        echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$CHROME" >>"$GITHUB_ENV"
+        echo "[dev-tools] PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH -> $CHROME"
+    else
+        echo "[dev-tools] no chrome found to hand to Playwright" >&2
+    fi
+fi
+
+echo "[dev-tools] Done"

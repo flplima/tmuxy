@@ -2,6 +2,10 @@
   "name": "tmuxy-dev",
   "build": {
     "dockerfile": "Dockerfile",
+    // The repo root, because the image COPYs bin/install-dev-tools out of it.
+    // bin/devcontainer already builds from here; .dockerignore keeps the heavy
+    // regenerable trees out of what reaches the daemon.
+    "context": "..",
     "args": {
       "TZ": "${localEnv:TZ:America/Los_Angeles}"
     }
