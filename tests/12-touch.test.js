@@ -128,12 +128,22 @@ describe('Phone width (400px) with a touchscreen', () => {
           },
         };
       });
-    // The grid reflows to the phone viewport over the first frames, so a
-    // single sample can catch the terminal still at its pre-resize width.
+    // Following the viewport is a round trip, not a reflow: the client asks
+    // tmux for the columns it measured and redraws when tmux says it resized.
+    // On a slow machine that took longer than the five seconds this used to
+    // allow, and the sample caught the terminal still at the session's opening
+    // 200 columns — `targetCols: 41, totalWidth: 200` in the failure. So it
+    // waits for the grid to BE the one asked for, which is the thing the
+    // geometry below is about, and waits as long as the rest of the suite does.
     let layout = await measureLayout();
     const fits = (l) =>
-      l && l.pane && l.pane.right <= PHONE.width + 1 && l.docScrollWidth <= PHONE.width + 1;
-    const layoutDeadline = Date.now() + 5000;
+      l &&
+      l.pane &&
+      l.grid &&
+      l.grid.totalWidth === l.grid.targetCols &&
+      l.pane.right <= PHONE.width + 1 &&
+      l.docScrollWidth <= PHONE.width + 1;
+    const layoutDeadline = Date.now() + 20000;
     while (Date.now() < layoutDeadline && !fits(layout)) {
       await delay(100);
       layout = await measureLayout();
