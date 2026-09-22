@@ -15,6 +15,8 @@ See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
 See [docs/TELEMETRY.md](docs/TELEMETRY.md) for unified cross-layer action tracing into a single local NDJSON file (design: schema, seams, redaction boundary, phased plan).
+See [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) for the failing-CI-job → local-command map.
+See [docs/ARCHITECTURE-INDEX.md](docs/ARCHITECTURE-INDEX.md) for where a given concern lives in the tree.
 
 ## CLI Usage
 
@@ -22,6 +24,24 @@ The `tmuxy` CLI is a noun-verb dispatcher at `bin/tmuxy-cli`, symlinked as `~/.l
 All mutating commands route through `tmux run-shell` for safety with control mode.
 
 Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> --help` for details.
+
+## Running it
+
+| Want | Do | Notes |
+|---|---|---|
+| The dev server | `npm start` (pm2), `npm stop`, `npm logs` | `bin/dev` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev` |
+| A one-off server | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev` | No watcher, no pm2 — what to reach for when `cargo watch` is missing |
+| Drive the app | `agent-browser --session <slug> open http://localhost:9000` | See its own skill for the command set |
+| The trace | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TELEMETRY.md](docs/TELEMETRY.md) |
+| Server logs | `npm logs` (pm2), or the server's own stderr | `RUST_LOG` filters it |
+
+**Three sockets, never mixed:** a released build serves `tmuxy`, the dev server
+`tmuxy-dev`, the E2E suite `tmuxy-test`. A change of socket is a change of
+server, which is how a test run cannot disturb the session you are working in.
+
+Everything an agent needs on top of `npm ci` and a Rust toolchain is
+`bin/install-dev-tools`, shared by the devcontainer image and the cloud agent's
+runner so neither can drift from the other.
 
 ## Devcontainer
 
@@ -39,8 +59,11 @@ path and ignores a custom `workspaceMount`. Anything essential must stay out of
 `runArgs` (Codespaces ignores it). Shared start-up work belongs in
 `.devcontainer/setup.sh`, which all hosts run.
 
-Copilot's cloud agent uses none of this; it bootstraps from
-`.github/workflows/copilot-setup-steps.yml`.
+Copilot's cloud agent uses none of this: it is an ephemeral runner that
+bootstraps from `.github/workflows/copilot-setup-steps.yml` (custom images and
+`devcontainer.json` are not supported there). Both hosts call
+`bin/install-dev-tools` for the tooling on top, which is the only place that
+list lives — add a tool there, not in one of them.
 
 ## Coding Guidelines
 
@@ -69,7 +92,7 @@ Key rules:
 - **Test what the user sees, not what the DOM contains.** An element in the DOM but clipped by `overflow: hidden` is not visible. Always verify bounding rects, not just element existence or `textContent`.
 - **Use real user paths.** If a user creates a float by typing `tmuxy pane float`, the test should type that command — not call `_exec('break-pane')`. Adapter calls skip the entire chain where bugs live.
 - **One feature, one test.** Cover create → verify visible → interact → close in a single test. Do not split into separate "check state" and "check DOM" tests.
-- **Never install Playwright browsers locally** (`npx playwright install`). In the dev environment, tests connect to an existing Chrome via CDP on port 9222. (CI is the exception: its workflows provision their own chromium because the runners start empty.)
+- **Never install Playwright browsers locally** (`npx playwright install`). Tests connect to an existing Chrome via CDP on port 9222; point `TMUXY_CDP_PORT` at a closed port to make a run launch its own headless browser instead — the shape CI runs in. In a container the browser is the one `bin/install-dev-tools` provides, named by `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. (CI is the exception: its workflows provision their own chromium because the runners start empty.)
 - All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
 
 ## Testing & Bug Fixes (Critical)
@@ -83,6 +106,17 @@ Before wrapping up a task, run local checks that mirror CI lint gates:
 - `(cd packages/tmuxy-ui && npx prettier --check src)`
 - `npx prettier --check 'tests/**/*.js'`
 - `npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)`
+
+The rest of the map, for when a change reaches further:
+
+| Scope | Command |
+|---|---|
+| First run in a fresh environment | `bash bin/bootstrap` |
+| Everything, including Rust and the CLI | `npm run check:full` |
+| E2E (browser + tmux) | `npm run test:e2e` |
+| Desktop / Tauri E2E | `npm run test:tauri` |
+| Rust workspace | `cargo test --workspace` |
+| A red CI job | [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) maps each job to its local command |
 
 ## Documentation
 

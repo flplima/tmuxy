@@ -58,16 +58,18 @@ async function typeOnVirtualKeyboard(page, text) {
 
 /** Every box the user should be able to reach has to be inside the screen. */
 /**
- * `diag` rides along in both halves of the comparison so a failure prints the
- * geometry that produced it. "right: false" on its own says a box is off the
- * screen and nothing about why, which is a poor thing to read in a CI log for
- * a layout that only misbehaves on another machine's fonts.
+ * Thrown rather than `expect`ed so the geometry reaches the log whole: jest's
+ * object diff prints the line that differs and elides the rest, which for a
+ * layout that only misbehaves on another machine's fonts leaves "right: false"
+ * and no way to tell what produced it.
  */
 function expectOnScreen(box, label, width = PHONE.width, diag = {}) {
-  const of = (value) => ({ label, ...diag, box, ...value });
-  expect(of({ visible: box.width > 0 && box.height > 0 })).toEqual(of({ visible: true }));
-  expect(of({ left: box.left >= -1 })).toEqual(of({ left: true }));
-  expect(of({ right: box.right <= width + 1 })).toEqual(of({ right: true }));
+  const fail = (what) => {
+    throw new Error(`${label} ${what}\n${JSON.stringify({ box, ...diag }, null, 2)}`);
+  };
+  if (!(box.width > 0 && box.height > 0)) fail('is not visible');
+  if (!(box.left >= -1)) fail(`starts off the left edge (${box.left})`);
+  if (!(box.right <= width + 1)) fail(`runs past the right edge (${box.right} > ${width})`);
 }
 
 describe('Phone width (400px) with a touchscreen', () => {
@@ -108,24 +110,40 @@ describe('Phone width (400px) with a touchscreen', () => {
           docScrollWidth: document.documentElement.scrollWidth,
           pane: box(document.querySelector('.pane-active [role="log"]')),
           tabs: box(document.querySelector('.tab-list')),
-          // What the grid was sized from, for a failure to be readable.
+          // What the grid was sized from, for a failure to be readable: the
+          // client's target against what tmux actually reports, and the panes
+          // it reports it for.
           grid: ctx && {
             containerWidth: ctx.containerWidth,
             charWidth: ctx.charWidth,
             totalWidth: ctx.totalWidth,
             targetCols: ctx.targetCols,
+            totalHeight: ctx.totalHeight,
+            targetRows: ctx.targetRows,
+            readOnly: ctx.readOnly ?? null,
             sidebarMotion: ctx.sidebarMotion ?? null,
             leftSidebar: ctx.leftSidebarOpen ?? null,
             rightSidebar: ctx.rightSidebarOpen ?? null,
+            panes: (ctx.panes ?? []).map((p) => `${p.tmuxId} ${p.width}x${p.height}`),
           },
         };
       });
-    // The grid reflows to the phone viewport over the first frames, so a
-    // single sample can catch the terminal still at its pre-resize width.
+    // Following the viewport is a round trip, not a reflow: the client asks
+    // tmux for the columns it measured and redraws when tmux says it resized.
+    // On a slow machine that took longer than the five seconds this used to
+    // allow, and the sample caught the terminal still at the session's opening
+    // 200 columns — `targetCols: 41, totalWidth: 200` in the failure. So it
+    // waits for the grid to BE the one asked for, which is the thing the
+    // geometry below is about, and waits as long as the rest of the suite does.
     let layout = await measureLayout();
     const fits = (l) =>
-      l && l.pane && l.pane.right <= PHONE.width + 1 && l.docScrollWidth <= PHONE.width + 1;
-    const layoutDeadline = Date.now() + 5000;
+      l &&
+      l.pane &&
+      l.grid &&
+      l.grid.totalWidth === l.grid.targetCols &&
+      l.pane.right <= PHONE.width + 1 &&
+      l.docScrollWidth <= PHONE.width + 1;
+    const layoutDeadline = Date.now() + 20000;
     while (Date.now() < layoutDeadline && !fits(layout)) {
       await delay(100);
       layout = await measureLayout();

@@ -24,7 +24,7 @@ describe('blockGlyphs', () => {
     expect(s).not.toBeNull();
     // A gradient with no stops covers the entire box.
     expect(s!.backgroundImage).toBe('linear-gradient(rgb(1, 2, 3), rgb(1, 2, 3))');
-    expect(s!.backgroundSize).toBeUndefined();
+    expect(s!.backgroundSize).toBe('var(--cell-w, 1ch) 100%');
   });
 
   it('splits the cell at the right edge and fraction for half blocks', () => {
@@ -50,17 +50,24 @@ describe('blockGlyphs', () => {
   });
 
   it('places quadrants in their corners', () => {
+    // A quadrant is a half-height tile against one edge, filling one side of
+    // the cell it is drawn in.
     const ul = blockGlyphStyle('▘', 'red')!;
-    expect(ul.backgroundSize).toBe('50% 50%');
-    expect(ul.backgroundPosition).toBe('0% 0%');
+    expect(ul.backgroundSize).toBe('var(--cell-w, 1ch) 50%');
+    expect(ul.backgroundPosition).toBe('left top');
+    expect(ul.backgroundImage).toBe('linear-gradient(to right, red 50%, transparent 50%)');
 
     const lr = blockGlyphStyle('▗', 'red')!;
-    expect(lr.backgroundPosition).toBe('100% 100%');
+    expect(lr.backgroundPosition).toBe('left bottom');
+    expect(lr.backgroundImage).toBe('linear-gradient(to left, red 50%, transparent 50%)');
 
-    // Three-quadrant glyphs stack one layer per quadrant.
+    // Three-quadrant glyphs are one half filled whole over the other half's side.
     const three = blockGlyphStyle('▙', 'red')!;
-    expect(three.backgroundPosition).toBe('0% 0%, 0% 100%, 100% 100%');
-    expect(three.backgroundSize).toBe('50% 50%, 50% 50%, 50% 50%');
+    expect(three.backgroundPosition).toBe('left top, left bottom');
+    expect(three.backgroundSize).toBe('var(--cell-w, 1ch) 50%, var(--cell-w, 1ch) 50%');
+    expect(three.backgroundImage).toBe(
+      'linear-gradient(to right, red 50%, transparent 50%), linear-gradient(red, red)',
+    );
   });
 
   it('renders shades as a partial wash of the foreground', () => {
@@ -83,7 +90,26 @@ describe('blockGlyphs', () => {
     expect(blockGlyphStyle('║', 'red')).toBeNull();
   });
 
-  it('never repeats a fill, so a run of cells stays one flat shape', () => {
-    expect(blockGlyphStyle('█', 'red')!.backgroundRepeat).toBe('no-repeat');
+  /**
+   * A style group is ONE span across every cell that shares a style, so a run
+   * of the same glyph is a single box. Sized in percent, `▌` drew one left
+   * half across the whole run — the ASCII-art logos that use it came out
+   * stretched — and a quadrant covered half the run. The tile is a cell.
+   */
+  it('tiles one glyph per cell, so a run is a run of glyphs', () => {
+    for (const ch of ['█', '▌', '▐', '▀', '▖', '▚', '░']) {
+      const s = blockGlyphStyle(ch, 'red')!;
+      // Split before each layer's tile, not on every comma: `var(--cell-w,
+      // 1ch)` has one of its own.
+      const sizes = s.backgroundSize.split(/,\s(?=var\()/);
+      const repeats = s.backgroundRepeat.split(', ');
+      expect(sizes.length, `${ch} sizes one tile per layer`).toBe(repeats.length);
+      for (const size of sizes) {
+        expect(size, `${ch} tiles a cell wide`).toMatch(/^var\(--cell-w, 1ch\) (100|50)%$/);
+      }
+      for (const repeat of repeats) {
+        expect(repeat, `${ch} repeats across the run`).toBe('repeat-x');
+      }
+    }
   });
 });

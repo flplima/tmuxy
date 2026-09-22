@@ -317,7 +317,19 @@ export const FatNarrowGlyph: Story = {
  * so a status line shorter than the pane still reads edge to edge. The pane's
  * padding columns are the RowEdges layer's job (see its stories).
  */
-export const UnfilledWidthTakesTheLastCellsBackground: Story = {
+/**
+ * A row ends where its cells end.
+ *
+ * The last cell's background used to flood the rest of the line so that a
+ * status bar stopping short still read edge to edge. A row's last cell is not
+ * an edge, though: the last cell of a line of block art is a pixel of the
+ * picture, and running its colour to the pane border drew a bar across the
+ * screen out of an ASCII-art logo — which no other terminal does, because the
+ * cells to the right simply hold the default background. The pane's padding
+ * columns are still painted, by RowEdges, for a row that reaches the last
+ * column.
+ */
+export const UnfilledWidthStaysUnpainted: Story = {
   args: {
     line: [
       ...styled(' NORMAL ', { bg: { r: 168, g: 153, b: 132 } }),
@@ -327,12 +339,39 @@ export const UnfilledWidthTakesTheLastCellsBackground: Story = {
   play: async ({ canvasElement }) => {
     await cellGridReady();
     const line = canvasElement.querySelector('.terminal-line') as HTMLElement;
-    const after = getComputedStyle(line, '::after');
-    expect(after.backgroundColor).toBe('rgb(60, 56, 54)');
-    // The fill covers the whole width the cells leave.
+    // Nothing is drawn past the cells: no filler box, and the row itself has
+    // no background of its own to show through.
+    expect(getComputedStyle(line, '::after').content).toBe('none');
+    expect(getComputedStyle(line).backgroundColor).toBe('rgba(0, 0, 0, 0)');
     const lineBox = line.getBoundingClientRect();
     const last = line.querySelector('span:last-of-type')!.getBoundingClientRect();
-    expect(parseFloat(after.width)).toBeCloseTo(lineBox.right - last.right, 0);
+    expect(lineBox.right).toBeGreaterThan(last.right);
+  },
+};
+
+/**
+ * Block Elements are painted per CELL, not per run.
+ *
+ * Consecutive cells that share a style are one span, so `▌▌▌▌` is a single
+ * box — and a background sized in percent made it one left half across the
+ * whole run. Every logo and progress bar built from half blocks and quadrants
+ * came out stretched. The tile is a cell wide and repeats.
+ */
+export const BlockRunTilesPerCell: Story = {
+  args: {
+    line: styled('▌▌▌▌▌▌▌▌', { fg: { r: 255, g: 0, b: 0 } }),
+  },
+  play: async ({ canvasElement }) => {
+    await cellGridReady();
+    const cellW = cellWidthOf(grid(canvasElement));
+    const span = canvasElement.querySelector('.terminal-line > span') as HTMLElement;
+    // One span for the whole run…
+    expect(span.textContent).toBe('▌▌▌▌▌▌▌▌');
+    expect(span.getBoundingClientRect().width).toBeCloseTo(8 * cellW, 0);
+    // …painted with a one-cell tile, repeated across it.
+    const style = getComputedStyle(span);
+    expect(parseFloat(style.backgroundSize)).toBeCloseTo(cellW, 0);
+    expect(style.backgroundRepeat).toBe('repeat-x');
   },
 };
 

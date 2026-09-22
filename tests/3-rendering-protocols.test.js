@@ -429,6 +429,65 @@ describe('Scenario 16b: SGR 2 faint/dim attribute', () => {
   // normal-intensity white. After bumping to vt100 0.16 + threading
   // `cell.dim()` through CellStyle, the frontend renders dim cells at
   // reduced opacity.
+  /**
+   * Two ways a row's colour used to run past the character that set it, both
+   * found in the same ASCII-art logo (Antigravity's CLI banner):
+   *
+   *  - a run of `▌` is ONE span, and a background sized in percent painted one
+   *    left half across the whole run instead of one per cell;
+   *  - the last cell's background flooded the rest of the line, so the last
+   *    pixel of the artwork drew a bar to the pane's border.
+   *
+   * Both are about the boundary between a cell and its row, which is why they
+   * are asserted together against a real pane.
+   */
+  test('A block run tiles per cell and a short coloured row stops at its last cell', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    await runCommand(ctx.page, 'printf "\\e[31m▌▌▌▌▌▌▌▌\\e[0m\\n"', '▌▌▌▌▌▌▌▌');
+    await runCommand(ctx.page, 'printf "\\e[44mSHORT_BG\\e[0m\\n"', 'SHORT_BG');
+
+    const painted = await ctx.page.evaluate(() => {
+      const spans = [...document.querySelectorAll('[role="log"] .terminal-line > span')];
+      // `--cell-w` is published on the app root and inherits, so ask an
+      // element inside the grid rather than guessing where it was set.
+      const cellW = spans.length
+        ? parseFloat(getComputedStyle(spans[0]).getPropertyValue('--cell-w'))
+        : NaN;
+      const blocks = spans.filter((s) => (s.textContent || '') === '▌▌▌▌▌▌▌▌').pop();
+      const short = spans.filter((s) => (s.textContent || '') === 'SHORT_BG').pop();
+      const shortLine = short?.closest('.terminal-line');
+      const lines = [...document.querySelectorAll('[role="log"] .terminal-line')];
+      return {
+        cellW,
+        block: blocks && {
+          width: blocks.getBoundingClientRect().width,
+          size: getComputedStyle(blocks).backgroundSize,
+          repeat: getComputedStyle(blocks).backgroundRepeat,
+        },
+        // Nothing is drawn past the cells of the row that stops short…
+        shortFiller: shortLine ? getComputedStyle(shortLine, '::after').content : null,
+        shortRight: shortLine ? shortLine.getBoundingClientRect().right : null,
+        shortCellsRight: short ? short.getBoundingClientRect().right : null,
+        // …and no padding strip is painted for it either. Every strip that
+        // exists belongs to a row that reaches the last column.
+        rightStrips: document.querySelectorAll('.pane-active .terminal-edge-right').length,
+        rows: lines.length,
+      };
+    });
+
+    expect(painted.block).toBeTruthy();
+    // The run is one span of eight cells, painted with a one-cell tile.
+    expect(painted.block.width).toBeCloseTo(8 * painted.cellW, 0);
+    expect(parseFloat(painted.block.size)).toBeCloseTo(painted.cellW, 0);
+    expect(painted.block.repeat).toBe('repeat-x');
+
+    expect(painted.shortFiller).toBe('none');
+    expect(painted.shortCellsRight).toBeLessThan(painted.shortRight);
+    expect(painted.rightStrips).toBe(0);
+  }, 60000);
+
   test('Faint text (SGR 2) is rendered at reduced opacity', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();

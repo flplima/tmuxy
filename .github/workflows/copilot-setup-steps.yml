@@ -7,6 +7,7 @@ on:
       - .github/workflows/copilot-setup-steps.yml
       - .github/actions/**
       - bin/bootstrap
+      - bin/install-dev-tools
       - package-lock.json
       - Cargo.lock
   pull_request:
@@ -14,6 +15,7 @@ on:
       - .github/workflows/copilot-setup-steps.yml
       - .github/actions/**
       - bin/bootstrap
+      - bin/install-dev-tools
       - package-lock.json
       - Cargo.lock
 
@@ -34,11 +36,12 @@ jobs:
         with:
           profile: rust
 
-      - name: Install extra test/runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            webkit2gtk-driver xvfb x11-utils fzf neovim zstd
+      # The same list the devcontainer image installs, so the two agent
+      # environments cannot drift apart: apt extras, cargo-watch (which is what
+      # `npm start` runs on) and agent-browser with its Chrome — the browser
+      # both an agent and the Playwright-driven suites use.
+      - name: Install shared agent tooling
+        run: bash bin/install-dev-tools
 
       - name: Cache tmux 3.7a
         id: tmux-cache
