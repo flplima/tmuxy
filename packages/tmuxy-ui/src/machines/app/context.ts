@@ -35,6 +35,7 @@ export type StateName =
   | 'notifications'
   | 'uiPrefs'
   | 'gestures'
+  | 'ask'
   | 'parent';
 
 /**
@@ -91,6 +92,9 @@ export const FIELD_OWNERS = {
   lastUpdateAnimated: 'layout',
   groupSwitchPaneIds: 'layout',
   lastUpdateQuiet: 'layout',
+
+  // ---- ask ----
+  askSelections: 'ask',
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
@@ -165,6 +169,7 @@ export function createInitialContext(): AppMachineContext {
     totalWidth: 0,
     totalHeight: 0,
     paneGroups: {},
+    askSelections: {},
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
     drag: null,

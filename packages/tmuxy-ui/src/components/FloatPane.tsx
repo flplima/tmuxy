@@ -9,10 +9,12 @@
  * Green border on all sides when active
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
+import { AskOverlay } from './AskOverlay';
+import { useFramedPaneFocus } from '../hooks';
 import { getWidget } from './widgets';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
@@ -70,6 +72,12 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
     },
     [send, floatState.paneId],
   );
+
+  // A float showing the browser widget has the same hole a tiled one does:
+  // a click inside the frame never reaches `handleClick`, so the float would
+  // not take focus. See `useFramedPaneFocus`.
+  const containerRef = useRef<HTMLDivElement>(null);
+  useFramedPaneFocus(floatState.paneId, containerRef);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -163,7 +171,11 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       closable={!readOnly}
     >
       <div
-        className="float-container"
+        ref={containerRef}
+        // A float can be marked too (`prefix m` in it, then `join-pane -s`
+        // from elsewhere), and it wears the mark the same way a tiled pane
+        // does: the badge in its header, the accent wash over its content.
+        className={`float-container${pane.marked ? ' pane-marked' : ''}`}
         onClick={handleClick}
         tabIndex={0}
         data-pane-id={pane.tmuxId}
@@ -179,6 +191,10 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
             terminalRows={terminalRows}
             onWriteStdin={writeStdin}
           />
+          {/* A float is a pane like any other, so `tmuxy ask` can hang a
+              question on it — and it is drawn over the tab, so leaving it out
+              would put a question on screen with no way to answer it. */}
+          <AskOverlay paneId={pane.tmuxId} holdsKeyboard={isFocused} />
         </div>
       </div>
     </Modal>

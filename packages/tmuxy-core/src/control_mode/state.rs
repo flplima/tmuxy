@@ -294,6 +294,11 @@ pub struct PaneState {
     /// precmd/preexec, a build script — never inferred here.
     pub pane_state: Option<String>,
 
+    /// The confirmation this pane is waiting on (`@tmuxy-ask`), verbatim: the
+    /// base64 payload `tmuxy ask` wrote. Decoded by the client, which draws the
+    /// question over the pane; `None` when nothing is pending.
+    pub pane_ask: Option<String>,
+
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<std::sync::Arc<PaneContent>>,
 
@@ -354,6 +359,7 @@ impl PaneState {
             selection_start_y: 0,
             history_size: 0,
             pane_state: None,
+            pane_ask: None,
             copy_mode_content: None,
             cursor_shape: 0,
             cursor_hidden: false,
@@ -702,6 +708,7 @@ impl PaneState {
             cursor_shape: self.cursor_shape,
             cursor_hidden: self.cursor_hidden,
             pane_state: self.pane_state.clone(),
+            pane_ask: self.pane_ask.clone(),
         }
     }
 }
@@ -1161,6 +1168,7 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
         // A stash member is a hidden stub, not a running pane: it reports no
         // state of its own until it is swapped into view as a real pane.
         pane_state: None,
+        pane_ask: None,
     }
 }
 
@@ -2530,14 +2538,15 @@ impl StateAggregator {
         // copy_cursor_y, scroll_position. Everything between command and those
         // four fields is pane_title; everything between window_id and the fixed
         // 6-field tail is border_title.
-        let num_tail_fields = 9;
+        let num_tail_fields = 10;
 
         // Tail fields (fixed, never free-text): alternate_on, mouse_any_flag,
         // pane_marked, selection_present, selection_start_x, selection_start_y,
-        // history_size, group_id (`@tmuxy-group-id`, `g<digits>` or empty) and
-        // pane_state (`@tmuxy-pane-state`, a bare word or empty). pane_state is
-        // counted from the END like the rest of the tail, so the free-text
-        // title/border fields in the middle can still hold commas.
+        // history_size, group_id (`@tmuxy-group-id`, `g<digits>` or empty),
+        // pane_state (`@tmuxy-pane-state`, a bare word or empty) and pane_ask
+        // (`@tmuxy-ask`, base64 or empty). All of them are counted from the
+        // END, so the free-text title/border fields in the middle can still
+        // hold commas.
         let (
             alternate_on,
             mouse_any_flag,
@@ -2548,23 +2557,28 @@ impl StateAggregator {
             history_size,
             group_id,
             pane_state,
-        ) = if parts.len() >= 20 {
+            pane_ask,
+        ) = if parts.len() >= 21 {
             let last = parts.len() - 1;
-            let gid = parts[last - 1].trim();
-            let state = parts[last].trim();
+            let gid = parts[last - 2].trim();
+            let state = parts[last - 1].trim();
+            let ask = parts[last].trim();
             (
+                parts[last - 9] == "1",
                 parts[last - 8] == "1",
                 parts[last - 7] == "1",
                 parts[last - 6] == "1",
-                parts[last - 5] == "1",
-                parts[last - 4].parse::<u32>().unwrap_or(0),
+                parts[last - 5].parse::<u32>().unwrap_or(0),
+                parts[last - 4].parse::<u64>().unwrap_or(0),
                 parts[last - 3].parse::<u64>().unwrap_or(0),
-                parts[last - 2].parse::<u64>().unwrap_or(0),
                 (!gid.is_empty()).then(|| gid.to_string()),
                 (!state.is_empty()).then(|| state.to_string()),
+                (!ask.is_empty()).then(|| ask.to_string()),
             )
         } else {
-            (false, false, false, false, 0u32, 0u64, 0u64, None, None)
+            (
+                false, false, false, false, 0u32, 0u64, 0u64, None, None, None,
+            )
         };
 
         let mut title = String::new();
@@ -2670,6 +2684,7 @@ impl StateAggregator {
         pane.history_size = history_size;
         pane.group_id = group_id;
         pane.pane_state = pane_state;
+        pane.pane_ask = pane_ask;
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = cursor_x;
@@ -3087,6 +3102,9 @@ impl StateAggregator {
         }
         if prev.pane_state != curr.pane_state {
             delta.pane_state = Some(curr.pane_state.clone());
+        }
+        if prev.pane_ask != curr.pane_ask {
+            delta.pane_ask = Some(curr.pane_ask.clone());
         }
         if prev.selection_present != curr.selection_present {
             delta.selection_present = Some(curr.selection_present);
@@ -3647,11 +3665,11 @@ mod tests {
     /// Build a LIST_PANES_CMD line with the given title and border_title, in the
     /// exact field order of `constants::tmux_formats::LIST_PANES_CMD`.
     fn list_panes_line(title: &str, window_id: &str, border_title: &str) -> String {
-        // group_id (final tail field) is left empty here; group parsing has its
-        // own test below.
+        // group_id, pane_state and ask (the last three tail fields) are left
+        // empty here; each has its own test below.
         format!(
-            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,gid,state
-            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,"
+            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,state,ask
+            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,"
         )
     }
 
@@ -3674,9 +3692,9 @@ mod tests {
         // rather than zero — the anchor scan has to tolerate both around a
         // blank title.
         let mut agg = StateAggregator::new();
-        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,");
+        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,");
         agg.parse_list_panes_line(
-            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,,",
+            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,,,",
         );
 
         let untitled = agg.panes.get("%0").expect("untitled pane parsed");
@@ -3709,7 +3727,7 @@ mod tests {
         // free-text title and border in the middle can still carry commas.
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,needs-input",
+            "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,needs-input,",
         );
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert_eq!(pane.pane_state.as_deref(), Some("needs-input"));
@@ -3728,6 +3746,51 @@ mod tests {
         agg.parse_list_panes_line(&list_panes_line("nvim", "@4", ""));
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert_eq!(pane.pane_state, None);
+    }
+
+    #[test]
+    fn list_panes_reads_the_ask_tail() {
+        // `tmuxy ask` writes base64, so the payload is inert to the
+        // comma-split even when the question itself is full of commas.
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(
+            "%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,eyJ0b2tlbiI6ImExIn0=",
+        );
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.pane_ask.as_deref(), Some("eyJ0b2tlbiI6ImExIn0="));
+        // The tail field before it is still read as its own.
+        assert_eq!(pane.pane_state, None);
+        assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn list_panes_leaves_an_unasked_pane_without_a_question() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line("nvim", "@4", ""));
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.pane_ask, None);
+    }
+
+    #[test]
+    fn pane_delta_carries_a_changed_ask() {
+        // The question appearing and being answered both have to reach the
+        // client through the delta pass — the overlay is drawn from it.
+        let agg = StateAggregator::new();
+        let prev = PaneState::new("%3", 80, 24).build_tmux_pane();
+        let mut asking = prev.clone();
+        asking.pane_ask = Some("eyJ0b2tlbiI6ImExIn0=".to_string());
+
+        assert_eq!(
+            agg.compute_pane_delta(&prev, &asking).pane_ask,
+            Some(Some("eyJ0b2tlbiI6ImExIn0=".to_string()))
+        );
+        // Answering unsets the option, which must clear it on the client.
+        assert_eq!(
+            agg.compute_pane_delta(&asking, &prev).pane_ask,
+            Some(None),
+            "an answered question has to clear, not linger"
+        );
+        assert_eq!(agg.compute_pane_delta(&asking, &asking).pane_ask, None);
     }
 
     #[test]
@@ -3960,8 +4023,8 @@ mod tests {
     #[test]
     fn list_panes_parses_group_id() {
         let mut agg = StateAggregator::new();
-        // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,GID,STATE
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,");
+        // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,GID,STATE,ASK
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,");
         assert_eq!(
             agg.panes
                 .get("%3")
@@ -3972,7 +4035,7 @@ mod tests {
         );
 
         // Empty tail → no group.
-        agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,");
+        agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,,");
         assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
     }
 
@@ -3996,7 +4059,7 @@ mod tests {
     fn stash_members_emit_stubs_only_for_active_groups() {
         let mut agg = StateAggregator::new();
         // Visible member of g5 in window @4.
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,");
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,");
         // Hidden member of g5, plus an orphan in g6 (no visible member).
         agg.handle_command_response(
             "stashmember,%7,@9,g5,vim,hidden-title\nstashmember,%8,@9,g6,top,orphan",
@@ -4670,7 +4733,7 @@ mod marked_pane_tests {
     fn list_panes_carries_the_marked_flag() {
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,",
+            "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,,",
         );
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert!(pane.marked);

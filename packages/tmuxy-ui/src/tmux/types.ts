@@ -62,6 +62,12 @@ export interface TmuxPane {
    * Absent when the option is unset.
    */
   paneState?: string | null;
+  /**
+   * The confirmation this pane is waiting on (`@tmuxy-ask`), as the base64
+   * payload `tmuxy ask` wrote. Decoded by `utils/paneAsk.ts`; absent when no
+   * question is pending.
+   */
+  paneAsk?: string | null;
 }
 
 /** An image placement on the terminal grid */
@@ -254,6 +260,7 @@ export interface ServerPane {
   cursor_shape?: number;
   cursor_hidden?: boolean;
   pane_state?: string | null;
+  pane_ask?: string | null;
 }
 
 /** Image placement in snake_case from backend */
@@ -338,6 +345,7 @@ export interface PaneDelta {
   cursor_shape?: number;
   cursor_hidden?: boolean;
   pane_state?: string | null;
+  pane_ask?: string | null;
 }
 
 export interface WindowDelta {

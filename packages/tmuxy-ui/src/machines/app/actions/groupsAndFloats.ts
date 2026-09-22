@@ -17,12 +17,11 @@ import {
   selectLeftSidebarPane,
   selectRightSidebarPane,
   selectDockRows,
-  selectSidebarLayout,
+  selectSettledPaneWidth,
   visibleFloats,
 } from '../../selectors';
 import { calculateTargetSize } from '../../../utils/layout';
 import { isPlaceholderId } from '../../../utils/tabOverview';
-import { CONTAINER_PADDING_X } from '../../../constants';
 import { SIDEBAR_MOTION_SETTLE_MS } from '../../constants';
 
 type Ctx = AppMachineContext;
@@ -126,12 +125,12 @@ const SIDEBAR_MOTION_ID = 'sidebar-motion';
  * not change then).
  */
 function settledTargetSize(context: Ctx): { cols: number; rows: number } | null {
-  if (context.bodyWidth <= 0 || context.containerHeight <= 0) return null;
-  const layout = selectSidebarLayout(context);
-  if (layout.overlay) return null;
-  const docked =
-    (layout.leftOpen ? layout.leftWidth : 0) + (layout.rightOpen ? layout.rightWidth : 0);
-  const width = context.bodyWidth - 2 * CONTAINER_PADDING_X - docked;
+  if (context.containerHeight <= 0) return null;
+  // The same width `PaneLayout` centres the grid against while the columns
+  // move — one source of truth, so the grid cannot be tiled for one width and
+  // positioned against another.
+  const width = selectSettledPaneWidth(context);
+  if (width === null) return null;
   return calculateTargetSize(context.charWidth, width, context.containerHeight);
 }
 
@@ -172,7 +171,7 @@ function beginSidebarMotion(
 const SIDEBAR_PREVIEW_TIMEOUT_MS = 5000;
 
 export const groupsAndFloatsActions = {
-  groupsAndFloats_openSessionFloat: enqueueActions<
+  groupsAndFloats_openConnectFloat: enqueueActions<
     Ctx,
     Evt,
     undefined,
@@ -188,8 +187,8 @@ export const groupsAndFloatsActions = {
         type: 'SEND_COMMAND' as const,
         command: breakOutTaggedWindow(context.windows, {
           splitFrom: context.activePaneId,
-          command: '"tmuxy widget session"',
-          name: 'session',
+          command: '"tmuxy connect"',
+          name: 'connect',
           windowType: 'float',
         }),
       }),

@@ -6,7 +6,7 @@
  * Right-click shows context menu with pane operations.
  */
 
-import { useRef, useEffect, useState, useCallback, memo } from 'react';
+import { useRef, useEffect, useState, useCallback, memo, type ReactNode } from 'react';
 import { useAppSend, usePane, usePaneGroup, useReadOnly } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
@@ -35,6 +35,7 @@ const PaneTab = memo(function PaneTab({
   disabled,
   onClick,
   onContextMenu,
+  controls,
 }: {
   pane: TmuxPane;
   isSelectedTab: boolean;
@@ -49,6 +50,14 @@ const PaneTab = memo(function PaneTab({
   disabled: boolean;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  /**
+   * The member's own ⋮ and ✕, drawn at the right of ITS share of the header.
+   * A group's header is divided between its members, so a single pair of
+   * buttons at the far right would have belonged to whichever member happened
+   * to be showing — and there is no way to tell that by looking. Null for an
+   * ungrouped pane, whose buttons stay at the header's own right edge.
+   */
+  controls: ReactNode;
 }) {
   const icon = getTabIcon(pane, widgetName, titleOverride);
   const text = getTabLabel(pane, titleOverride);
@@ -62,14 +71,8 @@ const PaneTab = memo(function PaneTab({
       role="tab"
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
+      data-pane-tab={pane.tmuxId}
     >
-      {pane.marked && (
-        <Tooltip label="Marked pane (prefix m)">
-          <span className="pane-tab-mark" aria-label="Marked pane">
-            ⚑
-          </span>
-        </Tooltip>
-      )}
       {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
       {renaming ? (
         <InlineRename
@@ -82,6 +85,7 @@ const PaneTab = memo(function PaneTab({
       ) : (
         <span className="pane-tab-title">{text}</span>
       )}
+      {controls}
     </div>
   );
 });
@@ -161,11 +165,11 @@ export function PaneHeader({
   );
 
   const handleMenuClick = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.MouseEvent, forPaneId?: string) => {
       e.preventDefault();
       e.stopPropagation();
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const targetId = activePaneId ?? paneId;
+      const targetId = forPaneId ?? activePaneId ?? paneId;
       setContextMenu({
         visible: true,
         x: rect.left,
@@ -186,6 +190,9 @@ export function PaneHeader({
 
   const tabPanes = groupPanes && groupPanes.length > 0 ? groupPanes : [pane];
   const activeTabId = activePaneId ?? tmuxId;
+  // The pane whose content is under this header — a group shows one member at
+  // a time, and "marked" belongs to that one, not to the strip.
+  const shownPane = tabPanes.find((p) => p.tmuxId === activeTabId) ?? pane;
 
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: string) => {
     e.preventDefault();
@@ -197,12 +204,14 @@ export function PaneHeader({
     send({ type: 'SELECT_PANE_GROUP_TAB', paneId: clickedPaneId });
   };
 
-  const handleClosePane = (e: React.MouseEvent) => {
+  const handleClosePane = (e: React.MouseEvent, forPaneId?: string) => {
     e.preventDefault();
     e.stopPropagation();
     // Uses CLOSE_PANE which routes through pane-group-close.sh
-    // to handle both grouped and ungrouped panes correctly.
-    const targetId = activePaneId ?? tmuxId;
+    // to handle both grouped and ungrouped panes correctly — including
+    // closing a PARKED member, which is the one thing a single shared button
+    // could never express.
+    const targetId = forPaneId ?? activePaneId ?? tmuxId;
     send({ type: 'CLOSE_PANE', paneId: targetId });
   };
 
@@ -341,6 +350,44 @@ export function PaneHeader({
 
   const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
 
+  // A GROUP's header is shared: each member gets an equal share of the width,
+  // with its own ⋮ and ✕ at the right of that share. One pane keeps the old
+  // shape — its title runs the full width and the buttons sit at the header's
+  // own right edge, where there is nothing to share them with.
+  const isGroup = tabPanes.length > 1;
+
+  /** One member's buttons, or the header's own when there is no group. */
+  const controlsFor = (forPaneId: string) =>
+    readOnly ? null : (
+      <span className="pane-tab-controls">
+        <Tooltip label="Pane menu">
+          <button
+            className="pane-header-menu"
+            onClick={(e) => handleMenuClick(e, forPaneId)}
+            aria-label={`Pane menu for ${forPaneId}`}
+          >
+            ⋮
+          </button>
+        </Tooltip>
+        <Tooltip label="Close pane">
+          <button
+            className="pane-header-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              // In a float, ✕ closes the FLOAT — but only on the member the
+              // float is showing. A parked member's ✕ still closes that
+              // member, or it would take the whole float down with it.
+              if (isFloat && forPaneId === activeTabId) onFloatClose?.();
+              else handleClosePane(e, forPaneId);
+            }}
+            aria-label={`Close pane ${forPaneId}`}
+          >
+            ✕
+          </button>
+        </Tooltip>
+      </span>
+    );
+
   return (
     <div
       className={headerClass}
@@ -350,7 +397,7 @@ export function PaneHeader({
       role="tablist"
       aria-label={`Pane tabs`}
     >
-      <div className="pane-tabs" ref={tabsRef}>
+      <div className={`pane-tabs${isGroup ? ' pane-tabs-group' : ''}`} ref={tabsRef}>
         {tabPanes.map((tabPane) => {
           const isSelectedTab = tabPane.tmuxId === activeTabId;
           const isActivePane = tabPane.active && isSelectedTab;
@@ -378,11 +425,27 @@ export function PaneHeader({
               }}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
+              controls={isGroup ? controlsFor(tabPane.tmuxId) : null}
             />
           );
         })}
       </div>
-      {!readOnly && (
+      {/* Marked (`prefix m`) is a state of the pane SHOWN here, not of every
+          tab in the strip, so it is drawn once at the header's right edge
+          rather than as a glyph tucked beside a title. Spelled out because
+          a lone ⚑ says nothing about what it marks — and the pane's content
+          carries the same accent wash, so the two read as one thing. */}
+      {shownPane?.marked && (
+        <Tooltip label="Marked pane — prefix m marks, prefix M clears">
+          <span className="pane-header-mark" data-testid="pane-header-mark">
+            MARKED<span aria-hidden="true"> ⚑</span>
+          </span>
+        </Tooltip>
+      )}
+      {/* Ungrouped: the buttons belong to the one pane the header is for, so
+          they sit at the header's right edge as they always have. A group's
+          are inside each member's share instead. */}
+      {!isGroup && !readOnly && (
         <>
           <Tooltip label="Pane menu">
             <button className="pane-header-menu" onClick={handleMenuClick} aria-label="Pane menu">

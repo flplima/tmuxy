@@ -4,10 +4,17 @@
  *
  * A page brings its own palette — usually black text on white — which sits in
  * a themed terminal like a window from another app. The filter reads each
- * pixel's luminance and maps it onto a ramp of theme colours: dark ink to the
- * theme's foreground, mid tones to its gray, light paper to its background. On
- * a dark theme that turns a white page dark with light text; on a light theme
- * the page keeps its polarity and takes the theme's tones.
+ * pixel's luminance and maps it onto a ramp of the theme's own tones, KEEPING
+ * THE PAGE'S POLARITY: the darkest pixels land on the theme's darkest tone,
+ * the lightest on its lightest, the mid tones on the gray between them. Full
+ * black in a page therefore comes out as the theme's background, not as its
+ * foreground.
+ *
+ * It used to map ink to foreground and paper to background by role, which
+ * inverted every page on a dark theme: a black website came back light. Tone,
+ * not role, is what a recolouring has to preserve — a page's own contrast is
+ * information (a heading is dark BECAUSE it matters), and flipping it turns
+ * emphasis into its opposite.
  *
  * It is an SVG filter referenced from CSS, because that is the one kind of
  * filter a browser applies to a cross-origin frame's pixels as well as to an
@@ -21,8 +28,33 @@ export interface Rgb {
   b: number;
 }
 
-/** The theme colours the ramp runs through, from dark ink to light paper. */
+/**
+ * The theme colours the ramp runs through. Named by ROLE; the ramp itself is
+ * ordered by TONE (see `readThemeRamp`), so which of these is the dark end
+ * depends on whether the theme is a dark or a light one.
+ */
 export const THEME_RAMP_VARS = ['--term-foreground', '--term-bright-black', '--term-background'];
+
+/**
+ * Relative luminance (Rec. 709), the same weighting the filter's own colour
+ * matrix uses — so the ramp is ordered by exactly the quantity the filter
+ * looks each pixel up by.
+ */
+export function luminance({ r, g, b }: Rgb): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * The ramp's stops in tonal order, darkest first — which is what makes the
+ * filter preserve a page's polarity instead of inverting it.
+ *
+ * Sorted rather than listed in a fixed order because the roles swap between a
+ * dark theme and a light one: `--term-background` is the dark end of the first
+ * and the light end of the second. One rule, both themes.
+ */
+export function sortByTone(stops: Rgb[]): Rgb[] {
+  return [...stops].sort((a, b) => luminance(a) - luminance(b));
+}
 
 /**
  * `feFuncR/G/B` table values for a ramp: one stop per colour, each channel
@@ -43,9 +75,12 @@ export function parseRgb(value: string): Rgb | null {
 }
 
 /**
- * The theme's ramp colours as the document currently resolves them. A probe
- * element resolves each variable to a concrete colour, whatever form the theme
- * wrote it in (a hex, a name, another variable).
+ * The theme's ramp colours as the document currently resolves them, DARKEST
+ * FIRST. A probe element resolves each variable to a concrete colour, whatever
+ * form the theme wrote it in (a hex, a name, another variable), and the stops
+ * are then sorted by luminance rather than trusted to arrive in tonal order:
+ * `--term-background` is the dark end of a dark theme and the light end of a
+ * light one, and sorting is what makes one ramp correct for both.
  */
 export function readThemeRamp(): Rgb[] | null {
   if (typeof document === 'undefined') return null;
@@ -57,7 +92,8 @@ export function readThemeRamp(): Rgb[] | null {
     return parseRgb(getComputedStyle(probe).color);
   });
   probe.remove();
-  return stops.every((stop): stop is Rgb => stop !== null) ? stops : null;
+  if (!stops.every((stop): stop is Rgb => stop !== null)) return null;
+  return sortByTone(stops);
 }
 
 /** A filter id safe inside `url(#…)`: pane ids carry a `%`. */

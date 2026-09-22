@@ -9,7 +9,7 @@
  * - Host is clickable (desktop: open the connect float); session opens the session float
  */
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import {
   useAppSelector,
   useAppSend,
@@ -24,6 +24,7 @@ import {
   useReadOnly,
 } from '../machines/AppContext';
 import { formatPrefixKey } from './menus/keybindingLabel';
+import { SessionMenu } from './SessionMenu';
 import { isTauri } from '../tmux/adapters';
 import type { KeyBindings } from '../machines/types';
 
@@ -186,6 +187,8 @@ export function TmuxStatusBar() {
   const send = useAppSend();
   const readOnly = useReadOnly();
   const { isDemo } = useAppConfig();
+  const switcherRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const gridPixelWidth = totalWidth * charWidth;
 
@@ -207,22 +210,12 @@ export function TmuxStatusBar() {
       ? 'localhost'
       : window.location.hostname || 'localhost';
 
-  // The switcher covers connecting now — same float, one surface for "which
-  // session" and "which server" rather than two prompts that knew nothing of
-  // each other.
-  const handleHostClick =
-    isDemo || readOnly
-      ? undefined
-      : () => {
-          if (isTauri()) {
-            send({ type: 'OPEN_SESSION_FLOAT' });
-          } else {
-            send({ type: 'NOTIFY', text: 'Connecting to another server needs the desktop app' });
-          }
-        };
-
-  const handleSessionClick =
-    isDemo || readOnly ? undefined : () => send({ type: 'OPEN_SESSION_FLOAT' });
+  // Both ends of the status line open the same switcher (components/
+  // SessionMenu): the host and the session name are two halves of "where am
+  // I", so they answer with one menu rather than two prompts that knew nothing
+  // of each other. It hangs from the pair and opens UPWARD — the status line
+  // is the window's last row, so a menu below it would be off the screen.
+  const handleSwitcherClick = isDemo || readOnly ? undefined : () => setMenuOpen((open) => !open);
 
   // Center area: only show status messages (temporary display-message output).
   // The tmux status line content is not displayed — we use hardcoded hints (left)
@@ -245,19 +238,26 @@ export function TmuxStatusBar() {
           )}
         </div>
         <div className="tmux-statusline-center">{centerContent}</div>
-        <div className="tmux-statusline-right">
+        <div className="tmux-statusline-right" ref={switcherRef}>
           <span
-            className={`statusline-host${handleHostClick ? ' statusline-clickable' : ''}`}
-            onClick={handleHostClick}
+            className={`statusline-host${handleSwitcherClick ? ' statusline-clickable' : ''}`}
+            onClick={handleSwitcherClick}
           >
             {hostname}
           </span>
           <span
-            className={`statusline-session${handleSessionClick ? ' statusline-clickable' : ''}`}
-            onClick={handleSessionClick}
+            className={`statusline-session${handleSwitcherClick ? ' statusline-clickable' : ''}`}
+            onClick={handleSwitcherClick}
           >
             [{sessionName}]
           </span>
+          {menuOpen && (
+            <SessionMenu
+              anchorRef={switcherRef}
+              direction="top"
+              onClose={() => setMenuOpen(false)}
+            />
+          )}
         </div>
       </div>
     </div>

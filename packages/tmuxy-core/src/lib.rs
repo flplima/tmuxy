@@ -332,6 +332,12 @@ pub struct TmuxPane {
     /// use their own status names. `None` when the option is unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_state: Option<String>,
+    /// The pending confirmation from `@tmuxy-ask`: the base64 payload
+    /// `tmuxy ask` wrote on the pane the keys are meant for. Carried verbatim —
+    /// the client decodes it and draws the question over the pane's content.
+    /// `None` when nothing is pending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_ask: Option<String>,
 }
 
 /// Window type discriminator. Set on windows tmuxy created or has adopted.
@@ -537,6 +543,11 @@ pub struct PaneDelta {
     /// unsetting the option on exit looks like.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pane_state: Option<Option<String>>,
+    /// Pending confirmation from `@tmuxy-ask` (only if changed). Nested the
+    /// same way as `pane_state`: the inner `None` clears it, which is what
+    /// answering the question looks like.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_ask: Option<Option<String>>,
     /// Copy mode state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_mode: Option<bool>,
@@ -580,34 +591,32 @@ pub struct PaneDelta {
 }
 
 impl PaneDelta {
+    /// True when the delta carries no change at all — such a delta is dropped
+    /// rather than emitted.
+    ///
+    /// Read off the SERIALIZED form rather than a hand-written list of fields.
+    /// Every field is `skip_serializing_if = "Option::is_none"`, so an empty
+    /// object means nothing changed, and a field added to the struct is
+    /// covered the moment it exists. The list this replaces had silently
+    /// fallen behind: `pane_state` was missing from it, so a pane that only
+    /// declared a new state produced a delta judged empty and thrown away —
+    /// the change reached no client until something else about the pane
+    /// happened to change too. `@tmuxy-ask` would have inherited the same
+    /// fate, which is a question that never appears.
+    ///
+    /// `content` is tested first because it is the one large field and a
+    /// content change is the common case, so the usual call never serializes
+    /// anything. A serialization that fails is reported as NOT empty: emitting
+    /// a delta that turns out to be a no-op costs a round trip, while dropping
+    /// a real one loses the change for good.
     pub fn is_empty(&self) -> bool {
-        self.window_id.is_none()
-            && self.content.is_none()
-            && self.cursor_x.is_none()
-            && self.cursor_y.is_none()
-            && self.width.is_none()
-            && self.height.is_none()
-            && self.x.is_none()
-            && self.y.is_none()
-            && self.active.is_none()
-            && self.command.is_none()
-            && self.title.is_none()
-            && self.border_title.is_none()
-            && self.group_id.is_none()
-            && self.in_mode.is_none()
-            && self.copy_cursor_x.is_none()
-            && self.copy_cursor_y.is_none()
-            && self.alternate_on.is_none()
-            && self.mouse_any_flag.is_none()
-            && self.marked.is_none()
-            && self.paused.is_none()
-            && self.history_size.is_none()
-            && self.selection_present.is_none()
-            && self.selection_start_x.is_none()
-            && self.selection_start_y.is_none()
-            && self.images.is_none()
-            && self.cursor_shape.is_none()
-            && self.cursor_hidden.is_none()
+        if self.content.is_some() {
+            return false;
+        }
+        match serde_json::to_value(self) {
+            Ok(serde_json::Value::Object(fields)) => fields.is_empty(),
+            _ => false,
+        }
     }
 }
 
@@ -779,6 +788,100 @@ mod tests {
         assert_eq!(json, "\"float-backdrop\"");
         let back: WindowType = serde_json::from_str(&json).unwrap();
         assert_eq!(back, WindowType::FloatBackdrop);
+    }
+
+    /// A delta with nothing set is dropped, and that is the whole point — but
+    /// a delta carrying ANY change must survive, whatever the change is.
+    #[test]
+    fn a_pane_delta_is_empty_only_when_nothing_changed() {
+        assert!(PaneDelta::default().is_empty());
+
+        // The two that the old hand-written field list had missed or would
+        // have missed. A dropped delta here is a pane state the tree never
+        // shows, or a question the user is never asked.
+        let state_only = PaneDelta {
+            pane_state: Some(Some("needs-input".to_string())),
+            ..Default::default()
+        };
+        assert!(
+            !state_only.is_empty(),
+            "a pane-state change must be emitted"
+        );
+
+        let ask_only = PaneDelta {
+            pane_ask: Some(Some("eyJ0b2tlbiI6ImExIn0=".to_string())),
+            ..Default::default()
+        };
+        assert!(!ask_only.is_empty(), "a pending question must be emitted");
+
+        // Clearing is a change too: this is what answering the question, and
+        // an agent unsetting its state on exit, look like on the wire.
+        let cleared = PaneDelta {
+            pane_ask: Some(None),
+            ..Default::default()
+        };
+        assert!(!cleared.is_empty(), "clearing a question must be emitted");
+
+        // And the common case still short-circuits before any serialization.
+        let content_only = PaneDelta {
+            content: Some(std::collections::HashMap::new()),
+            ..Default::default()
+        };
+        assert!(!content_only.is_empty());
+    }
+
+    /// Each field on its own is a change worth emitting. A field added later
+    /// is covered without touching this list, because `is_empty` reads the
+    /// serialized form rather than naming fields — this walks the ones that
+    /// exist today to pin that behaviour down.
+    #[test]
+    fn every_pane_delta_field_makes_it_non_empty() {
+        let all_fields = serde_json::json!({
+            "window_id": "@1",
+            "cursor_x": 1,
+            "cursor_y": 2,
+            "width": 80,
+            "height": 24,
+            "x": 0,
+            "y": 1,
+            "active": true,
+            "command": "zsh",
+            "title": "t",
+            "border_title": "b",
+            "group_id": "g5",
+            "pane_state": "working",
+            "pane_ask": "eyJ0b2tlbiI6ImExIn0=",
+            "in_mode": true,
+            "copy_cursor_x": 1,
+            "copy_cursor_y": 2,
+            "alternate_on": true,
+            "mouse_any_flag": true,
+            "marked": true,
+            "paused": true,
+            "history_size": 10,
+            "selection_present": true,
+            "selection_start_x": 1,
+            "selection_start_y": 2,
+            "images": [],
+            "cursor_shape": 2,
+            "cursor_hidden": true,
+        });
+        let keys: Vec<String> = all_fields
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.to_string())
+            .collect();
+
+        // Setting each field ALONE must produce a non-empty delta.
+        for key in &keys {
+            let one = serde_json::json!({ key.as_str(): all_fields[key].clone() });
+            let delta: PaneDelta = serde_json::from_value(one).unwrap();
+            assert!(
+                !delta.is_empty(),
+                "a delta carrying only `{key}` was dropped"
+            );
+        }
     }
 }
 

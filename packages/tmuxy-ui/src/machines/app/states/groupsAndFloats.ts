@@ -7,7 +7,7 @@
  * sidebarMotion, leftSidebarClosing, rightSidebarClosing.
  *
  * - groupsAndFloatsGlobalEvents: spread into machine root on:
- *   (OPEN_SESSION_FLOAT, TOGGLE_LEFT_SIDEBAR — pure
+ *   (OPEN_CONNECT_FLOAT, TOGGLE_LEFT_SIDEBAR — pure
  *    side-effect dispatches that work in any state).
  *
  * - groupsAndFloatsIdleEvents: spread into states.idle.on
@@ -24,9 +24,9 @@ import { notReadOnly } from '../readOnlyGuard';
 export const groupsAndFloatsGlobalEvents = {
   SYNC_DOCK_ROWS: { actions: 'groupsAndFloats_syncDockRows' },
   SYNC_FLOAT_FOCUS: { actions: 'groupsAndFloats_syncFloatFocus' },
-  OPEN_SESSION_FLOAT: {
+  OPEN_CONNECT_FLOAT: {
     guard: notReadOnly,
-    actions: 'groupsAndFloats_openSessionFloat',
+    actions: 'groupsAndFloats_openConnectFloat',
   },
   TOGGLE_LEFT_SIDEBAR: {
     guard: notReadOnly,

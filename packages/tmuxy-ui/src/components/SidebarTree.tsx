@@ -10,7 +10,12 @@
  * `ctrl+hjkl` can navigate into and the backend can size.
  *
  * It reflects the same "tabs" the rest of the UI shows (float/backdrop/sidebar
- * windows filtered out by `selectVisibleWindows`).
+ * windows filtered out by `selectVisibleWindows`), and ONLY those: the tree is
+ * the attached session's own tabs and panes, never the socket's other
+ * sessions. Listing them here put rows in the tree that no key in it could
+ * reach and no state behind them to draw — switching session is a different
+ * question, and it is answered where it is asked, in the session switcher
+ * (`SessionMenu.tsx`).
  *
  * Row anatomy, and why it is split across the two edges:
  *  - the LEFT edge answers "where am I?" — a green rail marks the active pane.
@@ -49,7 +54,7 @@ import {
   selectRepositories,
   useReadOnly,
 } from '../machines/AppContext';
-import { splitTabLabel, getTabIcon } from './paneTabDisplay';
+import { paneRowLines, getTabIcon } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
 import {
   findPaneGitContext,
@@ -70,32 +75,15 @@ import type { TmuxPane, TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 
 /**
- * A flattened, keyboard-navigable row.
- *
- * With a single session on the socket the tree is just `tab` → `pane` rows.
- * When the `serversActor` poll reports more than one session (web or desktop,
- * whenever the socket hosts several) a `session` level appears: the active
- * session expands to its live `tab`/`pane` rows; every other session expands to
- * read-only `foreign-tab`/`foreign-pane` rows whose activation switches to that
- * session first.
+ * A flattened, keyboard-navigable row: the attached session's tabs, each with
+ * its panes.
  */
 type Row =
-  | { kind: 'session'; name: string; active: boolean }
   /** `position` is the tab's 1-based place in the strip — the number the tab
    *  strip shows. tmux's own window index has gaps where chrome windows sit,
    *  and printing it here made the two disagree. */
   | { kind: 'tab'; window: TmuxWindow; position: number; collapsed: boolean }
-  | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean }
-  | { kind: 'foreign-tab'; sessionName: string; windowId: string; index: number; name: string }
-  | {
-      kind: 'foreign-pane';
-      sessionName: string;
-      windowId: string;
-      paneId: string;
-      /** App-set title if the pane has one, else its process name. */
-      label: string;
-      last: boolean;
-    };
+  | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean };
 
 /**
  * The box-drawing connector a pane row is drawn with. The tree reads as a TUI
@@ -113,19 +101,9 @@ type MenuState =
 /** DOM id for a row, so the tree can point `aria-activedescendant` at it. */
 const rowDomId = (key: string) => `tree-row-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 
-/** Nesting depth for `aria-level`: sessions 1, tabs 2, panes 3 (tabs 1 / panes 2 when there is one session). */
-function rowLevel(r: Row, grouped: boolean): number {
-  const base = grouped ? 1 : 0;
-  switch (r.kind) {
-    case 'session':
-      return 1;
-    case 'tab':
-    case 'foreign-tab':
-      return base + 1;
-    case 'pane':
-    case 'foreign-pane':
-      return base + 2;
-  }
+/** Nesting depth for `aria-level`: tabs 1, their panes 2. */
+function rowLevel(r: Row): number {
+  return r.kind === 'tab' ? 1 : 2;
 }
 
 /** Optimistic placeholder panes have no identity worth a row; they resolve within a round trip. */
@@ -133,35 +111,7 @@ const isPlaceholderPane = (p: TmuxPane) => p.tmuxId.startsWith('__placeholder_')
 
 /** Stable identity per row, used to preserve the keyboard cursor across refreshes. */
 function rowKey(r: Row): string {
-  switch (r.kind) {
-    case 'session':
-      return `s:${r.name}`;
-    case 'tab':
-      return r.window.id;
-    case 'pane':
-      return r.pane.tmuxId;
-    case 'foreign-tab':
-      return `ft:${r.sessionName}:${r.windowId}`;
-    case 'foreign-pane':
-      return `fp:${r.paneId}`;
-  }
-}
-
-/**
- * Extra indentation under a session header, in steps. Panes are NOT indented
- * past their tab — their connector glyph already reads as the deeper level, and
- * indenting as well would waste a third of a 30-column column.
- */
-function rowDepth(r: Row): number {
-  switch (r.kind) {
-    case 'session':
-      return 0;
-    case 'tab':
-    case 'foreign-tab':
-    case 'pane':
-    case 'foreign-pane':
-      return 1;
-  }
+  return r.kind === 'tab' ? r.window.id : r.pane.tmuxId;
 }
 
 /** The state indicator at a row's right edge. `working` is drawn by CSS. */
@@ -189,20 +139,15 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   const prefixActive = useAppSelector((ctx) => ctx.prefixActive);
 
-  // Only introduce the session level when the socket actually hosts more than
-  // one session; a lone session needs no disambiguating header, so it keeps the
-  // classic flat tab→pane tree (the common case on web and desktop alike).
-  const grouped = sessions.length > 1;
-
   const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
 
-  // Git context per pane, from the poll's cwds and the discovered worktrees
-  // (both cover every session, the active one included), and the panes each
-  // window holds — a tab's badge is its panes' shared worktree, if they share one.
+  // Git context per pane, from the poll's cwds and the discovered worktrees.
+  // The poll is the only place a pane's cwd comes from — live state carries
+  // none — and it is read for THIS session alone, the one the tree draws.
   const git = useMemo(() => {
     const byPane = new Map<string, PaneGitContext>();
     const panesByWindow = new Map<string, string[]>();
-    for (const s of sessions) {
+    for (const s of sessions.filter((s) => s.sessionName === sessionName)) {
       for (const p of s.panes) {
         const ids = panesByWindow.get(p.windowId) ?? [];
         ids.push(p.id);
@@ -213,7 +158,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       }
     }
     return { byPane, panesByWindow };
-  }, [sessions, repositories]);
+  }, [sessions, sessionName, repositories]);
 
   const branchOf = useCallback(
     (paneIds: readonly string[]): { text: string; title: string } | null => {
@@ -245,56 +190,21 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     return out;
   }, [windows, panes]);
 
-  // Flatten into the ordered row list (also the keyboard nav order).
+  // Flatten into the ordered row list (also the keyboard nav order): this
+  // session's tabs in strip order, each followed by its panes.
   const rows = useMemo<Row[]>(() => {
-    // The active session's live subtree (index-ordered tabs, each's panes).
-    const liveRows = (): Row[] => {
-      const out: Row[] = [];
-      windows.forEach((window, i) => {
-        const isCollapsed = collapsed.has(window.id);
-        out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
-        if (isCollapsed) return;
-        const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
-        windowPanes.forEach((pane, i) => {
-          out.push({ kind: 'pane', pane, window, last: i === windowPanes.length - 1 });
-        });
-      });
-      return out;
-    };
-
-    if (!grouped) return liveRows();
-
     const out: Row[] = [];
-    for (const s of sessions) {
-      const isActive = s.sessionName === sessionName;
-      out.push({ kind: 'session', name: s.sessionName, active: isActive });
-      if (isActive) {
-        out.push(...liveRows());
-      } else {
-        s.windows.forEach((w, i) => {
-          out.push({
-            kind: 'foreign-tab',
-            sessionName: s.sessionName,
-            windowId: w.id,
-            index: i + 1,
-            name: w.name,
-          });
-          const sessionPanes = s.panes.filter((p) => p.windowId === w.id);
-          sessionPanes.forEach((p, i) => {
-            out.push({
-              kind: 'foreign-pane',
-              sessionName: s.sessionName,
-              windowId: w.id,
-              paneId: p.id,
-              label: p.title || p.command,
-              last: i === sessionPanes.length - 1,
-            });
-          });
-        });
-      }
-    }
+    windows.forEach((window, i) => {
+      const isCollapsed = collapsed.has(window.id);
+      out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
+      if (isCollapsed) return;
+      const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
+      windowPanes.forEach((pane, i) => {
+        out.push({ kind: 'pane', pane, window, last: i === windowPanes.length - 1 });
+      });
+    });
     return out;
-  }, [grouped, sessions, sessionName, windows, panes, collapsed]);
+  }, [windows, panes, collapsed]);
 
   // Which pane rows draw a branch. Repeating one worktree down every row of a
   // tab is what made the old tree unreadable, so a pane shows its branch only
@@ -343,16 +253,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             send({ type: 'SELECT_TAB', windowId: row.window.id });
           }
           send({ type: 'FOCUS_PANE', paneId: row.pane.tmuxId });
-          return;
-        case 'session':
-          if (!row.active) send({ type: 'SWITCH_SESSION', sessionName: row.name });
-          return;
-        case 'foreign-tab':
-        case 'foreign-pane':
-          // Not attached to that session yet — switch to it; it lands on its own
-          // active window/pane. (Deep-selecting the exact tab/pane after an async
-          // session switch is deliberately out of scope.)
-          send({ type: 'SWITCH_SESSION', sessionName: row.sessionName });
           return;
       }
     },
@@ -529,83 +429,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       {rows.map((row) => {
         const key = rowKey(row);
         const isSelected = rows[selectedIndex] && rowKey(rows[selectedIndex]) === key;
-        // Pane depth is drawn by the connector glyph, so only the session level
-        // (desktop, multi-session socket) adds real indentation under it.
-        const indentStyle = grouped ? { paddingLeft: 10 + rowDepth(row) * 10 } : undefined;
-
-        if (row.kind === 'session') {
-          return (
-            <div
-              key={`s${key}`}
-              role="treeitem"
-              id={rowDomId(key)}
-              aria-level={rowLevel(row, grouped)}
-              tabIndex={isSelected ? 0 : -1}
-              aria-selected={isSelected}
-              className={`sidebar-tree-session${row.active ? ' is-active' : ''}${
-                isSelected ? ' is-selected' : ''
-              }`}
-              style={indentStyle}
-              data-session-name={row.name}
-              data-testid={`tree-session-${row.name}`}
-              onClick={() => activate(row)}
-            >
-              <span className="sidebar-tree-icon" aria-hidden="true">
-                ⬢
-              </span>
-              <span className="sidebar-tree-label">{row.name}</span>
-            </div>
-          );
-        }
-
-        if (row.kind === 'foreign-tab') {
-          return (
-            <div
-              key={`ft${key}`}
-              role="treeitem"
-              id={rowDomId(key)}
-              aria-level={rowLevel(row, grouped)}
-              tabIndex={isSelected ? 0 : -1}
-              aria-selected={isSelected}
-              className={`sidebar-tree-tab is-foreign${isSelected ? ' is-selected' : ''}`}
-              style={indentStyle}
-              data-testid={`tree-foreign-tab-${row.windowId}`}
-              onClick={() => activate(row)}
-            >
-              <span className="sidebar-tree-label">
-                {row.index}:{row.name || `Tab ${row.index}`}
-              </span>
-              {badgeSpan(branchOf(git.panesByWindow.get(row.windowId) ?? []))}
-            </div>
-          );
-        }
-
-        if (row.kind === 'foreign-pane') {
-          return (
-            <div
-              key={`fp${key}`}
-              role="treeitem"
-              id={rowDomId(key)}
-              aria-level={rowLevel(row, grouped)}
-              tabIndex={isSelected ? 0 : -1}
-              aria-selected={isSelected}
-              className={`sidebar-tree-pane is-foreign${isSelected ? ' is-selected' : ''}`}
-              style={indentStyle}
-              data-testid={`tree-foreign-pane-${row.paneId}`}
-              onClick={() => activate(row)}
-            >
-              <span className="sidebar-tree-rail" aria-hidden="true" />
-              <span className="sidebar-tree-branch" aria-hidden="true">
-                {connector(row.last)}
-              </span>
-              <span className="sidebar-tree-label">
-                <span className="sidebar-tree-id">{row.paneId}</span>{' '}
-                <span className="sidebar-tree-name">{row.label}</span>
-              </span>
-              {badgeSpan(branchOf([row.paneId]))}
-            </div>
-          );
-        }
 
         if (row.kind === 'tab') {
           const isActive = row.window.id === activeWindowId;
@@ -617,14 +440,13 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               key={`w${key}`}
               role="treeitem"
               id={rowDomId(key)}
-              aria-level={rowLevel(row, grouped)}
+              aria-level={rowLevel(row)}
               aria-expanded={!row.collapsed}
               tabIndex={isSelected ? 0 : -1}
               aria-selected={isSelected}
               className={`sidebar-tree-tab${isActive ? ' is-active' : ''}${
                 isSelected ? ' is-selected' : ''
               }${isDropTarget ? ' is-drop-target' : ''}${row.collapsed ? ' is-collapsed' : ''}`}
-              style={indentStyle}
               data-window-id={row.window.id}
               data-collapsed={row.collapsed}
               data-testid={`tree-tab-${row.window.id}`}
@@ -699,7 +521,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         }
 
         const isActive = row.pane.tmuxId === activePaneId;
-        const { name, detail } = splitTabLabel(row.pane);
+        const { process, title } = paneRowLines(row.pane);
         const icon = getTabIcon(row.pane);
         const state = paneStateFor(row.pane);
         return (
@@ -707,13 +529,12 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             key={`p${key}`}
             role="treeitem"
             id={rowDomId(key)}
-            aria-level={rowLevel(row, grouped)}
+            aria-level={rowLevel(row)}
             tabIndex={isSelected ? 0 : -1}
             aria-selected={isSelected}
             className={`sidebar-tree-pane${isActive ? ' is-active' : ''}${
               isSelected ? ' is-selected' : ''
             }${dragPaneId === row.pane.tmuxId ? ' is-dragging' : ''}`}
-            style={indentStyle}
             data-pane-id={row.pane.tmuxId}
             data-pane-state={state}
             data-testid={`tree-pane-${row.pane.tmuxId}`}
@@ -752,12 +573,18 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                 {icon}
               </span>
             )}
+            {/* Two lines: what the pane IS on the first, what it is SHOWING on
+                the second. The id leads the first line, dim — it is what tells
+                two panes running the same program apart, the common case (two
+                shells in a tab) — and the state indicator closes it. The title
+                gets its own line because it is the half that routinely outgrows
+                a 30-column column; a pane with nothing to add draws one line. */}
             <span className="sidebar-tree-label">
-              {/* The id leads, dim: it is what tells two panes running the same
-                  program apart, which is the common case (two shells in a tab). */}
-              <span className="sidebar-tree-id">{row.pane.tmuxId}</span>{' '}
-              <span className="sidebar-tree-name">{name}</span>
-              {detail && <span className="sidebar-tree-detail"> {detail}</span>}
+              <span className="sidebar-tree-line">
+                <span className="sidebar-tree-id">{row.pane.tmuxId}</span>{' '}
+                <span className="sidebar-tree-name">{process}</span>
+              </span>
+              {title && <span className="sidebar-tree-title">{title}</span>}
             </span>
             {branchRows.has(row.pane.tmuxId) && badgeSpan(branchOf([row.pane.tmuxId]))}
             <StateBadge state={state} />

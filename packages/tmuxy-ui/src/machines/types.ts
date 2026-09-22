@@ -14,6 +14,7 @@ import type {
   Appearance,
 } from '../tmux/types';
 import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
+import type { AskAnswer } from '../utils/paneAsk';
 
 // Re-export domain types
 export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
@@ -275,6 +276,25 @@ export interface BrowserPaneState {
   zoom: number;
   /** Bumped by a refresh; changes the load so a cached response is bypassed. */
   reloadNonce: number;
+  /**
+   * Where this pane has been, oldest first, starting with the source its
+   * widget marker declared. Only the app's OWN navigations are in it — an
+   * address typed into the bar, a back or a forward. A link followed inside
+   * the frame is the page's own business: the frame is another document (and,
+   * for a website, another origin), so nothing in it is visible from here.
+   * That is why the bar shows where the pane was POINTED rather than claiming
+   * to mirror the page, and why back/forward move between those points.
+   */
+  history: string[];
+  /** Which entry of `history` is showing. */
+  historyIndex: number;
+  /**
+   * The `<title>` of the page showing, and the URL it was read from — kept
+   * together so a title never outlives the page it belongs to. Absent until
+   * one is read, and for a page whose HTML cannot be read at all (see
+   * `BROWSER_PAGE_TITLE`).
+   */
+  pageTitle?: { url: string; title: string };
 }
 
 /** Pending state update stored during pane exit animation */
@@ -304,6 +324,14 @@ export interface AppMachineContext {
   totalWidth: number;
   totalHeight: number;
   paneGroups: Record<string, PaneGroup>;
+  /**
+   * Which of Yes/No is highlighted on each pane showing a `tmuxy ask`
+   * question, keyed by pane id. A pane with no entry starts on `yes` — the
+   * answer the keyboard shortcut gives, so the highlight and the shortcut
+   * agree before the user has touched anything. Entries are dropped when the
+   * question goes away.
+   */
+  askSelections: Record<string, AskAnswer>;
   targetCols: number;
   targetRows: number;
   drag: DragState | null;
@@ -751,6 +779,23 @@ export type SelectPaneGroupTabEvent = { type: 'SELECT_PANE_GROUP_TAB'; paneId: s
  */
 export type CreateTabEvent = { type: 'CREATE_TAB' };
 export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: string };
+
+// Pending confirmations (`tmuxy ask`) — see utils/paneAsk.ts.
+/**
+ * Move the Yes/No highlight on the question a pane is showing. Lives in the
+ * machine rather than in the overlay's own state because the keyboard actor
+ * moves it too, and that runs outside React.
+ */
+export type MoveAskSelectionEvent = { type: 'MOVE_ASK_SELECTION'; paneId: string; to: AskAnswer };
+/** Answer the question on one pane. */
+export type AnswerAskEvent = { type: 'ANSWER_ASK'; paneId: string; answer: AskAnswer };
+/**
+ * Answer every question pending in the ACTIVE tab at once — what Cmd+Enter
+ * (Ctrl+Enter off macOS) does. Deliberately scoped to the tab in view: saying
+ * yes to a question you cannot see is exactly what the confirmation exists to
+ * prevent.
+ */
+export type AnswerVisibleAsksEvent = { type: 'ANSWER_VISIBLE_ASKS'; answer: AskAnswer };
 export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
 export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
 
@@ -823,6 +868,37 @@ export type BrowserZoomEvent = {
 };
 export type BrowserReloadEvent = { type: 'BROWSER_RELOAD'; paneId: string; source: string };
 export type BrowserCopyUrlEvent = { type: 'BROWSER_COPY_URL'; url: string };
+/** Point the pane somewhere new — the address bar's Enter. */
+export type BrowserNavigateEvent = {
+  type: 'BROWSER_NAVIGATE';
+  paneId: string;
+  source: string;
+  url: string;
+};
+/** Step back or forward through the places this pane has been pointed. */
+export type BrowserHistoryEvent = {
+  type: 'BROWSER_HISTORY';
+  paneId: string;
+  source: string;
+  delta: -1 | 1;
+};
+/** Hand the page to the system browser (`utils/openUrl.ts`). */
+export type BrowserOpenExternalEvent = { type: 'BROWSER_OPEN_EXTERNAL'; url: string };
+/**
+ * The `<title>` the page turned out to have, so the pane's tab can carry it
+ * instead of a URL. Read by fetching the HTML, which only works where the
+ * app may read it: a local file (served through its own route) or a
+ * same-origin page. A framed cross-origin site is unreadable by design — its
+ * document belongs to another origin — so those panes keep the address as
+ * their title rather than guessing at one.
+ */
+export type BrowserPageTitleEvent = {
+  type: 'BROWSER_PAGE_TITLE';
+  paneId: string;
+  source: string;
+  url: string;
+  title: string;
+};
 
 /**
  * Switch to a tab/window. Covers every tab-nav method — click, keybinding,
@@ -941,7 +1017,13 @@ export type AppBlurEvent = { type: 'APP_BLUR' };
 
 // Session events
 export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string };
-export type OpenSessionFloatEvent = { type: 'OPEN_SESSION_FLOAT' };
+/**
+ * Open the connect form in a float — `tmuxy connect`'s TUI, which saves a
+ * tmux server (this machine's, or one reached over SSH) for the app to attach
+ * to. A form needs a place to type, so unlike the switcher it really is a
+ * pane; the switcher itself is a menu (`components/SessionMenu`).
+ */
+export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
 export type SessionSwitchRequestedEvent = {
   type: 'SESSION_SWITCH_REQUESTED';
   sessionName: string;
@@ -1184,6 +1266,10 @@ export type AppMachineEvent =
   | BrowserZoomEvent
   | BrowserReloadEvent
   | BrowserCopyUrlEvent
+  | BrowserNavigateEvent
+  | BrowserHistoryEvent
+  | BrowserOpenExternalEvent
+  | BrowserPageTitleEvent
   | CommandModeSubmitEvent
   | CommandModeCancelEvent
   | ShowStatusMessageEvent
@@ -1203,8 +1289,11 @@ export type AppMachineEvent =
   | AppFocusEvent
   | AppBlurEvent
   | PrefixModeChangeEvent
+  | MoveAskSelectionEvent
+  | AnswerAskEvent
+  | AnswerVisibleAsksEvent
   | SwitchSessionEvent
-  | OpenSessionFloatEvent
+  | OpenConnectFloatEvent
   | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
   | GitRepositoriesUpdatedEvent

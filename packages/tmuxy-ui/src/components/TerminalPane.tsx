@@ -34,6 +34,7 @@ import {
 import { usePaneMouse, usePaneTouch } from '../hooks';
 import { LogProfiler } from '../utils/renderLog';
 import { RowEdges } from './RowEdges';
+import { AskOverlay } from './AskOverlay';
 import { isCollapsedPane } from '../constants';
 import { extractSelectedText } from '../utils/copyMode';
 
@@ -399,6 +400,12 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
               )}
             </div>
           </div>
+          {/* The question `tmuxy ask` hung on this pane, over its content.
+              Last inside `.pane-content` so it stacks above the terminal, and
+              inside it (not over the whole pane) so the header stays legible
+              — that is where the pane's title and its close button live. */}
+          <AskOverlay paneId={paneId} holdsKeyboard={holdsKeyboard} />
+
           {/* Scroll position indicator — flashes on scroll in copy mode */}
           {copyState && (
             <div

@@ -38,6 +38,7 @@ interface AppSnap {
       sidebarCols?: number | null;
     }>;
     panes: Array<{ tmuxId: string; windowId: string; width: number }>;
+    sessions: Array<{ sessionName: string }>;
   };
 }
 const app = () => (window as unknown as { app: { getSnapshot(): AppSnap } }).app.getSnapshot();
@@ -484,17 +485,91 @@ export const RightClickContextMenus: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Multi-session tree: once more than one session exists, SESSIONS_UPDATED groups
-// the tree by session, with the active session expanded to its live tabs/panes
-// and other sessions expanded to read-only foreign rows. The `serversActor` poll
-// feeds this on web + desktop alike; here we deliver it the same way the poll
-// would.
+// The RIGHT column's slide leaves the panes' left edge exactly where it was
 // ---------------------------------------------------------------------------
 
-export const GroupedSessionsTree: Story = {
+export const RightColumnSlideDoesNotMoveTheLeftEdge: Story = {
+  args: { height: 500, initCommands: ['split-window -h'] },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Toggling the dock resizes the pane area from its right edge, so its LEFT edge must not move — not at the end, and not for a frame in between. The grid is re-tiled for the settled width the moment the toggle starts, so it is centred against that width rather than against the container's live one; centring a settled grid inside a still-moving container is what used to walk the panes sideways for the length of the animation.",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const leftEdge = () => {
+      const rects = [...canvasElement.querySelectorAll('.pane-layout-item[data-pane-id]')].map(
+        (el) => el.getBoundingClientRect(),
+      );
+      return rects.length ? Math.min(...rects.map((r) => r.left)) : null;
+    };
+    await waitFor(() => expect(leftEdge()).not.toBeNull(), { timeout: 8000 });
+
+    const before = leftEdge()!;
+    const samples: number[] = [];
+    let sampling = true;
+    const tick = () => {
+      const edge = leftEdge();
+      if (edge !== null) samples.push(edge);
+      if (sampling) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle terminal sidebar/i },
+      { timeout: 8000 },
+    );
+    await userEvent.click(toggle);
+
+    // Wait for the column to be there and the slide to be over.
+    await waitFor(
+      () => {
+        const el = document.querySelector('.sidebar-column-right') as HTMLElement | null;
+        if (!el) throw new Error('no dock column');
+        expect(el.getBoundingClientRect().width).toBeGreaterThan(20);
+      },
+      { timeout: 8000 },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    sampling = false;
+
+    // The dock really took width out of the pane area...
+    const after = leftEdge()!;
+    const rects = [...canvasElement.querySelectorAll('.pane-layout-item[data-pane-id]')].map((el) =>
+      el.getBoundingClientRect(),
+    );
+    const dock = document.querySelector('.sidebar-column-right')!.getBoundingClientRect();
+    expect(Math.max(...rects.map((r) => r.right))).toBeLessThanOrEqual(dock.left + 1);
+
+    // ...and the left edge never moved, at any frame of it. The tolerance is
+    // the sub-cell remainder the grid is centred within, not room for a slide.
+    expect(samples.length).toBeGreaterThan(5);
+    const drift = Math.max(...samples.map((x) => Math.abs(x - before)));
+    expect(drift).toBeLessThan(6);
+    expect(Math.abs(after - before)).toBeLessThan(6);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// The tree is THIS session's, whatever else the socket hosts
+// ---------------------------------------------------------------------------
+
+export const OtherSessionsStayOutOfTheTree: Story = {
   args: {
     height: 500,
     initCommands: ['rename-window main', 'split-window -h'],
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'The `serversActor` poll enumerates every session on the socket — the session switcher is built from it — but the tree draws only the session the client is attached to. Rows for another session had no live state behind them and nothing in the tree could act on them; switching session is asked and answered in the switcher instead.',
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -511,7 +586,18 @@ export const GroupedSessionsTree: Story = {
     };
     const activeName = win.app.getSnapshot().context.sessionName;
 
-    // Simulate the desktop poll delivering every session on the server.
+    // The live tabs are there to begin with.
+    const liveWindowId = app().context.activeWindowId!;
+    await waitFor(
+      () => {
+        expect(tree.querySelector(`[data-testid="tree-tab-${liveWindowId}"]`)).not.toBeNull();
+      },
+      { timeout: 5000 },
+    );
+    const rowsBefore = tree.querySelectorAll('[role="treeitem"]').length;
+
+    // The poll reports a second session on the socket, exactly as it would on
+    // a real multi-session server.
     win.app.send({
       type: 'SESSIONS_UPDATED',
       sessions: [
@@ -524,19 +610,19 @@ export const GroupedSessionsTree: Story = {
       ],
     });
 
-    // Both session headers appear; the foreign session expands to read-only rows.
+    // Nothing about the tree changes: no session header, no row for the other
+    // session's tab or pane, and the same rows as before.
     await waitFor(
       () => {
-        expect(tree.querySelector(`[data-testid="tree-session-${activeName}"]`)).not.toBeNull();
+        expect(app().context.sessions.length).toBe(2);
       },
       { timeout: 5000 },
     );
-    expect(tree.querySelector('[data-testid="tree-session-work"]')).not.toBeNull();
-    expect(tree.querySelector('[data-testid="tree-foreign-tab-@9"]')).not.toBeNull();
-    expect(tree.querySelector('[data-testid="tree-foreign-pane-%9"]')).not.toBeNull();
-
-    // The active session still shows its LIVE tabs (from real state, not the summary).
-    const liveWindowId = app().context.activeWindowId!;
+    expect(tree.querySelector('[data-testid="tree-session-work"]')).toBeNull();
+    expect(tree.querySelector(`[data-testid="tree-session-${activeName}"]`)).toBeNull();
+    expect(tree.querySelector('[data-testid="tree-foreign-tab-@9"]')).toBeNull();
+    expect(tree.querySelector('[data-testid="tree-foreign-pane-%9"]')).toBeNull();
+    expect(tree.querySelectorAll('[role="treeitem"]').length).toBe(rowsBefore);
     expect(tree.querySelector(`[data-testid="tree-tab-${liveWindowId}"]`)).not.toBeNull();
   },
 };

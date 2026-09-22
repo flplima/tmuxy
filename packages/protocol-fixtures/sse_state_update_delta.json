@@ -94,6 +94,7 @@
           "in_mode": false,
           "marked": false,
           "mouse_any_flag": false,
+          "pane_ask": null,
           "pane_state": "idle",
           "paused": false,
           "selection_present": false,

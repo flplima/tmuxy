@@ -39,11 +39,13 @@ import { copyModeActions, copyModeExitTimes, COPY_MODE_REENTRY_COOLDOWN } from '
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
+import { askState } from './states/ask';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
 import { gesturesGlobalEvents } from './states/gestures';
 import { gesturesActions } from './actions/gestures';
 import { tabOverviewActions } from './actions/tabOverview';
 import { layoutActions } from './actions/layout';
+import { askActions, pruneAskSelections } from './actions/ask';
 import { isBoxPermutation, samePanes } from './layoutChange';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { selectLeftSidebarPane, selectRightSidebarPane, visibleFloats } from '../selectors';
@@ -378,6 +380,7 @@ export const appMachine = setup({
     ...tabOverviewActions,
     ...gesturesActions,
     ...layoutActions,
+    ...askActions,
   },
 }).createMachine({
   id: 'app',
@@ -724,7 +727,7 @@ export const appMachine = setup({
         });
       }),
     },
-    // OPEN_SESSION_FLOAT — handled by groupsAndFloatsGlobalEvents
+    // OPEN_CONNECT_FLOAT — handled by groupsAndFloatsGlobalEvents
     SESSION_SWITCH_REQUESTED: {
       actions: enqueueActions(({ event, enqueue }) => {
         enqueue(({ self }) => {
@@ -785,6 +788,7 @@ export const appMachine = setup({
         ...browserState.on,
         ...groupsAndFloatsIdleEvents,
         ...layoutState.on,
+        ...askState.on,
 
         // Tmux Events
         // TMUX_STATE_UPDATE (the wire event) is now a one-liner: hand the
@@ -1379,6 +1383,10 @@ export const appMachine = setup({
                 activePaneId: effectiveActivePaneId,
                 paneGroups,
                 floatPanes,
+                // A question that has gone away takes its Yes/No highlight
+                // with it, so a pane asked a second time starts on `yes`
+                // rather than on the answer the user hovered over last time.
+                askSelections: pruneAskSelections({ ...ctx, panes: transformed.panes }),
                 copyModeStates: updatedCopyModeStates,
                 browserStates: updatedBrowserStates,
                 resize: heldResize,

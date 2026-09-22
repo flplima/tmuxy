@@ -92,19 +92,14 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
-/* Gruvbox dark: everything on the active pane's header is in the yellow
-   accent — the same yellow as the pane's outline and the current tab in the
-   app header. */
-:root.theme-dark .pane-header-active {
-  color: var(--tab-active-text);
-}
-
-:root.theme-dark .pane-header-active .pane-tab-active,
+/* Gruvbox dark: the active pane's TITLE is in the yellow accent — the same
+   yellow as the pane's outline and the current tab in the app header.
+   Its title alone: a group's other members are not the pane in view and read
+   as inactive, and the ⋮/✕ are chrome rather than content — painting those
+   accent made three different things shout the same colour. */
 :root.theme-dark .pane-header-active .pane-tab-selected,
-:root.theme-dark .pane-header-active .pane-tab-title,
-:root.theme-dark .pane-header-active .pane-tab-icon,
-:root.theme-dark .pane-header-active .pane-header-menu,
-:root.theme-dark .pane-header-active .pane-header-close {
+:root.theme-dark .pane-header-active .pane-tab-selected .pane-tab-title,
+:root.theme-dark .pane-header-active .pane-tab-selected .pane-tab-icon {
   color: var(--tab-active-text);
 }
 
@@ -195,17 +190,10 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-/* Gruvbox light: same treatment as dark — the yellow accent for everything on
-   the active header. */
-:root.theme-light .pane-header-active {
-  color: var(--tab-active-text);
-}
-
-:root.theme-light .pane-header-active .pane-tab-active,
+/* Gruvbox light: same treatment as dark — the accent for the active pane's
+   title alone, not for the rest of the header. */
 :root.theme-light .pane-header-active .pane-tab-selected,
-:root.theme-light .pane-header-active .pane-tab-title,
-:root.theme-light .pane-header-active .pane-tab-icon,
-:root.theme-light .pane-header-active .pane-header-menu,
-:root.theme-light .pane-header-active .pane-header-close {
+:root.theme-light .pane-header-active .pane-tab-selected .pane-tab-title,
+:root.theme-light .pane-header-active .pane-tab-selected .pane-tab-icon {
   color: var(--tab-active-text);
 }

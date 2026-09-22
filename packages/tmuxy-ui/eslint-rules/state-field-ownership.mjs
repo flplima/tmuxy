@@ -51,6 +51,9 @@ const FIELD_OWNERS = {
   suppressLayoutTransition: 'layout',
   lastUpdateAnimated: 'layout',
 
+  // ---- ask ----
+  askSelections: 'ask',
+
   // ---- copyMode ----
   copyModeStates: 'copyMode',
 

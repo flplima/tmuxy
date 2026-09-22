@@ -61,6 +61,25 @@ _run_safe() {
   _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
 }
 
+# Quote arguments for interpolation into a `_run_safe` command string. Each
+# argument becomes one single-quoted token (embedded single quotes escaped),
+# and `#` is doubled because run-shell format-expands its command string before
+# the shell sees it (see docs/TMUX.md).
+shquote() {
+  # The single-quote escape is built from variables rather than written as
+  # literal backslashes in the replacement: bash 3.2 (the only bash macOS
+  # ships) and bash 4+ disagree about how many backslashes survive a literal
+  # replacement string, and 3.2 turned `it's` into a tmux command that no
+  # longer parses. A replacement that arrives by expansion is taken literally
+  # by both.
+  local out='' arg sq="'" sq_esc="'\\''"
+  for arg in "$@"; do
+    arg="'${arg//$sq/$sq_esc}'"
+    out="$out ${arg//#/##}"
+  done
+  printf '%s' "${out# }"
+}
+
 # --- Cross-process mutex ---------------------------------------------------
 #
 # `mkdir` is the lock primitive because it is atomic on every POSIX filesystem

@@ -84,6 +84,24 @@ pub mod tmux_options {
     /// membership list to keep in sync.
     pub const GROUP_ID: &str = "@tmuxy-group-id";
 
+    /// Pane-scoped state the pane declares about itself (`tmuxy pane state`).
+    /// Free-form; the client owns the vocabulary.
+    pub const PANE_STATE: &str = "@tmuxy-pane-state";
+
+    /// Pane-scoped pending confirmation, set by `tmuxy ask` on the pane the
+    /// keys are meant for. The value is base64 of a JSON object
+    /// (`{token, question, description}`), so the payload survives the
+    /// comma-separated `list-panes` format that free text would break.
+    /// Unset means no question is pending.
+    pub const ASK: &str = "@tmuxy-ask";
+
+    /// Pane-scoped answer to the pending [`ASK`], written by the client the
+    /// user answered in and read back by the waiting `tmuxy ask`. The value is
+    /// `<token>:yes` or `<token>:no` — the token pins the answer to the
+    /// question that was on screen, so a stale answer to a question already
+    /// withdrawn is ignored rather than acted on.
+    pub const ASK_ANSWER: &str = "@tmuxy-ask-answer";
+
     /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
     pub const THEME: &str = "@tmuxy-theme";
     /// Theme mode: `dark` / `light`.
@@ -225,7 +243,9 @@ pub mod tmux_formats {
     /// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is
     /// included so the monitor never accidentally drops to window scope.
     /// `#{@tmuxy-group-id}` rides in the fixed tail (non-free-text: `g<digits>`
-    /// or empty) so it can't collide with the two free-text fields.
+    /// or empty) so it can't collide with the two free-text fields. The same
+    /// goes for `#{@tmuxy-ask}`, which is base64 precisely so a question full
+    /// of commas cannot shift the fields around it.
     pub const LIST_PANES_CMD: &str = concat!(
         "list-panes -s -F '",
         "#{pane_id},#{pane_index},",
@@ -241,7 +261,7 @@ pub mod tmux_formats {
         "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
         "#{selection_present},",
         "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id},",
-        "#{@tmuxy-pane-state}'",
+        "#{@tmuxy-pane-state},#{@tmuxy-ask}'",
     );
 
     /// Enumerates the HIDDEN pane-group members parked in
@@ -352,6 +372,18 @@ mod tests {
                     .matches("#{pane_title}")
                     .count(),
                 "{name} has a #{{pane_title}} outside APP_PANE_TITLE"
+            );
+        }
+    }
+
+    /// `@tmuxy-ask` rides in the pane format's fixed tail. A literal that
+    /// drifted from the constant would leave every pending question invisible.
+    #[test]
+    fn list_panes_cmd_embeds_the_ask_options() {
+        for opt in [tmux_options::PANE_STATE, tmux_options::ASK] {
+            assert!(
+                tmux_formats::LIST_PANES_CMD.contains(&format!("#{{{opt}}}")),
+                "LIST_PANES_CMD is missing #{{{opt}}}"
             );
         }
     }

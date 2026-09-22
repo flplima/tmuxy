@@ -96,6 +96,7 @@ export const ServerPane = Schema.Struct({
   // Like group_id above: absent from the struct means stripped on decode, so
   // the pane's self-declared state has to be named here to survive the wire.
   pane_state: Schema.optional(Schema.NullOr(Schema.String)),
+  pane_ask: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 /** Window type set on @tmuxy-window-type. Null = foreign window. */

@@ -78,6 +78,20 @@ case "${1:-}" in
       *) ;;
     esac
     ;;
+  show-options)
+    # `tmuxy ask` polls @tmuxy-ask-answer until a client writes one. MOCK_TMUX_ANSWER
+    # (yes/no) makes this mock play that client: it recovers the token the same
+    # way a real one does — from the base64 @tmuxy-ask payload the script just
+    # wrote — and answers with it. Unset means no answer yet.
+    if [ -n "${MOCK_TMUX_ANSWER:-}" ] && [ -n "${MOCK_TMUX_LOG:-}" ]; then
+      encoded=$(sed -n "s/.*@tmuxy-ask '\([A-Za-z0-9+/=]*\)'.*/\1/p" "$MOCK_TMUX_LOG" | tail -1)
+      if [ -n "$encoded" ]; then
+        token=$(printf '%s' "$encoded" | base64 -d 2>/dev/null \
+          | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+        [ -n "$token" ] && echo "$token:$MOCK_TMUX_ANSWER"
+      fi
+    fi
+    ;;
   run-shell)
     # Just log it, no output needed
     ;;

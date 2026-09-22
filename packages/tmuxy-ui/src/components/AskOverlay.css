@@ -1,0 +1,109 @@
+/* AskOverlay — the question `tmuxy ask` hangs on a pane, drawn over the
+   pane's own blurred content. Sits inside `.pane-content`, which is
+   positioned, so it covers the terminal but not the pane header. */
+
+.ask-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* The blur belongs to the overlay, not to the terminal underneath it: a
+   `filter` on the pane's own content would also blur the overlay (a filtered
+   element is a containing block for its descendants) and would fight the
+   glyph-grid rendering. A scrim with a backdrop-filter leaves the terminal
+   DOM untouched — the text is still there, still selectable once the question
+   is gone. */
+.ask-overlay-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--term-background) 55%, transparent);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.ask-overlay-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: min(70ch, 100%);
+  padding: 16px 22px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background-color: color-mix(in srgb, var(--term-background) 88%, transparent);
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.3));
+  text-align: center;
+}
+
+.ask-overlay-question {
+  margin: 0;
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.ask-overlay-description {
+  margin: 0;
+  font-size: var(--font-size-small);
+  line-height: 1.4;
+  color: var(--text-muted);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.ask-overlay-choices {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ask-overlay-choice {
+  min-width: 7ch;
+  padding: 5px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-small);
+  cursor: pointer;
+}
+
+.ask-overlay-choice:hover {
+  border-color: var(--text-primary);
+}
+
+/* The highlight is the keyboard's cursor, so it has to read as selected even
+   though nothing here holds DOM focus — the pane does, so that a keystroke
+   meant for the question never leaks into the shell underneath. */
+.ask-overlay-choice-selected {
+  border-color: var(--accent-blue-light);
+  background-color: var(--accent-blue-bg-active);
+}
+
+/* The hint is only true where a keyboard is answering; a pane that does not
+   hold the keyboard shows the buttons alone. */
+.ask-overlay-hint {
+  margin: 2px 0 0;
+  font-size: var(--font-size-small);
+  color: var(--text-muted);
+}
+
+/* A pane too small for the card still has to say that it is waiting. */
+.ask-overlay-compact .ask-overlay-card {
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.ask-overlay-compact .ask-overlay-description,
+.ask-overlay-compact .ask-overlay-hint {
+  display: none;
+}

@@ -44,11 +44,15 @@ A "server" in the desktop app is a tmux server tmuxy drives — the local machin
 
 `TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). The local `-f <config>` flag is skipped over SSH — that path is local-only. This means the whole app (control mode + executor reads) drives the remote tmux server transparently.
 
-### Sessions tree
+### The sidebar tree, and the sessions poll behind it
 
-The live state the app holds is single-session (the attached session's windows/panes). The sidebar's **sessions→tabs→panes tree** is populated by a poll (`serversActor`, `packages/tmuxy-ui/src/machines/actors/serversActor.ts`) that shells `list-windows -a` / `list-panes -a` through `run_tmux_command` every ~4s while the tree is open. It runs on both the web and desktop builds — a client attached to a multi-session socket sees and can switch to (`SWITCH_SESSION`) every session; on web `switchSession` reconnects the SSE stream to the chosen session. The active session's subtree is drawn from live state; other sessions come from the poll. The tree only shows the session level when more than one session exists (a lone session stays a flat tab→pane tree). The poll is gated on the adapter's `enumeratesSessions` capability, so it stays inert on the single-session in-browser sandboxes (demo, v86). The **server picker** (saved-server list via `list_servers`) remains desktop-only.
+The live state the app holds is single-session (the attached session's windows/panes), and the sidebar's **tabs→panes tree** draws exactly that: this session's tabs and their panes, from live state, never the socket's other sessions. Rows for another session had no live state behind them — no content, no geometry, nothing the tree's own keys could act on — and "which session am I on" is asked and answered in the session switcher (`components/SessionMenu.tsx`), which is where the socket's other sessions are listed.
 
-The same poll gives the tree its **git context**. Each pane row carries its `#{pane_current_path}`, and every ~15s (and on each forced refresh) the client asks the host for the worktrees those directories sit in — the `list_git_worktrees` command, served by `tmuxy-core/src/worktrees.rs` on both the web server and the desktop app. The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`) rather than from the request, so a web client can never point git at a directory of its choosing; discovery is read-only (`rev-parse --git-common-dir`, `worktree list --porcelain`), scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, skips a repository git cannot read instead of failing the whole listing, falls back to newline porcelain on a git older than 2.36, and returns nothing for an SSH-backed server (its pane paths are remote). The result is published as `repositories`; `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root (component-aware, so `/repo-copy` never matches `/repo`) and the tree shows the branch — or a detached checkout's short head — as a badge on the pane row, and on a tab row when every pane in the tab shares the worktree.
+A poll (`serversActor`, `packages/tmuxy-ui/src/machines/actors/serversActor.ts`) shells `list-windows -a` / `list-panes -a` through `run_tmux_command` every ~4s while the tree is open. It feeds the switcher's session list and the tree's git context (below) — the pane cwds live state does not carry. It runs on both the web and desktop builds and is gated on the adapter's `enumeratesSessions` capability, so it stays inert on the single-session in-browser sandboxes (demo, v86). Switching session is `SWITCH_SESSION`; on web `switchSession` reconnects the SSE stream to the chosen session. The **server picker** (saved-server list via `list_servers`) remains desktop-only.
+
+A pane row is **two lines**: `%id process` with the state indicator on the first, the pane's title on the second (`components/paneTabDisplay.ts`, `paneRowLines`). They answer different questions and truncate at different rates — a process name is short and stable, while a title is a path or a command with its arguments and is the one thing in the tree that routinely outgrows a 30-column column. Sharing one line, the title pushed the state indicator around and was the half that got cut. A pane whose title adds nothing (an unset one, or one that only repeats the process) draws a single line, so a column of plain shells stays compact.
+
+The same poll gives the tree its **git context** (read for the attached session alone, the one the tree draws). Each pane row carries its `#{pane_current_path}`, and every ~15s (and on each forced refresh) the client asks the host for the worktrees those directories sit in — the `list_git_worktrees` command, served by `tmuxy-core/src/worktrees.rs` on both the web server and the desktop app. The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`) rather than from the request, so a web client can never point git at a directory of its choosing; discovery is read-only (`rev-parse --git-common-dir`, `worktree list --porcelain`), scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, skips a repository git cannot read instead of failing the whole listing, falls back to newline porcelain on a git older than 2.36, and returns nothing for an SSH-backed server (its pane paths are remote). The result is published as `repositories`; `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root (component-aware, so `/repo-copy` never matches `/repo`) and the tree shows the branch — or a detached checkout's short head — as a badge on the pane row, and on a tab row when every pane in the tab shares the worktree.
 
 ## Control Mode Architecture
 
@@ -279,7 +283,7 @@ So the attached session's window list maps 1:1 to the tab strip (minus any open 
 
 ### Schema
 
-Window options are scoped per window (`set-option -w -t <window-id>`). The pane options (`@tmuxy-group-id`, `@tmuxy-pane-state`) are scoped per pane (`set-option -p -t <pane-id>`).
+Window options are scoped per window (`set-option -w -t <window-id>`). The pane options (`@tmuxy-group-id`, `@tmuxy-pane-state`, `@tmuxy-ask`, `@tmuxy-ask-answer`) are scoped per pane (`set-option -p -t <pane-id>`).
 
 | Option | Scope | Values | Set on |
 |---|---|---|---|
@@ -292,6 +296,8 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
 | `@tmuxy-group-id` | pane | `g<n>`, e.g. `g5` | every member of a pane group |
 | `@tmuxy-pane-state` | pane | `idle` \| `working` \| `needs-input` \| `error` \| `unread` \| unset | what the pane says it is doing; set by whatever runs in it |
+| `@tmuxy-ask` | pane | base64 of `{token, question, description}` \| unset | a confirmation the pane is waiting on (`tmuxy ask`) |
+| `@tmuxy-ask-answer` | pane | `<token>:yes` \| `<token>:no` \| unset | the answer a client recorded for the pending `@tmuxy-ask` |
 | `@tmuxy-focus-request` | session | `left` \| `right` \| `panes` \| unset | a shell helper asking a client to move keyboard focus |
 | `@tmuxy-sidebar-cols` | window | integer (columns) \| unset | a sidebar column the user has dragged off its default width — for the dock these are its own cells: the right column runs in the sidebar font (80% of the pane font), so its cell width is the pane grid's advance scaled to that size (`selectSidebarCellMetrics`) |
 | `@tmuxy-sidebar-hidden` | window | `1` \| unset | a sidebar column the user has closed; its pane stays alive, no client draws it |
@@ -313,7 +319,7 @@ Both sidebars are **chrome windows of exactly the same shape as a float**: a sin
 | | left (`sidebar-left`) | right (`sidebar-right`) |
 |---|---|---|
 | Pane runs | `tmuxy widget tree` | the default shell |
-| Title click | opens the session switcher (`tmuxy widget session`) in a float | — |
+| Title click | opens the session switcher — a dropdown (`SessionMenu.tsx`) listing the socket's sessions, with the connect form (`tmuxy connect`) behind one item on desktop | — |
 | Started in | — | the current pane's directory (a bare `split-window`, like any fresh pane) |
 | Width | `sidebar_dock::LEFT_COLS` | `sidebar_dock::RIGHT_COLS` |
 | Dragged width | `@tmuxy-sidebar-cols` on its window | same |
@@ -339,7 +345,17 @@ Creating a chrome window is one atomic tmux command list: `split-window ; break-
 
 **Keyboard contract while a column has the keyboard.** Plain keys and non-binding chords stay in the column (the tree swallows them; the dock's pane receives them, Escape included). Prefix bindings and root bindings still run, and they act on the *tab grid* — tmux cannot make a chrome window current without blanking the tab, so `prefix %` with the dock focused splits the tab's active pane, not the dock. Leaving a column is Ctrl+h / Ctrl+l (or `l`/`q` in the tree), a click on a pane, or `tmuxy nav`.
 
-**Option writes and latency.** tmux emits no control-mode notification when a user option changes. The monitor therefore re-lists windows right after forwarding any client command that writes a `@tmuxy-*` option, and a shell helper that writes one (`request_focus` in `bin/tmuxy/_lib`) follows it with a harmless `%window-renamed` (renaming a sidebar's chrome window to the name it already has), which the monitor's deferred metadata sync turns into a `list-windows`. Without either, a dragged width or a focus request waited for the idle heartbeat.
+### Pending confirmations (`tmuxy ask`)
+
+`tmuxy ask <%pane> <keys...>` does not send the keys. It writes the question to the TARGET pane's `@tmuxy-ask` and blocks; the client blurs that pane's content and draws the question over it, and what the user answers is written back to `@tmuxy-ask-answer`, which the waiting CLI reads before it sends the keys (yes) or exits 1 (no). The round trip is the point: the asker — usually an agent in another pane — learns exactly when the command started, so it knows when the output is worth capturing.
+
+The payload is base64 rather than the text itself because `list-panes` rows are comma-separated and a question is free text a user wrote; base64 cannot contain a comma, so the value rides the format whatever the question says. The `token` inside it pins an answer to the question that was on screen: a question withdrawn and replaced while the user was reading gets a new token, and the stale answer is ignored rather than acted on.
+
+The question lives on the pane, not in a client, so every client attached to the session shows it and answering in one answers it in all. Answering is a pane-scoped option write, which is why the monitor re-lists PANES behind such a write (see below) — otherwise the question would stay on screen until the next event moved it. A pane with a pending question also reads as `needs-input` in the sidebar tree whatever it last declared about itself, so the tab holding it is the one the tree points at.
+
+Answering from the keyboard is handled in `machines/actors/keyboardActor.ts` before any key is forwarded: while a pane holds a question it is not a terminal to type into, and Cmd+Enter (Ctrl+Enter off macOS) says yes to every question pending in the ACTIVE tab — deliberately not the others, since agreeing to something you cannot see is what the confirmation exists to prevent.
+
+**Option writes and latency.** tmux emits no control-mode notification when a user option changes. The monitor therefore re-lists windows right after forwarding any client command that writes a `@tmuxy-*` option — and re-lists PANES when the write was pane-scoped (`set-option -p`), which is what takes an answered question off the screen at once. A shell helper that writes one (`request_focus` in `bin/tmuxy/_lib`) follows it with a harmless `%window-renamed` (renaming a sidebar's chrome window to the name it already has), which the monitor's deferred metadata sync turns into a `list-windows`. `bin/tmuxy/ask` instead prints its waiting notice to stderr: that is real pane output, and pane output is what schedules the deferred metadata sync, so a question asked from a silent pane still appears within a round trip rather than waiting for the idle heartbeat.
 
 ### Collapsible panes
 

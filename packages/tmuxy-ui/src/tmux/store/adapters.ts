@@ -68,6 +68,7 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     // about itself — no output, no geometry — so omitting it here pins the old
     // object and the tree never sees the new state at all.
     (prev.paneState ?? null) === (next.paneState ?? null) &&
+    (prev.paneAsk ?? null) === (next.paneAsk ?? null) &&
     prev.windowId === next.windowId &&
     (prev.images === next.images ||
       JSON.stringify(prev.images ?? null) === JSON.stringify(next.images ?? null));

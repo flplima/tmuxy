@@ -11,7 +11,14 @@ const { DELAYS } = require('./config');
  * Click "Add Pane to Group" via the ⋮ menu on the active pane header
  */
 async function clickPaneGroupAdd(page) {
-  const menuBtn = await page.$('.pane-header-menu');
+  // The ⋮ of the pane the user is ON. A group's header is divided between its
+  // members and each carries its own ⋮, so "the first one in the document" is
+  // some other member's menu — it used to be the single shared button, which
+  // is why taking the first one worked before.
+  const menuBtn =
+    (await page.$('.pane-tab.pane-tab-selected .pane-header-menu')) ||
+    (await page.$('.pane-active .pane-header-menu')) ||
+    (await page.$('.pane-header-menu'));
   if (!menuBtn) throw new Error('Pane header menu button (⋮) not found');
   await menuBtn.click();
   await delay(DELAYS.SHORT);
@@ -134,7 +141,38 @@ async function getGroupTabInfo(page) {
       title: tab.querySelector('.pane-tab-title')?.textContent?.trim() || '',
       active:
         tab.classList.contains('pane-tab-active') || tab.classList.contains('pane-tab-selected'),
+      // What the title is actually DRAWN in: the group's member showing is the
+      // one wearing the theme's accent, and the parked ones must not be.
+      color: getComputedStyle(tab.querySelector('.pane-tab-title')).color,
+      // The member's share of the header, and what sits in it: its own ⋮ and
+      // ✕ at the right of that share, and a darker ground when it is parked.
+      width: tab.getBoundingClientRect().width,
+      background: getComputedStyle(tab).backgroundColor,
+      buttons: Array.from(tab.querySelectorAll('button')).map((b) => b.getAttribute('aria-label')),
+      controlsAfterTitle: (() => {
+        const controls = tab.querySelector('.pane-tab-controls');
+        if (!controls) return null;
+        return (
+          controls.getBoundingClientRect().left >=
+          tab.querySelector('.pane-tab-title').getBoundingClientRect().right - 1
+        );
+      })(),
     }));
+  });
+}
+
+/**
+ * The theme's accent, as the browser computes it — the colour the active
+ * pane's header title takes.
+ */
+async function getThemeAccent(page) {
+  return await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--theme-accent)';
+    document.body.appendChild(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
   });
 }
 
@@ -173,5 +211,6 @@ module.exports = {
   waitForGroupTabs,
   isHeaderGrouped,
   getGroupTabInfo,
+  getThemeAccent,
   getUIPaneTitles,
 };

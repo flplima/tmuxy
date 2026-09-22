@@ -102,6 +102,13 @@ export class DemoTmux {
    * on every list-panes. Absent means the option was never set.
    */
   private paneStates = new Map<string, string>();
+  /**
+   * `@tmuxy-ask` per pane: the base64 question `tmuxy ask` hangs on the pane
+   * it wants keys sent to. Held exactly like `@tmuxy-pane-state` — set by a
+   * command, read back on every list-panes — so a story drives the overlay
+   * through the real option rather than through a prop.
+   */
+  private paneAsks = new Map<string, string>();
   private windows: FakeWindow[] = [];
   private activeWindowId = '@0';
   private activePaneId = '%0';
@@ -252,6 +259,7 @@ export class DemoTmux {
         cursor_shape: 0,
         cursor_hidden: false,
         pane_state: this.paneStates.get(pane.id) ?? null,
+        pane_ask: this.paneAsks.get(pane.id) ?? null,
         images: pane.images,
       });
     }
@@ -551,6 +559,21 @@ export class DemoTmux {
     if (!this.panes.has(paneId)) return;
     if (value) this.paneStates.set(paneId, value);
     else this.paneStates.delete(paneId);
+  }
+
+  /**
+   * Set `@tmuxy-ask` on a pane — what `tmuxy ask` does before it blocks. An
+   * empty value unsets it, which is what answering the question does.
+   */
+  setPaneAsk(paneId: string, value: string): void {
+    if (!this.panes.has(paneId)) return;
+    if (value) this.paneAsks.set(paneId, value);
+    else this.paneAsks.delete(paneId);
+  }
+
+  /** The raw `@tmuxy-ask` value on a pane, or null. */
+  getPaneAsk(paneId: string): string | null {
+    return this.paneAsks.get(paneId) ?? null;
   }
 
   selectPane(paneId: string): boolean {

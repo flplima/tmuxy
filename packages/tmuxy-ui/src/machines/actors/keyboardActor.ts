@@ -39,6 +39,20 @@ import {
 import { flashCopiedRange } from '../../utils/copyFlash';
 import { terminalTextOf } from '../../utils/nativeSelection';
 import { escapeLiteralText, literalTextCommands } from '../../tmux/keyBatching';
+import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
+
+/**
+ * The slice of a pane this actor reads off the machine snapshot. Narrow on
+ * purpose: everything here is read on every keydown, so it names only the
+ * fields a keystroke can depend on.
+ */
+interface LivePane {
+  tmuxId: string;
+  windowId: string;
+  active: boolean;
+  /** Raw `@tmuxy-ask`: a question pending on the pane (`utils/paneAsk.ts`). */
+  paneAsk?: string | null;
+}
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
@@ -411,14 +425,16 @@ export function createKeyboardActor() {
       let liveActivePaneId = activePaneId;
       let liveActiveWindowId: string | null = null;
       let liveCopyStates: Record<string, CopyModeState> | undefined;
-      let livePanes: ReadonlyArray<{ tmuxId: string; windowId: string; active: boolean }> = [];
+      let liveAskSelections: Record<string, AskAnswer> = {};
+      let livePanes: ReadonlyArray<LivePane> = [];
       try {
         const snapshot = input.parent.getSnapshot() as {
           context?: {
             activePaneId?: string;
             activeWindowId?: string | null;
             copyModeStates?: Record<string, CopyModeState>;
-            panes?: ReadonlyArray<{ tmuxId: string; windowId: string; active: boolean }>;
+            askSelections?: Record<string, AskAnswer>;
+            panes?: ReadonlyArray<LivePane>;
           };
         };
         const ctx = snapshot?.context;
@@ -426,6 +442,7 @@ export function createKeyboardActor() {
         if (ctx?.activeWindowId) liveActiveWindowId = ctx.activeWindowId;
         liveCopyStates = ctx?.copyModeStates;
         if (ctx?.panes) livePanes = ctx.panes;
+        if (ctx?.askSelections) liveAskSelections = ctx.askSelections;
       } catch (_) {
         /* keep the cached closure values */
       }
@@ -499,6 +516,77 @@ export function createKeyboardActor() {
       // so keys typed during the copied text's blink go to the pane.
       const copyModeActive = activeCopyState?.mode === 'copy' && !activeCopyState.copiedAt;
       const scrollModePane = activeCopyState?.mode === 'scroll' ? scrollbackPane : null;
+
+      /** Which of Yes/No the question on a pane is highlighting. */
+      const askSelection = (paneId: string): AskAnswer => liveAskSelections[paneId] ?? 'yes';
+
+      // Cmd+Enter (Ctrl+Enter off macOS): say yes to every question pending in
+      // the tab in view. This is the shortcut the whole `tmuxy ask` round trip
+      // exists for — an agent asks the pane beside you to run something, you
+      // read the question without leaving the agent's pane, and agree from
+      // where you are. Scoped to the active tab by the machine, and handled
+      // before anything else because Enter is otherwise a keystroke.
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.altKey) {
+        const anyPending = livePanes.some(
+          (pane) => pane.windowId === liveActiveWindowId && decodePaneAsk(pane.paneAsk),
+        );
+        if (anyPending) {
+          event.preventDefault();
+          input.parent.send({ type: 'ANSWER_VISIBLE_ASKS', answer: 'yes' });
+          return;
+        }
+      }
+
+      // A pane showing a question is not a terminal to type into: its content
+      // is blurred behind the overlay, so a plain keystroke here answers the
+      // question or moves between the answers, and none of them reach tmux.
+      //
+      // Chords are deliberately left alone. The prefix key, the tab and pane
+      // bindings, copy — a question must not trap the user in the pane it is
+      // on with no way out but the mouse, and none of those can be mistaken
+      // for typing into the shell underneath.
+      const askPaneId = leftSidebarFocused ? null : (overlayPaneId() ?? liveActivePaneId);
+      const pendingAsk = askPaneId
+        ? decodePaneAsk(livePanes.find((pane) => pane.tmuxId === askPaneId)?.paneAsk)
+        : null;
+      const plainKey = !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (askPaneId && pendingAsk && plainKey) {
+        const move = (to: AskAnswer) => {
+          event.preventDefault();
+          input.parent.send({ type: 'MOVE_ASK_SELECTION', paneId: askPaneId, to });
+        };
+        const answer = (choice: AskAnswer) => {
+          event.preventDefault();
+          input.parent.send({ type: 'ANSWER_ASK', paneId: askPaneId, answer: choice });
+        };
+        switch (event.key) {
+          case 'ArrowLeft':
+          case 'h':
+            return move('yes');
+          case 'ArrowRight':
+          case 'l':
+            return move('no');
+          case 'Tab':
+            // One key that reaches both, for a keyboard without arrows.
+            return move(askSelection(askPaneId) === 'yes' ? 'no' : 'yes');
+          case 'y':
+          case 'Y':
+            return answer('yes');
+          case 'n':
+          case 'N':
+          case 'Escape':
+            return answer('no');
+          case 'Enter':
+          case ' ':
+            return answer(askSelection(askPaneId));
+          default:
+            // Any other plain key is swallowed rather than forwarded: a
+            // question is a modal thing, and a stray keystroke must not land
+            // in the shell the user cannot currently read.
+            event.preventDefault();
+            return;
+        }
+      }
 
       /** A selection the user made with the browser, anywhere in the app. */
       const nativeSelection = () => window.getSelection()?.toString() ?? '';

@@ -297,6 +297,32 @@ export const selectLeftSidebarPane = createMemoizedSelector(
  * currently docked beside it, so the decision is made against the window's full
  * body width rather than the already-shrunken grid.
  */
+/**
+ * The width the pane area will have once the columns have finished moving, in
+ * pixels — the body minus its padding minus whatever ends up docked beside the
+ * grid.
+ *
+ * "Ends up": a column sliding SHUT is already closed here, so this is the
+ * settled width and not the one on screen. That is the point of it. The grid
+ * is re-tiled for this width the moment a toggle starts (`beginSidebarMotion`),
+ * so anything that positions the grid has to measure against the same width,
+ * or it centres a settled grid inside a container that is still moving — which
+ * is what used to slide the pane area sideways for the length of the
+ * animation.
+ *
+ * Null when there is nothing to predict: the body has not been measured, or a
+ * column overlays the panes instead of docking (the pane area's width does not
+ * change then).
+ */
+export function selectSettledPaneWidth(context: AppMachineContext): number | null {
+  if (context.bodyWidth <= 0) return null;
+  const layout = selectSidebarLayout(context);
+  if (layout.overlay) return null;
+  const docked =
+    (layout.leftOpen ? layout.leftWidth : 0) + (layout.rightOpen ? layout.rightWidth : 0);
+  return context.bodyWidth - 2 * CONTAINER_PADDING_X - docked;
+}
+
 export const selectSidebarLayout = createMemoizedSelector(
   (ctx: AppMachineContext) =>
     [

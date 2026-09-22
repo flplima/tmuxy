@@ -42,24 +42,14 @@ run_safe() {
   tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
 }
 
-# Quote arguments for interpolation into a run_safe command string. Each
-# argument becomes one single-quoted token (embedded `'` escaped), and `#` is
-# doubled because run-shell format-expands its command string before the shell
-# sees it (see docs/TMUX.md).
-shquote() {
-  # The `'` -> `'\''` escape is built from variables rather than written as
-  # literal backslashes in the replacement: bash 3.2 (the only bash macOS
-  # ships) and bash 4+ disagree about how many backslashes survive a literal
-  # replacement string, and 3.2 turned `it's` into `it\'\\'\''` — a tmux
-  # command that no longer parses. A replacement that arrives by expansion is
-  # taken literally by both.
-  local out='' arg sq="'" sq_esc="'\\''"
-  for arg in "$@"; do
-    arg="'${arg//$sq/$sq_esc}'"
-    out="$out ${arg//#/##}"
-  done
-  printf '%s' "${out# }"
-}
+# `shquote` — quoting for interpolation into a run_safe command string — is
+# shared with the bin/tmuxy scripts, so it lives in their `_lib`. Sourcing it
+# also brings `_tmux`/`_run_safe`, which are this file's `tmux`/`run_safe`
+# under other names; the socket resolution above has already run, and `_lib`
+# honours the TMUX_SOCKET it set. It resolves SCRIPTS_DIR from its own `$0`
+# (this file, not the scripts directory), so restore ours afterwards.
+source "$SCRIPTS_DIR/_lib"
+SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # --- JSON output helpers ---
 #
@@ -95,6 +85,7 @@ Usage: tmuxy <command> [args...]
 
 Commands:
   pane        Manage panes (split, kill, select, resize, group, float)
+  ask         Send keys to another pane, once the user has confirmed
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect)
   nav         Navigate across groups, splits, and tabs
@@ -253,6 +244,32 @@ Examples:
   tmuxy connect default              # attach to your everyday tmux server
   tmuxy connect default work         # ...to its "work" session specifically
   tmuxy connect /tmp/tmux-1000/foo   # attach to a socket by full path
+EOF
+}
+
+usage_ask() {
+  cat <<'EOF'
+Usage: tmuxy ask <%pane> <keys...> [options]
+
+Ask the user to confirm before sending keys to another pane. The target pane
+shows the question over its blurred content; the command blocks until the user
+answers, then sends the keys (yes) or nothing (no) — so a caller knows exactly
+when the command started and can capture the pane afterwards.
+
+Options:
+  --question TEXT      The question to show. Default: the keys themselves.
+  --description TEXT   Extra detail, shown smaller under the question.
+  --timeout SECONDS    Give up after this long. Default: wait forever.
+
+Answering: Enter/y on the focused pane, a click on Yes/No, or Cmd+Enter
+(Ctrl+Enter off macOS) to say yes to every pending question in the tab.
+
+Exit status: 0 sent, 1 declined, 2 timed out or the pane is gone.
+
+Examples:
+  tmuxy ask %3 npm test Enter
+  tmuxy ask %3 'rm -rf dist' Enter --description 'clears the build output'
+  tmuxy ask %3 make deploy Enter --question 'Deploy to production?'
 EOF
 }
 
@@ -959,6 +976,13 @@ case "${1:-}" in
   event)
     shift
     cmd_event "$@"
+    ;;
+  ask)
+    shift
+    case "${1:-}" in
+      --help|-h|"") usage_ask ;;
+      *) exec bash "$SCRIPTS_DIR/ask" "$@" ;;
+    esac
     ;;
   tree)
     shift

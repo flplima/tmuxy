@@ -1132,7 +1132,11 @@ impl TmuxMonitor {
         // Likewise the marked pane: `select-pane -m/-M` changes
         // `#{pane_marked}` without any notification, so re-list the
         // panes right behind it or the flag waits for the heartbeat.
-        if toggles_pane_mark(&unescaped) {
+        // A PANE-scoped `@tmuxy-*` write needs the same treatment for
+        // the same reason: answering a `tmuxy ask` clears `@tmuxy-ask`,
+        // and without this the question would stay on screen until the
+        // next event moved it.
+        if toggles_pane_mark(&unescaped) || writes_pane_scoped_tmuxy_option(&unescaped) {
             if let Err(e) = self
                 .connection
                 .send_command(tmux_formats::LIST_PANES_CMD)
@@ -1278,6 +1282,25 @@ fn writes_tmuxy_option(command: &str) -> bool {
         || command.contains("tmuxy/stack")
 }
 
+/// Whether a client command writes a PANE-scoped `@tmuxy-*` option
+/// (`set-option -p` / `setp`, set or unset). Those change `list-panes` output
+/// and nothing else, so the panes — not the windows — are what has to be
+/// re-listed behind them.
+fn writes_pane_scoped_tmuxy_option(command: &str) -> bool {
+    crate::executor::split_compound(command)
+        .iter()
+        .flat_map(|part| part.split(" ; "))
+        .any(|part| {
+            matches!(
+                crate::executor::command_verb(part),
+                "set-option" | "set" | "setp"
+            ) && part.contains("@tmuxy-")
+                && part
+                    .split_whitespace()
+                    .any(|tok| tok.starts_with('-') && !tok.starts_with("--") && tok.contains('p'))
+        })
+}
+
 /// Whether a fire-and-forget command is marker-wrapped so its `%error`
 /// reaches the user. Everything but keystrokes (`send-keys`, also pinned).
 /// The list separator may still be the client's `\;` or already unescaped.
@@ -1334,6 +1357,27 @@ mod tests {
             "set-option -w -t @1 @tmuxy-collapsible 1"
         ));
         assert!(!super::writes_tmuxy_option("split-window -h"));
+    }
+
+    /// Answering a `tmuxy ask` is a pane-scoped option write, and the question
+    /// stays on screen until the panes are re-listed behind it.
+    #[test]
+    fn pane_scoped_option_writes_re_list_the_panes() {
+        assert!(super::writes_pane_scoped_tmuxy_option(
+            "set-option -pu -t %3 @tmuxy-ask"
+        ));
+        assert!(super::writes_pane_scoped_tmuxy_option(
+            "set-option -pu -t %3 @tmuxy-ask \\; set-option -p -t %3 @tmuxy-ask-answer 'a1:yes'"
+        ));
+        // Window- and session-scoped writes go the other way (list-windows).
+        assert!(!super::writes_pane_scoped_tmuxy_option(
+            "set-option -w -t @1 @tmuxy-collapsible 1"
+        ));
+        assert!(!super::writes_pane_scoped_tmuxy_option("split-window -h"));
+        // A pane option that isn't ours changes nothing tmuxy reads.
+        assert!(!super::writes_pane_scoped_tmuxy_option(
+            "set-option -p -t %3 remain-on-exit on"
+        ));
     }
 
     use super::*;

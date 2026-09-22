@@ -239,7 +239,25 @@
   outline-offset: -1px;
 }
 
-.pane-tab-mark,
+/* ...and the content itself takes a wash of the theme's accent (green by
+   default, gruvbox's yellow, and so on), so a marked pane is recognisable from
+   across the screen rather than by a 1px edge. A translucent overlay rather
+   than a `filter` on the content: a filter would make the pane a containing
+   block for everything inside it — the overlays that sit in `.pane-content`
+   (the `tmuxy ask` question, the scroll indicator) would be tinted too, and
+   the glyph grid would be re-rasterised on every frame of output. Kept faint
+   on purpose: it marks the pane, it does not take it over. */
+.pane-marked .pane-content::after,
+.pane-marked > .float-content::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--theme-accent);
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: 30;
+}
+
 .sidebar-tree-mark {
   flex: 0 0 auto;
   margin-right: 4px;
@@ -591,6 +609,15 @@
     background-color var(--transition-active);
 }
 
+/* A WIDGET pane has no terminal cells to line up with the tmux separator
+   column, so it drops the horizontal padding a terminal pane keeps: the
+   widget — and the browser's address bar above it — spans the pane edge to
+   edge instead of sitting between two strips of pane background. */
+.pane-content-widget {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 /* Pane content (header + terminal) carries the focus cue as text opacity,
    separate from the surface alpha: inactive panes dim to
    --inactive-text-opacity, the active one sits at --active-text-opacity. A
@@ -927,6 +954,27 @@
   color: var(--pane-header-text-active);
 }
 
+/* A group member that is NOT the one in view reads as an inactive pane does,
+   whatever the header around it is doing. The accent answers one question —
+   "which pane am I typing into?" — and a parked member is not it. */
+.pane-header .pane-tab:not(.pane-tab-selected),
+.pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-title,
+.pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-icon {
+  color: var(--pane-header-text-inactive);
+}
+
+/* The ⋮ and ✕ are chrome, not content: the same quiet tone on every header,
+   active or not. They used to take the active header's colour, so on a theme
+   that accents its active header (gruvbox) the buttons shouted the same
+   colour as the title they sit beside — three things competing to say the
+   same one thing. */
+.pane-header .pane-header-menu,
+.pane-header .pane-header-close,
+.pane-header .pane-tab-controls .pane-header-menu,
+.pane-header .pane-tab-controls .pane-header-close {
+  color: var(--pane-header-text-inactive);
+}
+
 /* Pane tabs container: takes every pixel the header buttons leave, so a
    single pane's title can run the full width before it ellipsises. */
 .pane-tabs {
@@ -941,6 +989,44 @@
 
 .pane-tabs::-webkit-scrollbar {
   display: none;
+}
+
+/* A GROUP's strip: the header is shared out between its members, an equal
+   share each, so every member has a place of its own with its title at the
+   left and its own ⋮/✕ at the right. Before this the strip was one run of
+   titles with a single pair of buttons at the far end, which belonged to
+   whichever member happened to be showing — unguessable, and no way at all to
+   close a parked one. */
+.pane-tabs-group {
+  /* Nothing scrolls: the shares divide whatever width there is. */
+  overflow-x: hidden;
+}
+
+.pane-tabs-group > .pane-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 2px;
+  border-right: 1px solid color-mix(in srgb, var(--border-medium) 50%, transparent);
+}
+
+.pane-tabs-group > .pane-tab:last-child {
+  border-right: none;
+}
+
+/* The member NOT in view is dimmed by its ground, not only by its text: with
+   every member carrying the same controls, the shares have to read apart at a
+   glance rather than by reading them. */
+.pane-tabs-group > .pane-tab:not(.pane-tab-selected) {
+  background-color: color-mix(in srgb, #000 22%, transparent);
+}
+
+/* Each member's own buttons, pushed to the right of ITS share. */
+.pane-tab-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 /* Individual pane tab - minimalistic text-only */
@@ -965,8 +1051,25 @@
   padding-left: 0;
 }
 
+/* Hovering the PANE — anywhere in it, not just its title — brightens that
+   pane's header. The pointer is over the pane as a whole, so the cue belongs
+   to the pane as a whole: hovering only the title bar meant the header lit up
+   for the few pixels of it you happened to cross and stayed dim while the
+   cursor sat in the pane's body, which is where a cursor actually is.
+   `:not(:hover)` on the tab keeps a hovered tab's own rule (below) from being
+   double-applied. */
+.pane-layout-item:hover .pane-tab,
+.float-container:hover .pane-tab,
 .pane-tab:hover {
   color: var(--text-secondary);
+}
+
+/* ...and the pane stops being dimmed while the pointer is on it. An inactive
+   pane sits at --inactive-text-opacity so the active one reads as the one
+   with the keyboard; under the pointer it is the one being looked at, so it
+   comes up to full and its header is legible without clicking into it. */
+.pane-layout-item:not(.pane-dragging):hover > * {
+  opacity: var(--active-text-opacity);
 }
 
 /* A group member a read-only client can see listed but not bring into view. */
@@ -1028,7 +1131,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: var(--term-white);
+  color: var(--pane-header-text-inactive);
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.93);
   line-height: 1;
   opacity: 0.5;
@@ -1046,6 +1149,37 @@
   opacity: 1;
 }
 
+/* Marked (`prefix m`): the tmux mark a later `join-pane`/`swap-pane -s` will
+   use. It sits at the header's right edge with the pane's other controls — a
+   solid chip in the theme's accent, the same colour washing the pane's content
+   below, so the chip and the wash read as one mark rather than two
+   decorations. Filled rather than outlined: the wash is deliberately faint, so
+   the chip is the half that has to carry from across the screen.
+
+   The text on it is the ground the accent sits on — black against a dark
+   theme's accent, white against a light one's — because an accent is chosen to
+   stand out from the theme's background, which is exactly what makes it a poor
+   background for that theme's foreground. */
+.pane-header-mark {
+  flex: 0 0 auto;
+  margin-left: var(--spacing-lg);
+  padding: 0 5px;
+  border: none;
+  border-radius: 2px;
+  background: var(--theme-accent);
+  color: #000;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  white-space: nowrap;
+  z-index: 60; /* Above resize dividers, like the buttons beside it. */
+}
+
+:root.theme-light .pane-header-mark {
+  color: #fff;
+}
+
 /* Pane close button */
 .pane-header-close {
   display: flex;
@@ -1058,7 +1192,7 @@
   background: transparent;
   border: none;
   border-radius: 0;
-  color: var(--term-white);
+  color: var(--pane-header-text-inactive);
   font-size: 10px;
   line-height: 1;
   opacity: 0.5;
@@ -1207,9 +1341,19 @@
   font-weight: normal;
 }
 
+/* Prefix armed, and copy mode: the two states the status line shouts about.
+   Both are inverse-video chips — the terminal convention for "a mode is on" —
+   drawn in the THEME's colours rather than in a literal black and green. The
+   hardcoded pair was the default theme's palette written out, so every other
+   colourscheme got a green chip on a bar that had nothing green in it.
+
+   The ground is the terminal background, which is the darkest tone on a dark
+   theme and the lightest on a light one, so the chip sits apart from the
+   status bar under it in both; the text is the theme's accent, the same colour
+   the active pane's title takes. */
 .statusline-hints .statusline-prefix-active {
-  background: #000;
-  color: #0f0;
+  background: var(--term-background);
+  color: var(--theme-accent);
   padding: 0 3px;
   border-radius: 2px;
 }
@@ -1219,8 +1363,8 @@
 }
 
 .statusline-copy-mode-label {
-  background: #000;
-  color: #0f0;
+  background: var(--term-background);
+  color: var(--theme-accent);
   padding: 0 3px;
   border-radius: 2px;
   font-weight: bold;
@@ -1358,6 +1502,9 @@
   overflow: hidden;
   background: var(--bg-black);
   box-sizing: border-box;
+  /* The anchor for anything drawn over the float's body — today the `tmuxy
+     ask` overlay, which covers the terminal but not the float's header. */
+  position: relative;
 }
 
 @keyframes float-appear {
@@ -1446,6 +1593,106 @@
   background: var(--bg-black);
 }
 
+/* The widget is a column: the address bar, then the page. The bar keeps its
+   one row and the page takes the rest — `min-height: 0` because a flex child
+   refuses to shrink below its content otherwise, and an iframe's content is
+   whatever the page says. */
+.widget-browser-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+.widget-browser-shell > :not(.browser-nav) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The address bar. One row tall and no taller: the pane it sits in is usually
+   a third of a screen, and every row this takes is a row of page the user does
+   not get. Hence no separate toolbar, no labels, no padding to speak of — the
+   buttons are glyphs and the address is the whole width left over.
+
+   It wears the pane header's own ground and type size, so the two read as one
+   band of chrome above the page rather than as two strips in different
+   liveries. Height too: matching `--pane-header-height` is what keeps the
+   band looking like one thing.
+
+   The font is named rather than inherited: a `<button>` does not take the
+   page's font, and `inherit` on one lands on the UA's serif default — which
+   has no nerd glyphs at all, so the external-link icon came out a blank box. */
+.browser-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: var(--pane-header-height);
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border-medium);
+  background-color: color-mix(in srgb, var(--border-medium) 30%, transparent);
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
+}
+
+.browser-nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.browser-nav-button:hover:not(:disabled) {
+  background: var(--bg-highlight-alt, color-mix(in srgb, var(--text-primary) 12%, transparent));
+  opacity: 1;
+}
+
+/* A step that goes nowhere is shown, not hidden: where you are in the pane's
+   history is part of what the bar says. */
+.browser-nav-button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* The nerd glyph carries more ink than the chevrons beside it. */
+.browser-nav-external {
+  font-size: 0.85em;
+}
+
+/* The address takes every pixel the buttons leave. */
+.browser-nav-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.browser-nav-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0 6px;
+  border: none;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.5em;
+  text-overflow: ellipsis;
+}
+
+.browser-nav-input:focus {
+  outline: 1px solid var(--theme-accent);
+  outline-offset: -1px;
+}
+
 .widget-browser-frame {
   display: block;
   border: 0;
@@ -1453,6 +1700,23 @@
      real browser window — the pane's dark background would leave the default
      black body text unreadable. */
   background: #fff;
+}
+
+/* The sheet `--color-filter` recolours a framed page through. Covers the
+   frame exactly and nothing else, and is inert to the pointer so the page
+   under it stays live. See TmuxyBrowser for why a framed page needs a
+   BACKDROP filter where an image makes do with a plain one. */
+/* The page area under the address bar, and the containing block for the
+   colour-filter sheet: the sheet recolours the page, never the chrome above
+   it. */
+.widget-browser-page {
+  position: relative;
+}
+
+.widget-browser-tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .widget-browser-image {
@@ -2175,7 +2439,6 @@
 
 /* Every row keeps the same padding — a pane's depth is drawn by its connector
    glyph, not by indentation, which would cost a third of a 30-column column. */
-.sidebar-tree-session,
 .sidebar-tree-tab,
 .sidebar-tree-pane {
   display: flex;
@@ -2187,11 +2450,6 @@
   overflow: hidden;
 }
 
-.sidebar-tree-session {
-  gap: var(--spacing-lg);
-  font-weight: 600;
-}
-
 /* Tabs are the tree's headings: full-strength text. */
 .sidebar-tree-tab {
   color: var(--term-white);
@@ -2199,17 +2457,54 @@
 }
 
 /* Panes recede under their tab, so scanning the tree reads tab names first.
-   A pane's title gets a second line before it is cut: titles are the one
-   thing in the tree that routinely outgrow a 30-column column (a path, a
-   command with its arguments), and two lines fit most of them. The row grows
-   with it; the connector, icon and cue stay on the first line. */
-/* Panes recede under their tab, so scanning the tree reads tab names first.
-   ONE line each: the row now ends in a state indicator, and a label allowed to
-   wrap to a second line would leave that indicator floating beside the wrong
-   half of the row. The name survives truncation because it comes first and is
-   the bold half. */
+
+   A pane row is TWO lines: `%id process` with the state indicator, then the
+   pane's title. They answer different questions and truncate at different
+   rates — a process name is short and stable, a title is a path or a command
+   with its arguments and is the one thing in the tree that routinely outgrows
+   a 30-column column. Sharing one line, the title pushed the indicator around
+   and was the half that got cut. A pane with no title of its own draws one
+   line, so a column of plain shells stays compact.
+
+   The row is therefore top-aligned and free to grow: everything that belongs
+   to the first line (connector, icon, indicator) pins itself to the top, and
+   `height` gives way to a minimum. */
 .sidebar-tree-pane {
+  align-items: flex-start;
+  height: auto;
+  min-height: var(--line-height-terminal);
   color: var(--text-dimmed);
+}
+
+/* Beside the label column, not beside whichever line happens to be taller. */
+.sidebar-tree-pane > .sidebar-tree-branch,
+.sidebar-tree-pane > .sidebar-tree-icon,
+.sidebar-tree-pane > .sidebar-tree-mark,
+.sidebar-tree-pane > .sidebar-tree-state,
+.sidebar-tree-pane > .sidebar-tree-git {
+  align-self: flex-start;
+}
+
+/* The label column: the two lines stack, and each truncates on its own. */
+.sidebar-tree-pane > .sidebar-tree-label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.sidebar-tree-line,
+.sidebar-tree-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: var(--line-height-terminal);
+}
+
+/* The title is the quieter line — what the pane is showing, under what it is.
+   Slightly smaller so two lines cost less than two rows' worth of height. */
+.sidebar-tree-title {
+  font-size: 0.9em;
+  opacity: 0.7;
 }
 
 /* Every child gets the row's own line box. Left to `line-height: normal` a
@@ -2228,15 +2523,13 @@
   white-space: pre;
 }
 
-.sidebar-tree-session:hover,
 .sidebar-tree-tab:hover,
 .sidebar-tree-pane:hover {
   background: var(--accent-blue-bg);
 }
 
-/* Where the session actually is. The active tab and the active pane inside it
+/* Where the keyboard actually is. The active tab and the active pane inside it
    both go green, so the eye lands on the pair. */
-.sidebar-tree-session.is-active,
 .sidebar-tree-tab.is-active,
 .sidebar-tree-pane.is-active {
   color: var(--accent-green);
@@ -2367,7 +2660,6 @@
 /* The keyboard cursor. Only meaningful while the column has focus — an idle
    sidebar showing a live cursor reads as if it were driving the app — so it is
    drawn only then. */
-.sidebar-column.is-focused .sidebar-tree-session.is-selected,
 .sidebar-column.is-focused .sidebar-tree-tab.is-selected,
 .sidebar-column.is-focused .sidebar-tree-pane.is-selected {
   background: var(--accent-blue-bg-hover);
@@ -2433,12 +2725,6 @@
 
 .sidebar-tree-git::before {
   content: '⎇ ';
-}
-
-/* Rows for sessions the app is not attached to — dimmed, read-only. */
-.sidebar-tree-tab.is-foreign,
-.sidebar-tree-pane.is-foreign {
-  opacity: 0.72;
 }
 
 /* ============================================

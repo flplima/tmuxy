@@ -1,13 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, waitFor, within } from 'storybook/test';
+import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { TmuxyBrowser } from './TmuxyBrowser';
 import { ProviderHarness } from '../../../stories/StoryHarness';
-import { rampTables, readThemeRamp } from '../../../utils/themeColorFilter';
+import { luminance, rampTables, readThemeRamp } from '../../../utils/themeColorFilter';
+import { browserWidget } from './definition';
+import type { AppMachineContext } from '../../../machines/types';
 import type { WidgetProps } from '../index';
 
 // 1×1 opaque PNG, small enough to embed and decode instantly.
 const PNG_DATA_URI =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/** A page with a real `<title>`, for the pane-naming path. */
+const HTML_PAGE =
+  '<!doctype html><html><head><title>Release &mdash; notes</title></head>' +
+  '<body><h1>PAGE BODY</h1></body></html>';
 
 const MARKDOWN = [
   '# Release Notes',
@@ -51,10 +58,15 @@ const meta: Meta<typeof TmuxyBrowser> = {
   parameters: { layout: 'fullscreen' },
   beforeEach: () => {
     const w = window as unknown as FileSrcWindow;
-    w.__tmuxyFileSrc = (path) =>
-      path.endsWith('.md')
-        ? `data:text/markdown;charset=utf-8,${encodeURIComponent(MARKDOWN)}`
-        : undefined;
+    w.__tmuxyFileSrc = (path) => {
+      if (path.endsWith('.md')) {
+        return `data:text/markdown;charset=utf-8,${encodeURIComponent(MARKDOWN)}`;
+      }
+      if (path.endsWith('.html')) {
+        return `data:text/html;charset=utf-8,${encodeURIComponent(HTML_PAGE)}`;
+      }
+      return undefined;
+    };
     return () => {
       delete w.__tmuxyFileSrc;
     };
@@ -112,8 +124,8 @@ export const ImageSource: Story = {
 };
 
 /**
- * A website is framed, and the pane shows the page and nothing else — the
- * widget contributes no toolbar, address bar or buttons of its own.
+ * A website is framed under the address bar, and the bar costs the page one
+ * row — the rest of the pane is the page.
  */
 export const WebPage: Story = {
   render: () => <Harness src="https://example.com/docs" />,
@@ -124,9 +136,88 @@ export const WebPage: Story = {
     const rect = frame!.getBoundingClientRect();
     expect(rect.width).toBeGreaterThan(100);
     expect(rect.height).toBeGreaterThan(100);
-    // No chrome: the only controls on screen belong to the harness, not to
-    // the widget's own subtree.
-    expect(canvasElement.querySelectorAll('.widget-browser button').length).toBe(0);
+
+    // The bar sits above the page, spans it, and takes one row of it.
+    const nav = canvasElement.querySelector<HTMLElement>('[data-testid="browser-nav"]')!;
+    expect(nav).not.toBeNull();
+    const navRect = nav.getBoundingClientRect();
+    expect(navRect.bottom).toBeLessThanOrEqual(rect.top + 1);
+    expect(Math.round(navRect.width)).toBe(Math.round(rect.width));
+    expect(navRect.height).toBeLessThan(32);
+  },
+};
+
+/**
+ * The address bar: type somewhere new, and back/forward walk the places this
+ * pane has been pointed. The page's own links are not in that history — the
+ * frame is another document and, for a website, another origin, so nothing
+ * inside it can be read from out here.
+ */
+export const NavigatingWithTheAddressBar: Story = {
+  render: () => <Harness src="https://example.com/docs" />,
+  play: async ({ canvasElement }) => {
+    const user = userEvent.setup({ delay: 5 });
+    const nav = canvasElement.querySelector<HTMLElement>('[data-testid="browser-nav"]')!;
+    const input = nav.querySelector<HTMLInputElement>('[data-testid="browser-nav-input"]')!;
+    const back = nav.querySelector<HTMLButtonElement>('[data-testid="browser-nav-back"]')!;
+    const forward = nav.querySelector<HTMLButtonElement>('[data-testid="browser-nav-forward"]')!;
+    const external = nav.querySelector<HTMLButtonElement>('[data-testid="browser-nav-external"]')!;
+    const frameSrc = () =>
+      canvasElement.querySelector<HTMLIFrameElement>('.widget-browser-frame')?.getAttribute('src');
+
+    // Where the pane was pointed, and nowhere to step from it.
+    expect(input.value).toBe('https://example.com/docs');
+    expect(back.disabled).toBe(true);
+    expect(forward.disabled).toBe(true);
+    // An http page can be handed to the system browser.
+    expect(external.disabled).toBe(false);
+
+    // Type an address and press Enter. A bare host gets its scheme.
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, 'example.org/next{Enter}');
+    await waitFor(() => {
+      expect(frameSrc()).toBe('https://example.org/next');
+    });
+    expect(input.value).toBe('https://example.org/next');
+    expect(back.disabled).toBe(false);
+    expect(forward.disabled).toBe(true);
+
+    // Back returns to where the pane started, and forward comes back.
+    await user.click(back);
+    await waitFor(() => {
+      expect(frameSrc()).toBe('https://example.com/docs');
+    });
+    expect(input.value).toBe('https://example.com/docs');
+    expect(back.disabled).toBe(true);
+    expect(forward.disabled).toBe(false);
+
+    await user.click(forward);
+    await waitFor(() => {
+      expect(frameSrc()).toBe('https://example.org/next');
+    });
+  },
+};
+
+/**
+ * A local file is shown the same way, but it is not something the system
+ * browser can be handed — so that one button says so instead of doing nothing.
+ */
+export const LocalPageCannotBeOpenedExternally: Story = {
+  render: () => <Harness src="/tmp/release-notes.md" />,
+  play: async ({ canvasElement }) => {
+    const external = await waitFor(() => {
+      const el = canvasElement.querySelector<HTMLButtonElement>(
+        '[data-testid="browser-nav-external"]',
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(external.disabled).toBe(true);
+    const input = canvasElement.querySelector<HTMLInputElement>(
+      '[data-testid="browser-nav-input"]',
+    )!;
+    expect(input.value).toBe('/tmp/release-notes.md');
   },
 };
 
@@ -159,9 +250,14 @@ export const ColorFilterRecoloursAnImage: Story = {
     });
     expect(getComputedStyle(filtered).filter).toContain(`#${svgFilter.id}`);
 
-    // The ramp is the theme's, read live.
+    // The ramp is the theme's, read live — and it runs DARKEST FIRST, which
+    // is what makes the filter keep a page's polarity: luminance 0 (full
+    // black in the page) lands on the theme's darkest tone, not on its
+    // foreground. Mapping by role instead inverted every page on a dark
+    // theme, so a black website came back light.
     const ramp = readThemeRamp();
     expect(ramp).not.toBeNull();
+    expect(luminance(ramp![0])).toBeLessThan(luminance(ramp![ramp!.length - 1]));
     const want = rampTables(ramp!);
     expect(svgFilter.querySelector('feFuncR')!.getAttribute('tableValues')).toBe(want.r);
     expect(svgFilter.querySelector('feFuncG')!.getAttribute('tableValues')).toBe(want.g);
@@ -169,5 +265,34 @@ export const ColorFilterRecoloursAnImage: Story = {
 
     const plain = canvasElement.querySelector<HTMLImageElement>('[data-testid="plain"] img')!;
     expect(getComputedStyle(plain).filter).toBe('none');
+  },
+};
+
+/**
+ * A pane showing a page is named after the PAGE, not its address — the same
+ * thing a browser tab does. The title is read by fetching the HTML, which the
+ * app may do for a local file (its own route serves it) but not for a
+ * cross-origin site, whose document is not the app's to read; see
+ * `pageTitle.ts`.
+ */
+export const PaneIsNamedAfterThePage: Story = {
+  render: () => <Harness src="/tmp/release.html" />,
+  play: async () => {
+    const app = (
+      window as unknown as {
+        app: { getSnapshot(): { context: AppMachineContext } };
+      }
+    ).app;
+    const lines = ['__SRC__:/tmp/release.html'];
+
+    // The title arrives from a fetch, so it lands a moment after the frame.
+    await waitFor(
+      () => {
+        expect(browserWidget.selectTitle?.(app.getSnapshot().context, '%0', lines)).toBe(
+          'Release — notes',
+        );
+      },
+      { timeout: 8000 },
+    );
   },
 };

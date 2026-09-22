@@ -75,6 +75,7 @@ export {
   selectVisibleWindows,
   selectLeftSidebarPane,
   selectSidebarLayout,
+  selectSettledPaneWidth,
   selectRightSidebarPane,
   selectError,
   selectFatalError,

@@ -212,6 +212,7 @@ const BUNDLED_THEMES: &[(&str, &str)] = &[
 const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     ("tmuxy-cli", include_str!("../../../bin/tmuxy-cli")),
     ("tmuxy/_lib", include_str!("../../../bin/tmuxy/_lib")),
+    ("tmuxy/ask", include_str!("../../../bin/tmuxy/ask")),
     (
         "tmuxy/event-emit",
         include_str!("../../../bin/tmuxy/event-emit"),

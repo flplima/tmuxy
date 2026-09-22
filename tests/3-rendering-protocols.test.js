@@ -137,12 +137,23 @@ describe('Scenario 14: OSC Protocols', () => {
       );
     };
 
-    // No app has set a title yet, so the header falls back to the process name.
-    // The point of the assertion is the negative: it must NOT be the host name
-    // tmux seeds pane_title with.
+    // Whatever the header shows before any program has announced a title: the
+    // process name on a bare shell, or the shell's own title where the user's
+    // rc file sets one (`zsh | tmuxy` and friends — plenty of prompts do).
+    // Either is correct, and the assertion is the negative the header exists
+    // for: it must never be the HOST NAME tmux seeds every `pane_title` with,
+    // and it must be something really drawn.
+    // `list-panes`, not `display-message`: the query helper appends its own
+    // `-t <session>`, which display-message refuses as a second argument.
+    const host = String(await ctx.session.query("list-panes -F '#{host}'"))
+      .split('\n')[0]
+      .trim();
     const idle = await readHeaderTitle();
     expect(idle).not.toBeNull();
-    expect(['zsh', 'bash', 'fish', 'sh', 'shell']).toContain(idle.text);
+    expect(idle.text).not.toBe('');
+    expect(idle.text).not.toBe(host);
+    expect(idle.width).toBeGreaterThan(0);
+    expect(idle.height).toBeGreaterThan(0);
 
     // A long-running program announces its own title over OSC 2 — this is the
     // `claude` case, whose process name is a useless version number.
@@ -926,6 +937,19 @@ describe('Category 17: Widgets', () => {
       expect(tab.icon).toBe('\uf0ac'); // nf-fa-globe
       expect(tab.hasTerminal).toBe(false);
 
+      // The navigation bar runs the whole width of the pane: the widget pane
+      // drops the terminal's side padding, so no strip of pane background is
+      // left showing beside the toolbar.
+      const bar = await wCtx.page.evaluate(() => {
+        const pane = document.querySelector('[role=group][aria-label^="Widget pane"]');
+        const nav = pane.querySelector('[data-testid="browser-nav"]').getBoundingClientRect();
+        const body = pane.querySelector('.pane-content').getBoundingClientRect();
+        return { left: nav.left - body.left, right: body.right - nav.right, width: nav.width };
+      });
+      expect(bar.width).toBeGreaterThan(0);
+      expect(Math.abs(bar.left)).toBeLessThan(2);
+      expect(Math.abs(bar.right)).toBeLessThan(2);
+
       // The ⋮ menu carries the browser's own section; Zoom In visibly enlarges
       // the rendered document.
       await wCtx.page.evaluate(() => {
@@ -984,26 +1008,38 @@ describe('Category 17: Widgets', () => {
       );
       await waitForDomSelector(wCtx.page, '.widget-browser-frame', 30000);
 
-      // The frame is drawn through the theme filter, and the filter's ramp runs
-      // from the theme's foreground through its gray to its background.
+      // The page is recoloured by a tint sheet laid over the frame: a
+      // `filter` on the iframe itself only repaints the element's own
+      // background, never the framed document. The filter's ramp is
+      // the theme's three tones ordered DARKEST FIRST — which is what keeps a
+      // page's polarity: luminance 0 (this page's black text) lands on the
+      // theme's darkest tone, not on its foreground. Ordering by role instead
+      // inverted every page on a dark theme.
       const filter = await wCtx.page.evaluate(() => {
         const frame = document.querySelector('.widget-browser-frame');
+        const tint = document.querySelector('[data-testid="browser-color-filter"]');
         const svgFilter = document.querySelector('filter[id^="tmuxy-theme-filter-"]');
         const probe = document.createElement('span');
         document.body.appendChild(probe);
-        const channel = (name) => {
+        const tone = (name) => {
           probe.style.color = `var(${name})`;
-          const [r] = getComputedStyle(probe).color.match(/\d+/g).map(Number);
-          return Number((r / 255).toFixed(4));
+          const [r, g, b] = getComputedStyle(probe).color.match(/\d+/g).map(Number);
+          return { r, g, b, luminance: 0.2126 * r + 0.7152 * g + 0.0722 * b };
         };
-        const want = [
-          channel('--term-foreground'),
-          channel('--term-bright-black'),
-          channel('--term-background'),
-        ];
+        const want = ['--term-foreground', '--term-bright-black', '--term-background']
+          .map(tone)
+          .sort((a, b) => a.luminance - b.luminance)
+          .map((stop) => Number((stop.r / 255).toFixed(4)));
         probe.remove();
+        const frameRect = frame?.getBoundingClientRect();
+        const tintRect = tint?.getBoundingClientRect();
         return {
-          css: frame ? getComputedStyle(frame).filter : null,
+          css: tint ? getComputedStyle(tint).backdropFilter : null,
+          covers:
+            frameRect && tintRect
+              ? Math.abs(tintRect.width - frameRect.width) < 2 &&
+                Math.abs(tintRect.height - frameRect.height) < 2
+              : false,
           id: svgFilter?.id ?? null,
           red: svgFilter?.querySelector('feFuncR')?.getAttribute('tableValues') ?? null,
           want,
@@ -1011,7 +1047,12 @@ describe('Category 17: Widgets', () => {
       });
       expect(filter.id).not.toBeNull();
       expect(filter.css).toContain(`#${filter.id}`);
+      expect(filter.covers).toBe(true);
       expect(filter.red.split(' ').map(Number)).toEqual(filter.want);
+      // ...and the ramp really does run dark to light, so the page is
+      // recoloured rather than inverted.
+      const redStops = filter.red.split(' ').map(Number);
+      expect(redStops[0]).toBeLessThanOrEqual(redStops[redStops.length - 1]);
 
       await sendKeyCombo(wCtx.page, 'Control', 'c');
       await waitForCondition(

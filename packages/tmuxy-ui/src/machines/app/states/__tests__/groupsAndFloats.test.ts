@@ -95,10 +95,10 @@ describe('groupsAndFloats state', () => {
     expect(ctx.focusedFloatPaneId).toBeNull();
   });
 
-  it('OPEN_SESSION_FLOAT does not crash and leaves context unchanged', () => {
+  it('OPEN_CONNECT_FLOAT does not crash and leaves context unchanged', () => {
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards);
     const before = actor.getSnapshot().context.floatPanes;
-    const ctx = sendAndGetContext(actor, { type: 'OPEN_SESSION_FLOAT' });
+    const ctx = sendAndGetContext(actor, { type: 'OPEN_CONNECT_FLOAT' });
     expect(ctx.floatPanes).toBe(before);
   });
 

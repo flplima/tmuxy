@@ -16,7 +16,10 @@ import {
   usePane,
   useIsPaneInActiveWindow,
   useIsSinglePane,
+  useIsDragging,
+  useIsResizing,
 } from '../machines/AppContext';
+import { useFramedPaneFocus } from '../hooks';
 
 interface WidgetPaneProps {
   paneId: string;
@@ -31,6 +34,15 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // A widget that embeds a frame (the browser) swallows the mousedown that
+  // would otherwise activate its pane; this reads the focus change instead.
+  useFramedPaneFocus(paneId, wrapperRef);
+  // While a divider or a pane is being dragged, the gesture belongs to the app
+  // and to nothing inside a pane. Both hooks run every render — `||` between
+  // two hook calls makes the second one conditional.
+  const dragging = useIsDragging();
+  const resizing = useIsResizing();
+  const gestureInFlight = dragging || resizing;
 
   // The widget's own title when it declares one — a browser pane names itself
   // after the page it is showing — else the generic `__TITLE__`/URL sniffing.
@@ -161,7 +173,21 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       }}
     >
       <PaneHeader paneId={paneId} titleOverride={widgetTitle} widgetName={widgetInfo.widgetName} />
-      <div className="pane-content" style={{ flex: 1, overflow: 'hidden' }}>
+      {/* `pointer-events: none` for the length of a drag or a resize, because
+          an embedded frame captures the pointer the moment it crosses into the
+          pane: the `mousemove`s stop reaching the window listener the gesture
+          runs on, so the divider stops following the cursor — and the
+          `mouseup` is swallowed too, leaving the resize stuck on until some
+          later click lands outside a frame. Nothing inside a pane needs the
+          pointer while the app is already using it. */}
+      <div
+        className="pane-content pane-content-widget"
+        style={{
+          flex: 1,
+          overflow: 'hidden',
+          pointerEvents: gestureInFlight ? 'none' : undefined,
+        }}
+      >
         <WidgetComponent
           paneId={paneId}
           widgetName={widgetInfo.widgetName}

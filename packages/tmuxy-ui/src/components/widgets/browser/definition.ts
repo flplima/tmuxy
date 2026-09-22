@@ -16,8 +16,13 @@ export const browserWidget: WidgetDefinition = {
   component: TmuxyBrowser,
   icon: GLOBE_ICON,
 
-  selectTitle: (context, paneId, lines) =>
-    browserTitle(selectBrowserView(context, paneId, lines).url),
+  // The page's own `<title>` where it could be read, the address otherwise —
+  // the same order of preference a browser tab uses. See `BROWSER_PAGE_TITLE`
+  // for why a cross-origin site has no title to offer.
+  selectTitle: (context, paneId, lines) => {
+    const view = selectBrowserView(context, paneId, lines);
+    return view.pageTitle || browserTitle(view.url);
+  },
 
   selectMenuItems: (context, paneId, lines): WidgetMenuItem[] => {
     const view = selectBrowserView(context, paneId, lines);

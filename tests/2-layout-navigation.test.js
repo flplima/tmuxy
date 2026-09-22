@@ -38,6 +38,7 @@ const {
   waitForGroupTabs,
   isHeaderGrouped,
   getGroupTabInfo,
+  getThemeAccent,
   assertLayoutInvariants,
   waitForShellPrompt,
   waitForCondition,
@@ -105,9 +106,11 @@ describe('Scenario 4d: Marked pane', () => {
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
   // tmux's marked pane (`select-pane -m`) used to be invisible in tmuxy. It now
-  // travels on the wire as `#{pane_marked}` and shows as a flag in the pane
-  // header (and an outline on the pane), and the context menu can swap another
-  // pane with it. Clearing the mark (`select-pane -M`) removes the indicator.
+  // travels on the wire as `#{pane_marked}` and says so three ways: MARKED at
+  // the right of the pane's header, an outline on the pane, and a wash of the
+  // theme's accent over its content — so it reads from across the screen and
+  // not only by a 1px edge. The context menu can swap another pane with it,
+  // and clearing the mark (`select-pane -M`) removes all of it.
   test('prefix m flags the pane → swap with marked from the menu → prefix M clears', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
@@ -123,13 +126,36 @@ describe('Scenario 4d: Marked pane', () => {
         .map((l) => l.split(' ')[0]);
     };
     const markedInUi = () =>
-      ctx.page.evaluate(() => ({
-        state: (window.app?.getSnapshot()?.context?.panes || [])
-          .filter((p) => p.marked)
-          .map((p) => p.tmuxId),
-        flags: document.querySelectorAll('.pane-header .pane-tab-mark').length,
-        outlined: document.querySelectorAll('.pane-layout-item.pane-marked').length,
-      }));
+      ctx.page.evaluate(() => {
+        const badge = document.querySelector('[data-testid="pane-header-mark"]');
+        const box = badge?.getBoundingClientRect();
+        const marked = document.querySelector('.pane-layout-item.pane-marked');
+        const content = marked?.querySelector('.pane-content');
+        // The wash is a pseudo-element, so it is read off the computed style
+        // rather than found in the DOM.
+        const wash = content ? getComputedStyle(content, '::after') : null;
+        return {
+          state: (window.app?.getSnapshot()?.context?.panes || [])
+            .filter((p) => p.marked)
+            .map((p) => p.tmuxId),
+          flags: document.querySelectorAll('[data-testid="pane-header-mark"]').length,
+          outlined: document.querySelectorAll('.pane-layout-item.pane-marked').length,
+          // Spelled out, and really drawn — a badge with no box says nothing.
+          badgeText: badge?.textContent?.trim() ?? null,
+          badgeVisible: Boolean(box && box.width > 20 && box.height > 5),
+          // ...and on the RIGHT of its header, past its title.
+          badgeRightOfTitle: Boolean(
+            box &&
+            box.left >
+              (badge
+                .closest('.pane-header')
+                ?.querySelector('.pane-tab-title')
+                ?.getBoundingClientRect().right ?? Infinity),
+          ),
+          washOpacity: wash ? Number(wash.opacity) : null,
+          washColor: wash ? wash.backgroundColor : null,
+        };
+      });
 
     // Step 1: mark the active (right) pane.
     const rightPane = await ctx.page.evaluate(
@@ -146,6 +172,18 @@ describe('Scenario 4d: Marked pane', () => {
     const ui = await markedInUi();
     expect(ui.flags).toBe(1);
     expect(ui.outlined).toBe(1);
+    expect(ui.badgeText).toMatch(/^MARKED/);
+    expect(ui.badgeVisible).toBe(true);
+    expect(ui.badgeRightOfTitle).toBe(true);
+    // The wash is faint on purpose — it marks the pane, it does not take it
+    // over — and it is the theme's accent, not a hardcoded colour.
+    expect(ui.washOpacity).toBeGreaterThan(0);
+    expect(ui.washOpacity).toBeLessThan(0.25);
+    const accent = await ctx.page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--theme-accent').trim(),
+    );
+    expect(accent).not.toBe('');
+    expect(ui.washColor).not.toBe('rgba(0, 0, 0, 0)');
 
     // Step 2: from the OTHER pane's context menu, swap it with the marked pane.
     const orderBefore = String(await paneOrder());
@@ -177,7 +215,9 @@ describe('Scenario 4d: Marked pane', () => {
       'the mark to clear in the UI',
     );
     expect(await markedInTmux()).toEqual([]);
-    expect((await markedInUi()).flags).toBe(0);
+    const cleared = await markedInUi();
+    expect(cleared.flags).toBe(0);
+    expect(cleared.outlined).toBe(0);
   }, 120000);
 });
 
@@ -1222,6 +1262,31 @@ describe('Scenario 5: Pane Groups', () => {
     expect(tabs.length).toBe(2);
     expect(tabs.filter((t) => t.active).length).toBe(1);
 
+    // The strip says WHICH member is showing by colour: the one in view wears
+    // the theme's accent and the parked one does not. Both are listed, so the
+    // colour is the only thing telling them apart — a group whose tabs all
+    // read the same is a group you cannot navigate by eye.
+    const accent = await getThemeAccent(ctx.page);
+    expect(tabs.find((t) => t.active).color).toBe(accent);
+    expect(tabs.filter((t) => !t.active).map((t) => t.color)).not.toContain(accent);
+
+    // The header is SHARED between the members: an equal share each, with the
+    // member's own ⋮ and ✕ at the right of its own share. One pair of buttons
+    // for the whole strip belonged to whichever member happened to be showing,
+    // and could never close a parked one.
+    for (const tab of tabs) {
+      expect(tab.buttons).toEqual([
+        expect.stringMatching(/^Pane menu for %\d+$/),
+        expect.stringMatching(/^Close pane %\d+$/),
+      ]);
+      expect(tab.controlsAfterTitle).toBe(true);
+    }
+    const widths = tabs.map((t) => t.width);
+    expect(Math.abs(widths[0] - widths[1])).toBeLessThan(widths[0] * 0.25);
+    // ...and the parked member's share is dimmed by its ground, so the two
+    // read apart without reading them.
+    expect(tabs.find((t) => t.active).background).not.toBe(tabs.find((t) => !t.active).background);
+
     // Step 5: Record the new (BETA) pane ID — it should be different from ALPHA
     await delay(DELAYS.SYNC);
     const betaPaneId = await ctx.page.evaluate(() => {
@@ -1248,6 +1313,10 @@ describe('Scenario 5: Pane Groups', () => {
 
     tabs = await getGroupTabInfo(ctx.page);
     expect(tabs.filter((t) => t.active).length).toBe(1);
+    // ...and the accent moved with the switch, rather than staying on the tab
+    // that used to be showing.
+    expect(tabs.find((t) => t.active).color).toBe(accent);
+    expect(tabs.filter((t) => !t.active).map((t) => t.color)).not.toContain(accent);
 
     const afterSwitchId = await ctx.page.evaluate(() => {
       return window.app?.getSnapshot()?.context?.activePaneId || null;
@@ -1855,15 +1924,24 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
     await until('Ctrl+l to show the next member', (w) => w.shown === last && w.active === last);
     expect((await where(ctx.page)).activeX).toBe(0);
 
-    // Ctrl+l from the last member moves on to the pane on the right.
+    // Ctrl+l from the last member moves on to the pane on the right, and the
+    // group keeps showing the member it was on — leaving the group is not
+    // stepping it. Both are waited for together: the keyboard lands on the
+    // right pane before the group's swap has settled, so a wait on the
+    // keyboard alone let the assertion read the group mid-swap, with no
+    // member in the visible window at all (~1 run in 3).
     await navigatePaneKeyboard(ctx.page, 'right');
-    await until('Ctrl+l from the last member to reach the right pane', (w) => w.activeX > 0);
-    expect((await where(ctx.page)).shown).toBe(last);
+    await until(
+      'Ctrl+l from the last member to reach the right pane, group still on the last member',
+      (w) => w.activeX > 0 && w.shown === last,
+    );
 
     // Ctrl+h comes back into the group as it is showing, without stepping it.
     await navigatePaneKeyboard(ctx.page, 'left');
-    await until('Ctrl+h to return to the group', (w) => w.active === last);
-    expect((await where(ctx.page)).shown).toBe(last);
+    await until(
+      'Ctrl+h to return to the group, still on the last member',
+      (w) => w.active === last && w.shown === last,
+    );
 
     // With the dock open, Ctrl+l from the rightmost pane goes into it.
     await navigatePaneKeyboard(ctx.page, 'right');
@@ -2946,9 +3024,9 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       'second window to become active',
     );
 
-    // A pane whose title outgrows the column: the row keeps to ONE line and
-    // truncates. The row now ends in a state indicator, and a label allowed to
-    // wrap would leave that indicator beside the wrong half of the row.
+    // A pane whose title outgrows the column. A pane row is two lines — the
+    // process on the first, the title on the second — and it is the TITLE line
+    // that has to truncate rather than spill past the column's edge.
     const longTitle = 'a very long pane title that certainly needs truncating in this tree';
     await ctx.session.runCommand(`select-pane -t ${ctx.session.name} -T '${longTitle}'`);
 
@@ -2985,25 +3063,32 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       ctx.page,
       async () =>
         ctx.page.evaluate((title) => {
-          const label = [
-            ...document.querySelectorAll('.sidebar-tree-pane .sidebar-tree-label'),
+          const titleLine = [
+            ...document.querySelectorAll('.sidebar-tree-pane .sidebar-tree-title'),
           ].find((el) => el.textContent.includes(title.slice(0, 20)));
-          if (!label) return false;
+          if (!titleLine) return false;
+          // The title really is the SECOND line: the process line sits above
+          // it, in the same label column.
+          const row = titleLine.closest('.sidebar-tree-pane');
+          const processLine = row.querySelector('.sidebar-tree-line');
+          if (!processLine) return false;
+          const above = processLine.getBoundingClientRect();
           const column = document.querySelector('.sidebar-column-left').getBoundingClientRect();
-          const r = label.getBoundingClientRect();
-          const lineHeight = parseFloat(getComputedStyle(label).lineHeight);
-          // One line, really cut rather than spilling past the column, and
-          // still inside it on every side.
+          const r = titleLine.getBoundingClientRect();
+          const lineHeight = parseFloat(getComputedStyle(titleLine).lineHeight);
+          // One line, really cut rather than spilling past the column, still
+          // inside it on every side, and under the process line.
           return (
             Math.round(r.height / lineHeight) === 1 &&
-            label.scrollWidth > label.clientWidth &&
+            titleLine.scrollWidth > titleLine.clientWidth &&
+            r.top >= above.bottom - 1 &&
             r.left >= column.left &&
             r.right <= column.right &&
             r.bottom <= column.bottom
           );
         }, longTitle),
       8000,
-      'the long pane title to truncate onto one line in the tree',
+      'the long pane title to truncate onto its own line in the tree',
     );
 
     // The pane inside the repo shows its branch, drawn inside the column, and

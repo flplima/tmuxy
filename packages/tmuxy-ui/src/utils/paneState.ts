@@ -17,6 +17,7 @@
  */
 
 import type { TmuxPane } from '../tmux/types';
+import { paneAskFor } from './paneAsk';
 
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
 
@@ -84,8 +85,14 @@ export function normalizePaneState(raw: string | null | undefined): PaneStateNam
  * from a trap). The obvious alternative, reading a dead pane's exit status,
  * only ever works while tmux's `remain-on-exit` is on, and that keeps every
  * finished pane on screen forever.
+ *
+ * The one thing tmuxy reads rather than takes on trust is a pending
+ * `tmuxy ask`: a pane showing a question IS waiting on the user, whatever it
+ * last declared about itself, and it outranks that declaration so the tab
+ * holding the question is the one the tree points at.
  */
-export function paneStateFor(pane: Pick<TmuxPane, 'paneState'>): PaneStateName {
+export function paneStateFor(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): PaneStateName {
+  if (paneAskFor(pane)) return 'needs-input';
   return normalizePaneState(pane.paneState);
 }
 

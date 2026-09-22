@@ -3,7 +3,7 @@ import {
   getTabText,
   getTabLabel,
   getTabIcon,
-  splitTabLabel,
+  paneRowLines,
   splitTitleIcon,
 } from '../paneTabDisplay';
 import type { TmuxPane } from '../../tmux/types';
@@ -119,41 +119,55 @@ describe('the icon an application announces', () => {
   });
 });
 
-describe('splitTabLabel', () => {
-  it('leads with the process name and trails the rest', () => {
-    // The tree weights these differently \u2014 bold name, dim detail \u2014 so the eye
-    // lands on WHAT is running before WHICH file it has open.
-    expect(splitTabLabel(pane({ command: 'nvim', title: 'nvim styles.css' }))).toEqual({
-      name: 'nvim',
-      detail: 'styles.css',
+describe('paneRowLines', () => {
+  it('puts what is RUNNING on the first line and what it is SHOWING on the second', () => {
+    // The two halves truncate at different rates — a process name is short and
+    // stable, a title is a path — which is why they get a line each.
+    expect(paneRowLines(pane({ command: 'nvim', title: 'nvim styles.css' }))).toEqual({
+      process: 'nvim',
+      title: 'nvim styles.css',
     });
-    expect(splitTabLabel(pane({ command: 'cargo', title: 'cargo test --all' }))).toEqual({
-      name: 'cargo',
-      detail: 'test --all',
-    });
-  });
-
-  it('gives a one-word label no detail', () => {
-    expect(splitTabLabel(pane({ command: 'zsh', title: '' }))).toEqual({
-      name: 'zsh',
-      detail: '',
+    expect(paneRowLines(pane({ command: 'cargo', title: 'cargo test --all' }))).toEqual({
+      process: 'cargo',
+      title: 'cargo test --all',
     });
   });
 
-  it('splits after the icon the app announced, not before it', () => {
-    // getTabLabel has already taken the icon off, so the name is the app's,
-    // not the glyph.
-    expect(splitTabLabel(pane({ command: '2.1.251', title: '\u273b claude' }))).toEqual({
-      name: 'claude',
-      detail: '',
+  it('draws no second line when the title would only repeat the process', () => {
+    // A column of plain shells stays compact rather than reserving a blank
+    // line under each one.
+    expect(paneRowLines(pane({ command: 'zsh', title: '' }))).toEqual({
+      process: 'zsh',
+      title: '',
+    });
+    expect(paneRowLines(pane({ command: 'zsh', title: 'zsh' }))).toEqual({
+      process: 'zsh',
+      title: '',
     });
   });
 
-  it('keeps [COPY MODE] whole', () => {
-    // Splitting on the space would announce a program called "[COPY".
-    expect(splitTabLabel(pane({ command: 'nvim', inMode: true }))).toEqual({
-      name: '[COPY MODE]',
-      detail: '',
+  it('takes the icon off the title, which is drawn in its own place', () => {
+    // The row already draws the app's glyph beside the label; leaving it in
+    // the text would show it twice.
+    expect(paneRowLines(pane({ command: '2.1.251', title: '\u273b claude' }))).toEqual({
+      process: '2.1.251',
+      title: 'claude',
+    });
+  });
+
+  it('gives copy mode the title line and keeps the process visible', () => {
+    // Copy mode is a state of the PANE, not the program in it — which is
+    // still worth seeing while you scroll it.
+    expect(paneRowLines(pane({ command: 'nvim', inMode: true }))).toEqual({
+      process: 'nvim',
+      title: '[COPY MODE]',
+    });
+  });
+
+  it('names an unknown process rather than leaving the line empty', () => {
+    expect(paneRowLines(pane({ command: '', title: 'some title' }))).toEqual({
+      process: 'shell',
+      title: 'some title',
     });
   });
 });

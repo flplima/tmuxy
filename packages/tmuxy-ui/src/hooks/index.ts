@@ -4,3 +4,4 @@
 
 export { usePaneMouse } from './usePaneMouse';
 export { usePaneTouch } from './usePaneTouch';
+export { useFramedPaneFocus } from './useFramedPaneFocus';

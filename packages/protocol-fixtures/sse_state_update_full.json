@@ -62,6 +62,7 @@
           "in_mode": true,
           "marked": true,
           "mouse_any_flag": true,
+          "pane_ask": "eyJ0b2tlbiI6ImExIn0=",
           "pane_state": "working",
           "paused": true,
           "selection_present": true,

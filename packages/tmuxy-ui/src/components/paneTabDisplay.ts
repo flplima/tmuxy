@@ -123,24 +123,32 @@ export function getTabLabel(pane: TmuxPane, titleOverride?: string): string {
 }
 
 /**
- * The label split for weighting: the name the row leads with, and whatever
- * trails it.
+ * A pane as the sidebar tree's two-line row draws it.
  *
- * The sidebar tree draws the name bold and the rest dim, so the eye lands on
- * WHAT is running before WHICH file it has open — `nvim` before `styles.css`,
- * `cargo` before `test`. The split is the first space, because that is where
- * both a command and its arguments and an app's own title divide.
+ * The two lines answer different questions and are sized differently, so they
+ * are split here rather than squeezed onto one line and truncated together:
  *
- * A pane in copy mode is the exception: `[COPY MODE]` is one label, and
- * splitting it at the space would read as a program called `[COPY`.
+ *  - `process` — the executable actually running (`#{pane_current_command}`),
+ *    short and stable, and the only half that still tells two panes apart once
+ *    the column is narrow. It shares its line with the pane id and the state
+ *    indicator.
+ *  - `title` — what the program announced over OSC 0/2: a path, a file being
+ *    edited, a host. This is the half that routinely outgrows a 30-column
+ *    column, which is why it gets a line of its own.
+ *
+ * `title` is empty when there is nothing to add — an unset title, or one that
+ * only repeats the process name — so a plain shell stays a one-line row rather
+ * than reserving a blank second line.
+ *
+ * Copy mode takes over the title line: `[COPY MODE]` is a state of the pane,
+ * not the program in it, and the process underneath is still worth seeing.
  */
-export function splitTabLabel(
+export function paneRowLines(
   pane: TmuxPane,
   titleOverride?: string,
-): { name: string; detail: string } {
-  const label = getTabLabel(pane, titleOverride);
-  if (pane.inMode) return { name: label, detail: '' };
-  const gap = label.indexOf(' ');
-  if (gap <= 0) return { name: label, detail: '' };
-  return { name: label.slice(0, gap), detail: label.slice(gap + 1).trim() };
+): { process: string; title: string } {
+  const process = pane.command || 'shell';
+  if (pane.inMode) return { process, title: '[COPY MODE]' };
+  const title = splitTitleIcon(titleOverride || pane.title || '').text.trim();
+  return { process, title: title === process ? '' : title };
 }

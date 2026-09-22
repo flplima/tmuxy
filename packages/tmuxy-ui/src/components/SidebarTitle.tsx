@@ -13,9 +13,10 @@
  * whatever its pane is running, so a pinned `tail -f` says so.
  */
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import { useAppSend, useAppSelector } from '../machines/AppContext';
 import { Tooltip } from './Tooltip';
+import { SessionMenu } from './SessionMenu';
 
 export const SidebarTitle = memo(function SidebarTitle({
   side,
@@ -31,7 +32,10 @@ export const SidebarTitle = memo(function SidebarTitle({
     side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
   );
 
-  const openSessions = useCallback(() => send({ type: 'OPEN_SESSION_FLOAT' }), [send]);
+  // The switcher is a dropdown hanging off this button — see SessionMenu for
+  // why it is a menu and not a float.
+  const switcherRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // The title is the column's handle up here: clicking it focuses the column,
   // the same as clicking the column itself. That matters because a click inside
@@ -58,9 +62,11 @@ export const SidebarTitle = memo(function SidebarTitle({
             className="sidebar-title-switcher"
             aria-label="Switch session"
             aria-haspopup="menu"
+            ref={switcherRef}
+            aria-expanded={menuOpen}
             onClick={(e) => {
               e.stopPropagation();
-              openSessions();
+              setMenuOpen((open) => !open);
             }}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
@@ -69,6 +75,7 @@ export const SidebarTitle = memo(function SidebarTitle({
           </button>
         </Tooltip>
       )}
+      {menuOpen && <SessionMenu anchorRef={switcherRef} onClose={() => setMenuOpen(false)} />}
     </span>
   );
 });

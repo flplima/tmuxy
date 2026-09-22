@@ -15,5 +15,9 @@ export const browserState = {
     BROWSER_ZOOM: { actions: 'browser_zoom' },
     BROWSER_RELOAD: { actions: 'browser_reload' },
     BROWSER_COPY_URL: { actions: 'browser_copyUrl' },
+    BROWSER_NAVIGATE: { actions: 'browser_navigate' },
+    BROWSER_HISTORY: { actions: 'browser_history' },
+    BROWSER_OPEN_EXTERNAL: { actions: 'browser_openExternal' },
+    BROWSER_PAGE_TITLE: { actions: 'browser_pageTitle' },
   },
 } as const;

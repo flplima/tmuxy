@@ -446,6 +446,16 @@ export class DemoAdapter implements TmuxAdapter {
       return;
     }
 
+    // Answering a `tmuxy ask` arrives as ONE compound list (clear the question,
+    // then record the answer), which this engine doesn't split on `\;`.
+    // Clearing the question is the half that shows: the answer option exists
+    // for the waiting CLI, and the demo has no such process.
+    const askAnswered = command.match(/set-option\s+-pu\s+-t\s+(%\d+)\s+@tmuxy-ask(?:\s|\\|$)/);
+    if (askAnswered) {
+      this.tmux.setPaneAsk(askAnswered[1], '');
+      return;
+    }
+
     // A sidebar column being dragged to a new width, or reset to its default.
     const sidebarWidth = command.match(
       /set-option\s+-w\s+-t\s+(@\d+)\s+@tmuxy-sidebar-cols\s+(\d+)/,
@@ -499,24 +509,36 @@ export class DemoAdapter implements TmuxAdapter {
         break;
       }
 
-      // `set-option -p -t %id @tmuxy-pane-state <value>` — how a process says
-      // what its pane is doing (`tmuxy pane state`). Only the pane-scoped
-      // tmuxy option is honoured here; the demo has no general option store.
+      // The pane-scoped tmuxy options a process writes about its own pane:
+      // `@tmuxy-pane-state` (what it is doing — `tmuxy pane state`) and
+      // `@tmuxy-ask` (a question it wants confirmed — `tmuxy ask`). Only these
+      // two are honoured; the demo has no general option store.
+      //
+      // `-u` unsets, which is how a question is answered and how a process
+      // stops declaring a state.
       case 'set-option':
       case 'set': {
-        if (!parts.includes('-p')) break;
-        const optIdx = parts.findIndex((p) => p === '@tmuxy-pane-state');
+        const scoped = parts.some((p) => /^-[a-zA-Z]*p/.test(p));
+        if (!scoped) break;
+        const unset = parts.some((p) => /^-[a-zA-Z]*u/.test(p));
+        const optIdx = parts.findIndex(
+          (p) => p === '@tmuxy-pane-state' || p === '@tmuxy-ask' || p === '@tmuxy-ask-answer',
+        );
         if (optIdx === -1) break;
         const tIdx = parts.indexOf('-t');
         const target =
           tIdx !== -1 && tIdx + 1 < parts.length
             ? parts[tIdx + 1]
             : this.tmux.getState().active_pane_id;
+        if (!target) break;
         // The CLI single-quotes the value through shquote; a story sending the
         // command by hand does not.
-        const raw = parts[optIdx + 1] ?? '';
-        const value = raw.replace(/^'(.*)'$/, '$1');
-        if (target) this.tmux.setPaneState(target, value);
+        const value = unset ? '' : (parts[optIdx + 1] ?? '').replace(/^'(.*)'$/, '$1');
+        if (parts[optIdx] === '@tmuxy-pane-state') this.tmux.setPaneState(target, value);
+        else if (parts[optIdx] === '@tmuxy-ask') this.tmux.setPaneAsk(target, value);
+        // `@tmuxy-ask-answer` is written for the waiting `tmuxy ask` process to
+        // read; there is no such process in the demo, so recording it would
+        // only be state nothing consumes.
         break;
       }
 

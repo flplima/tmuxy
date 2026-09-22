@@ -1,0 +1,209 @@
+#!/bin/bash
+# tmuxy ask — send keys to another pane, but only once the user has agreed.
+#
+# Usage: tmuxy ask <%pane> <keys...> [--description TEXT] [--question TEXT]
+#                                    [--timeout SECONDS]
+#
+# The keys are NOT sent when this runs. Instead the target pane is put into the
+# "ask state": the UI blurs its content and draws the question over it, with
+# Yes / No the user answers by keyboard, by click, or with Cmd+Enter
+# (Ctrl+Enter off macOS) from anywhere in the same tab. This blocks until they
+# answer, then sends the keys on yes and nothing on no — so a caller knows
+# exactly when the command started and can capture the pane afterwards.
+#
+# Protocol (both ends of it live here and in packages/tmuxy-ui):
+#   @tmuxy-ask         on the target pane — base64 of {token, question,
+#                      description}. Base64 because `list-panes` is
+#                      comma-separated and a question is free text.
+#   @tmuxy-ask-answer  written by the client the user answered in, as
+#                      `<token>:yes` / `<token>:no`. The token pins the answer
+#                      to the question that was on screen.
+#
+# Exit status: 0 when the keys were sent, 1 when the user declined, 2 when the
+# question timed out or the pane went away. stdout is just `yes` / `no`.
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib"
+
+# How often the answer option is polled. tmux emits no notification for a user
+# option, so there is nothing to block on: `wait-for` would need the client to
+# signal a channel it has no way to reach from a browser. A read-only
+# `show-options` is cheap and this only runs while a question is on screen.
+POLL_INTERVAL=0.15
+
+usage() {
+  cat <<'EOF'
+Usage: tmuxy ask <%pane> <keys...> [options]
+
+Ask the user to confirm before sending keys to another pane. The target pane
+shows the question over its blurred content; this command blocks until the
+user answers, then sends the keys (yes) or nothing (no).
+
+Options:
+  --question TEXT      The question to show. Default: the keys themselves.
+  --description TEXT   Extra detail, shown smaller under the question.
+  --timeout SECONDS    Give up after this long. Default: wait forever.
+
+Answering: Enter/y on the focused pane, a click on Yes/No, or Cmd+Enter
+(Ctrl+Enter off macOS) to say yes to every pending question in the tab.
+
+Exit status: 0 sent, 1 declined, 2 timed out or the pane is gone.
+
+Examples:
+  tmuxy ask %3 npm test Enter
+  tmuxy ask %3 'rm -rf dist' Enter --description 'clears the build output'
+  tmuxy ask %3 make deploy Enter --question 'Deploy to production?'
+EOF
+}
+
+# --- Arguments ---
+
+TARGET=""
+QUESTION=""
+DESCRIPTION=""
+TIMEOUT=""
+KEYS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help | -h)
+      usage
+      exit 0
+      ;;
+    --question)
+      QUESTION="${2:?--question needs a value}"
+      shift 2
+      ;;
+    --description)
+      DESCRIPTION="${2:?--description needs a value}"
+      shift 2
+      ;;
+    --timeout)
+      TIMEOUT="${2:?--timeout needs a value}"
+      shift 2
+      ;;
+    %*)
+      # The first %id is the target; a later one is a key to send (send-keys
+      # takes literal words, and `%` is one).
+      if [ -z "$TARGET" ]; then TARGET="$1"; else KEYS+=("$1"); fi
+      shift
+      ;;
+    *)
+      KEYS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$TARGET" ]; then
+  echo "Error: target pane required (e.g. %3 — see \`tmuxy pane list\`)" >&2
+  usage >&2
+  exit 2
+fi
+if [ ${#KEYS[@]} -eq 0 ]; then
+  echo "Error: keys required" >&2
+  usage >&2
+  exit 2
+fi
+if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
+  echo "Error: --timeout takes a positive whole number of seconds" >&2
+  exit 2
+fi
+
+# The target has to exist before a question is hung on it — a typo'd pane id
+# would otherwise block forever on an option nothing can ever answer.
+if ! _tmux display-message -p -t "$TARGET" '#{pane_id}' >/dev/null 2>&1; then
+  echo "Error: no such pane: $TARGET" >&2
+  exit 2
+fi
+
+[ -n "$QUESTION" ] || QUESTION="Do you want to send keys \"${KEYS[*]}\"?"
+
+# --- Payload ---
+
+# JSON-escape a string for the payload: the characters JSON forbids raw, with
+# every other control character dropped. awk/sed rather than python3 or jq
+# because neither is guaranteed here (the v86 guest ships busybox), and the
+# newline join is the same one `tmuxy pane capture --json` uses.
+json_escape() {
+  printf '%s' "$1" \
+    | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]//g' \
+    | awk '{ if (NR > 1) printf "\\n"; printf "%s", $0 }'
+}
+
+# A token unique to this question. Pane ids are never reused within a server
+# and the pid is unique among live processes, so the pair cannot collide with
+# another question on the same pane.
+TOKEN="${TARGET#%}-$$"
+
+PAYLOAD="{\"token\":\"$TOKEN\",\"question\":\"$(json_escape "$QUESTION")\",\"description\":\"$(json_escape "$DESCRIPTION")\"}"
+ENCODED="$(printf '%s' "$PAYLOAD" | base64 | tr -d '\n')"
+
+# --- Ask ---
+
+# Clear both options on ANY exit: an interrupted or killed asker must not leave
+# a question on screen that nothing is listening to any more.
+cleanup() {
+  _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask" 2>/dev/null || true
+  _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# Answer first, question second: a stale answer left by a previous question
+# would otherwise be read as this one's before the poll ever starts.
+_run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer"
+_run_safe "set-option -p -t $(shquote "$TARGET") @tmuxy-ask $(shquote "$ENCODED")"
+
+# Writing to stderr is not only for the user's benefit: it is pane output, and
+# pane output is what makes the backend re-list the panes promptly. Without it
+# a question asked from a silent pane waits for the idle heartbeat to appear.
+echo "tmuxy ask: waiting for $TARGET to confirm — $QUESTION" >&2
+
+# --- Wait ---
+
+deadline=""
+[ -n "$TIMEOUT" ] && deadline=$(($(date +%s) + TIMEOUT))
+
+answer=""
+while :; do
+  # A dead target ends the wait: nothing can answer a question on a pane that
+  # no longer exists.
+  if ! _tmux display-message -p -t "$TARGET" '#{pane_id}' >/dev/null 2>&1; then
+    echo "tmuxy ask: $TARGET is gone" >&2
+    exit 2
+  fi
+
+  raw="$(_tmux show-options -pqv -t "$TARGET" @tmuxy-ask-answer 2>/dev/null || true)"
+  case "$raw" in
+    "$TOKEN:yes")
+      answer="yes"
+      break
+      ;;
+    "$TOKEN:no")
+      answer="no"
+      break
+      ;;
+  esac
+
+  if [ -n "$deadline" ] && [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "tmuxy ask: timed out after ${TIMEOUT}s" >&2
+    exit 2
+  fi
+
+  sleep "$POLL_INTERVAL" 2>/dev/null || sleep 1
+done
+
+# The question is answered; take it off the pane before the keys land, so the
+# user never sees the command typed under a stale overlay.
+cleanup
+trap - EXIT INT TERM
+
+echo "$answer"
+
+if [ "$answer" = "no" ]; then
+  exit 1
+fi
+
+_run_safe "send-keys -t $(shquote "$TARGET") $(shquote "${KEYS[@]}")"

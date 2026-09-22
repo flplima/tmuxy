@@ -6,8 +6,19 @@
 # widget marker disappears and starts an interactive shell so the
 # pane remains alive.
 COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
+# What the pane calls itself while the widget runs. A widget's own title
+# normally comes from what it is showing, which the UI reads out of the pane's
+# content — but a pane PARKED in a group's stash streams no content, so the
+# only thing a group's tab strip has for it is tmux's `pane_title`. Left alone
+# that is whatever the shell last set: the CLI's own path, which names nothing.
+# Announcing one over OSC 2 gives the parked member something to be called, and
+# costs the visible one nothing (the widget's own title wins there).
+TITLE="${2:-$COMPONENT}"
 
-trap 'clear; exec bash </dev/tty' EXIT
+# Hand the title back on the way out, so the pane does not keep the widget's
+# name once it is a shell again. Empty resets it to tmux's own default.
+trap 'printf "\033]2;\007"; clear; exec bash </dev/tty' EXIT
 
+printf '\033]2;%s\007' "$TITLE"
 echo "__TMUXY_WIDGET__:${COMPONENT}"
 cat
