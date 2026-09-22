@@ -71,6 +71,12 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   // replaces both cancelAnimationFrame and the old "new touch started" guard.
   const momentumFiberRef = useRef<Fiber.RuntimeFiber<void, never> | null>(null);
   const tapStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Whether the finger currently on the screen started on THIS pane. The move
+  // and end listeners sit on the window (see TerminalPane), because the row
+  // the finger landed on is removed from the DOM the moment the scroll view
+  // opens — and a touch event whose target has left the document no longer
+  // bubbles to anything.
+  const gestureRef = useRef(false);
 
   // Velocity tracking: store recent (timestamp, y) samples for averaging
   const velocitySamplesRef = useRef<Array<{ t: number; y: number }>>([]);
@@ -149,6 +155,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       if (e.touches.length !== 1) return;
 
       cancelMomentum();
+      gestureRef.current = true;
       remainderRef.current = 0;
 
       const touch = e.touches[0];
@@ -161,6 +168,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
 
   const handleTouchMove = useCallback(
     (e: TouchEvent) => {
+      if (!gestureRef.current) return;
       if (e.touches.length !== 1) return;
       if (forwardScrollToParent && historySize === 0 && !alternateOn && !mouseAnyFlag) {
         return;
@@ -185,6 +193,8 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
 
   const handleTouchEnd = useCallback(
     (e: TouchEvent) => {
+      if (!gestureRef.current) return;
+      gestureRef.current = false;
       // Tap detection: small displacement = open/toggle mobile keyboard
       if (tapStartRef.current && e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];

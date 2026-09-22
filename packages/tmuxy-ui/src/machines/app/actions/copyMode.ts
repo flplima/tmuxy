@@ -186,6 +186,30 @@ export const copyModeActions = {
   copyMode_enterScroll: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
       if (event.type !== 'ENTER_SCROLL_MODE') return;
+
+      // A finger keeps sending this until the component has re-rendered with
+      // the view open — a swipe is a dozen touchmoves and React is one frame
+      // behind the first of them. Rebuilding the record on each would seat the
+      // view back at the bottom every time, so a long swipe ended a single row
+      // above the live screen. Once the view is open, the event is simply more
+      // scrolling.
+      const open = context.copyModeStates[event.paneId];
+      if (open && open.mode === 'scroll') {
+        const bottom = Math.max(0, open.totalLines - open.height);
+        const scrollTop = Math.max(0, Math.min(bottom, open.scrollTop + (event.scrollLines ?? 0)));
+        if (scrollTop !== open.scrollTop) {
+          enqueue(
+            assign({
+              copyModeStates: {
+                ...context.copyModeStates,
+                [event.paneId]: { ...open, scrollTop },
+              },
+            }),
+          );
+        }
+        return;
+      }
+
       const built = buildScrollbackState(context, event.paneId, 'scroll', event);
       if (!built) return;
 

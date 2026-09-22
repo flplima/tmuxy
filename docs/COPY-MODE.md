@@ -160,6 +160,14 @@ lives on a row, and a full-screen application is sent rows. `onScroll` reports t
 via `COPY_MODE_SCROLL`. Mouse-tracking applications (`mouse_any_flag`, e.g. nvim/htop) receive
 forwarded SGR mouse sequences instead — that path is unchanged.
 
+A **swipe that opens a view** has two hazards, both about the gesture outliving the DOM it started
+on. The browser cancels a touch sequence when its target leaves the document, so the live screen
+stays mounted (hidden) behind an open view instead of being replaced, and the move/end listeners sit
+on the window rather than on the pane — a pane-level listener stopped hearing the swipe at the very
+row that opened the view. And until React has re-rendered with the view open, each further move
+still asks to open one, so `ENTER_SCROLL_MODE` on an already-open view scrolls it further instead of
+rebuilding it at the bottom. Without those three, a long swipe landed one row above the live screen.
+
 ## Clipboard
 
 Selected text is extracted client-side (`extractSelectedText`, which joins wrapped rows into logical

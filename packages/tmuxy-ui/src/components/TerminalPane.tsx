@@ -253,16 +253,24 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
 
     el.addEventListener('wheel', wheelHandler, { passive: false });
     el.addEventListener('touchstart', touchStartHandler, { passive: true });
-    el.addEventListener('touchmove', touchMoveHandler, { passive: false });
-    // passive: false so handleTouchEnd can call preventDefault() on taps,
-    // which suppresses synthetic mouse events that would steal focus from
-    // the mobile keyboard's hidden input.
-    el.addEventListener('touchend', touchEndHandler, { passive: false });
+    // The rest of the gesture is watched on the WINDOW, not on the pane: the
+    // finger lands on a terminal row, and opening the scroll view swaps every
+    // row out of the document. A touch whose target has been removed keeps
+    // being dispatched to that dead node and bubbles nowhere, so a pane-level
+    // listener stopped hearing the swipe exactly when it had just begun —
+    // the view opened one row above the live screen and went no further.
+    // usePaneTouch ignores a move it did not see start on this pane.
+    // passive: false so the handlers can call preventDefault(): on a move to
+    // stop the page scrolling under the finger, and on a tap to suppress the
+    // synthetic mouse events that would steal focus from the mobile
+    // keyboard's hidden input.
+    window.addEventListener('touchmove', touchMoveHandler, { passive: false });
+    window.addEventListener('touchend', touchEndHandler, { passive: false });
     return () => {
       el.removeEventListener('wheel', wheelHandler);
       el.removeEventListener('touchstart', touchStartHandler);
-      el.removeEventListener('touchmove', touchMoveHandler);
-      el.removeEventListener('touchend', touchEndHandler);
+      window.removeEventListener('touchmove', touchMoveHandler);
+      window.removeEventListener('touchend', touchEndHandler);
     };
   }, []);
 
@@ -372,15 +380,28 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
             }}
           >
             <div style={{ height: copyState ? totalHeight : '100%', position: 'relative' }}>
-              {copyState ? (
-                <ScrollbackTerminal copyState={copyState} isActive={holdsKeyboard} />
-              ) : (
-                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+              {copyState && <ScrollbackTerminal copyState={copyState} isActive={holdsKeyboard} />}
+              {/* The live screen stays MOUNTED behind an open scroll view,
+                  hidden rather than replaced. Chrome cancels a touch sequence
+                  the moment its target leaves the document, and the target of
+                  the swipe that opens the view is one of these rows: taking
+                  them away killed the gesture at its first row, so the view
+                  opened one line above the live screen and the finger had to
+                  start again. */}
+              {
+                <div
+                  hidden={!!copyState}
+                  style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
+                >
                   <Terminal
                     content={pane.content}
                     cursorX={pane.cursorX}
                     cursorY={pane.cursorY}
-                    isActive={holdsKeyboard}
+                    // Kept mounted but not the live pane while a view is open:
+                    // an active Terminal registers the app's single cursor
+                    // anchor, and a hidden one would take it from the copy
+                    // cursor the user is actually looking at.
+                    isActive={holdsKeyboard && !copyState}
                     width={pane.width}
                     height={pane.height}
                     inMode={pane.inMode}
@@ -397,7 +418,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     selectable={!pane.mouseAnyFlag}
                   />
                 </div>
-              )}
+              }
             </div>
           </div>
           {/* The question `tmuxy ask` hung on this pane, over its content.
