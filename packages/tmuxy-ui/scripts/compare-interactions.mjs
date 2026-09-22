@@ -75,13 +75,24 @@ if (!report) {
   console.error(`no report at ${REPORT}`);
   process.exit(2);
 }
-// Baselines are keyed by platform. Milliseconds measured on a macOS laptop say
-// nothing about an `ubuntu-latest` runner, so a report is only ever compared
-// against a baseline recorded on the same platform; on a platform with no
-// baseline yet, the absolute-millisecond column is simply blank and the ratio
-// gate carries the run on its own.
+/**
+ * Baselines are keyed by platform *and* target.
+ *
+ * Milliseconds measured on a macOS laptop say nothing about an
+ * `ubuntu-latest` runner — and milliseconds from the desktop app, which
+ * reaches the core over Tauri IPC, say nothing about the web app's POST + SSE
+ * on the very same machine. A report is only compared against a baseline
+ * recorded for the same pair; where none exists the absolute-millisecond
+ * column is blank and the ratio gate carries the run on its own.
+ *
+ * `target` is absent from reports written before the desktop harness existed,
+ * and those were all web, so it defaults accordingly.
+ */
+const baselineKey = (r) => `${r.platform}/${r.target ?? 'web'}`;
+
 const baselineFile = load(BASELINE, 'baseline');
-const baselineForPlatform = baselineFile?.platforms?.[report.platform] ?? null;
+const key = baselineKey(report);
+const baselineForPlatform = baselineFile?.platforms?.[key] ?? null;
 const baseById = new Map((baselineForPlatform?.interactions ?? []).map((i) => [i.name, i]));
 
 const rows = [];
@@ -136,15 +147,15 @@ const table = [
 ].join('\n');
 
 const lines = [
-  `### Interaction latency — \`${report.label}\` @ \`${report.commit ?? 'unknown'}\``,
+  `### Interaction latency — \`${report.target ?? 'web'}\` — \`${report.label}\` @ \`${report.commit ?? 'unknown'}\``,
   '',
   table,
   '',
   `Ratios are against \`${report.reference}\` measured in the same run, which is what makes them`,
   'comparable across runners. Raw milliseconds are a trend only.',
   baselineForPlatform
-    ? `Baseline: \`${baselineForPlatform.commit ?? 'unknown'}\` on \`${report.platform}\`.`
-    : `No \`${report.platform}\` baseline recorded yet — absolute comparison skipped.`,
+    ? `Baseline: \`${baselineForPlatform.commit ?? 'unknown'}\` on \`${key}\`.`
+    : `No \`${key}\` baseline recorded yet — absolute comparison skipped.`,
 ];
 if (failures.length) lines.push('', '**Over budget**', ...failures.map((f) => `- ${f}`));
 if (warnings.length) lines.push('', '**Warnings**', ...warnings.map((w) => `- ${w}`));
@@ -155,10 +166,10 @@ if (SUMMARY) appendFileSync(SUMMARY, `${out}\n`);
 
 if (UPDATE) {
   const next = { schema: 1, platforms: { ...(baselineFile?.platforms ?? {}) } };
-  next.platforms[report.platform] = report;
+  next.platforms[key] = report;
   mkdirSync(dirname(BASELINE), { recursive: true });
   writeFileSync(BASELINE, `${JSON.stringify(next, null, 2)}\n`);
-  console.log(`\nupdated ${report.platform} baseline → ${BASELINE}`);
+  console.log(`\nupdated ${key} baseline → ${BASELINE}`);
 }
 
 process.exit(failures.length === 0 ? 0 : 1);

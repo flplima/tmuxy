@@ -9,7 +9,7 @@ permissions:
 jobs:
   rust-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v7
@@ -46,3 +46,28 @@ jobs:
 
       - name: Cargo test
         run: cargo test --workspace
+
+      # Axis A (docs/PERFORMANCE.md): the parse → aggregate → delta pipeline,
+      # the exact code tmuxy-wasm runs. `criterion_group!` caps measurement at
+      # 3s per benchmark, so the measuring is well under a minute on top of the
+      # release compile.
+      #
+      # It runs here, per commit, rather than only in the on-demand perf
+      # workflow, because the thing it guards is structural: the ratio budget
+      # in compare-core-bench.mjs fails if a metadata-only delta ever costs
+      # like a full snapshot again. That needs no baseline and is immune to
+      # runner load, so it is a legitimate merge gate — unlike the absolute
+      # nanoseconds, which stay warn-only.
+      - name: Core pipeline bench
+        run: cargo bench -p tmuxy-core --bench core_pipeline
+
+      - name: Compare bench ratios and baseline
+        run: node perf/compare-core-bench.mjs --threshold 20
+
+      - name: Upload bench report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-pipeline-bench-${{ github.sha }}
+          path: perf/core-pipeline-report.json
+          if-no-files-found: warn

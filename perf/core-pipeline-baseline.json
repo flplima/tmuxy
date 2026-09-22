@@ -1,4 +1,30 @@
 {
   "schema": 1,
-  "platforms": {}
+  "platforms": {
+    "darwin-arm64": {
+      "schema": 1,
+      "generatedAt": "2026-09-22T20:03:09.968Z",
+      "commit": "c2839e4",
+      "platform": "darwin-arm64",
+      "runner": null,
+      "benchmarks": {
+        "delta_rename": {
+          "meanNs": 18068.5,
+          "medianNs": 18029.9
+        },
+        "full_sync": {
+          "meanNs": 167044,
+          "medianNs": 163485
+        },
+        "output_burst/200": {
+          "meanNs": 411143,
+          "medianNs": 403105
+        },
+        "output_burst/2000": {
+          "meanNs": 3563460,
+          "medianNs": 3465580
+        }
+      }
+    }
+  }
 }

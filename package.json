@@ -24,6 +24,7 @@
     "test:tauri": "NODE_OPTIONS='--experimental-vm-modules' jest --config tests/tauri/jest.config.js",
     "test:cli": "jest --config tests/cli/jest.config.js",
     "perf:interactions": "node packages/tmuxy-ui/scripts/measure-interactions.mjs",
+    "perf:interactions:tauri": "node packages/tmuxy-ui/scripts/measure-interactions-tauri.mjs",
     "perf:compare": "node packages/tmuxy-ui/scripts/compare-interactions.mjs",
     "lint": "eslint tests/ && npm run lint -w tmuxy-ui",
     "lint:tests": "eslint tests/",

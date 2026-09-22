@@ -614,7 +614,7 @@ jobs:
   # jest suite then starts its own on the same port.
   desktop:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v7
@@ -711,6 +711,39 @@ jobs:
           DISPLAY: ':99'
           TAURI_BINARY: ${{ github.workspace }}/target/release/tmuxy
         run: npm run test:tauri
+
+      # The same interactions the `interaction-latency` job measures over the
+      # web transport, measured here against the release desktop binary this
+      # job already built. The desktop app reaches the same Rust core over
+      # Tauri IPC instead of POST + SSE, so it is a different transport with a
+      # different cost — and until this step there was no number for it at all.
+      #
+      # Its own tmux socket (`tmuxy-perf`, set by the harness), so it cannot
+      # collide with the session the E2E suite just finished with.
+      - name: Measure interaction latency (desktop)
+        env:
+          DISPLAY: ':99'
+        run: |
+          npm run perf:interactions:tauri -- \
+            --binary "$GITHUB_WORKSPACE/target/release/tmuxy" \
+            --samples 12 \
+            --label ci-desktop \
+            --out perf/interaction-report-tauri.json
+
+      # Gates on the ratio to this run's own keystroke echo, exactly as the web
+      # job does. A desktop-only regression — an IPC round trip added to a
+      # predicted op, say — fails here and nowhere else.
+      - name: Compare against budgets and baseline (desktop)
+        run: npm run perf:compare -- --report perf/interaction-report-tauri.json
+
+      # Also the source a human promotes into perf/interaction-baseline.json
+      # for the `linux-x64/tauri` key; CI never writes a baseline itself.
+      - name: Upload desktop interaction report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: interaction-latency-desktop-${{ github.sha }}
+          path: perf/interaction-report-tauri.json
 
       - name: Stop Xvfb
         if: always()
