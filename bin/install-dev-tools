@@ -101,7 +101,18 @@ fi
 # A GitHub runner does: whatever lands in $GITHUB_ENV is in the environment of
 # every later step, and of the agent session that follows them.
 if [ -n "${GITHUB_ENV:-}" ] && [ -z "${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ]; then
-    CHROME="$(find "$HOME/.cache/puppeteer" -type f -name chrome -perm -u+x 2>/dev/null | sort | tail -1 || true)"
+    # agent-browser's own download first — it is the browser this machine just
+    # proved it can fetch and run. `~/.cache/puppeteer` is where an older
+    # agent-browser put it, and a system chromium is the last resort (on a
+    # runner that can be a snap wrapper that never launches headless).
+    CHROME=""
+    for dir in "$HOME/.agent-browser/browsers" "$HOME/.cache/puppeteer"; do
+        [ -d "$dir" ] || continue
+        CHROME="$(find "$dir" -type f -name chrome -perm -u+x 2>/dev/null | sort | tail -1 || true)"
+        if [ -n "$CHROME" ]; then
+            break
+        fi
+    done
     if [ -z "$CHROME" ] && [ -x /usr/bin/chromium ]; then
         CHROME=/usr/bin/chromium
     fi
