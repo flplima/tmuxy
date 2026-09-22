@@ -245,12 +245,30 @@ export async function ensurePanes(adapter, prefix, want) {
     await adapter.type('exit\n');
     await adapter.wait(1200);
   }
+  // Loudly, rather than measuring whatever is there. An interaction that needs
+  // two panes and gets one does not fail — it times out on every sample and
+  // then reports a flattering p50 from the one that slipped through, which is
+  // a far more expensive thing to debug than a clear message here.
+  const got = await paneCount(adapter);
+  if (got !== want) {
+    throw new Error(
+      `could not shape the session to ${want} panes (still ${got}) — ` +
+        `the split binding may not be reaching the app on this target`,
+    );
+  }
 }
 
 export async function ensureTabs(adapter, prefix, want) {
   for (let guard = 0; guard < 4 && (await tabCount(adapter)) < want; guard++) {
     await prefixKey(adapter, prefix, 'c');
     await adapter.wait(1500);
+  }
+  const got = await tabCount(adapter);
+  if (got < want) {
+    throw new Error(
+      `could not shape the session to ${want} tabs (still ${got}) — ` +
+        `the new-tab binding may not be reaching the app on this target`,
+    );
   }
 }
 
