@@ -1,6 +1,7 @@
 name: perf measurements
 
-# Two performance measurements that nothing in CI runs today.
+# Two on-demand performance measurements, for the numbers the per-commit jobs
+# deliberately do not gate on.
 #
 # 1. `core-bench` — the criterion `core_pipeline` bench (docs/PERFORMANCE.md
 #    Axis A: parse → aggregate → delta, the exact code tmuxy-wasm runs).
@@ -50,9 +51,11 @@ jobs:
   #   4. Commit the file. CI never writes it, so a baseline change is always a
   #      reviewed one — same rule as perf/interaction-baseline.json.
   #
-  # The file ships with an empty `platforms` map on purpose: a baseline must be
-  # MEASURED on the platform it describes, and nobody has recorded a CI one yet.
-  # Until then the job simply records the numbers and warns about nothing.
+  # The file holds a `darwin-arm64` entry only: a baseline must be MEASURED on
+  # the platform it describes, and nobody has recorded a `linux-x64` one yet.
+  # Until someone does, a CI run simply records its numbers and warns about
+  # nothing. The RATIO budget in compare-core-bench.mjs needs no baseline and
+  # gates regardless — it runs per-commit in ci-rust-tests.yml, not here.
   # ---------------------------------------------------------------------------
   core-bench:
     runs-on: ubuntu-latest

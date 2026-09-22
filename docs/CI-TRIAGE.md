@@ -17,16 +17,17 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 | `lint` | `(cd packages/tmuxy-ui && npx prettier --check src)`<br>`npx prettier --check 'tests/**/*.js'`<br>`cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-tree -p tmuxy-connect -p tmuxy-wasm`<br>`npm run lint -w tmuxy-ui && npm run lint:tests`<br>`mkdir -p packages/tmuxy-ui/dist`<br>`cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-tree -p tmuxy-connect -- -D warnings`<br>`cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown --no-default-features -- -D warnings`<br>`(cd packages/tmuxy-ui && npx tsc --noEmit)` | JS/TS + Rust lint/type/format |
 | `unit-tests` | `npm test -- --run` | UI unit tests |
 | `cli-tests` | `npm run test:cli` | CLI dispatcher behavior |
-| `rust-tests` | `cargo test --workspace` | Rust unit/integration |
+| `rust-tests` | `cargo test --workspace`<br>`cargo bench -p tmuxy-core --bench core_pipeline`<br>`node perf/compare-core-bench.mjs --threshold 20` | Rust unit/integration, plus the Axis-A pipeline bench and its ratio budget |
 | `e2e (...)` | `npm run test:e2e` | Browser + tmux integration |
-| `desktop` | `npm run test:tauri` (with `TAURI_BINARY` pointing at the release build) + `tests/smoke/smoke-test.js` | Desktop IPC, Tauri runtime, and the release launch path — one release build serves both |
-| `interaction-latency` | `npm run perf:interactions` + `npm run perf:compare` | Performance budgets |
+| `desktop` | `npm run test:tauri` (with `TAURI_BINARY` pointing at the release build) + `tests/smoke/smoke-test.js`<br>`npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report perf/interaction-report-tauri.json` | Desktop IPC, Tauri runtime, the release launch path, and desktop interaction budgets — one release build serves all three |
+| `interaction-latency` | `npm run perf:interactions` + `npm run perf:compare` | Web interaction budgets |
 | `storybook-probe` / `storybook-v86-probe` | `npm run test-storybook -w tmuxy-ui` / `npm run test-storybook:v86 -w tmuxy-ui` | Story play-function regressions |
 | `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit` | Dependency security alerts |
 
 ## Artifact/log entry points
 
 - `interaction-latency-*`: `perf/interaction-report.json`
+- `interaction-latency-desktop-*`: `perf/interaction-report-tauri.json`
 - `core-pipeline-bench-*`: `perf/core-pipeline-report.json`
 - `v86-probe-timings-*`: `perf/v86-probe-timings.json`
 - `storybook-*-artifacts`: screenshots, DOM dumps, stack traces

@@ -37,6 +37,26 @@ as bytes/sec).
 Run: `cargo bench -p tmuxy-core`. These are absolute, reproducible numbers —
 the right place to catch a regression in the parse/aggregate/delta pipeline.
 
+`perf/compare-core-bench.mjs` reads criterion's output and judges it the same
+two ways Axis C does, for the same reason:
+
+| Signal | Compared against | On regression |
+| --- | --- | --- |
+| ratio between two benchmarks of the same run | a budget in `compare-core-bench.mjs` | **fails the job** |
+| absolute mean | `perf/core-pipeline-baseline.json`, keyed by platform | warns in the step summary |
+
+The ratio is what makes this a gate at all. Absolute nanoseconds from a shared
+runner cannot block a merge, and a platform with no baseline recorded has
+nothing to compare against — but `delta_rename / full_sync` is a statement
+about the *shape* of the pipeline that holds on any machine. It is budgeted at
+0.4 and measures 0.11–0.17 depending on the machine; before grids were
+`Arc`-shared it was ~0.78, because a one-field delta deep-copied every pane's
+cell grid and therefore scaled with grid size. If that pathology returns, this
+ratio catches it without anyone having recorded a number first.
+
+A benchmark named in a budget but missing from a run also fails, so renaming a
+bench cannot silently drop its gate.
+
 ### v86/wasm story probes (integration, relative)
 
 `packages/tmuxy-ui/scripts/probe-spikes.mjs` drives every `v86`-tagged
@@ -101,6 +121,29 @@ lands in the number.
 Measured today: `key-echo`, `pane-nav-keyboard`, `pane-zoom-toggle`,
 `pane-split`, `tab-switch`.
 
+**Two targets, one suite.** The same interactions are measured against the web
+app and against the desktop app, because they reach the same Rust core over
+different transports — `POST /commands` + SSE versus Tauri IPC — and a
+transport regression on one is invisible in the other. What is measured lives
+once in `packages/tmuxy-ui/scripts/lib/perf-harness.mjs`; only the driver
+differs:
+
+| Target | Harness | Driver | Report |
+| --- | --- | --- | --- |
+| web | `measure-interactions.mjs` | Playwright (or an existing Chrome over CDP) | `target: "web"` |
+| desktop | `measure-interactions-tauri.mjs` | WebdriverIO → `tauri-driver` → WebKitWebDriver | `target: "tauri"` |
+
+Baselines are keyed by `<platform>/<target>`, so desktop milliseconds are never
+compared against web ones measured on the same machine. The ratio budgets are
+shared: a keystroke round trip is the cheapest complete operation on either
+transport, so "how many keystrokes does a split cost" is a fair question to ask
+of both.
+
+The desktop harness drives the **release** binary (`target/release/tmuxy`), on
+its own tmux socket (`tmuxy-perf`), and adopts an already-running `tauri-driver`
+rather than fighting one — so it slots into a job that has already built the app
+and started a driver.
+
 ### The runner-noise problem, and the ratio that solves it
 
 Absolute milliseconds on a GitHub runner are unusable as a merge gate — the
@@ -140,8 +183,27 @@ committed baseline for a platform with `npm run perf:compare -- --report … --u
 and commit the result — CI never writes it, so a baseline change is always a
 reviewed one.
 
-CI runs this as the `interaction-latency` job in `lint-and-tests.yml`, uploads
-the report as an artifact, and writes the table into the job summary.
+The desktop equivalent needs the app built first, and takes the binary rather
+than a URL:
+
+```
+(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)
+npm run perf:interactions:tauri -- --samples 12 --label local \
+                                   --out perf/interaction-report-tauri.json
+npm run perf:compare -- --report perf/interaction-report-tauri.json
+```
+
+CI runs both, each in the job that already has what it needs, uploading the
+report as an artifact and writing the table into the job summary:
+
+| Job | Workflow | Measures | Reuses |
+| --- | --- | --- | --- |
+| `interaction-latency` | `lint-and-tests.yml` | Axis C, web | the release server + frontend dist from `build-artifacts` |
+| `desktop` | `lint-and-tests.yml` | Axis C, desktop | the release Tauri binary, Xvfb and `tauri-driver` it already builds for the E2E suite |
+| `rust-tests` | `ci-rust-tests.yml` | Axis A bench | the Rust toolchain and cache it already has |
+
+Neither perf job builds anything of its own — that was the condition for adding
+them per-commit rather than leaving them on demand.
 
 ### Measured
 
@@ -360,6 +422,19 @@ Still open:
 - No client-side input prediction / local echo — an explicit Non-Goal (see
   [NON-GOALS.md](NON-GOALS.md), "Local Echo / Input Prediction"). Axis B exists in part to decide, with data,
   whether a high-latency use case ever justifies revisiting that.
+- **No committed baseline for the platforms CI actually runs on.**
+  `perf/interaction-baseline.json` holds `darwin-arm64/*` only, and
+  `perf/core-pipeline-baseline.json` holds `darwin-arm64` only. Both CI perf
+  jobs therefore ride on their ratio gates alone and leave the absolute column
+  blank. That is the designed fallback, not a failure — but it means a uniform
+  slowdown that inflates every number together, keystroke echo included, is
+  currently invisible on CI. Seeding a `linux-x64` baseline is a human act: run
+  the job, review the numbers, commit the file (see
+  `.github/workflows/nightly-perf.yml`), because CI must never ratchet a
+  baseline to whatever the runner did last.
+- **No Axis B measurement in CI.** The RTT curve and the latency-injection
+  proxy are a controlled experiment run by hand, not a gate — injected delay is
+  the independent variable, so there is nothing for a runner to regress.
 
 ## Related
 

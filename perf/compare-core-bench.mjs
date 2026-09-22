@@ -8,11 +8,19 @@
  * `full_sync`, `delta_rename` and each `output_burst/<lines>` point without
  * naming them here — a bench added to core_pipeline.rs shows up on its own.
  *
- * It NEVER fails: a shared GitHub runner is far too noisy to gate a merge on
- * absolute nanoseconds (the same commit can vary two-fold between runs). A
- * benchmark slower than the baseline by more than the threshold is reported as
- * a ::warning and in the job summary, and that is all. The ratio-style gating
- * that does block lives in compare-interactions.mjs (Axis C).
+ * Two signals, with very different standing — the same split as
+ * compare-interactions.mjs (Axis C):
+ *
+ *  1. **Absolute nanoseconds vs. the stored baseline — a warning.** A shared
+ *     GitHub runner is far too noisy to gate a merge on (the same commit can
+ *     vary two-fold between runs), and a platform with no baseline recorded
+ *     has nothing to compare against at all. Reported as a ::warning and in
+ *     the job summary; never fatal.
+ *
+ *  2. **Ratios between benchmarks in the SAME run — the gate.** A slow runner
+ *     inflates both halves of a ratio, so it survives runner load, and it
+ *     needs no baseline: it is a statement about the shape of the pipeline,
+ *     not its speed. Exceeding one fails.
  *
  * Usage:
  *   node perf/compare-core-bench.mjs [--criterion-dir target/criterion]
@@ -37,6 +45,33 @@ const BASELINE = opt('--baseline', 'perf/core-pipeline-baseline.json');
 const OUT = opt('--out', 'perf/core-pipeline-report.json');
 const THRESHOLD = Number(opt('--threshold', '20'));
 const UPDATE = has('--update-baseline');
+
+/**
+ * Ratios between two benchmarks of the same run, and the ceiling each may
+ * reach. These are the part of this script that can fail a build.
+ *
+ * A ratio is machine-independent — a loaded runner inflates numerator and
+ * denominator together — so unlike the absolute numbers it needs no baseline
+ * and means the same thing on every platform. Each one encodes a structural
+ * property of the pipeline that a refactor could silently destroy, which is
+ * exactly what a criterion number alone cannot protect.
+ *
+ * Ceilings have headroom; they exist to catch a step change, not to police a
+ * few percent. Raising one is a deliberate edit that shows up in review.
+ */
+const RATIO_BUDGETS = [
+  {
+    numerator: 'delta_rename',
+    denominator: 'full_sync',
+    budget: 0.4,
+    // Measured ~0.17 with `TmuxPane.content: Arc<PaneContent>` and the
+    // `ptr_eq` skip in the grid diff. Before those, every state update
+    // deep-copied each pane's cell grid three times and a one-field delta
+    // cost ~0.78 of a full snapshot — i.e. it scaled with grid size, which
+    // is the pathology this ratio exists to keep from coming back.
+    why: 'a metadata-only delta must not cost like a full snapshot',
+  },
+];
 
 /** Every `<id>/new/estimates.json` under the criterion output tree. */
 function collect(dir, prefix = [], found = {}) {
@@ -154,6 +189,46 @@ lines.push(
     : 'No benchmark over the warning threshold.',
 );
 
+// --- The gate: ratios within this run, which need no baseline ---
+const failures = [];
+const ratioRows = [];
+for (const { numerator, denominator, budget, why } of RATIO_BUDGETS) {
+  const top = benchmarks[numerator]?.meanNs;
+  const bottom = benchmarks[denominator]?.meanNs;
+  if (!top || !bottom) {
+    // A renamed or removed bench must not silently drop its gate.
+    failures.push(
+      `${numerator} / ${denominator}: benchmark missing from this run — the ratio budget cannot be checked`,
+    );
+    ratioRows.push(`| \`${numerator}\` / \`${denominator}\` | — | ${budget} | ❌ | ${why} |`);
+    continue;
+  }
+  const ratio = top / bottom;
+  const over = ratio > budget;
+  if (over) {
+    failures.push(`${numerator} / ${denominator}: ${ratio.toFixed(3)} (budget ${budget}) — ${why}`);
+    console.log(
+      `::error title=core_pipeline ratio::${numerator}/${denominator} = ${ratio.toFixed(3)}, budget ${budget}`,
+    );
+  }
+  ratioRows.push(
+    `| \`${numerator}\` / \`${denominator}\` | ${ratio.toFixed(3)} | ${budget} | ${over ? '❌' : '✅'} | ${why} |`,
+  );
+}
+
+if (ratioRows.length > 0) {
+  lines.push(
+    '',
+    '### Ratio budgets (the gate)',
+    '',
+    '| ratio | measured | budget | | what it protects |',
+    '| --- | ---: | ---: | --- | --- |',
+    ...ratioRows,
+    '',
+    'Ratios are between benchmarks of this same run, so they survive runner load and need no baseline. These fail the job; the absolute numbers above never do.',
+  );
+}
+
 const summary = lines.join('\n');
 console.log(`\n${summary}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
@@ -165,4 +240,9 @@ if (UPDATE) {
   next.platforms[report.platform] = report;
   fs.writeFileSync(BASELINE, `${JSON.stringify(next, null, 2)}\n`);
   console.log(`\nupdated ${report.platform} baseline → ${BASELINE}`);
+}
+
+if (failures.length > 0) {
+  console.error(`\nratio budget exceeded:\n${failures.map((f) => `  - ${f}`).join('\n')}`);
+  process.exit(1);
 }
