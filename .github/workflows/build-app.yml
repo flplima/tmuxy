@@ -712,21 +712,30 @@ jobs:
 
             app "tmuxy.app"
 
-            # Homebrew marks the downloaded app with Gatekeeper's quarantine
-            # attribute, which puts a confirmation dialog in front of the first
-            # launch. Removing it keeps that first launch frictionless.
-            postflight_steps do
-              run "/usr/bin/xattr",
-                  args: ["-dr", "com.apple.quarantine", "{{appdir}}/tmuxy.app"],
-                  must_succeed: false
+            # `postflight` is the stanza Homebrew runs after the app is
+            # installed, and it is plain Ruby. A cask body silently ignores a
+            # stanza it does not know — v0.0.10-alpha.63 shipped a
+            # `postflight_steps do` block that parsed, installed, audited and
+            # styled cleanly while doing nothing at all, so a brew install left
+            # the user with the app and no `tmuxy` command.
+            postflight do
+              # Homebrew marks the downloaded app with Gatekeeper's quarantine
+              # attribute, which puts a confirmation dialog in front of the
+              # first launch. Removing it keeps that launch frictionless.
+              system_command "/usr/bin/xattr",
+                             args:         ["-dr", "com.apple.quarantine", "#{appdir}/tmuxy.app"],
+                             must_succeed: false
 
               # Record the app binary path and install a CLI wrapper at
               # ~/.local/bin/tmuxy so `tmuxy pane list` etc. work immediately
               # after install, without opening the GUI first.
-              write_file "~/.config/tmuxy/launcher",
-                         "{{appdir}}/tmuxy.app/Contents/MacOS/tmuxy\n"
+              launcher = File.expand_path("~/.config/tmuxy/launcher")
+              FileUtils.mkdir_p File.dirname(launcher)
+              File.write launcher, "#{appdir}/tmuxy.app/Contents/MacOS/tmuxy\n"
 
-              write_file "~/.local/bin/tmuxy", <<~'WRAPPER'
+              wrapper = File.expand_path("~/.local/bin/tmuxy")
+              FileUtils.mkdir_p File.dirname(wrapper)
+              File.write wrapper, <<~'WRAPPER'
                 #!/bin/sh
                 set -eu
                 LAUNCHER_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
@@ -742,7 +751,7 @@ jobs:
                 fi
                 exec "$EXEC_PATH"
               WRAPPER
-              set_permissions "~/.local/bin/tmuxy", "0755"
+              FileUtils.chmod 0o755, wrapper
             end
 
             zap trash: [
