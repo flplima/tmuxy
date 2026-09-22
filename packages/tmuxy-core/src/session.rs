@@ -60,6 +60,10 @@ pub fn tmux_path() -> &'static str {
 /// The named tmux server socket tmuxy talks to when `TMUX_SOCKET` is unset.
 /// A dedicated socket keeps tmuxy's server fully isolated from the user's
 /// own tmux sessions on the default socket.
+///
+/// This is the socket of a **released build**. The development and test
+/// environments set `TMUX_SOCKET` to `tmuxy-dev` and `tmuxy-test` instead, so
+/// a dev server or a test run never disturbs an installed tmuxy.
 pub const DEFAULT_TMUX_SOCKET: &str = "tmuxy";
 
 /// Resolve the tmux socket: `TMUX_SOCKET` when set and non-empty, otherwise

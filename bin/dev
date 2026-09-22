@@ -7,8 +7,9 @@
 #
 # Environment variables:
 #   TMUX_SOCKET  — tmux socket name, or full socket path when it contains
-#                  a slash (default: the dedicated `tmuxy` socket — never
-#                  the user's default tmux server)
+#                  a slash (default: `tmuxy-dev` — never the user's default
+#                  tmux server, and never the `tmuxy` socket a released build
+#                  serves, so a dev server cannot disturb an installed one)
 #   DEV_PORT     — port to listen on (default: 9000)
 #
 # Usage:
@@ -23,9 +24,14 @@ cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 PORT="${DEV_PORT:-9000}"
 # Match the server's socket resolution: TMUX_SOCKET override (slash → full
-# socket path via -S, else name via -L), else the dedicated `tmuxy` socket
-# (the app never touches the default tmux server).
-SOCKET="${TMUX_SOCKET:-tmuxy}"
+# socket path via -S, else name via -L), else `tmuxy-dev`. The bare `tmuxy`
+# socket belongs to the release bundle (tmuxy-core DEFAULT_TMUX_SOCKET); the
+# dev server keeps off it so the two can run side by side, and the E2E suite
+# owns `tmuxy-test` for the same reason.
+SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
+# The server resolves its own socket from the env, so hand it the same value
+# rather than letting it fall back to the release default.
+export TMUX_SOCKET="$SOCKET"
 case "$SOCKET" in
   */*) SOCKET_FLAG="-S" ;;
   *) SOCKET_FLAG="-L" ;;

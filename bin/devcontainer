@@ -194,9 +194,10 @@ prepare() {
     "
 
     # The dev server owns 9000 (the port mapped to the host); 9001 is vite's
-    # hard-coded port, which tmuxy-server refuses to bind.
+    # hard-coded port, which tmuxy-server refuses to bind. bin/dev picks the
+    # `tmuxy-dev` socket itself, so no TMUX_SOCKET is set here.
     SERVER_SCRIPT="
-        TMUX_SOCKET=tmuxy-dev pm2 start $WORKSPACE/bin/dev --name tmuxy-dev --interpreter bash 2>/dev/null
+        pm2 start $WORKSPACE/bin/dev --name tmuxy-dev --interpreter bash 2>/dev/null
     "
 }
 
