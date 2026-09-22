@@ -116,6 +116,23 @@ function wdioAdapter(driver) {
  * with no attached client, so it is pre-created here — same reason the E2E
  * suite does it.
  */
+/**
+ * Whether an X server is actually answering on `$DISPLAY`.
+ *
+ * `xdpyinfo` is the same probe `startXvfb` waits on, so agreeing with it is
+ * the point: if this returns false, starting one is the right move.
+ */
+function displayIsLive() {
+  const display = process.env.DISPLAY;
+  if (!display) return false;
+  try {
+    execSync(`xdpyinfo -display ${display}`, { stdio: 'ignore', timeout: 2000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function prepareSession(socket, session) {
   const tmux = `tmux -L ${socket}`;
   try {
@@ -142,8 +159,15 @@ async function main() {
   process.env.TMUXY_SESSION = SESSION;
   prepareSession(socket, SESSION);
 
-  // WebKitGTK needs an X display; macOS does not.
-  const needsXvfb = process.platform === 'linux' && !process.env.DISPLAY;
+  // WebKitGTK needs a LIVE X display; macOS does not.
+  //
+  // `DISPLAY` being set is not the same as a display answering on it, and the
+  // difference is not hypothetical: the Tauri E2E suite starts its own Xvfb in
+  // jest's globalSetup and kills it again in globalTeardown, so any job that
+  // runs that suite first leaves `DISPLAY` pointing at a dead server. The app
+  // then panics out of `tao` with "Failed to initialize GTK" and every
+  // WebDriver session times out against a driver that keeps respawning it.
+  const needsXvfb = process.platform === 'linux' && !displayIsLive();
   if (needsXvfb) startXvfb();
 
   // Adopts a driver someone else started (the CI desktop job launches its own).
@@ -155,10 +179,12 @@ async function main() {
       hostname: 'localhost',
       port: DRIVER,
       capabilities: {
-        'tauri:options': {
-          application: BINARY,
-          env: { DISPLAY: process.env.DISPLAY || ':99', TMUX_SOCKET: socket },
-        },
+        // No `env` here: tauri-driver does not forward `tauri:options.env` to
+        // the spawned binary, which inherits the DRIVER's environment instead.
+        // That is why `DISPLAY` and `TMUX_SOCKET` are set on this process
+        // before startTauriDriver() rather than passed as a capability —
+        // passing them here looks like it works and silently does nothing.
+        'tauri:options': { application: BINARY },
       },
       logLevel: 'warn',
       connectionRetryTimeout: 30000,
