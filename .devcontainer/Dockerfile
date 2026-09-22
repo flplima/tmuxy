@@ -16,8 +16,10 @@ RUN usermod -l user -d /home/user -m node \
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core tools (openssh-client for git-over-SSH and ssh-keygen credential setup)
-    less git procps sudo fzf unzip openssh-client jq zstd \
+    # Core tools (openssh-client for git-over-SSH and ssh-keygen credential setup;
+    # openssh-server so `gh codespace ssh` can reach a Codespace — the Codespaces
+    # agent starts sshd but does not install it)
+    less git procps sudo fzf unzip openssh-client openssh-server jq zstd \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
     libevent-dev libncurses-dev bison \
