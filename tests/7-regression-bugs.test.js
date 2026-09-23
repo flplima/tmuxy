@@ -210,13 +210,35 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     if (cs.scrollTop >= cs.totalLines - cs.height) {
       const painted = await ctx.page.evaluate(() => {
         const sb = document.querySelector('[data-copy-mode="true"]');
-        return { open: !!sb, sample: (sb?.textContent || '').replace(/\s+/g, ' ').slice(0, 160) };
+        const el = document.querySelector('.pane-scroll-container');
+        const before = el ? el.scrollTop : null;
+        // Does the container move at all when asked directly? This separates
+        // "the wheel never reached the handler" from "the container cannot
+        // scroll" from "it scrolled and the machine never heard about it".
+        let direct = null;
+        if (el) {
+          el.scrollTop = Math.max(0, before - 200);
+          direct = el.scrollTop;
+          el.scrollTop = before;
+        }
+        return {
+          open: !!sb,
+          charHeight: window.app?.getSnapshot()?.context?.charHeight ?? null,
+          scrollTop: before,
+          scrollHeight: el ? el.scrollHeight : null,
+          clientHeight: el ? el.clientHeight : null,
+          overflowY: el ? getComputedStyle(el).overflowY : null,
+          afterDirectSet: direct,
+          sample: (sb?.textContent || '').replace(/\s+/g, ' ').slice(0, 80),
+        };
       });
       throw new Error(
-        `the wheel never moved the view: scrollTop ${cs.scrollTop}, bottom is ` +
-          `${cs.totalLines - cs.height} (totalLines ${cs.totalLines}, height ${cs.height}, ` +
-          `historySize ${cs.historySize}). Scrollback open: ${painted.open}. ` +
-          `Showing: "${painted.sample}"`,
+        `the wheel never moved the view: state scrollTop ${cs.scrollTop}, bottom is ` +
+          `${cs.totalLines - cs.height} (totalLines ${cs.totalLines}, height ${cs.height}). ` +
+          `container scrollTop=${painted.scrollTop} scrollHeight=${painted.scrollHeight} ` +
+          `clientHeight=${painted.clientHeight} overflowY=${painted.overflowY} ` +
+          `charHeight=${painted.charHeight}; setting scrollTop-200 directly left it at ` +
+          `${painted.afterDirectSet}. Showing: "${painted.sample}"`,
       );
     }
 
