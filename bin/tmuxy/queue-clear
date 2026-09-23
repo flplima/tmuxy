@@ -1,0 +1,27 @@
+#!/bin/bash
+# tmuxy queue clear — drain a named queue and remove its messages
+#
+# Usage: tmuxy queue clear <name>
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib"
+
+NAME="${1:?Usage: tmuxy queue clear <name>}"
+
+SOCKET="${TMUX_SOCKET:-tmuxy}"
+DIR="/tmp/tmuxy-queues/$SOCKET/$NAME"
+
+if [ -d "$DIR" ]; then
+  _lock_acquire "$DIR"
+  trap '_lock_release "$DIR"' EXIT
+
+  shopt -s nullglob
+  rm -f "$DIR"/msg.* "$DIR"/cursor "$DIR"/next 2>/dev/null || true
+  shopt -u nullglob
+
+  _lock_release "$DIR"
+  trap - EXIT
+  rm -rf "$DIR" 2>/dev/null || true
+fi

@@ -132,4 +132,25 @@ describe('CLI help output', () => {
       expect(stdout).toContain(expected);
     });
   });
+
+  describe('queue help', () => {
+    test.each([
+      [['queue'], 'Usage: tmuxy queue <command>'],
+      [['queue', '--help'], 'Usage: tmuxy queue <command>'],
+      [['queue', '-h'], 'Usage: tmuxy queue <command>'],
+      [['q'], 'Usage: tmuxy queue <command>'],
+      [['q', '--help'], 'Usage: tmuxy queue <command>'],
+      [['q', '-h'], 'Usage: tmuxy queue <command>'],
+      [['queue', 'push', '--help'], 'Usage: tmuxy queue push <name> <message|->'],
+      [['queue', 'send', '--help'], 'Usage: tmuxy queue push <name> <message|->'],
+      [['queue', 'pop', '--help'], 'Usage: tmuxy queue pop <name>'],
+      [['queue', 'peek', '--help'], 'Usage: tmuxy queue peek <name>'],
+      [['queue', 'list', '--help'], 'Usage: tmuxy queue list'],
+      [['queue', 'clear', '--help'], 'Usage: tmuxy queue clear <name>'],
+    ])('tmuxy %j shows help', (args, expected) => {
+      const { stdout, exitCode } = runCLI(args);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain(expected);
+    });
+  });
 });

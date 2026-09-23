@@ -1,0 +1,52 @@
+#!/bin/bash
+# tmuxy queue peek — inspect the next message from a named queue without consuming it
+#
+# Usage: tmuxy queue peek <name>
+#
+# Prints the oldest unconsumed message to stdout without advancing cursor:
+#   Exit 0: Message found and printed
+#   Exit 1: No pending message in queue
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib"
+
+NAME="${1:?Usage: tmuxy queue peek <name>}"
+
+SOCKET="${TMUX_SOCKET:-tmuxy}"
+DIR="/tmp/tmuxy-queues/$SOCKET/$NAME"
+
+if [ ! -d "$DIR" ]; then
+  exit 1
+fi
+
+_lock_acquire "$DIR"
+trap '_lock_release "$DIR"' EXIT
+
+CURSOR=$(cat "$DIR/cursor" 2>/dev/null || echo -1)
+
+BEST=""
+shopt -s nullglob
+for f in "$DIR"/msg.[0-9]*; do
+  [ -f "$f" ] || continue
+  N="${f##*/msg.}"
+  case "$N" in *.tmp) continue ;; esac
+  if [ "$N" -gt "$CURSOR" ]; then
+    if [ -z "$BEST" ] || [ "$N" -lt "${BEST##*/msg.}" ]; then
+      BEST="$f"
+    fi
+  fi
+done
+shopt -u nullglob
+
+if [ -n "$BEST" ]; then
+  cat "$BEST"
+  _lock_release "$DIR"
+  trap - EXIT
+  exit 0
+fi
+
+_lock_release "$DIR"
+trap - EXIT
+exit 1

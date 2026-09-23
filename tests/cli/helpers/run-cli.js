@@ -174,7 +174,7 @@ function runCLIFull(args, opts = {}) {
 /**
  * Run several CLI invocations at once and wait for all of them.
  *
- * Exists for the event queue's lock: serialized runs prove nothing about a
+ * Exists for the inter-agent queue's lock: serialized runs prove nothing about a
  * mutex, so the concurrency test has to have the processes genuinely overlap.
  * tmux calls are not collected — the contention, not the argv, is the point.
  *
