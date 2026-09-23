@@ -14,6 +14,11 @@
  *     baseline. Useful as a trend, far too noisy across runner classes to
  *     block a merge on, so a regression here is reported, never fatal.
  *
+ *  3. **Timeouts — the other gate.** A sample that never produced a visible
+ *     result is not a slow sample, and percentiles skip it entirely. Past a
+ *     small share of the run, the interaction is simply broken and its
+ *     flattering p50 is an artifact of the few that worked.
+ *
  * Usage:
  *   node compare-interactions.mjs --report FILE [--baseline FILE]
  *                                 [--summary FILE] [--update-baseline]
@@ -59,6 +64,22 @@ const RATIO_BUDGETS = {
 
 /** Absolute p50 growth over the baseline that earns a warning line. */
 const ABSOLUTE_WARN_RATIO = 1.5;
+
+/**
+ * The share of an interaction's samples that may time out before the run is
+ * treated as a failure rather than a slow-but-working result.
+ *
+ * A timeout is not a slow sample — it is a sample where the thing the user
+ * asked for never visibly happened. Percentiles are computed only over the
+ * samples that DID land, so a mostly-timing-out interaction reports a fast
+ * p50 from the handful that worked and sails past its ratio budget. That is
+ * how a desktop run once reported `pane-nav-keyboard` at 0.2x the keystroke
+ * round trip on the strength of a single surviving sample out of twelve.
+ *
+ * A quarter is generous for genuine flakiness and nowhere near a broken
+ * interaction.
+ */
+const MAX_TIMEOUT_RATIO = 0.25;
 
 function load(path, what) {
   if (!existsSync(path)) return null;
@@ -119,8 +140,21 @@ for (const item of report.interactions) {
       )}%)`,
     );
   }
+  // Judged before the ratio is believed at all: percentiles computed over the
+  // few samples that survived describe nothing.
+  const attempted = item.samples + item.timeouts;
   if (item.timeouts > 0) {
-    warnings.push(`${item.name}: ${item.timeouts} sample(s) never produced a visible result`);
+    const share = attempted > 0 ? item.timeouts / attempted : 1;
+    if (share > MAX_TIMEOUT_RATIO) {
+      verdict = '❌';
+      failures.push(
+        `${item.name}: ${item.timeouts} of ${attempted} samples never produced a visible result ` +
+          `(${Math.round(share * 100)}%, limit ${Math.round(MAX_TIMEOUT_RATIO * 100)}%) — ` +
+          `the interaction is not working, so its ${item.p50} ms p50 describes only the ones that did`,
+      );
+    } else {
+      warnings.push(`${item.name}: ${item.timeouts} sample(s) never produced a visible result`);
+    }
   }
 
   rows.push({
@@ -132,17 +166,19 @@ for (const item of report.interactions) {
     budget: budget ?? null,
     basisP50: base?.p50 ?? null,
     samples: item.samples,
+    timeouts: item.timeouts,
   });
 }
 
 const fmt = (v, suffix = '') => (v == null ? '—' : `${v}${suffix}`);
 const table = [
-  '| | interaction | p50 | p95 | × keystroke | budget | baseline p50 | samples |',
-  '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+  '| | interaction | p50 | p95 | × keystroke | budget | baseline p50 | samples | timed out |',
+  '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   ...rows.map(
     (r) =>
       `| ${r.verdict} | \`${r.name}\` | ${fmt(r.p50, ' ms')} | ${fmt(r.p95, ' ms')} | ` +
-      `${fmt(r.ratio, '×')} | ${fmt(r.budget, '×')} | ${fmt(r.basisP50, ' ms')} | ${r.samples} |`,
+      `${fmt(r.ratio, '×')} | ${fmt(r.budget, '×')} | ${fmt(r.basisP50, ' ms')} | ${r.samples} | ` +
+      `${r.timeouts > 0 ? `**${r.timeouts}**` : '0'} |`,
   ),
 ].join('\n');
 
