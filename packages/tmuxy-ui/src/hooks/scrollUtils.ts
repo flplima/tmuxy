@@ -4,7 +4,7 @@
  * Encapsulates the three-mode scroll routing:
  * 1. Mouse tracking (apps requesting mouse, e.g. nvim with `mouse=a`) → SGR wheel events
  * 2. Alternate screen without mouse (vim with `mouse=`, less) → Up/Down arrow keys
- * 3. Normal shell → proxy the pixel delta straight to the scroll container
+ * 3. Normal shell → proxy pixel delta to scroll container (native copy mode)
  *
  * Mouse tracking takes precedence over alternate-screen: when the app explicitly
  * enabled mouse reporting, it expects raw mouse events, not synthetic arrow keys
@@ -34,55 +34,17 @@ export function takeWholeRows(
 }
 
 /**
- * Move a scrollback container by a pixel delta.
- *
- * Scrollback is the one surface where the terminal's row grid is NOT the unit
- * of motion. A trackpad reports pixels and a native terminal moves by pixels:
- * quantising to rows here meant two out of every three wheel events moved
- * nothing at all and the third jumped a whole line, which is the stepping the
- * scroll view was reported to have against iTerm2. Rows still quantise every
- * path that has to speak to tmux — the escape protocol, the copy cursor — but
- * not this one, which only has to move a scroll container the browser already
- * renders at sub-pixel precision. A partly drawn row at the top edge is what
- * every native terminal shows mid-gesture.
- *
- * The browser clamps both ends of the range for us.
- */
-export function scrollByPixels(el: HTMLElement, deltaPixels: number): void {
-  if (deltaPixels === 0) return;
-  el.scrollTop = Math.max(0, el.scrollTop + deltaPixels);
-}
-
-/**
  * Move a scrollback container by whole rows, landing on a row boundary.
  *
- * Kept alongside `scrollByPixels` while the pixel-precise wheel path is
- * bisected against CI: the copy-mode wheel suite went red on the commit that
- * swapped this out, and reproduces on no local machine, throttled or not.
+ * Rounded to the nearest row first, so a container left mid-row by something
+ * else (a `scrollIntoView`, a font-size change) is pulled back onto the grid
+ * instead of carrying the offset for the rest of the session. The browser
+ * clamps the far end of the range for us.
  */
 export function scrollByRows(el: HTMLElement, rows: number, charHeight: number): void {
   if (rows === 0 || charHeight <= 0) return;
   const currentRow = Math.round(el.scrollTop / charHeight);
   el.scrollTop = Math.max(0, currentRow + rows) * charHeight;
-}
-
-/**
- * A wheel event's delta in pixels, whatever unit it arrived in.
- *
- * `deltaMode` is `DOM_DELTA_PIXEL` for every trackpad and for Chrome's mouse
- * wheel, but Firefox reports `DOM_DELTA_LINE` for a real wheel and a few
- * setups report `DOM_DELTA_PAGE`. Reading `deltaY` raw treated 3 lines as 3
- * pixels, so a mouse wheel barely moved the view there.
- */
-export function wheelDeltaPixels(
-  deltaY: number,
-  deltaMode: number,
-  charHeight: number,
-  viewportHeight: number,
-): number {
-  if (deltaMode === 1) return deltaY * charHeight;
-  if (deltaMode === 2) return deltaY * viewportHeight;
-  return deltaY;
 }
 
 /**

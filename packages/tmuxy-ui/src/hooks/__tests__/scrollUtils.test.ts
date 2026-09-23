@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  sendScrollLines,
-  sgrMouseCommand,
-  takeWholeRows,
-  scrollByPixels,
-  wheelDeltaPixels,
-} from '../scrollUtils';
+import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from '../scrollUtils';
 import type { AppMachineEvent } from '../../machines/types';
 
 function captureSends() {
@@ -38,45 +32,40 @@ describe('takeWholeRows', () => {
   });
 });
 
-describe('scrollByPixels', () => {
+describe('scrollByRows', () => {
   const container = (scrollTop: number) => {
     const el = document.createElement('div');
     el.scrollTop = scrollTop;
     return el;
   };
 
-  it('moves by the exact pixel delta, off the row grid', () => {
+  it('moves by whole rows and lands on a row boundary', () => {
     const el = container(36);
-    scrollByPixels(el, 7);
-    expect(el.scrollTop).toBe(43);
-    scrollByPixels(el, -3);
-    expect(el.scrollTop).toBe(40);
+    scrollByRows(el, 2, 18);
+    expect(el.scrollTop).toBe(72);
+    scrollByRows(el, -1, 18);
+    expect(el.scrollTop).toBe(54);
+  });
+
+  it('pulls a container left mid-row back onto the grid', () => {
+    // Something else moved it — a scrollIntoView, a font-size change. The
+    // next scroll snaps rather than carrying the offset for good.
+    const el = container(40);
+    scrollByRows(el, 1, 18);
+    expect(el.scrollTop).toBe(54);
   });
 
   it('stops at the top', () => {
-    const el = container(10);
-    scrollByPixels(el, -50);
+    const el = container(18);
+    scrollByRows(el, -5, 18);
     expect(el.scrollTop).toBe(0);
   });
 
-  it('does nothing for a zero delta', () => {
+  it('does nothing without rows or a row height', () => {
     const el = container(36);
-    scrollByPixels(el, 0);
+    scrollByRows(el, 0, 18);
+    scrollByRows(el, 3, 0);
     expect(el.scrollTop).toBe(36);
-  });
-});
-
-describe('wheelDeltaPixels', () => {
-  it('passes a pixel delta through', () => {
-    expect(wheelDeltaPixels(-7, 0, 18, 600)).toBe(-7);
-  });
-
-  it('reads a line delta as rows', () => {
-    expect(wheelDeltaPixels(-3, 1, 18, 600)).toBe(-54);
-  });
-
-  it('reads a page delta as viewports', () => {
-    expect(wheelDeltaPixels(1, 2, 18, 600)).toBe(600);
   });
 });
 

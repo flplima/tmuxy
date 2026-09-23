@@ -451,25 +451,25 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     const scrolled = await getCopyModeState(ctx.page);
     expect(scrolled.mode).toBe('scroll');
 
-    // The view moves pixel for pixel, the way a native terminal does: a wheel
-    // tick worth part of a row moves by exactly that, and the top row is left
-    // partly drawn mid-gesture. Rounding each tick to a row made two of every
-    // three trackpad events move nothing and the third jump a line.
-    const scrollState = async () =>
+    // The view moves a row at a time, like copy mode and like a full-screen
+    // application: the container never rests part-way through a row, so the
+    // top row is never drawn half on screen.
+    const rowAlignment = async () =>
       ctx.page.evaluate(() => {
         const el = document.querySelector('.pane-scroll-container');
         const rowHeight = window.app.getSnapshot().context.charHeight;
-        return { scrollTop: el.scrollTop, rowHeight };
+        return { scrollTop: el.scrollTop, rowHeight, offset: el.scrollTop % rowHeight };
       });
-    const before = await scrollState();
-    expect(before.rowHeight).toBeGreaterThan(0);
-    expect(before.scrollTop).toBeGreaterThan(0);
+    let aligned = await rowAlignment();
+    expect(aligned.rowHeight).toBeGreaterThan(0);
+    expect(aligned.scrollTop).toBeGreaterThan(0);
+    expect(aligned.offset).toBeCloseTo(0, 5);
 
-    const tick = Math.round(before.rowHeight / 3);
-    await ctx.page.mouse.wheel(0, -tick);
+    // And a wheel tick that is not a whole number of rows still lands on one.
+    await ctx.page.mouse.wheel(0, -Math.round(aligned.rowHeight * 1.5));
     await delay(DELAYS.MEDIUM);
-    const after = await scrollState();
-    expect(before.scrollTop - after.scrollTop).toBe(tick);
+    aligned = await rowAlignment();
+    expect(aligned.offset).toBeCloseTo(0, 5);
 
     // tmux is untouched: the pane never entered copy mode, so the application
     // in it carries on and no mode is advertised to the user.

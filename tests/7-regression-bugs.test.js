@@ -171,59 +171,15 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
     await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
-    // Record what the page actually sees for each wheel, and whether the
-    // scroll container moved in response. Read back only on failure.
-    await ctx.page.evaluate(() => {
-      const w = window;
-      w.__wheelLog = [];
-      w.addEventListener(
-        'wheel',
-        (e) => {
-          const el = document.querySelector('.pane-scroll-container');
-          const before = el ? el.scrollTop : null;
-          requestAnimationFrame(() => {
-            w.__wheelLog.push({
-              dy: e.deltaY,
-              mode: e.deltaMode,
-              defaultPrevented: e.defaultPrevented,
-              target: (e.target instanceof Element ? e.target.className : '') || String(e.target),
-              before,
-              after: el ? el.scrollTop : null,
-            });
-          });
-        },
-        { passive: true },
-      );
-    });
     // Scroll until the render window has fully cleared the bottom row, rather
-    // than a fixed number of ticks. ScrollbackTerminal keeps an overscan of
-    // whole screens below the viewport, so how far "far enough" is grows with
-    // the pane height AND with the overscan the renderer happens to use — a
-    // fixed tick count, or a bound written against one overscan setting, leaves
-    // BUGMARK_200 inside the window on a tall pane, and the assertion below
-    // reads that as "the DOM never followed the scroll". Ask the DOM instead:
-    // the condition IS that the bottom marker is no longer mounted. A
-    // scrollback that is not open YET means the wheel has more work to do, not
-    // less — reading a missing element as "done" broke the loop on its first
-    // pass, before a single tick, and the assertion below then read a pane
-    // still sitting at the bottom as "the DOM never followed the scroll".
-    const needsMoreScroll = () =>
-      ctx.page.evaluate(() => {
-        const sb = document.querySelector('[data-copy-mode="true"]');
-        // Not open yet: the wheel has more work to do, not less.
-        if (!sb) return true;
-        const text = sb.textContent || '';
-        // Open, but showing no marker at all — the rows are still the dim
-        // placeholders. The chunk being in STATE does not mean it has been
-        // painted: ScrollbackTerminal paints from the scroll container's own
-        // event, deliberately not from the machine. So the absence of
-        // BUGMARK_200 is only evidence of having scrolled past it once some
-        // marker is actually on screen; before that it means "not drawn yet".
-        if (!/BUGMARK_\d+/.test(text)) return true;
-        return /BUGMARK_200\b/.test(text);
-      });
+    // than a fixed number of ticks. ScrollbackTerminal renders
+    // `scrollTop - height … scrollTop + 2*height`, so the overscan below the
+    // viewport grows with the pane height: on a tall pane a fixed 6 ticks still
+    // leaves BUGMARK_200 inside the window, and the assertion below reads that
+    // as "the DOM never followed the scroll".
     for (let i = 0; i < 40; i++) {
-      if (!(await needsMoreScroll())) break;
+      const state = await getCopyModeState(ctx.page);
+      if (state && state.scrollTop + 2 * state.height < state.totalLines - 1) break;
       await ctx.page.mouse.wheel(0, -200);
       await delay(150);
     }
@@ -231,56 +187,7 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
 
     // After several wheel ticks we expect to be partway up the scrollback.
     const cs = await getCopyModeState(ctx.page);
-    if (cs.scrollTop >= cs.totalLines - cs.height) {
-      const painted = await ctx.page.evaluate(() => {
-        const sb = document.querySelector('[data-copy-mode="true"]');
-        const el = document.querySelector('.pane-scroll-container');
-        const before = el ? el.scrollTop : null;
-        // Does the container move at all when asked directly? This separates
-        // "the wheel never reached the handler" from "the container cannot
-        // scroll" from "it scrolled and the machine never heard about it".
-        let direct = null;
-        if (el) {
-          el.scrollTop = Math.max(0, before - 200);
-          direct = el.scrollTop;
-          el.scrollTop = before;
-        }
-        return {
-          open: !!sb,
-          charHeight: window.app?.getSnapshot()?.context?.charHeight ?? null,
-          scrollTop: before,
-          scrollHeight: el ? el.scrollHeight : null,
-          clientHeight: el ? el.clientHeight : null,
-          overflowY: el ? getComputedStyle(el).overflowY : null,
-          afterDirectSet: direct,
-          wheelLog: (window.__wheelLog || []).slice(0, 3),
-          paneBox: (() => {
-            const p = document.querySelector('[data-pane-id]');
-            if (!p) return null;
-            const r = p.getBoundingClientRect();
-            return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
-          })(),
-          atCenter: (() => {
-            const p = document.querySelector('[data-pane-id]');
-            if (!p) return null;
-            const r = p.getBoundingClientRect();
-            const e2 = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-            return e2 ? e2.className || e2.tagName : 'none';
-          })(),
-          sample: (sb?.textContent || '').replace(/\s+/g, ' ').slice(0, 80),
-        };
-      });
-      throw new Error(
-        `the wheel never moved the view: state scrollTop ${cs.scrollTop}, bottom is ` +
-          `${cs.totalLines - cs.height} (totalLines ${cs.totalLines}, height ${cs.height}). ` +
-          `container scrollTop=${painted.scrollTop} scrollHeight=${painted.scrollHeight} ` +
-          `clientHeight=${painted.clientHeight} overflowY=${painted.overflowY} ` +
-          `charHeight=${painted.charHeight}; setting scrollTop-200 directly left it at ` +
-          `${painted.afterDirectSet}. wheelLog=${JSON.stringify(painted.wheelLog)}. ` +
-          `paneBox=${JSON.stringify(painted.paneBox)} elementAtPaneCenter=${painted.atCenter}. ` +
-          `Showing: "${painted.sample}"`,
-      );
-    }
+    expect(cs.scrollTop).toBeLessThan(cs.totalLines - cs.height);
 
     // The regression assertion: every <.terminal-line> div rendered inside
     // the scrollback must be filled with the correct absolute row's content.

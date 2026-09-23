@@ -436,10 +436,6 @@
 
 .pane-scroll-container {
   background-color: transparent;
-  /* The scrollback stops at its own ends instead of handing the rest of the
-     gesture to whatever is behind it — reaching the top of the history must
-     not start scrolling the page (or trigger a back-swipe) mid-flick. */
-  overscroll-behavior: contain;
 }
 
 .hide-scrollbar {

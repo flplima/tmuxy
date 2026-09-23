@@ -95,31 +95,6 @@ is closed — the `TMUX_STATE_UPDATE` reconciliation in `appMachine.ts` owns tha
 The mouse never opens copy mode. A wheel gesture opening a mode with a cursor and vi keys is what
 this split exists to undo.
 
-## Scrolling: pixels, not rows
-
-Everything else in a terminal is quantised to rows — the escape protocol has no unit below a line,
-tmux's copy cursor sits on one, and a full-screen application is only ever sent rows. The scroll
-container is the exception, and deliberately so: it moves **pixel for pixel**, because a trackpad
-reports pixels and a native terminal follows them.
-
-Rounding each wheel or touch delta to a whole row (`takeWholeRows` plus a row-snapping scroll) meant
-that at a normal trackpad delta of ~7px against a ~24px row, **72% of the events moved nothing at
-all** and the rest jumped a full line — the stepping the scroll view was reported to have against
-iTerm2. `scrollByPixels` applies the delta as it arrived; `wheelDeltaPixels` first normalises the
-unit, since a wheel event may report lines or pages rather than pixels. Row quantisation stays on
-every path that has to speak to tmux — the alternate screen, mouse tracking, entering the view — and
-on nothing else. A partly drawn row at the top edge mid-gesture is what a native terminal shows too.
-
-**The rows are painted from the container, not from the machine.** `ScrollbackTerminal` listens to
-the scroll container's own `scroll` event and repaints the mounted window on the next frame from the
-live `scrollTop`. `COPY_MODE_SCROLL` is still sent, but only when the *row* changes, and only the
-chunk fetch and the exit-at-the-bottom check depend on it. Painting from the machine's `scrollTop`
-put an XState transition and a React commit between the container moving and the rows following it —
-measured at a median of ~48ms (three to four dropped frames) of blank or stale rows after a fast
-scroll, against ~1ms once the paint follows the container directly. Overscan is two screens either
-side, which is what a flick covers between frames; a row is an absolutely positioned div repainted
-only when its cells change, so overscan costs mounting, not painting.
-
 ## Scrollback loading
 
 History is loaded lazily as structured cells, never as a client-maintained scrollback buffer of live

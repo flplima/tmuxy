@@ -127,10 +127,10 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterCopy).toBeUndefined();
   });
 
-  it('scrolls the container by whole rows while the pixel path is bisected', () => {
-    // The pixel-precise wheel is parked: the copy-mode wheel E2E went red on
-    // the commit that introduced it and reproduces on no local machine. Rows
-    // here, pixels still on the touch path (see scrollUtils).
+  it('scrolls the container by whole rows, never part of one', () => {
+    // 50px of wheel over an 18px row is two rows and a bit; the bit is
+    // carried, not painted. A terminal scrolls a line at a time — copy mode
+    // and full-screen applications already do, and this is the same pane.
     const { result, scrollRef } = setup({ scrollbackMode: 'copy', charHeight: 18 });
     scrollRef.current!.scrollTop = 0;
     result.current.handleWheel(wheelEvent(50));
@@ -141,13 +141,16 @@ describe('usePaneMouse.handleWheel', () => {
     expect(scrollRef.current!.scrollTop).toBe(54);
   });
 
-  it('reads a line-mode wheel delta as rows', () => {
-    // Firefox reports DOM_DELTA_LINE for a real mouse wheel; taken raw, three
-    // lines scrolled three pixels.
+  it('holds still until a gesture is worth a row, then moves one', () => {
     const { result, scrollRef } = setup({ scrollbackMode: 'scroll', charHeight: 18 });
-    scrollRef.current!.scrollTop = 90;
-    result.current.handleWheel({ ...wheelEvent(-3), deltaMode: 1 } as React.WheelEvent);
+    scrollRef.current!.scrollTop = 36;
+
+    result.current.handleWheel(wheelEvent(-6));
+    result.current.handleWheel(wheelEvent(-6));
     expect(scrollRef.current!.scrollTop).toBe(36);
+
+    result.current.handleWheel(wheelEvent(-6));
+    expect(scrollRef.current!.scrollTop).toBe(18);
   });
 
   it('accumulates sub-line wheel deltas without sending events', () => {

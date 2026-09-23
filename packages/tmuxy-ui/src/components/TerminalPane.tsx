@@ -110,10 +110,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   // (e.g. re-renders from chunk loads that don't alter scrollTop).
   const prevCopyScrollTopRef = useRef<number | null>(null);
 
-  // The last row reported to the machine. A pixel-precise scroll fires many
-  // events per row; only a change of row is worth a transition.
-  const lastSentScrollRowRef = useRef<number | null>(null);
-
   // Scroll indicator (direct DOM manipulation to avoid re-renders)
   const scrollIndicatorRef = useRef<HTMLDivElement | null>(null);
   const scrollIndicatorTimer = useRef<number | null>(null);
@@ -131,30 +127,24 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
 
   // onScroll: report the container's position while a scrollback view is open
   // (either kind). Opening one is the wheel handler's job, not this one's.
-  //
-  // State counts in ROWS, and the container now moves in pixels, so most
-  // scroll events land on the row the machine already has. Sending those
-  // anyway put an XState transition and a React commit on every trackpad
-  // event; the rows are painted straight from the container's own scroll
-  // event (see ScrollbackTerminal), so nothing here is on the paint path —
-  // only the chunk fetch and the exit-at-the-bottom check are, and both care
-  // about rows.
   const handleContainerScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       if (suppressScrollRef.current) return;
-      if (!copyState) return;
 
-      const newScrollTop = Math.floor(e.currentTarget.scrollTop / charHeight);
-      if (newScrollTop === lastSentScrollRowRef.current) return;
-      lastSentScrollRowRef.current = newScrollTop;
-      flashScrollIndicator();
-      lastDomScrollTopRef.current = newScrollTop;
-      send({
-        type: 'COPY_MODE_SCROLL',
-        paneId,
-        scrollTop: newScrollTop,
-        nativeSelection: copyState.mode === 'scroll' && readNativeSelection().length > 0,
-      });
+      if (copyState) {
+        const el = e.currentTarget;
+        const scrollTop = el.scrollTop;
+        // Forward scroll position to state machine
+        const newScrollTop = Math.floor(scrollTop / charHeight);
+        lastDomScrollTopRef.current = newScrollTop;
+        send({
+          type: 'COPY_MODE_SCROLL',
+          paneId,
+          scrollTop: newScrollTop,
+          nativeSelection: copyState.mode === 'scroll' && readNativeSelection().length > 0,
+        });
+        flashScrollIndicator();
+      }
     },
     [send, paneId, charHeight, copyState, flashScrollIndicator],
   );
@@ -198,7 +188,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     } else {
       prevCopyScrollTopRef.current = null;
       lastDomScrollTopRef.current = null;
-      lastSentScrollRowRef.current = null;
     }
   });
 
