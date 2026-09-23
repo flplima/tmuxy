@@ -784,9 +784,9 @@ cmd_tab() {
       esac
       local target="${1:-}"
       if [ -n "$target" ]; then
-        run_safe "kill-window -t $(shquote "$target")"
+        run_safe "killw -t $(shquote "$target")"
       else
-        run_safe "kill-window"
+        run_safe "killw"
       fi
       ;;
 

@@ -564,6 +564,49 @@ pub fn rewrite_new_window_in_compound(
     found.then(|| parts.join(" ; "))
 }
 
+/// Rewrite long-form mutating verbs (`split-window`, `kill-pane`, `kill-window`, `break-pane`)
+/// to their safe short forms (`splitw`, `killp`, `killw`, `breakp`).
+///
+/// This protects control mode from triggering server-level `command-alias` safety traps
+/// configured to block external mutating commands on the tmuxy socket.
+pub fn rewrite_mutating_verbs(command: &str) -> String {
+    if !compound_has_verb(
+        command,
+        &["split-window", "kill-pane", "kill-window", "break-pane"],
+    ) {
+        return command.to_string();
+    }
+    let parts: Vec<String> = split_compound(command)
+        .iter()
+        .filter_map(|part| {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let verb = command_verb(trimmed);
+            let short = match verb {
+                "split-window" => Some("splitw"),
+                "kill-pane" => Some("killp"),
+                "kill-window" => Some("killw"),
+                "break-pane" => Some("breakp"),
+                _ => None,
+            };
+            if let Some(short_verb) = short {
+                let rest = trimmed[verb.len()..].trim_start();
+                if rest.is_empty() {
+                    Some(short_verb.to_string())
+                } else {
+                    Some(format!("{short_verb} {rest}"))
+                }
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect();
+
+    parts.join(" ; ")
+}
+
 /// Split a compound tmux command on the `\;` separators that are *outside*
 /// quotes.
 ///

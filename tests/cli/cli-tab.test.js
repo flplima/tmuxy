@@ -87,13 +87,13 @@ describe('CLI tab subcommands', () => {
     test('kills current tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'kill']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy kill-window']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy killw']);
     });
 
     test('kills specific tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'kill', '@2']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy kill-window -t '@2'"]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy killw -t '@2'"]);
     });
   });
 
