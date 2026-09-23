@@ -1845,13 +1845,17 @@ export const appMachine = setup({
                   }),
                 );
               }
-              // Only send select-pane if the pane isn't already active.
+              // Only send select-pane if the pane isn't already active and
+              // belongs to the active window. Panes in stash windows (e.g. parked
+              // group members) must never receive select-pane directly.
               // Redundant select-pane commands race with relative-target
               // operations like prefix+o (select-pane -t :.+).
               // Dispatch through the STORE (not the tmux actor) so the click
               // gets the SelectPane optimistic prediction — the active
               // highlight must flip on the click, not on the round-trip.
-              if (event.paneId !== context.activePaneId) {
+              const targetPane = context.panes.find((p) => p.tmuxId === event.paneId);
+              const inActiveWindow = targetPane?.windowId === context.activeWindowId;
+              if (event.paneId !== context.activePaneId && inActiveWindow) {
                 enqueue(
                   sendTo('tmuxStore', {
                     type: 'DISPATCH_COMMAND' as const,
@@ -1968,6 +1972,35 @@ export const appMachine = setup({
               clickedPane.windowId === context.activeWindowId
             ) {
               return;
+            }
+
+            // Clear any overlay focus so clicking a group tab cleanly targets the grid
+            if (context.leftSidebarFocused) {
+              enqueue(assign({ leftSidebarFocused: false }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
+                  focused: false,
+                }),
+              );
+            }
+            if (context.focusedFloatPaneId) {
+              enqueue(assign({ focusedFloatPaneId: null }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_FOCUSED_FLOAT' as const,
+                  paneId: null,
+                }),
+              );
+            }
+            if (context.rightSidebarFocused) {
+              enqueue(assign({ rightSidebarFocused: false }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
+                  paneId: null,
+                }),
+              );
             }
 
             // Flip the active pane SYNCHRONOUSLY — machine context and keyboard

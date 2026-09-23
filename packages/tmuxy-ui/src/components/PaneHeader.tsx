@@ -197,11 +197,16 @@ export function PaneHeader({
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    // Taking the pane and, for a group, bringing the clicked member into the
-    // visible slot. The focus is what makes a plain (ungrouped) header tab
-    // work at all: with one pane there is no group switch to do.
-    send({ type: 'FOCUS_PANE', paneId: clickedPaneId });
-    send({ type: 'SELECT_PANE_GROUP_TAB', paneId: clickedPaneId });
+    // For a group tab, route strictly through SELECT_PANE_GROUP_TAB: it flips
+    // activePaneId and the keyboard actor's target synchronously and dispatches
+    // the GroupSwitch op. Sending FOCUS_PANE for a parked group member would
+    // fire a premature `select-pane` into the stash window, racing swap-pane.
+    // An ungrouped header tab has no group to switch, so it uses FOCUS_PANE.
+    if (isGroup) {
+      send({ type: 'SELECT_PANE_GROUP_TAB', paneId: clickedPaneId });
+    } else {
+      send({ type: 'FOCUS_PANE', paneId: clickedPaneId });
+    }
   };
 
   const handleClosePane = (e: React.MouseEvent, forPaneId?: string) => {
