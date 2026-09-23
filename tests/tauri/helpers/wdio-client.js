@@ -16,16 +16,21 @@ const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
 // and this suite against it — the binary users actually launch.
 const TAURI_BINARY = process.env.TAURI_BINARY || path.join(WORKSPACE_ROOT, 'target/debug/tmuxy');
 
-// WebDriver Unicode key codes for special keys
+// WebDriver Unicode key codes for special keys.
+//
+// Order matters and is easy to misread — the arrows sit immediately after
+// Home/End in a contiguous block:
+//   E00E PageUp  E00F PageDown  E010 End    E011 Home
+//   E012 Left    E013 Up        E014 Right  E015 Down
 const KEYS = {
   Enter: '\uE007',
   Tab: '\uE004',
   Escape: '\uE00C',
   Backspace: '\uE003',
   ArrowUp: '\uE013',
-  ArrowDown: '\uE014',
+  ArrowDown: '\uE015',
   ArrowLeft: '\uE012',
-  ArrowRight: '\uE011',
+  ArrowRight: '\uE014',
   Control: '\uE009',
   Shift: '\uE008',
   Alt: '\uE00A',
