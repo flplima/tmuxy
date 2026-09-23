@@ -54,6 +54,20 @@ Quarantine is the one deliberate exception, and it is bounded: a story listed in
 
 Jobs that need tmux build **3.7a** from source and cache it (`e2e`, `interaction-latency`, `desktop`, `rust-tests`). The macOS smoke test uses Homebrew's `tmux` and the Linux smoke test apt's `tmux`.
 
+### Red-Main Policy & Bug-Fix Attribution
+
+**Fix or quarantine within 24 hours.** A broken build on `main` stops everyone. If CI turns red on `main`:
+
+1. **Zero tolerance for stale red**: A failing commit on `main` must either be fixed or quarantined within 24 hours. Do not merge feature branches on top of a red `main`.
+2. **Quarantine protocol**: If an issue or flake cannot be diagnosed within a day, quarantine the failing test using the bounded quarantine lists (`packages/tmuxy-ui/scripts/probe-quarantine.json` or `probe-quarantine-v86.json`) or revert the breaking commit. Every quarantine entry requires an issue ref, rationale, and strict expiration date.
+3. **Re-runs are not fixes**: Simply clicking re-run on a failing job masks races and degrades confidence in CI. Fix the synchronization or wait condition.
+
+**Tag every bug-fix commit with `[missed-by: <layer>]`.** Every bug fix commit (`🐛`) must state which test layer should have caught the defect:
+
+- Pattern: `🐛 <description> [missed-by: <layer>]`
+- Layers: `unit-tests`, `e2e`, `storybook-probe`, `storybook-v86-probe`, `rust-tests`, `cli`, `tauri-e2e`, `desktop-smoke`, `WebKit`, or `none`.
+- `[missed-by: none]` flags an architectural gap in our test coverage (e.g. process lifecycle, OS font rendering) that guides where new test harnesses must be added.
+
 ### Local Gates
 
 `.github/pre-commit` (enabled by `npm install` through the `prepare` script) runs Prettier and `eslint --fix` on `packages/tmuxy-ui/src`, `eslint tests/`, a check that `eslint.config.mjs` still bans `tmuxQuery`, `vitest related --run` for staged UI sources, `cargo fmt -p tmuxy-core -p tmuxy-server` and `cargo clippy -p tmuxy-core -p tmuxy-server`. Formatter rewrites are re-staged only for fully staged files.

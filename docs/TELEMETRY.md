@@ -1,8 +1,8 @@
 # Telemetry & Tracing
 
 **tmuxy does not track you.** There is no analytics, no phone-home, no data sent
-to us or anyone else — ever. What this document describes is a *local debugging
-trace*: an optional, off-by-default record of your **actions** (not what you type
+to us or anyone else — ever. What this document describes is a _local debugging
+trace_: an optional, off-by-default record of your **actions** (not what you type
 or what your programs print) that stays in a single file on your own machine, for
 you to read or delete, and that exists only to help developers diagnose hard
 cross-layer bugs.
@@ -50,10 +50,11 @@ of the plan are implemented; see [§ Using it](#using-it).
   that launch). Default `shape` — see [§ Trace levels](#trace-levels). An
   unrecognised name resolves to `shape`, so a typo can never raise sensitivity.
 - **Inspect it:** `tmuxy trace` prints a summary correlating actions by
-  `action_id`; `tmuxy trace --export out.json` writes a Chrome-trace/Perfetto
-  timeline you open at ui.perfetto.dev; `tmuxy trace --mark "<label>"` stamps a
-  "the bug happened here" marker into the running trace. All accept an explicit
-  file path.
+  `action_id`; `tmuxy trace check` (or `--health`) runs a field health check
+  reporting reconnects, rejected commands, and errors per session; `tmuxy trace
+--export out.json` writes a Chrome-trace/Perfetto timeline you open at
+  ui.perfetto.dev; `tmuxy trace --mark "<label>"` stamps a "the bug happened
+  here" marker into the running trace. All accept an explicit file path.
 - **Where it lives:** `~/.local/state/tmuxy/trace.ndjson` on Linux;
   **`~/Library/Application Support/tmuxy/trace.ndjson` on macOS**, which has no
   XDG state dir. Mode `0600`, rotated at 64 MiB with one `.1` backup. The
@@ -73,7 +74,7 @@ of the plan are implemented; see [§ Using it](#using-it).
 - **Off by default, on only on purpose.** Nothing is recorded on a normal
   install. Development builds enable it to help build tmuxy; release builds record
   only when you pass an explicit flag (see [§ Gating](#gating)).
-- **Actions, not content.** Record the *shape* of what a user did, never what
+- **Actions, not content.** Record the _shape_ of what a user did, never what
   they typed or what a program printed (see [§ Safety](#safety--the-redaction-boundary)).
 - **Loadable later.** The file is greppable/`jq`-able as-is and convertible to a
   Perfetto/Chrome-trace timeline for flame-graph inspection of complex issues.
@@ -89,7 +90,7 @@ of the plan are implemented; see [§ Using it](#using-it).
   forbids.
 - **Not a keylogger or audit log of commands.** The existing in-app activity log
   (`LOG_APPEND` → `context.log`, `packages/tmuxy-ui/src/machines/app/appMachine.ts`)
-  records command *strings* and is **out of scope** as a trace source precisely
+  records command _strings_ and is **out of scope** as a trace source precisely
   because it carries content.
 - **Browser-only deployments are out of scope for the single file.** The demo
   and v86/wasm builds have no host filesystem and no server; they are not
@@ -101,17 +102,17 @@ The five mechanisms below predate the trace file and mostly still exist — they
 are the per-layer buffers you reach for interactively. What none of them had was
 a shared timeline, correlation, or persistence beyond one hand-rolled file, and
 that gap is what the design in this document closes. Kept here because it is the
-*why*: it explains which problem each part of the schema exists to solve.
+_why_: it explains which problem each part of the schema exists to solve.
 
-| Layer | Mechanism | Sink | Persisted? |
-| --- | --- | --- | --- |
-| Rust | `tracing` + `tracing-subscriber`, `RUST_LOG` filter (`packages/tmuxy-server/src/lib.rs`) | stderr | no |
-| Rust | hand-rolled `debug_log` (`packages/tmuxy-core/src/debug_log.rs`) | `~/tmuxy-debug.log` | yes (one file, unstructured) |
-| Rust | one real span, the Tower `tmux_call` (`packages/tmuxy-core/src/tmux_service.rs`), plus scattered `#[instrument]` | via subscriber → stderr | no |
-| Rust | in-memory SSE replay ring (100) and control-mode tail (200 lines) | memory only | no (rolls over) |
-| Frontend | XState event ring (200), via a `send` monkey-patch (`packages/tmuxy-ui/src/machines/AppContext.tsx`), exposed as `window.getRecentEvents()` | memory only | no |
-| Frontend | in-app activity log (500), `LOG_APPEND` → `context.log` | memory only | no (**and carries command strings**) |
-| Frontend | dev-gated `latencyTracker` + `PerfHud` (`packages/tmuxy-ui/src/tmux/latencyTracker.ts`) | memory only | no |
+| Layer    | Mechanism                                                                                                                                   | Sink                    | Persisted?                           |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------------------------------ |
+| Rust     | `tracing` + `tracing-subscriber`, `RUST_LOG` filter (`packages/tmuxy-server/src/lib.rs`)                                                    | stderr                  | no                                   |
+| Rust     | hand-rolled `debug_log` (`packages/tmuxy-core/src/debug_log.rs`)                                                                            | `~/tmuxy-debug.log`     | yes (one file, unstructured)         |
+| Rust     | one real span, the Tower `tmux_call` (`packages/tmuxy-core/src/tmux_service.rs`), plus scattered `#[instrument]`                            | via subscriber → stderr | no                                   |
+| Rust     | in-memory SSE replay ring (100) and control-mode tail (200 lines)                                                                           | memory only             | no (rolls over)                      |
+| Frontend | XState event ring (200), via a `send` monkey-patch (`packages/tmuxy-ui/src/machines/AppContext.tsx`), exposed as `window.getRecentEvents()` | memory only             | no                                   |
+| Frontend | in-app activity log (500), `LOG_APPEND` → `context.log`                                                                                     | memory only             | no (**and carries command strings**) |
+| Frontend | dev-gated `latencyTracker` + `PerfHud` (`packages/tmuxy-ui/src/tmux/latencyTracker.ts`)                                                     | memory only             | no                                   |
 
 The gaps that motivated the design, and where each landed:
 
@@ -199,43 +200,43 @@ Rust-owned file.
 
 One flat object per line. Content-free by construction.
 
-| Field | Meaning |
-| --- | --- |
-| `ts_wall` | wall-clock time (ms), for human reading and cross-machine ordering |
-| `ts_mono` | monotonic time (µs) from the layer's clock, for duration math within a process |
-| `layer` | `xstate` \| `effect` \| `adapter` \| `http` \| `monitor` \| `aggregator` \| `emitter` \| `tmux` \| `tauri` \| `render` |
-| `component` | originating module/actor (e.g. `keyboardActor`, `tmux_call`, `SessionBroadcast`) |
-| `name` | event or span name (a **typed variant**, never a command string) |
-| `phase` | `event` \| `start` \| `end` (spans emit start/end; point events use `event`) |
-| `dur_us` | span duration on `end`, when known |
-| `action_id` | causal id minted at action origin; see [§ Correlation](#correlation) |
-| `session` | tmux session name |
-| `conn_id` | client connection id (distinguishes browser tabs on a shared server) |
-| `seq` | SSE monotonic id and/or delta `seq`, for return-path joins |
-| `pane` / `window` | tmux target ids (`%N` / `@N`) |
-| `attrs` | small map of non-content metadata (counts, flags, error tag, latency) |
+| Field             | Meaning                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `ts_wall`         | wall-clock time (ms), for human reading and cross-machine ordering                                                     |
+| `ts_mono`         | monotonic time (µs) from the layer's clock, for duration math within a process                                         |
+| `layer`           | `xstate` \| `effect` \| `adapter` \| `http` \| `monitor` \| `aggregator` \| `emitter` \| `tmux` \| `tauri` \| `render` |
+| `component`       | originating module/actor (e.g. `keyboardActor`, `tmux_call`, `SessionBroadcast`)                                       |
+| `name`            | event or span name (a **typed variant**, never a command string)                                                       |
+| `phase`           | `event` \| `start` \| `end` (spans emit start/end; point events use `event`)                                           |
+| `dur_us`          | span duration on `end`, when known                                                                                     |
+| `action_id`       | causal id minted at action origin; see [§ Correlation](#correlation)                                                   |
+| `session`         | tmux session name                                                                                                      |
+| `conn_id`         | client connection id (distinguishes browser tabs on a shared server)                                                   |
+| `seq`             | SSE monotonic id and/or delta `seq`, for return-path joins                                                             |
+| `pane` / `window` | tmux target ids (`%N` / `@N`)                                                                                          |
+| `attrs`           | small map of non-content metadata (counts, flags, error tag, latency)                                                  |
 
 ### Instrumentation seams
 
 Each seam already exists in the code; the tracer emits at it.
 
-| Layer | Seam (file) | What it records |
-| --- | --- | --- |
-| xstate | `send` tap, `machines/AppContext.tsx` | app-machine transition (event name only); the derived `TMUX_MODEL_UPDATE` firehose is coalesced to a periodic `phase:'count'` |
-| store | dispatch, `machines/actors/tmuxStoreActor.ts` (via `parseCommandToOp`) | `TmuxOp` variant (Split, SelectPane, KillWindow, ZoomToggle, …) + target ids — the WHAT, args discarded |
-| effect | `Effect.runPromiseExit`, `tmuxActor.ts` / `tmuxStoreActor.ts` | adapter/op **failures** by typed `code` (`AdapterError` / `OpError` tag) |
-| adapter | `markInput`/`recordUpdate`, `HttpAdapter.ts` / `adapters.ts` | send (kind, `action_id`) and apply (delta `seq`) boundaries + latency |
-| http | `POST /commands` header, `sse.rs` | `action_id` (`X-Action-Id`) → the exact request-leg join |
-| server | `send_via_control_mode`, `sse.rs` | the mutating ingress by command **verb** (first token; args only at `full`) |
-| emitter | `emit_state`, `sse.rs` | each state emit by delta `seq` + kind, joinable to the client `apply` |
-| tmux | `tmux_call` Tower span, `tmux_service.rs` | async dispatch op_name + argc (**already a span**) |
-| tauri | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
-| tauri | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
-| marker | `tmuxy trace --mark`, `trace_view.rs` | a user-stamped "bug happened here" label |
+| Layer   | Seam (file)                                                                   | What it records                                                                                                                                                                                                                                                           |
+| ------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| xstate  | `send` tap, `machines/AppContext.tsx`                                         | app-machine transition (event name only); the derived `TMUX_MODEL_UPDATE` firehose is coalesced to a periodic `phase:'count'`                                                                                                                                             |
+| store   | dispatch, `machines/actors/tmuxStoreActor.ts` (via `parseCommandToOp`)        | `TmuxOp` variant (Split, SelectPane, KillWindow, ZoomToggle, …) + target ids — the WHAT, args discarded                                                                                                                                                                   |
+| effect  | `Effect.runPromiseExit`, `tmuxActor.ts` / `tmuxStoreActor.ts`                 | adapter/op **failures** by typed `code` (`AdapterError` / `OpError` tag)                                                                                                                                                                                                  |
+| adapter | `markInput`/`recordUpdate`, `HttpAdapter.ts` / `adapters.ts`                  | send (kind, `action_id`) and apply (delta `seq`) boundaries + latency                                                                                                                                                                                                     |
+| http    | `POST /commands` header, `sse.rs`                                             | `action_id` (`X-Action-Id`) → the exact request-leg join                                                                                                                                                                                                                  |
+| server  | `send_via_control_mode`, `sse.rs`                                             | the mutating ingress by command **verb** (first token; args only at `full`)                                                                                                                                                                                               |
+| emitter | `emit_state`, `sse.rs`                                                        | each state emit by delta `seq` + kind, joinable to the client `apply`                                                                                                                                                                                                     |
+| tmux    | `tmux_call` Tower span, `tmux_service.rs`                                     | async dispatch op_name + argc (**already a span**)                                                                                                                                                                                                                        |
+| tauri   | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
+| tauri   | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none)     |
+| marker  | `tmuxy trace --mark`, `trace_view.rs`                                         | a user-stamped "bug happened here" label                                                                                                                                                                                                                                  |
 
 The durable contract from [DATA-FLOW.md](DATA-FLOW.md) maps cleanly to spans:
-the **aggregator** decides *what* (delta kind), the **monitor** decides *when*
-(flush), the **emitter** decides *where* (SSE vs Tauri). Those three are the
+the **aggregator** decides _what_ (delta kind), the **monitor** decides _when_
+(flush), the **emitter** decides _where_ (SSE vs Tauri). Those three are the
 server-side span boundaries.
 
 ### Correlation
@@ -259,7 +260,7 @@ transport can't provide.
 
 The trace records **the shape of an action, never its content.** This is the
 line [SECURITY.md](SECURITY.md) draws (Risk #2: keystrokes and terminal output
-are the eavesdropping target; Risk #7 names an action-trace as a *wanted* future
+are the eavesdropping target; Risk #7 names an action-trace as a _wanted_ future
 capability — but only one that excludes content).
 
 **Never recorded:**
@@ -287,7 +288,7 @@ Structural enforcements, not just discipline:
    [§ Prior art](#prior-art--the-principles-we-take-from-it)).
 2. **Trace the typed variant, never the string.** Recording the `TmuxOp` /
    `MonitorCommand` variant instead of the rewritten command is content-free by
-   construction, and is *also* more robust — it survives the
+   construction, and is _also_ more robust — it survives the
    `neww` → `splitw ; breakp` rewrite and the `#{pane_id}` placeholder
    substitution that mangle raw command strings ([TMUX.md](TMUX.md)).
 3. **Scrub the unavoidable vectors, VS Code–style.** A few genuinely useful
@@ -314,11 +315,11 @@ The one real usefulness↔sensitivity tension is that the most diagnostic fields
 setting, `TMUXY_TRACE_LEVEL` picks where on that dial to sit — evaluated once at
 enable time, applied by the same allowlist visitor and the ingest sanitizer:
 
-| Level | Adds over the previous | Sensitivity | Shareable? |
-| --- | --- | --- | --- |
-| `shape` (default) | typed ops + target ids, delta `seq`, command **verb** (not args), timing, **hashed** names, typed error **codes** | none — no content | yes, attach to a bug report |
-| `labeled` | window/session **names**, cwd, paths in the clear; error text | reveals project/dir names + activity | trusted only |
-| `full` | full command **strings** (incl. `run-shell` args) | high | never |
+| Level             | Adds over the previous                                                                                            | Sensitivity                          | Shareable?                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------- |
+| `shape` (default) | typed ops + target ids, delta `seq`, command **verb** (not args), timing, **hashed** names, typed error **codes** | none — no content                    | yes, attach to a bug report |
+| `labeled`         | window/session **names**, cwd, paths in the clear; error text                                                     | reveals project/dir names + activity | trusted only                |
+| `full`            | full command **strings** (incl. `run-shell` args)                                                                 | high                                 | never                       |
 
 The bright line holds at **every** level: pane `%output` and keystroke payloads
 are never captured — they are not on any instrumented path. `full` is a
@@ -333,11 +334,11 @@ across separate trace files — at the cost of ids not being stable across runs.
 Where the one file can exist depends on who owns a filesystem
 ([DATA-FLOW.md](DATA-FLOW.md) deployment scenarios).
 
-| Scenario | File location | Client events reach it via |
-| --- | --- | --- |
-| Tauri desktop (local or SSH tmux) | local disk, single client | Tauri IPC |
-| `tmuxy server` on a VM + browser | on the VM, multi-client (tag by `conn_id`) | `POST /trace`, batched |
-| Demo / v86-wasm | — (no host FS, no server) | **out of scope** |
+| Scenario                          | File location                              | Client events reach it via |
+| --------------------------------- | ------------------------------------------ | -------------------------- |
+| Tauri desktop (local or SSH tmux) | local disk, single client                  | Tauri IPC                  |
+| `tmuxy server` on a VM + browser  | on the VM, multi-client (tag by `conn_id`) | `POST /trace`, batched     |
+| Demo / v86-wasm                   | — (no host FS, no server)                  | **out of scope**           |
 
 ## Gating
 
@@ -345,12 +346,12 @@ Off by default everywhere. It turns on only on purpose, and never silently.
 Four inputs decide, highest precedence first (`trace::init`,
 `packages/tmuxy-core/src/trace.rs`):
 
-| # | Input | Effect |
-|---|-------|--------|
-| 1 | `DO_NOT_TRACK=1` / `TMUXY_NO_TRACE=1` | Always off. Overrides everything below, and disables the app's switch. |
-| 2 | `tmuxy server --trace [path]` | On. An operator naming the flag means it. |
-| 3 | The saved Debug-menu choice | On or **off** — this is how a user turns a development build's automatic tracing off. |
-| 4 | Development build (`debug_assertions`) or `--dev` | On, and **announced loudly at startup** (a log line naming the trace file) so it is never a surprise. |
+| #   | Input                                             | Effect                                                                                                |
+| --- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1   | `DO_NOT_TRACK=1` / `TMUXY_NO_TRACE=1`             | Always off. Overrides everything below, and disables the app's switch.                                |
+| 2   | `tmuxy server --trace [path]`                     | On. An operator naming the flag means it.                                                             |
+| 3   | The saved Debug-menu choice                       | On or **off** — this is how a user turns a development build's automatic tracing off.                 |
+| 4   | Development build (`debug_assertions`) or `--dev` | On, and **announced loudly at startup** (a log line naming the trace file) so it is never a surprise. |
 
 When on, the server advertises tracing in the `connection-info` SSE event so
 browsers know to ship their events; the Tauri app reads the same state locally
@@ -416,7 +417,7 @@ Four lessons the design is shaped by:
 
 - **The leak arrives through the path nobody guarded.** iTerm2's worst privacy
   failure was not telemetry — a URL-preview feature made a DNS request for
-  whatever you *hovered*, leaking passwords in cleartext, on by default, for
+  whatever you _hovered_, leaking passwords in cleartext, on by default, for
   months. Hence guarding at the write site, not the source
   ([§ Safety](#safety--the-redaction-boundary)).
 - **Scrub and hash the unavoidable.** VS Code identifies a folder by a hash of

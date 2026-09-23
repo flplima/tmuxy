@@ -27,13 +27,13 @@ Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> -
 
 ## Running it
 
-| Want | Do | Notes |
-|---|---|---|
-| The dev server | `npm start` (pm2), `npm stop`, `npm logs` | `bin/dev` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev` |
-| A one-off server | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev` | No watcher, no pm2 — what to reach for when `cargo watch` is missing |
-| Drive the app | `agent-browser --session <slug> open http://localhost:9000` | See its own skill for the command set |
-| The trace | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TELEMETRY.md](docs/TELEMETRY.md) |
-| Server logs | `npm logs` (pm2), or the server's own stderr | `RUST_LOG` filters it |
+| Want             | Do                                                                                                                 | Notes                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| The dev server   | `npm start` (pm2), `npm stop`, `npm logs`                                                                          | `bin/dev` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev` |
+| A one-off server | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev`                                                         | No watcher, no pm2 — what to reach for when `cargo watch` is missing       |
+| Drive the app    | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                      |
+| The trace        | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TELEMETRY.md](docs/TELEMETRY.md)   |
+| Server logs      | `npm logs` (pm2), or the server's own stderr                                                                       | `RUST_LOG` filters it                                                      |
 
 **Three sockets, never mixed:** a released build serves `tmuxy`, the dev server
 `tmuxy-dev`, the E2E suite `tmuxy-test`. A change of socket is a change of
@@ -45,12 +45,12 @@ runner so neither can drift from the other.
 
 ## Devcontainer
 
-| Variable | Description |
-|----------|-------------|
-| `CONTAINER_NAME` | Container name (e.g., `tmuxy-worktree-1`) |
-| `HOST_PORT` | Port exposed on the host (e.g., `14089`) |
-| `PORT` | Internal server port (`9000`) |
-| `CODESPACES` | Set by GitHub Codespaces; the credential-volume scripts no-op when present |
+| Variable         | Description                                                                |
+| ---------------- | -------------------------------------------------------------------------- |
+| `CONTAINER_NAME` | Container name (e.g., `tmuxy-worktree-1`)                                  |
+| `HOST_PORT`      | Port exposed on the host (e.g., `14089`)                                   |
+| `PORT`           | Internal server port (`9000`)                                              |
+| `CODESPACES`     | Set by GitHub Codespaces; the credential-volume scripts no-op when present |
 
 One `.devcontainer/` serves `bin/devcontainer` (plain Docker), VS Code Dev
 Containers and GitHub Codespaces. **Never hardcode the workspace path** — every
@@ -101,7 +101,40 @@ Key rules:
 
 **NEVER commit skipped tests** (`it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, `xdescribe`). If a test is failing, either fix the test, fix the underlying bug, or ask the user whether to remove the test entirely. ESLint enforces this via `jest/no-disabled-tests` (error) — the pre-commit hook and CI will reject skipped tests.
 
+### Red-Main Policy: Fix or Quarantine Within 24 Hours
+
+A broken build on `main` stops everyone. If CI turns red on `main`:
+
+1. **Fix or quarantine within 24 hours**: Either land a fix, revert the offending commit, or quarantine the failing test within a day. Never leave `main` red.
+2. **Never build features on a red main**: If `main` is red, fixing CI takes precedence over any new feature work.
+3. **Quarantine is explicit and bounded**: For Storybook probes, use the bounded quarantine files (`packages/tmuxy-ui/scripts/probe-quarantine.json` or `probe-quarantine-v86.json`) with an issue reference and an ISO expiry date. Never skip a test without tracking.
+
+### Bug-Fix Commit Tagging: Missed-By Layer
+
+Tag every bug-fix commit (`🐛`) with the test layer that should have caught the bug:
+
+- Format: `🐛 <description> [missed-by: <layer>]`
+- Example layers: `[missed-by: unit-tests]`, `[missed-by: e2e]`, `[missed-by: storybook-probe]`, `[missed-by: rust-tests]`, `[missed-by: cli]`, `[missed-by: WebKit]`, or `[missed-by: none]`.
+- An answer of `[missed-by: none]` means a gap exists in the testing architecture (e.g. process lifecycle, system fonts) and highlights where a new test tier or harness belongs.
+
+### Red-Main Policy: Fix or Quarantine Within 24 Hours
+
+A broken build on `main` stops everyone. If CI turns red on `main`:
+
+1. **Fix or quarantine within 24 hours**: Either land a fix, revert the offending commit, or quarantine the failing test within a day. Never leave `main` red.
+2. **Never build features on a red main**: If `main` is red, fixing CI takes precedence over any new feature work.
+3. **Quarantine is explicit and bounded**: For Storybook probes, use the bounded quarantine files (`packages/tmuxy-ui/scripts/probe-quarantine.json` or `probe-quarantine-v86.json`) with an issue reference and an ISO expiry date. Never skip a test without tracking.
+
+### Bug-Fix Commit Tagging: Missed-By Layer
+
+Tag every bug-fix commit (`🐛`) with the test layer that should have caught the bug:
+
+- Format: `🐛 <description> [missed-by: <layer>]`
+- Example layers: `[missed-by: unit-tests]`, `[missed-by: e2e]`, `[missed-by: storybook-probe]`, `[missed-by: rust-tests]`, `[missed-by: cli]`, `[missed-by: WebKit]`, or `[missed-by: none]`.
+- An answer of `[missed-by: none]` means a gap exists in the testing architecture (e.g. process lifecycle, system fonts) and highlights where a new test tier or harness belongs.
+
 Before wrapping up a task, run local checks that mirror CI lint gates:
+
 - `npm run check:fast`
 - `(cd packages/tmuxy-ui && npx prettier --check src)`
 - `npx prettier --check 'tests/**/*.js'`
@@ -109,14 +142,14 @@ Before wrapping up a task, run local checks that mirror CI lint gates:
 
 The rest of the map, for when a change reaches further:
 
-| Scope | Command |
-|---|---|
-| First run in a fresh environment | `bash bin/bootstrap` |
-| Everything, including Rust and the CLI | `npm run check:full` |
-| E2E (browser + tmux) | `npm run test:e2e` |
-| Desktop / Tauri E2E | `npm run test:tauri` |
-| Rust workspace | `cargo test --workspace` |
-| A red CI job | [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) maps each job to its local command |
+| Scope                                  | Command                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| First run in a fresh environment       | `bash bin/bootstrap`                                                      |
+| Everything, including Rust and the CLI | `npm run check:full`                                                      |
+| E2E (browser + tmux)                   | `npm run test:e2e`                                                        |
+| Desktop / Tauri E2E                    | `npm run test:tauri`                                                      |
+| Rust workspace                         | `cargo test --workspace`                                                  |
+| A red CI job                           | [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) maps each job to its local command |
 
 ### Before pushing: run the CI jobs your change touches
 
@@ -127,16 +160,16 @@ by default wastes twenty minutes, and reaching for nothing ships a red main.
 
 Work out the set from what you changed:
 
-| Changed | Also run before pushing |
-|---|---|
-| `packages/tmuxy-ui/src/**` (app code) | `npm test -- --run`, and the E2E suites covering the feature |
-| `packages/tmuxy-ui/src/stories/**` | `npm run test-storybook -w tmuxy-ui` (add `test-storybook:v86` for a `v86`-tagged story) |
-| `tests/**` | the suites you edited, **plus** any other suite sharing their helpers |
-| `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour |
-| a `constants.rs` tmux format string | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
-| `bin/tmuxy-cli`, `scripts/**` | `npm run test:cli` |
-| `packages/tmuxy-tauri-app/**` | `npm run test:tauri` |
-| perf harnesses, `perf/**` | `npm run perf:interactions` + `npm run perf:compare` |
+| Changed                                     | Also run before pushing                                                                                    |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `packages/tmuxy-ui/src/**` (app code)       | `npm test -- --run`, and the E2E suites covering the feature                                               |
+| `packages/tmuxy-ui/src/stories/**`          | `npm run test-storybook -w tmuxy-ui` (add `test-storybook:v86` for a `v86`-tagged story)                   |
+| `tests/**`                                  | the suites you edited, **plus** any other suite sharing their helpers                                      |
+| `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour               |
+| a `constants.rs` tmux format string         | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
+| `bin/tmuxy-cli`, `scripts/**`               | `npm run test:cli`                                                                                         |
+| `packages/tmuxy-tauri-app/**`               | `npm run test:tauri`                                                                                       |
+| perf harnesses, `perf/**`                   | `npm run perf:interactions` + `npm run perf:compare`                                                       |
 
 [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) has the full job-to-command map — it is the
 source of truth for which command stands in for which job, and it works in both
@@ -145,7 +178,7 @@ directions: use it to pick checks before a push, not only to triage a red one.
 **"It passed locally" is weak evidence for anything timing-sensitive.** A CI runner
 is slower than a dev machine, so a wait that assumes something has already happened
 passes here and fails there. When a test polls for state, treat "not ready yet" as
-*keep waiting*, never as *done* — and never bound a loop by a constant that encodes
+_keep waiting_, never as _done_ — and never bound a loop by a constant that encodes
 how fast the machine is, or by a magic number that happens to match today's layout.
 A local pass cannot rule this class of bug out; only the shape of the wait can.
 
@@ -166,17 +199,17 @@ When working on a branch other than `main`, always `git merge main` before start
 
 Use [gitmoji](https://gitmoji.dev/) for commit messages:
 
-| Emoji | Description |
-|-------|-------------|
-| ✨ | New feature |
-| 🐛 | Bug fix |
-| ♻️ | Refactor |
-| 🎨 | Improve structure/format |
-| ⚡ | Performance |
-| 🔥 | Remove code/files |
-| ✅ | Tests |
-| 📝 | Documentation |
-| 🔧 | Configuration |
-| 🚀 | Version bump / release |
+| Emoji | Description              |
+| ----- | ------------------------ |
+| ✨    | New feature              |
+| 🐛    | Bug fix                  |
+| ♻️    | Refactor                 |
+| 🎨    | Improve structure/format |
+| ⚡    | Performance              |
+| 🔥    | Remove code/files        |
+| ✅    | Tests                    |
+| 📝    | Documentation            |
+| 🔧    | Configuration            |
+| 🚀    | Version bump / release   |
 
 The release process lives in the `release` skill (`.agents/skills/release/`) — invoke it when shipping a version.

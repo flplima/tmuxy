@@ -24,6 +24,10 @@ pub struct TraceViewArgs {
     /// stamp "the bug happened here" so you can find the moment in a long trace.
     #[arg(long, value_name = "LABEL")]
     pub mark: Option<String>,
+
+    /// Run a field health check summarizing reconnects, rejected commands, and anomalies.
+    #[arg(long, alias = "check")]
+    pub health: bool,
 }
 
 pub fn run(args: TraceViewArgs) {
@@ -77,7 +81,13 @@ pub fn run(args: TraceViewArgs) {
                 }
             }
         }
-        None => print!("{}", summarize(&events)),
+        None => {
+            if args.health {
+                print!("{}", health_check(&events));
+            } else {
+                print!("{}", summarize(&events));
+            }
+        }
     }
 }
 
@@ -263,6 +273,104 @@ pub fn summarize(events: &[Map<String, Value>]) -> String {
     out
 }
 
+#[derive(Default)]
+struct SessionHealth {
+    actions: usize,
+    reconnects: usize,
+    rejected: usize,
+    errors: usize,
+}
+
+/// Field health check: reports reconnects, rejected commands, errors, and session counts
+/// across real usage recorded in the trace.
+pub fn health_check(events: &[Map<String, Value>]) -> String {
+    let mut by_session: BTreeMap<String, SessionHealth> = BTreeMap::new();
+    let mut total_reconnects = 0;
+    let mut total_rejected = 0;
+    let mut total_errors = 0;
+
+    for ev in events {
+        let session = ev
+            .get("session")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_string();
+        let entry = by_session.entry(session).or_default();
+        entry.actions += 1;
+
+        let name = ev.get("name").and_then(Value::as_str).unwrap_or("");
+        let layer = ev.get("layer").and_then(Value::as_str).unwrap_or("");
+        let is_fail = name == "fail" || ev.get("failed").and_then(Value::as_bool).unwrap_or(false);
+        let is_rejected = is_fail
+            || name.contains("rejected")
+            || ev.get("rejected").and_then(Value::as_bool).unwrap_or(false)
+            || ev
+                .get("status")
+                .and_then(Value::as_u64)
+                .is_some_and(|s| s == 400 || s == 403);
+
+        let is_reconnect = name.contains("reconnect")
+            || ev
+                .get("reconnected")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            || (layer == "monitor" && name == "connect" && entry.actions > 1);
+
+        let is_error = ev
+            .get("level")
+            .and_then(Value::as_str)
+            .is_some_and(|l| l.eq_ignore_ascii_case("error"))
+            || ev.get("error").is_some();
+
+        if is_rejected {
+            entry.rejected += 1;
+            total_rejected += 1;
+        }
+        if is_reconnect {
+            entry.reconnects += 1;
+            total_reconnects += 1;
+        }
+        if is_error {
+            entry.errors += 1;
+            total_errors += 1;
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str("tmuxy field health check\n");
+    out.push_str("========================\n");
+    out.push_str(&format!("events analyzed: {}\n", events.len()));
+    out.push_str(&format!("sessions tracked: {}\n", by_session.len()));
+    out.push_str(&format!("reconnects: {}\n", total_reconnects));
+    out.push_str(&format!("rejected commands: {}\n", total_rejected));
+    out.push_str(&format!("errors: {}\n\n", total_errors));
+
+    out.push_str("sessions:\n");
+    for (sess, h) in &by_session {
+        let status = if h.reconnects == 0 && h.rejected == 0 && h.errors == 0 {
+            "HEALTHY"
+        } else if h.reconnects > 2 || h.rejected > 5 || h.errors > 0 {
+            "DEGRADED"
+        } else {
+            "WARNING"
+        };
+        out.push_str(&format!(
+            "  {:<16} {} actions, {} reconnects, {} rejected, {} errors [{}]\n",
+            sess, h.actions, h.reconnects, h.rejected, h.errors, status
+        ));
+    }
+
+    let overall = if total_reconnects == 0 && total_rejected == 0 && total_errors == 0 {
+        "HEALTHY — no reconnect flaps or rejected commands"
+    } else if total_reconnects > 2 || total_rejected > 5 || total_errors > 0 {
+        "DEGRADED — investigate anomalies in trace"
+    } else {
+        "ATTENTION — minor reconnects or rejections detected"
+    };
+    out.push_str(&format!("\noverall status: {}\n", overall));
+    out
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -338,5 +446,30 @@ mod tests {
         assert!(s.contains("correlated actions (by action_id): 1"));
         // the action's layer chain is shown
         assert!(s.contains("xstate → adapter → server"));
+    }
+
+    #[test]
+    fn health_check_detects_reconnects_and_rejections() {
+        let events = vec![
+            ev(serde_json::json!({
+                "layer": "server", "name": "client connect", "session": "main", "ts_wall": 1000u64
+            })),
+            ev(serde_json::json!({
+                "layer": "server", "name": "client reconnect", "session": "main", "ts_wall": 2000u64
+            })),
+            ev(serde_json::json!({
+                "layer": "effect", "name": "fail", "session": "main", "code": "REJECTED", "ts_wall": 3000u64
+            })),
+            ev(serde_json::json!({
+                "layer": "adapter", "name": "send", "session": "test_sess", "ts_wall": 4000u64
+            })),
+        ];
+        let h = health_check(&events);
+        assert!(h.contains("events analyzed: 4"));
+        assert!(h.contains("sessions tracked: 2"));
+        assert!(h.contains("reconnects: 1"));
+        assert!(h.contains("rejected commands: 1"));
+        assert!(h.contains("main"));
+        assert!(h.contains("test_sess"));
     }
 }

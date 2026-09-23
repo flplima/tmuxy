@@ -1191,6 +1191,10 @@ case "${1:-}" in
   trace)
     shift
     # Inspect/export a local action-trace file (docs/TELEMETRY.md).
+    if [ "$1" = "check" ] || [ "$1" = "health" ]; then
+      shift
+      exec "$(find_server_binary)" trace --health "$@"
+    fi
     exec "$(find_server_binary)" trace "$@"
     ;;
   info)
