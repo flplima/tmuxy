@@ -110,13 +110,12 @@ extra stall rather than truly dropping bytes.
 
 `packages/tmuxy-ui/scripts/measure-interactions.mjs` drives the handful of
 things a tmuxy user does constantly and times each one from the real browser
-`keydown` to the first DOM change that shows the result — the same
-arm-on-keydown / resolve-on-mutation technique as `measure-keypaint.mjs`,
-generalized past a single keystroke. Everything goes through the real user
-path: the key reaches the page, the keyboard actor resolves the tmux binding,
-the command crosses the transport, tmux acts, state comes back. Nothing is
-short-circuited with an adapter call, so a regression anywhere in that chain
-lands in the number.
+`keydown` to the first DOM change that shows the result — arming on the
+keydown, resolving on the first probe change after it. Everything goes through
+the real user path: the key reaches the page, the keyboard actor resolves the
+tmux binding, the command crosses the transport, tmux acts, state comes back.
+Nothing is short-circuited with an adapter call, so a regression anywhere in
+that chain lands in the number.
 
 Measured today: `key-echo`, `pane-nav-keyboard`, `pane-zoom-toggle`,
 `pane-split`, `tab-switch`.
@@ -310,7 +309,9 @@ The `KeyBatcher` now sends an isolated keystroke immediately (leading edge)
 and opens its 16 ms window for what follows; a non-empty trailing flush
 re-opens the window, so sustained fast input (paste, key-repeat) still
 coalesces to ~one send per frame. Keydown→POST for an isolated key dropped
-from ~17 ms to ~1 ms. `scripts/measure-keypaint.mjs` measures this dimension;
+from ~17 ms to ~1 ms. The `key-echo` interaction in the Axis-C suite measures
+this dimension now — on every commit, on both targets, and gated — which is
+why the throwaway harness that produced the table above no longer exists.
 `scripts/measure-latency.mjs` remains the transport (send→apply) harness.
 
 **Loss is where the transport model actually hurts (C4).** At the same 150 ms
