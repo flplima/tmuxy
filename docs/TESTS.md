@@ -343,12 +343,13 @@ catch the class of regression the functional suites pass straight through: the
 feature still works, it just costs three times what it used to.
 
 Adding an interaction means adding one entry in
-`packages/tmuxy-ui/scripts/measure-interactions.mjs` (how to trigger it, and
-the visible thing that says it happened) and one budget in
-`compare-interactions.mjs`. See [PERFORMANCE.md](PERFORMANCE.md) § Axis C for
-the design and the current numbers. The other harnesses in that directory
-(`measure-latency.mjs`, `measure-keypaint.mjs`, `latency-proxy.mjs`) are manual
-Axis A/B tools and are not run in CI.
+`packages/tmuxy-ui/scripts/lib/perf-harness.mjs` (how to trigger it, and the
+visible thing that says it happened) and one budget in
+`compare-interactions.mjs`; the web and desktop harnesses both pick it up from
+there. See [PERFORMANCE.md](PERFORMANCE.md) § Axis C for the design and the
+current numbers. The other harnesses in that directory
+(`measure-latency.mjs`, `latency-proxy.mjs`) are manual Axis B tools and are
+not run in CI.
 
 ## Desktop (Tauri) Tests
 
