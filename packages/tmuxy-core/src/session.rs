@@ -787,24 +787,9 @@ if [ ! -f \"$LAUNCHER_FILE\" ]; then
 fi
 EXEC_PATH=\"$(cat \"$LAUNCHER_FILE\")\"
 
-# With args: run the binary directly — main.rs routes nouns like
-# `pane`, `tab`, `widget`, … into the shell dispatcher (bin/tmuxy-cli).
-# Stays in the foreground so the user sees stdout/stderr in their terminal.
-if [ \"$#\" -gt 0 ]; then
-  exec \"$EXEC_PATH\" \"$@\"
-fi
-
-# No args: open the GUI through LaunchServices on macOS so the dock
-# bounces the icon and the existing instance is reactivated.
-case \"$(uname -s)\" in
-  Darwin)
-    APP_PATH=\"${EXEC_PATH%%/Contents/MacOS/*}\"
-    if [ \"$APP_PATH\" != \"$EXEC_PATH\" ] && [ -d \"$APP_PATH\" ]; then
-      exec /usr/bin/open \"$APP_PATH\"
-    fi
-    ;;
-esac
-exec \"$EXEC_PATH\"
+# Exec the binary directly — main.rs routes terminal invocations to status info
+# and explicit 'gui' / non-terminal invocations to the GUI window.
+exec \"$EXEC_PATH\" \"$@\"
 ";
 
 /// Async-friendly: refresh the `tmuxy` shell shorthand to point at the

@@ -59,7 +59,10 @@ describe('CLI tab subcommands', () => {
       // set-option tags the new window as a managed tab so the frontend
       // picks it up on the next list-windows refresh.
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw \\; breakp']);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy splitw \\; breakp -P -F '##{window_id}'",
+      ]);
     });
 
     test('creates tab with name', () => {
@@ -68,8 +71,15 @@ describe('CLI tab subcommands', () => {
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -n 'my-tab'",
+        "tmux -L tmuxy splitw \\; breakp -n 'my-tab' -P -F '##{window_id}'",
       ]);
+    });
+
+    test('creates tab --json outputs tabId JSON', () => {
+      const { stdout, exitCode, tmuxCalls } = runCLI(['tab', 'create', 'test-json', '--json']);
+      expect(exitCode).toBe(0);
+      expect(tmuxCalls).toHaveLength(1);
+      expect(JSON.parse(stdout)).toHaveProperty('tabId');
     });
   });
 

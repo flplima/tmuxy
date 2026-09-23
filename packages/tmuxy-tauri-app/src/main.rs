@@ -17,9 +17,20 @@ fn main() {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    use std::io::IsTerminal;
+
     match args.first().map(|s| s.as_str()) {
-        // No args or explicit "gui" → Tauri window
-        None | Some("gui") => gui::run(),
+        // Explicit "gui" → Tauri window
+        Some("gui") => gui::run(),
+
+        // No args: in terminal or inside tmux session, run CLI info; otherwise GUI
+        None => {
+            if std::env::var("TMUX").is_ok() || std::io::stdout().is_terminal() {
+                cli::run_cli(vec!["info".to_string()]);
+            } else {
+                gui::run();
+            }
+        }
 
         // "server" → web server mode (delegates to tmuxy-server)
         Some("server") => cli::run_server(args),
@@ -33,8 +44,11 @@ fn main() {
         // packaged .app needs no separate `tmuxy-connect` binary on PATH.
         Some("connect") if args.len() == 1 => cli::run_connect_form(),
 
-        // Known CLI nouns → exec the shell dispatcher
-        Some("pane" | "tab" | "session" | "widget" | "nav" | "event" | "run" | "connect") => {
+        // Known CLI nouns and flags → exec the shell dispatcher
+        Some(
+            "pane" | "tab" | "session" | "widget" | "nav" | "event" | "run" | "connect" | "info"
+            | "skill" | "--json" | "-j",
+        ) => {
             cli::run_cli(args);
         }
 

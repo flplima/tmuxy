@@ -14,6 +14,12 @@ fi
 REPO_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
+TMUXY_VERSION="${TMUXY_VERSION:-}"
+if [ -z "$TMUXY_VERSION" ] && [ -f "$REPO_ROOT/package.json" ]; then
+  TMUXY_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$REPO_ROOT/package.json" 2>/dev/null || true)
+fi
+TMUXY_VERSION="${TMUXY_VERSION:-0.0.10-alpha.64}"
+
 # --- Helpers ---
 
 # Socket resolution — all tmux calls in this script go through this wrapper.
@@ -77,13 +83,138 @@ find_server_binary() {
   fi
 }
 
+# --- Info & Skill ---
+
+cmd_info() {
+  local json=false
+  for arg in "$@"; do
+    case "$arg" in
+      --help|-h) echo "Usage: tmuxy info [--json]"; return ;;
+      --json) json=true ;;
+    esac
+  done
+
+  local inside=false
+  if [ -n "${TMUX:-}" ]; then
+    inside=true
+  fi
+
+  if ! $inside; then
+    local server_running=false
+    if tmux has-session 2>/dev/null; then
+      server_running=true
+    fi
+    if $json; then
+      printf '{"inside":false,"socket":"%s","serverRunning":%s,"version":"%s","agentSkillHint":"Run '\''%s skill'\'' to view the agent instruction guide"}\n' \
+        "$TMUX_SOCKET" "$server_running" "$TMUXY_VERSION" "tmuxy"
+    else
+      echo "tmuxy $TMUXY_VERSION"
+      if $server_running; then
+        echo "  Status: not inside a tmuxy session (server is running on socket '$TMUX_SOCKET')"
+      else
+        echo "  Status: not inside a tmuxy session (no server on socket '$TMUX_SOCKET')"
+      fi
+      echo "  Tip:    Run 'tmuxy gui' to open the desktop app, or 'tmuxy connect' to attach."
+      echo ""
+      echo "Agent Guide:"
+      echo "  • Run 'tmuxy skill' to print the full agent instructions & safety rules."
+      echo "  • Run 'tmuxy --json' for machine-readable state."
+    fi
+    return
+  fi
+
+  # Inside session — read session, active pane, and active window in one display-message call
+  local fmt=$'#{session_name}\t#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{window_index}\t#{window_name}\t#{window_panes}'
+  local info_line
+  info_line=$(tmux display-message -p "$fmt" 2>/dev/null || true)
+
+  local session_name pane_id window_id pane_width pane_height pane_cmd window_index window_name window_panes
+  IFS=$'\t' read -r session_name pane_id window_id pane_width pane_height pane_cmd window_index window_name window_panes <<< "$info_line"
+
+  if $json; then
+    printf '{"inside":true,"socket":"%s","session":"%s","activePane":{"id":"%s","width":%s,"height":%s,"command":"%s"},"activeTab":{"id":"%s","index":%s,"name":"%s","panesCount":%s},"version":"%s","agentSkillHint":"Run '\''%s skill'\'' to view the full agent instruction guide and safety rules"}\n' \
+      "$TMUX_SOCKET" "${session_name:-}" "${pane_id:-}" "${pane_width:-0}" "${pane_height:-0}" "${pane_cmd:-}" \
+      "${window_id:-}" "${window_index:-0}" "${window_name:-}" "${window_panes:-0}" "$TMUXY_VERSION" "tmuxy"
+  else
+    echo "tmuxy $TMUXY_VERSION (socket: $TMUX_SOCKET, session: ${session_name:-$TMUX_SOCKET})"
+    echo "  Status:  attached (control mode active)"
+    echo "  Pane:    ${pane_id:-%0} (${pane_width:-0}x${pane_height:-0}, ${pane_cmd:-shell})"
+    echo "  Tab:     ${window_id:-@0} (name: \"${window_name:-tmuxy}\", ${window_panes:-1} pane)"
+    echo ""
+    echo "Agent Guide:"
+    echo "  • Run 'tmuxy skill' to print the full agent instructions & safety rules."
+    echo "  • Run 'tmuxy --json' for machine-readable state."
+    echo "  • Warning: Do NOT run raw mutating tmux commands (use 'tmuxy pane/tab/run')."
+  fi
+}
+
+cmd_skill() {
+  case "${1:-}" in
+    --help|-h) echo "Usage: tmuxy skill"; return ;;
+  esac
+  cat <<'EOF'
+---
+name: tmuxy
+description: Working inside tmuxy (web/desktop tmux interface). Covers tmuxy CLI, control-mode safety rules (never run mutating raw tmux commands), and pane/tab/widget operations.
+---
+
+# tmuxy
+
+tmuxy is a web/desktop UI over a real tmux server. When running inside tmuxy, panes, tabs and floats are real UI surfaces you can drive from the shell, not just tmux abstractions.
+
+## Am I inside tmuxy?
+
+```sh
+[ -n "$TMUX" ] && [ "$(basename "${TMUX%%,*}")" = "tmuxy" ]
+```
+
+`$TMUX` is `<socket-path>,<server-pid>,<session-id>`; the socket basename is `tmuxy` (or `tmuxy-dev`).
+
+## Hard rules
+
+1. **Never run a mutating raw `tmux` command.** External `tmux` mutations crash tmux
+   3.3a–3.5a while control mode is attached. Route everything through the `tmuxy` CLI,
+   which wraps mutations in `tmux run-shell`. Escape hatch: `tmuxy run <any tmux cmd>`.
+2. **Read-only `tmux` is fine** as a direct subprocess (`display-message -p`,
+   `list-panes`, `show-options -qv`).
+3. **Never use `new-window`/`neww`** — it crashes tmux 3.5a. `tmuxy tab create` does
+   `splitw ; breakp` instead.
+4. Kill a stray float with `tmuxy pane kill %id`, never `tmux kill-window`.
+
+## CLI cheat sheet
+
+```sh
+tmuxy                           # status and multiplexer info
+tmuxy --json                    # machine-readable status
+tmuxy skill                     # print this guide
+tmuxy pane list --json          # id, tab, width, height, command, active (--all = every tab)
+tmuxy pane split [-h|-v] [--json] # split pane (returns %id or JSON)
+tmuxy pane float [opts] [cmd]   # open a float
+tmuxy pane capture [%id] --json # read what's on a pane's screen
+tmuxy pane send ls Enter        # type into a pane
+tmuxy pane select -U|-D|-L|-R|%id # select pane
+tmuxy pane kill [%id]           # close pane
+tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
+tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
+tmuxy widget browser <file|url> # show an HTML file, a site, a .md file or an image
+tmuxy event emit <name> <msg|-> # publish to a named queue (inter-agent coordination)
+tmuxy event wait <name>         # block until a message arrives; `event list` shows pending
+tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
+```
+EOF
+}
+
 # --- Help ---
 
 usage() {
-  cat <<'EOF'
+  cat <<EOF
+tmuxy $TMUXY_VERSION — AI-first terminal multiplexer
+
 Usage: tmuxy <command> [args...]
 
 Commands:
+  info        Show multiplexer and session status [--json]
+  skill       Show AI agent guide and safety rules
   pane        Manage panes (split, kill, select, resize, group, float)
   ask         Send keys to another pane, once the user has confirmed
   tab         Manage tabs (create, kill, select, rename, layout)
@@ -96,8 +227,18 @@ Commands:
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TELEMETRY.md)
+  gui         Open the desktop GUI application
 
-Run 'tmuxy <command> --help' for details.
+Options:
+  -h, --help    Show this help
+  -V, --version Show version
+  --json        Output as JSON (with info or root command)
+
+Note for AI/LLM agents:
+  • Do NOT run raw mutating tmux commands (external new-window/split-window crash control mode).
+  • Always route mutations through 'tmuxy pane/tab/run'.
+  • Use --json on query commands for unambiguous, parseable output.
+  • Run 'tmuxy skill' to print the full agent instruction guide.
 EOF
 }
 
@@ -354,14 +495,23 @@ cmd_pane() {
       # `-h` is this command's own flag (horizontal split), so only the long
       # form asks for help — otherwise `tmuxy pane split -h` prints usage
       # instead of splitting.
-      local args=""
+      local args="" json=false
       for arg in "$@"; do
         case "$arg" in
-          --help) echo "Usage: tmuxy pane split [-h|-v]"; return ;;
+          --help) echo "Usage: tmuxy pane split [-h|-v] [--json]"; return ;;
+          --json) json=true ;;
           *) args="$args $arg" ;;
         esac
       done
-      run_safe "splitw$args"
+      local out
+      out=$(run_safe "splitw$args -P -F '##{pane_id}'")
+      local pane_id
+      pane_id=$(echo "$out" | grep -o '%[0-9]*' | tail -1 || true)
+      if $json; then
+        printf '{"paneId":"%s"}\n' "${pane_id:-}"
+      elif [ -n "$pane_id" ]; then
+        echo "$pane_id"
+      fi
       ;;
 
     kill)
@@ -600,19 +750,31 @@ cmd_tab() {
       ;;
 
     create)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy tab create [name]"; return ;;
-      esac
-      local name="${1:-}"
+      local name="" json=false
+      for arg in "$@"; do
+        case "$arg" in
+          --help|-h) echo "Usage: tmuxy tab create [name] [--json]"; return ;;
+          --json) json=true ;;
+          *) [ -z "$name" ] && name="$arg" ;;
+        esac
+      done
       # new-window crashes tmux 3.5a — use splitw+breakp as a single tmux command
       # list (separated by \;) so it runs atomically through run-shell. Direct
       # external tmux invocations crash CC; this routes through run-shell safely.
       # splitw+breakp creates the new window and selects it. Tabs carry no
       # marker — an untagged window in the session is a tab, so no tagging.
+      local out
       if [ -n "$name" ]; then
-        run_safe "splitw \\; breakp -n $(shquote "$name")"
+        out=$(run_safe "splitw \\; breakp -n $(shquote "$name") -P -F '##{window_id}'")
       else
-        run_safe "splitw \\; breakp"
+        out=$(run_safe "splitw \\; breakp -P -F '##{window_id}'")
+      fi
+      local tab_id
+      tab_id=$(echo "$out" | grep -o '@[0-9]*' | tail -1 || true)
+      if $json; then
+        printf '{"tabId":"%s"}\n' "${tab_id:-}"
+      elif [ -n "$tab_id" ]; then
+        echo "$tab_id"
       fi
       ;;
 
@@ -1014,14 +1176,36 @@ case "${1:-}" in
     # Inspect/export a local action-trace file (docs/TELEMETRY.md).
     exec "$(find_server_binary)" trace "$@"
     ;;
+  info)
+    shift
+    cmd_info "$@"
+    ;;
+  skill)
+    shift
+    cmd_skill "$@"
+    ;;
+  --json|-j)
+    shift
+    cmd_info --json "$@"
+    ;;
+  --version|-V|version)
+    echo "tmuxy $TMUXY_VERSION"
+    ;;
+  gui)
+    shift
+    exec "$(find_server_binary)" gui "$@"
+    ;;
   --help|-h)
     usage
     ;;
   "")
+    cmd_info
+    echo ""
     usage
     ;;
   *)
     echo "Unknown command: $1" >&2
+    echo "Hint: run 'tmuxy --help' for available commands, or 'tmuxy skill' for the AI agent guide." >&2
     usage >&2
     exit 1
     ;;
