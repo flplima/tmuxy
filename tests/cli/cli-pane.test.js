@@ -44,7 +44,7 @@ describe('CLI pane subcommands', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'split']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy splitw -P -F '##{pane_id}'"]);
     });
 
     test('splits pane -h (horizontal), not help', () => {
@@ -53,7 +53,10 @@ describe('CLI pane subcommands', () => {
       // did nothing.
       const { exitCode, tmuxCalls } = runCLI(['pane', 'split', '-h']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw -h']);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy splitw -h -P -F '##{pane_id}'",
+      ]);
     });
 
     test('--help still prints usage without splitting', () => {
@@ -66,7 +69,20 @@ describe('CLI pane subcommands', () => {
     test('splits pane -v (vertical)', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'split', '-v']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw -v']);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy splitw -v -P -F '##{pane_id}'",
+      ]);
+    });
+
+    test('splits pane --json outputs paneId JSON', () => {
+      const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'split', '-h', '--json']);
+      expect(exitCode).toBe(0);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy splitw -h -P -F '##{pane_id}'",
+      ]);
+      expect(JSON.parse(stdout)).toHaveProperty('paneId');
     });
   });
 

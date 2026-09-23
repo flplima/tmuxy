@@ -71,6 +71,13 @@ case "${1:-}" in
     # of the caller's pane. Unset by default: every test that does not set them
     # sees the same empty answer this case replaced.
     case "$*" in
+      *'#{session_name}'*$'\\t'*'#{pane_id}'*|*'#{session_name}'*$'\t'*'#{pane_id}'*)
+        if [ -n "${MOCK_TMUX_INFO:-}" ]; then
+          printf '%b\n' "$MOCK_TMUX_INFO"
+        else
+          printf 'tmuxy\t%%0\t@0\t120\t40\tzsh\t0\tmain\t2\n'
+        fi
+        ;;
       *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
       *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
       *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
@@ -93,7 +100,14 @@ case "${1:-}" in
     fi
     ;;
   run-shell)
-    # Just log it, no output needed
+    case "$*" in
+      *splitw*'-P'*)
+        echo "${MOCK_TMUX_SPLIT_PANE_ID:-%99}"
+        ;;
+      *breakp*'-P'*)
+        echo "${MOCK_TMUX_BREAK_WINDOW_ID:-@99}"
+        ;;
+    esac
     ;;
   break-pane)
     ;;

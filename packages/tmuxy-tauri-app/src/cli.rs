@@ -193,7 +193,9 @@ pub fn print_help() {
 Usage: tmuxy [command] [args...]
 
 Commands:
-  (no args)     Open the desktop GUI application
+  (no args)     Show multiplexer and session status
+  info          Show multiplexer and session status [--json]
+  skill         Show AI agent guide and safety rules
   gui           Open the desktop GUI application
   server        Start the web server (--port, --host, --dev, --trace)
   trace         Inspect/export a local action-trace file (--export)
@@ -209,6 +211,13 @@ Commands:
 Options:
   -h, --help    Show this help
   -V, --version Show version
+  --json        Output as JSON (with info or root command)
+
+Note for AI/LLM agents:
+  • Do NOT run raw mutating tmux commands (external new-window/split-window crash control mode).
+  • Always route mutations through 'tmuxy pane/tab/run'.
+  • Use --json on query commands for unambiguous, parseable output.
+  • Run 'tmuxy skill' to print the full agent instruction guide.
 
 Run 'tmuxy <command> --help' for details on each command."
     );
