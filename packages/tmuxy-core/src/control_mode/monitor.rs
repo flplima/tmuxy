@@ -191,6 +191,36 @@ const LONG_SLEEP: Duration = Duration::from_secs(3600);
 /// moving from one to the other sees no change in worst-case latency.
 const REPLY_TIMEOUT: Duration = crate::tmux_service::TMUX_CALL_TIMEOUT;
 
+/// How many times running a window may be asked for the SAME size before the
+/// monitor stops asking. Sizing is judged by what tmux reports, so a window
+/// that took the size stops being asked after one command whatever this is;
+/// this only bounds the case where tmux will not take it, which would
+/// otherwise be a `resizew` on every control-mode step for the session's life.
+const MAX_RESIZE_ATTEMPTS: u8 = 3;
+
+/// Should this window be sent a `resizew` for `desired`?
+///
+/// `actual` is what tmux reports the window's grid to be (`None` before any
+/// pane of it has been seen), `asked` the size last requested and how many
+/// times running. tmux's report is the authority: a window already at the
+/// size is done no matter how it got there, and one that is not gets asked
+/// again, because a `resizew` can be dropped and believing the send left the
+/// client asking for a size tmux never applied. The count only stops a size
+/// tmux refuses from becoming a command on every step.
+fn needs_resize(
+    actual: Option<(u32, u32)>,
+    desired: (u32, u32),
+    asked: Option<((u32, u32), u8)>,
+) -> bool {
+    if actual == Some(desired) {
+        return false;
+    }
+    match asked {
+        Some((prev, tries)) if prev == desired => tries < MAX_RESIZE_ATTEMPTS,
+        _ => true,
+    }
+}
+
 /// All the per-invocation runtime state that used to live as locals in
 /// `TmuxMonitor::run`. Extracting it lets `run`'s body shrink to a ~50-line
 /// dispatch over `tokio::select!`, with each branch delegating to a small
@@ -363,16 +393,22 @@ pub struct TmuxMonitor {
     /// the previous client left it at, for the life of the session.
     client_size: Option<(u32, u32)>,
 
-    /// The size each window was last resized to. Diffed against the size it
-    /// *should* have after every step, so a window is re-sized whenever
-    /// anything feeding that number changes.
+    /// The size each window was last ASKED for, and how many times running.
     ///
     /// A count of sized windows is not enough: `%window-add` announces a window
     /// before its `@tmuxy-window-type` is readable, so a freshly broken-out
     /// sidebar is first sized as an ordinary window — and with a count, "all
     /// windows sized" then hides the type arriving a moment later on
     /// `list-windows`, leaving the dock stuck at the viewport width.
-    applied_window_sizes: HashMap<String, (u32, u32)>,
+    ///
+    /// The ATTEMPT COUNT is what stops this being a claim that the window has
+    /// that size. `resizew` goes out fire-and-forget and can be dropped; this
+    /// map used to record the send as the truth, so one lost command left the
+    /// client asking for 41 columns while tmux sat at 200 for the life of the
+    /// session — the phone layout's `targetCols: 41, totalWidth: 200`. The
+    /// authority is now `window_extent`, what tmux itself reports, and this
+    /// only bounds the retries so a size tmux genuinely refuses cannot spin.
+    resize_attempts: HashMap<String, ((u32, u32), u8)>,
 
     /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
     /// inside the loop so tests can advance time with `FakeClock`.
@@ -427,7 +463,7 @@ impl TmuxMonitor {
                 command_rx,
                 window_tags_migrated: false,
                 client_size: None,
-                applied_window_sizes: HashMap::new(),
+                resize_attempts: HashMap::new(),
                 ctx,
                 pending_replies: HashMap::new(),
                 next_reply_id: 0,
@@ -832,15 +868,25 @@ impl TmuxMonitor {
             )
             .collect();
 
-        // Drop windows that are gone, so nothing inherits a stale "already
-        // sized at" entry.
+        // Drop windows that are gone, so nothing inherits a stale retry count.
         let live: HashSet<&str> = desired.iter().map(|(wid, _)| wid.as_str()).collect();
-        self.applied_window_sizes
+        self.resize_attempts
             .retain(|wid, _| live.contains(wid.as_str()));
 
+        // tmux's own report decides whether a window still needs sizing. A
+        // window already AT the wanted size is done however many commands it
+        // took; one that is not is asked again, because the previous `resizew`
+        // may simply never have landed. `MAX_RESIZE_ATTEMPTS` keeps that from
+        // becoming a command per step forever if tmux will not take the size.
         let pending: Vec<(String, (u32, u32))> = desired
             .into_iter()
-            .filter(|(wid, size)| self.applied_window_sizes.get(wid) != Some(size))
+            .filter(|(wid, size)| {
+                needs_resize(
+                    self.aggregator.window_extent(wid),
+                    *size,
+                    self.resize_attempts.get(wid).copied(),
+                )
+            })
             .collect();
         if pending.is_empty() {
             return;
@@ -857,7 +903,14 @@ impl TmuxMonitor {
         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
             emitter.emit_error(format!("Failed to resize windows: {}", e));
         } else {
-            self.applied_window_sizes.extend(pending);
+            for (wid, size) in pending {
+                match self.resize_attempts.get_mut(&wid) {
+                    Some(entry) if entry.0 == size => entry.1 = entry.1.saturating_add(1),
+                    _ => {
+                        self.resize_attempts.insert(wid, (size, 1));
+                    }
+                }
+            }
         }
     }
 
@@ -1336,6 +1389,57 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+
+    /// The bug this replaced: `resizew` is fire-and-forget, and recording the
+    /// SEND as the truth meant one dropped command left the client asking for
+    /// a size tmux never applied — `targetCols: 41` against `totalWidth: 200`,
+    /// for the life of the session, with the phone's terminal off screen.
+    #[test]
+    fn a_window_tmux_did_not_resize_is_asked_again() {
+        // Asked once, and tmux still reports the old grid: ask again.
+        assert!(needs_resize(Some((200, 50)), (41, 29), Some(((41, 29), 1))));
+    }
+
+    #[test]
+    fn a_window_tmux_did_resize_is_left_alone() {
+        // However many commands it took, the grid IS the wanted one.
+        assert!(!needs_resize(
+            Some((41, 29),),
+            (41, 29),
+            Some(((41, 29), 3))
+        ));
+        // ...even at the cap, which is about refusals, not successes.
+        assert!(!needs_resize(Some((41, 29)), (41, 29), Some(((41, 29), 9))));
+    }
+
+    #[test]
+    fn a_size_tmux_keeps_refusing_stops_being_asked() {
+        // Bounded, so a size tmux will not take cannot become a command on
+        // every control-mode step for the rest of the session.
+        assert!(needs_resize(Some((200, 50)), (41, 29), Some(((41, 29), 2))));
+        assert!(!needs_resize(
+            Some((200, 50)),
+            (41, 29),
+            Some(((41, 29), MAX_RESIZE_ATTEMPTS))
+        ));
+    }
+
+    #[test]
+    fn a_new_size_starts_its_own_attempts() {
+        // The viewport changed again: the old size's exhausted count must not
+        // suppress the new one.
+        assert!(needs_resize(
+            Some((200, 50)),
+            (80, 24),
+            Some(((41, 29), MAX_RESIZE_ATTEMPTS))
+        ));
+    }
+
+    #[test]
+    fn a_window_with_no_panes_yet_is_still_asked() {
+        // `None` is "no pane of it seen yet", which is not "zero columns".
+        assert!(needs_resize(None, (41, 29), None));
+    }
     #[test]
     fn reorder_commands_re_list_the_windows() {
         assert!(reorders_windows("move-window -b -s @3 -t @1"));

@@ -1513,6 +1513,26 @@ impl StateAggregator {
         (viewport, sidebars)
     }
 
+    /// The grid tmux REPORTS for a window: one past the furthest pane edge,
+    /// the same extent the frontend computes in `gridExtent`.
+    ///
+    /// This is what a resize has to be judged against. `resizew` is fire and
+    /// forget over the control connection, and a window still settling (or a
+    /// batch racing a `%window-add`) can drop one — so the size a command
+    /// ASKED for is not evidence the window has it. `None` when no pane of
+    /// that window has been seen yet, which is not the same as "zero".
+    pub fn window_extent(&self, window_id: &str) -> Option<(u32, u32)> {
+        let mut extent: Option<(u32, u32)> = None;
+        for p in self.panes.values() {
+            if p.window_id != window_id {
+                continue;
+            }
+            let (cols, rows) = extent.unwrap_or((0, 0));
+            extent = Some((cols.max(p.x + p.width), rows.max(p.y + p.height)));
+        }
+        extent
+    }
+
     /// The session-scoped focus request read off the last `list-windows` poll,
     /// if a shell helper has set one. See `tmux_options::FOCUS_REQUEST`.
     pub fn focus_request(&self) -> Option<&str> {
@@ -4191,6 +4211,34 @@ mod tests {
         let state = agg.to_tmux_state();
         let w = state.windows.iter().find(|w| w.id == "@5").expect("window");
         assert_eq!(w.window_type, Some(WindowType::Tab));
+    }
+
+    /// What the resize pass judges itself against. A pane row carries the
+    /// pane's own box; the window's grid is one past the furthest edge, the
+    /// same extent the frontend computes in `gridExtent`.
+    #[test]
+    fn window_extent_is_one_past_the_furthest_pane_edge() {
+        // id,idx,x,y,w,h,... — two panes split side by side in @1, and one
+        // pane of another window that must not count towards it.
+        let row = |id: &str, x: u32, y: u32, w: u32, h: u32, win: &str| {
+            format!("{id},0,{x},{y},{w},{h},0,0,1,zsh,t,0,0,0,0,{win},,0,0,0,0,0,0,100,,,")
+        };
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&row("%1", 0, 1, 80, 49, "@1"));
+        agg.parse_list_panes_line(&row("%2", 81, 1, 119, 49, "@1"));
+        agg.parse_list_panes_line(&row("%3", 0, 1, 200, 20, "@2"));
+
+        assert_eq!(agg.window_extent("@1"), Some((200, 50)));
+        assert_eq!(agg.window_extent("@2"), Some((200, 21)));
+    }
+
+    /// Before any pane of a window has been seen there is no extent — which is
+    /// not the same as a zero-sized window, and must not read as "already the
+    /// size we want".
+    #[test]
+    fn window_extent_is_none_for_a_window_with_no_panes() {
+        let agg = StateAggregator::new();
+        assert_eq!(agg.window_extent("@9"), None);
     }
 
     /// Each sidebar is docked beside the pane grid, so the client-size pass must
