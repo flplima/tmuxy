@@ -33,4 +33,21 @@ describe('executeMenuAction pane-close routing', () => {
     executeMenuAction(send, 'pane-close');
     expect(send).toHaveBeenCalledWith({ type: 'SEND_COMMAND', command: 'kill-pane' });
   });
+
+  it('opens github URL for help-github', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    executeMenuAction(vi.fn(), 'help-github');
+    expect(openSpy).toHaveBeenCalledWith('https://github.com/flplima/tmuxy', '_blank');
+    openSpy.mockRestore();
+  });
+
+  it('opens bug report URL for help-report-bug', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    executeMenuAction(vi.fn(), 'help-report-bug');
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://github.com/flplima/tmuxy/issues/new?template=bug.yml',
+      '_blank',
+    );
+    openSpy.mockRestore();
+  });
 });

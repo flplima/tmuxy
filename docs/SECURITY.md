@@ -8,11 +8,12 @@ Tmuxy is under active development and has not undergone a security audit. It is 
 
 ## The First-Run Notice
 
-The web app and the desktop app open with a notice saying what this document says at length: alpha software, written largely by AI agents, and — on the web — a remote control for a shell, with the three rules that follow from it (localhost or a tunnel, a password on any other address, never the internet). It is modal: the keyboard is kept from the panes while it is up, and focus starts on the dialog rather than its button, so someone already typing does not dismiss it with a space. *I understand* closes it for that load; *Don't show this again* remembers the answer in that browser's storage (`tmuxy-ui/src/utils/riskNotice.ts`). A read-only viewer is not shown it, and neither are the in-browser sandboxes (demo, v86), which have no shell behind them.
+The web app and the desktop app open with a notice saying what this document says at length: alpha software, written largely by AI agents, and — on the web — a remote control for a shell, with the three rules that follow from it (localhost or a tunnel, a password on any other address, never the internet). It is modal: the keyboard is kept from the panes while it is up, and focus starts on the dialog rather than its button, so someone already typing does not dismiss it with a space. _I understand_ closes it for that load; _Don't show this again_ remembers the answer in that browser's storage (`tmuxy-ui/src/utils/riskNotice.ts`). A read-only viewer is not shown it, and neither are the in-browser sandboxes (demo, v86), which have no shell behind them.
 
 ## Threat Model
 
 Tmuxy assumes:
+
 - **Single user** per deployment (no multi-tenant access control)
 - **Trusted network** (localhost, LAN behind firewall, or VPN)
 - **Server runs as the same user** who owns the tmux session
@@ -28,10 +29,10 @@ If any of these assumptions are violated, the risks described below apply.
 
 Any other `--host` (a LAN address, a VPN address, `0.0.0.0`) puts a shell on the network, so the server **refuses to start** unless one of these is given:
 
-| Flag | Meaning |
-|------|---------|
-| `--password …` or `TMUXY_PASSWORD` | Every route requires HTTP Basic auth (below) |
-| `--no-auth` | Serve it open. Only for a network where everyone who can reach the port may already run commands as you — a container's published port, a VPN with nobody else on it. The server prints a warning at startup. |
+| Flag                               | Meaning                                                                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--password …` or `TMUXY_PASSWORD` | Every route requires HTTP Basic auth (below)                                                                                                                                                                  |
+| `--no-auth`                        | Serve it open. Only for a network where everyone who can reach the port may already run commands as you — a container's published port, a VPN with nobody else on it. The server prints a warning at startup. |
 
 A `--host` that is not an IP address is an error; the server never falls back to listening on every interface. The routing and the startup check live in `tmuxy-server/src/server.rs`.
 
@@ -64,7 +65,7 @@ What it does not do: it is not confidentiality. A viewer reads everything on scr
 
 A proxy on the same machine forwards to `127.0.0.1`, but it usually passes its public name through as the `Host` header, which the server does not recognise as itself (see below). Name it: `tmuxy server --allowed-host tmux.example.com` (repeatable, or `TMUXY_ALLOWED_HOSTS` comma-separated).
 
-Forgetting it is easy to diagnose: the page itself still loads (static files are not guarded), every API route answers 403, and the app says so — *The server refused this page: request Host is not this server (see --allowed-host)* — instead of waiting on a connection that cannot open (see `explainRefusal` in `tmuxy-ui/src/tmux/HttpAdapter.ts`).
+Forgetting it is easy to diagnose: the page itself still loads (static files are not guarded), every API route answers 403, and the app says so — _The server refused this page: request Host is not this server (see --allowed-host)_ — instead of waiting on a connection that cannot open (see `explainRefusal` in `tmuxy-ui/src/tmux/HttpAdapter.ts`).
 
 ### Tauri Desktop App
 
@@ -74,11 +75,11 @@ The desktop app serves no HTTP: all communication is local IPC within the app pr
 
 The API is a remote shell, and a browser sends requests on behalf of whatever page is open in it. A site the user visits can POST to `http://localhost:9000/commands` without a CORS preflight (a `text/plain` body is enough), and a site whose domain is re-pointed at 127.0.0.1 (DNS rebinding) looks same-origin to the browser. So every API route checks where a request came from before any handler runs (`tmuxy-server/src/request_guard.rs`):
 
-| Header | Rule | Stops |
-|--------|------|-------|
-| `Sec-Fetch-Site` | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
-| `Origin` | Must name the host the request was sent to | The same, in a browser without Fetch Metadata |
-| `Host` (loopback bind only) | Must be a loopback name or an `--allowed-host` | DNS rebinding |
+| Header                      | Rule                                                                 | Stops                                                                      |
+| --------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `Sec-Fetch-Site`            | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
+| `Origin`                    | Must name the host the request was sent to                           | The same, in a browser without Fetch Metadata                              |
+| `Host` (loopback bind only) | Must be a loopback name or an `--allowed-host`                       | DNS rebinding                                                              |
 
 The API sends **no CORS headers**, so no other origin can read a response even when a request is let through. A request with none of these headers is not a browser acting for a page (`curl`, a script) and is allowed. Cached Basic-auth credentials do not help a hostile page: its requests are refused by origin before the password matters.
 
@@ -95,7 +96,62 @@ The cost: a local page cannot use cookies or storage, and a link followed inside
 Control mode reads one command per line, so a newline inside anything written into a command line would end that command and start another.
 
 - **Session names** from `/events?session=` and `/commands?session=` are refused with `400` when empty or containing a control character, and are quoted wherever the server builds a command from one (`tmuxy-server/src/sse.rs`).
-- **Literal text** — a paste, an IME composition, the selection menu's *Send keys* — is typed one line at a time, one `send-keys -l` per line with `Enter` between them (`literalTextCommands` in `tmuxy-ui/src/tmux/keyBatching.ts`). Multi-line text pasted into a shell still runs as commands in that shell, exactly as in any terminal.
+- **Literal text** — a paste, an IME composition, the selection menu's _Send keys_ — is typed one line at a time, one `send-keys -l` per line with `Enter` between them (`literalTextCommands` in `tmuxy-ui/src/tmux/keyBatching.ts`). Multi-line text pasted into a shell still runs as commands in that shell, exactly as in any terminal.
+
+## Pane Output Threat Model
+
+Bytes emitted by any command running in a pane reach parsers, image decoders, and link handlers in a browser or webview context. Unlike commands entered by the user, terminal output is frequently untrusted: displaying a file (`cat untrusted.txt`), running a test suite, fetching logs, or inspecting untrusted git repositories can output arbitrary byte streams to stdout or stderr.
+
+### The Pipeline
+
+```
++----------------+      +-------------+      +----------------+      +-----------------+
+| Program in     | ---> | tmux Server | ---> | tmuxy Server   | ---> | Frontend Web/   |
+| Pane (stdout)  |      | (%output)   |      | (core stream)  |      | Desktop Webview |
++----------------+      +-------------+      +----------------+      +-----------------+
+  Untrusted bytes        Control mode         Deltas / SSE           Parsers, decoders,
+                                                                     DOM & Canvas render
+```
+
+### Trust Boundaries
+
+| Component                      | Trust Level          | Rationale                                                                                 |
+| ------------------------------ | -------------------- | ----------------------------------------------------------------------------------------- |
+| The host machine & tmux server | Trusted              | Runs with the authenticated user's permissions                                            |
+| The tmuxy backend server       | Trusted              | Local process mediating control-mode and state                                            |
+| Pane output byte streams       | **Untrusted**        | Any program or untrusted input file can write arbitrary escape sequences or payload bytes |
+| Browser / Webview environment  | Semi-trusted context | Has access to DOM, clipboard APIs, web workers, and backend API routes                    |
+
+### Threat Vectors
+
+1. **DOM Injection & Cross-Site Scripting (XSS)**
+   - _Vector:_ Escape sequences or text runs attempting to inject HTML/SVG tags or execute script via DOM rendering.
+   - _Policy:_ Terminal text must render as plain text nodes or canvas ink, never via unescaped `innerHTML`. Dynamic titles, tab labels, and pane annotations originating from terminal output must be escaped or treated as text content.
+
+2. **Unsafe Hyperlinks (OSC 8 & Linkifiers)**
+   - _Vector:_ Explicit OSC 8 hyperlinks (`\e]8;;<URL>\e\\`) or implicit URL regex linkifiers matching dangerous schemes (e.g. `javascript:`, `data:`, `file:`, `blob:`).
+   - _Policy:_ URLs must pass an explicit allowlist of safe schemes (`http:`, `https:`, `mailto:`, `git:`). Any URL using a prohibited or unknown scheme must either be stripped or rendered as plain, unclickable text. Clicks must open in a new context with `rel="noopener noreferrer"`.
+
+3. **Image Decoder Exploits & Memory Exhaustion**
+   - _Vector:_ Protocols supporting embedded graphics (OSC 1337 iTerm2 images, Kitty graphics protocol, Sixel) transmitting malformed base64 payloads, decompression bombs, or extreme dimensions (e.g. 65535x65535 canvas).
+   - _Policy:_ Image dimensions and payload byte sizes must be strictly bounded before memory allocation or canvas creation (see [RICH-RENDERING.md](RICH-RENDERING.md)). Image decoding must occur in isolated sandboxes or off-thread decoders, and invalid image headers must fail fast without consuming excessive CPU or memory.
+
+4. **Clipboard Poisoning (OSC 52)**
+   - _Vector:_ A program writing malicious shell commands to the system clipboard via OSC 52, tricking the user into pasting and executing dangerous commands.
+   - _Policy:_ OSC 52 clipboard writes must require explicit user interaction/consent or obey strict size and rate limits. The server or client must never allow unauthorized background clipboard reads.
+
+5. **ReDoS & Parser Desynchronization**
+   - _Vector:_ Pathological escape sequences designed to trigger exponential regex backtracking in parsers or desynchronize the terminal state machine.
+   - _Policy:_ All sequence parsers and URL detectors must guarantee linear-time parsing. Malformed or truncated sequences must be discarded cleanly without locking the main rendering thread.
+
+### What Fuzz Tests Must Guarantee
+
+Automated fuzzing over terminal parsers and sequence handlers must verify:
+
+- **No Panics or Unhandled Exceptions:** The Rust aggregator (`tmuxy-core`) and frontend terminal stream consumers must never panic, throw unhandled exceptions, or crash when fed completely random or adversarial byte streams.
+- **Strict Scheme Filtering:** Fuzzing URI inputs against OSC 8 handlers and regex linkifiers must never emit an `<a>` tag with an href containing `javascript:`, `vbscript:`, or unvetted pseudo-protocols.
+- **Bounded Resource Consumption:** Feeding arbitrarily large or invalid base64 image chunks must terminate within bounded memory and time budgets.
+- **Parser Resynchronization:** An incomplete, nested, or corrupt escape sequence must not corrupt subsequent valid output lines or state updates.
 
 ## Known Risks
 
@@ -106,6 +162,7 @@ Control mode reads one command per line, so a newline inside anything written in
 **Impact:** Arbitrary command execution on the host machine via `run-shell` commands or by typing into any pane.
 
 **Mitigation:**
+
 - The default listens on 127.0.0.1 only, and a routable address needs a password or an explicit `--no-auth` ([Where the Server Listens](#where-the-server-listens))
 - **Never expose tmuxy directly to the internet**
 - Use an SSH tunnel: `ssh -L 9000:localhost:9000 user@server`
@@ -119,6 +176,7 @@ Control mode reads one command per line, so a newline inside anything written in
 **Impact:** Network eavesdropping can observe all terminal output and see all keystrokes sent to tmux. An observer on-path can also capture Basic-auth credentials and inject commands.
 
 **Mitigation:**
+
 - Use a reverse proxy (nginx, Caddy) with TLS certificates for HTTPS
 - For LAN use, self-signed certificates are acceptable
 - SSH tunnels provide encryption by default
@@ -131,7 +189,7 @@ Control mode reads one command per line, so a newline inside anything written in
 
 **Context:** This is by design — tmuxy is a tmux UI, and tmux provides full shell access. Reaching the server as an allowed client is sufficient for code execution.
 
-What the server does *not* do is interpolate a client's command into a shell of its own: every command goes down the monitor's control-mode connection as a tmux command line, reads included, so there is no `sh -c` for shell metacharacters to escape from.
+What the server does _not_ do is interpolate a client's command into a shell of its own: every command goes down the monitor's control-mode connection as a tmux command line, reads included, so there is no `sh -c` for shell metacharacters to escape from.
 
 ### 4. Unrestricted File Access (High)
 
@@ -168,6 +226,7 @@ When using AI coding assistants (Claude, Copilot, etc.) with tmuxy running:
 ### The AI Has Your tmux Session
 
 If an AI agent has access to the machine where tmuxy is running, it can interact with your tmux sessions. This includes:
+
 - Reading terminal output from all panes
 - Sending keystrokes to any pane
 - Running shell commands via `run-shell`
