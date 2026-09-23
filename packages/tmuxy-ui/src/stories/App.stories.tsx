@@ -681,12 +681,22 @@ export const Resize: Story = {
       timeout: 45000,
       interval: 500,
     });
-    // Let the initial size settle, then record the widest pane.
-    await waitFor(() => expect(Math.max(...paneCols())).toBeGreaterThan(40), {
-      timeout: 15000,
-      interval: 500,
-    });
-    const before = Math.max(...paneCols());
+    // Let the initial size settle: the widest pane reads the same twice in a
+    // row. Waiting for it to cross an absolute column count instead made the
+    // precondition depend on how wide the runner's layout happened to land —
+    // a run that settled at exactly 40 columns failed with "expected 40 to be
+    // greater than 40" without anything being wrong.
+    let settled = -1;
+    await waitFor(
+      () => {
+        const widest = Math.max(...paneCols());
+        const stable = widest > 0 && widest === settled;
+        settled = widest;
+        expect(stable).toBe(true);
+      },
+      { timeout: 15000, interval: 500 },
+    );
+    const before = settled;
     const harness = canvasElement.firstElementChild as HTMLElement;
     harness.style.width = '480px';
     await waitFor(() => expect(Math.max(...paneCols())).toBeLessThan(before), {

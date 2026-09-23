@@ -1324,18 +1324,30 @@ pub async fn start_monitoring(
         // tmux 3.5a. Routing through CC avoids this.
         if connect_config.create_session && !session_exists(&session).await {
             // Find an existing running monitor to route through
-            let existing_tx = {
+            // Only a peer whose tmux session actually EXISTS can run the
+            // command: the map also holds sessions that are themselves still
+            // being created, and two of those pick each other as courier and
+            // both wait out the full poll below, every round, forever.
+            let candidates: Vec<(String, _)> = {
                 let sessions = state.sessions.read().await;
-                sessions.iter().find_map(|(name, conns)| {
-                    if name == &session {
-                        return None;
-                    }
-                    conns
-                        .monitor_command_tx
-                        .clone()
-                        .map(|tx| (name.clone(), tx))
-                })
+                sessions
+                    .iter()
+                    .filter(|(name, _)| *name != &session)
+                    .filter_map(|(name, conns)| {
+                        conns
+                            .monitor_command_tx
+                            .clone()
+                            .map(|tx| (name.clone(), tx))
+                    })
+                    .collect()
             };
+            let mut existing_tx = None;
+            for (name, tx) in candidates {
+                if session_exists(&name).await {
+                    existing_tx = Some((name, tx));
+                    break;
+                }
+            }
 
             if let Some((via_session, tx)) = existing_tx {
                 let working_dir = connect_config
@@ -1398,14 +1410,41 @@ pub async fn start_monitoring(
                     break;
                 }
 
-                backoff = Duration::from_millis(100);
                 let run_start = std::time::Instant::now();
                 monitor.run(emitter.as_ref()).await;
                 // If the monitor ran for more than 2 seconds, consider it a successful run.
                 // Short-lived runs indicate startup crashes that should retry with create_session.
+                //
+                // A connect that succeeds and then dies at once is NOT a success, and the
+                // two counters below are what stop it becoming a hot loop. Resetting the
+                // backoff on `connect` alone meant a session tmux could not hold was
+                // recreated about eight times a second forever: every iteration reset the
+                // backoff to 100ms before the run that was about to fail, so it never grew
+                // past one step. Counting the short run as a failure also gives this path
+                // the `MAX_CONSECUTIVE_FAILURES` ceiling the `Err` arm already has —
+                // without it the loop could never give up and tell the user.
                 if run_start.elapsed() > Duration::from_secs(2) {
                     ever_ran_successfully = true;
                     consecutive_failures = 0;
+                    backoff = Duration::from_millis(100);
+                } else {
+                    consecutive_failures += 1;
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                        let final_msg = format!(
+                            "tmux session {} could not be started after {} attempts; giving up.",
+                            session, MAX_CONSECUTIVE_FAILURES
+                        );
+                        let event = SseEvent::Fatal {
+                            message: final_msg.clone(),
+                        };
+                        if let Some(s) = encode_event(&event) {
+                            broadcast.broadcast(s);
+                        }
+                        error!(%session, msg = %final_msg, "monitor FATAL");
+                        let mut sessions = state.sessions.write().await;
+                        sessions.remove(&session);
+                        return;
+                    }
                 }
 
                 {
