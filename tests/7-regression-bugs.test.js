@@ -186,8 +186,17 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     const needsMoreScroll = () =>
       ctx.page.evaluate(() => {
         const sb = document.querySelector('[data-copy-mode="true"]');
+        // Not open yet: the wheel has more work to do, not less.
         if (!sb) return true;
-        return /BUGMARK_200\b/.test(sb.textContent || '');
+        const text = sb.textContent || '';
+        // Open, but showing no marker at all — the rows are still the dim
+        // placeholders. The chunk being in STATE does not mean it has been
+        // painted: ScrollbackTerminal paints from the scroll container's own
+        // event, deliberately not from the machine. So the absence of
+        // BUGMARK_200 is only evidence of having scrolled past it once some
+        // marker is actually on screen; before that it means "not drawn yet".
+        if (!/BUGMARK_\d+/.test(text)) return true;
+        return /BUGMARK_200\b/.test(text);
       });
     for (let i = 0; i < 40; i++) {
       if (!(await needsMoreScroll())) break;
@@ -198,7 +207,18 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
 
     // After several wheel ticks we expect to be partway up the scrollback.
     const cs = await getCopyModeState(ctx.page);
-    expect(cs.scrollTop).toBeLessThan(cs.totalLines - cs.height);
+    if (cs.scrollTop >= cs.totalLines - cs.height) {
+      const painted = await ctx.page.evaluate(() => {
+        const sb = document.querySelector('[data-copy-mode="true"]');
+        return { open: !!sb, sample: (sb?.textContent || '').replace(/\s+/g, ' ').slice(0, 160) };
+      });
+      throw new Error(
+        `the wheel never moved the view: scrollTop ${cs.scrollTop}, bottom is ` +
+          `${cs.totalLines - cs.height} (totalLines ${cs.totalLines}, height ${cs.height}, ` +
+          `historySize ${cs.historySize}). Scrollback open: ${painted.open}. ` +
+          `Showing: "${painted.sample}"`,
+      );
+    }
 
     // The regression assertion: every <.terminal-line> div rendered inside
     // the scrollback must be filled with the correct absolute row's content.
