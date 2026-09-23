@@ -16,7 +16,7 @@ import {
   sendScrollLines,
   sgrMouseCommand,
   takeWholeRows,
-  scrollByPixels,
+  scrollByRows,
   wheelDeltaPixels,
 } from './scrollUtils';
 import { haptics } from '../utils/haptics';
@@ -502,8 +502,10 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         e.preventDefault();
         const el = scrollRef.current;
         if (el) {
-          wheelRemainder.current = 0;
-          scrollByPixels(el, wheelDeltaPixels(e.deltaY, e.deltaMode, charHeight, el.clientHeight));
+          const px = wheelDeltaPixels(e.deltaY, e.deltaMode, charHeight, el.clientHeight);
+          const { rows, remainder } = takeWholeRows(px, charHeight, wheelRemainder.current);
+          wheelRemainder.current = remainder;
+          scrollByRows(el, rows, charHeight);
         }
         return;
       }

@@ -54,6 +54,19 @@ export function scrollByPixels(el: HTMLElement, deltaPixels: number): void {
 }
 
 /**
+ * Move a scrollback container by whole rows, landing on a row boundary.
+ *
+ * Kept alongside `scrollByPixels` while the pixel-precise wheel path is
+ * bisected against CI: the copy-mode wheel suite went red on the commit that
+ * swapped this out, and reproduces on no local machine, throttled or not.
+ */
+export function scrollByRows(el: HTMLElement, rows: number, charHeight: number): void {
+  if (rows === 0 || charHeight <= 0) return;
+  const currentRow = Math.round(el.scrollTop / charHeight);
+  el.scrollTop = Math.max(0, currentRow + rows) * charHeight;
+}
+
+/**
  * A wheel event's delta in pixels, whatever unit it arrived in.
  *
  * `deltaMode` is `DOM_DELTA_PIXEL` for every trackpad and for Chrome's mouse

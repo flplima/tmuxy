@@ -127,32 +127,18 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterCopy).toBeUndefined();
   });
 
-  it('scrolls the container by the exact pixel delta, off the row grid', () => {
-    // 50px of wheel is 50px of scroll, not two 18px rows with the rest
-    // carried. The row grid is what tmux and the copy cursor are told about;
-    // the container the browser renders moves in pixels, as it does in any
-    // native terminal.
+  it('scrolls the container by whole rows while the pixel path is bisected', () => {
+    // The pixel-precise wheel is parked: the copy-mode wheel E2E went red on
+    // the commit that introduced it and reproduces on no local machine. Rows
+    // here, pixels still on the touch path (see scrollUtils).
     const { result, scrollRef } = setup({ scrollbackMode: 'copy', charHeight: 18 });
     scrollRef.current!.scrollTop = 0;
     result.current.handleWheel(wheelEvent(50));
-    expect(scrollRef.current!.scrollTop).toBe(50);
+    expect(scrollRef.current!.scrollTop).toBe(36);
 
+    // The carried 14px plus 4px is the third row, exactly.
     result.current.handleWheel(wheelEvent(4));
     expect(scrollRef.current!.scrollTop).toBe(54);
-  });
-
-  it('moves on every event, however small — no stepping', () => {
-    // The stepping this view was reported to have against iTerm2: two of
-    // every three trackpad events moved nothing and the third jumped a line.
-    const { result, scrollRef } = setup({ scrollbackMode: 'scroll', charHeight: 18 });
-    scrollRef.current!.scrollTop = 36;
-
-    result.current.handleWheel(wheelEvent(-6));
-    expect(scrollRef.current!.scrollTop).toBe(30);
-    result.current.handleWheel(wheelEvent(-6));
-    expect(scrollRef.current!.scrollTop).toBe(24);
-    result.current.handleWheel(wheelEvent(-6));
-    expect(scrollRef.current!.scrollTop).toBe(18);
   });
 
   it('reads a line-mode wheel delta as rows', () => {
