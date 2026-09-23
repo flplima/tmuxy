@@ -12,7 +12,13 @@
 import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import type { ScrollbackMode } from '../tmux/types';
-import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from './scrollUtils';
+import {
+  sendScrollLines,
+  sgrMouseCommand,
+  takeWholeRows,
+  scrollByPixels,
+  wheelDeltaPixels,
+} from './scrollUtils';
 import { haptics } from '../utils/haptics';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
 
@@ -486,15 +492,19 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // delta to the scroll container by hand. The wrapper is non-scrollable,
       // so native scroll never reaches the inner pane-scroll-container;
       // adjusting scrollTop fires onScroll, which reports the new top row.
-      // A row at a time, like every other way this pane can scroll: copy mode
-      // moves a cursor that lives on a row, a full-screen application is sent
-      // rows, and the row is what `onScroll` reports back. Pixel-precise
-      // motion here was the odd one out, and left the top row half drawn.
+      // Pixel for pixel, the way a native terminal scrolls. Rounding each
+      // event to a whole row made two of every three trackpad events move
+      // nothing and the third jump a line — the stepping this view was
+      // reported to have against iTerm2. `onScroll` still floors to a row,
+      // because a ROW is what state and tmux are told about; the pixels only
+      // ever live in the scroll container.
       if (scrollbackOpen) {
         e.preventDefault();
-        const { rows, remainder } = takeWholeRows(e.deltaY, charHeight, wheelRemainder.current);
-        wheelRemainder.current = remainder;
-        if (scrollRef.current) scrollByRows(scrollRef.current, rows, charHeight);
+        const el = scrollRef.current;
+        if (el) {
+          wheelRemainder.current = 0;
+          scrollByPixels(el, wheelDeltaPixels(e.deltaY, e.deltaMode, charHeight, el.clientHeight));
+        }
         return;
       }
 
@@ -513,7 +523,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       if (historySize > 0 && e.deltaY < 0) {
         e.preventDefault();
         const { rows: lines, remainder } = takeWholeRows(
-          e.deltaY,
+          wheelDeltaPixels(e.deltaY, e.deltaMode, charHeight, scrollRef.current?.clientHeight ?? 0),
           charHeight,
           wheelRemainder.current,
         );

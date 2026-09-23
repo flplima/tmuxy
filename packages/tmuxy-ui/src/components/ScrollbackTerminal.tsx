@@ -11,7 +11,7 @@
  * mounted for as long as it lasts.
  */
 
-import { useRef, useLayoutEffect, useMemo } from 'react';
+import { useRef, useLayoutEffect, useEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
 import { useAppSelector, selectCharSize } from '../machines/AppContext';
 import { renderLineToDOM } from './terminalRendering';
@@ -31,6 +31,16 @@ interface ScrollbackTerminalProps {
  */
 
 const EMPTY_LINE: CellLine = [];
+
+/**
+ * Screens of rows mounted above and below the viewport.
+ *
+ * A row is an absolutely positioned div the renderer only repaints when its
+ * cells change, so overscan costs mounting, not painting — and a flick that
+ * outruns the mounted window shows the dim placeholder rows instead of text.
+ * Two screens either side covers a fast trackpad flick between frames.
+ */
+const OVERSCAN_SCREENS = 2;
 
 // Dim "loading" placeholder for rows that exist in `totalLines` but haven't
 // been fetched yet. Distinguishing this from a genuinely blank scrollback row
@@ -200,18 +210,54 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
     [isCopyMode, selectionAnchor, selectionMode, cursorRow, cursorCol, width],
   );
 
-  // Visible line range with overscan buffer (1 screen above + 1 screen below)
-  const renderStart = Math.max(0, scrollTop - height);
-  const renderEnd = Math.min(totalLines - 1, scrollTop + 2 * height - 1);
-
   const isCursorVisible =
-    isCopyMode && isActive && cursorRow >= renderStart && cursorRow <= renderEnd;
+    isCopyMode &&
+    isActive &&
+    cursorRow >= scrollTop - OVERSCAN_SCREENS * height &&
+    cursorRow <= scrollTop + (OVERSCAN_SCREENS + 1) * height - 1;
 
-  // Imperative DOM update
-  useLayoutEffect(() => {
+  // Everything a paint needs, kept in a ref so the scroll listener below can
+  // repaint from the live DOM position without waiting for a React render.
+  // The machine's `scrollTop` arrives one XState transition and one commit
+  // after the container has already moved; painting from it made the rows lag
+  // the scrollbar during a flick and drop the frame rate to half.
+  const paintRef = useRef({
+    lines,
+    loadedRanges,
+    getSelectionRange,
+    isCopyMode,
+    charHeight,
+    totalLines,
+    height,
+  });
+  paintRef.current = {
+    lines,
+    loadedRanges,
+    getSelectionRange,
+    isCopyMode,
+    charHeight,
+    totalLines,
+    height,
+  };
+
+  /**
+   * Mount, move and repaint the rows for a viewport whose first row is
+   * `topRow`.
+   *
+   * Called from the layout effect when the content changed, and from the
+   * container's own scroll event when only the position did. Both paths are
+   * idempotent: a row is repainted only when its cells or its selection
+   * range differ from what it was last painted with.
+   */
+  const paint = useRef((topRow: number) => {
     const pre = preRef.current;
     if (!pre) return;
+    const { lines, loadedRanges, getSelectionRange, isCopyMode, charHeight, totalLines, height } =
+      paintRef.current;
     const rows = rowsRef.current;
+
+    const renderStart = Math.max(0, topRow - OVERSCAN_SCREENS * height);
+    const renderEnd = Math.min(totalLines - 1, topRow + (OVERSCAN_SCREENS + 1) * height - 1);
 
     // In the scroll view the selection is the browser's: every row it spans
     // stays mounted while the window moves on, so the selection survives the
@@ -265,7 +311,40 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
 
     for (let row = renderStart; row <= renderEnd; row++) ensure(row);
     if (held) for (let row = held.start; row <= held.end; row++) ensure(row);
-  }, [renderStart, renderEnd, lines, loadedRanges, getSelectionRange, isCopyMode, charHeight]);
+  }).current;
+
+  /** The top row the container is actually showing, or state's if it is gone. */
+  const domTopRow = (fallback: number) => {
+    const container = preRef.current?.closest<HTMLElement>('.pane-scroll-container');
+    return container && charHeight > 0 ? Math.floor(container.scrollTop / charHeight) : fallback;
+  };
+
+  // Content changed (a chunk landed, a selection moved, the cursor moved).
+  useLayoutEffect(() => {
+    paint(domTopRow(scrollTop));
+  });
+
+  // Position changed. The container's own scroll event repaints on the next
+  // frame from the live scrollTop — one paint per frame however many events
+  // the trackpad delivers, and none of them behind a state transition.
+  useEffect(() => {
+    const container = preRef.current?.closest<HTMLElement>('.pane-scroll-container');
+    if (!container) return;
+    let frame: number | null = null;
+    const onScroll = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        const { charHeight } = paintRef.current;
+        if (charHeight > 0) paint(Math.floor(container.scrollTop / charHeight));
+      });
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [paint]);
 
   // Cursor character
   const cursorChar = useMemo(() => {

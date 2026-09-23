@@ -172,14 +172,20 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     });
     await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
     // Scroll until the render window has fully cleared the bottom row, rather
-    // than a fixed number of ticks. ScrollbackTerminal renders
-    // `scrollTop - height … scrollTop + 2*height`, so the overscan below the
-    // viewport grows with the pane height: on a tall pane a fixed 6 ticks still
-    // leaves BUGMARK_200 inside the window, and the assertion below reads that
-    // as "the DOM never followed the scroll".
+    // than a fixed number of ticks. ScrollbackTerminal keeps an overscan of
+    // whole screens below the viewport, so how far "far enough" is grows with
+    // the pane height AND with the overscan the renderer happens to use — a
+    // fixed tick count, or a bound written against one overscan setting, leaves
+    // BUGMARK_200 inside the window on a tall pane, and the assertion below
+    // reads that as "the DOM never followed the scroll". Ask the DOM instead:
+    // the condition IS that the bottom marker is no longer mounted.
+    const bottomMarkerMounted = () =>
+      ctx.page.evaluate(() => {
+        const sb = document.querySelector('[data-copy-mode="true"]');
+        return !!sb && /BUGMARK_200\b/.test(sb.textContent || '');
+      });
     for (let i = 0; i < 40; i++) {
-      const state = await getCopyModeState(ctx.page);
-      if (state && state.scrollTop + 2 * state.height < state.totalLines - 1) break;
+      if (!(await bottomMarkerMounted())) break;
       await ctx.page.mouse.wheel(0, -200);
       await delay(150);
     }

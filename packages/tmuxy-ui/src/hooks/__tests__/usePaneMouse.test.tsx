@@ -127,30 +127,41 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterCopy).toBeUndefined();
   });
 
-  it('scrolls the container by whole rows, never part of one', () => {
-    // 50px of wheel over an 18px row is two rows and a bit; the bit is
-    // carried, not painted. A terminal scrolls a line at a time — copy mode
-    // and full-screen applications already do, and this is the same pane.
+  it('scrolls the container by the exact pixel delta, off the row grid', () => {
+    // 50px of wheel is 50px of scroll, not two 18px rows with the rest
+    // carried. The row grid is what tmux and the copy cursor are told about;
+    // the container the browser renders moves in pixels, as it does in any
+    // native terminal.
     const { result, scrollRef } = setup({ scrollbackMode: 'copy', charHeight: 18 });
     scrollRef.current!.scrollTop = 0;
     result.current.handleWheel(wheelEvent(50));
-    expect(scrollRef.current!.scrollTop).toBe(36);
+    expect(scrollRef.current!.scrollTop).toBe(50);
 
-    // The carried 14px plus 4px is the third row, exactly.
     result.current.handleWheel(wheelEvent(4));
     expect(scrollRef.current!.scrollTop).toBe(54);
   });
 
-  it('holds still until a gesture is worth a row, then moves one', () => {
+  it('moves on every event, however small — no stepping', () => {
+    // The stepping this view was reported to have against iTerm2: two of
+    // every three trackpad events moved nothing and the third jumped a line.
     const { result, scrollRef } = setup({ scrollbackMode: 'scroll', charHeight: 18 });
     scrollRef.current!.scrollTop = 36;
 
     result.current.handleWheel(wheelEvent(-6));
+    expect(scrollRef.current!.scrollTop).toBe(30);
     result.current.handleWheel(wheelEvent(-6));
-    expect(scrollRef.current!.scrollTop).toBe(36);
-
+    expect(scrollRef.current!.scrollTop).toBe(24);
     result.current.handleWheel(wheelEvent(-6));
     expect(scrollRef.current!.scrollTop).toBe(18);
+  });
+
+  it('reads a line-mode wheel delta as rows', () => {
+    // Firefox reports DOM_DELTA_LINE for a real mouse wheel; taken raw, three
+    // lines scrolled three pixels.
+    const { result, scrollRef } = setup({ scrollbackMode: 'scroll', charHeight: 18 });
+    scrollRef.current!.scrollTop = 90;
+    result.current.handleWheel({ ...wheelEvent(-3), deltaMode: 1 } as React.WheelEvent);
+    expect(scrollRef.current!.scrollTop).toBe(36);
   });
 
   it('accumulates sub-line wheel deltas without sending events', () => {

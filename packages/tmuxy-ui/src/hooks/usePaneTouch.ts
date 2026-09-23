@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Effect, Fiber } from 'effect';
 import type { AppMachineEvent } from '../machines/types';
-import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
+import { sendScrollLines, takeWholeRows, scrollByPixels } from './scrollUtils';
 import { focusMobileInput } from '../utils/mobileKeyboard';
 import { haptics } from '../utils/haptics';
 
@@ -127,11 +127,11 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           mouseAnyFlag,
         });
       } else if (scrollbackOpen) {
-        // A view is open: proxy the delta to its scroll container, a row at a
-        // time (see scrollByRows). Negate: finger down = scroll up.
-        const { rows, remainder } = takeWholeRows(-deltaPixels, charHeight, remainderRef.current);
-        remainderRef.current = remainder;
-        if (scrollRef.current) scrollByRows(scrollRef.current, rows, charHeight);
+        // A view is open: proxy the delta to its scroll container, pixel for
+        // pixel, so the content tracks the finger instead of snapping a row
+        // at a time behind it. Negate: finger down = scroll up.
+        remainderRef.current = 0;
+        if (scrollRef.current) scrollByPixels(scrollRef.current, -deltaPixels);
       } else if (historySize > 0 && deltaPixels > 0) {
         // Live screen, finger moving down, history behind it: open the scroll
         // view, exactly as a wheel-up does. Without this the container is
