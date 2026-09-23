@@ -171,6 +171,30 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
     await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
+    // Record what the page actually sees for each wheel, and whether the
+    // scroll container moved in response. Read back only on failure.
+    await ctx.page.evaluate(() => {
+      const w = window;
+      w.__wheelLog = [];
+      w.addEventListener(
+        'wheel',
+        (e) => {
+          const el = document.querySelector('.pane-scroll-container');
+          const before = el ? el.scrollTop : null;
+          requestAnimationFrame(() => {
+            w.__wheelLog.push({
+              dy: e.deltaY,
+              mode: e.deltaMode,
+              defaultPrevented: e.defaultPrevented,
+              target: (e.target instanceof Element ? e.target.className : '') || String(e.target),
+              before,
+              after: el ? el.scrollTop : null,
+            });
+          });
+        },
+        { passive: true },
+      );
+    });
     // Scroll until the render window has fully cleared the bottom row, rather
     // than a fixed number of ticks. ScrollbackTerminal keeps an overscan of
     // whole screens below the viewport, so how far "far enough" is grows with
@@ -229,6 +253,20 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
           clientHeight: el ? el.clientHeight : null,
           overflowY: el ? getComputedStyle(el).overflowY : null,
           afterDirectSet: direct,
+          wheelLog: (window.__wheelLog || []).slice(0, 3),
+          paneBox: (() => {
+            const p = document.querySelector('[data-pane-id]');
+            if (!p) return null;
+            const r = p.getBoundingClientRect();
+            return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+          })(),
+          atCenter: (() => {
+            const p = document.querySelector('[data-pane-id]');
+            if (!p) return null;
+            const r = p.getBoundingClientRect();
+            const e2 = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+            return e2 ? e2.className || e2.tagName : 'none';
+          })(),
           sample: (sb?.textContent || '').replace(/\s+/g, ' ').slice(0, 80),
         };
       });
@@ -238,7 +276,9 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
           `container scrollTop=${painted.scrollTop} scrollHeight=${painted.scrollHeight} ` +
           `clientHeight=${painted.clientHeight} overflowY=${painted.overflowY} ` +
           `charHeight=${painted.charHeight}; setting scrollTop-200 directly left it at ` +
-          `${painted.afterDirectSet}. Showing: "${painted.sample}"`,
+          `${painted.afterDirectSet}. wheelLog=${JSON.stringify(painted.wheelLog)}. ` +
+          `paneBox=${JSON.stringify(painted.paneBox)} elementAtPaneCenter=${painted.atCenter}. ` +
+          `Showing: "${painted.sample}"`,
       );
     }
 
