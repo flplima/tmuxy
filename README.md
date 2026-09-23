@@ -43,7 +43,7 @@ In the web app, communication happens via HTTP/SSE. It is fast, I promise you. B
 
 ## install
 
-tmuxy drives a real tmux, so it needs **tmux 3.3 or newer** (`tmux -V`). Homebrew and the `.deb` install it for you, and the app tells you at launch if it is missing or too old.
+tmuxy drives a real tmux, so it needs **tmux 3.4 or newer** (`tmux -V`). Homebrew and the `.deb` install it for you, and the app tells you at launch if it is missing or too old.
 
 ### macOS
 

@@ -8,9 +8,12 @@
 use std::fmt;
 
 /// The oldest tmux tmuxy runs on. Control-mode flow control (`pause-after`,
-/// `refresh-client -A`) needs 3.2; 3.3a is the oldest release the workarounds
-/// in docs/TMUX.md were found and verified on.
-pub const MIN_TMUX_VERSION: (u32, u32) = (3, 3);
+/// `refresh-client -A`) needs 3.2, and the workarounds in docs/TMUX.md were
+/// found on 3.3a — but 3.3a is not covered by the nightly version matrix, so
+/// nothing proves it still works. 3.4 is the oldest version that matrix
+/// actually exercises, and it is what Ubuntu 24.04 LTS ships, so it is the
+/// oldest tmuxy claims to run on.
+pub const MIN_TMUX_VERSION: (u32, u32) = (3, 4);
 
 const INSTALL_HINT: &str =
     "macOS: brew install tmux · Debian/Ubuntu: sudo apt install tmux · Fedora: sudo dnf install tmux";
@@ -128,22 +131,22 @@ mod tests {
 
     #[test]
     fn an_old_tmux_is_refused_with_the_version_it_found() {
-        let err = judge("/usr/bin/tmux", "tmux 3.2a\n").unwrap_err();
+        let err = judge("/usr/bin/tmux", "tmux 3.3a\n").unwrap_err();
         assert_eq!(
             err,
             TmuxCheckError::TooOld {
                 binary: "/usr/bin/tmux".into(),
-                version: "tmux 3.2a".into()
+                version: "tmux 3.3a".into()
             }
         );
         let message = err.to_string();
-        assert!(message.contains("3.3 or newer"), "{message}");
-        assert!(message.contains("tmux 3.2a"), "{message}");
+        assert!(message.contains("3.4 or newer"), "{message}");
+        assert!(message.contains("tmux 3.3a"), "{message}");
     }
 
     #[test]
     fn the_minimum_and_anything_newer_or_unnumbered_is_accepted() {
-        assert_eq!(judge("tmux", "tmux 3.3a"), Ok("tmux 3.3a".into()));
+        assert_eq!(judge("tmux", "tmux 3.4"), Ok("tmux 3.4".into()));
         assert_eq!(judge("tmux", "tmux 4.0"), Ok("tmux 4.0".into()));
         assert_eq!(judge("tmux", "tmux master"), Ok("tmux master".into()));
     }

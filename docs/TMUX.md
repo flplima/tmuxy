@@ -6,7 +6,9 @@ This document covers how tmuxy interacts with tmux: control mode architecture, c
 
 Tmuxy targets **tmux 3.7a** (devcontainer, CI, and the in-browser v86 guest all build it from source). Several workarounds below were discovered on 3.3a/3.5a and are kept because they remain safe on 3.7a.
 
-The minimum is **tmux 3.3**. The desktop app and `tmuxy server` run `tmux -V` at startup and refuse an older or missing tmux with a message saying how to install or update it — a dialog on the desktop, stderr for the server (`tmuxy-core/src/tmux_check.rs`). A build that reports no version number (`tmux master`) is accepted. The Homebrew cask and the `.deb`/`.rpm` packages declare tmux as a dependency.
+The minimum is **tmux 3.4**. The desktop app and `tmuxy server` run `tmux -V` at startup and refuse an older or missing tmux with a message saying how to install or update it — a dialog on the desktop, stderr for the server (`tmuxy-core/src/tmux_check.rs`). A build that reports no version number (`tmux master`) is accepted. The Homebrew cask and the `.deb`/`.rpm` packages declare tmux as a dependency.
+
+3.4 is the floor because it is the oldest version the nightly matrix actually exercises, and the oldest a current distribution ships (Ubuntu 24.04 LTS). Workarounds below were found on 3.3a and are kept, but nothing tests 3.3a any more, so it is not claimed as supported.
 
 ## Dedicated Server Socket
 
@@ -191,6 +193,23 @@ The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux 
 No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically. On every session connect, the monitor's initial sync (`sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`) sets `window-size manual` and `aggressive-resize off` (so multi-client viewport sizing stays under tmuxy's control), plus `allow-passthrough on`, `mouse on`, `focus-events on`, pane-border options, and title options. Settings are applied per-session rather than globally, to avoid a tmux 3.5a crash triggered by global settings under control mode.
 
 OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
+
+## `pane_in_mode` Is Not "In Copy Mode"
+
+`#{pane_in_mode}` is 1 for **every** mode tmux has for a pane — copy-mode, but also
+view-mode, tree-mode, buffer-mode and client-mode. The client turns that flag into its own
+copy mode, which renders the scrollback and **hides the live terminal**, so a pane in any
+other mode disappeared behind a scrollback view that nothing would close.
+
+The pane row therefore asks `#{?#{==:#{pane_mode},copy-mode},1,0}` instead
+(`COPY_MODE_FLAG` in `tmuxy-core/src/constants.rs`). It expands to the same single
+int-like field, so the row parser's positions and its `@window` anchor are unchanged.
+
+This surfaced on **tmux 3.4**, where a freshly created pane comes up in `view-mode`: the
+whole terminal rendered as a 0×0 box from the moment the session opened, on every pane, and
+never recovered. It was not version-specific in principle — `prefix s` on any version could
+do the same — and 3.4 is simply where it was guaranteed. A lockstep test in `constants.rs`
+keeps the format from regressing to the broader field.
 
 ## Pane Titles
 

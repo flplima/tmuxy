@@ -240,6 +240,28 @@ pub mod tmux_formats {
     /// See [`app_pane_title!`].
     pub const APP_PANE_TITLE: &str = app_pane_title!();
 
+    /// Is the pane in tmux's COPY mode — as opposed to any of its other modes?
+    ///
+    /// `#{pane_in_mode}` is 1 for every pane mode tmux has: copy-mode, but also
+    /// view-mode, tree-mode, buffer-mode and client-mode. The client turns that
+    /// flag into its own copy mode, which renders the scrollback and hides the
+    /// live terminal — so a pane tmux merely put in view-mode disappeared
+    /// behind a scrollback view that nothing would close. tmux 3.4 is where
+    /// this showed up (a freshly created pane comes up in `view-mode` there,
+    /// and the pane rendered as a 0x0 box forever), but the conflation was
+    /// wrong on every version: `prefix s` and friends could do the same.
+    ///
+    /// Still expands to exactly one int-like field, so the pane-row parser's
+    /// field positions and its `@window` anchor heuristic are unchanged.
+    macro_rules! copy_mode_flag {
+        () => {
+            "#{?#{==:#{pane_mode},copy-mode},1,0}"
+        };
+    }
+
+    /// See [`copy_mode_flag!`].
+    pub const COPY_MODE_FLAG: &str = copy_mode_flag!();
+
     /// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is
     /// included so the monitor never accidentally drops to window scope.
     /// `#{@tmuxy-group-id}` rides in the fixed tail (non-free-text: `g<digits>`
@@ -255,7 +277,8 @@ pub mod tmux_formats {
         "#{pane_active},#{pane_current_command},",
         app_pane_title!(),
         ",",
-        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+        copy_mode_flag!(),
+        ",#{copy_cursor_x},#{copy_cursor_y},",
         "#{scroll_position},",
         "#{window_id},#{T:pane-border-format},",
         "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
@@ -349,6 +372,22 @@ mod tests {
                  and the tmux_options constant have diverged"
             );
         }
+    }
+
+    /// The pane rows must ask whether the pane is in COPY mode, never the
+    /// broader `#{pane_in_mode}`. The client turns this field into its own
+    /// copy mode, which hides the live terminal — so a pane in any other tmux
+    /// mode (view, tree, buffer, client) would vanish behind a scrollback view.
+    #[test]
+    fn list_panes_cmd_asks_for_copy_mode_not_any_mode() {
+        assert!(
+            tmux_formats::LIST_PANES_CMD.contains(tmux_formats::COPY_MODE_FLAG),
+            "LIST_PANES_CMD must request COPY_MODE_FLAG"
+        );
+        assert!(
+            !tmux_formats::LIST_PANES_CMD.contains("#{pane_in_mode}"),
+            "LIST_PANES_CMD must not use #{{pane_in_mode}} — it is 1 for view-mode too"
+        );
     }
 
     /// Both pane enumerations must ask for the HOST-FILTERED title, never a
