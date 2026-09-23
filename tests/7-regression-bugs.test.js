@@ -178,14 +178,19 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     // fixed tick count, or a bound written against one overscan setting, leaves
     // BUGMARK_200 inside the window on a tall pane, and the assertion below
     // reads that as "the DOM never followed the scroll". Ask the DOM instead:
-    // the condition IS that the bottom marker is no longer mounted.
-    const bottomMarkerMounted = () =>
+    // the condition IS that the bottom marker is no longer mounted. A
+    // scrollback that is not open YET means the wheel has more work to do, not
+    // less — reading a missing element as "done" broke the loop on its first
+    // pass, before a single tick, and the assertion below then read a pane
+    // still sitting at the bottom as "the DOM never followed the scroll".
+    const needsMoreScroll = () =>
       ctx.page.evaluate(() => {
         const sb = document.querySelector('[data-copy-mode="true"]');
-        return !!sb && /BUGMARK_200\b/.test(sb.textContent || '');
+        if (!sb) return true;
+        return /BUGMARK_200\b/.test(sb.textContent || '');
       });
     for (let i = 0; i < 40; i++) {
-      if (!(await bottomMarkerMounted())) break;
+      if (!(await needsMoreScroll())) break;
       await ctx.page.mouse.wheel(0, -200);
       await delay(150);
     }
