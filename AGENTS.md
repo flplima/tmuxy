@@ -118,6 +118,37 @@ The rest of the map, for when a change reaches further:
 | Rust workspace | `cargo test --workspace` |
 | A red CI job | [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) maps each job to its local command |
 
+### Before pushing: run the CI jobs your change touches
+
+The lint gate above is the floor, not the bar. **Before `git push`, run the local
+equivalent of every CI job your diff can break** — the ones it touches, not all of
+them. `npm run check:full` is for a change that reaches everywhere; reaching for it
+by default wastes twenty minutes, and reaching for nothing ships a red main.
+
+Work out the set from what you changed:
+
+| Changed | Also run before pushing |
+|---|---|
+| `packages/tmuxy-ui/src/**` (app code) | `npm test -- --run`, and the E2E suites covering the feature |
+| `packages/tmuxy-ui/src/stories/**` | `npm run test-storybook -w tmuxy-ui` (add `test-storybook:v86` for a `v86`-tagged story) |
+| `tests/**` | the suites you edited, **plus** any other suite sharing their helpers |
+| `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour |
+| a `constants.rs` tmux format string | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
+| `bin/tmuxy-cli`, `scripts/**` | `npm run test:cli` |
+| `packages/tmuxy-tauri-app/**` | `npm run test:tauri` |
+| perf harnesses, `perf/**` | `npm run perf:interactions` + `npm run perf:compare` |
+
+[docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) has the full job-to-command map — it is the
+source of truth for which command stands in for which job, and it works in both
+directions: use it to pick checks before a push, not only to triage a red one.
+
+**"It passed locally" is weak evidence for anything timing-sensitive.** A CI runner
+is slower than a dev machine, so a wait that assumes something has already happened
+passes here and fails there. When a test polls for state, treat "not ready yet" as
+*keep waiting*, never as *done* — and never bound a loop by a constant that encodes
+how fast the machine is, or by a magic number that happens to match today's layout.
+A local pass cannot rule this class of bug out; only the shape of the wait can.
+
 ## Documentation
 
 The `docs/` directory contains architectural and design documentation. **Review relevant docs before and after working on a task** — they provide critical context (especially `TMUX.md`, `STATE-MANAGEMENT.md`, `DATA-FLOW.md`, and `COPY-MODE.md`).
