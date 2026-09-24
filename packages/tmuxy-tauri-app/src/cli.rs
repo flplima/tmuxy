@@ -205,7 +205,7 @@ Commands:
   session       Session management (switch, connect)
   widget        Display widgets (image, markdown)
   nav           Navigation (left, right, up, down, next, prev)
-  event         Event queue (emit, wait, list)
+  queue, q      Inter-agent coordination queue (push/send, pop, peek, list, clear)
   run           Run a raw tmux command safely
 
 Options:
