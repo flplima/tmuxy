@@ -108,6 +108,14 @@ Open `http://localhost:9000` in any browser. For remote machines, access over an
 | `Ctrl+Shift+[` / `]` | Previous / next tab           |
 | `Ctrl+Shift+F`       | Toggle float for current pane |
 | `Ctrl+Shift+Z`       | Zoom / unzoom active pane     |
+| `Ctrl+Shift+A`       | Select the pane's scrollback  |
+| `Ctrl+Shift+C`       | Copy the selection            |
+| `Ctrl+Shift+N`       | New window (desktop app)      |
+| `Ctrl+Shift+1`…`9`   | Focus window 1…9 (desktop)    |
+
+On macOS these are the `Cmd` shortcuts you would expect instead: `Cmd+A`,
+`Cmd+C`, `Cmd+N` and `Cmd+1`…`9`. A _window_ here is an OS window — several can
+watch one session, each on its own tab (Window ▸ New Window).
 
 All mutations are also accessible from the terminal via the `tmuxy` CLI:
 
