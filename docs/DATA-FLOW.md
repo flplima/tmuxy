@@ -46,9 +46,11 @@ The Tauri desktop app bypasses the network stack entirely:
 
 **`invoke(cmd, args)`** — Client-to-server commands (equivalent to HTTP POST). Calls Rust functions directly through Tauri's IPC bridge. The `TauriAdapter` dynamically imports `@tauri-apps/api/core` to call `invoke()`.
 
-**Tauri events** — Server-to-client state updates (equivalent to SSE). The `TauriEmitter` calls `app.emit("tmux-state-update", &update)` to push state changes. The frontend listens via `listen<StateUpdate>('tmux-state-update', handler)`.
+**Tauri events** — Server-to-client state updates (equivalent to SSE). The `TauriEmitter` pushes state changes with `emit_to(<window label>, "tmux-state-update", …)`, addressed to one window rather than broadcast. The frontend listens via `listen<StateUpdate>('tmux-state-update', handler)`.
 
-Tauri IPC has lower latency than HTTP since communication is in-process. The Tauri app is currently single-client only (no multi-client viewport sizing).
+Tauri IPC has lower latency than HTTP since communication is in-process.
+
+**One monitor per GUI window.** The desktop app can have several OS windows open on one tmux session (Window ▸ New Window). Each is its own client: its own webview, its own control-mode monitor, and its own tmux session, with the sessions members of one tmux *session group* — they share every window and pane while each keeps its own current window, which is what puts two tabs of one session on screen at once. The first window holds the group's base session (the one `TMUXY_SESSION` names) and every later one attaches to `<base>~<index>` (`tmux -CC new-session -A -s <base>~2 -t <base>`); a window's session is killed when its window closes, which leaves the shared windows alive in the remaining members. A registry keyed by webview label (`tmuxy-tauri-app/src/windows.rs`) is what turns a command back into the monitor that must run it, so a mutation from window 2 moves window 2's current tab and not the other's. Per-session events (state, errors, logs, clipboard, detach) are addressed to the one window; server-wide ones (keybindings, theme settings) are still broadcast.
 
 ## Adapter Pattern
 
@@ -219,7 +221,7 @@ IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown 
 **Characteristics:**
 - Lowest possible latency (no network stack)
 - No security concerns (local IPC only)
-- Single client (Tauri doesn't support multi-client)
+- One control-mode monitor per GUI window, each on its own session in a shared session group (see **One monitor per GUI window** above)
 - Native desktop integration (system menus, keyboard shortcuts)
 
 ### Scenario 2: Developer Using Tauri Desktop App with Remote tmux via SSH

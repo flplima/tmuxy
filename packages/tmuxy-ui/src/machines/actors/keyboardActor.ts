@@ -38,6 +38,8 @@ import {
 } from '../../utils/mobileKeyboard';
 import { flashCopiedRange } from '../../utils/copyFlash';
 import { terminalTextOf } from '../../utils/nativeSelection';
+import { focusGuiWindow, newGuiWindow } from '../../utils/guiWindows';
+import { isTauri } from '../../tmux/adapters';
 import { escapeLiteralText, literalTextCommands } from '../../tmux/keyBatching';
 import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
 
@@ -191,6 +193,20 @@ function formatTmuxKey(event: KeyboardEvent): string {
  */
 function realPaneId(id: string | null): string | null {
   return id !== null && id.startsWith('__placeholder_') ? null : id;
+}
+
+/**
+ * The modifier shape the app's own window/selection shortcuts wear: bare Cmd on
+ * a Mac, Ctrl+Shift elsewhere.
+ *
+ * Ctrl+Shift rather than bare Ctrl off macOS because bare Ctrl chords belong to
+ * the terminal — Ctrl+A is tmux's prefix and Ctrl+C interrupts — and taking one
+ * would break the shell to add a menu shortcut.
+ */
+function windowShortcut(event: KeyboardEvent): boolean {
+  if (event.altKey) return false;
+  if (event.metaKey) return !event.ctrlKey && !event.shiftKey;
+  return event.ctrlKey && event.shiftKey;
 }
 
 /**
@@ -412,6 +428,26 @@ export function createKeyboardActor() {
         }
       }
 
+      // The desktop app's OS windows: Cmd+N and Cmd+1…9 on a Mac, Ctrl+Shift+N
+      // and Ctrl+Shift+1…9 elsewhere (Ctrl+digit already selects a tab). On
+      // macOS the native menu bar owns the same accelerators and usually eats
+      // the key first; this path is what makes them work where there is no menu
+      // bar, and both ends are idempotent. Read from `code`, not `key`: with
+      // Shift held, the `1` key reports `!`.
+      if (isTauri() && windowShortcut(event)) {
+        const digit = /^Digit([1-9])$/.exec(event.code);
+        if (digit) {
+          event.preventDefault();
+          focusGuiWindow(Number(digit[1]));
+          return;
+        }
+        if (event.code === 'KeyN') {
+          event.preventDefault();
+          newGuiWindow();
+          return;
+        }
+      }
+
       // Read the machine's live activePaneId (and copy-mode states) straight off
       // the parent snapshot, rather than trusting the cached closure below.
       //
@@ -590,6 +626,39 @@ export function createKeyboardActor() {
 
       /** A selection the user made with the browser, anywhere in the app. */
       const nativeSelection = () => window.getSelection()?.toString() ?? '';
+
+      // Cmd+A (Ctrl+Shift+A off macOS): select the pane's whole scrollback, so
+      // the next Cmd+C copies all of it. The selection is the client's — most of
+      // the history has no DOM node for the browser to select — so the browser's
+      // own selection is cleared to leave one highlight on screen, not two.
+      if (scrollbackPane && windowShortcut(event) && event.code === 'KeyA') {
+        event.preventDefault();
+        window.getSelection()?.removeAllRanges();
+        input.parent.send({ type: 'SELECT_ALL_SCROLLBACK', paneId: scrollbackPane });
+        return;
+      }
+
+      // Copy the selection Cmd+A laid over the scroll view: Cmd+C on a Mac,
+      // Ctrl+Shift+C elsewhere, because plain Ctrl+C has to stay the interrupt.
+      // The text is read from the loaded rows rather than the DOM — the history
+      // off screen has no nodes to serialize — and the copy is fired here rather
+      // than left to the browser's default action, which only a Mac performs for
+      // Cmd+C. `COPY_SELECTION` then blinks the copied rows and closes the view,
+      // as a yank does. Copy mode is not on this path: its own branch below
+      // keeps the native copy event it already relies on.
+      if (
+        windowShortcut(event) &&
+        event.code === 'KeyC' &&
+        !copyModeActive &&
+        activeCopyState?.selectionMode &&
+        activeCopyState.selectionAnchor
+      ) {
+        event.preventDefault();
+        pendingCopyText = extractSelectedText(activeCopyState);
+        document.execCommand('copy');
+        input.parent.send({ type: 'COPY_SELECTION' });
+        return;
+      }
 
       // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
       // or send SIGINT (if not in copy mode / no selection)

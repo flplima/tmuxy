@@ -940,6 +940,12 @@ export type EnterScrollModeEvent = {
  * `in_mode` flag this view never sets.
  */
 export type ExitScrollModeEvent = { type: 'EXIT_SCROLL_MODE'; paneId: string };
+/**
+ * Select the whole of a pane's scrollback (Cmd+A / Ctrl+Shift+A), so Cmd+C
+ * copies it. Opens the scroll view on a pane that has none — there is nothing
+ * else to hold a selection over history that is not on screen.
+ */
+export type SelectAllScrollbackEvent = { type: 'SELECT_ALL_SCROLLBACK'; paneId: string };
 export type CopyModeChunkLoadedEvent = {
   type: 'COPY_MODE_CHUNK_LOADED';
   paneId: string;
@@ -1216,6 +1222,7 @@ export type AppMachineEvent =
   | ExitCopyModeEvent
   | EnterScrollModeEvent
   | ExitScrollModeEvent
+  | SelectAllScrollbackEvent
   | CopyModeChunkLoadedEvent
   | CopyModeCursorMoveEvent
   | CopyModeSelectionStartEvent

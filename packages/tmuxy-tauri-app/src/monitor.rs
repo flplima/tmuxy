@@ -129,9 +129,30 @@ pub async fn request_detach(monitor_state: &MonitorState) {
     }
 }
 
-/// Tauri emitter that broadcasts state changes to the frontend
+/// Run one tmux command on a monitor's control-mode connection, dropping it if
+/// that monitor is not connected. For the app's own housekeeping — a window
+/// closing kills its session this way — where there is no client to report an
+/// error to.
+pub async fn run_on(monitor_state: &MonitorState, command: &str) {
+    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    if let Some(tx) = cmd_tx {
+        let _ = tx
+            .send(MonitorCommand::RunCommand {
+                command: command.to_string(),
+            })
+            .await;
+    }
+}
+
+/// Tauri emitter that broadcasts state changes to the frontend.
+///
+/// Every event is addressed to one window (`emit_to`), not the whole app: each
+/// GUI window has its own monitor on its own session, so a broadcast would
+/// cross the streams and paint one window with the other's state.
 pub struct TauriEmitter {
     app: AppHandle,
+    /// The webview window this monitor feeds (`main` for the first one).
+    label: String,
     /// Decoded picture bytes, keyed by pane and placement id, served back to
     /// the webview by the `tmuxyimg:` scheme (see `gui.rs`). The web server
     /// keeps the same map behind `/api/images`; without one here every image
@@ -141,8 +162,8 @@ pub struct TauriEmitter {
 }
 
 impl TauriEmitter {
-    pub fn new(app: AppHandle, images: ImageStore) -> Self {
-        Self { app, images }
+    pub fn new(app: AppHandle, label: String, images: ImageStore) -> Self {
+        Self { app, label, images }
     }
 }
 
@@ -161,7 +182,7 @@ impl LogSink for TauriEmitter {
         tmuxy_core::debug_log::log(&format!("[monitor {}] {}", label, message));
 
         let payload = serde_json::json!({ "kind": kind, "message": message });
-        if let Err(e) = self.app.emit("tmux-log", &payload) {
+        if let Err(e) = self.app.emit_to(self.label.as_str(), "tmux-log", &payload) {
             eprintln!("Failed to emit log: {}", e);
         }
     }
@@ -182,14 +203,17 @@ impl StateEmitter for TauriEmitter {
             }
             _ => tracing::debug!(target: "tmuxy_tauri_app::emit", kind, "emit state"),
         }
-        if let Err(e) = self.app.emit("tmux-state-update", &update) {
+        if let Err(e) = self
+            .app
+            .emit_to(self.label.as_str(), "tmux-state-update", &update)
+        {
             eprintln!("Failed to emit state: {}", e);
         }
     }
 
     fn emit_error(&self, error: String) {
         tmuxy_core::debug_log::log(&format!("[monitor ERR] {}", error));
-        if let Err(e) = self.app.emit("tmux-error", &error) {
+        if let Err(e) = self.app.emit_to(self.label.as_str(), "tmux-error", &error) {
             eprintln!("Failed to emit error: {}", e);
         }
     }
@@ -199,7 +223,10 @@ impl StateEmitter for TauriEmitter {
     /// the session switcher, the latter retries.
     fn emit_disconnected(&self, reason: Option<String>) {
         let payload = serde_json::json!({ "reason": reason });
-        if let Err(e) = self.app.emit("tmux-detached", &payload) {
+        if let Err(e) = self
+            .app
+            .emit_to(self.label.as_str(), "tmux-detached", &payload)
+        {
             eprintln!("Failed to emit detached: {}", e);
         }
     }
@@ -225,7 +252,10 @@ impl StateEmitter for TauriEmitter {
 
     fn write_clipboard(&self, pane_id: &str, text: String) {
         let payload = serde_json::json!({ "pane_id": pane_id, "text": text });
-        if let Err(e) = self.app.emit("tmux-clipboard", &payload) {
+        if let Err(e) = self
+            .app
+            .emit_to(self.label.as_str(), "tmux-clipboard", &payload)
+        {
             eprintln!("Failed to emit clipboard: {}", e);
         }
     }
@@ -244,11 +274,30 @@ impl StateEmitter for TauriEmitter {
     }
 }
 
-/// Start control mode monitoring for tmux state changes
+/// Start control mode monitoring for the first GUI window's session.
 pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
-    let emitter = Arc::new(TauriEmitter::new(app.clone(), monitor_state.images.clone()));
+    start_monitoring_window(app, "main".to_string(), monitor_state, get_session(), None).await
+}
+
+/// Start control mode monitoring for one GUI window.
+///
+/// `label` is the webview window the monitor feeds; `group_target`, when set,
+/// names the session whose group `session` joins on the create path — a second
+/// GUI window shares every window and pane with the first while keeping its own
+/// current window (see `windows.rs`).
+pub async fn start_monitoring_window(
+    app: AppHandle,
+    label: String,
+    monitor_state: MonitorState,
+    session: String,
+    group_target: Option<String>,
+) {
+    let emitter = Arc::new(TauriEmitter::new(
+        app.clone(),
+        label.clone(),
+        monitor_state.images.clone(),
+    ));
     let log_sink: Arc<dyn LogSink> = emitter.clone();
-    let session = get_session();
 
     // Start the tmux server in $HOME so the user's shell rc files cd to a
     // sensible cwd. Without this, a Finder/Spotlight launch hands tmuxy a cwd
@@ -260,6 +309,7 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
         session,
         sync_interval: Duration::from_millis(500),
         create_session: true,
+        group_target,
         // Adaptive throttling: emit immediately for low-frequency events (typing),
         // throttle at 16ms (~60fps) when high-frequency output detected
         throttle_interval: Duration::from_millis(16),
@@ -395,7 +445,7 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
                 let detached = monitor_state.detached.read().map(|g| *g).unwrap_or(false);
                 if detached {
                     tmuxy_core::debug_log::log("[monitor] detached by request — parking");
-                    emit_detached(&app);
+                    emit_detached(&app, &label);
                     parked = true;
                     continue;
                 }
@@ -434,7 +484,7 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
                             "tmux disconnects immediately after handshake; giving up after {} attempts. Connection lived {:?} on the last try.",
                             MAX_CONSECUTIVE_FAILURES, lived
                         );
-                        emit_fatal(&app, &final_msg);
+                        emit_fatal(&app, &label, &final_msg);
                         tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
                         parked = true;
                         continue;
@@ -453,7 +503,7 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
                         "Unable to connect to tmux after {} attempts; giving up. Last error: {}",
                         MAX_CONSECUTIVE_FAILURES, e
                     );
-                    emit_fatal(&app, &final_msg);
+                    emit_fatal(&app, &label, &final_msg);
                     tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
                     parked = true;
                     continue;
@@ -564,9 +614,9 @@ fn read_global_env(name: &str) -> Option<String> {
 /// Emit a terminal failure event to the frontend.
 /// The UI should treat this as a non-recoverable state — the monitor loop has
 /// stopped and no further state updates will arrive.
-fn emit_fatal(app: &AppHandle, message: &str) {
+fn emit_fatal(app: &AppHandle, label: &str, message: &str) {
     let payload = serde_json::json!({ "message": message });
-    if let Err(e) = app.emit("tmux-fatal", &payload) {
+    if let Err(e) = app.emit_to(label, "tmux-fatal", &payload) {
         eprintln!("Failed to emit fatal: {}", e);
     }
 }
@@ -579,9 +629,9 @@ fn emit_fatal(app: &AppHandle, message: &str) {
 /// never be dispatched at all. Here the intent is known from
 /// `MonitorState.detached` rather than inferred from tmux's text, so it cannot
 /// be missed or mistaken for a dropped link.
-fn emit_detached(app: &AppHandle) {
+fn emit_detached(app: &AppHandle, label: &str) {
     let payload = serde_json::json!({ "reason": "detached" });
-    if let Err(e) = app.emit("tmux-detached", &payload) {
+    if let Err(e) = app.emit_to(label, "tmux-detached", &payload) {
         eprintln!("Failed to emit detached: {}", e);
     }
 }

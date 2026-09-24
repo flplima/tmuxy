@@ -218,6 +218,13 @@ export interface CopyModeState {
   /** Pending selection to apply on first chunk load (visible-relative row) */
   pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
   /**
+   * Select every row once the history lands. A select-all issued as the view
+   * opens cannot know where history ends — `totalLines` is the pane's own
+   * guess until the first chunk answers with the real `history_size` — so the
+   * selection is re-laid over the true extent when it does.
+   */
+  pendingSelectAll?: boolean;
+  /**
    * When the selection was copied, while the view is on its way out. tmux has
    * already left its mode; the view stays for the copy flash (COPY_FLASH_MS)
    * so the copied text blinks where it was, then closes.

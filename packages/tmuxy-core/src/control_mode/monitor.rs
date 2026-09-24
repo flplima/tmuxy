@@ -139,6 +139,11 @@ pub struct MonitorConfig {
     /// Whether to create the session if it doesn't exist
     pub create_session: bool,
 
+    /// On the create path, the session whose *group* this session joins
+    /// (`new-session -t <base>`): the two share every window and pane while
+    /// keeping their own current window. `None` for an ordinary session.
+    pub group_target: Option<String>,
+
     /// Minimum interval between throttled state emissions.
     /// Used when high-frequency output is detected.
     /// Recommended: 16ms (60fps) for smooth updates during bulk output.
@@ -168,6 +173,7 @@ impl Default for MonitorConfig {
             session: String::new(),
             sync_interval: Duration::from_millis(500),
             create_session: false,
+            group_target: None,
             throttle_interval: Duration::from_millis(32), // ~30fps during high throughput
             throttle_threshold: 20,                       // >20 events/100ms triggers throttle
             rate_window: Duration::from_millis(100),
@@ -449,6 +455,7 @@ impl TmuxMonitor {
                 config.working_dir.as_deref(),
                 log,
                 config.create_session,
+                config.group_target.as_deref(),
             )
             .await?
         };

@@ -30,6 +30,19 @@ Where the browser owns the drag, the pane does not take the hidden keyboard inpu
 press: focusing an input collapses the page's selection, so a drag across text selected nothing. The
 keyboard actor hands focus to the input on the release instead, and only if nothing was selected.
 
+**Select all is the client's selection, in either view.** `Cmd+A` (`Ctrl+Shift+A` off macOS) selects a
+pane's whole scrollback — opening the scroll view on a pane that has no view yet, since there is
+nothing else to hold a selection over history that is not on screen. On a pane whose application owns the screen (alternate screen, or tmux's own mode) it does nothing —
+the same gate the wheel uses, since there is no scrollback behind such a screen. It is a *client*
+selection (a line selection from the first row of history to the last row on screen), not the
+browser's: most of
+the history has no DOM node to select, so the browser could not express it and the copy could not
+read it. `Cmd+C` (`Ctrl+Shift+C` off macOS — plain `Ctrl+C` stays the interrupt) copies it from the
+loaded rows and closes the view with the usual blink, as a yank does. Because every selected row has
+to be backed by loaded cells, select-all keeps asking for the next unloaded gap
+(`firstUnloadedGap`) until there are none — lazy loading leaves holes on purpose, and a hole under a
+select-all is a hole in the middle of the copied text.
+
 ## Architecture
 
 ```
@@ -96,6 +109,12 @@ The mouse never opens copy mode. A wheel gesture opening a mode with a cursor an
 this split exists to undo.
 
 ## Scrollback loading
+
+Row indices are absolute: a row's index is `history_size + <tmux offset>`. A view can open before tmux
+has reported the pane's real `history_size` (it starts near zero), so every response carries the size
+it was answered with and rows already merged are re-keyed by the difference
+(`shiftScrollbackRows`) before the new chunk lands. Without that the screen rows sit on top of the
+oldest history, and a copy of the whole scrollback comes back with its tail at the front.
 
 History is loaded lazily as structured cells, never as a client-maintained scrollback buffer of live
 output. On entry the client fetches the full backlog; as the user scrolls, `getNeededChunk` requests
@@ -191,7 +210,7 @@ types the selection into the pane. Either closes the view.
 | `packages/tmuxy-ui/src/machines/app/states/copyMode.ts` | Wires `COPY_MODE_*` events to their actions (idle-only) |
 | `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | Intercepts keydowns in copy mode → `COPY_MODE_KEY` / `COPY_SELECTION`; native clipboard `copy` handler |
 | `packages/tmuxy-ui/src/utils/copyModeKeys.ts` | Pure vi-key handler (`handleCopyModeKey`): motions, selection, page/word/line, yank, exit |
-| `packages/tmuxy-ui/src/utils/copyMode.ts` | Pure helpers: scrollback merge, needed-chunk detection, selected-text extraction |
+| `packages/tmuxy-ui/src/utils/copyMode.ts` | Pure helpers: scrollback merge, row re-keying, gap detection, needed-chunk detection, selected-text extraction |
 | `packages/tmuxy-ui/src/hooks/usePaneMouse.ts` / `usePaneTouch.ts` | Mouse/touch → copy-mode enter, selection, and native scroll |
 | `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_SCROLLBACK_CELLS` → `adapter.invoke('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED` |
 | `packages/tmuxy-core/src/lib.rs` | `parse_scrollback_to_cells` (shared by server, Tauri, and the wasm core) |

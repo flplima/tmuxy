@@ -33,6 +33,10 @@ async function getCopyModeState(page) {
       width: cs.width,
       selectionMode: cs.selectionMode,
       selectionAnchor: cs.selectionAnchor,
+      // Which rows have actually been fetched: a selection can cover history
+      // that is still on its way, and only these rows have text to copy.
+      loading: cs.loading,
+      loadedRanges: cs.loadedRanges,
     };
   });
 }

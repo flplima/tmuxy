@@ -460,3 +460,108 @@ describe('State Sync', () => {
     expect(await getPaneCount(driver)).toBe(panesBefore);
   });
 });
+
+// ==================== GUI windows over one session ====================
+
+describe('GUI windows', () => {
+  /**
+   * The Window menu's own commands. Two OS windows on one tmux session are two
+   * clients on two sessions in one session group: they share every tab and pane
+   * and each keeps its own current tab, which is the whole point — one window can
+   * show one tab while the other shows a different one.
+   */
+  test('New Window opens a second client in the session group, with its own current tab', async () => {
+    await setupApp();
+
+    // A second tab to have somewhere to diverge to.
+    await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
+    await waitForRawWindowCount(driver, 2);
+
+    const before = await invokeCommand(driver, 'list_gui_windows');
+    expect(before).toHaveLength(1);
+    expect(before[0].index).toBe(1);
+
+    await invokeCommand(driver, 'new_window');
+
+    // The registry knows both windows, and the digit that focuses each.
+    let listed = [];
+    for (let i = 0; i < 60; i++) {
+      listed = await invokeCommand(driver, 'list_gui_windows');
+      if (listed.length === 2) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    expect(listed.map((w) => w.index)).toEqual([1, 2]);
+
+    // tmux's side of it: a second session, grouped with the first, so the
+    // windows are shared rather than copied.
+    const grouped = `${sessionName}~2`;
+    let sessions = '';
+    for (let i = 0; i < 60; i++) {
+      sessions = tmuxQuery(
+        "list-sessions -F '#{session_name} #{session_group} #{session_windows}'",
+      );
+      if (sessions.includes(grouped)) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const rows = sessions.split('\n').filter((r) => r.trim().length > 0);
+    const base = rows.find((r) => r.startsWith(`${sessionName} `));
+    const second = rows.find((r) => r.startsWith(`${grouped} `));
+    expect(second).toBeDefined();
+    // Same group, and the same number of windows — shared, not duplicated.
+    expect(second.split(' ')[1]).toBe(base.split(' ')[1]);
+    expect(second.split(' ')[2]).toBe(base.split(' ')[2]);
+
+    // Each client has its own current window: moving THIS window's client
+    // leaves the other where it was, which is what a session group buys and what
+    // two clients on one session could never do. The move goes through this
+    // window's own control-mode connection — an external tmux mutation while a
+    // control client is attached can crash tmux 3.5a.
+    const indexes = tmuxQuery(`list-windows -t ${sessionName} -F '#{window_index}'`)
+      .split('\n')
+      .map((i) => i.trim())
+      .filter((i) => i.length > 0);
+    expect(indexes.length).toBeGreaterThanOrEqual(2);
+    const currentOf = (session) =>
+      tmuxQuery(`display-message -p -t ${session} '#{window_index}'`).trim();
+    const otherBefore = currentOf(grouped);
+
+    const target = indexes.find((i) => i !== otherBefore);
+    await invokeCommand(driver, 'run_tmux_command', {
+      command: `select-window -t ${sessionName}:${target}`,
+    });
+
+    let mine = otherBefore;
+    for (let i = 0; i < 60; i++) {
+      mine = currentOf(sessionName);
+      if (mine === target) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    expect(mine).toBe(target);
+    // The second window did not follow.
+    expect(currentOf(grouped)).toBe(otherBefore);
+
+    // Cleaning up after itself: the grouped session is the second window's, and
+    // the suite's teardown only knows about the base one.
+    execSync(`${tmuxCmd()} kill-session -t ${grouped}`, { stdio: 'ignore' });
+  }, 180000);
+
+  test('a window style is applied and reported back', async () => {
+    await setupApp();
+
+    expect(await invokeCommand(driver, 'get_window_style')).toBe('normal');
+
+    // A docked style: the window keeps its height and spans the work area, which
+    // is iTerm2's "Full-Width Top of Screen".
+    await invokeCommand(driver, 'set_window_style', { style: 'full-width-top' });
+    expect(await invokeCommand(driver, 'get_window_style')).toBe('full-width-top');
+
+    // Normal puts back the frame the window had before it was styled.
+    await invokeCommand(driver, 'set_window_style', { style: 'normal' });
+    expect(await invokeCommand(driver, 'get_window_style')).toBe('normal');
+
+    // A style nobody defines is refused rather than silently ignored.
+    await expect(
+      invokeCommand(driver, 'set_window_style', { style: 'sideways' }),
+    ).rejects.toBeTruthy();
+  }, 120000);
+});

@@ -6,6 +6,8 @@ use tmuxy_core::{executor, session};
 use crate::commands;
 use crate::monitor;
 use crate::titlebar;
+use crate::window_style::{self, WindowStyle, WindowStyles};
+use crate::windows;
 
 /// Read a tmuxy user-option, preferring the live tmux server but falling back
 /// to parsing `~/.config/tmuxy/tmuxy.conf` directly when the server isn't up
@@ -170,13 +172,13 @@ fn sync_trace_menu(app: &tauri::AppHandle) {
             let _ = item.set_enabled(on);
         }
     }
-    if let Some(window) = app.get_webview_window("main") {
+    for window in app.webview_windows().values() {
         let _ = window.eval(format!("window.tmuxyTraceSync?.({on})"));
     }
 }
 
-fn build_app_menu(
-    app: &tauri::App,
+fn build_app_menu<M: Manager<tauri::Wry>>(
+    app: &M,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let app_menu = SubmenuBuilder::new(app, "tmuxy")
         .about(None)
@@ -493,13 +495,57 @@ fn build_app_menu(
         .select_all()
         .build()?;
 
-    // --- Window (standard macOS) ---
-    let window_menu = SubmenuBuilder::new(app, "Window")
+    // --- Window ---
+    // iTerm2's shape: a new OS window, the window styles, the standard macOS
+    // items, and every open tmuxy window listed with the digit that focuses it.
+    // Rebuilt by `refresh_menu` whenever a window opens, closes or takes focus,
+    // because both the list and the style check mark describe the focused
+    // window.
+    let focused_label = windows::focused_label(app);
+    let current_style = app.state::<WindowStyles>().of(&focused_label);
+    let mut style_menu = SubmenuBuilder::new(app, "Window Style");
+    for style in window_style::ALL {
+        style_menu = style_menu.item(&CheckMenuItem::with_id(
+            app,
+            style.id(),
+            style.label(),
+            true,
+            style == current_style,
+            None::<&str>,
+        )?);
+    }
+
+    let mut window_menu = SubmenuBuilder::new(app, "Window")
+        .item(&MenuItem::with_id(
+            app,
+            "window-new",
+            "New Window",
+            true,
+            Some("CmdOrCtrl+N"),
+        )?)
+        .separator()
+        .item(&style_menu.build()?)
+        .separator()
         .minimize()
         .maximize()
         .separator()
-        .close_window()
-        .build()?;
+        .close_window();
+
+    let open_windows = windows::list(app);
+    if !open_windows.is_empty() {
+        window_menu = window_menu.separator();
+        for entry in open_windows {
+            window_menu = window_menu.item(&CheckMenuItem::with_id(
+                app,
+                windows::select_id(entry.index),
+                &entry.title,
+                true,
+                entry.label == focused_label,
+                Some(format!("CmdOrCtrl+{}", entry.index).as_str()),
+            )?);
+        }
+    }
+    let window_menu = window_menu.build()?;
 
     // --- Debug ---
     // The local action trace (docs/TELEMETRY.md) and nothing else. The switch
@@ -676,12 +722,36 @@ const FRONTEND_MENU_ACTIONS: &[&str] = &[
 /// Tmux operations are dispatched to the frontend (`window.tmuxyMenuAction`),
 /// which runs them through the control-mode connection — the same path the
 /// in-app menu uses. Frontend-only actions (font size, theme) are dispatched
-/// via window.eval() too.
+/// via window.eval() too. A menu belongs to the application rather than to a
+/// window, so every dispatch goes to the *focused* window: with two windows open
+/// on one session group, New Tab from window 2 must act on window 2.
 fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().0.as_str();
 
+    // Window: another GUI window on the same session group, the window styles,
+    // and the list that focuses one. These are the app's own, not tmux's.
+    if id == "window-new" {
+        if let Err(e) = windows::open(app_handle) {
+            show_status_message(app_handle, &e);
+        }
+        return;
+    }
+    if let Some(index) = windows::index_from_id(id) {
+        windows::focus_index(app_handle, index);
+        return;
+    }
+    if let Some(style) = WindowStyle::from_id(id) {
+        if let Some(window) = windows::focused(app_handle) {
+            if let Err(e) = window_style::apply(&window, style) {
+                show_status_message(app_handle, &format!("Could not apply window style: {e}"));
+            }
+        }
+        refresh_menu(app_handle);
+        return;
+    }
+
     if FRONTEND_MENU_ACTIONS.contains(&id) {
-        if let Some(window) = app_handle.get_webview_window("main") {
+        if let Some(window) = windows::focused(app_handle) {
             // `id` is a fixed literal from the menu definition (not user input);
             // `{id:?}` emits it as a quoted JS string literal.
             if let Err(e) = window.eval(format!("window.tmuxyMenuAction?.({id:?})")) {
@@ -764,7 +834,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
     // Frontend-only actions — dispatch via JS eval. Theme actions reuse the
     // same XState events the web hamburger menu fires, so the Tauri menu and
     // the in-app menu stay in sync without a parallel code path.
-    if let Some(window) = app_handle.get_webview_window("main") {
+    if let Some(window) = windows::focused(app_handle) {
         let owned;
         let js: Option<&str> = match id {
             "view-font-bigger" => Some("window.app?.send({ type: 'INCREASE_FONT_SIZE' })"),
@@ -797,19 +867,25 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
     }
 }
 
-/// Build the main webview window from code so its transparency settings
-/// can react to runtime env (TMUXY_OPAQUE_WINDOW=1 → opaque + decorated).
+/// Build a webview window from code so its transparency settings can react to
+/// runtime env (TMUXY_OPAQUE_WINDOW=1 → opaque + decorated).
 ///
 /// Defaults match the previous tauri.conf.json values exactly so production
 /// behavior is unchanged: transparent webview, hidden macOS title with the
 /// traffic lights centred on the status bar. The opaque branch removes both —
 /// needed when running under Xvfb-style displays that lack a compositor.
-fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+///
+/// Every GUI window is built here, the first one and the ones the Window menu
+/// opens alike, so a second window is the same kind of window as the first.
+pub(crate) fn build_window<M: Manager<tauri::Wry>>(
+    app: &M,
+    label: &str,
+) -> tauri::Result<tauri::WebviewWindow> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
     let opaque = std::env::var_os("TMUXY_OPAQUE_WINDOW").is_some();
 
-    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title("tmuxy")
         .inner_size(800.0, 600.0)
         .resizable(true)
@@ -839,15 +915,61 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
 
     if !opaque {
         titlebar::install(&window);
-    }
-
-    if opaque {
+    } else {
         tmuxy_core::debug_log::log(
             "TMUXY_OPAQUE_WINDOW=1: built window with decorations, no transparency",
         );
     }
 
-    Ok(())
+    Ok(window)
+}
+
+/// The per-window set-up that is not the builder's: the native blur behind it,
+/// the platform hint the layout reads, and the menu refresh that keeps the
+/// Window menu describing whichever window has focus.
+pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
+    apply_blur(window);
+
+    // Tell the frontend which platform we're on so it can adjust layout
+    // (e.g., hide hamburger menu on macOS, add traffic light spacing)
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    };
+    let _ = window.eval(format!(
+        "document.documentElement.setAttribute('data-platform', '{}')",
+        platform
+    ));
+
+    // The registry follows the window out of existence, and (for a window that
+    // has a session of its own) takes that session with it.
+    windows::watch_for_close(window);
+
+    // The Window menu's check marks name the focused window and the style IT is
+    // in, so focus is a menu change like opening a window is.
+    let app = window.app_handle().clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Focused(true)) {
+            refresh_menu(&app);
+        }
+    });
+}
+
+/// Rebuild the native menu bar in place. macOS only — it is the only platform
+/// with one; elsewhere the in-app hamburger menu is the app menu.
+pub(crate) fn refresh_menu(app: &tauri::AppHandle) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    match build_app_menu(app) {
+        Ok(menu) => {
+            let _ = app.set_menu(menu);
+        }
+        Err(e) => eprintln!("Failed to rebuild app menu: {}", e),
+    }
 }
 
 /// Path to the persistent debug log written by tmuxy_core::debug_log.
@@ -951,7 +1073,7 @@ fn build_log_header(path: &std::path::Path) -> String {
 /// Forward a transient status banner to the React UI via window.eval.
 /// Matches `ShowStatusMessageEvent` in tmuxy-ui (event.text).
 fn show_status_message(app: &tauri::AppHandle, message: &str) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = windows::focused(app) {
         // serde_json produces a complete JS string literal, including escapes
         // for newlines. Hand-rolling `\\` and `'` missed `\n`/`\r`, so a
         // multi-line message (an fs error with a path plus context) produced a
@@ -1028,6 +1150,10 @@ pub fn run() {
         )
         .manage(monitor::KeyBindingsState::default())
         .manage(monitor::MonitorState::default())
+        // Several GUI windows over one tmux session group, and the style each
+        // window is in.
+        .manage(windows::GuiWindows::default())
+        .manage(WindowStyles::default())
         // Pictures a pane drew (Kitty, iTerm2, Sixel) are decoded by the
         // monitor and kept in MonitorState; the webview fetches them through
         // this scheme. The web build serves the same bytes over
@@ -1043,8 +1169,7 @@ pub fn run() {
             };
             // tmuxyimg://localhost/<pane digits>/<image id>
             let path = request.uri().path().to_string();
-            let state = ctx.app_handle().state::<monitor::MonitorState>();
-            match monitor::lookup_image(&state.images, &path) {
+            match windows::lookup_image(ctx.app_handle(), &path) {
                 Some(img) => tauri::http::Response::builder()
                     .status(tauri::http::StatusCode::OK)
                     .header("Content-Type", img.mime_type)
@@ -1216,7 +1341,7 @@ pub fn run() {
             // paints onto a never-rendered surface and screenshots come
             // out monochrome. TMUXY_OPAQUE_WINDOW=1 lets tests in headless
             // CI/dev envs render visibly without changing prod defaults.
-            create_main_window(app)?;
+            let main_window = build_window(app.handle(), windows::MAIN_LABEL)?;
 
             // Set up native menu bar (macOS) with event handler
             if cfg!(target_os = "macos") {
@@ -1229,24 +1354,8 @@ pub fn run() {
                 app.on_menu_event(handle_menu_event);
             }
 
-            // Native blur behind the window, from tmuxy config
-            if let Some(window) = app.get_webview_window("main") {
-                apply_blur(&window);
-
-                // Tell the frontend which platform we're on so it can adjust layout
-                // (e.g., hide hamburger menu on macOS, add traffic light spacing)
-                let platform = if cfg!(target_os = "macos") {
-                    "macos"
-                } else if cfg!(target_os = "windows") {
-                    "windows"
-                } else {
-                    "linux"
-                };
-                let _ = window.eval(format!(
-                    "document.documentElement.setAttribute('data-platform', '{}')",
-                    platform
-                ));
-            }
+            // Native blur, the platform hint, and the focus-driven menu refresh.
+            configure_window(&main_window);
 
             // Start control mode monitoring in background. The monitor
             // owns the live CC connection's command channel — handing the
@@ -1254,6 +1363,9 @@ pub fn run() {
             // handlers route mutations through that channel.
             let app_handle = app.handle().clone();
             let monitor_state = app.state::<monitor::MonitorState>().inner().clone();
+            // The first window's registry entry: every tmux command resolves its
+            // monitor through the registry, this one included.
+            windows::register_main(app.handle(), monitor_state.clone());
             // Watch for `tmuxy connect` socket-switch requests. Shares the same
             // MonitorState so it can ask the monitor loop to reconnect.
             let connect_watch_state = monitor_state.clone();
@@ -1296,6 +1408,14 @@ pub fn run() {
             commands::connect_server,
             commands::add_server,
             commands::detach_client,
+            // Several GUI windows over one tmux session group, and the iTerm2
+            // window styles — the in-app Window menu's side of `windows.rs`
+            // (the native macOS menu bar drives them directly).
+            commands::new_window,
+            commands::focus_window,
+            commands::list_gui_windows,
+            commands::set_window_style,
+            commands::get_window_style,
             // Local action tracing (docs/TELEMETRY.md): the frontend tracer
             // queries `trace_enabled` and ships batches to `record_trace`.
             commands::trace_enabled,

@@ -182,6 +182,24 @@ The desktop app's executor adds `-t <session>` to commands that name no target. 
 
 The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy therefore resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and no longer ships `bind -n C-N` lines in its config. Every window or pane the client then names in a command is an **id** (`@N` / `%N`), never a tmux index: `renumber-windows` shifts indices whenever a window closes and tmux announces none of the shifts, so an index the client holds can be a beat stale (a split once landed in the wrong tab that way). The backend re-lists windows after any window add, close or reorder, but the id rule is what makes a stale list harmless. A command must also name the WINDOW it acts on, not just the pane: `select-pane` on a pane in another window sets that window's active pane and leaves tmux's current window alone, so a `split-window` after it still runs wherever tmux already was. The keyboard actor's pin therefore always leads with `select-window` (taking the window from the pinned pane when the machine has not published an active one yet), and the sidebar and float creators name the pane they split, because nothing in their command list switches windows first. No target is ever added on the way to tmux, on either transport: the pinned list reaches the control-mode connection byte-identical (`command_router::route_command`). The desktop used to run commands as external subprocesses and inject `-t <session>` into any command without one; a session target is resolved late, against the session's *current* window, so a concurrent `select-window` from the monitor's own client between the pin and the split moved the split to whatever tab tmux was on — the untargeted command after a pin, sent as-is, inherits the queue's current target and holds it. `ctrl+0` (and `prefix w`, and the grid button at the right end of the app header) opens the Tab Overview — a client-side grid of every tab where a slot click selects, the trailing "+" creates, a slot's ✕ kills, and a drag reorders by sending `move-window -b`/`-a` against the neighbouring tab's `@id` (a tab dragged along the strip itself reorders the same way). Each slot draws its tab's panes with the screen each pane had when the overview opened: a still taken once, kept in the machine's `tabOverviewSnapshot`, so a tab that keeps printing does not churn its thumbnail. See `tmuxy-ui/src/machines/app/actions/tabOverview.ts` and `tmuxy-ui/src/components/TabOverview.tsx`.
 
+## Session groups: two GUI windows over one session
+
+tmux's *current window* belongs to a session, not to a client, so two clients on one session always
+look at the same tab. The desktop app's second OS window therefore gets its own session in a session
+**group**: `tmux -CC new-session -A -s <base>~<index> -t <base>`. Group members share every window
+and pane — the same windows, linked, not copies — while each keeps its own current window, which is
+what lets one OS window sit on one tab and another on a different one. `-A` makes the call idempotent,
+so re-opening a window reattaches the session it had rather than failing.
+
+Killing a group member is safe: its windows stay alive in the remaining members, so closing the second
+GUI window (which kills `<base>~<index>`) takes nothing with it. A window close that the app does not
+see — a crash, a `kill -9` — leaves the grouped session behind; the next window to take that index
+reattaches it.
+
+The keys stay distinct from the tab keys: `ctrl+1`…`ctrl+9` select a **tab**, while `cmd+1`…`cmd+9`
+(`ctrl+shift+1`…`9` off macOS) select a **GUI window**, and `cmd+n` / `ctrl+shift+n` opens one. See
+[DATA-FLOW.md](DATA-FLOW.md) for the per-window monitor and the event addressing that goes with it.
+
 ## `%unlinked-window-close` Events
 
 **Behavior:** tmux fires `%unlinked-window-close` (instead of `%window-close`) for windows from **other sessions** sharing the same tmux server. The parser handles both event types (`parser.rs`), but `state.rs` intentionally **ignores** `UnlinkedWindowClose` events to avoid polluting the current session's state with events from other sessions.

@@ -1248,6 +1248,7 @@ pub async fn start_monitoring(
         session: session.clone(),
         sync_interval: Duration::from_millis(500),
         create_session: true,
+        group_target: None,
         throttle_interval: Duration::from_millis(32),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),

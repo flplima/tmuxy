@@ -16,6 +16,7 @@ export const copyModeState = {
     EXIT_COPY_MODE: { actions: 'copyMode_exit' },
     ENTER_SCROLL_MODE: { actions: 'copyMode_enterScroll' },
     EXIT_SCROLL_MODE: { actions: 'copyMode_exitScroll' },
+    SELECT_ALL_SCROLLBACK: { actions: 'copyMode_selectAll' },
     COPY_MODE_CHUNK_LOADED: { actions: 'copyMode_chunkLoaded' },
     COPY_MODE_CURSOR_MOVE: { actions: 'copyMode_cursorMove' },
     COPY_MODE_SELECTION_START: { actions: 'copyMode_selectionStart' },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractSelectedText, isWrappedRow } from '../copyMode';
+import { extractSelectedText, firstUnloadedGap, isWrappedRow } from '../copyMode';
 import type { CopyModeState, CellLine } from '../../tmux/types';
 
 function makeLine(text: string): CellLine {
@@ -105,5 +105,55 @@ describe('extractSelectedText', () => {
       },
     );
     expect(extractSelectedText(state)).toBe('0123456789tail\nnext');
+  });
+});
+
+describe('firstUnloadedGap', () => {
+  it('finds the hole lazy loading leaves in the middle', () => {
+    // The shape a select-all hits: the tail loaded on entry, the top filled
+    // after the real history size arrived, and nothing in between — which is
+    // the middle of the copied text going missing.
+    expect(
+      firstUnloadedGap(
+        [
+          [0, 29],
+          [196, 309],
+        ],
+        310,
+      ),
+    ).toEqual([30, 195]);
+  });
+
+  it('reports the rows above and below what is loaded', () => {
+    expect(firstUnloadedGap([[100, 200]], 310)).toEqual([0, 99]);
+    expect(firstUnloadedGap([[0, 200]], 310)).toEqual([201, 309]);
+  });
+
+  it('is null once every row is covered', () => {
+    expect(firstUnloadedGap([[0, 309]], 310)).toBeNull();
+    expect(
+      firstUnloadedGap(
+        [
+          [0, 100],
+          [101, 309],
+        ],
+        310,
+      ),
+    ).toBeNull();
+    // Overlapping and out-of-order ranges still count as covered.
+    expect(
+      firstUnloadedGap(
+        [
+          [50, 309],
+          [0, 80],
+        ],
+        310,
+      ),
+    ).toBeNull();
+  });
+
+  it('has nothing to fill in an empty scrollback', () => {
+    expect(firstUnloadedGap([], 0)).toBeNull();
+    expect(firstUnloadedGap([], 5)).toEqual([0, 4]);
   });
 });

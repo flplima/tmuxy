@@ -7,6 +7,8 @@ mod desktop;
 mod gui;
 mod monitor;
 mod titlebar;
+mod window_style;
+mod windows;
 
 fn main() {
     // Register with the applications menu before dispatching, so a user who
@@ -45,10 +47,7 @@ fn main() {
         Some("connect") if args.len() == 1 => cli::run_connect_form(),
 
         // Known CLI nouns and flags → exec the shell dispatcher
-        Some(
-            "pane" | "tab" | "session" | "widget" | "nav" | "event" | "run" | "connect" | "info"
-            | "skill" | "--json" | "-j",
-        ) => {
+        Some(cmd) if is_cli_subcommand(cmd) => {
             cli::run_cli(args);
         }
 
@@ -62,5 +61,39 @@ fn main() {
             cli::print_help();
             std::process::exit(1);
         }
+    }
+}
+
+pub fn is_cli_subcommand(noun: &str) -> bool {
+    matches!(
+        noun,
+        "pane"
+            | "tab"
+            | "session"
+            | "widget"
+            | "nav"
+            | "queue"
+            | "q"
+            | "event"
+            | "run"
+            | "connect"
+            | "info"
+            | "skill"
+            | "--json"
+            | "-j"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_subcommands_include_queue_and_q() {
+        assert!(is_cli_subcommand("queue"));
+        assert!(is_cli_subcommand("q"));
+        assert!(is_cli_subcommand("pane"));
+        assert!(is_cli_subcommand("tab"));
+        assert!(!is_cli_subcommand("nonexistent"));
     }
 }

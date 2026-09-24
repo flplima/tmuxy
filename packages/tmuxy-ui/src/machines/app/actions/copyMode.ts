@@ -16,6 +16,8 @@ import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import type { CopyModeState, CellLine, ScrollbackMode } from '../../../tmux/types';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import {
+  firstUnloadedGap,
+  shiftScrollbackRows,
   mergeScrollbackChunk,
   getNeededChunk,
   isWrappedRow,
@@ -27,6 +29,20 @@ import { writeClipboard } from '../../../utils/clipboard';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
+
+/**
+ * Every row of a pane's scrollback selected: a line selection from the first row
+ * of history to the last row on screen.
+ */
+function selectEveryRow(state: CopyModeState): CopyModeState {
+  return {
+    ...state,
+    selectionMode: 'line',
+    selectionAnchor: { row: 0, col: 0 },
+    cursorRow: Math.max(0, state.totalLines - 1),
+    cursorCol: Math.max(0, state.width - 1),
+  };
+}
 
 /**
  * Build the per-pane scrollback record both views share.
@@ -230,6 +246,63 @@ export const copyModeActions = {
     },
   ),
 
+  /**
+   * Select the whole of a pane's scrollback (Cmd+A / Ctrl+Shift+A).
+   *
+   * A selection over history needs a view that renders history, so a pane with
+   * neither view open gets the scroll view — the one that tells tmux nothing and
+   * leaves the application running. The selection is the client's, not the
+   * browser's: most of the scrollback has no DOM node to select, and the copy is
+   * read from the loaded rows (`extractSelectedText`).
+   */
+  copyMode_selectAll: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'SELECT_ALL_SCROLLBACK') return;
+
+      const open = context.copyModeStates[event.paneId];
+      if (open) {
+        enqueue(
+          assign({
+            copyModeStates: {
+              ...context.copyModeStates,
+              [event.paneId]: selectEveryRow(open),
+            },
+          }),
+        );
+        return;
+      }
+
+      // The same gate the wheel uses: a full-screen application's screen is its
+      // own, with no scrollback behind it to select, and tmux's own mode owns the
+      // pane. Nothing to select all of there.
+      const pane = context.panes.find((p) => p.tmuxId === event.paneId);
+      if (!pane || pane.alternateOn || pane.inMode) return;
+
+      const built = buildScrollbackState(context, event.paneId, 'scroll', {});
+      if (!built) return;
+
+      enqueue(
+        assign({
+          copyModeStates: {
+            ...context.copyModeStates,
+            // The whole backlog is on its way; `pendingSelectAll` re-lays the
+            // selection over its real extent when it lands.
+            [event.paneId]: { ...selectEveryRow(built.state), pendingSelectAll: true },
+          },
+        }),
+      );
+
+      enqueue(
+        sendTo('tmux', {
+          type: 'FETCH_SCROLLBACK_CELLS' as const,
+          paneId: event.paneId,
+          start: -built.historySize,
+          end: built.height - 1,
+        }),
+      );
+    },
+  ),
+
   copyMode_exit: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
       if (event.type !== 'EXIT_COPY_MODE') return;
@@ -271,9 +344,16 @@ export const copyModeActions = {
       const existing = context.copyModeStates[event.paneId];
       if (!existing) return;
 
+      // What is already loaded was keyed against the history size known then.
+      // This response may carry a bigger one — a view can open before tmux has
+      // reported the pane's real `history_size` — so the stored rows move down
+      // by the difference before the new chunk is merged onto them.
+      const histDiff = event.historySize - existing.historySize;
+      const shifted = shiftScrollbackRows(existing.lines, existing.loadedRanges, histDiff);
+
       const { lines, loadedRanges } = mergeScrollbackChunk(
-        existing.lines,
-        existing.loadedRanges,
+        shifted.lines,
+        shifted.loadedRanges,
         event.cells,
         event.historySize,
         event.start,
@@ -281,7 +361,6 @@ export const copyModeActions = {
       );
 
       const totalLines = event.historySize + existing.height;
-      const histDiff = event.historySize - existing.historySize;
 
       const updated: CopyModeState = {
         ...existing,
@@ -320,7 +399,36 @@ export const copyModeActions = {
       // of how copy mode was entered; without it, scrollback above the initial
       // window would render as placeholders until the user scrolled into it.
       const topRow = loadedRanges.length > 0 ? loadedRanges[0][0] : totalLines;
-      if (topRow > 0) {
+
+      // Select-all re-lays itself over the real extent every time a chunk
+      // widens it, and keeps asking for the next hole until every selected row
+      // is backed by loaded cells. Two things make that necessary: the pane's
+      // own `history_size` can still be catching up when the view opens, so the
+      // first fetch asks for a too-small slab; and lazy loading leaves holes on
+      // purpose, which for an ordinary scroll is fine and for a copy of the
+      // whole history is a gap in the middle of the text.
+      const selectAllGap = existing.pendingSelectAll
+        ? firstUnloadedGap(loadedRanges, totalLines)
+        : null;
+      if (existing.pendingSelectAll) {
+        Object.assign(updated, selectEveryRow(updated));
+        updated.pendingSelectAll = selectAllGap ? true : undefined;
+        if (selectAllGap) {
+          updated.loading = true;
+          enqueue(
+            sendTo('tmux', {
+              type: 'FETCH_SCROLLBACK_CELLS' as const,
+              paneId: event.paneId,
+              start: selectAllGap[0] - event.historySize,
+              end: selectAllGap[1] - event.historySize,
+            }),
+          );
+        }
+      }
+
+      // The top fill below covers the same ground for an ordinary view; under a
+      // select-all the gap fetch above has it.
+      if (!existing.pendingSelectAll && topRow > 0) {
         updated.loading = true;
         enqueue(
           sendTo('tmux', {

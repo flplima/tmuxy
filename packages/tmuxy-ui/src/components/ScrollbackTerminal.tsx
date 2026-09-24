@@ -25,9 +25,11 @@ interface ScrollbackTerminalProps {
 }
 
 /**
- * The scroll view draws no cursor and paints no selection of its own: the
- * browser owns selecting there, the way it does in a native terminal. Copy
- * mode keeps both, because its cursor IS the selection's moving end.
+ * The scroll view draws no cursor: selecting there is the browser's, the way it
+ * is in a native terminal. Copy mode keeps the cursor, because it IS the
+ * selection's moving end. The painted selection belongs to both — select-all
+ * (Cmd+A) puts a client selection on the scroll view, where the browser has no
+ * nodes to select for the history that is off screen.
  */
 
 const EMPTY_LINE: CellLine = [];
@@ -186,18 +188,19 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
   const { selectionAnchor, selectionMode, width, mode } = copyState;
   const isCopyMode = mode === 'copy';
 
+  // A client selection paints in either view. Copy mode is where one usually
+  // comes from, but Cmd+A puts one on the scroll view too — and there the
+  // browser's own selection is simply empty, since select-all cleared it.
   const getSelectionRange = useMemo(
     () =>
-      isCopyMode
-        ? computeScrollbackSelection({
-            selectionAnchor,
-            selectionMode,
-            cursorRow,
-            cursorCol,
-            width,
-          })
-        : () => null,
-    [isCopyMode, selectionAnchor, selectionMode, cursorRow, cursorCol, width],
+      computeScrollbackSelection({
+        selectionAnchor,
+        selectionMode,
+        cursorRow,
+        cursorCol,
+        width,
+      }),
+    [selectionAnchor, selectionMode, cursorRow, cursorCol, width],
   );
 
   // Visible line range with overscan buffer (1 screen above + 1 screen below)

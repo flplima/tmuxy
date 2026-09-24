@@ -10,6 +10,8 @@ Feature-to-files retrieval map for agents.
 | Frontend state machine | `packages/tmuxy-ui/src` (XState machine and hooks) |
 | CLI dispatcher and event queue | `bin/tmuxy-cli` |
 | Tauri bridge and desktop shell | `packages/tmuxy-tauri-app` |
+| GUI windows on one session, and the Window menu | `packages/tmuxy-tauri-app/src/windows.rs`<br>`packages/tmuxy-ui/src/components/menus/WindowMenu.tsx`<br>`packages/tmuxy-ui/src/utils/guiWindows.ts` |
+| Window styles (iTerm2's set) | `packages/tmuxy-tauri-app/src/window_style.rs` |
 | Copy mode behavior | `docs/COPY-MODE.md` + related UI files |
 | Rich rendering / OSC / image protocols | `docs/RICH-RENDERING.md` |
 | Performance harnesses | `perf`<br>`packages/tmuxy-ui/scripts` |

@@ -132,6 +132,58 @@ export function isRowLoaded(ranges: Array<[number, number]>, row: number): boole
 }
 
 /**
+ * Re-key loaded rows after tmux reports a different `history_size`.
+ *
+ * A row's absolute index is `history_size + <tmux offset>`, so everything
+ * already merged was keyed against the size known at the time. When that size
+ * turns out to be larger — a view opened before `history_size` finished syncing
+ * starts at nearly zero — every stored row belongs `diff` rows further down. Left
+ * unshifted, the screen rows sit on top of the oldest history and a copy of the
+ * whole scrollback comes back with the tail at the front.
+ */
+export function shiftScrollbackRows(
+  lines: Map<number, CellLine>,
+  loadedRanges: Array<[number, number]>,
+  diff: number,
+): { lines: Map<number, CellLine>; loadedRanges: Array<[number, number]> } {
+  if (diff === 0) return { lines, loadedRanges };
+  const shifted = new Map<number, CellLine>();
+  for (const [row, line] of lines) {
+    const moved = row + diff;
+    if (moved >= 0) shifted.set(moved, line);
+  }
+  const ranges = loadedRanges
+    .map(([start, end]): [number, number] => [start + diff, end + diff])
+    .filter(([, end]) => end >= 0)
+    .map(([start, end]): [number, number] => [Math.max(0, start), end]);
+  return { lines: shifted, loadedRanges: ranges };
+}
+
+/**
+ * The first span of rows in `0..totalLines-1` that no loaded range covers, or
+ * null when every row is loaded.
+ *
+ * Lazy loading leaves holes on purpose — chunks are fetched around the viewport
+ * — but a selection over the whole scrollback has to be backed by rows
+ * everywhere, or the copy comes back with the middle missing. Select-all uses
+ * this to keep asking until there are no holes left.
+ */
+export function firstUnloadedGap(
+  loadedRanges: Array<[number, number]>,
+  totalLines: number,
+): [number, number] | null {
+  if (totalLines <= 0) return null;
+  const sorted = [...loadedRanges].sort((a, b) => a[0] - b[0]);
+  let row = 0;
+  for (const [start, end] of sorted) {
+    if (start > row) return [row, Math.min(start - 1, totalLines - 1)];
+    row = Math.max(row, end + 1);
+    if (row >= totalLines) return null;
+  }
+  return row <= totalLines - 1 ? [row, totalLines - 1] : null;
+}
+
+/**
  * Check if we need to load more content based on scroll position.
  * Returns the tmux start/end offsets to fetch, or null if no fetch needed.
  */

@@ -121,6 +121,47 @@ describe('copyMode state', () => {
     expect(sent.some((c) => c.startsWith('copy-mode'))).toBe(false);
   });
 
+  it('SELECT_ALL_SCROLLBACK opens the scroll view over the whole history and selects it', () => {
+    const pane = makePane('%1', [makeLine('line a'), makeLine('line b')]);
+    const actor = mountState(copyModeState, copyModeActions, copyModeGuards, { panes: [pane] });
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_ALL_SCROLLBACK', paneId: '%1' });
+
+    const state = ctx.copyModeStates['%1'];
+    expect(state.mode).toBe('scroll');
+    // First row of history to last row on screen, as a line selection: the whole
+    // scrollback, not the part that happens to be rendered.
+    expect(state.selectionMode).toBe('line');
+    expect(state.selectionAnchor).toEqual({ row: 0, col: 0 });
+    expect(state.cursorRow).toBe(state.totalLines - 1);
+    // Held until every selected row is loaded — the pane's history_size may
+    // still be catching up, and a copy needs cells everywhere.
+    expect(state.pendingSelectAll).toBe(true);
+  });
+
+  it('SELECT_ALL_SCROLLBACK selects an already open view without rebuilding it', () => {
+    const open = makeCopyState({ mode: 'scroll', selectionMode: null, selectionAnchor: null });
+    const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+      copyModeStates: { '%1': open },
+    });
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_ALL_SCROLLBACK', paneId: '%1' });
+
+    const state = ctx.copyModeStates['%1'];
+    expect(state.selectionAnchor).toEqual({ row: 0, col: 0 });
+    expect(state.cursorRow).toBe(open.totalLines - 1);
+    // Already loaded, so there is nothing left to wait for.
+    expect(state.pendingSelectAll).toBeUndefined();
+    expect(state.lines).toBe(open.lines);
+  });
+
+  it('SELECT_ALL_SCROLLBACK does nothing to a full-screen application', () => {
+    // Same gate as the wheel: an alternate-screen pane has no scrollback behind
+    // it, and its screen belongs to the application.
+    const pane = { ...makePane('%1', [makeLine('nvim')]), alternateOn: true };
+    const actor = mountState(copyModeState, copyModeActions, copyModeGuards, { panes: [pane] });
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_ALL_SCROLLBACK', paneId: '%1' });
+    expect(ctx.copyModeStates['%1']).toBeUndefined();
+  });
+
   it('EXIT_SCROLL_MODE drops the view without cancelling a mode tmux never entered', () => {
     const sent: string[] = [];
     copyModeExitTimes.delete('%1');

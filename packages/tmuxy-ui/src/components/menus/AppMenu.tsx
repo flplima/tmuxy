@@ -47,6 +47,7 @@ import { PaneMenuItems } from './PaneMenuItems';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
 import type { WidgetMenuItem } from '../widgets';
 import { KeyLabel } from './KeyLabel';
+import { WindowMenu } from './WindowMenu';
 import './AppMenu.css';
 
 export function AppMenu() {
@@ -167,6 +168,9 @@ export function AppMenu() {
           </MenuItem>
         </SubMenu>
       )}
+
+      {/* OS windows are the desktop app's to manage; a browser tab has none. */}
+      {isTauri() && <WindowMenu />}
 
       <SubMenu label="Theme">
         <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>

@@ -6,15 +6,17 @@ use tmuxy_core::{executor, Ctx};
 
 use crate::monitor::{KeyBindingsState, MonitorState};
 use crate::titlebar;
+use crate::windows;
 
 use tmuxy_core::session::session_name as get_session;
 
 #[tauri::command]
 pub async fn get_initial_state(
-    state: State<'_, MonitorState>,
+    window: tauri::WebviewWindow,
     cols: Option<u32>,
     rows: Option<u32>,
 ) -> Result<Value, String> {
+    let state = windows::monitor_for(&window)?;
     // Resize if dimensions provided
     if let (Some(c), Some(r)) = (cols, rows) {
         resize_via_monitor(&state, c, r).await;
@@ -54,7 +56,7 @@ const MONITOR_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// The monitor's command channel, waiting for the monitor to finish
 /// connecting if the webview asked first.
 async fn wait_for_monitor(
-    state: &State<'_, MonitorState>,
+    state: &MonitorState,
 ) -> Result<tmuxy_core::control_mode::MonitorCommandSender, String> {
     let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
     loop {
@@ -70,10 +72,11 @@ async fn wait_for_monitor(
 
 #[tauri::command]
 pub async fn set_client_size(
-    state: State<'_, MonitorState>,
+    window: tauri::WebviewWindow,
     cols: u32,
     rows: u32,
 ) -> Result<(), String> {
+    let state = windows::monitor_for(&window)?;
     // Cache the size so the next run_tmux_command("new-window") can size
     // the broken-out window to match the viewport. Without this the new
     // window inherits the half-width post-`splitw` size and looks tiny.
@@ -88,7 +91,7 @@ pub async fn set_client_size(
 /// `MonitorCommand::ResizeWindow` the web server sends. Before the monitor is
 /// connected there is nothing to size yet; it replays the client size once
 /// the window list lands (see `TmuxMonitor::apply_client_size`).
-async fn resize_via_monitor(state: &State<'_, MonitorState>, cols: u32, rows: u32) {
+async fn resize_via_monitor(state: &MonitorState, cols: u32, rows: u32) {
     let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
     match cmd_tx {
         Some(tx) => {
@@ -105,9 +108,12 @@ async fn resize_via_monitor(state: &State<'_, MonitorState>, cols: u32, rows: u3
 #[tauri::command]
 pub async fn run_tmux_command(
     app: tauri::AppHandle,
-    state: State<'_, MonitorState>,
+    window: tauri::WebviewWindow,
     command: String,
 ) -> Result<(), String> {
+    let entry = windows::entry_for(&window)?;
+    let session = entry.session();
+    let state = entry.monitor;
     // `source-file` may change the prefix, the theme or the appearance options:
     // push the fresh settings once tmux has applied it (same settle delay as
     // the SSE server's re-broadcast).
@@ -115,15 +121,15 @@ pub async fn run_tmux_command(
         let trimmed = command.trim_start();
         trimmed.starts_with("source-file") || trimmed.starts_with("source ")
     };
-    let Some(routed) = route(&state, &command)? else {
+    let Some(routed) = route(&state, &session, &command)? else {
         return Ok(());
     };
     send_via_monitor(&state, MonitorCommand::RunCommand { command: routed }).await?;
     if is_source_file {
         tokio::time::sleep(SOURCE_FILE_SETTLE).await;
         crate::monitor::emit_theme_settings(&app).await;
-        if let Some(window) = app.get_webview_window("main") {
-            crate::gui::apply_blur(&window);
+        for window in app.webview_windows().values() {
+            crate::gui::apply_blur(window);
         }
     }
     Ok(())
@@ -134,19 +140,17 @@ pub async fn run_tmux_command(
 /// the command's own output (`RunCommandWithReply`), and an `%error` from
 /// tmux comes back as the Err.
 #[tauri::command]
-pub async fn query_tmux(state: State<'_, MonitorState>, command: String) -> Result<String, String> {
-    let Some(routed) = route(&state, &command)? else {
+pub async fn query_tmux(window: tauri::WebviewWindow, command: String) -> Result<String, String> {
+    let entry = windows::entry_for(&window)?;
+    let Some(routed) = route(&entry.monitor, &entry.session(), &command)? else {
         return Err("command not allowed".to_string());
     };
-    query_via_monitor(&state, &routed).await
+    query_via_monitor(&entry.monitor, &routed).await
 }
 
 /// Run a command through the monitor and wait for what it printed. An
 /// `%error` from tmux is the Err, carrying tmux's message.
-async fn query_via_monitor(
-    state: &State<'_, MonitorState>,
-    command: &str,
-) -> Result<String, String> {
+async fn query_via_monitor(state: &MonitorState, command: &str) -> Result<String, String> {
     let (reply, rx) = tokio::sync::oneshot::channel();
     send_via_monitor(
         state,
@@ -166,7 +170,7 @@ const SOURCE_FILE_SETTLE: std::time::Duration = std::time::Duration::from_millis
 
 /// The shared policy (`tmuxy_core::command_router`): `None` for a blocked
 /// command (logged, not an error — the web server answers those with null).
-fn route(state: &State<'_, MonitorState>, command: &str) -> Result<Option<String>, String> {
+fn route(state: &MonitorState, session: &str, command: &str) -> Result<Option<String>, String> {
     // Record the WHAT as the tmux verb (content-free; args only at trace level
     // `full`) — parity with the web server's send_via_control_mode.
     tracing::debug!(
@@ -176,7 +180,7 @@ fn route(state: &State<'_, MonitorState>, command: &str) -> Result<Option<String
         "run command"
     );
     let size = state.last_client_size.read().ok().and_then(|g| *g);
-    match tmuxy_core::command_router::route_command(command, &get_session(), size) {
+    match tmuxy_core::command_router::route_command(command, session, size) {
         tmuxy_core::command_router::Route::Blocked(reason) => {
             tracing::warn!(target: "tmuxy_tauri_app::commands", command, reason, "blocked command");
             Ok(None)
@@ -192,10 +196,7 @@ fn route(state: &State<'_, MonitorState>, command: &str) -> Result<Option<String
 /// is how a pinned split used to land on the wrong tab. Before the monitor
 /// connects there is nothing to write to; the frontend only sends once
 /// connected, so reaching this without a channel is a bug worth surfacing.
-async fn send_via_monitor(
-    state: &State<'_, MonitorState>,
-    cmd: MonitorCommand,
-) -> Result<(), String> {
+async fn send_via_monitor(state: &MonitorState, cmd: MonitorCommand) -> Result<(), String> {
     let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
     let Some(tx) = cmd_tx else {
         return Err("monitor not connected".to_string());
@@ -295,8 +296,9 @@ pub async fn get_themes_list() -> Result<Value, String> {
 /// every pane on the socket (read through tmux, never supplied by the page).
 /// The git subprocesses stay off Tauri's async runtime.
 #[tauri::command]
-pub async fn list_git_worktrees(state: State<'_, MonitorState>) -> Result<Value, String> {
+pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, String> {
     use tmuxy_core::worktrees::{list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD};
+    let state = windows::monitor_for(&window)?;
     let listing = query_via_monitor(&state, LIST_PANE_PATHS_CMD).await?;
     let repositories = tauri::async_runtime::spawn_blocking(move || {
         list_git_worktrees(paths_from_pane_listing(&listing))
@@ -365,13 +367,14 @@ pub async fn list_servers() -> Result<Value, String> {
 ///
 /// [`request_reconnect`]: crate::monitor::request_reconnect
 #[tauri::command]
-pub async fn connect_server(state: State<'_, MonitorState>, id: String) -> Result<(), String> {
+pub async fn connect_server(window: tauri::WebviewWindow, id: String) -> Result<(), String> {
+    let state = windows::monitor_for(&window)?;
     let server =
         tmuxy_core::servers::find_server(&id).ok_or_else(|| format!("unknown server '{id}'"))?;
     let (socket, ssh) = server.connect_env();
     let session = server.session.clone().unwrap_or_else(get_session);
     crate::monitor::request_reconnect(
-        state.inner(),
+        &state,
         crate::monitor::ConnectTarget {
             socket,
             session,
@@ -405,9 +408,66 @@ pub async fn add_server(dest: String, socket: Option<String>) -> Result<String, 
 /// or its loop treats the ended connection as a flap and reattaches, dropping
 /// the user back into the session they just left.
 #[tauri::command]
-pub async fn detach_client(state: State<'_, MonitorState>) -> Result<(), String> {
-    crate::monitor::request_detach(state.inner()).await;
+pub async fn detach_client(window: tauri::WebviewWindow) -> Result<(), String> {
+    let state = windows::monitor_for(&window)?;
+    crate::monitor::request_detach(&state).await;
     Ok(())
+}
+
+/// Open another GUI window on the same tmux session group (Window ▸ New Window).
+///
+/// The new window is a second, independent client: it shares every tab and pane
+/// with this one but keeps its own current tab, so two tabs of one session can be
+/// on screen at once. See `windows.rs`.
+#[tauri::command]
+pub fn new_window(app: tauri::AppHandle) -> Result<(), String> {
+    crate::windows::open(&app).map(|_| ())
+}
+
+/// Bring the GUI window at `index` to the front (Window ▸ the window list, and
+/// the Cmd/Ctrl+Shift+digit shortcuts).
+#[tauri::command]
+pub fn focus_window(app: tauri::AppHandle, index: usize) {
+    crate::windows::focus_index(&app, index);
+}
+
+/// Every open GUI window, in Window-menu order, for the in-app menu to list —
+/// the native menu bar builds its own from the same registry.
+#[tauri::command]
+pub fn list_gui_windows(app: tauri::AppHandle) -> Vec<Value> {
+    let focused = windows::focused_label(&app);
+    windows::list(&app)
+        .into_iter()
+        .map(|entry| {
+            serde_json::json!({
+                "index": entry.index,
+                "title": entry.title,
+                "focused": entry.label == focused,
+            })
+        })
+        .collect()
+}
+
+/// Put this window into one of the iTerm2 window styles, by its menu slug
+/// (`full-width-top`, `no-title-bar`, …). Unknown slugs are refused rather than
+/// silently ignored, so a typo in the UI shows up as a snackbar.
+#[tauri::command]
+pub fn set_window_style(window: tauri::WebviewWindow, style: String) -> Result<(), String> {
+    let style = crate::window_style::WindowStyle::from_id(&format!("window-style-{style}"))
+        .ok_or_else(|| format!("unknown window style '{style}'"))?;
+    crate::window_style::apply(&window, style).map_err(|e| e.to_string())?;
+    crate::gui::refresh_menu(&window.app_handle().clone());
+    Ok(())
+}
+
+/// The style this window is in, as its slug — what the in-app menu ticks.
+#[tauri::command]
+pub fn get_window_style(window: tauri::WebviewWindow) -> String {
+    crate::window_style::slug_of(
+        window
+            .state::<crate::window_style::WindowStyles>()
+            .of(window.label()),
+    )
 }
 
 /// Relaunch the desktop app in place (Debug ▸ Restart App). tmux keeps every
