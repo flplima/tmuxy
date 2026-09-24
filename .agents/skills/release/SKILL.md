@@ -15,8 +15,14 @@ The mechanical steps are scripted under `scripts/` in this skill directory; run 
 | 3. Bump the version | `.agents/skills/release/scripts/bump-version [<version>]` |
 | 4. Pre-tag checklist | manual — see §4, every box ticked before step 5 |
 | 5. Tag and push | `.agents/skills/release/scripts/tag-and-push <version>` |
-| 6. Wait for the tag run | `.agents/skills/release/scripts/wait-ci tag <version>` |
-| 7. Verify brew is ready | `.agents/skills/release/scripts/verify-release <version>` |
+| 6. Wait for the tag run (publishes a PRE-release) | `.agents/skills/release/scripts/wait-ci tag <version>` |
+| 7. Use the build, then promote it | install the published asset, then `gh release edit v<version> --prerelease=false --latest` — see §Release-candidate soak |
+| 8. Verify brew is ready | `.agents/skills/release/scripts/verify-release <version>` |
+
+**Step 7 is not optional and not a formality.** The tap is bumped by the
+promotion, not by the tag, so `verify-release` reports the tap still on the
+previous version until you have promoted — that is the gate working, not a
+failure. Nothing reaches a `brew upgrade` until a human has run the build.
 
 ## 0. macOS signing (one-time setup)
 
@@ -117,9 +123,27 @@ Pushing the tag triggers a **second** `Build App` run (this one with `github.ref
 - **`bump-cask`** downloads the `.dmg`, computes sha256, and pushes an updated `Casks/tmuxy.rb` to `flplima/homebrew-tap` (macOS install).
 - **`bump-formula`** downloads **both** Linux AppImages, computes a sha256 for each, and pushes an updated `Formula/tmuxy.rb` (with `on_arm`/`on_intel` url+sha256 blocks) to the same tap (Linux install). It runs **after** `bump-cask` — sequential, not parallel — so the two jobs don't race pushing to the same repo.
 
-**This run is what makes `brew install --cask flplima/tap/tmuxy` (macOS) and `brew install flplima/tap/tmuxy` (Linux) pick up the new version.** Until it finishes green, brew still points at the previous tag.
+**This run publishes the assets as a PRE-release and stops.** `bump-cask` and `bump-formula` are gated on `release: released` and do not run here — brew still points at the previous tag, deliberately, until you promote (§Release-candidate soak step 4). Promotion runs those two jobs plus `verify-brew-cask`, and that is what makes `brew install --cask flplima/tap/tmuxy` (macOS) and `brew install flplima/tap/tmuxy` (Linux) pick up the new version.
 
-## 7. Verify brew is ready
+## 7. Use the build, then promote it
+
+The tag build published a pre-release; the tap still points at the last
+promoted version. Install the actual artifact and do real work in it — see
+§Release-candidate soak for what "real" means and why the bar is an hour of
+use rather than a fixed clock. Then:
+
+```
+gh release edit v<new-version> --prerelease=false --latest
+```
+
+That fires `release: released`, which runs `bump-cask`, `bump-formula` and
+`verify-brew-cask`. Wait for that run before step 8:
+
+```
+gh run watch $(gh run list --workflow build-app.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+```
+
+## 8. Verify brew is ready
 
 ```
 .agents/skills/release/scripts/verify-release <new-version>
@@ -143,12 +167,14 @@ Exit 0 means a user running `brew update && brew upgrade --cask flplima/tap/tmux
 **Every alpha is a release candidate until it has been dogfooded for a day.**
 
 1. **Tag the RC.** Cut the tag exactly as documented (steps 3–7). Nothing about the mechanics changes.
-2. **The release is published as a pre-release, not `--latest`.** `brew upgrade` and the GitHub "Latest" badge keep pointing at the last promoted build, so an RC reaches only people who ask for it by tag.
-3. **Dogfood it for a full working day.** Install the actual published artifact — the DMG from the release, not `cargo run` — and use it as your daily driver: real sessions, real panes, real reconnects, the soak left running. A day is the unit because the three superseded releases all died inside four hours; a shorter window would have caught none of them by design.
-4. **Promote.** Once the day passes with no fix worth shipping, mark that release `--latest` (or, equivalently, cut the promotion by re-running the release job with the promote input). Only then do the tap bumps mean "install this".
-5. **A fix during the soak resets the clock.** The bug fix becomes the next RC and gets its own day. Do not promote the broken one "since the fix is coming anyway".
+2. **The tag build publishes a pre-release and stops.** `release` creates it with `--prerelease`; `bump-cask` and `bump-formula` do NOT run on a tag push. The tap keeps pointing at the last promoted build, so `brew upgrade` gives users that one and the RC reaches only people who install the asset by tag.
+3. **Use the build before you promote it.** Install the actual published artifact — the DMG or AppImage from the release, not `cargo run` — and do real work in it: real sessions, panes, reconnects, a resize or two. An hour of genuine use is the bar. The three superseded releases (.59→.60 in 1h35, .60→.61 in 3h43, .43→.44 in 1h34) were all obvious breakage found in minutes; the point is to be the one who finds it, not to wait out a fixed clock.
+4. **Promote.** `gh release edit v<version> --prerelease=false --latest`. That fires `release: released`, which is the only thing that runs the tap bumps — so promotion IS the act of shipping to brew, and `verify-release` is run after it, not before.
+5. **A fix before promotion replaces the RC.** The bug fix becomes the next RC and is used in turn. Do not promote the broken one "since the fix is coming anyway"; nothing is lost by leaving it un-promoted, because users are still on the last good build.
 
-Until the workflow change below lands, the `--latest` flag is applied unconditionally by `.github/workflows/build-app.yml`, so step 2 is not yet enforced by CI. In the meantime demote by hand right after the tag run finishes: `gh release edit v<version> --prerelease --latest=false`, and promote with `gh release edit v<version> --prerelease=false --latest`.
+**Forgetting to promote is the safe failure.** Users stay on a build that works; the cost is that they are behind, not broken. That asymmetry is the whole design — prefer it to shipping on a timer.
+
+An earlier version of this policy asked for a full working day and claimed the `--prerelease` flag held `brew upgrade` back. Neither was true: the tap bumps ignored the flag entirely and ran on every tag, and a day-long soak is incompatible with a cadence of 22 tags in two months — so the rule was skipped, which is worse than a smaller rule that is kept.
 
 ## Workflow-side changes this skill assumes
 
@@ -159,7 +185,7 @@ These live in `.github/workflows/build-app.yml`, which this skill does not own. 
 | a | The `release` job must depend on the **test workflow for the tag ref**, not just `needs: build` | A tag push today triggers `Build App` only; `lint and tests` never runs on the tag ref at all, so the artifacts that reach users were never tested as tagged. `tag-and-push`'s CI gate covers the sha, not the ref — the job-level dependency is what makes it structural |
 | b | Smoke-test the artifacts that **actually ship** | Smoke today runs the raw `target/release` binary, which is not what any user installs: mount the macOS DMG and launch the signed app out of it; run the Linux AppImage; install the `.deb` in a clean container and launch it |
 | c | Assert signing and notarization on tag builds, and **fail** when they were skipped | With `APPLE_CERTIFICATE` absent the Tauri CLI skips signing *silently* (see §0), so a missing secret ships an unsigned DMG that looks identical in the logs. On a tag build assert `codesign --verify --deep --strict`, `spctl -a`, and `xcrun stapler validate`, and fail the job rather than warn |
-| d | Stop marking every alpha `--latest` | Required by the RC soak policy above: pre-release tags get `--prerelease`, only a promoted build gets `--latest` |
+| ~~d~~ | ~~Stop marking every alpha `--latest`~~ | **Done.** A tag push publishes a pre-release; `bump-cask`, `bump-formula` and `verify-brew-cask` are gated on `release: released`, so only a promotion reaches the tap. The two bump jobs now hash the PUBLISHED assets (`gh release download`) rather than the build's artifacts, which is the drift `verify-release` check 3 was watching for |
 
 ## Common failures
 

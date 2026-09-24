@@ -12,6 +12,13 @@ name: Build App
 on:
   push:
     tags: ['v*']
+  # Promoting a pre-release to a release is what puts a build in front of brew
+  # users. A tag push builds and publishes the assets as a PRE-release and
+  # stops there; `gh release edit <tag> --prerelease=false --latest` fires this
+  # event, and only then are the tap files bumped. See §Release-candidate soak
+  # in .agents/skills/release/SKILL.md.
+  release:
+    types: [released]
   schedule:
     # 06:30 UTC — after the three nightlies, so they do not contend for runners.
     - cron: '30 6 * * *'
@@ -35,10 +42,13 @@ jobs:
   # dependency is enforced by Actions itself, and a red suite leaves the tag
   # with no GitHub Release and no tap bump at all.
   tests:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name != 'release'
     uses: ./.github/workflows/lint-and-tests.yml
 
   build:
+    # A promotion re-publishes nothing: the assets it hands to brew are the
+    # ones this job already built for the tag.
+    if: github.event_name != 'release'
     strategy:
       fail-fast: false
       matrix:
@@ -621,7 +631,7 @@ jobs:
 
   release:
     needs: [build, tests, upgrade-path]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name != 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -647,10 +657,14 @@ jobs:
           ls -lh release-assets/
 
           # Create release with all assets
+          # PRE-release, deliberately. The tap is not bumped from here, so
+          # nothing reaches a `brew upgrade` until a human has used the build
+          # and promoted it — which is the whole point of the soak. Promote
+          # with: gh release edit "$TAG" --prerelease=false --latest
           gh release create "$TAG" release-assets/* \
             --title "tmuxy $TAG" \
-            --notes "See the assets below to download and install tmuxy for your platform." \
-            --latest
+            --notes "Release candidate — not yet promoted to brew. Install the asset for your platform below to try it; \`brew upgrade\` still serves the last promoted build until this one is promoted." \
+            --prerelease
 
   # --- Bump Homebrew Cask (only on tag push, after release publishes) ---
   #
@@ -661,20 +675,31 @@ jobs:
   # HOMEBREW_TAP_TOKEN secret (PAT with Contents:Write on flplima/homebrew-tap).
 
   bump-cask:
-    needs: release
-    if: startsWith(github.ref, 'refs/tags/')
+    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
+    # stops; `gh release edit <tag> --prerelease=false --latest` fires
+    # `release: released` and runs this. Forgetting to promote leaves users on
+    # the last good build, which is the failure mode we want.
+    if: github.event_name == 'release' && github.event.action == 'released'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: tmuxy-macos-dmg
-          path: dmg
+      # The PUBLISHED bytes, not the build's artifacts. The tap's sha256 has to
+      # describe what a user actually downloads, and hashing the release asset
+      # is the only way that cannot drift — `verify-release` check 3 exists
+      # because the two used to be computed from different files.
+      - name: Download the published DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dmg
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" --pattern '*.dmg' --dir dmg
 
       - name: Compute version + sha256
         id: meta
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event.release.tag_name }}"
           VERSION="${TAG#v}"
           DMG=$(ls dmg/*.dmg | head -1)
           SHA=$(sha256sum "$DMG" | awk '{print $1}')
@@ -788,25 +813,32 @@ jobs:
   # the two jobs don't race pushing to the same tap repo.
 
   bump-formula:
-    needs: [release, bump-cask]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: bump-cask
+    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
+    # stops; `gh release edit <tag> --prerelease=false --latest` fires
+    # `release: released` and runs this. Forgetting to promote leaves users on
+    # the last good build, which is the failure mode we want.
+    if: github.event_name == 'release' && github.event.action == 'released'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: tmuxy-linux-appimage-amd64
-          path: appimage-amd64
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: tmuxy-linux-appimage-arm64
-          path: appimage-arm64
+      # Same as the cask: hash what was published, not what was built.
+      - name: Download the published AppImages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p appimage-amd64 appimage-arm64
+          TAG="${{ github.event.release.tag_name }}"
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern '*amd64.AppImage' --dir appimage-amd64
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern '*aarch64.AppImage' --dir appimage-arm64
 
       - name: Compute version + sha256
         id: meta
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event.release.tag_name }}"
           VERSION="${TAG#v}"
           AMD=$(ls appimage-amd64/*.AppImage | head -1)
           ARM=$(ls appimage-arm64/*.AppImage | head -1)
@@ -928,8 +960,12 @@ jobs:
   # published — it tells you within minutes that the published one is bad,
   # which is the difference between a same-hour fix and a user bug report.
   verify-brew-cask:
-    needs: [release, bump-cask, bump-formula]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [bump-cask, bump-formula]
+    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
+    # stops; `gh release edit <tag> --prerelease=false --latest` fires
+    # `release: released` and runs this. Forgetting to promote leaves users on
+    # the last good build, which is the failure mode we want.
+    if: github.event_name == 'release' && github.event.action == 'released'
     runs-on: macos-latest
     timeout-minutes: 30
 
@@ -957,7 +993,8 @@ jobs:
           command -v tmuxy
           VERSION_LINE=$(tmuxy --version)
           echo "$VERSION_LINE"
-          EXPECTED="tmuxy ${GITHUB_REF_NAME#v}"
+          TAG="${{ github.event.release.tag_name }}"
+          EXPECTED="tmuxy ${TAG#v}"
           [ "$VERSION_LINE" = "$EXPECTED" ] || {
             echo "brew installed '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
 
