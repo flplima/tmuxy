@@ -214,16 +214,24 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     ("tmuxy/_lib", include_str!("../../../bin/tmuxy/_lib")),
     ("tmuxy/ask", include_str!("../../../bin/tmuxy/ask")),
     (
-        "tmuxy/event-emit",
-        include_str!("../../../bin/tmuxy/event-emit"),
+        "tmuxy/queue-push",
+        include_str!("../../../bin/tmuxy/queue-push"),
     ),
     (
-        "tmuxy/event-list",
-        include_str!("../../../bin/tmuxy/event-list"),
+        "tmuxy/queue-pop",
+        include_str!("../../../bin/tmuxy/queue-pop"),
     ),
     (
-        "tmuxy/event-wait",
-        include_str!("../../../bin/tmuxy/event-wait"),
+        "tmuxy/queue-peek",
+        include_str!("../../../bin/tmuxy/queue-peek"),
+    ),
+    (
+        "tmuxy/queue-list",
+        include_str!("../../../bin/tmuxy/queue-list"),
+    ),
+    (
+        "tmuxy/queue-clear",
+        include_str!("../../../bin/tmuxy/queue-clear"),
     ),
     (
         "tmuxy/float-create",
@@ -633,9 +641,11 @@ fn migrate_bin_paths(config: &str) -> String {
         "session-connect",
         "session-switch",
         "float-create",
-        "event-emit",
-        "event-list",
-        "event-wait",
+        "queue-push",
+        "queue-pop",
+        "queue-peek",
+        "queue-list",
+        "queue-clear",
         "nav",
     ];
     for name in helpers {

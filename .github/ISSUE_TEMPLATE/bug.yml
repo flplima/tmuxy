@@ -1,0 +1,89 @@
+name: Bug Report
+description: File a bug report for tmuxy
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please check existing issues before filing.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Run `...`
+        2. Click on `...`
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      description: How are you running tmuxy?
+      options:
+        - Web App (browser)
+        - Desktop App (Tauri)
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: What operating system are you on?
+      options:
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: tmuxy-version
+    attributes:
+      label: tmuxy Version
+      description: Output of `tmuxy --version`
+      placeholder: "tmuxy 0.0.10-alpha.65"
+    validations:
+      required: true
+  - type: input
+    id: tmux-version
+    attributes:
+      label: tmux Version
+      description: Output of `tmux -V`
+      placeholder: "tmux 3.5a"
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Telemetry Trace
+      description: |
+        If possible, attach or paste relevant entries from your local trace file.
+        - macOS: `~/Library/Application Support/tmuxy/trace.ndjson`
+        - Linux: `~/.local/state/tmuxy/trace.ndjson`
+        See docs/TELEMETRY.md for redaction and format details.
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or terminal logs here.
+    validations:
+      required: false

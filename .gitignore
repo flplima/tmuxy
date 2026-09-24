@@ -5,6 +5,7 @@ npm-debug.log*
 
 node_modules
 dist
+coverage/
 *.local
 
 # Editor directories and files

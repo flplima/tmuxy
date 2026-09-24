@@ -1,0 +1,121 @@
+#!/bin/bash
+# tmuxy queue pop — pop the oldest message from a named queue
+#
+# Usage: tmuxy queue pop <name> [--timeout <sec>] [--nowait]
+#
+# Prints the oldest unconsumed message to stdout and exits:
+#   Exit 0: Message popped successfully
+#   Exit 1: Queue empty (--nowait)
+#   Exit 2: Timeout expired without a message
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib"
+
+NAME=""
+TIMEOUT=""
+NOWAIT=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --nowait)
+      NOWAIT=true
+      shift
+      ;;
+    --timeout)
+      TIMEOUT="${2:?Usage: --timeout <seconds>}"
+      shift 2
+      ;;
+    --timeout=*)
+      TIMEOUT="${1#*=}"
+      shift
+      ;;
+    --help|-h)
+      echo "Usage: tmuxy queue pop <name> [--timeout <sec>] [--nowait]"
+      exit 0
+      ;;
+    *)
+      if [ -z "$NAME" ]; then
+        NAME="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$NAME" ]; then
+  echo "Usage: tmuxy queue pop <name> [--timeout <sec>] [--nowait]" >&2
+  exit 1
+fi
+
+SOCKET="${TMUX_SOCKET:-tmuxy}"
+DIR="/tmp/tmuxy-queues/$SOCKET/$NAME"
+mkdir -p "$DIR"
+
+start_time=$(date +%s)
+
+while true; do
+  # Hold lock for scan-and-consume
+  _lock_acquire "$DIR"
+  trap '_lock_release "$DIR"' EXIT
+
+  CURSOR=$(cat "$DIR/cursor" 2>/dev/null || echo -1)
+
+  BEST=""
+  BEST_N=""
+  shopt -s nullglob
+  for f in "$DIR"/msg.[0-9]*; do
+    [ -f "$f" ] || continue
+    N="${f##*/msg.}"
+    case "$N" in *.tmp) continue ;; esac
+    if [ "$N" -gt "$CURSOR" ]; then
+      if [ -z "$BEST_N" ] || [ "$N" -lt "$BEST_N" ]; then
+        BEST="$f"
+        BEST_N="$N"
+      fi
+    fi
+  done
+  shopt -u nullglob
+
+  if [ -n "$BEST" ]; then
+    cat "$BEST"
+    echo "$BEST_N" > "$DIR/cursor"
+    rm -f "$BEST"
+    _lock_release "$DIR"
+    trap - EXIT
+    exit 0
+  fi
+
+  _lock_release "$DIR"
+  trap - EXIT
+
+  if $NOWAIT; then
+    exit 1
+  fi
+
+  if [ -n "$TIMEOUT" ]; then
+    now=$(date +%s)
+    if [ $((now - start_time)) -ge "$TIMEOUT" ]; then
+      exit 2
+    fi
+    _tmux wait-for "tmuxy_queue_${NAME}" &
+    WF_PID=$!
+    timed_out=false
+    while kill -0 "$WF_PID" 2>/dev/null; do
+      curr=$(date +%s)
+      if [ $((curr - start_time)) -ge "$TIMEOUT" ]; then
+        kill "$WF_PID" 2>/dev/null || true
+        wait "$WF_PID" 2>/dev/null || true
+        timed_out=true
+        break
+      fi
+      sleep 0.05 2>/dev/null || sleep 1
+    done
+    if $timed_out; then
+      exit 2
+    fi
+  else
+    _tmux wait-for "tmuxy_queue_${NAME}"
+  fi
+done

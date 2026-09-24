@@ -1,18 +1,18 @@
 #!/bin/bash
-# tmuxy event emit — publish a message to a named event queue
+# tmuxy queue push / send — publish a message to a named queue
 #
-# Usage: tmuxy event emit <name> <message>
-#        echo "payload" | tmuxy event emit <name> -
+# Usage: tmuxy queue push <name> <message>
+#        echo "payload" | tmuxy queue push <name> -
 #
-# Storage: /tmp/tmuxy-events/<socket>/<name>/msg.<N>
-# Signal:  tmux wait-for -S tmuxy_evt_<name>
+# Storage: /tmp/tmuxy-queues/<socket>/<name>/msg.<N>
+# Signal:  tmux wait-for -S tmuxy_queue_<name>
 
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPTS_DIR/_lib"
 
-NAME="${1:?Usage: tmuxy event emit <name> <message|->}"
+NAME="${1:?Usage: tmuxy queue push <name> <message|->}"
 shift
 MSG="${1:--}"
 
@@ -22,11 +22,11 @@ if [ "$MSG" = "-" ]; then
 fi
 
 SOCKET="${TMUX_SOCKET:-tmuxy}"
-DIR="/tmp/tmuxy-events/$SOCKET/$NAME"
+DIR="/tmp/tmuxy-queues/$SOCKET/$NAME"
 mkdir -p "$DIR"
 
 # Atomically read+increment the sequence counter. Released on any exit, so a
-# killed emitter does not wedge the channel for the next one.
+# killed producer does not wedge the queue for the next one.
 _lock_acquire "$DIR"
 trap '_lock_release "$DIR"' EXIT
 SEQ=$(cat "$DIR/next" 2>/dev/null || echo 0)
@@ -38,5 +38,5 @@ trap - EXIT
 printf '%s' "$MSG" > "$DIR/msg.${SEQ}.tmp"
 mv "$DIR/msg.${SEQ}.tmp" "$DIR/msg.${SEQ}"
 
-# Signal any blocked waiter
-_tmux wait-for -S "tmuxy_evt_${NAME}" 2>/dev/null || true
+# Signal any blocked consumer
+_tmux wait-for -S "tmuxy_queue_${NAME}" 2>/dev/null || true

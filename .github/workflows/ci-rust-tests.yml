@@ -70,4 +70,4 @@ jobs:
         with:
           name: core-pipeline-bench-${{ github.sha }}
           path: perf/core-pipeline-report.json
-          if-no-files-found: warn
+          if-no-files-found: error

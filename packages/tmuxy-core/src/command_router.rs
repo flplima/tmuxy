@@ -21,7 +21,7 @@
 //!   established, whereas a session target is resolved late against the
 //!   session's live current window and loses a race with any other client.
 
-use crate::executor::{compound_has_verb, rewrite_new_window_in_compound};
+use crate::executor::{compound_has_verb, rewrite_mutating_verbs, rewrite_new_window_in_compound};
 
 /// Where a client's command goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,7 +43,7 @@ pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> 
             return Route::ControlMode(rewritten);
         }
     }
-    Route::ControlMode(command.to_string())
+    Route::ControlMode(rewrite_mutating_verbs(command))
 }
 
 #[cfg(test)]
@@ -55,7 +55,8 @@ mod tests {
         // The regression: the frontend pins a split to the tab the user sees.
         // Any rewrite of the final command — a session target in particular —
         // hands the split to whatever window tmux is on when it runs.
-        let pinned = "select-window -t @19 \\; select-pane -t %48 \\; split-window -h -c \"#{pane_current_path}\"";
+        let pinned =
+            "select-window -t @19 \\; select-pane -t %48 \\; splitw -h -c \"#{pane_current_path}\"";
         assert_eq!(
             route_command(pinned, "tmuxy", None),
             Route::ControlMode(pinned.to_string())
@@ -63,13 +64,36 @@ mod tests {
     }
 
     #[test]
+    fn mutating_verbs_are_normalized_to_short_forms() {
+        assert_eq!(
+            route_command("split-window -h", "tmuxy", None),
+            Route::ControlMode("splitw -h".to_string())
+        );
+        assert_eq!(
+            route_command("kill-pane -t %1", "tmuxy", None),
+            Route::ControlMode("killp -t %1".to_string())
+        );
+        assert_eq!(
+            route_command("kill-window -t @2", "tmuxy", None),
+            Route::ControlMode("killw -t @2".to_string())
+        );
+        assert_eq!(
+            route_command("break-pane -d", "tmuxy", None),
+            Route::ControlMode("breakp -d".to_string())
+        );
+        let pinned = "select-window -t @19 \\; select-pane -t %48 \\; split-window -h -c \"#{pane_current_path}\"";
+        assert_eq!(
+            route_command(pinned, "tmuxy", None),
+            Route::ControlMode(
+                "select-window -t @19 ; select-pane -t %48 ; splitw -h -c \"#{pane_current_path}\""
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn an_untargeted_command_gets_no_target() {
-        for cmd in [
-            "split-window -v",
-            "copy-mode",
-            "send-keys -l 'x'",
-            "kill-pane",
-        ] {
+        for cmd in ["splitw -v", "copy-mode", "send-keys -l 'x'", "killp"] {
             assert_eq!(
                 route_command(cmd, "tmuxy", None),
                 Route::ControlMode(cmd.to_string())

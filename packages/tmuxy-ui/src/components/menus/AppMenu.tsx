@@ -305,6 +305,9 @@ export function AppMenu() {
         <MenuItem onClick={() => handleAction('help-github')}>
           Tmuxy on GitHub<span className="menu-external">{'\u2197'}</span>
         </MenuItem>
+        <MenuItem onClick={() => handleAction('help-report-bug')}>
+          Report a Bug<span className="menu-external">{'\u2197'}</span>
+        </MenuItem>
       </SubMenu>
     </Menu>
   );

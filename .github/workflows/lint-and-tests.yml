@@ -168,6 +168,8 @@ jobs:
           # this entry pays for it.
           - { name: '11-webkit', path: 'tests/11-webkit.test.js', webkit: true }
           - { name: '12-touch', path: 'tests/12-touch.test.js' }
+          - { name: '13-ask-confirmation', path: 'tests/13-ask-confirmation.test.js' }
+          - { name: '14-widget-pane-pointer', path: 'tests/14-widget-pane-pointer.test.js' }
     name: e2e (${{ matrix.suite.name }})
 
     # The suite's own tmux socket, for the server started below as much as for
@@ -615,6 +617,7 @@ jobs:
   desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: build-artifacts
 
     steps:
       - uses: actions/checkout@v7
@@ -678,9 +681,16 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
+
       # Without the bundlers — both suites run the raw executable.
+      # Reuses the frontend-dist artifact from build-artifacts instead of rebuilding.
       - name: Build Tauri app (release)
-        run: npx tauri build --no-bundle
+        run: npx tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
         working-directory: packages/tmuxy-tauri-app
 
       - name: Start Xvfb

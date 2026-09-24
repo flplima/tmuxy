@@ -127,7 +127,7 @@ jobs:
         with:
           name: v86-probe-timings-${{ github.run_id }}
           path: perf/v86-probe-timings.json
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Storybook logs (debug)
         if: failure()

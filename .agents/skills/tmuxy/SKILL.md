@@ -42,7 +42,7 @@ tmuxy pane kill [%id]           # close pane
 tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
 tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
 tmuxy widget browser <file|url> # show an HTML file, a site, a .md file or an image
-tmuxy event emit <name> <msg|-> # publish to a named queue (inter-agent coordination)
-tmuxy event wait <name>         # block until a message arrives; `event list` shows pending
+tmuxy queue push <name> <msg|-> # push to a named queue (alias: send, q)
+tmuxy queue pop <name>          # block and pop oldest message (also: peek, list, clear)
 tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
 ```

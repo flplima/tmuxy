@@ -1,0 +1,83 @@
+#!/bin/bash
+# tmuxy queue list — show pending queues across all channels
+#
+# Usage: tmuxy queue list [--json]
+
+set -euo pipefail
+shopt -s nullglob
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib"
+
+JSON=false
+if [ "${1:-}" = "--json" ]; then
+  JSON=true
+fi
+
+SOCKET="${TMUX_SOCKET:-tmuxy}"
+BASE="/tmp/tmuxy-queues/$SOCKET"
+
+if [ ! -d "$BASE" ]; then
+  if $JSON; then
+    echo "[]"
+  else
+    echo "No queues."
+  fi
+  exit 0
+fi
+
+found=false
+first_json=true
+if $JSON; then
+  printf '['
+fi
+
+for queue_dir in "$BASE"/*/; do
+  [ -d "$queue_dir" ] || continue
+  name="$(basename "$queue_dir")"
+  cursor=$(cat "$queue_dir/cursor" 2>/dev/null || echo -1)
+  next=$(cat "$queue_dir/next" 2>/dev/null || echo 0)
+
+  pending=0
+  first_payload=""
+  first_n=""
+  for f in "$queue_dir"/msg.[0-9]*; do
+    [ -f "$f" ] || continue
+    n="${f##*/msg.}"
+    case "$n" in *.tmp) continue ;; esac
+    if [ "$n" -gt "$cursor" ]; then
+      pending=$((pending + 1))
+      if [ -z "$first_n" ] || [ "$n" -lt "$first_n" ]; then
+        first_n="$n"
+        first_payload="$(head -c 80 "$f" 2>/dev/null || true)"
+      fi
+    fi
+  done
+
+  found=true
+
+  if $JSON; then
+    if $first_json; then
+      first_json=false
+    else
+      printf ','
+    fi
+    esc_name="${name//\\/\\\\}"
+    esc_name="${esc_name//\"/\\\"}"
+    printf '{"queue":"%s","pending":%d,"cursor":%d,"next":%d}' "$esc_name" "$pending" "$cursor" "$next"
+  else
+    printf "%-20s pending=%d  cursor=%s  next=%s" "$name" "$pending" "$cursor" "$next"
+    if [ -n "$first_payload" ]; then
+      printf "  next_msg: %.80s" "$first_payload"
+    fi
+    printf "\n"
+  fi
+done
+
+if $JSON; then
+  printf ']\n'
+else
+  if ! $found; then
+    echo "No queues."
+  fi
+fi

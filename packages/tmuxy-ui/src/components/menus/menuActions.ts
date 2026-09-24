@@ -8,6 +8,7 @@ import { restartApp } from '../../utils/restartApp';
 import type { AppMachineEvent } from '../../machines/types';
 
 const GITHUB_URL = 'https://github.com/flplima/tmuxy';
+const GITHUB_BUG_REPORT_URL = 'https://github.com/flplima/tmuxy/issues/new?template=bug.yml';
 
 type Send = (event: AppMachineEvent) => void;
 
@@ -186,6 +187,9 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
     // Help actions
     case 'help-github':
       window.open(GITHUB_URL, '_blank');
+      break;
+    case 'help-report-bug':
+      window.open(GITHUB_BUG_REPORT_URL, '_blank');
       break;
   }
 }
