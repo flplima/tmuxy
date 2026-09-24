@@ -186,3 +186,49 @@ export const TabSwitchCommitBudget: Story = {
     expect(sidebarCommits, 'Sidebar (closed) must not render').toBe(0);
   },
 };
+
+/**
+ * 5.4 — Idle redraw budget: when no output arrives and the user does not type,
+ * terminal redraw count must stay ~0.
+ *
+ * Specifically guards against regressions like d4523d0 ('a glyph the canvas
+ * cannot measure redraws every terminal forever'), where uncached symbol
+ * measurements repeatedly triggered font-ready or subscription re-renders.
+ */
+export const IdleRedrawBudget: Story = {
+  args: { height: 600 },
+  render: (args) => {
+    enableRenderLog();
+    return <AppHarness {...args} />;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
+    expect(renderCountSince(0, 'TerminalLine')).toBeGreaterThan(0);
+    await user.click(canvas.getAllByRole('group', { name: /^Pane /i })[0]);
+    await waitForQuiescence();
+
+    // Print symbols including box drawing (the trigger from d4523d0: ●, ⎿, ┌─┐)
+    await user.keyboard('echo "● ⎿ ┌─┐"{Enter}');
+    await wait(800);
+    await waitForQuiescence();
+
+    // Monitor the idle window: over 1.5s with zero input, commits must stay 0.
+    const mark = renderLogMark();
+    await wait(1500);
+
+    const paneCommits = renderCountSince(mark, 'Pane:');
+    const terminalCommits = renderCountSince(mark, 'TerminalLine');
+    // Every id: the prefix that matches all of them, since a redraw nobody
+    // budgeted for is exactly the one this story is looking for.
+    const totalCommits = renderCountSince(mark, '');
+
+    expect(
+      terminalCommits,
+      `TerminalLine commits during idle must be 0: ${terminalCommits} (${JSON.stringify(renderCountsById(mark))})`,
+    ).toBe(0);
+    expect(paneCommits, `Pane commits during idle must be 0: ${paneCommits}`).toBe(0);
+    expect(totalCommits, `Total component commits during idle must be 0: ${totalCommits}`).toBe(0);
+  },
+};

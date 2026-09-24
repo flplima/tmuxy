@@ -63,5 +63,10 @@
     "nodeFlickers": 0,
     "attrChurnEvents": 0,
     "sizeJumps": 0
+  },
+  "idleRedraw": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 0,
+    "sizeJumps": 0
   }
 }
