@@ -95,8 +95,6 @@ On a routable bind the `Host` rule is off — the server cannot know every name 
 
 The cost: a local page cannot use cookies or storage, and a link followed inside it is invisible to the widget. A website is another origin already, so it keeps `allow-same-origin` (its logins and storage work) but is still sandboxed — without `allow-top-navigation`, so a framed page cannot set `window.top.location` and navigate the whole tmuxy tab away, which would be a convincing place to phish the Basic-auth prompt.
 
-Which pane is a widget at all is not decided by pane content. The `__TMUXY_WIDGET__:<name>` marker is output, so anything a pane prints could otherwise replace it with an iframe of an attacker's page: the client renders a widget only when the pane also carries `@tmuxy-pane-widget` naming it, which `tmuxy-widget` writes out of band and clears on exit (see [docs/TMUX.md](TMUX.md)).
-
 ## Input That Reaches Control Mode
 
 Control mode reads one command per line, so a newline inside anything written into a command line would end that command and start another.

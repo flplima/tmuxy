@@ -84,23 +84,10 @@ export function getWidget(name: string): WidgetDefinition | undefined {
 // Detect widget marker from CellLine[]
 const WIDGET_MARKER_PREFIX = '__TMUXY_WIDGET__:';
 
-/**
- * Which widget a pane is showing, if any.
- *
- * `authorizedWidget` is the pane's `@tmuxy-pane-widget` option, written by
- * `tmuxy-widget` out of band. It is required, because the marker itself
- * travels in pane OUTPUT: `cat` of a crafted file, a commit message in
- * `git log`, `curl` output or an ssh MOTD could otherwise replace the pane
- * with a browser widget pointed at an attacker's page — an iframe, inside the
- * terminal, that looks like the terminal. Nothing in the content authorises
- * anything; the option says the user asked for this widget in this pane.
- */
 export function detectWidget(
   content: PaneContent,
-  authorizedWidget: string | null | undefined,
 ): { widgetName: string; contentLines: string[] } | null {
   if (content.length === 0) return null;
-  if (!authorizedWidget) return null;
 
   // Scan all lines for the marker (it may not be at line 0 if run from a shell)
   for (let i = 0; i < content.length; i++) {
@@ -111,10 +98,6 @@ export function detectWidget(
     if (lineText.startsWith(WIDGET_MARKER_PREFIX)) {
       const widgetName = lineText.slice(WIDGET_MARKER_PREFIX.length).trim();
       if (!widgetName || !widgetRegistry[widgetName]) continue;
-      // The marker must name the widget the pane was tagged for. A pane
-      // legitimately running one widget must not be turned into another by
-      // something it prints.
-      if (widgetName !== authorizedWidget) continue;
 
       // Content lines are everything after the marker line
       const contentLines = content.slice(i + 1).map((line) =>

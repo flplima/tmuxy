@@ -53,7 +53,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const isFocused = focusedFloatPaneId === floatState.paneId;
   // A float can hold a widget too — the session switcher opens as one. Same
   // classification the tiled panes use, so a marker never renders as text.
-  const widgetInfo = usePaneWidgetInfo(pane?.content, pane?.paneWidget);
+  const widgetInfo = usePaneWidgetInfo(pane?.content);
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
 
