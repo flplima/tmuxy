@@ -127,6 +127,25 @@ pub trait StateEmitter: super::log::LogSink {
     fn on_initial_sync_complete(&self) {}
 }
 
+/// Size one window, having first made sure tmux will let us.
+///
+/// `window-size` and `aggressive-resize` are WINDOW options. The pair set at
+/// attach reaches only whichever window was current then, so every other one
+/// keeps tmux's default `window-size latest` — under which tmux sizes the
+/// window to the latest attached client and undoes the `resizew`. The
+/// control-mode PTY is 200x50, which is exactly the grid a phone-width client
+/// was left stuck with.
+///
+/// Sent per window, immediately before its resize: idempotent, and it needs no
+/// bookkeeping about which windows have been seen.
+fn window_sizing_commands(window_id: &str, (cols, rows): (u32, u32)) -> [String; 3] {
+    [
+        format!("setw -t {window_id} window-size manual"),
+        format!("setw -t {window_id} aggressive-resize off"),
+        format!("resizew -t {window_id} -x {cols} -y {rows}"),
+    ]
+}
+
 /// The `resizew` that gives a freshly attached session the initial PTY size.
 ///
 /// The session name is quoted: it reaches the monitor from a client
@@ -923,12 +942,23 @@ impl TmuxMonitor {
             return;
         }
 
+        // `window-size` and `aggressive-resize` are WINDOW options, and the
+        // pair set at attach (`sync_initial_state`, `enforce_settings`) reached
+        // only the window that happened to be current then. Any other window —
+        // a tab made later, or simply a different one at attach — kept tmux's
+        // default `window-size latest`, under which tmux sizes the window to
+        // the latest attached client and undoes the `resizew` below: the
+        // control-mode PTY is 200x50, which is exactly the grid a phone-width
+        // client was stuck with (`targetCols: 41, totalWidth: 200`).
+        //
+        // Setting it per window, immediately before the resize, is idempotent
+        // and needs no bookkeeping about which windows have been seen.
         let cmds: Vec<String> = pending
             .iter()
-            .map(|(wid, (w, h))| format!("resizew -t {} -x {} -y {}", wid, w, h))
+            .flat_map(|(wid, size)| window_sizing_commands(wid, *size))
             .collect();
         debug!(
-            count = cmds.len(),
+            count = pending.len(),
             cols, rows, "applying client size to windows"
         );
         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
@@ -1437,6 +1467,25 @@ mod tests {
     #[test]
     fn a_session_name_carrying_a_quote_is_escaped_not_terminated() {
         assert!(initial_resize_command("it's").starts_with(r"resizew -t 'it'\''s' "));
+    }
+
+    /// tmux will not take a `resizew` on a window still set to size itself to
+    /// the latest client — it applies ours and then puts its own back. The
+    /// options are per WINDOW, so the ones set at attach covered exactly one.
+    #[test]
+    fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
+        let cmds = window_sizing_commands("@3", (41, 29));
+        assert_eq!(
+            cmds,
+            [
+                "setw -t @3 window-size manual".to_string(),
+                "setw -t @3 aggressive-resize off".to_string(),
+                "resizew -t @3 -x 41 -y 29".to_string(),
+            ]
+        );
+        // The order is the point: tmux would re-apply its own size between a
+        // resize and a later opt-out.
+        assert!(cmds[2].starts_with("resizew"));
     }
 
     /// The bug this replaced: `resizew` is fire-and-forget, and recording the

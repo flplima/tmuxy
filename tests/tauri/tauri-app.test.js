@@ -381,6 +381,10 @@ describe('IPC Commands', () => {
     // (see tmuxActor.ts). If any are missing the copy-mode chunk-merge
     // throws and the scrollback stays empty.
     expect(result).toBeDefined();
+    // The error first: a failed command resolves as `{ __error }` (see
+    // invokeCommand), and asserting a missing `cells` before it reported
+    // "Received: undefined" while the reason sat unread in the same object.
+    expect(result.__error).toBeUndefined();
     expect(result.cells).toBeDefined();
     expect(Array.isArray(result.cells)).toBe(true);
     expect(typeof result.historySize).toBe('number');
@@ -560,8 +564,11 @@ describe('GUI windows', () => {
     expect(await invokeCommand(driver, 'get_window_style')).toBe('normal');
 
     // A style nobody defines is refused rather than silently ignored.
-    await expect(
-      invokeCommand(driver, 'set_window_style', { style: 'sideways' }),
-    ).rejects.toBeTruthy();
+    //
+    // The refusal arrives as `{ __error }`, not as a rejected promise:
+    // `invokeCommand` catches what `invoke()` throws and resolves with it, so
+    // it never rejects and `.rejects` could not pass whatever the app did.
+    const refused = await invokeCommand(driver, 'set_window_style', { style: 'sideways' });
+    expect(refused.__error).toMatch(/unknown window style/i);
   }, 120000);
 });
