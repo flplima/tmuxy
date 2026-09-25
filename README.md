@@ -90,6 +90,31 @@ tmuxy server stop           # stop the running server
 
 Open `http://localhost:9000` in any browser. For remote machines, access over an SSH tunnel (`ssh -NL 9000:localhost:9000 user@host`) or set a password with `TMUXY_PASSWORD=... tmuxy server --host 0.0.0.0` (see [docs/SECURITY.md](docs/SECURITY.md)).
 
+### Where are my existing tmux sessions?
+
+They are still there — tmuxy just isn't looking at them yet.
+
+tmuxy runs tmux on a **socket of its own** (`tmuxy`), not the one your bare
+`tmux` command uses. That is deliberate: it means tmuxy cannot disturb the
+session you are working in, and an update or a crash cannot take your real work
+with it.
+
+To point it at your own tmux server instead:
+
+- **Desktop app** — the session menu lists **my tmux** under _Servers_ whenever
+  that server has sessions. Pick it; the app reconnects in place.
+- **Web** — the server binds its socket at launch, so tell it at launch:
+
+  ```bash
+  TMUX_SOCKET=default tmuxy server
+  ```
+
+Attaching to your own server applies only the settings tmuxy cannot work
+without — it will not touch your prefix, your status line or your bindings
+there. Your own `~/.tmux.conf` is not loaded on tmuxy's own socket by default
+either; `tmuxy config use-tmux-conf on` changes that (see
+[docs/TMUX.md](docs/TMUX.md)).
+
 ### Keybindings & CLI Overview
 
 | Keybinding           | Action                              |

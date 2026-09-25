@@ -15,10 +15,20 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::session::{config_dir, DEFAULT_TMUX_SOCKET};
+use crate::session::{config_dir, DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
 
 /// Where the local machine's server sits in the picker.
 pub const LOCALHOST_ID: &str = "localhost";
+
+/// The picker's entry for the user's OWN tmux server — the one their bare
+/// `tmux` command talks to.
+///
+/// tmuxy runs on a socket of its own, which is what keeps a test run or a dev
+/// server from disturbing real work. The cost is that a tmux user's first
+/// question — "where are my sessions?" — has no answer anywhere in the UI. This
+/// entry is that answer: it appears in the picker only when that server really
+/// does have sessions, so it is never an invitation to an empty room.
+pub const MY_TMUX_ID: &str = "my-tmux";
 
 fn default_socket() -> String {
     DEFAULT_TMUX_SOCKET.to_string()
@@ -278,13 +288,66 @@ fn with_localhost(mut servers: Vec<Server>) -> Vec<Server> {
     servers
 }
 
+/// Add the user's own tmux server to the list, when there is one to add.
+///
+/// Three conditions, all of them about not lying to the user:
+///   - tmuxy is not already attached to it (then `localhost` IS that server);
+///   - the list does not already name it;
+///   - it actually has sessions, which is the only thing that makes the entry
+///     worth offering.
+fn with_users_own_tmux(mut servers: Vec<Server>) -> Vec<Server> {
+    if crate::session::on_users_own_server() {
+        return servers;
+    }
+    if servers.iter().any(|s| {
+        s.id == MY_TMUX_ID || (s.kind == ServerKind::Local && s.socket == USERS_OWN_SOCKET)
+    }) {
+        return servers;
+    }
+    if !users_own_tmux_has_sessions() {
+        return servers;
+    }
+    servers.push(Server {
+        id: MY_TMUX_ID.to_string(),
+        label: "my tmux".to_string(),
+        kind: ServerKind::Local,
+        ssh: None,
+        socket: USERS_OWN_SOCKET.to_string(),
+        session: None,
+        extra: serde_json::Map::new(),
+    });
+    servers
+}
+
+/// Does the user's own tmux server have any sessions?
+///
+/// A plain read against a DIFFERENT socket from the one tmuxy drives, so it is
+/// outside the control-mode rules entirely (see docs/TMUX.md). Any failure —
+/// no tmux on PATH, no server running, a permissions problem — answers "no",
+/// because the only use of the answer is whether to offer a menu entry.
+fn users_own_tmux_has_sessions() -> bool {
+    std::process::Command::new("tmux")
+        .args([
+            "-L",
+            USERS_OWN_SOCKET,
+            "list-sessions",
+            "-F",
+            "#{session_id}",
+        ])
+        .output()
+        .map(|out| out.status.success() && !out.stdout.is_empty())
+        .unwrap_or(false)
+}
+
 /// Read saved servers, always guaranteeing a `localhost` entry at the front.
 /// A missing, empty, or unparseable file yields just `[localhost]` rather than
 /// erroring — a broken server list should never brick the picker. Callers that
 /// then *write* the list back must instead use [`read_servers_strict`] so a
 /// parse failure aborts the write rather than persisting the empty fallback.
 pub fn read_servers() -> Vec<Server> {
-    with_localhost(read_servers_strict().ok().flatten().unwrap_or_default())
+    with_users_own_tmux(with_localhost(
+        read_servers_strict().ok().flatten().unwrap_or_default(),
+    ))
 }
 
 /// Overwrite the servers file with the given list.
@@ -340,6 +403,46 @@ pub fn current_server_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The "my tmux" entry is not offered when tmuxy is already attached to
+    /// that server — `localhost` IS it, and two rows for one server is how a
+    /// picker teaches someone the wrong thing about where their work lives.
+    #[test]
+    fn my_tmux_is_not_offered_twice() {
+        // A list that already names the user's own socket gets nothing added,
+        // whatever the id on that entry happens to be.
+        let existing = vec![
+            Server::localhost_on("tmuxy"),
+            Server {
+                id: "local-default".to_string(),
+                label: "default".to_string(),
+                kind: ServerKind::Local,
+                ssh: None,
+                socket: USERS_OWN_SOCKET.to_string(),
+                session: None,
+                extra: serde_json::Map::new(),
+            },
+        ];
+        let listed = with_users_own_tmux(existing);
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|s| s.socket == USERS_OWN_SOCKET)
+                .count(),
+            1
+        );
+        assert!(!listed.iter().any(|s| s.id == MY_TMUX_ID));
+    }
+
+    /// An entry pointing at the user's own tmux must carry the socket tmux
+    /// itself defaults to — anything else attaches to a server nobody has.
+    #[test]
+    fn my_tmux_names_the_socket_tmux_itself_uses() {
+        assert_eq!(USERS_OWN_SOCKET, "default");
+        // ...and it is deliberately NOT tmuxy's own socket, which is the whole
+        // reason the entry has to exist.
+        assert_ne!(USERS_OWN_SOCKET, DEFAULT_TMUX_SOCKET);
+    }
 
     #[test]
     fn a_bare_host_needs_nothing_else() {

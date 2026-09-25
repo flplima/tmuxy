@@ -1002,10 +1002,17 @@ pub fn create_session(session_name: &str) -> Result<()> {
 
     let mut args = vec!["new-session", "-d", "-s", session_name];
 
-    // Use custom config if it exists
-    let config_str = config_path
-        .as_ref()
-        .map(|p| p.to_string_lossy().to_string());
+    // Use custom config if it exists — but never `-f` a whole tmuxy config at
+    // the user's OWN tmux server. `-f` is what the SERVER is configured from,
+    // so on the first session created there it would replace their config
+    // wholesale. See source_config, which applies the essentials instead.
+    let config_str = if on_users_own_server() {
+        None
+    } else {
+        config_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+    };
     if let Some(ref cs) = config_str {
         args.insert(0, "-f");
         args.insert(1, cs);
@@ -1035,11 +1042,42 @@ pub fn create_session(session_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// The socket name tmux itself uses when nobody says otherwise — the server a
+/// person's own `tmux` command talks to.
+///
+/// tmuxy stays off it by default (see `DEFAULT_TMUX_SOCKET`), and treats it
+/// differently when a user deliberately attaches to it: see [`source_config`].
+pub const USERS_OWN_SOCKET: &str = "default";
+
+/// Whether the socket in play is the user's OWN tmux server rather than one of
+/// tmuxy's.
+pub fn on_users_own_server() -> bool {
+    tmux_socket() == USERS_OWN_SOCKET
+}
+
 /// Source the tmuxy config file (server-global — tmux `source-file` is not
 /// session-scoped, which is why this takes no session parameter).
+///
+/// On the user's OWN tmux server this sources `tmuxy.essentials.conf` alone,
+/// not the whole config. The full config is tmuxy's taste as much as its
+/// requirements — it rebinds the prefix to C-a, replaces the status line and
+/// adds root bindings — and `source-file` is server-global, so adopting
+/// somebody's existing server used to rewrite the prefix for every ordinary
+/// terminal client attached to it. Somebody's day job is on that server. The
+/// essentials are the command-aliases and the handful of options tmuxy stops
+/// working without, which is the least that can be applied and still function.
 pub fn source_config() -> Result<()> {
-    let Some(config_path) = get_config_path() else {
-        return Ok(()); // No config to source
+    let config_path = if on_users_own_server() {
+        let essentials = config_dir().join("tmuxy.essentials.conf");
+        if !essentials.exists() {
+            return Ok(());
+        }
+        essentials
+    } else {
+        let Some(path) = get_config_path() else {
+            return Ok(()); // No config to source
+        };
+        path
     };
 
     let config_str = config_path.to_string_lossy().to_string();
@@ -1054,6 +1092,12 @@ pub fn source_config() -> Result<()> {
 pub fn create_or_attach(session_name: &str) -> Result<()> {
     if !session_exists(session_name)? {
         create_session(session_name)?;
+        // On the user's own server the session was created WITHOUT `-f`, so the
+        // command-aliases tmuxy resolves every binding through are not there
+        // yet. Apply the essentials the same way an existing session gets them.
+        if on_users_own_server() {
+            let _ = source_config();
+        }
     } else {
         // Source config for existing session
         let _ = source_config();
