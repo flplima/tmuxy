@@ -110,6 +110,7 @@ export const WindowTabs = memo(function WindowTabs() {
   // The tab whose picture is showing, and the timer waiting to show the first.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);
+  const dismissPreviewRef = useRef<() => void>(() => {});
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>({
     visible: false,
     x: 0,
@@ -140,6 +141,12 @@ export const WindowTabs = memo(function WindowTabs() {
       e.preventDefault();
       e.stopPropagation();
       if (readOnly) return;
+      // The preview TURNS INTO the menu. Right-clicking a tab you are already
+      // looking at used to draw the menu on top of its own preview — two cards
+      // about the same tab, overlapping, one of them now unreachable. The card
+      // goes first and the menu opens where the pointer is, so there is one
+      // surface about one tab at any moment.
+      dismissPreviewRef.current();
       setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId });
     },
     [readOnly],
@@ -272,6 +279,9 @@ export const WindowTabs = memo(function WindowTabs() {
     cancelClose();
     setPreviewId(null);
   };
+  // `handleContextMenu` is declared above this and is memoised, so it reads the
+  // dismiss through a ref rather than closing over the render that made it.
+  dismissPreviewRef.current = dismissPreview;
 
   useEffect(
     () => () => {
@@ -479,6 +489,9 @@ export const WindowTabs = memo(function WindowTabs() {
             dismissPreview();
             send({ type: 'SELECT_TAB', windowId: id });
           }}
+          // Another floating surface took the layer (the app menu, a pane's
+          // context menu). The card is not a peer that argues; it goes.
+          onDismiss={dismissPreview}
         />
         {contextMenu.visible && (
           <TabContextMenu

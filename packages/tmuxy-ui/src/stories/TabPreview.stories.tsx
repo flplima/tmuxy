@@ -349,3 +349,64 @@ export const ClickingTheCardOpensThatTab: Story = {
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };
+
+// ---------------------------------------------------------------------------
+// The preview turns INTO the context menu
+// ---------------------------------------------------------------------------
+
+export const RightClickTurnsThePreviewIntoTheMenu: Story = {
+  args: { height: 460, initCommands: THREE_TABS },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 460 },
+      description: {
+        story:
+          'Right-clicking a tab you are already looking at replaces its preview with its menu. The two are surfaces about the same tab, so only one may be up: drawn together, the menu covered the picture it was opened from and left a card underneath that nothing could reach. One floating surface holds the layer at a time (components/floating/surfaceRegistry).',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
+    await waitFor(() =>
+      expect(canvasElement.querySelectorAll('.tab-name[data-window-id]').length).toBe(3),
+    );
+
+    const tab = tabButton(canvasElement, 'bravo');
+    const windowId = tab.dataset.windowId as string;
+
+    // Rest on it until the picture is up.
+    await userEvent.hover(tab);
+    const card = await waitForPreview(windowId);
+    expect(card.getBoundingClientRect().height).toBeGreaterThan(0);
+
+    // Then right-click the same tab.
+    await userEvent.pointer({ target: tab, keys: '[MouseRight]' });
+
+    // The menu is up...
+    const menu = await waitFor(
+      () => {
+        const el = document.querySelector<HTMLElement>('.szh-menu');
+        expect(el, 'no context menu').not.toBeNull();
+        return el!;
+      },
+      { timeout: 5000 },
+    );
+    expect(menu.getBoundingClientRect().height).toBeGreaterThan(0);
+
+    // ...and the card is gone, rather than sitting behind it. Checked as a
+    // BOX, not merely as a missing node: a card left in the DOM at zero
+    // opacity is still a card the pointer can hit.
+    await waitFor(
+      () => {
+        const still = preview();
+        if (!still) return;
+        const box = still.getBoundingClientRect();
+        expect(box.width === 0 || box.height === 0, 'preview still drawn under the menu').toBe(
+          true,
+        );
+      },
+      { timeout: 3000 },
+    );
+  },
+};

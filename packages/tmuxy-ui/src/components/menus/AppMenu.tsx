@@ -12,6 +12,7 @@
  * app menu.
  */
 
+import { useRef, useState } from 'react';
 import {
   Menu,
   MenuItem,
@@ -19,6 +20,7 @@ import {
   MenuDivider,
   MenuHeader,
   MenuRadioGroup,
+  type MenuInstance,
 } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
 import {
@@ -48,9 +50,18 @@ import { useWidgetMenuItems } from '../widgets/usePaneWidget';
 import type { WidgetMenuItem } from '../widgets';
 import { KeyLabel } from './KeyLabel';
 import { WindowMenu } from './WindowMenu';
+import { useSurfaceClaim } from '../floating/useFloatingSurface';
 import './AppMenu.css';
 
 export function AppMenu() {
+  // This menu owns its own open state (it is the uncontrolled `Menu`, opened by
+  // its button), so the floating layer is claimed from `onMenuChange` and
+  // released when it closes. Dismissal goes through the instance rather than a
+  // state flag, because there is no flag to set.
+  const menuRef = useRef<MenuInstance>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useSurfaceClaim('app-menu', () => menuRef.current?.closeMenu(), menuOpen);
+
   const send = useAppSend();
   const actor = useAppActor();
   const { isDemo } = useAppConfig();
@@ -87,7 +98,12 @@ export function AppMenu() {
   );
 
   return (
-    <Menu menuButton={menuButton} transition={false}>
+    <Menu
+      menuButton={menuButton}
+      transition={false}
+      instanceRef={menuRef}
+      onMenuChange={(e) => setMenuOpen(e.open)}
+    >
       {!readOnly && (
         <SubMenu label="Pane">
           <PaneMenuItems

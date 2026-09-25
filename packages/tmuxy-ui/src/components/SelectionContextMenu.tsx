@@ -11,6 +11,7 @@ import '@szhsin/react-menu/dist/index.css';
 import { useAppSend, useReadOnly } from '../machines/AppContext';
 import { literalTextCommands } from '../tmux/keyBatching';
 import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
+import { useSurfaceClaim } from './floating/useFloatingSurface';
 import './menus/AppMenu.css';
 import { flashCopiedRange } from '../utils/copyFlash';
 import { writeClipboard } from '../utils/clipboard';
@@ -59,6 +60,8 @@ export function SelectionContextMenu({
   selectionRange = null,
   onClose,
 }: SelectionContextMenuProps) {
+  // One floating surface at a time — see components/floating/surfaceRegistry.
+  useSurfaceClaim('selection-context-menu', onClose);
   const send = useAppSend();
   const readOnly = useReadOnly();
   useSelectionPinned(selectionRange);

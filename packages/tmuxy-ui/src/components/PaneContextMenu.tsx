@@ -14,6 +14,7 @@ import {
   selectMarkedPaneId,
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
+import { useSurfaceClaim } from './floating/useFloatingSurface';
 import { PaneMenuItems } from './menus/PaneMenuItems';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';
 import type { WidgetMenuItem } from './widgets';
@@ -29,6 +30,8 @@ interface PaneContextMenuProps {
 }
 
 export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
+  // One floating surface at a time — see components/floating/surfaceRegistry.
+  useSurfaceClaim('pane-context-menu', onClose);
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const visiblePanes = useAppSelector(selectVisiblePanes);

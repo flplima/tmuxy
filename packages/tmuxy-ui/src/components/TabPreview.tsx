@@ -16,11 +16,13 @@
  * browse, and the next preview waits its delay again. Clicking it opens that
  * tab, the way clicking the button would — it IS the button, drawn larger.
  *
- * Positioning mirrors Tooltip: fixed, portalled into `.app-container` so the
- * config's animations switch reaches it, and clamped to the viewport.
+ * Positioning, the portal and the exit hold are `useFloatingSurface`, shared
+ * with the context menus — a preview and a menu are the same kind of object and
+ * used to disagree about all three. That hook also holds the floating layer,
+ * which is what stops a menu drawing on top of this card.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   useAppSend,
@@ -36,6 +38,7 @@ import { Tooltip } from './Tooltip';
 import { slotBoxes } from '../utils/tabOverview';
 import { useTabStill } from '../hooks/useTabStill';
 import { TabShot } from './TabShot';
+import { useFloatingSurface, surfacePortalTarget } from './floating/useFloatingSurface';
 import './TabPreview.css';
 
 /**
@@ -53,12 +56,6 @@ export const TAB_PREVIEW_DELAY_MS = 500;
 const TAB_PREVIEW_EXIT_MS = 150;
 
 const WIDTH_PX = 280;
-const GAP_PX = 6;
-const EDGE_PX = 8;
-
-function portalTarget(): HTMLElement {
-  return document.querySelector<HTMLElement>('.app-container') ?? document.body;
-}
 
 interface TabPreviewProps {
   /** The tab being previewed, or null when nothing is. */
@@ -70,6 +67,8 @@ interface TabPreviewProps {
   onPointerLeave: () => void;
   /** The card was clicked: open that tab and put the card away. */
   onActivate: (windowId: string) => void;
+  /** Put the card away — called when another floating surface takes the layer. */
+  onDismiss: () => void;
 }
 
 export function TabPreview({
@@ -78,6 +77,7 @@ export function TabPreview({
   onPointerEnter,
   onPointerLeave,
   onActivate,
+  onDismiss,
 }: TabPreviewProps) {
   const send = useAppSend();
   const readOnly = useReadOnly();
@@ -85,51 +85,44 @@ export function TabPreview({
   const animations = useAppSelector(selectAnimationsAllowed);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
-  const rootRef = useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
 
-  // What is DRAWN, which outlives what is asked for: when the strip stops
-  // pointing at a tab the card stays for its exit, then goes.
-  const [card, setCard] = useState<{ windowId: string; label: string } | null>(null);
-  const [leaving, setLeaving] = useState(false);
-  useEffect(() => {
-    if (windowId) {
-      setCard({ windowId, label });
-      setLeaving(false);
-      return;
-    }
-    setLeaving(true);
-    const timer = setTimeout(() => setCard(null), animations ? TAB_PREVIEW_EXIT_MS : 0);
-    return () => clearTimeout(timer);
-  }, [windowId, label, animations]);
+  const {
+    ref: rootRef,
+    shown: card,
+    leaving,
+    reposition,
+  } = useFloatingSurface<{ windowId: string; label: string }>({
+    id: 'tab-preview',
+    content: windowId ? { windowId, label } : null,
+    anchor: {
+      kind: 'element',
+      element: windowId
+        ? document.querySelector<HTMLElement>(`.tab-name[data-window-id="${windowId}"]`)
+        : null,
+    },
+    exitMs: TAB_PREVIEW_EXIT_MS,
+    animated: animations,
+    onDismiss,
+  });
 
   const shownId = card?.windowId ?? null;
   const still = useTabStill(panes, shownId !== null);
 
+  // The picture's box is measured once it has one, and the card is re-placed
+  // afterwards: the frame's height decides the card's, and a card positioned
+  // before it is measured is placed against the wrong height.
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !shownId) return;
-    const anchor = document.querySelector<HTMLElement>(`.tab-name[data-window-id="${shownId}"]`);
-    if (!anchor) return;
-    const tab = anchor.getBoundingClientRect();
-    const box = root.getBoundingClientRect();
-    // Centred under its button, then pulled back inside the window — a tab at
-    // either end would otherwise hang off the edge.
-    const left = Math.min(
-      Math.max(EDGE_PX, tab.left + tab.width / 2 - box.width / 2),
-      window.innerWidth - box.width - EDGE_PX,
-    );
-    root.style.left = `${Math.round(left)}px`;
-    root.style.top = `${Math.round(tab.bottom + GAP_PX)}px`;
-
     const frame = root.querySelector<HTMLElement>('.tab-preview-frame');
-    if (frame) {
-      const r = frame.getBoundingClientRect();
-      if (r.width > 0 && (r.width !== frameSize?.width || r.height !== frameSize?.height)) {
-        setFrameSize({ width: r.width, height: r.height });
-      }
+    if (!frame) return;
+    const r = frame.getBoundingClientRect();
+    if (r.width > 0 && (r.width !== frameSize?.width || r.height !== frameSize?.height)) {
+      setFrameSize({ width: r.width, height: r.height });
+      reposition();
     }
-  }, [shownId, frameSize]);
+  }, [shownId, frameSize, rootRef, reposition]);
 
   if (!card) return null;
 
@@ -193,6 +186,6 @@ export function TabPreview({
         />
       </div>
     </div>,
-    portalTarget(),
+    surfacePortalTarget(),
   );
 }

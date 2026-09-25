@@ -16,6 +16,7 @@ import {
   selectWindows,
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
+import { useSurfaceClaim } from './floating/useFloatingSurface';
 import { KeyLabel } from './menus/KeyLabel';
 import './menus/AppMenu.css';
 
@@ -30,6 +31,9 @@ interface TabContextMenuProps {
 }
 
 export function TabContextMenu({ windowId, x, y, onClose, onRename }: TabContextMenuProps) {
+  // One floating surface at a time: opening this puts away the tab preview it
+  // was drawn on top of, and any other menu.
+  useSurfaceClaim('tab-context-menu', onClose);
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const allWindows = useAppSelectorShallow(selectWindows);
