@@ -83,11 +83,11 @@ The API is a remote shell, and a browser sends requests on behalf of whatever pa
 | --------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `Sec-Fetch-Site`            | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
 | `Origin`                    | Must name the host the request was sent to                           | The same, in a browser without Fetch Metadata                              |
-| `Host` (loopback bind only) | Must be a loopback name or an `--allowed-host`                       | DNS rebinding                                                              |
+| `Host`                      | Must be a loopback name, the address the server bound, or an `--allowed-host` | DNS rebinding                                                     |
 
 The API sends **no CORS headers**, so no other origin can read a response even when a request is let through. A request with none of these headers is not a browser acting for a page (`curl`, a script) and is allowed. Cached Basic-auth credentials do not help a hostile page: its requests are refused by origin before the password matters.
 
-On a routable bind the `Host` rule is off — the server cannot know every name it is reached by — and the password is what stops rebinding, because the browser holds no credentials for the rebound origin. With `--no-auth` on a routable address, DNS rebinding is **not** prevented.
+The `Host` rule applies to a routable bind too: the address it bound is a name it answers to, and so is anything passed with `--allowed-host` (repeatable, or `TMUXY_ALLOWED_HOSTS`). The one gap left is a **wildcard** bind (`0.0.0.0`, `::`) given no allowed list, where the server genuinely does not know which of its addresses a request arrived on and any `Host` passes — the container case, where the published port is the boundary. Naming the host you reach it by closes that too.
 
 ## Local Files Are Served Sandboxed
 
@@ -205,11 +205,11 @@ What the server does _not_ do is interpolate a client's command into a shell of 
 
 ### 5. `--no-auth` on a Routable Address (Medium)
 
-**Risk:** Everyone on the network can reach the server with no password, and the `Host` check that stops DNS rebinding is off.
+**Risk:** Everyone on the network can reach the server with no password.
 
-**Impact:** Anyone on the network — and a hostile site the user visits, through DNS rebinding — gets shell access.
+**Impact:** Anyone on the network gets shell access.
 
-**Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container's published port on a single-user machine.
+**Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container's published port on a single-user machine. DNS rebinding on top of this is now refused by the `Host` check unless the bind is a wildcard with no `--allowed-host` ([Cross-Origin Requests](#cross-origin-requests)); naming the host closes that case.
 
 ### 6. Browsers Without Fetch Metadata (Low)
 

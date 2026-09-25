@@ -142,9 +142,18 @@ fn resolve_listen(
              Set TMUXY_PASSWORD (or --password), listen on --host 127.0.0.1, or pass --no-auth on a network you trust."
         ));
     }
+    // SEC-10/SEC-15: a routable bind keeps the allowed list and still checks
+    // `Host` against it. It used to be discarded here, so `--allowed-host` (and
+    // `TMUXY_ALLOWED_HOSTS`, which the public demo builds it from) silently did
+    // nothing, and a routable `--no-auth` bind was one DNS rebind from a shell.
+    // `bound` is None for a wildcard, where the server cannot know its address.
+    let bound = (!ip.is_unspecified()).then_some(ip);
     Ok(Listen {
         ip,
-        policy: HostPolicy::Any,
+        policy: HostPolicy::Bound {
+            bound,
+            allowed: allowed_hosts,
+        },
     })
 }
 
@@ -199,7 +208,7 @@ fn announce_security(listen: &Listen, password_set: bool) {
         println!(
             "tmuxy server: HTTP Basic auth enabled (any username; use the configured password)"
         );
-    } else if listen.policy == HostPolicy::Any {
+    } else if matches!(listen.policy, HostPolicy::Bound { .. }) {
         eprintln!(
             "warning: --no-auth on {} — anyone who can reach this port has full shell access.",
             listen.ip
@@ -809,17 +818,44 @@ mod tests {
     #[test]
     fn a_routable_address_needs_a_password_or_no_auth() {
         assert!(resolve_listen("0.0.0.0", false, false, vec![]).is_err());
+        // A wildcard bind knows no address of its own, so there is nothing to
+        // compare a `Host` against beyond an allowed list.
         assert_eq!(
             resolve_listen("0.0.0.0", true, false, vec![])
                 .unwrap()
                 .policy,
-            HostPolicy::Any
+            HostPolicy::Bound {
+                bound: None,
+                allowed: vec![]
+            }
         );
         assert_eq!(
             resolve_listen("192.168.1.20", false, true, vec![])
                 .unwrap()
                 .policy,
-            HostPolicy::Any
+            HostPolicy::Bound {
+                bound: Some("192.168.1.20".parse().unwrap()),
+                allowed: vec![]
+            }
+        );
+    }
+
+    /// SEC-15: the allowed list was kept only on a loopback bind, so
+    /// `--allowed-host` (and `TMUXY_ALLOWED_HOSTS`, which the public demo
+    /// builds it from) silently did nothing on the routable bind that actually
+    /// needed it — while `deploy/public-demo/README.md` said every other call
+    /// would answer 403.
+    #[test]
+    fn a_routable_bind_keeps_the_allowed_hosts_it_was_given() {
+        let policy = resolve_listen("0.0.0.0", true, false, vec!["demo.example".into()])
+            .unwrap()
+            .policy;
+        assert_eq!(
+            policy,
+            HostPolicy::Bound {
+                bound: None,
+                allowed: vec!["demo.example".to_string()]
+            }
         );
     }
 
