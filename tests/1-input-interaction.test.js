@@ -1523,6 +1523,14 @@ describe('Scenario 7e: Selecting the whole scrollback', () => {
 
     // The scroll view opens on the pane and the selection covers it whole: the
     // first row of history to the last row on screen.
+    //
+    // `totalLines > height` is part of the WAIT, not an assertion after it.
+    // The pane's `history_size` arrives on its own schedule, and until it does
+    // the view knows only the rows on screen — where a selection from row 0 to
+    // `totalLines - 1` is perfectly self-consistent and covers the screen
+    // alone. Asserting it separately afterwards meant a slow runner caught
+    // that honest intermediate state and read it as select-all missing the
+    // scrollback (`Expected: > 26, Received: 26` in CI).
     await waitForCondition(
       ctx.page,
       async () => {
@@ -1531,11 +1539,22 @@ describe('Scenario 7e: Selecting the whole scrollback', () => {
           cs?.mode === 'scroll' &&
           cs.selectionMode === 'line' &&
           cs.selectionAnchor?.row === 0 &&
+          cs.totalLines > cs.height &&
           cs.cursorRow === cs.totalLines - 1
         );
       },
       15000,
-      'select-all to cover the whole scrollback',
+      async () => {
+        const cs = await getCopyModeState(ctx.page);
+        return `select-all to cover the whole scrollback (saw ${JSON.stringify({
+          mode: cs?.mode,
+          selectionMode: cs?.selectionMode,
+          anchorRow: cs?.selectionAnchor?.row,
+          cursorRow: cs?.cursorRow,
+          totalLines: cs?.totalLines,
+          height: cs?.height,
+        })})`;
+      },
     );
     const selected = await getCopyModeState(ctx.page);
     // The whole backlog, not just the screen: `seq 1 300` scrolled 300 lines
