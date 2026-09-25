@@ -10,8 +10,7 @@ source "$SCRIPTS_DIR/_lib"
 
 NAME="${1:?Usage: tmuxy queue clear <name>}"
 
-SOCKET="${TMUX_SOCKET:-tmuxy}"
-DIR="/tmp/tmuxy-queues/$SOCKET/$NAME"
+DIR="$(queue_dir "$NAME")"
 
 if [ -d "$DIR" ]; then
   _lock_acquire "$DIR"

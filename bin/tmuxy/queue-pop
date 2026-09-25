@@ -49,8 +49,7 @@ if [ -z "$NAME" ]; then
   exit 1
 fi
 
-SOCKET="${TMUX_SOCKET:-tmuxy}"
-DIR="/tmp/tmuxy-queues/$SOCKET/$NAME"
+DIR="$(queue_dir "$NAME")"
 mkdir -p "$DIR"
 
 start_time=$(date +%s)

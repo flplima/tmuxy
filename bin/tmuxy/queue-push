@@ -4,7 +4,7 @@
 # Usage: tmuxy queue push <name> <message>
 #        echo "payload" | tmuxy queue push <name> -
 #
-# Storage: /tmp/tmuxy-queues/<socket>/<name>/msg.<N>
+# Storage: <runtime dir>/tmuxy-queues-<uid>/<socket>/<name>/msg.<N>
 # Signal:  tmux wait-for -S tmuxy_queue_<name>
 
 set -euo pipefail
@@ -21,8 +21,7 @@ if [ "$MSG" = "-" ]; then
   MSG="$(cat)"
 fi
 
-SOCKET="${TMUX_SOCKET:-tmuxy}"
-DIR="/tmp/tmuxy-queues/$SOCKET/$NAME"
+DIR="$(queue_dir "$NAME")"
 mkdir -p "$DIR"
 
 # Atomically read+increment the sequence counter. Released on any exit, so a
