@@ -2,10 +2,8 @@
 #
 # Run `bin/dev` (or `bin/prod`) in the background, stop it, and read its log.
 #
-# This is what `npm start` / `npm stop` / `npm logs` call. It replaces pm2,
-# which is AGPL-3.0: never distributed in a tmuxy build, but enough to make an
-# automated licence scan flag the repo, and the three things it was doing here
-# are a PID file, a log file and `tail`.
+# This is what `npm start` / `npm stop` / `npm logs` call: a PID file, a log
+# file and `tail`.
 #
 # The one part that is not obvious is stopping. `bin/dev` execs `cargo watch`,
 # which spawns the server as a CHILD, so killing the recorded PID alone leaves
@@ -22,7 +20,7 @@
 #
 # The target defaults to `dev`. `prod` runs `bin/prod` (release build, the
 # `tmuxy-prod` socket) and keeps its own PID and log files, so the two can run
-# side by side the way they always have.
+# side by side.
 
 set -euo pipefail
 

@@ -491,7 +491,7 @@ impl TmuxMonitor {
             .await?;
 
         // Resize the window to the initial size to ensure panes aren't tiny.
-        // When running in a background process (pm2), the PTY may start small.
+        // When running in a background process, the PTY may start small.
         // The browser will send a proper resize once it connects.
         if !self.config.observer {
             self.connection

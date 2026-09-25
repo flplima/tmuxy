@@ -1,6 +1,6 @@
 # Tmuxy Dev Container
 # Based on the official Claude Code devcontainer pattern with project-specific tools:
-# tmux 3.7a, Rust, pm2, agent-browser
+# tmux 3.7a, Rust, agent-browser
 
 FROM node:22
 
@@ -142,10 +142,9 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
     && mkdir -p -m 700 /home/user/.ssh
 
-# pm2 runs the dev server (`npm start`). The single Chromium for everything
-# Playwright-driven — the e2e suite (tests/helpers/browser.js launch fallback),
-# the storybook probe (packages/tmuxy-ui/scripts/probe-stories.mjs) and
-# agent-browser — is the system one, named by PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-# above: arm64 has no downloadable build, so a system binary is required there
-# and used on every arch for consistency. Hence no `playwright install` step.
-RUN npm install -g pm2
+# The single Chromium for everything Playwright-driven — the e2e suite
+# (tests/helpers/browser.js launch fallback), the storybook probe
+# (packages/tmuxy-ui/scripts/probe-stories.mjs) and agent-browser — is the
+# system one, named by PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH above: arm64 has no
+# downloadable build, so a system binary is required there and used on every
+# arch for consistency. Hence no `playwright install` step.
