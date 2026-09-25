@@ -13,6 +13,7 @@ members = [
 version = "0.0.10-alpha.66"
 edition = "2021"
 authors = ["Felipe"]
+license = "MIT"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive", "rc"] }

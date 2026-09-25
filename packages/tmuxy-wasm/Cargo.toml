@@ -3,6 +3,7 @@ name = "tmuxy-wasm"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "WASM binding over tmuxy-core's sans-IO control-mode parser + state aggregator"
 
 [lib]

@@ -2,6 +2,7 @@
   "name": "tmuxy-demo",
   "version": "0.0.10-alpha.66",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "predev": "bash ../../bin/kill-port 9003",
     "dev": "next dev",

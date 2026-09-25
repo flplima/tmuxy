@@ -3,6 +3,7 @@ name = "tmuxy-connect"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "The `tmuxy connect` TUI — a small form to add a tmux server (localhost or SSH) to the desktop app's server picker, persisted to servers.json"
 
 [lib]

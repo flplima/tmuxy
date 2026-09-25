@@ -3,6 +3,7 @@ name = "tmuxy-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "Core tmux interaction library for tmuxy"
 
 # The control-mode parser + state aggregator (parser/state/osc/images/octal +
