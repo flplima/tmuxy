@@ -179,8 +179,10 @@ Add `--cdp http://localhost:9222` to attach to the Chrome the dev environment
 already runs instead of launching one (the devcontainer deliberately does not
 install Playwright's browsers; CI is the reverse and launches). Refresh the
 committed baseline for a platform with `npm run perf:compare -- --report … --update-baseline`
-and commit the result — CI never writes it, so a baseline change is always a
-reviewed one.
+and commit the result. For the Linux platforms, run the "perf measurements"
+workflow instead: it measures on a runner and opens a PR with the refreshed
+file. Either way a baseline change lands through review — CI never writes one
+straight to `main`.
 
 The desktop equivalent needs the app built first, and takes the binary rather
 than a URL:
@@ -429,10 +431,13 @@ Still open:
   jobs therefore ride on their ratio gates alone and leave the absolute column
   blank. That is the designed fallback, not a failure — but it means a uniform
   slowdown that inflates every number together, keystroke echo included, is
-  currently invisible on CI. Seeding a `linux-x64` baseline is a human act: run
-  the job, review the numbers, commit the file (see
-  `.github/workflows/nightly-perf.yml`), because CI must never ratchet a
-  baseline to whatever the runner did last.
+  currently invisible on CI. Seeding a `linux-x64` baseline is still a human
+  act, but no longer a manual one: run the "perf measurements" workflow
+  (`.github/workflows/nightly-perf.yml`) and it opens a PR with the measured
+  file for you to read and merge. The review is the point — CI must never
+  ratchet a baseline to whatever the runner did last — and it had never happened
+  because the review used to mean downloading an artifact and copying a file
+  over by hand.
 - **No Axis B measurement in CI.** The RTT curve and the latency-injection
   proxy are a controlled experiment run by hand, not a gate — injected delay is
   the independent variable, so there is nothing for a runner to regress.

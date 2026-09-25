@@ -23,9 +23,17 @@ name: perf measurements
 
 on:
   workflow_dispatch:
+    inputs:
+      open_pr:
+        description: 'Open a PR with the refreshed interaction baseline'
+        type: boolean
+        default: true
 
+# The interaction-baseline job pushes a branch and opens a PR with the refreshed
+# numbers; everything else here only reads.
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: nightly-perf
@@ -112,16 +120,16 @@ jobs:
   # baseline, exactly as docs/PERFORMANCE.md requires.
   #
   # HOW TO ADD / REFRESH THE LINUX BASELINE:
-  #   1. Actions → "nightly perf" → Run workflow (workflow_dispatch).
-  #   2. Download the `interaction-baseline-<run id>` artifact.
-  #   3. Replace perf/interaction-baseline.json with the file inside it — it
-  #      already contains the existing `darwin-arm64` entry plus the new
-  #      `linux-x64` one (the script merges rather than replaces).
-  #   4. Sanity-check the numbers (a runner having a bad night produces a
-  #      baseline that hides real regressions), then commit.
+  #   1. Actions → "perf measurements" → Run workflow (workflow_dispatch).
+  #   2. It opens a PR with the refreshed perf/interaction-baseline.json — the
+  #      script merges rather than replaces, so `darwin-arm64` is left alone.
+  #   3. READ THE NUMBERS, then merge. A runner having a bad night produces a
+  #      baseline that hides real regressions for as long as it stands.
   #
-  # Manual only: a nightly-refreshed baseline would silently ratchet to
-  # whatever the runner did last, which is the opposite of a baseline.
+  # A PR rather than a commit, and manual rather than nightly, for the same
+  # reason: a baseline that refreshes itself ratchets to whatever the runner did
+  # last, which is the opposite of a baseline. Uncheck `open_pr` for the
+  # artifact alone.
   # ---------------------------------------------------------------------------
   interaction-baseline:
     if: github.event_name == 'workflow_dispatch'
@@ -242,14 +250,73 @@ jobs:
             perf/interaction-report.json
           if-no-files-found: error
 
-      - name: Remind the reader that nothing was committed
+      # A PULL REQUEST, not a commit to main. A baseline measured on a runner
+      # having a bad night hides real regressions for as long as it stands, so
+      # it has to be read by a human before it counts — but reading it should
+      # not also mean downloading an artifact and copying a file over by hand,
+      # which is why this baseline has never actually been refreshed. The PR
+      # keeps the review and removes the chore.
+      #
+      # `inputs.open_pr` defaults true; uncheck it to get only the artifact.
+      - name: Open a PR with the refreshed baseline
+        if: inputs.open_pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- perf/interaction-baseline.json; then
+            echo "Baseline unchanged - nothing to open." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          BRANCH="perf/interaction-baseline-${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add perf/interaction-baseline.json
+
+          # Bodies come from files: a -m string written inline in a YAML block
+          # scalar carries the block's own indentation into the message.
+          {
+            printf '%s\n\n' "⚡ refresh the linux interaction baseline"
+            printf '%s\n' "Measured by the \"perf measurements\" workflow on ubuntu-latest,"
+            printf '%s\n\n' "25 samples. Run: $RUN_URL"
+            printf '%s\n' "Read the numbers before merging: a runner having a bad night produces"
+            printf '%s\n' "a baseline that hides real regressions for as long as it stands."
+          } > /tmp/commit-msg
+          git commit -F /tmp/commit-msg
+          git push origin "$BRANCH"
+
+          {
+            printf '%s\n\n' 'Refreshed `perf/interaction-baseline.json` from a measured run on `ubuntu-latest` (25 samples).'
+            printf '%s\n\n' 'The script merges rather than replaces, so the existing `darwin-arm64` entry is untouched.'
+            printf '%s\n' '**Before merging:** read the milliseconds. This file is what the absolute-ms'
+            printf '%s\n\n' 'column compares against, so a slow runner here quietly raises the bar for every future run.'
+            printf '%s\n' "Run: $RUN_URL"
+          } > /tmp/pr-body
+
+          gh pr create \
+            --title "⚡ refresh the linux interaction baseline (run ${{ github.run_id }})" \
+            --body-file /tmp/pr-body \
+            --base main \
+            --head "$BRANCH"
+
+          echo "Opened a PR with the refreshed baseline." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Say where the baseline went
         if: always()
         run: |
           {
             echo "### Interaction baseline"
             echo ""
-            echo "Nothing was committed. Download the \`interaction-baseline-${{ github.run_id }}\` artifact,"
-            echo "review the numbers, and commit \`perf/interaction-baseline.json\` yourself."
+            if [ "${{ inputs.open_pr }}" = "true" ]; then
+              echo "A PR was opened if the numbers changed; the \`interaction-baseline-${{ github.run_id }}\` artifact has them either way."
+            else
+              echo "Artifact only (\`open_pr\` was unchecked). Download \`interaction-baseline-${{ github.run_id }}\`,"
+              echo "review the numbers, and commit \`perf/interaction-baseline.json\` yourself."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Server logs (debug)
