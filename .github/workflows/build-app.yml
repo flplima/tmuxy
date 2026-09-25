@@ -669,10 +669,11 @@ jobs:
   # --- Bump Homebrew Cask (only on tag push, after release publishes) ---
   #
   # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
-  # `brew install --cask flplima/tap/tmuxy`. Brew strips the macOS quarantine
-  # xattr automatically on cask install, so the unsigned DMG is usable
-  # without the "tmuxy is damaged" Gatekeeper dialog. Requires
-  # HOMEBREW_TAP_TOKEN secret (PAT with Contents:Write on flplima/homebrew-tap).
+  # `brew install --cask flplima/tap/tmuxy`. The DMG is signed and notarized
+  # (see the Apple secrets on the build job), so Gatekeeper accepts it; the
+  # cask's postflight still clears the quarantine xattr to skip the one-time
+  # "downloaded from the Internet" prompt. Requires the HOMEBREW_TAP_TOKEN
+  # secret (PAT with Contents:Write on flplima/homebrew-tap).
 
   bump-cask:
     # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
@@ -745,8 +746,9 @@ jobs:
             # the user with the app and no `tmuxy` command.
             postflight do
               # Homebrew marks the downloaded app with Gatekeeper's quarantine
-              # attribute, which puts a confirmation dialog in front of the
-              # first launch. Removing it keeps that launch frictionless.
+              # attribute, which puts a one-time "downloaded from the Internet"
+              # prompt in front of the first launch even for a notarized app.
+              # Removing it keeps that launch frictionless.
               system_command "/usr/bin/xattr",
                              args:         ["-dr", "com.apple.quarantine", "#{appdir}/tmuxy.app"],
                              must_succeed: false
