@@ -118,7 +118,24 @@ describe('Scenario: a pane showing a page still belongs to the app', () => {
       ctx.page,
       async () => (await paneState(ctx.page)).activePaneId === framePaneId,
       10000,
-      'clicking the embedded page to activate its pane',
+      // Focus is the only signal that crosses a frame boundary
+      // (`useFramedPaneFocus`): a click inside blurs the parent window and
+      // makes the `<iframe>` the parent document's activeElement. Every part
+      // of that can be missing in a headless browser, and "the pane did not
+      // activate" alone cannot say which.
+      async () => {
+        const seen = await ctx.page.evaluate(() => {
+          const el = document.activeElement;
+          return {
+            activeTag: el?.tagName ?? null,
+            activeClass: typeof el?.className === 'string' ? el.className : null,
+            documentHasFocus: document.hasFocus(),
+            insideWidgetPane: !!el?.closest?.('[role=group][aria-label^="Widget pane"]'),
+          };
+        });
+        const state = await paneState(ctx.page);
+        return `clicking the embedded page to activate its pane (wanted ${framePaneId}, active ${state.activePaneId}; ${JSON.stringify(seen)})`;
+      },
     );
 
     // 2. A divider dragged ACROSS the page keeps resizing. The frame used to
