@@ -1141,6 +1141,39 @@ fn is_list_panes_line(line: &str) -> bool {
     !digits.is_empty() && rest[digits.len()..].starts_with(',')
 }
 
+/// The process name to show for a pane, given tmux's `#{pane_current_command}`.
+///
+/// tmux reads that field from the kernel's `p_comm`, which is the resolved
+/// executable's file name — not the name of the symlink that was invoked. A
+/// launcher that pins its version by directory, as Claude Code does
+/// (`~/.local/share/claude/versions/2.1.280`), therefore reports a bare version
+/// string, and every surface that names the process by its command (the sidebar
+/// tree, the pane tabs, `tmuxy-tree`, the CLI) shows `2.1.280` where the user
+/// expects `claude`.
+///
+/// Normalising here rather than per surface means the backend state is the one
+/// place that has to know about it. The only pattern claimed is a command that
+/// is *entirely* a dotted version number, which no real executable is called.
+fn normalize_pane_command(command: &str) -> String {
+    if is_version_string(command) {
+        return "claude".to_string();
+    }
+    command.to_string()
+}
+
+/// Is this string nothing but a dotted run of digits (`2.1.280`, `0.9`)?
+fn is_version_string(value: &str) -> bool {
+    let mut parts = value.split('.');
+    let mut count = 0;
+    for part in &mut parts {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+        count += 1;
+    }
+    count >= 2
+}
+
 /// Literal sentinel prefixed on every `LIST_STASH_PANES_CMD` row so a stash
 /// response routes to the stash-member handler and never reaches the
 /// active-session pane/window parsers (a stash row carries a `@<id>` window id
@@ -2458,7 +2491,7 @@ impl StateAggregator {
                 StashMember {
                     window_id: window_id.to_string(),
                     group_id: group_id.to_string(),
-                    command: parts[4].to_string(),
+                    command: normalize_pane_command(parts[4]),
                     title: parts[5].to_string(),
                 },
             );
@@ -2582,7 +2615,7 @@ impl StateAggregator {
         let cursor_x: u32 = parts[6].parse().unwrap_or(0);
         let cursor_y: u32 = parts[7].parse().unwrap_or(0);
         let active = parts[8] == "1";
-        let command = parts[9].to_string();
+        let command = normalize_pane_command(parts[9]);
 
         // The two free-text fields — pane_title (index 10) and border_title
         // (just after window_id) — can contain commas, which shift the
@@ -3368,6 +3401,25 @@ mod tests {
         let mut pane = PaneState::new(pane_id, 80, 24);
         pane.window_id = window_id.to_string();
         agg.panes.insert(pane_id.to_string(), pane);
+    }
+
+    /// A version-pinned launcher must not name the pane after its version.
+    ///
+    /// `#{pane_current_command}` is the resolved executable's file name, so
+    /// Claude Code — installed as `.../claude/versions/<version>` — reports
+    /// `2.1.280`. Every surface that names a pane by its command showed that.
+    #[test]
+    fn a_bare_version_command_is_named_claude() {
+        assert_eq!(normalize_pane_command("2.1.280"), "claude");
+        assert_eq!(normalize_pane_command("0.9"), "claude");
+
+        // Anything a real executable is plausibly called stays untouched,
+        // including names that merely contain digits or a single dot.
+        for command in [
+            "zsh", "nvim", "python3", "node", "a.out", "2", "1.2.x", "v1.2.3", "",
+        ] {
+            assert_eq!(normalize_pane_command(command), command);
+        }
     }
 
     /// The grid the client sizes itself against is the active window's, not

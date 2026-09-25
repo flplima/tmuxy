@@ -35,6 +35,7 @@ const PROCESS_ICONS: Record<string, string> = {
   lua: '\ue620', //  nf-seti-lua
   ruby: '\ue739', //  nf-dev-ruby
   tmux: '\ue795', //  nf-custom-terminal
+  claude: '\u273b', // ✻ the mark Claude Code puts in front of its own title
 };
 
 const DEFAULT_ICON = '\ue795'; //  nf-custom-terminal
@@ -104,9 +105,9 @@ export function getTabIcon(
  * announced over OSC 0/2 (`claude`, `nvim README.md`, an ssh host), and the
  * backend already blanks it when tmux's default host-name seed is all that is
  * there — so a non-empty value always means an app set it. `pane.command` is
- * only the executable's file name, which can be meaningless on its own (a
- * version-pinned launcher symlink reports e.g. `2.1.251`), so it is the
- * fallback rather than the first choice.
+ * only the executable's file name, so it is the fallback rather than the first
+ * choice — the backend already rewrites the one case where that name says
+ * nothing at all (a version-pinned launcher reporting a bare `2.1.280`).
  */
 export function getTabText(pane: TmuxPane, titleOverride?: string): string {
   if (pane.inMode) return '[COPY MODE]';

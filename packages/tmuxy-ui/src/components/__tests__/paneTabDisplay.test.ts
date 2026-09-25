@@ -114,6 +114,17 @@ describe('the icon an application announces', () => {
     expect(getTabLabel(shell)).toBe('zsh');
   });
 
+  it('knows claude by its process name, for a pane that announced no title', () => {
+    // The backend normalises the version-pinned launcher's command name, so a
+    // freshly started pane is `claude` here even before it announces a title.
+    expect(getTabIcon(pane({ command: 'claude', title: '' }))).toBe('\u273b');
+    // The row does not say `claude` twice once the title arrives.
+    expect(paneRowLines(pane({ command: 'claude', title: '\u273b claude' }))).toEqual({
+      process: 'claude',
+      title: '',
+    });
+  });
+
   it('leaves the plain title alone for the places that draw no icon', () => {
     expect(getTabText(pane({ title: '\u273b claude' }))).toBe('\u273b claude');
   });
