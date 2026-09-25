@@ -58,8 +58,9 @@ What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`
 - **Refuses every command that is not a read** with a 403, decided before dispatch from `ClientCommand::is_read` — state, scrollback, themes, git worktrees and trace settings are reads; everything else is not, including `query_tmux`, which carries an arbitrary tmux command that nothing here can classify.
 - **Never records a client's viewport**, so a viewer's small window cannot resize the session under whoever is writing, and its monitor attaches without the initial resize (`MonitorConfig::observer`).
 - **Refuses `/trace`** and announces the mode in the `connection-info` greeting, which is how the frontend knows to stop offering changes.
+- **Refuses `/api/file` and `/api/browse`** with a 403. "Read-only" is about the session, and those two routes are a different power: they read any file the server process can, anywhere on the disk. A read-only server is the one meant to be handed to people who are not trusted with the machine, so the arbitrary-read routes are exactly the ones it must not serve. Only the browser widget uses them, and opening one takes a command a viewer cannot send.
 
-What it does not do: it is not confidentiality. A viewer reads everything on screen and in scrollback, and the file routes stay readable. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server.
+What it does not do: it is not confidentiality. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server, and for a genuinely public viewer see [A Public Read-Only Viewer](#a-public-read-only-viewer).
 
 ### Behind a Reverse Proxy
 
@@ -197,7 +198,7 @@ What the server does _not_ do is interpolate a client's command into a shell of 
 
 **Impact:** Information disclosure to any allowed client — SSH keys, configuration files, source code, credentials, and any file readable by the server process. Other origins are refused ([Cross-Origin Requests](#cross-origin-requests)) and a served page is sandboxed ([Local Files Are Served Sandboxed](#local-files-are-served-sandboxed)).
 
-**Mitigation:** The server should run as an unprivileged user. Do not run tmuxy as root.
+**Mitigation:** The server should run as an unprivileged user. Do not run tmuxy as root. A `--read-only` server refuses both routes outright ([Read-Only Server](#read-only-server)), which is what makes a viewer safe to hand to someone who is not trusted with the machine.
 
 ### 5. `--no-auth` on a Routable Address (Medium)
 

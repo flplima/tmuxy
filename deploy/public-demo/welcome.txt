@@ -1,0 +1,15 @@
+
+   tmuxy — the missing tmux GUI
+
+   You are watching a real tmux session, live, in a browser.
+   This view is READ-ONLY: your keystrokes go nowhere.
+
+   Things worth trying here:
+     • drag the divider between panes
+     • scroll this pane with the wheel, then select text with the mouse
+     • open the tab overview
+     • right-click a pane for its menu
+
+   It runs in a throwaway container with nothing in it.
+
+   github.com/flplima/tmuxy

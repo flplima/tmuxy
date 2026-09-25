@@ -343,7 +343,13 @@ struct FileQuery {
     path: String,
 }
 
-async fn file_handler(Query(query): Query<FileQuery>) -> Response {
+async fn file_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<FileQuery>,
+) -> Response {
+    if let Some(refusal) = refuse_when_read_only(&state) {
+        return refusal;
+    }
     read_file_response(&query.path)
 }
 
@@ -356,10 +362,39 @@ async fn file_handler(Query(query): Query<FileQuery>) -> Response {
 /// percent-decoded the captured path; the leading `/` it strips is put back so
 /// the absolute path on disk round-trips.
 ///
-/// Like `/api/file` this reads anywhere the server process can, gated only by
-/// the optional `--password` Basic auth. See docs/SECURITY.md.
-async fn browse_handler(Path(path): Path<String>) -> Response {
+/// Like `/api/file` this reads anywhere the server process can, gated by the
+/// optional `--password` Basic auth and refused outright on a `--read-only`
+/// server. See docs/SECURITY.md.
+async fn browse_handler(State(state): State<Arc<AppState>>, Path(path): Path<String>) -> Response {
+    if let Some(refusal) = refuse_when_read_only(&state) {
+        return refusal;
+    }
     read_file_response(&format!("/{}", path.trim_start_matches('/')))
+}
+
+/// 403 for the file routes on a `--read-only` server, or None to serve.
+///
+/// "Read-only" is about what a VIEWER may do to the session, and the command
+/// path already enforces that. These two routes are a different power: they read
+/// any file the server process can, anywhere on the disk, which is not part of
+/// watching someone's terminal. A read-only server is the one meant to be handed
+/// to people who are not trusted with the machine — a public demo above all —
+/// so the arbitrary-read routes are exactly the ones it must not serve.
+///
+/// The browser widget is the only client of these routes, and a viewer of a
+/// read-only session cannot open one (it takes a command), so nothing a viewer
+/// can legitimately do is lost.
+fn refuse_when_read_only(state: &AppState) -> Option<Response> {
+    if !state.read_only {
+        return None;
+    }
+    Some(
+        (
+            StatusCode::FORBIDDEN,
+            "read-only server: file routes are disabled\n",
+        )
+            .into_response(),
+    )
 }
 
 /// The Content-Security-Policy every file route answers with: the document
@@ -568,6 +603,40 @@ mod api_guard_tests {
             .unwrap();
         let response = app.clone().oneshot(trace).await.unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// A read-only server must not serve the arbitrary-file-read routes.
+    ///
+    /// They are the reason a read-only server is not automatically safe to
+    /// expose: refusing every non-read COMMAND says nothing about them, and they
+    /// read anything the server process can, anywhere on the disk.
+    #[tokio::test]
+    async fn a_read_only_server_refuses_the_file_routes() {
+        let state = Arc::new(AppState::new().with_read_only(true));
+        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
+
+        for uri in ["/api/file?path=/etc/hosts", "/api/browse/etc/hosts"] {
+            let request = Request::get(uri)
+                .header("host", "localhost:9000")
+                .header("sec-fetch-site", "same-origin")
+                .body(Body::empty())
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+    }
+
+    /// ...and a normal server still serves them, so the guard above is the
+    /// read-only flag talking and not a route that stopped working.
+    #[tokio::test]
+    async fn a_writable_server_still_serves_the_file_routes() {
+        let request = Request::get("/api/file?path=/etc/hosts")
+            .header("host", "localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::empty())
+            .unwrap();
+        let response = app().oneshot(request).await.unwrap();
+        assert_ne!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

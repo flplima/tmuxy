@@ -1,14 +1,13 @@
-# The devcontainer build context is the repo root, but the Dockerfile only
-# COPYs bin/install-dev-tools — everything else is wasted transfer to the
-# daemon. The workspace is bind-mounted at runtime, never baked into the image.
-# Exclude the heavy, regenerable trees (the repo is multi-GB without this).
-.git
+# Keep the build context small and free of anything a public image must not see.
+# The public-demo image (deploy/public-demo/) builds from the repo root, so this
+# is what decides what can possibly reach it.
 node_modules
-**/node_modules
 target
-**/target
-**/dist
-**/.next
-**/build
-.agents/worktrees
-**/*.log
+.git
+.envrc
+.envrc.local
+*.log
+packages/tmuxy-ui/dist
+packages/tmuxy-ui/storybook-static
+packages/tmuxy-ui/probe-artifacts
+perf/*-report.json

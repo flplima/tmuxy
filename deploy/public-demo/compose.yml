@@ -1,0 +1,67 @@
+# The sandbox around the public read-only viewer.
+#
+# Every setting here exists so that a shell obtained inside the container is
+# worth nothing: no capabilities, no writable root, no host filesystem, no way
+# to gain privileges, and hard caps on what it can consume. The `--read-only`
+# server flag is the lock; this file is the empty room behind it.
+#
+#   docker compose -f deploy/public-demo/compose.yml up -d --build
+#
+# Then front 127.0.0.1:9100 with a tunnel (cloudflared, ngrok) and pass the
+# public name in TMUXY_ALLOWED_HOSTS so the server recognises the forwarded
+# Host header. See README.md in this directory.
+
+services:
+  viewer:
+    build:
+      context: ../..
+      dockerfile: deploy/public-demo/Dockerfile
+    image: tmuxy-public-demo
+
+    # Loopback only. The tunnel is the one thing that reaches it, so the port is
+    # never itself exposed to the network the host sits on.
+    ports:
+      - '127.0.0.1:9100:9000'
+
+    environment:
+      # The public hostname(s) the tunnel forwards, comma-separated. Without
+      # this the server answers 403 to every API call because the forwarded
+      # Host is not a name it knows (see docs/SECURITY.md).
+      TMUXY_ALLOWED_HOSTS: ${TMUXY_ALLOWED_HOSTS:-}
+      # No trace file on a public box: it records what actions happened, and
+      # nothing here needs it.
+      TMUXY_NO_TRACE: '1'
+
+    # No capability is needed to run tmux and bind a port above 1024.
+    cap_drop:
+      - ALL
+    security_opt:
+      # A setuid binary inside cannot raise privileges, so a local escalation
+      # bug in the image does not become root in the container.
+      - no-new-privileges:true
+
+    # The image is immutable at runtime. tmux needs somewhere to put its socket
+    # and the shell needs a home, so those two are tmpfs — wiped on restart,
+    # never on the host's disk, and size-capped so they cannot fill it.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /home/demo:rw,nosuid,size=64m,uid=10001,gid=10001
+
+    # A fork bomb in a pane stops at the container's own limits rather than the
+    # host's. The demo runs three sleeping loops; these are generous for it.
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+
+    restart: unless-stopped
+
+    # The session is scripted and stateless: if it wedges, the honest fix is a
+    # fresh container, which is also what clears anything a visitor managed to
+    # leave behind.
+    healthcheck:
+      test: ['CMD', 'tmuxy-server', '--help']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
