@@ -1805,6 +1805,29 @@ describe('Scenario 6f: Float Tab Scope', () => {
           strip: { top: s.top, bottom: s.bottom },
           backdropParent: backdrop.parentElement?.className ?? null,
           backdropOffsetParent: backdrop.offsetParent?.className ?? null,
+          // The overlay is `position:absolute; inset:0`, so its box IS its
+          // containing block's padding box. When the backdrop comes out the
+          // right SIZE but in the wrong PLACE, the question is which ancestor
+          // it resolved against — so walk up and record each one's box and the
+          // properties that can make it a containing block.
+          ancestors: (() => {
+            const chain = [];
+            let el = backdrop.parentElement;
+            while (el && chain.length < 6) {
+              const cs = getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              chain.push({
+                className: el.className,
+                position: cs.position,
+                transform: cs.transform === 'none' ? null : cs.transform,
+                zoom: cs.zoom,
+                padding: cs.padding,
+                box: { top: r.top, left: r.left, width: r.width, height: r.height },
+              });
+              el = el.parentElement;
+            }
+            return chain;
+          })(),
         },
         dTop: Math.abs(b.top - c.top),
         dBottom: Math.abs(b.bottom - c.bottom),
