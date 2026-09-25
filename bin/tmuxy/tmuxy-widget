@@ -16,8 +16,10 @@ COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
 TITLE="${2:-$COMPONENT}"
 
 # Hand the title back on the way out, so the pane does not keep the widget's
-# name once it is a shell again. Empty resets it to tmux's own default.
-trap 'printf "\033]2;\007"; clear; exec bash </dev/tty' EXIT
+# name once it is a shell again. Empty resets it to tmux's own default. The
+# shell that replaces the widget is the user's own: closing a widget is not a
+# reason to land them in a bash they did not choose.
+trap 'printf "\033]2;\007"; clear; exec "${SHELL:-bash}" </dev/tty' EXIT
 
 printf '\033]2;%s\007' "$TITLE"
 echo "__TMUXY_WIDGET__:${COMPONENT}"
