@@ -17,3 +17,18 @@ export function writeClipboard(text: string, paneId: string): void {
   };
   win.__tmuxyLastClipboard = { paneId, text };
 }
+
+/**
+ * What the status line says when a pane replaced the system clipboard.
+ *
+ * OSC 52 arrives in pane OUTPUT, so a file a user merely `cat`s can carry it.
+ * The write itself is legitimate and common (an nvim or tmux yank over ssh is
+ * the reason the sequence is honoured at all), so this announces it rather
+ * than asking about it — a confirmation dialog on every yank would be worse
+ * than the risk. The pane is named because a write the user did not make is
+ * the one worth noticing.
+ */
+export function clipboardWriteMessage(text: string, paneId: string): string {
+  const chars = text.length === 1 ? '1 char' : `${text.length} chars`;
+  return paneId ? `Copied ${chars} from pane ${paneId}` : `Copied ${chars}`;
+}

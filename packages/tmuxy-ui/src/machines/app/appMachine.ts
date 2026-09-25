@@ -61,7 +61,7 @@ import {
   gridExtent,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
-import { writeClipboard } from '../../utils/clipboard';
+import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
 import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -485,8 +485,20 @@ export const appMachine = setup({
     // a denied permission shouldn't break the rest of the machine. Updates
     // `lastClipboardWrite` so tests/UI can observe the most recent payload
     // without re-reading the system clipboard.
+    //
+    // The status message is the SEC-01 signal: the sequence comes from pane
+    // OUTPUT, so `cat` of a crafted file can replace what the user is about to
+    // paste. The server already drops writes from a background pane and ones
+    // over the cap; saying that the clipboard changed is what makes the
+    // remaining, legitimate case (an nvim yank over ssh) not silent.
     TMUX_CLIPBOARD: {
-      actions: ({ event }) => writeClipboard(event.text, event.paneId),
+      actions: [
+        ({ event }) => writeClipboard(event.text, event.paneId),
+        raise(({ event }) => ({
+          type: 'SHOW_STATUS_MESSAGE' as const,
+          text: clipboardWriteMessage(event.text, event.paneId),
+        })),
+      ],
     },
     // Backend gave up reconnecting. The status screen reads `fatalError` to
     // show a non-recoverable banner instead of the "connecting…" spinner.

@@ -17,6 +17,20 @@ export function isOpenableUrl(url: string): boolean {
   return OPENABLE.test(url.trim());
 }
 
+/**
+ * The `href` an anchor for `url` may carry — `undefined` when none may be.
+ *
+ * `openExternalUrl` only guards the left-click path, and an anchor's own
+ * `href` is reachable without it: middle-click, Ctrl/Cmd-click, *Open in new
+ * tab*, *Copy link*, and dragging it to the address bar all use the attribute
+ * directly. A pane prints the URL, so `file:`, `data:` and custom schemes
+ * would otherwise become one gesture away — and the desktop webview's rules
+ * for them differ from a browser's again.
+ */
+export function safeHref(url: string): string | undefined {
+  return isOpenableUrl(url) ? url : undefined;
+}
+
 export function openExternalUrl(url: string): void {
   if (!isOpenableUrl(url)) return;
   if (isTauri()) {
