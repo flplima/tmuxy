@@ -76,9 +76,7 @@ for f in "${JSON_FILES[@]}"; do
 done
 
 # cargo racing the running dev-mode binary yields transient "Permission denied".
-if command -v pm2 >/dev/null 2>&1; then
-  pm2 stop tmuxy-dev >/dev/null 2>&1 || true
-fi
+bash "$(dirname "$0")/../../../../bin/dev-server" stop dev >/dev/null 2>&1 || true
 
 echo "regenerating Cargo.lock..."
 cargo build -p tmuxy-server

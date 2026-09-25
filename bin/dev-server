@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+#
+# Run `bin/dev` (or `bin/prod`) in the background, stop it, and read its log.
+#
+# This is what `npm start` / `npm stop` / `npm logs` call. It replaces pm2,
+# which is AGPL-3.0: never distributed in a tmuxy build, but enough to make an
+# automated licence scan flag the repo, and the three things it was doing here
+# are a PID file, a log file and `tail`.
+#
+# The one part that is not obvious is stopping. `bin/dev` execs `cargo watch`,
+# which spawns the server as a CHILD, so killing the recorded PID alone leaves
+# the server running and still holding the port — the next `npm start` then
+# fails with "address in use" and nothing says why. Every descendant is walked
+# and signalled, youngest first.
+#
+# Usage:
+#   bin/dev-server start [dev|prod]   # start it, refuse if already running
+#   bin/dev-server stop  [dev|prod]   # stop it and everything it spawned
+#   bin/dev-server restart [dev|prod]
+#   bin/dev-server status  [dev|prod]
+#   bin/dev-server logs    [dev|prod] [--no-follow]
+#
+# The target defaults to `dev`. `prod` runs `bin/prod` (release build, the
+# `tmuxy-prod` socket) and keeps its own PID and log files, so the two can run
+# side by side the way they always have.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+ACTION="${1:-}"
+TARGET="${2:-dev}"
+case "$TARGET" in
+  dev | prod) ;;
+  --no-follow) TARGET=dev ;;
+  *)
+    echo "unknown target '$TARGET' (expected 'dev' or 'prod')" >&2
+    exit 2
+    ;;
+esac
+SCRIPT="bin/$TARGET"
+
+# State lives outside the repo: a PID file and a log are per-machine facts about
+# a running process, not source. Matches where the trace file goes.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  STATE_DIR="${TMUXY_STATE_DIR:-$HOME/Library/Application Support/tmuxy}"
+else
+  STATE_DIR="${TMUXY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/tmuxy}"
+fi
+PID_FILE="$STATE_DIR/$TARGET-server.pid"
+LOG_FILE="$STATE_DIR/$TARGET-server.log"
+
+# Every descendant of $1, deepest last, so a caller can signal children before
+# their parent and no orphan is left holding the port. `ps` rather than pgrep
+# -P: pgrep's -P is not recursive and its output differs across platforms.
+descendants() {
+  local parent=$1 child
+  for child in $(ps -Ao pid=,ppid= | awk -v p="$parent" '$2 == p { print $1 }'); do
+    descendants "$child"
+    echo "$child"
+  done
+}
+
+# When a process started, as `ps` reports it. Empty if it is gone.
+start_time_of() {
+  ps -p "$1" -o lstart= 2>/dev/null | tr -s ' ' || true
+}
+
+# The PID of a live server for this target, or nothing.
+#
+# The PID file holds the pid AND the process's start time, and both must match.
+# A stale file outlives a crash and the number gets reused, so `kill -0` alone
+# reports a stranger's process as ours. Matching on the COMMAND LINE instead
+# does not work here: `bin/dev` and `bin/prod` both end in `exec`, so the
+# process keeps its pid while its command line becomes `cargo …` — the check
+# then fails the moment the server is actually up, which is the worst possible
+# time to report "not running".
+running_pid() {
+  [[ -f "$PID_FILE" ]] || return 0
+  local pid recorded current
+  IFS=$'\t' read -r pid recorded <"$PID_FILE" 2>/dev/null || return 0
+  [[ -n "${pid:-}" ]] || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+  current="$(start_time_of "$pid")"
+  [[ -n "$current" && "$current" == "${recorded:-}" ]] || return 0
+  echo "$pid"
+}
+
+cmd_start() {
+  local existing
+  existing="$(running_pid)"
+  if [[ -n "$existing" ]]; then
+    echo "$TARGET server already running (pid $existing) — 'bin/dev-server logs $TARGET' to watch it"
+    return 0
+  fi
+
+  mkdir -p "$STATE_DIR"
+  # Truncate rather than append: the log answers "what is it doing now", and a
+  # file that only grows is one nobody reads the top of anyway.
+  : >"$LOG_FILE"
+
+  # `bash <script>` rather than exec'ing it directly, so the interpreter does
+  # not depend on the file's mode bits surviving a checkout.
+  #
+  # All three streams are redirected, stdin included. Without `</dev/null` the
+  # background process keeps the caller's stdin open, and `npm start` piped into
+  # anything hangs waiting on a process that has already detached.
+  #
+  # The `cd` happens HERE and not inside the background job. Written as
+  # `(cd … && nohup … &)`, the `&` applies to the whole list, so `$!` is the
+  # PID of the subshell running it rather than of the script — that PID exits
+  # immediately, every later `status` reports "not running", and `stop` walks
+  # the descendants of a process that no longer exists while the real server
+  # keeps the port.
+  cd "$REPO_ROOT"
+  nohup bash "$SCRIPT" </dev/null >>"$LOG_FILE" 2>&1 &
+  local started=$!
+  printf '%s\t%s\n' "$started" "$(start_time_of "$started")" >"$PID_FILE"
+
+  sleep 1
+  local pid
+  pid="$(running_pid)"
+  if [[ -z "$pid" ]]; then
+    echo "$TARGET server failed to start — last lines of $LOG_FILE:" >&2
+    tail -20 "$LOG_FILE" >&2 || true
+    return 1
+  fi
+  echo "$TARGET server started (pid $pid), logging to $LOG_FILE"
+}
+
+cmd_stop() {
+  local pid
+  pid="$(running_pid)"
+  if [[ -z "$pid" ]]; then
+    rm -f "$PID_FILE"
+    echo "$TARGET server not running"
+    return 0
+  fi
+
+  # Children first: `cargo watch`'s server child is the one holding the port,
+  # and killing the watcher first would let it respawn the server as it dies.
+  local targets=()
+  while IFS= read -r child; do
+    [[ -n "$child" ]] && targets+=("$child")
+  done < <(descendants "$pid")
+  targets+=("$pid")
+
+  kill -TERM "${targets[@]}" 2>/dev/null || true
+
+  # Give the tree a moment to go down on its own before insisting.
+  local waited=0
+  while ((waited < 50)); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  kill -KILL "${targets[@]}" 2>/dev/null || true
+
+  rm -f "$PID_FILE"
+  echo "$TARGET server stopped"
+}
+
+cmd_status() {
+  local pid
+  pid="$(running_pid)"
+  if [[ -n "$pid" ]]; then
+    echo "$TARGET server running (pid $pid), log: $LOG_FILE"
+  else
+    echo "$TARGET server not running"
+    return 1
+  fi
+}
+
+cmd_logs() {
+  if [[ ! -f "$LOG_FILE" ]]; then
+    echo "no log yet at $LOG_FILE — start the $TARGET server first" >&2
+    return 1
+  fi
+  # `--no-follow` for a caller that wants a snapshot and its prompt back: the
+  # devcontainer's non-tty `logs` path, and anything reading this from a script.
+  for arg in "$@"; do
+    if [[ "$arg" == "--no-follow" ]]; then
+      tail -n 80 "$LOG_FILE"
+      return 0
+    fi
+  done
+  tail -n 200 -f "$LOG_FILE"
+}
+
+case "$ACTION" in
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  restart)
+    cmd_stop
+    cmd_start
+    ;;
+  status) cmd_status ;;
+  logs) cmd_logs "$@" ;;
+  *)
+    echo "Usage: bin/dev-server {start|stop|restart|status|logs} [dev|prod]" >&2
+    exit 2
+    ;;
+esac

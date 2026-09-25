@@ -13,7 +13,7 @@
 #   DEV_PORT     — port to listen on (default: 9000)
 #
 # Usage:
-#   npm start  # Run in background with pm2 (port 9000, `tmuxy` socket)
+#   npm start  # Run in background via bin/dev-server (port 9000, `tmuxy-dev` socket)
 #   npm stop   # Stop the server
 #   npm logs   # View logs
 #

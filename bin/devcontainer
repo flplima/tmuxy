@@ -23,7 +23,7 @@
 #   shell [cmd...]     Exec into the running container (auto `up -d` if needed).
 #                      With no args, an interactive login shell; else run cmd.
 #   run [cmd...]       One-off ephemeral container (--rm). Default: a shell.
-#   logs [-f]          Tail server logs (pm2) from the detached container.
+#   logs [-f]          Tail server logs from the detached container.
 #   ps                 Show this container's status.
 #   build [--no-cache] Build the image.
 #   help               Show this help.
@@ -197,7 +197,7 @@ prepare() {
     # hard-coded port, which tmuxy-server refuses to bind. bin/dev picks the
     # `tmuxy-dev` socket itself, so no TMUX_SOCKET is set here.
     SERVER_SCRIPT="
-        pm2 start $WORKSPACE/bin/dev --name tmuxy-dev --interpreter bash 2>/dev/null
+        bash $WORKSPACE/bin/dev-server start dev 2>/dev/null
     "
 }
 
@@ -287,8 +287,8 @@ cmd_run() {
 cmd_logs() {
     container_running || { echo "Container '$CONTAINER_NAME' is not running."; exit 1; }
     case "${1:-}" in
-        -f|--follow) exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" pm2 logs ;;
-        *)           exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" pm2 logs --nostream --lines 80 ;;
+        -f|--follow) exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash "$WORKSPACE/bin/dev-server" logs dev ;;
+        *)           exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash "$WORKSPACE/bin/dev-server" logs dev --no-follow ;;
     esac
 }
 
