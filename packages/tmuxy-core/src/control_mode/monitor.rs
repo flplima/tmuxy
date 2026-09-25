@@ -448,6 +448,9 @@ pub struct TmuxMonitor {
     /// authority is now `window_extent`, what tmux itself reports, and this
     /// only bounds the retries so a size tmux genuinely refuses cannot spin.
     resize_attempts: HashMap<String, ((u32, u32), u8)>,
+    /// Windows already reported as ones tmux will not size, so the warning is
+    /// said once rather than on every sync.
+    resize_given_up: HashSet<String>,
 
     /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
     /// inside the loop so tests can advance time with `FakeClock`.
@@ -504,6 +507,7 @@ impl TmuxMonitor {
                 window_tags_migrated: false,
                 client_size: None,
                 resize_attempts: HashMap::new(),
+                resize_given_up: HashSet::new(),
                 ctx,
                 pending_replies: HashMap::new(),
                 next_reply_id: 0,
@@ -922,6 +926,9 @@ impl TmuxMonitor {
         let live: HashSet<&str> = desired.iter().map(|(wid, _)| wid.as_str()).collect();
         self.resize_attempts
             .retain(|wid, _| live.contains(wid.as_str()));
+        self.resize_given_up
+            .retain(|wid| live.contains(wid.as_str()));
+        let desired_snapshot = desired.clone();
 
         // tmux's own report decides whether a window still needs sizing. A
         // window already AT the wanted size is done however many commands it
@@ -939,7 +946,34 @@ impl TmuxMonitor {
             })
             .collect();
         if pending.is_empty() {
+            // Nothing to send. If a window is nevertheless still the wrong
+            // size, we have stopped asking — say so once, because silence here
+            // is indistinguishable from success and leaves the client drawing
+            // a grid tmux never agreed to (a phone asking for 41 columns and
+            // getting the control-mode PTY's 200 is what this looked like).
+            for (wid, size) in &desired_snapshot {
+                let actual = self.aggregator.window_extent(wid);
+                if actual == Some(*size) {
+                    continue;
+                }
+                let tries = self.resize_attempts.get(wid).map_or(0, |a| a.1);
+                if tries >= MAX_RESIZE_ATTEMPTS && !self.resize_given_up.contains(wid) {
+                    self.resize_given_up.insert(wid.clone());
+                    warn!(
+                        window = %wid,
+                        wanted = ?size,
+                        actual = ?actual,
+                        tries,
+                        "tmux will not take this window size; no longer asking"
+                    );
+                }
+            }
             return;
+        }
+        // Asking again means the size is not settled, so a later refusal is
+        // worth reporting afresh.
+        for (wid, _) in &pending {
+            self.resize_given_up.remove(wid);
         }
 
         // `window-size` and `aggressive-resize` are WINDOW options, and the

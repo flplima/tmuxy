@@ -1822,6 +1822,13 @@ describe('Scenario 6f: Float Tab Scope', () => {
                 transform: cs.transform === 'none' ? null : cs.transform,
                 zoom: cs.zoom,
                 padding: cs.padding,
+                overflow: cs.overflow,
+                // An absolutely positioned child of a SCROLLED container is
+                // drawn offset by that scroll, which is the one way a child at
+                // `inset: 0` can sit outside its containing block's box.
+                scroll: { top: el.scrollTop, left: el.scrollLeft },
+                scrollSize: { width: el.scrollWidth, height: el.scrollHeight },
+                clientSize: { width: el.clientWidth, height: el.clientHeight },
                 box: { top: r.top, left: r.left, width: r.width, height: r.height },
               });
               el = el.parentElement;

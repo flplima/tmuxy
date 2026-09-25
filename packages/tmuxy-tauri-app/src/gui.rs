@@ -1191,32 +1191,64 @@ pub fn run() {
         // This reads anything the desktop app itself can read, which is the
         // same reach the pane's own shell already has.
         .register_uri_scheme_protocol("tmuxyfile", |_ctx, request| {
+            // SEC-19. This scheme reads any file the app can, so who may READ
+            // the answer matters as much as what it returns. `*` let anything
+            // fetch it — including a local page the widget itself framed with
+            // `sandbox allow-scripts`, which has an opaque origin and could
+            // therefore read `~/.ssh/id_ed25519` through this scheme and send
+            // it anywhere. Only the app's own origin is allowed now, and a
+            // sandboxed frame's `Origin: null` is not it.
+            let allowed_origin = request
+                .headers()
+                .get("Origin")
+                .and_then(|v| v.to_str().ok())
+                .filter(|origin| is_app_origin(origin))
+                .map(str::to_string);
+
             let respond = |status: tauri::http::StatusCode, content_type: &str, body: Vec<u8>| {
-                tauri::http::Response::builder()
+                let mut builder = tauri::http::Response::builder()
                     .status(status)
                     .header("Content-Type", content_type)
-                    // The webview's own origin fetches these (markdown is read
-                    // with fetch(), not framed), so they need CORS to be
-                    // readable rather than merely displayable.
-                    .header("Access-Control-Allow-Origin", "*")
                     // A widget re-reads a file to show an edit; a cached
                     // response would show the version from before the save.
                     .header("Cache-Control", "no-store")
-                    .body(body)
-                    .unwrap_or_default()
+                    // The same sandbox the web routes answer with: an HTML
+                    // file served here would otherwise run in the app's own
+                    // origin, with the Tauri IPC behind it.
+                    .header(
+                        "Content-Security-Policy",
+                        tmuxy_core::mime::FILE_SANDBOX_CSP,
+                    );
+                if let Some(origin) = &allowed_origin {
+                    builder = builder.header("Access-Control-Allow-Origin", origin.as_str());
+                }
+                builder.body(body).unwrap_or_default()
             };
             let path = tmuxy_core::mime::percent_decode(request.uri().path());
-            match std::fs::read(&path) {
+            match tmuxy_core::mime::read_served_file(&path) {
                 Ok(bytes) => respond(
                     tauri::http::StatusCode::OK,
                     tmuxy_core::mime::content_type_for_path(&path),
                     bytes,
                 ),
-                Err(e) => respond(
-                    tauri::http::StatusCode::NOT_FOUND,
-                    "text/plain; charset=utf-8",
-                    format!("{}: {}", path, e).into_bytes(),
-                ),
+                Err(refusal) => {
+                    use tmuxy_core::mime::ServeRefusal;
+                    let (status, message) = match refusal {
+                        ServeRefusal::NotFound(e) => (
+                            tauri::http::StatusCode::NOT_FOUND,
+                            format!("{}: {}", path, e),
+                        ),
+                        ServeRefusal::NotRegular => (
+                            tauri::http::StatusCode::BAD_REQUEST,
+                            format!("{}: not a regular file", path),
+                        ),
+                        ServeRefusal::TooLarge { bytes } => (
+                            tauri::http::StatusCode::PAYLOAD_TOO_LARGE,
+                            format!("{}: {} bytes is over the limit", path, bytes),
+                        ),
+                    };
+                    respond(status, "text/plain; charset=utf-8", message.into_bytes())
+                }
             }
         })
         // Shared execution context — handed to TmuxMonitor on connect AND used
@@ -1486,5 +1518,46 @@ mod tests {
             parse_option_from_config(cfg, "@tmuxy-blur"),
             Some("off".to_string())
         );
+    }
+}
+
+/// Whether `origin` is the app's own webview origin.
+///
+/// Tauri serves the app from `tauri://localhost` (macOS/Linux) or
+/// `http://tauri.localhost` (Windows). Anything else asking to read a
+/// `tmuxyfile:` response is not the app: a framed local page carries
+/// `Origin: null` under its sandbox, and a remote page carries its own site.
+fn is_app_origin(origin: &str) -> bool {
+    matches!(
+        origin,
+        "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
+    )
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tmuxyfile_origin_tests {
+    use super::is_app_origin;
+
+    /// SEC-19. The scheme reads any file the app can. A local page the widget
+    /// framed runs sandboxed, so it has an opaque origin — `null` — and must
+    /// not be able to read `~/.ssh/id_ed25519` through it.
+    #[test]
+    fn only_the_apps_own_origin_may_read_a_served_file() {
+        assert!(is_app_origin("tauri://localhost"));
+        assert!(is_app_origin("http://tauri.localhost"));
+
+        for other in [
+            "null",
+            "https://evil.example",
+            "tauri://localhost.evil.example",
+            "http://localhost:9000",
+            "",
+        ] {
+            assert!(
+                !is_app_origin(other),
+                "{other} must not be treated as the app"
+            );
+        }
     }
 }
