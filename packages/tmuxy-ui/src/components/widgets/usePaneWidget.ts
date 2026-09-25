@@ -20,7 +20,7 @@ export interface PaneWidget {
 export function usePaneWidget(paneId: string | null | undefined): PaneWidget | null {
   const pane = usePane(paneId ?? '');
   if (!pane) return null;
-  const info = detectWidget(pane.content);
+  const info = detectWidget(pane.content, pane.paneWidget);
   if (!info) return null;
   const definition = getWidget(info.widgetName);
   if (!definition) return null;

@@ -373,7 +373,7 @@ async fn file_handler(
     if let Some(refusal) = refuse_when_read_only(&state) {
         return refusal;
     }
-    read_file_response(&query.path)
+    read_file_offthread(query.path).await
 }
 
 /// Serve a local file at a path-shaped URL: `/api/browse/Users/me/doc/index.html`.
@@ -392,7 +392,22 @@ async fn browse_handler(State(state): State<Arc<AppState>>, Path(path): Path<Str
     if let Some(refusal) = refuse_when_read_only(&state) {
         return refusal;
     }
-    read_file_response(&format!("/{}", path.trim_start_matches('/')))
+    read_file_offthread(format!("/{}", path.trim_start_matches('/'))).await
+}
+
+/// `read_file_response` on the blocking pool.
+///
+/// The read is synchronous and can be slow (a cold 64 MiB file, a network
+/// mount that hangs), and a Tokio worker thread blocked in it serves nothing
+/// else — including the SSE streams every other client is on.
+async fn read_file_offthread(path: String) -> Response {
+    match tokio::task::spawn_blocking(move || read_file_response(&path)).await {
+        Ok(response) => response,
+        Err(e) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &serde_json::json!({ "error": format!("file read task failed: {e}") }),
+        ),
+    }
 }
 
 /// 403 for the file routes on a `--read-only` server, or None to serve.
@@ -436,8 +451,72 @@ const FILE_SANDBOX_CSP: &str =
 /// cross-origin scripts and images still load, just without credentials — and
 /// `Cross-Origin-Resource-Policy` lets the file itself be embedded. Outside an
 /// isolated parent both headers change nothing.
+/// The largest file the browser widget will be served.
+///
+/// The widget frames documents — HTML, markdown, an image — so this is well
+/// above anything it legitimately opens. Without it, `/api/file` pointed at a
+/// multi-gigabyte log (or at `/dev/zero`, which has no end at all) grows the
+/// server until the OS kills it.
+const MAX_SERVED_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Read a file for the browser widget, or say why not.
+///
+/// Three refusals before the read, because the path is the client's:
+/// - **Not a regular file.** `/dev/zero` never ends; a FIFO blocks its reader
+///   until someone writes, and this runs on a Tokio worker thread, so one
+///   request would park a worker for the life of the process. `symlink_metadata`
+///   asks about the link itself, so a symlink to a device is refused too.
+/// - **Over the cap.** See `MAX_SERVED_FILE_BYTES`.
+///
+/// The realistic failure is accidental rather than hostile — only a client that
+/// already has a shell can reach these routes — but it takes the whole server
+/// down either way.
+fn read_file_checked(path: &str) -> Result<Vec<u8>, Box<Response>> {
+    let meta = std::fs::symlink_metadata(path).map_err(|e| {
+        Box::new(json_response(
+            StatusCode::NOT_FOUND,
+            &serde_json::json!({ "error": format!("{}", e) }),
+        ))
+    })?;
+
+    // A symlink's own metadata says "symlink", so follow it once and ask about
+    // the target — a symlink to a regular file is ordinary and still served.
+    let meta = if meta.file_type().is_symlink() {
+        std::fs::metadata(path).map_err(|e| {
+            Box::new(json_response(
+                StatusCode::NOT_FOUND,
+                &serde_json::json!({ "error": format!("{}", e) }),
+            ))
+        })?
+    } else {
+        meta
+    };
+
+    if !meta.is_file() {
+        return Err(Box::new(json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({ "error": "not a regular file" }),
+        )));
+    }
+    if meta.len() > MAX_SERVED_FILE_BYTES {
+        return Err(Box::new(json_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &serde_json::json!({
+                "error": format!("file is larger than {MAX_SERVED_FILE_BYTES} bytes"),
+            }),
+        )));
+    }
+
+    std::fs::read(path).map_err(|e| {
+        Box::new(json_response(
+            StatusCode::NOT_FOUND,
+            &serde_json::json!({ "error": format!("{}", e) }),
+        ))
+    })
+}
+
 fn read_file_response(path: &str) -> Response {
-    match std::fs::read(path) {
+    match read_file_checked(path) {
         Ok(content) => {
             let mut response = build_response(
                 StatusCode::OK,
@@ -463,10 +542,7 @@ fn read_file_response(path: &str) -> Response {
             );
             response
         }
-        Err(e) => json_response(
-            StatusCode::NOT_FOUND,
-            &serde_json::json!({ "error": format!("{}", e) }),
-        ),
+        Err(refusal) => *refusal,
     }
 }
 
@@ -474,6 +550,51 @@ fn read_file_response(path: &str) -> Response {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod file_route_tests {
     use super::*;
+
+    /// SEC-02. The path is the client's, and `std::fs::read` on a character
+    /// device never ends: `/api/file?path=/dev/zero` grew the server until the
+    /// OS killed it. A FIFO is worse — the read blocks a Tokio worker forever.
+    #[test]
+    fn a_file_that_is_not_a_regular_file_is_refused_rather_than_read() {
+        for path in ["/dev/zero", "/dev/null", "/tmp"] {
+            if !std::path::Path::new(path).exists() {
+                continue;
+            }
+            let response = read_file_response(path);
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "{path} should be refused as not a regular file"
+            );
+        }
+    }
+
+    /// SEC-02. The realistic case is accidental — the widget pointed at a
+    /// multi-gigabyte log — and it takes the server down just the same.
+    #[test]
+    fn a_file_over_the_cap_is_refused_before_it_is_read() {
+        let path = std::env::temp_dir().join(format!("tmuxy-big-{}.bin", std::process::id()));
+        let file = std::fs::File::create(&path).unwrap();
+        // Sparse: the length is what the check reads, and nothing writes 64 MiB.
+        file.set_len(MAX_SERVED_FILE_BYTES + 1).unwrap();
+        drop(file);
+
+        let response = read_file_response(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn a_file_at_the_cap_is_still_served() {
+        let path = std::env::temp_dir().join(format!("tmuxy-atcap-{}.txt", std::process::id()));
+        std::fs::write(&path, b"small enough").unwrap();
+
+        let response = read_file_response(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 
     #[test]
     fn a_served_file_can_be_framed_by_a_cross_origin_isolated_app() {

@@ -365,7 +365,7 @@ So the attached session's window list maps 1:1 to the tab strip (minus any open 
 
 ### Schema
 
-Window options are scoped per window (`set-option -w -t <window-id>`). The pane options (`@tmuxy-group-id`, `@tmuxy-pane-state`, `@tmuxy-ask`, `@tmuxy-ask-answer`) are scoped per pane (`set-option -p -t <pane-id>`).
+Window options are scoped per window (`set-option -w -t <window-id>`). The pane options (`@tmuxy-group-id`, `@tmuxy-pane-state`, `@tmuxy-ask`, `@tmuxy-ask-answer`, `@tmuxy-pane-widget`) are scoped per pane (`set-option -p -t <pane-id>`).
 
 | Option | Scope | Values | Set on |
 |---|---|---|---|
@@ -380,6 +380,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | `@tmuxy-pane-state` | pane | `idle` \| `working` \| `needs-input` \| `error` \| `unread` \| unset | what the pane says it is doing; set by whatever runs in it |
 | `@tmuxy-ask` | pane | base64 of `{token, question, description}` \| unset | a confirmation the pane is waiting on (`tmuxy ask`) |
 | `@tmuxy-ask-answer` | pane | `<token>:yes` \| `<token>:no` \| unset | the answer a client recorded for the pending `@tmuxy-ask` |
+| `@tmuxy-pane-widget` | pane | a widget name, e.g. `browser` \| unset | which widget this pane may render; written by `tmuxy-widget` and cleared when it exits |
 | `@tmuxy-focus-request` | session | `left` \| `right` \| `panes` \| unset | a shell helper asking a client to move keyboard focus |
 | `@tmuxy-sidebar-cols` | window | integer (columns) \| unset | a sidebar column the user has dragged off its default width — for the dock these are its own cells: the right column runs in the sidebar font (80% of the pane font), so its cell width is the pane grid's advance scaled to that size (`selectSidebarCellMetrics`) |
 | `@tmuxy-sidebar-hidden` | window | `1` \| unset | a sidebar column the user has closed; its pane stays alive, no client draws it |
@@ -389,6 +390,8 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 `@tmuxy-float-parent` is always a **window id**, interpreted by the window's type: on a `float` it is the window the float was launched from (focus returns there on close); on a `float-backdrop` it is the float window the backdrop sits behind. The window-type disambiguates, so there is no separate backdrop-of option.
 
 `@tmuxy-pane-state` is the one tag tmuxy never writes itself: whatever runs in a pane declares its own state through `tmuxy pane state <value>`, which the sidebar tree draws at the row's right edge. An agent sets it from its hooks, a shell from a `precmd`/`preexec` pair, a build script on failure. Nothing infers it — tmux's activity flag means "bytes arrived", which a spinner produces continuously, so activity cannot tell working from waiting. The value rides the ordinary `list-panes` subscription (it is a fixed tail field, like `@tmuxy-group-id`) and is carried verbatim: the client owns the vocabulary and collapses anything it does not recognize to `idle`, so a writer is free to use its own status names without waiting for a release. As with every user option, tmux emits no notification when it changes — the value lands on the next metadata sync, which any pane producing output triggers continuously.
+
+`@tmuxy-pane-widget` is what makes a widget a widget. The `__TMUXY_WIDGET__:<name>` marker a widget prints is ordinary pane **output**, and anything a pane prints carries the same weight — a crafted file passed to `cat`, a commit message in `git log`, an ssh MOTD. So the marker alone renders nothing: the client honours it only when this option, written out of band by `tmuxy-widget` through `run-shell`, names the same widget. It rides the `list-panes` tail like `@tmuxy-pane-state`, and `tmuxy-widget` unsets it on the way out, so a pane that has gone back to being a shell cannot print its way into a widget again.
 
 On a float the parent is also **which tab the float belongs to**. A float is an overlay over the tab it was opened from, not over the session: the client shows only the floats whose parent is the active window (`selectVisibleFloats`), so one opened on tab 1 is off screen on tab 2 and comes back when that tab does. A float with no parent, or whose parent window has since closed, is shown on every tab — an orphan nothing could bring on screen could not be closed either. Its backdrop is rendered inside the pane container rather than portaled to the document body, so it dims that tab's content and leaves the sidebars, the tab strip and the status line usable.
 

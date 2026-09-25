@@ -6,6 +6,10 @@
 # widget marker disappears and starts an interactive shell so the
 # pane remains alive.
 COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
+
+# `shquote` / `_run_safe` (mutations go through `tmux run-shell`, see
+# docs/TMUX.md).
+source "$(cd "$(dirname "$0")" && pwd)/_lib"
 # What the pane calls itself while the widget runs. A widget's own title
 # normally comes from what it is showing, which the UI reads out of the pane's
 # content — but a pane PARKED in a group's stash streams no content, so the
@@ -15,11 +19,20 @@ COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
 # costs the visible one nothing (the widget's own title wins there).
 TITLE="${2:-$COMPONENT}"
 
+# The marker below is pane OUTPUT, and anything the pane prints can carry it —
+# a crafted file, a commit message in `git log`, an ssh MOTD. This option is
+# what says the widget was actually ASKED for: the client renders one only when
+# the pane is tagged with the same name. Set before the marker is printed, so
+# the client never sees a marker it has no authorisation for.
+_run_safe "set-option -p @tmuxy-pane-widget $(shquote "$COMPONENT")"
+
 # Hand the title back on the way out, so the pane does not keep the widget's
 # name once it is a shell again. Empty resets it to tmux's own default. The
-# shell that replaces the widget is the user's own: closing a widget is not a
-# reason to land them in a bash they did not choose.
-trap 'printf "\033]2;\007"; clear; exec "${SHELL:-bash}" </dev/tty' EXIT
+# authorisation goes with it — the pane is a shell again, and a shell's output
+# must not be able to bring the widget back. The shell that replaces the widget
+# is the user's own: closing a widget is not a reason to land them in a bash
+# they did not choose.
+trap 'printf "\033]2;\007"; _run_safe "set-option -p -u @tmuxy-pane-widget"; clear; exec "${SHELL:-bash}" </dev/tty' EXIT
 
 printf '\033]2;%s\007' "$TITLE"
 echo "__TMUXY_WIDGET__:${COMPONENT}"

@@ -27,7 +27,7 @@ export const Pane = memo(function Pane({ paneId }: PaneProps) {
   const pane = usePane(paneId);
   // Widget-or-terminal, latched across the transient empty content a capture
   // refresh leaves behind — see usePaneWidgetInfo, which floats share.
-  const widgetInfo = usePaneWidgetInfo(pane?.content);
+  const widgetInfo = usePaneWidgetInfo(pane?.content, pane?.paneWidget);
 
   // Pane may not exist during transitions
   if (!pane) return null;

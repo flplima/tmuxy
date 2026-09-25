@@ -21,12 +21,15 @@ import { detectWidget } from './index';
 
 export type PaneWidgetInfo = ReturnType<typeof detectWidget>;
 
-export function usePaneWidgetInfo(content: PaneContent | undefined): PaneWidgetInfo {
+export function usePaneWidgetInfo(
+  content: PaneContent | undefined,
+  authorizedWidget: string | null | undefined,
+): PaneWidgetInfo {
   const lastRef = useRef<PaneWidgetInfo>(null);
   if (!content) return lastRef.current;
 
   if (content.length === 0) return lastRef.current;
-  const info = detectWidget(content);
+  const info = detectWidget(content, authorizedWidget);
   lastRef.current = info;
   return info;
 }

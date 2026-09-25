@@ -338,6 +338,12 @@ pub struct TmuxPane {
     /// `None` when nothing is pending.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_ask: Option<String>,
+    /// Which widget this pane is AUTHORISED to render (`@tmuxy-pane-widget`).
+    /// The `__TMUXY_WIDGET__:` marker travels in pane output, which anything
+    /// the pane prints can forge; this option is written out of band by
+    /// `tmuxy-widget`, so the client renders a widget only when the two agree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_widget: Option<String>,
 }
 
 /// Window type discriminator. Set on windows tmuxy created or has adopted.
@@ -548,6 +554,11 @@ pub struct PaneDelta {
     /// answering the question looks like.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pane_ask: Option<Option<String>>,
+    /// Widget authorisation from `@tmuxy-pane-widget` (only if changed).
+    /// Nested like `pane_state`: the inner `None` clears it, which is what
+    /// the widget exiting looks like.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_widget: Option<Option<String>>,
     /// Copy mode state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_mode: Option<bool>,

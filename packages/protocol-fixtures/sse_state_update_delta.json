@@ -96,6 +96,7 @@
           "mouse_any_flag": false,
           "pane_ask": null,
           "pane_state": "idle",
+          "pane_widget": "browser",
           "paused": false,
           "selection_present": false,
           "selection_start_x": 9,

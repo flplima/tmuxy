@@ -32,10 +32,25 @@ import { canReadPageTitle, fetchPageTitle } from './pageTitle';
  * What a local page may do in its frame. There is no `allow-same-origin`, so
  * the page runs in an opaque origin of its own: served by tmuxy it would
  * otherwise share the app's origin, free to reach into the app and, on the
- * web, to POST tmux commands. A website is another origin already and is
- * framed as it is, keeping its storage and logins.
+ * web, to POST tmux commands.
  */
 const LOCAL_PAGE_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
+
+/**
+ * What a remote page may do. A website is another origin already, so it keeps
+ * `allow-same-origin` — without it every login, cookie and bit of storage the
+ * page relies on would break, and framing a site is the point of the widget.
+ *
+ * What it does NOT get is `allow-top-navigation`: an unsandboxed frame could
+ * set `window.top.location` and navigate the whole tmuxy tab away — a
+ * convincing place to phish the Basic-auth prompt, or simply a page that
+ * cannot be closed. `allow-popups-to-escape-sandbox` keeps a link the user
+ * opens from inheriting this sandbox in its new tab, where it would be a
+ * broken copy of the site rather than the site.
+ */
+const REMOTE_PAGE_SANDBOX =
+  'allow-same-origin allow-scripts allow-forms allow-popups ' +
+  'allow-popups-to-escape-sandbox allow-modals allow-downloads';
 
 /**
  * The SVG filter `--color-filter` points the content at: luminance mapped onto
@@ -164,7 +179,10 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
         className="widget-browser-frame"
         src={src}
         title={view.url}
-        sandbox={isRemote(view.url) ? undefined : LOCAL_PAGE_SANDBOX}
+        // Always sandboxed. `isRemote` also matches `data:` and `blob:`, which
+        // a pane's own output can name (see detectWidget) — those were framed
+        // with no sandbox at all.
+        sandbox={isRemote(view.url) ? REMOTE_PAGE_SANDBOX : LOCAL_PAGE_SANDBOX}
         // Scale from the top-left and give the frame back the size the scale
         // took away, so the page lays out at the zoomed width instead of being
         // cropped to a fraction of the pane.

@@ -65,18 +65,24 @@ describe('Scenario 30: Read-only viewer', () => {
 
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
-  // The read-only server is pinned to one session, and the session is made per
-  // test, so the server is started per test too — after `ctx.beforeEach` has
-  // named it and before anything navigates to it.
-  beforeEach(async () => {
-    await ctx.beforeEach();
-    stopReadOnlyServer = await startReadOnlyServer(ctx.session.name);
-  }, ctx.hookTimeout);
+  beforeEach(ctx.beforeEach);
   afterEach(async () => {
     stopReadOnlyServer();
     stopReadOnlyServer = () => {};
     await ctx.afterEach();
   }, ctx.hookTimeout);
+
+  /**
+   * The viewer's server, pinned to this test's session.
+   *
+   * It is started here rather than in a hook because a read-only server is
+   * pinned to ONE session and the session is named per test — and because
+   * starting a second server on the socket while the writer's session is still
+   * being brought up disturbs it.
+   */
+  async function viewerServer() {
+    stopReadOnlyServer = await startReadOnlyServer(ctx.session.name);
+  }
 
   test('viewer follows output → keeps its own tab → cannot type, resize or change anything', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -101,6 +107,7 @@ describe('Scenario 30: Read-only viewer', () => {
     const writerGrid = await gridSize(writer);
 
     // The viewer: a much smaller window on the read-only server.
+    await viewerServer();
     const viewer = await ctx.browser.newPage();
     await viewer.setViewportSize({ width: 640, height: 420 });
     await navigateToSession(viewer, ctx.session.name, READ_ONLY_URL);
@@ -209,6 +216,7 @@ describe('Scenario 30: Read-only viewer', () => {
     await navigateToSession(other, neighbour);
     const invented = `${ctx.session.name}-invented`;
 
+    await viewerServer();
     const viewer = await ctx.browser.newPage();
     await navigateToSession(viewer, ctx.session.name, READ_ONLY_URL);
 
