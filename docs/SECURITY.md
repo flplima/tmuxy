@@ -96,6 +96,8 @@ The `Host` rule applies to a routable bind too: the address it bound is a name i
 
 `/api/file` and `/api/browse` read any file the server process can read, with a real content type, so an HTML file would render with the server's own origin and could use the API like the app does. Both routes answer with `Content-Security-Policy: sandbox` (without `allow-same-origin`), so the document runs in an opaque origin of its own whether the browser widget frames it or someone opens its URL. The browser widget also frames every local page with the `sandbox` attribute, which covers the desktop app's `tmuxyfile:` scheme too (`tmuxy-ui/src/components/widgets/browser/TmuxyBrowser.tsx`).
 
+The desktop webview carries its own `Content-Security-Policy` (`tauri.conf.json`). It is defence in depth rather than a boundary — an XSS from pane output would run with the Tauri IPC behind it, which is `open_url`, the file schemes and CLI exec, so it is worth more here than on the web. The policy names each scheme the app actually loads from (`tauri:`, `asset:`, `tmuxyfile:`, `tmuxyimg:`, and their `http://<scheme>.localhost` forms on Windows) and keeps `frame-src *`, which is the browser widget's whole purpose. **Adding a resource the app loads means adding it here too** — a CSP refuses quietly, and the symptom is a picture or a page that simply does not appear.
+
 The cost: a local page cannot use cookies or storage, and a link followed inside it is invisible to the widget. A website is another origin already, so it keeps `allow-same-origin` (its logins and storage work) but is still sandboxed — without `allow-top-navigation`, so a framed page cannot set `window.top.location` and navigate the whole tmuxy tab away, which would be a convincing place to phish the Basic-auth prompt.
 
 ## Input That Reaches Control Mode
@@ -323,8 +325,7 @@ Not yet implemented, but would improve the security posture:
 - **Per-client permissions** — writers and viewers on one server, instead of one server per role
 - **Audit logging** — Log all commands and client connections
 - **Path restrictions** — Limit `/api/file` and `/api/browse` to specific directories
-- **Rate limiting** — Prevent command flooding and password guessing
-- **Desktop webview CSP** — A Content-Security-Policy for the Tauri app
+- **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional Password](#optional-password))
 
 ## Related
 
