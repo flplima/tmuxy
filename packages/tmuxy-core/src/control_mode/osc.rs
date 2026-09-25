@@ -52,6 +52,14 @@ pub struct OscParser {
     viewport_height: u32,
     /// Pending clipboard content (from OSC 52)
     pub pending_clipboard: Option<String>,
+    /// Pending pane title (from OSC 0 / OSC 2), waiting to be drained.
+    ///
+    /// Read straight off the pane's own output stream rather than waiting for
+    /// tmux to report `pane_title` back on the next `list-panes`: that only
+    /// happens on a metadata sync or the 15-second idle heartbeat, so a program
+    /// announcing a new title left the header showing the old one for as long
+    /// as fifteen seconds.
+    pub pending_title: Option<String>,
     /// Hyperlink per cell coordinate: (row, col) -> [`CellMark`].
     ///
     /// Written by the caller via [`OscParser::mark_cell`] once vt100 has told
@@ -82,6 +90,7 @@ impl OscParser {
     pub fn reset(&mut self) {
         self.active_hyperlink = None;
         self.pending_clipboard = None;
+        self.pending_title = None;
         self.cell_urls.clear();
         self.pending.clear();
     }
@@ -292,6 +301,16 @@ impl OscParser {
         // OSC 52 (Clipboard): 52 ; Pc ; Pd
         if let Some(rest) = content_str.strip_prefix("52;") {
             self.parse_osc52(rest);
+            return;
+        }
+
+        // OSC 0 (icon + title) and OSC 2 (title). OSC 1 is the icon name only
+        // and is deliberately ignored — it is not what a window is called.
+        for prefix in ["0;", "2;"] {
+            if let Some(title) = content_str.strip_prefix(prefix) {
+                self.pending_title = Some(title.to_string());
+                return;
+            }
         }
     }
 
@@ -341,6 +360,11 @@ impl OscParser {
     /// Take pending clipboard content (clears it)
     pub fn take_clipboard(&mut self) -> Option<String> {
         self.pending_clipboard.take()
+    }
+
+    /// Take the pending pane title (clears it).
+    pub fn take_title(&mut self) -> Option<String> {
+        self.pending_title.take()
     }
 }
 

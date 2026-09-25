@@ -2316,6 +2316,21 @@ impl StateAggregator {
                     .collect();
                 // Drain any OSC 52 clipboard request the app emitted in this chunk.
                 let clipboard = pane.osc_parser.take_clipboard();
+                // ...and any OSC 0/2 title, applied HERE rather than waiting for
+                // tmux to report `pane_title` on the next list-panes. That only
+                // happens on a metadata sync or the 15-second idle heartbeat, so
+                // a program announcing a new title left the header showing the
+                // old one for up to fifteen seconds. tmux sees the same escape
+                // and agrees at the next poll; this only removes the lag.
+                if let Some(title) = pane.osc_parser.take_title() {
+                    // Same guard list-panes titles get: a Kitty graphics probe
+                    // read as a title names the pane after a protocol.
+                    pane.title = if is_graphics_payload(&title) {
+                        String::new()
+                    } else {
+                        title
+                    };
+                }
                 return (true, new_imgs, clipboard);
             }
         }
@@ -2486,13 +2501,24 @@ impl StateAggregator {
             if !pane_id.starts_with('%') || group_id.is_empty() {
                 continue;
             }
+            // Same guard as a visible pane's title (see is_graphics_payload).
+            // A parked member streams no content, so its tab label is tmux's
+            // `pane_title` and nothing else — which is exactly where a Kitty
+            // graphics probe lands when tmux reads the APC as a title. Without
+            // this the strip labelled the member `Ga=q,f=32,s=1,…` while the
+            // visible pane running the same program was labelled properly.
+            let title = parts[5].to_string();
             members.insert(
                 pane_id.to_string(),
                 StashMember {
                     window_id: window_id.to_string(),
                     group_id: group_id.to_string(),
                     command: normalize_pane_command(parts[4]),
-                    title: parts[5].to_string(),
+                    title: if is_graphics_payload(&title) {
+                        String::new()
+                    } else {
+                        title
+                    },
                 },
             );
         }
@@ -4202,6 +4228,67 @@ mod tests {
         );
         assert!(agg.windows.is_empty(), "stash rows must not become windows");
         assert_eq!(agg.stash_members.len(), 1);
+    }
+
+    /// A title announced over OSC 2 reaches the pane from its own output, with
+    /// no tmux round trip.
+    ///
+    /// `pane_title` only comes back on a metadata sync or the 15-second idle
+    /// heartbeat, so the header kept showing the old title for as long as
+    /// fifteen seconds after a program renamed itself.
+    #[test]
+    fn an_osc_title_updates_the_pane_at_once() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+
+        let (changed, _, _) = agg.handle_output("%0", b"\x1b]2;My Process Title\x07");
+        assert!(changed);
+        assert_eq!(agg.panes.get("%0").expect("pane").title, "My Process Title");
+
+        // OSC 0 sets icon AND title, so it counts too.
+        agg.handle_output("%0", b"\x1b]0;Second Title\x07");
+        assert_eq!(agg.panes.get("%0").expect("pane").title, "Second Title");
+
+        // OSC 1 is the icon name alone and must NOT rename the pane.
+        agg.handle_output("%0", b"\x1b]1;just-an-icon\x07");
+        assert_eq!(agg.panes.get("%0").expect("pane").title, "Second Title");
+    }
+
+    /// A graphics probe read as a title is still not a title, on this path too.
+    #[test]
+    fn an_osc_graphics_probe_does_not_become_the_title() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        agg.handle_output("%0", b"\x1b]2;Real Title\x07");
+        agg.handle_output("%0", b"\x1b]2;Ga=q,f=32,s=1,v=1,i=31;AAAAAA==\x07");
+        assert_eq!(agg.panes.get("%0").expect("pane").title, "");
+    }
+
+    /// A parked member gets the same graphics-payload guard a visible pane
+    /// gets. It streams no content, so tmux's `pane_title` is the ONLY thing
+    /// its tab in the group strip has to show — which is exactly where a Kitty
+    /// graphics probe lands when tmux reads the APC as a title. The strip
+    /// labelled the member `Ga=q,f=32,s=1,…` while the visible pane running the
+    /// same program was labelled properly.
+    #[test]
+    fn a_parked_members_title_is_not_a_graphics_payload() {
+        let mut agg = StateAggregator::new();
+        agg.handle_command_response("stashmember,%7,@9,g5,agy,Ga=q,f=32,s=1,v=1,i=31;AAAAAA==");
+        let member = agg.stash_members.get("%7").expect("member parsed");
+        assert_eq!(member.title, "");
+        // ...and the process name is still there to fall back on.
+        assert_eq!(member.command, "agy");
+    }
+
+    /// ...and a real title is still a real title, however it starts.
+    #[test]
+    fn a_parked_members_real_title_survives() {
+        let mut agg = StateAggregator::new();
+        agg.handle_command_response("stashmember,%7,@9,g5,go,Go build ./...");
+        assert_eq!(
+            agg.stash_members.get("%7").expect("member parsed").title,
+            "Go build ./..."
+        );
     }
 
     /// Hidden members are emitted as stubs only for groups that still have a

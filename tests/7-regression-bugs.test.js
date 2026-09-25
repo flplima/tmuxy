@@ -488,6 +488,49 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
+  test('a pane header shows a new title the moment the program announces it', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    const paneId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId || null,
+    );
+    expect(paneId).not.toBeNull();
+
+    const title = `TITLE_${Date.now()}`;
+    // OSC 2, the way any program announces what it is now doing. Nothing else
+    // in this test touches tmux: the point is that the header reacts to the
+    // pane's own output rather than to a poll.
+    await typeInTerminal(ctx.page, `printf '\\033]2;${title}\\007'`);
+    await pressEnter(ctx.page);
+
+    // 5s is deliberately well under the 15s idle heartbeat that used to be the
+    // only thing bringing a new pane_title back — a pass here cannot be the
+    // poll arriving.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate((want) => {
+          const header = document.querySelector('.pane-tab-title');
+          return !!header && (header.textContent || '').includes(want);
+        }, title),
+      5000,
+      'the pane header to show the announced title',
+    );
+
+    // And it is on screen, not merely in the DOM.
+    const box = await ctx.page.evaluate(() => {
+      const header = document.querySelector('.pane-tab-title');
+      if (!header) return null;
+      const r = header.getBoundingClientRect();
+      return { w: r.width, h: r.height, top: r.top };
+    });
+    expect(box).not.toBeNull();
+    expect(box.w).toBeGreaterThan(0);
+    expect(box.h).toBeGreaterThan(0);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+  }, 120000);
+
   test('typing exit in a pane group closes only that member and promotes the next one', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
