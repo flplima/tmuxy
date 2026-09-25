@@ -9,7 +9,7 @@
 # and keep the pane alive so the pane (and therefore the column) stays open.
 #
 # The pane still matters: it is what gives the left sidebar a real pane id, so
-# it can be focused, navigated into with ctrl+hjkl, and sized by the backend
+# it can be focused, navigated into with alt+hjkl, and sized by the backend
 # exactly like the right sidebar's shell.
 
 set -euo pipefail

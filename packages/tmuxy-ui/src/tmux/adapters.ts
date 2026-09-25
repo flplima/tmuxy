@@ -235,7 +235,7 @@ export class TauriAdapter implements TmuxAdapter {
       // can fire before this listener is attached (especially on a fresh
       // launch where the WebView is still booting). Without this fetch the
       // prefix indicator stays hidden and prefix/root bindings are empty,
-      // so prefix-key and Ctrl+hjkl silently no-op.
+      // so prefix-key and Alt+hjkl silently no-op.
       try {
         const snapshot = await invoke<KeyBindings | null>('get_keybindings_snapshot');
         if (snapshot) {

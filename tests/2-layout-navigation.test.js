@@ -1861,7 +1861,7 @@ describe('Scenario 6f: Float Tab Scope', () => {
   }, 180000);
 });
 
-// ====== Scenario 6h: Ctrl+h / Ctrl+l walk the group, the panes, then the dock ======
+// ====== Scenario 6h: nav left/right walks the group, the panes, then the dock ======
 
 describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', () => {
   const ctx = createTestContext({ snapshot: true });
@@ -1891,7 +1891,7 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
   const until = (label, check) =>
     waitForCondition(ctx.page, async () => check(await where(ctx.page)), 10000, label);
 
-  test('Ctrl+l shows the next group member, then the pane on the right, then the dock; Ctrl+h walks back', async () => {
+  test('nav right shows the next group member, then the pane on the right, then the dock; nav left walks back', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -1907,11 +1907,11 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
     // Start on the group's first member, in the left slot.
     if ((await where(ctx.page)).shown !== first) {
       await navigatePaneKeyboard(ctx.page, 'left');
-      await until('Ctrl+h to show the first member', (w) => w.shown === first);
+      await until('nav left to show the first member', (w) => w.shown === first);
     }
     expect((await where(ctx.page)).activeX).toBe(0);
 
-    // Ctrl+h from the first member of the leftmost pane: no member before it,
+    // nav left from the first member of the leftmost pane: no member before it,
     // no pane to its left, no left sidebar — nothing moves.
     await navigatePaneKeyboard(ctx.page, 'left');
     await delay(DELAYS.SYNC);
@@ -1921,10 +1921,10 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
 
     // Ctrl+l shows the next member, in the same slot.
     await navigatePaneKeyboard(ctx.page, 'right');
-    await until('Ctrl+l to show the next member', (w) => w.shown === last && w.active === last);
+    await until('nav right to show the next member', (w) => w.shown === last && w.active === last);
     expect((await where(ctx.page)).activeX).toBe(0);
 
-    // Ctrl+l from the last member moves on to the pane on the right, and the
+    // nav right from the last member moves on to the pane on the right, and the
     // group keeps showing the member it was on — leaving the group is not
     // stepping it. Both are waited for together: the keyboard lands on the
     // right pane before the group's swap has settled, so a wait on the
@@ -1932,26 +1932,29 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
     // member in the visible window at all (~1 run in 3).
     await navigatePaneKeyboard(ctx.page, 'right');
     await until(
-      'Ctrl+l from the last member to reach the right pane, group still on the last member',
+      'nav right from the last member to reach the right pane, group still on the last member',
       (w) => w.activeX > 0 && w.shown === last,
     );
 
-    // Ctrl+h comes back into the group as it is showing, without stepping it.
+    // nav left comes back into the group as it is showing, without stepping it.
     await navigatePaneKeyboard(ctx.page, 'left');
     await until(
-      'Ctrl+h to return to the group, still on the last member',
+      'nav left to return to the group, still on the last member',
       (w) => w.active === last && w.shown === last,
     );
 
-    // With the dock open, Ctrl+l from the rightmost pane goes into it.
+    // With the dock open, nav right from the rightmost pane goes into it.
     await navigatePaneKeyboard(ctx.page, 'right');
-    await until('Ctrl+l to reach the right pane again', (w) => w.activeX > 0);
+    await until('nav right to reach the right pane again', (w) => w.activeX > 0);
     await sendPrefixCommand(ctx.page, 'T', { shift: true });
     await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
     await navigatePaneKeyboard(ctx.page, 'left'); // the dock hands the keyboard back
     await until('the dock to hand the keyboard back', (w) => w.dockFocused === false);
     await navigatePaneKeyboard(ctx.page, 'right');
-    await until('Ctrl+l from the rightmost pane to focus the dock', (w) => w.dockFocused === true);
+    await until(
+      'nav right from the rightmost pane to focus the dock',
+      (w) => w.dockFocused === true,
+    );
 
     await sendPrefixCommand(ctx.page, 'T', { shift: true });
   }, 180000);
@@ -2647,7 +2650,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Ctrl+h blurs → prefix T hides, reopen keeps the shell', async () => {
+  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Alt+h blurs → prefix T hides, reopen keeps the shell', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -2835,7 +2838,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
 
     // Step 7: Escape is an ordinary key inside the dock — a program pinned
     // there (vim, fzf) must receive it — so it neither blurs nor closes the
-    // column. Ctrl+h is what hands the keyboard back to the panes.
+    // column. Alt+h is what hands the keyboard back to the panes.
     await focusPage(ctx.page);
     await ctx.page.click('[data-testid="sidebar-title-right"] .sidebar-title-text');
     await waitForCondition(
@@ -2851,19 +2854,19 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       () => window.app?.getSnapshot()?.context?.rightSidebarFocused,
     );
     expect(stillFocusedAfterEscape).toBe(true);
-    // ...and glides back out to the tiled pane's cursor when Ctrl+h hands the
+    // ...and glides back out to the tiled pane's cursor when Alt+h hands the
     // keyboard back.
     const glideOut = await sampleCursorGlide(ctx.page, async () => {
-      await ctx.page.keyboard.down('Control');
+      await ctx.page.keyboard.down('Alt');
       await ctx.page.keyboard.press('h');
-      await ctx.page.keyboard.up('Control');
+      await ctx.page.keyboard.up('Alt');
     });
     await waitForCondition(
       ctx.page,
       async () =>
         ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
       5000,
-      'rightSidebarFocused cleared after Ctrl+h',
+      'rightSidebarFocused cleared after Alt+h',
     );
     expect(
       glidePositions(glideOut).distinct >= 3 ? 'glided' : JSON.stringify(glidePositions(glideOut)),

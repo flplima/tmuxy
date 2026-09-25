@@ -58,7 +58,7 @@ export function parseCommandToOp(command: string): TmuxOp {
     };
   }
 
-  // Unified navigation — the default Ctrl+hjkl / Ctrl+arrow root bindings.
+  // Unified navigation — the default Alt+hjkl / Ctrl+arrow root bindings.
   //
   // Two spellings reach us. The config writes `tmuxy-nav-left`, a
   // `command-alias`; but bindings arrive at the client through `list-keys`,

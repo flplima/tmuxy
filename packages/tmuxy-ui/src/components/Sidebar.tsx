@@ -4,9 +4,9 @@
  * The pane runs `tmuxy widget tree` in its own `sidebar-left`-tagged window, so
  * the tree renders through the ordinary widget path (`SidebarTree` via the
  * registered `tree` widget) while the column still has a real pane identity —
- * something `ctrl+hjkl` and `tmuxy nav` can move into, and the backend can size.
+ * something `alt+hjkl` and `tmuxy nav` can move into, and the backend can size.
  *
- * Toggled from the header button or `prefix t`; focused by a click, Ctrl+h from
+ * Toggled from the header button or `prefix t`; focused by a click, Alt+h from
  * the leftmost pane, or a `tmuxy nav left` focus request. See SidebarColumn for
  * the frame the two columns share, and RightSidebar for the pinned terminal.
  */

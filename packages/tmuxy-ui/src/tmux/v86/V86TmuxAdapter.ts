@@ -76,23 +76,21 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: '2', command: 'select-window -t :=2', description: 'Window 2' },
   ],
   root_bindings: [
-    // Ctrl+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
+    // Alt+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
     // `tmuxy-nav-*` command-aliases (defined at attach by the engine's
     // GUEST_SETUP — the snapshot itself lacks them). Intercepted client-side so
-    // C-h isn't sent to the pane as a literal backspace. Same bindings as the
-    // real app config (.devcontainer/.tmuxy.defaults.conf).
-    { key: 'C-h', command: 'tmuxy-nav-left', description: 'Navigate left' },
-    { key: 'C-j', command: 'tmuxy-nav-down', description: 'Navigate down' },
-    { key: 'C-k', command: 'tmuxy-nav-up', description: 'Navigate up' },
-    { key: 'C-l', command: 'tmuxy-nav-right', description: 'Navigate right' },
+    // the key isn't sent to the pane as literal text. Same bindings as the real
+    // app config (.devcontainer/.tmuxy.defaults.conf) — keep the two in step.
+    { key: 'M-h', command: 'tmuxy-nav-left', description: 'Navigate left' },
+    { key: 'M-j', command: 'tmuxy-nav-down', description: 'Navigate down' },
+    { key: 'M-k', command: 'tmuxy-nav-up', description: 'Navigate up' },
+    { key: 'M-l', command: 'tmuxy-nav-right', description: 'Navigate right' },
     { key: 'C-Left', command: 'tmuxy-nav-left', description: 'Navigate left' },
     { key: 'C-Right', command: 'tmuxy-nav-right', description: 'Navigate right' },
     { key: 'C-Up', command: 'tmuxy-nav-up', description: 'Navigate up' },
     { key: 'C-Down', command: 'tmuxy-nav-down', description: 'Navigate down' },
-    { key: 'M-h', command: 'previous-window', description: 'Previous window' },
-    { key: 'M-l', command: 'next-window', description: 'Next window' },
-    { key: 'M-j', command: 'tmuxy-pane-group-next', description: 'Next pane group' },
-    { key: 'M-k', command: 'tmuxy-pane-group-prev', description: 'Prev pane group' },
+    { key: 'C-Tab', command: 'next-window', description: 'Next window' },
+    { key: 'C-S-Tab', command: 'previous-window', description: 'Previous window' },
     { key: 'S-Left', command: 'previous-window', description: 'Previous window' },
     { key: 'S-Right', command: 'next-window', description: 'Next window' },
     { key: 'C-0', command: 'select-window -t 0', description: 'Window 0' },

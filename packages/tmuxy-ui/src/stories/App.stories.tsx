@@ -627,32 +627,35 @@ export const Theme: Story = {
 };
 
 /**
- * Real keybindings — Ctrl+hjkl pane navigation: the keyboardActor intercepts the
- * Ctrl+h/j/k/l root bindings client-side and issues directional `select-pane`
- * commands to real tmux (so C-h moves the active pane left, NOT a literal
- * backspace into the shell). Drives real Ctrl-key presses and asserts the active
- * pane moves.
+ * Real keybindings — Alt+hjkl pane navigation: the keyboardActor intercepts the
+ * Alt+h/j/k/l root bindings client-side and issues directional `select-pane`
+ * commands to real tmux (so M-h moves the active pane left, and no character
+ * reaches the shell). Drives real Alt-key presses and asserts the active pane
+ * moves.
+ *
+ * Alt rather than Ctrl because Ctrl+h/j/k/l belong to readline and vim; see the
+ * nav block in .devcontainer/.tmuxy.defaults.conf.
  */
 export const PaneNavKeys: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, userEvent.setup());
-    // Start on the right pane, then Ctrl+h must move the active pane left.
+    // Start on the right pane, then Alt+h must move the active pane left.
     const right = paneGroups(canvas).find(
       (p: HTMLElement) => p.getAttribute('data-pane-id') !== activePaneId(),
     );
     const rightId = right?.getAttribute('data-pane-id');
     await user.click(right ?? paneGroups(canvas)[0]);
     await waitFor(() => expect(activePaneId()).toBe(rightId), { timeout: 15000, interval: 200 });
-    await user.keyboard('{Control>}h{/Control}');
+    await user.keyboard('{Alt>}h{/Alt}');
     await waitFor(() => expect(activePaneId()).not.toBe(rightId), {
       timeout: 15000,
       interval: 300,
     });
     const leftId = activePaneId();
-    // Ctrl+l moves back to the right.
-    await user.keyboard('{Control>}l{/Control}');
+    // Alt+l moves back to the right.
+    await user.keyboard('{Alt>}l{/Alt}');
     await waitFor(() => expect(activePaneId()).not.toBe(leftId), { timeout: 15000, interval: 300 });
   },
 };

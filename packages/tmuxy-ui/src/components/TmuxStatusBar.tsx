@@ -49,6 +49,31 @@ function Key({ children, active }: { children: string; active?: boolean }) {
   );
 }
 
+/**
+ * The status line's label for directional pane nav — `alt+hjkl` for the default
+ * bindings — or null when nothing is bound to it.
+ *
+ * Read from the bindings rather than written down here, because the key is
+ * config: the default is Alt+hjkl (Ctrl+hjkl belongs to readline and vim) and a
+ * user's own `~/.tmux.conf` may move it somewhere else again. The four
+ * directions have to share one modifier and spell one word for a single hint to
+ * be honest about them; anything else is left to the keybindings view.
+ */
+function navHintKey(rootBindings: KeyBindings['root_bindings']): string | null {
+  const isNav = (command: string) => command.includes('tmuxy-nav') || command.includes('tmuxy/nav');
+  const bound = new Map(
+    rootBindings.filter((b) => isNav(b.command)).map((b) => [b.key, b.command] as const),
+  );
+
+  for (const modifier of ['C', 'M']) {
+    const keys = ['h', 'j', 'k', 'l'];
+    if (keys.every((key) => bound.has(`${modifier}-${key}`))) {
+      return `${modifier === 'C' ? 'ctrl' : 'alt'}+${keys.join('')}`;
+    }
+  }
+  return null;
+}
+
 function StatusLineHints({
   keybindings,
   prefixActive,
@@ -75,11 +100,10 @@ function StatusLineHints({
     );
   }
 
-  const hasNav = ['C-h', 'C-j', 'C-k', 'C-l'].some((key) =>
-    keybindings.root_bindings.some(
-      (b) => b.key === key && (b.command.includes('tmuxy-nav') || b.command.includes('tmuxy/nav')),
-    ),
-  );
+  // The nav hint names whatever key is actually bound, rather than a key the
+  // config used to use: the default moved off Ctrl+hjkl (those belong to
+  // readline and vim) and a user's own config may move it again.
+  const navKey = navHintKey(keybindings.root_bindings);
 
   const hasTabs = keybindings.root_bindings.some(
     (b) => /^C-[0-9]$/.test(b.key) && b.command.includes('select-window'),
@@ -88,10 +112,10 @@ function StatusLineHints({
   return (
     <span className="statusline-hints">
       <Key>{prefix}</Key> <span className="statusline-hint-desc">prefix</span>
-      {hasNav && (
+      {navKey && (
         <>
           <Separator />
-          <Key>ctrl+hjkl</Key> <span className="statusline-hint-desc">pane nav</span>
+          <Key>{navKey}</Key> <span className="statusline-hint-desc">pane nav</span>
         </>
       )}
       {hasTabs && (

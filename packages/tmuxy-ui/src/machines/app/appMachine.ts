@@ -268,9 +268,9 @@ function resolveTabNavTarget(
  *
  * Matches the command-alias form (`tmuxy-pane-group-prev/next`,
  * `tmuxy-nav-left/right`) and the expanded `run-shell` form for both. The
- * group commands wrap around the group. Horizontal pane nav (Ctrl+h /
- * Ctrl+l) steps through the group too but stops at its ends: from the last
- * member Ctrl+l returns null here, so the key falls through to the pane on
+ * group commands wrap around the group. Horizontal pane nav (Alt+h /
+ * Alt+l) steps through the group too but stops at its ends: from the last
+ * member Alt+l returns null here, so the key falls through to the pane on
  * the right or the sidebar, exactly as the `nav` script does.
  *
  * `pane-group-switch` is deliberately NOT matched — that's what
@@ -307,7 +307,7 @@ function resolvePaneGroupNavTarget(
 
   // Mirror the shell scripts' algorithm: index off the currently-visible pane
   // (the one in the active window) and step ±1 — wrapping for the group
-  // commands, stopping at the ends for Ctrl+h / Ctrl+l.
+  // commands, stopping at the ends for Alt+h / Alt+l.
   const visibleId = group.paneIds.find((id) => {
     const p = context.panes.find((pp) => pp.tmuxId === id);
     return p?.windowId === context.activeWindowId;
@@ -328,10 +328,10 @@ function resolvePaneGroupNavTarget(
 }
 
 /**
- * Detect a horizontal pane-nav command (Ctrl+h / Ctrl+l → `tmuxy-nav-left/right`
+ * Detect a horizontal pane-nav command (Alt+h / Alt+l → `tmuxy-nav-left/right`
  * or the expanded `run-shell .../nav left|right` form). Returns the direction or
- * null. Used for the sidebar boundary: Ctrl+h from the leftmost pane focuses the
- * open sidebar; Ctrl+l from a focused sidebar returns to the panes.
+ * null. Used for the sidebar boundary: Alt+h from the leftmost pane focuses the
+ * open sidebar; Alt+l from a focused sidebar returns to the panes.
  */
 function navDirection(command: string): 'left' | 'right' | null {
   const trimmed = command.trim();
@@ -1633,7 +1633,7 @@ export const appMachine = setup({
               return;
             }
 
-            // Sidebar boundary (entering): Ctrl+h from the leftmost pane, or
+            // Sidebar boundary (entering): Alt+h from the leftmost pane, or
             // Ctrl+l from the rightmost one, focuses that side's open column
             // instead of doing a tmux `select-pane -L/-R` no-op. After group
             // nav, so a grouped pane shows its remaining members first.

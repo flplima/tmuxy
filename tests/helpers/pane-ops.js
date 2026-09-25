@@ -266,8 +266,11 @@ async function waitForLayoutSettled(page, { timeout = 10000 } = {}) {
 
 /**
  * Navigate to pane via keyboard using root bindings (Ctrl+arrow).
- * The .tmuxy.conf binds Ctrl+arrow keys as root bindings (no prefix needed)
- * for pane navigation: C-Up=select-pane -U, C-Down=select-pane -D, etc.
+ *
+ * The config binds BOTH Ctrl+arrow and Alt+hjkl as root bindings (no prefix
+ * needed) for pane navigation, through the same `tmuxy-nav-*` aliases. This
+ * presses the arrow form, so a test written against it is not asserting which
+ * letter key the config happens to use.
  */
 async function navigatePaneKeyboard(page, direction) {
   const keyMap = {

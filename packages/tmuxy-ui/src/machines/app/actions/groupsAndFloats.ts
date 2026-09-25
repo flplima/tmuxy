@@ -299,7 +299,7 @@ export const groupsAndFloatsActions = {
    * created on first open. What it runs is `tmuxy widget tree`, which prints the
    * widget marker and then blocks: the tree itself is rendered by React from the
    * state the app already holds, so the pane carries no content. It exists to
-   * give the column a pane identity — something `ctrl+hjkl` can navigate into,
+   * give the column a pane identity — something `alt+hjkl` can navigate into,
    * the backend can size, and the keyboard can be routed to.
    *
    * Closing HIDES the column: `@tmuxy-sidebar-hidden` goes on its window and

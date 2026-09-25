@@ -7,7 +7,7 @@
  * no content — the tree is derived purely from the tmuxy state the app already
  * holds (`selectVisibleWindows` + `selectPanes`), with no CLI round-trip or
  * poll. The pane exists to give the column a real pane identity: something
- * `ctrl+hjkl` can navigate into and the backend can size.
+ * `alt+hjkl` can navigate into and the backend can size.
  *
  * It reflects the same "tabs" the rest of the UI shows (float/backdrop/sidebar
  * windows filtered out by `selectVisibleWindows`), and ONLY those: the tree is

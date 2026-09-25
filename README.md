@@ -50,16 +50,9 @@ tmuxy drives a real tmux, so it needs **tmux 3.4 or newer** (`tmux -V`). Homebre
 brew install --cask flplima/tap/tmuxy
 ```
 
-The desktop app is unsigned (no Apple Developer subscription), so the
-cask runs `xattr -dr com.apple.quarantine /Applications/tmuxy.app`
-automatically on install to skip the macOS Sequoia
-"Apple could not verify…" dialog.
-
-If you grabbed the DMG directly from the [Releases page](https://github.com/flplima/tmuxy/releases) instead, run that yourself before launching:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/tmuxy.app
-```
+The desktop app is signed and notarized by Apple, so it opens without a
+Gatekeeper warning — whether you install it with the cask or download the DMG
+from the [Releases page](https://github.com/flplima/tmuxy/releases).
 
 ### Linux
 
@@ -99,19 +92,22 @@ Open `http://localhost:9000` in any browser. For remote machines, access over an
 
 ### Keybindings & CLI Overview
 
-| Keybinding           | Action                        |
-| -------------------- | ----------------------------- |
-| `Ctrl+Shift+D`       | Split pane vertical (below)   |
-| `Ctrl+Shift+E`       | Split pane horizontal (right) |
-| `Ctrl+Shift+W`       | Close current pane            |
-| `Ctrl+Shift+T`       | New tab / window              |
-| `Ctrl+Shift+[` / `]` | Previous / next tab           |
-| `Ctrl+Shift+F`       | Toggle float for current pane |
-| `Ctrl+Shift+Z`       | Zoom / unzoom active pane     |
-| `Ctrl+Shift+A`       | Select the pane's scrollback  |
-| `Ctrl+Shift+C`       | Copy the selection            |
-| `Ctrl+Shift+N`       | New window (desktop app)      |
-| `Ctrl+Shift+1`…`9`   | Focus window 1…9 (desktop)    |
+| Keybinding           | Action                              |
+| -------------------- | ----------------------------------- |
+| `Alt+H/J/K/L`        | Move to the pane left/down/up/right |
+| `Ctrl+←/↓/↑/→`       | The same, with arrow keys           |
+| `Ctrl+Tab`           | Next tab / window                   |
+| `Ctrl+Shift+D`       | Split pane vertical (below)         |
+| `Ctrl+Shift+E`       | Split pane horizontal (right)       |
+| `Ctrl+Shift+W`       | Close current pane                  |
+| `Ctrl+Shift+T`       | New tab / window                    |
+| `Ctrl+Shift+[` / `]` | Previous / next tab                 |
+| `Ctrl+Shift+F`       | Toggle float for current pane       |
+| `Ctrl+Shift+Z`       | Zoom / unzoom active pane           |
+| `Ctrl+Shift+A`       | Select the pane's scrollback        |
+| `Ctrl+Shift+C`       | Copy the selection                  |
+| `Ctrl+Shift+N`       | New window (desktop app)            |
+| `Ctrl+Shift+1`…`9`   | Focus window 1…9 (desktop)          |
 
 On macOS these are the `Cmd` shortcuts you would expect instead: `Cmd+A`,
 `Cmd+C`, `Cmd+N` and `Cmd+1`…`9`. A _window_ here is an OS window — several can
