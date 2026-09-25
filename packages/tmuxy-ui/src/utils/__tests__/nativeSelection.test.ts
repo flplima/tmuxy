@@ -6,12 +6,13 @@ import { readNativeSelection, terminalTextOf } from '../nativeSelection';
  * is a flex item, which is what made the browser's own copy break a row at
  * every change of style.
  */
-function mountGrid(rows: string[][]): HTMLElement {
+function mountGrid(rows: (string[] & { wrapped?: boolean })[]): HTMLElement {
   const grid = document.createElement('pre');
   grid.className = 'terminal-content';
   for (const runs of rows) {
     const row = document.createElement('div');
     row.className = 'terminal-line';
+    if (runs.wrapped) row.setAttribute('data-wrapped', 'true');
     for (const run of runs) {
       const span = document.createElement('span');
       span.textContent = run;
@@ -21,6 +22,11 @@ function mountGrid(rows: string[][]): HTMLElement {
   }
   document.body.appendChild(grid);
   return grid;
+}
+
+/** A `mountGrid` row that filled the pane's width, i.e. soft-wrapped. */
+function wrapped(runs: string[]): string[] & { wrapped?: boolean } {
+  return Object.assign(runs, { wrapped: true });
 }
 
 function textNode(grid: HTMLElement, row: number, span: number): Text {
@@ -68,6 +74,37 @@ describe('terminalTextOf', () => {
     range.setStart(textNode(grid, 0, 0), 0);
     range.setEnd(textNode(grid, 2, 0), 5);
     expect(terminalTextOf(range)).toBe('above\n\nbelow');
+  });
+
+  it('joins a soft-wrapped row to the next with NO break', () => {
+    // A row that filled the pane's width ran on rather than ended. Copying a
+    // newline there broke a long path or command at the pane's width — the
+    // whole point of joining it is that the paste is what was on screen.
+    const grid = mountGrid([wrapped(['/a/very/long/path/that/fi']), ['lls_the_row', '   ']]);
+    const range = document.createRange();
+    range.setStart(textNode(grid, 0, 0), 0);
+    range.setEnd(textNode(grid, 1, 0), 11);
+    expect(terminalTextOf(range)).toBe('/a/very/long/path/that/fills_the_row');
+  });
+
+  it('keeps the trailing spaces of a wrapped row, since they are content', () => {
+    // The row reached the last column, so a space there is a space the app
+    // printed, not the padding a short row is trimmed of.
+    const grid = mountGrid([wrapped(['word  ']), ['next']]);
+    const range = document.createRange();
+    range.setStart(textNode(grid, 0, 0), 0);
+    range.setEnd(textNode(grid, 1, 0), 4);
+    expect(terminalTextOf(range)).toBe('word  next');
+  });
+
+  it('ignores the wrap flag on the LAST row of a selection', () => {
+    // Whether that row went on to wrap says nothing about the selection, which
+    // ends inside it — and its padding is padding like any other row's.
+    const grid = mountGrid([['above'], wrapped(['ends here   '])]);
+    const range = document.createRange();
+    range.setStart(textNode(grid, 0, 0), 0);
+    range.setEnd(textNode(grid, 1, 0), 12);
+    expect(terminalTextOf(range)).toBe('above\nends here');
   });
 
   it('leaves a selection outside the terminal to the browser', () => {

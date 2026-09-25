@@ -15,7 +15,7 @@ import { useRef, useLayoutEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
 import { useAppSelector, selectCharSize } from '../machines/AppContext';
 import { renderLineToDOM } from './terminalRendering';
-import { isRowLoaded } from '../utils/copyMode';
+import { isRowLoaded, isWrappedRow } from '../utils/copyMode';
 import type { CopyModeState, CellLine, CellColor, CellStyle } from '../tmux/types';
 
 interface ScrollbackTerminalProps {
@@ -135,6 +135,12 @@ const sameStyle = (a: CellStyle | undefined, b: CellStyle | undefined): boolean 
  * loaded hands them over as new arrays with the same cells; repainting a row
  * for that alone would replace the nodes a selection endpoint sits in.
  */
+/** Mirror a row's soft-wrap flag onto the element the copy path reads. */
+function setWrapped(el: HTMLElement, wrapped: 'true' | null): void {
+  if (wrapped) el.setAttribute('data-wrapped', wrapped);
+  else el.removeAttribute('data-wrapped');
+}
+
 function sameLine(a: CellLine, b: CellLine): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -236,9 +242,15 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       const line = lineFor(row, lines, loadedRanges);
       const selRange = getSelectionRange(row);
       const top = `${row * charHeight}px`;
+      // A row that reached the last column ran on into the next with no logical
+      // line break. The scroll view's selection is the BROWSER's, and its copy
+      // path reads this attribute to join those rows rather than break the text
+      // at the pane's width (see utils/nativeSelection.ts).
+      const wrapped = isWrappedRow(line, width) ? 'true' : null;
       const entry = rows.get(row);
       if (entry) {
         if (entry.el.style.top !== top) entry.el.style.top = top;
+        setWrapped(entry.el, wrapped);
         if (!sameLine(entry.line, line) || !sameRange(entry.selRange, selRange)) {
           renderLineToDOM(entry.el, line, selRange);
           entry.selRange = selRange;
@@ -249,6 +261,7 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       const el = document.createElement('div');
       el.className = 'terminal-line';
       el.dataset.row = String(row);
+      setWrapped(el, wrapped);
       el.style.position = 'absolute';
       el.style.top = top;
       el.style.left = '0';
@@ -268,7 +281,16 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
 
     for (let row = renderStart; row <= renderEnd; row++) ensure(row);
     if (held) for (let row = held.start; row <= held.end; row++) ensure(row);
-  }, [renderStart, renderEnd, lines, loadedRanges, getSelectionRange, isCopyMode, charHeight]);
+  }, [
+    renderStart,
+    renderEnd,
+    lines,
+    loadedRanges,
+    getSelectionRange,
+    isCopyMode,
+    charHeight,
+    width,
+  ]);
 
   // Cursor character
   const cursorChar = useMemo(() => {

@@ -98,10 +98,20 @@ function buildCellStyle(style: CellStyle): CSSProperties {
 export interface TerminalLineProps {
   line: CellLine;
   selectionRange?: { startCol: number; endCol: number } | null;
+  /**
+   * Whether this row is a soft-wrapped continuation into the next one — i.e.
+   * there is no logical line break between them (see `isWrappedRow`).
+   *
+   * Published as `data-wrapped` because the copy path reads the DOM, not this
+   * component's props: a native browser selection spans rows as elements, and
+   * joining the ones that only wrapped is the difference between copying a long
+   * command as one line and copying it broken at the pane's width.
+   */
+  wrapped?: boolean;
 }
 
 export const TerminalLine = memo(
-  function TerminalLine({ line, selectionRange }: TerminalLineProps) {
+  function TerminalLine({ line, selectionRange, wrapped }: TerminalLineProps) {
     // How wide a symbol really is can only be measured against the font the
     // page ends up using, and at first paint that is not yet the one it will
     // settle on. The measurement cache says when it has changed its mind; a
@@ -321,7 +331,9 @@ export const TerminalLine = memo(
 
     return (
       <LogProfiler id="TerminalLine">
-        <div className="terminal-line">{renderCells()}</div>
+        <div className="terminal-line" data-wrapped={wrapped ? 'true' : undefined}>
+          {renderCells()}
+        </div>
       </LogProfiler>
     );
   },
@@ -329,6 +341,10 @@ export const TerminalLine = memo(
   (prevProps, nextProps) => {
     // Always re-render if line content changed
     if (prevProps.line !== nextProps.line) return false;
+
+    // `data-wrapped` is what the copy path reads, so a row that stops (or
+    // starts) wrapping has to redraw even when its cells are untouched.
+    if (prevProps.wrapped !== nextProps.wrapped) return false;
 
     // Re-render if selection range changed
     const prevSel = prevProps.selectionRange;

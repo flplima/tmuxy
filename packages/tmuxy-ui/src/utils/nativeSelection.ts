@@ -11,7 +11,8 @@
 /**
  * The selected text, or '' when nothing is selected — read the way a terminal
  * copies it: each screen row's selected text run together, rows joined by a
- * newline, trailing padding dropped.
+ * newline, trailing padding dropped, and rows that only SOFT-WRAPPED joined
+ * with no break at all.
  *
  * `Selection.toString()` does not do that here. A row is a flex line of
  * styled spans, and flex items are block boxes, so the browser serializes a
@@ -54,11 +55,31 @@ export function terminalTextOf(range: Range): string | null {
   // next one, which counts as touching it: that row contributes nothing but a
   // trailing newline. Rows only touched at an edge are dropped from the ends;
   // a blank row selected in between still keeps its line.
-  while (parts.length > 1 && parts[parts.length - 1].collapsed) parts.pop();
-  while (parts.length > 1 && parts[0].collapsed) parts.shift();
+  while (parts.length > 1 && parts[parts.length - 1].collapsed) {
+    parts.pop();
+    rows.pop();
+  }
+  while (parts.length > 1 && parts[0].collapsed) {
+    parts.shift();
+    rows.shift();
+  }
+
+  // A row that filled the pane's full width has no logical line break after it
+  // — the text simply ran on (`data-wrapped`, set by TerminalLine). Copying a
+  // newline there is how a pasted path or command came back broken at whatever
+  // width the pane happened to be, which is not what any other terminal does.
+  // Its trailing spaces are content rather than padding, so they are kept too.
   return parts
-    .map((part) => (part.cloneContents().textContent ?? '').replace(/\s+$/, ''))
-    .join('\n');
+    .map((part, index) => {
+      // Only BETWEEN rows: the last row ends the selection, so whether it went
+      // on to wrap says nothing about what was selected, and its padding is
+      // trailing padding like any other row's.
+      const soft = index < parts.length - 1 && rows[index]?.getAttribute('data-wrapped') === 'true';
+      const text = part.cloneContents().textContent ?? '';
+      return (soft ? text : text.replace(/\s+$/, '')) + (soft ? '' : '\n');
+    })
+    .join('')
+    .replace(/\n$/, '');
 }
 
 /**

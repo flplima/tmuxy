@@ -10,6 +10,7 @@ import { TerminalLine } from './TerminalLine';
 import { Cursor } from './Cursor';
 import { cellsToCss } from './terminalShared';
 import { cursorShapeToMode } from '../utils/cursorShape';
+import { isWrappedRow } from '../utils/copyMode';
 import { isTauri } from '../tmux/adapters';
 import type { CursorMode } from './Cursor';
 import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
@@ -243,7 +244,12 @@ export const Terminal: React.FC<TerminalProps> = ({
         aria-hidden="true"
       >
         {lines.map((line, lineIndex) => (
-          <TerminalLine key={lineIndex} line={line} selectionRange={getSelectionRange(lineIndex)} />
+          <TerminalLine
+            key={lineIndex}
+            line={line}
+            selectionRange={getSelectionRange(lineIndex)}
+            wrapped={isWrappedRow(line, width)}
+          />
         ))}
       </pre>
       {cursorVisible && (
