@@ -7,7 +7,7 @@ use crate::{
     extract_cells_from_screen, extract_cells_with_urls, PaneContent, TmuxPane, TmuxState,
     TmuxWindow, WindowType,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::warn;
 
 // The settling debounce uses a monotonic clock. `std::time::Instant::now()`
@@ -259,6 +259,9 @@ pub struct PaneState {
 
     /// Stored images keyed by image ID (for HTTP retrieval)
     pub image_store: HashMap<u32, super::images::StoredImage>,
+    /// Insertion order for `image_store`, so the cap evicts the oldest picture
+    /// rather than an arbitrary one.
+    image_store_order: std::collections::VecDeque<u32>,
 
     /// Position in window (from layout)
     pub x: u32,
@@ -369,6 +372,7 @@ impl PaneState {
             scroll_baseline_alt: false,
             image_parser: super::images::ImageParser::new(),
             image_store: HashMap::new(),
+            image_store_order: std::collections::VecDeque::new(),
             x: 0,
             y: 0,
             width,
@@ -527,6 +531,28 @@ impl PaneState {
         let image_result = self.image_parser.process(content);
         for (id, stored) in image_result.new_images {
             self.image_store.insert(id, stored);
+            self.image_store_order.push_back(id);
+        }
+        // SEC-22: nothing evicted while the pane lived, so a loop printing
+        // images grew the process without bound — the server's own store is
+        // trimmed only for DEAD panes. The images a pane can actually be
+        // showing are bounded by its screen; this is far above that and
+        // bounded, which is the point.
+        while self.image_store.len() > MAX_STORED_IMAGES_PER_PANE {
+            match self.image_store_order.pop_front() {
+                Some(oldest) => {
+                    self.image_store.remove(&oldest);
+                }
+                // The order log and the store disagree (an id was removed
+                // elsewhere): drop the store's own oldest rather than spin.
+                None => {
+                    if let Some(&any) = self.image_store.keys().next() {
+                        self.image_store.remove(&any);
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
 
         // Process remaining bytes through OSC parser to extract hyperlinks/clipboard
@@ -1245,6 +1271,14 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
 /// this path, so the write is bounded rather than being whatever the file was.
 /// 64 KiB is comfortably above a real yank and below xterm's own ~100 KB.
 pub const MAX_CLIPBOARD_BYTES: usize = 64 * 1024;
+
+/// The most decoded images one pane keeps.
+///
+/// A pane can only SHOW as many pictures as its grid has room for; this is
+/// well above that so scrolling back over recent output still finds them, and
+/// bounded so a program printing images in a loop cannot grow the process for
+/// the life of the pane.
+pub const MAX_STORED_IMAGES_PER_PANE: usize = 256;
 
 /// Whether an OSC 52 write from `pane_id` is honoured, and with what text.
 ///
@@ -2343,7 +2377,9 @@ impl StateAggregator {
             }
             // Only process if pane has a valid window_id (was seen in list-panes)
             if !pane.window_id.is_empty() {
-                let store_before: Vec<u32> = pane.image_store.keys().copied().collect();
+                // A set, not a Vec: `contains` on the Vec made every chunk of
+                // output O(images²) in a pane that had accumulated them.
+                let store_before: HashSet<u32> = pane.image_store.keys().copied().collect();
                 pane.process_output(content);
                 // Collect newly added images
                 let new_imgs: Vec<(u32, super::images::StoredImage)> = pane
@@ -3844,6 +3880,38 @@ mod tests {
 
         let result = agg.process_event(event);
         assert!(result.clipboard_writes.is_empty());
+    }
+
+    /// SEC-22. Nothing evicted from a pane's image store while the pane lived
+    /// — the server's own store is trimmed only for DEAD panes — so a program
+    /// printing pictures in a loop grew the process for the life of the pane,
+    /// on nothing but pane output.
+    #[test]
+    fn a_pane_stops_hoarding_pictures_at_the_cap() {
+        let mut pane = PaneState::new("%0", 80, 24);
+        for id in 0..(MAX_STORED_IMAGES_PER_PANE as u32 * 2) {
+            pane.image_store.insert(
+                id,
+                crate::control_mode::StoredImage {
+                    data: vec![0u8; 8],
+                    mime_type: "image/png".to_string(),
+                },
+            );
+            pane.image_store_order.push_back(id);
+        }
+        // The eviction runs on output, which is the only way images arrive.
+        pane.process_output(b"");
+        assert!(
+            pane.image_store.len() <= MAX_STORED_IMAGES_PER_PANE,
+            "holding {} images, over the {MAX_STORED_IMAGES_PER_PANE} cap",
+            pane.image_store.len()
+        );
+        // The oldest go first, so scrolling back over RECENT output still finds
+        // its pictures.
+        assert!(pane
+            .image_store
+            .contains_key(&(MAX_STORED_IMAGES_PER_PANE as u32 * 2 - 1)));
+        assert!(!pane.image_store.contains_key(&0));
     }
 
     /// SEC-01. OSC 52 arrives in pane OUTPUT, so `cat` of a crafted file is
