@@ -6,7 +6,10 @@ use crate::WindowType;
 type Result<T> = std::result::Result<T, TmuxError>;
 
 pub fn execute_tmux_command(args: &[&str]) -> Result<String> {
-    let output = crate::session::tmux_command().args(args).output()?;
+    // `tmux_command_with`, not `.args()`: over an ssh tunnel the trailing
+    // arguments are joined into one remote SHELL command line, and these
+    // carry client-supplied pane ids and session names (SEC-17).
+    let output = crate::session::tmux_command_with(args).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
