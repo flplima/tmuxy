@@ -94,7 +94,10 @@ fn env_flag(name: &str) -> bool {
 fn with_optional_auth(app: axum::Router, password: Option<String>) -> axum::Router {
     match password {
         Some(pw) => app.layer(axum::middleware::from_fn_with_state(
-            std::sync::Arc::new(pw),
+            std::sync::Arc::new(crate::auth::AuthState {
+                password: pw,
+                throttle: crate::auth::AuthThrottle::new(),
+            }),
             crate::auth::require_basic_auth,
         )),
         None => app,
@@ -391,9 +394,15 @@ async fn start_dev_server(
 
     let listener = bind_with_retry(addr, 5).await;
 
-    if let Err(e) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(state, vec![vite_child, demo_child]))
-        .await
+    // `into_make_service_with_connect_info` rather than the plain router: the
+    // auth layer reads the peer address to rate-limit failed passwords per
+    // source, and `ConnectInfo` is only populated by this make-service.
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(state, vec![vite_child, demo_child]))
+    .await
     {
         error!(error = %e, "axum serve loop exited with error");
     }
@@ -437,9 +446,15 @@ async fn start_server(
 
     let listener = bind_with_retry(addr, 5).await;
 
-    if let Err(e) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(state, vec![]))
-        .await
+    // `into_make_service_with_connect_info` rather than the plain router: the
+    // auth layer reads the peer address to rate-limit failed passwords per
+    // source, and `ConnectInfo` is only populated by this make-service.
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(state, vec![]))
+    .await
     {
         error!(error = %e, "axum serve loop exited with error");
     }
@@ -931,6 +946,17 @@ mod tests {
                 axum::http::HeaderValue::from_str(value).unwrap(),
             );
         }
+        // The auth layer rate-limits per peer address, so it extracts
+        // `ConnectInfo` — which the server populates via
+        // `into_make_service_with_connect_info` and a bare `oneshot` does not.
+        // Without it every probe would 500 on a missing extension rather than
+        // exercise the gate.
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                55555,
+            ))));
         request
     }
 
