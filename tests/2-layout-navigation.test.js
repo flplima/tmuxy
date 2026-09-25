@@ -1796,6 +1796,46 @@ describe('Scenario 6f: Float Tab Scope', () => {
       const c = container.getBoundingClientRect();
       const s = strip.getBoundingClientRect();
       return {
+        // The raw boxes travel with the deltas: a failure that says only
+        // "dTop 24" cannot tell a backdrop resolving against the wrong
+        // ancestor from a container that moved under it.
+        boxes: {
+          backdrop: { top: b.top, bottom: b.bottom, left: b.left, right: b.right },
+          container: { top: c.top, bottom: c.bottom, left: c.left, right: c.right },
+          strip: { top: s.top, bottom: s.bottom },
+          backdropParent: backdrop.parentElement?.className ?? null,
+          backdropOffsetParent: backdrop.offsetParent?.className ?? null,
+          // The overlay is `position:absolute; inset:0`, so its box IS its
+          // containing block's padding box. When the backdrop comes out the
+          // right SIZE but in the wrong PLACE, the question is which ancestor
+          // it resolved against — so walk up and record each one's box and the
+          // properties that can make it a containing block.
+          ancestors: (() => {
+            const chain = [];
+            let el = backdrop.parentElement;
+            while (el && chain.length < 6) {
+              const cs = getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              chain.push({
+                className: el.className,
+                position: cs.position,
+                transform: cs.transform === 'none' ? null : cs.transform,
+                zoom: cs.zoom,
+                padding: cs.padding,
+                overflow: cs.overflow,
+                // An absolutely positioned child of a SCROLLED container is
+                // drawn offset by that scroll, which is the one way a child at
+                // `inset: 0` can sit outside its containing block's box.
+                scroll: { top: el.scrollTop, left: el.scrollLeft },
+                scrollSize: { width: el.scrollWidth, height: el.scrollHeight },
+                clientSize: { width: el.clientWidth, height: el.clientHeight },
+                box: { top: r.top, left: r.left, width: r.width, height: r.height },
+              });
+              el = el.parentElement;
+            }
+            return chain;
+          })(),
+        },
         dTop: Math.abs(b.top - c.top),
         dBottom: Math.abs(b.bottom - c.bottom),
         dLeft: Math.abs(b.left - c.left),
@@ -1818,10 +1858,16 @@ describe('Scenario 6f: Float Tab Scope', () => {
       scope = await ctx.page.evaluate(measureScope);
     }
     expect(scope).not.toBeNull();
-    expect(scope.dTop).toBeLessThanOrEqual(1);
-    expect(scope.dBottom).toBeLessThanOrEqual(1);
-    expect(scope.dLeft).toBeLessThanOrEqual(1);
-    expect(scope.dRight).toBeLessThanOrEqual(1);
+    // One check carrying the boxes: four separate `expect`s reported only the
+    // first delta and stopped, and "dTop 24" cannot tell a backdrop resolving
+    // against the wrong ancestor from a container that moved under it.
+    const misaligned = ['dTop', 'dBottom', 'dLeft', 'dRight'].filter((k) => scope[k] > 1);
+    if (misaligned.length > 0) {
+      throw new Error(
+        `the float backdrop does not cover the tab content: ${misaligned.join(', ')} off by more than 1px\n` +
+          JSON.stringify(scope, null, 2),
+      );
+    }
     expect(scope.stripAbove).toBe(true);
     expect(scope.parent).toBe(homeWindowId);
 

@@ -38,8 +38,25 @@ pub enum HostPolicy {
     /// The server listens on loopback: `Host` must be a loopback name or one of
     /// these hostnames (a reverse proxy's public name, say).
     Loopback { allowed: Vec<String> },
-    /// The server listens on a routable address, behind a password.
-    Any,
+    /// The server listens on a routable address. `Host` must still be one this
+    /// server answers to — the address it bound, a loopback name, or an
+    /// `--allowed-host`.
+    ///
+    /// This is what stops DNS rebinding: a hostile page cannot hold the
+    /// browser's credentials for `http://<your-ip>:9000`, but it can point a
+    /// name it owns at that address and have the browser send them. With
+    /// `--no-auth` on a routable bind there are no credentials to need, and
+    /// the rebind is a shell.
+    ///
+    /// `bound` is `None` for a wildcard bind (`0.0.0.0`, `::`), where the
+    /// server genuinely does not know which of its addresses a request
+    /// arrived on. With no `allowed` list either, there is nothing left to
+    /// check and any `Host` passes; that is the container case, where the
+    /// published port is the boundary.
+    Bound {
+        bound: Option<IpAddr>,
+        allowed: Vec<String>,
+    },
 }
 
 /// The hostname half of a `host[:port]` authority, brackets stripped from an
@@ -98,15 +115,38 @@ pub fn check(headers: &HeaderMap, policy: &HostPolicy) -> Result<(), &'static st
         }
     }
 
-    if let HostPolicy::Loopback { allowed } = policy {
-        let name = host.map(hostname).ok_or("request has no Host header")?;
-        let allowed_name = allowed.iter().any(|a| a.eq_ignore_ascii_case(name));
-        if !is_loopback_name(name) && !allowed_name {
-            return Err("request Host is not this server (see --allowed-host)");
+    match policy {
+        HostPolicy::Loopback { allowed } => {
+            let name = host.map(hostname).ok_or("request has no Host header")?;
+            if !is_loopback_name(name) && !names_this_server(name, None, allowed) {
+                return Err("request Host is not this server (see --allowed-host)");
+            }
+        }
+        HostPolicy::Bound { bound, allowed } => {
+            // A wildcard bind with no allowed list has nothing to compare
+            // against — see the variant's docs.
+            if bound.is_none() && allowed.is_empty() {
+                return Ok(());
+            }
+            let name = host.map(hostname).ok_or("request has no Host header")?;
+            if !is_loopback_name(name) && !names_this_server(name, *bound, allowed) {
+                return Err("request Host is not this server (see --allowed-host)");
+            }
         }
     }
 
     Ok(())
+}
+
+/// Whether `name` is an address or hostname this server answers to: the
+/// literal it bound, or one the operator listed with `--allowed-host`.
+fn names_this_server(name: &str, bound: Option<IpAddr>, allowed: &[String]) -> bool {
+    if let Some(bound) = bound {
+        if name.parse::<IpAddr>().is_ok_and(|ip| ip == bound) {
+            return true;
+        }
+    }
+    allowed.iter().any(|a| a.eq_ignore_ascii_case(name))
 }
 
 /// Axum middleware applying [`check`] to every API route.
@@ -140,6 +180,15 @@ mod tests {
 
     fn loopback() -> HostPolicy {
         HostPolicy::Loopback { allowed: vec![] }
+    }
+
+    /// A wildcard bind with no allowed list: the one shape that still accepts
+    /// any `Host`, because the server knows no address of its own to compare.
+    fn any_bind() -> HostPolicy {
+        HostPolicy::Bound {
+            bound: None,
+            allowed: vec![],
+        }
     }
 
     #[test]
@@ -199,7 +248,7 @@ mod tests {
             ("sec-fetch-site", "same-origin"),
         ]);
         assert!(check(&rebound, &loopback()).is_err());
-        assert_eq!(check(&rebound, &HostPolicy::Any), Ok(()));
+        assert_eq!(check(&rebound, &any_bind()), Ok(()));
     }
 
     #[test]
@@ -233,12 +282,60 @@ mod tests {
         assert!(check(&HeaderMap::new(), &loopback()).is_err());
     }
 
+    /// SEC-10. The `Host` rule used to run only under `Loopback`, and every
+    /// routable bind got `Any` — so with `--no-auth` on a LAN address, a
+    /// hostile page pointing a name it owns at that address had a shell. A
+    /// browser holds no credentials for an IP literal, but it will happily
+    /// send them to a name.
+    #[test]
+    fn a_rebound_domain_is_refused_on_a_routable_bind_too() {
+        let bound = HostPolicy::Bound {
+            bound: Some("192.168.1.20".parse().unwrap()),
+            allowed: vec![],
+        };
+        let rebound = headers(&[
+            ("host", "attacker.example:9000"),
+            ("origin", "http://attacker.example:9000"),
+            ("sec-fetch-site", "same-origin"),
+        ]);
+        assert!(check(&rebound, &bound).is_err());
+
+        // The address it actually bound, and loopback, still reach it.
+        for host in ["192.168.1.20:9000", "localhost:9000", "127.0.0.1"] {
+            assert_eq!(check(&headers(&[("host", host)]), &bound), Ok(()), "{host}");
+        }
+    }
+
+    /// SEC-15. A name the operator listed reaches the server on a routable
+    /// bind, and one they did not does not — which is what the public demo's
+    /// README already claimed.
+    #[test]
+    fn an_allowed_host_reaches_a_routable_bind_and_nothing_else_does() {
+        let policy = HostPolicy::Bound {
+            bound: None,
+            allowed: vec!["demo.example".into()],
+        };
+        let allowed = headers(&[
+            ("host", "demo.example"),
+            ("origin", "https://demo.example"),
+            ("sec-fetch-site", "same-origin"),
+        ]);
+        assert_eq!(check(&allowed, &policy), Ok(()));
+
+        let other = headers(&[
+            ("host", "attacker.example"),
+            ("origin", "https://attacker.example"),
+            ("sec-fetch-site", "same-origin"),
+        ]);
+        assert!(check(&other, &policy).is_err());
+    }
+
     #[test]
     fn a_default_port_matches_its_absence() {
         let tls = headers(&[
             ("host", "example.com:443"),
             ("origin", "https://example.com"),
         ]);
-        assert_eq!(check(&tls, &HostPolicy::Any), Ok(()));
+        assert_eq!(check(&tls, &any_bind()), Ok(()));
     }
 }

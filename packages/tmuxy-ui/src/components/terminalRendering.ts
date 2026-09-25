@@ -10,6 +10,7 @@
 import type { CellLine, CellStyle, CellColor } from '../tmux/types';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { detectUrls } from '../utils/urlDetect';
+import { safeHref } from '../utils/openUrl';
 
 // ============================================
 // Color conversion
@@ -205,7 +206,10 @@ export function renderLineToDOM(
     let target: HTMLElement;
     if (linkUrl) {
       const a = document.createElement('a');
-      a.href = linkUrl;
+      // Copy mode renders its rows as raw DOM, where React's own blocking of a
+      // `javascript:` href does not apply — so the allowlist is the only guard.
+      const href = safeHref(linkUrl);
+      if (href) a.href = href;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       a.draggable = false;

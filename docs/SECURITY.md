@@ -47,20 +47,26 @@ tmuxy server --host 0.0.0.0 --password 'your-secret'      # or on the command li
 
 When a password is set, **every** route — the frontend, `/events` (SSE), `/commands`, and all `/api/*` endpoints — requires HTTP Basic auth. The browser shows a native login prompt on first load; enter **any username** and the configured password (only the password is checked). Once entered, the browser caches the credentials and attaches them automatically to the SSE stream and every request. The password is compared in constant time, and unauthenticated requests get a `401` with a `WWW-Authenticate` challenge.
 
+A wrong password costs the peer time. The first few failures are free — someone at a browser prompt mistypes — and after that the refusal is held, doubling from one second to a cap of thirty, forgotten ten minutes after that peer stops trying; a correct password clears the count immediately. Every refusal is logged with the address it came from. The count is per peer IP, so **behind a reverse proxy the peer is the proxy** and the delay is shared by everyone behind it: the proxy is expected to do its own limiting, and `X-Forwarded-For` is deliberately not trusted here because anyone can send one.
+
 Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credentials are base64, not encrypted; combine it with an SSH tunnel, VPN, or a TLS-terminating reverse proxy.
 
 ### Read-Only Server
 
 `tmuxy server --read-only` (or `TMUXY_READ_ONLY=1`) serves viewers: every client receives the state stream and none can change the session. It is a property of the server process, not of a client or a URL, so there is nothing for a client to drop or forge. To share a session for watching, run a second server on its own port beside the one you write through (each port keeps its own pid file, so `tmuxy server --port N stop` stops the right one).
 
+A read-only server is **pinned to one session** — `--session <name>` (or `TMUXY_SESSION`), defaulting to `tmuxy`. This matters because the recommended setup puts the viewer on the _same tmux socket_ as the writer, where every other session of yours is one name away: without the pin, a viewer naming any session in `?session=` was handed that session's screen.
+
 What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`:
 
 - **Refuses every command that is not a read** with a 403, decided before dispatch from `ClientCommand::is_read` — state, scrollback, themes, git worktrees and trace settings are reads; everything else is not, including `query_tmux`, which carries an arbitrary tmux command that nothing here can classify.
 - **Never records a client's viewport**, so a viewer's small window cannot resize the session under whoever is writing, and its monitor attaches without the initial resize (`MonitorConfig::observer`).
 - **Refuses `/trace`** and announces the mode in the `connection-info` greeting, which is how the frontend knows to stop offering changes.
+- **Serves fewer open event streams.** A viewer's server is the one whose address gets handed around, so it holds a tighter budget than the one its owner writes through: each `/events` stream is a long-lived task, and past the cap a new one answers 503 rather than being accepted.
+- **Serves one session and creates none.** A name other than the pinned one answers 404, and so does the pinned one before it exists — a viewer's server attaches to a session or it does not run, where it used to answer every invented name with `new-session -A`, spawning a live shell per name that outlived the viewer. Pane ids in a scrollback request are resolved against that session's own panes before `capture-pane` sees them, and worktree discovery lists only that session's panes.
 - **Refuses `/api/file` and `/api/browse`** with a 403. "Read-only" is about the session, and those two routes are a different power: they read any file the server process can, anywhere on the disk. A read-only server is the one meant to be handed to people who are not trusted with the machine, so the arbitrary-read routes are exactly the ones it must not serve. Only the browser widget uses them, and opening one takes a command a viewer cannot send.
 
-What it does not do: it is not confidentiality. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server, and for a genuinely public viewer see [A Public Read-Only Viewer](#a-public-read-only-viewer).
+What it does not do: it is not confidentiality _within the session it shows_. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server, and for a genuinely public viewer see [A Public Read-Only Viewer](#a-public-read-only-viewer).
 
 ### Behind a Reverse Proxy
 
@@ -80,17 +86,19 @@ The API is a remote shell, and a browser sends requests on behalf of whatever pa
 | --------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `Sec-Fetch-Site`            | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
 | `Origin`                    | Must name the host the request was sent to                           | The same, in a browser without Fetch Metadata                              |
-| `Host` (loopback bind only) | Must be a loopback name or an `--allowed-host`                       | DNS rebinding                                                              |
+| `Host`                      | Must be a loopback name, the address the server bound, or an `--allowed-host` | DNS rebinding                                                     |
 
 The API sends **no CORS headers**, so no other origin can read a response even when a request is let through. A request with none of these headers is not a browser acting for a page (`curl`, a script) and is allowed. Cached Basic-auth credentials do not help a hostile page: its requests are refused by origin before the password matters.
 
-On a routable bind the `Host` rule is off — the server cannot know every name it is reached by — and the password is what stops rebinding, because the browser holds no credentials for the rebound origin. With `--no-auth` on a routable address, DNS rebinding is **not** prevented.
+The `Host` rule applies to a routable bind too: the address it bound is a name it answers to, and so is anything passed with `--allowed-host` (repeatable, or `TMUXY_ALLOWED_HOSTS`). The one gap left is a **wildcard** bind (`0.0.0.0`, `::`) given no allowed list, where the server genuinely does not know which of its addresses a request arrived on and any `Host` passes — the container case, where the published port is the boundary. Naming the host you reach it by closes that too.
 
 ## Local Files Are Served Sandboxed
 
 `/api/file` and `/api/browse` read any file the server process can read, with a real content type, so an HTML file would render with the server's own origin and could use the API like the app does. Both routes answer with `Content-Security-Policy: sandbox` (without `allow-same-origin`), so the document runs in an opaque origin of its own whether the browser widget frames it or someone opens its URL. The browser widget also frames every local page with the `sandbox` attribute, which covers the desktop app's `tmuxyfile:` scheme too (`tmuxy-ui/src/components/widgets/browser/TmuxyBrowser.tsx`).
 
-The cost: a local page cannot use cookies or storage, and a link followed inside it is invisible to the widget. Websites are other origins already and are framed without a sandbox.
+The desktop webview carries its own `Content-Security-Policy` (`tauri.conf.json`). It is defence in depth rather than a boundary — an XSS from pane output would run with the Tauri IPC behind it, which is `open_url`, the file schemes and CLI exec, so it is worth more here than on the web. The policy names each scheme the app actually loads from (`tauri:`, `asset:`, `tmuxyfile:`, `tmuxyimg:`, and their `http://<scheme>.localhost` forms on Windows) and keeps `frame-src *`, which is the browser widget's whole purpose. **Adding a resource the app loads means adding it here too** — a CSP refuses quietly, and the symptom is a picture or a page that simply does not appear.
+
+The cost: a local page cannot use cookies or storage, and a link followed inside it is invisible to the widget. A website is another origin already, so it keeps `allow-same-origin` (its logins and storage work) but is still sandboxed — without `allow-top-navigation`, so a framed page cannot set `window.top.location` and navigate the whole tmuxy tab away, which would be a convincing place to phish the Basic-auth prompt.
 
 ## Input That Reaches Control Mode
 
@@ -139,7 +147,7 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 4. **Clipboard Poisoning (OSC 52)**
    - _Vector:_ A program writing malicious shell commands to the system clipboard via OSC 52, tricking the user into pasting and executing dangerous commands.
-   - _Policy:_ OSC 52 clipboard writes must require explicit user interaction/consent or obey strict size and rate limits. The server or client must never allow unauthorized background clipboard reads.
+   - _Policy:_ OSC 52 clipboard writes obey bounds rather than a prompt — a confirmation on every yank would break the legitimate use (nvim or tmux yanking over ssh, which is the reason the sequence is honoured at all) and train the user to click through it. The bounds: only the **active pane** may write, so a tailed log or a stray ssh session cannot replace what the user is about to paste; the decoded payload is capped (`MAX_CLIPBOARD_BYTES`); and every accepted write announces itself on the status line, naming the pane and the size, so a clipboard the user did not set is never silent. tmux paste buffers, which are global to the tmux server, are mirrored only when a pane of _this_ session is in copy mode, and never on a `--read-only` server. The server or client must never allow unauthorized background clipboard reads.
 
 5. **ReDoS & Parser Desynchronization**
    - _Vector:_ Pathological escape sequences designed to trigger exponential regex backtracking in parsers or desynchronize the terminal state machine.
@@ -202,11 +210,11 @@ What the server does _not_ do is interpolate a client's command into a shell of 
 
 ### 5. `--no-auth` on a Routable Address (Medium)
 
-**Risk:** Everyone on the network can reach the server with no password, and the `Host` check that stops DNS rebinding is off.
+**Risk:** Everyone on the network can reach the server with no password.
 
-**Impact:** Anyone on the network — and a hostile site the user visits, through DNS rebinding — gets shell access.
+**Impact:** Anyone on the network gets shell access.
 
-**Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container's published port on a single-user machine.
+**Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container's published port on a single-user machine. DNS rebinding on top of this is now refused by the `Host` check unless the bind is a wildcard with no `--allowed-host` ([Cross-Origin Requests](#cross-origin-requests)); naming the host closes that case.
 
 ### 6. Browsers Without Fetch Metadata (Low)
 
@@ -317,8 +325,7 @@ Not yet implemented, but would improve the security posture:
 - **Per-client permissions** — writers and viewers on one server, instead of one server per role
 - **Audit logging** — Log all commands and client connections
 - **Path restrictions** — Limit `/api/file` and `/api/browse` to specific directories
-- **Rate limiting** — Prevent command flooding and password guessing
-- **Desktop webview CSP** — A Content-Security-Policy for the Tauri app
+- **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional Password](#optional-password))
 
 ## Related
 

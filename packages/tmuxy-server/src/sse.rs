@@ -172,6 +172,26 @@ impl StateEmitter for SseEmitter {
     }
 
     fn write_clipboard(&self, pane_id: &str, text: String) {
+        // SEC-13: a viewer never receives the writer's clipboard. tmux paste
+        // buffers are global to the tmux SERVER, so `%paste-buffer-changed`
+        // carries a yank from any session — text a viewer was never shown —
+        // and every client that receives it writes it to its own system
+        // clipboard.
+        if self.app_state.read_only {
+            tracing::debug!(%pane_id, "read-only server: clipboard write not forwarded");
+            return;
+        }
+        // SEC-01/SEC-13: the OSC 52 path bounds this at the aggregator, where
+        // the active pane is known; a paste-buffer mirror arrives here with no
+        // pane at all, so the size cap is applied for both on the way out.
+        if text.len() > tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES {
+            tracing::debug!(
+                %pane_id,
+                bytes = text.len(),
+                "clipboard write over the cap, dropped"
+            );
+            return;
+        }
         self.send_event(&SseEvent::Clipboard {
             pane_id: pane_id.to_string(),
             text,
@@ -191,6 +211,23 @@ pub struct KeyBindings {
 }
 
 impl KeyBindings {
+    /// `current()` off the async runtime.
+    ///
+    /// SEC-16: it runs three synchronous `tmux` subprocesses and waits on each.
+    /// Called from inside the `/events` stream generator that was a tokio
+    /// worker thread parked in `wait()` — one per connecting client, with no
+    /// cap on clients, and every one of them also another external `tmux`
+    /// process, which docs/TMUX.md says destabilises tmux 3.5a.
+    async fn current_offthread() -> Self {
+        tokio::task::spawn_blocking(Self::current)
+            .await
+            .unwrap_or_else(|_| Self {
+                prefix_key: "C-b".into(),
+                prefix_bindings: Vec::new(),
+                root_bindings: Vec::new(),
+            })
+    }
+
     /// Snapshot the live tmux bindings with the standard fallbacks. The one
     /// assembly point for the SSE greeting, `on_initial_sync_complete`, and
     /// `broadcast_keybindings` (previously three identical copies).
@@ -265,12 +302,23 @@ pub struct SessionQuery {
     session: Option<String>,
 }
 
-/// A `?session=` the server will not write into a command line; a 400.
-struct InvalidSession;
+/// A `?session=` the server will not serve.
+#[derive(Debug)]
+enum SessionRejection {
+    /// A name the server will not write into a command line; a 400.
+    Invalid,
+    /// A name other than the one this server is pinned to; a 404, which says
+    /// no more to a prober than that this server does not have it.
+    NotServed,
+}
 
-impl IntoResponse for InvalidSession {
+impl IntoResponse for SessionRejection {
     fn into_response(self) -> Response {
-        (StatusCode::BAD_REQUEST, "invalid session name\n").into_response()
+        match self {
+            Self::Invalid => (StatusCode::BAD_REQUEST, "invalid session name\n"),
+            Self::NotServed => (StatusCode::NOT_FOUND, "no such session\n"),
+        }
+        .into_response()
     }
 }
 
@@ -278,12 +326,17 @@ impl SessionQuery {
     /// The session the request names — the default one when it names none.
     /// The name is written into control-mode command lines, where a newline
     /// (or any control character) would end the command and start another.
-    fn session(self) -> Result<String, InvalidSession> {
+    ///
+    /// A pinned server (`AppState::session_pin`) serves that name only.
+    fn session(self, state: &AppState) -> Result<String, SessionRejection> {
         let session = self
             .session
             .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
         if session.is_empty() || session.chars().any(char::is_control) {
-            return Err(InvalidSession);
+            return Err(SessionRejection::Invalid);
+        }
+        if !state.serves_session(&session) {
+            return Err(SessionRejection::NotServed);
         }
         Ok(session)
     }
@@ -313,9 +366,33 @@ pub async fn sse_handler(
     Query(query): Query<SessionQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let session = match query.session() {
+    let session = match query.session(&state) {
         Ok(session) => session,
         Err(rejection) => return rejection.into_response(),
+    };
+
+    // A read-only server never brings a session into being: `new-session -A`
+    // would hand a viewer a live shell in the workspace dir, once per distinct
+    // name they ask for, none of it cleaned up when they leave.
+    if state.read_only && !session_exists(&session).await {
+        return SessionRejection::NotServed.into_response();
+    }
+
+    // SEC-16: one long-lived task and one broadcast receiver per stream, with
+    // nothing counting them. The slot is released when the stream generator is
+    // dropped, which is what a client disconnecting does.
+    let Some(stream_slot) = state.claim_stream_slot() else {
+        tracing::warn!(
+            target: "tmuxy_server::sse",
+            %session,
+            limit = state.max_live_streams(),
+            "refused an /events stream: already serving the maximum"
+        );
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many open event streams\n",
+        )
+            .into_response();
     };
 
     // Browser passes the id of the last event it received via the standard
@@ -423,6 +500,9 @@ pub async fn sse_handler(
         // When this generator is dropped (client disconnect), _drop_guard is dropped,
         // which drops drop_tx, signaling the cleanup task.
         let _drop_guard = drop_tx;
+        // Same lifetime, same reason: the slot this stream occupies in the
+        // server's budget is given back when the generator goes.
+        let _stream_slot = stream_slot;
 
         // Send connection info as first event
         let default_shell = std::env::var("SHELL")
@@ -443,7 +523,7 @@ pub async fn sse_handler(
         // (monitor already running, config already sourced), this is the only
         // chance to receive them. The monitor also broadcasts updated keybindings
         // via on_initial_sync_complete() after sourcing config for the first time.
-        let keybindings = KeyBindings::current();
+        let keybindings = KeyBindings::current_offthread().await;
         let kb_event = SseEvent::KeyBindings(keybindings);
         if let Some(s) = encode_event(&kb_event) {
             yield Ok(Event::default().event("keybindings").data(s));
@@ -554,7 +634,7 @@ pub async fn commands_handler(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let session = match query.session() {
+    let session = match query.session(&state) {
         Ok(session) => session,
         Err(rejection) => return rejection.into_response(),
     };
@@ -747,6 +827,16 @@ async fn handle_command(
             // particular sometimes races a pending layout change and returns
             // transient io::Error; the retry layer absorbs those.
             let policy = tmuxy_core::RetryPolicy::standard();
+
+            // The pane id is the client's. On a pinned server it is resolved
+            // against that session's own panes first, so `%N` or `other:0.0`
+            // cannot dump a pane the viewer was never shown.
+            if let Some(pinned) = state.session_pin.as_deref() {
+                if !session_owns_pane(state, pinned, &pane_id).await {
+                    return Err(format!("pane {pane_id} is not in session {pinned}"));
+                }
+            }
+
             let width_output = state
                 .tmux_call_with_policy(
                     vec![
@@ -843,9 +933,13 @@ async fn handle_command(
             // The pane cwds come from tmux, not the request (see the variant),
             // and git runs off the async runtime like the other subprocess reads.
             use tmuxy_core::worktrees::{
-                list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD,
+                list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing,
             };
-            let listing = query_via_control_mode(state, session, LIST_PANE_PATHS_CMD)
+            // A pinned server reports only its own session's repositories —
+            // otherwise a viewer learns the repo path and branch of every pane
+            // on the tmux server, including the writer's.
+            let cmd = list_pane_paths_cmd(state.session_pin.as_deref());
+            let listing = query_via_control_mode(state, session, &cmd)
                 .await?
                 .into_result()?;
             let repositories = tokio::task::spawn_blocking(move || {
@@ -886,7 +980,7 @@ async fn handle_command(
 
 /// Re-fetch keybindings from tmux and broadcast to all SSE clients for a session.
 async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
-    let keybindings = KeyBindings::current();
+    let keybindings = KeyBindings::current_offthread().await;
     let kb_event = SseEvent::KeyBindings(keybindings);
     let Some(msg) = encode_event(&kb_event) else {
         return;
@@ -1076,8 +1170,14 @@ async fn set_client_size(
             if session_conns.last_resize == Some(min) {
                 return;
             }
-            session_conns.last_resize = Some(min);
             trace!(?sizes, "all client sizes");
+            // `last_resize` is NOT written here. It is the record of a size
+            // that reached tmux, and it is only known below whether one did:
+            // a monitor that has not registered its command channel yet means
+            // the resize is dropped, and marking it applied made every later
+            // attempt short-circuit on the check above — the client's size
+            // lost for the life of the session, with the window left at the
+            // control-mode PTY's 200x50 while the client drew 41 columns.
             (Some(min), session_conns.monitor_command_tx.clone())
         } else {
             (None, None)
@@ -1086,22 +1186,38 @@ async fn set_client_size(
 
     if let Some((min_cols, min_rows)) = min_size {
         debug!(min_cols, min_rows, "resizing to min");
-        if let Some(tx) = command_tx {
-            match tx
-                .send(MonitorCommand::ResizeWindow {
-                    cols: min_cols,
-                    rows: min_rows,
-                })
-                .await
-            {
-                Ok(_) => trace!("resize command sent via monitor"),
-                Err(e) => {
-                    warn!(error = %e, "monitor channel error, falling back to executor");
-                    let _ = executor::resize_window(session, min_cols, min_rows);
+        let delivered = match command_tx {
+            Some(tx) => {
+                match tx
+                    .send(MonitorCommand::ResizeWindow {
+                        cols: min_cols,
+                        rows: min_rows,
+                    })
+                    .await
+                {
+                    Ok(_) => {
+                        trace!("resize command sent via monitor");
+                        true
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "monitor channel error, falling back to executor");
+                        executor::resize_window(session, min_cols, min_rows).is_ok()
+                    }
                 }
             }
-        } else {
-            debug!("no monitor channel yet, skipping resize");
+            None => {
+                // The monitor is still connecting. Leaving `last_resize` unset
+                // is the whole point: the next client size — or the same one
+                // again — has to be able to try, or this size never arrives.
+                debug!("no monitor channel yet, leaving the size to be asked again");
+                false
+            }
+        };
+        if delivered {
+            let mut sessions = state.sessions.write().await;
+            if let Some(session_conns) = sessions.get_mut(session) {
+                session_conns.last_resize = Some((min_cols, min_rows));
+            }
         }
     }
 }
@@ -1236,6 +1352,75 @@ async fn session_exists(session: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// The monitor settings this server watches `session` with.
+///
+/// `create_session` is the SEC-11 line: a read-only server never brings a
+/// session into being, so a viewer inventing `?session=` names cannot spawn a
+/// live shell per name. `observer` keeps it from resizing what it watches.
+fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
+    MonitorConfig {
+        session: session.to_string(),
+        sync_interval: Duration::from_millis(500),
+        create_session: !state.read_only,
+        group_target: None,
+        throttle_interval: Duration::from_millis(32),
+        throttle_threshold: 20,
+        rate_window: Duration::from_millis(100),
+        working_dir: Some(crate::state::find_workspace_root()),
+        observer: state.read_only,
+    }
+}
+
+/// Whether `pane_id` names a pane of `session`.
+///
+/// Resolved from tmux's own listing rather than by parsing the id, because a
+/// client may send either form (`%7` or `session:0.0`) and only tmux knows
+/// which pane each resolves to.
+async fn session_owns_pane(state: &AppState, session: &str, pane_id: &str) -> bool {
+    // Canonicalise first: the client may send `%7` or `session:0.0`, and only
+    // tmux knows which pane the second form resolves to.
+    let resolved = state
+        .tmux_call_with_policy(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.into(),
+                "-p".into(),
+                "#{pane_id}".into(),
+            ],
+            "scrollback:pane_resolve",
+            tmuxy_core::RetryPolicy::standard(),
+        )
+        .await;
+    let Ok(resolved) = resolved else {
+        return false;
+    };
+    let resolved = resolved.trim().to_string();
+    if resolved.is_empty() {
+        return false;
+    }
+
+    let listing = state
+        .tmux_call_with_policy(
+            vec![
+                "list-panes".into(),
+                "-s".into(),
+                "-t".into(),
+                session.into(),
+                "-F".into(),
+                "#{pane_id}".into(),
+            ],
+            "scrollback:pane_allowlist",
+            tmuxy_core::RetryPolicy::standard(),
+        )
+        .await;
+    match listing {
+        Ok(listing) => listing.lines().any(|line| line.trim() == resolved),
+        // tmux could not answer: refuse rather than fall open.
+        Err(_) => false,
+    }
+}
+
 pub async fn start_monitoring(
     broadcast: Arc<crate::state::SessionBroadcast>,
     session: String,
@@ -1244,17 +1429,7 @@ pub async fn start_monitoring(
     let emitter = Arc::new(SseEmitter::new(broadcast.clone(), Arc::clone(&state)));
     let log_sink: Arc<dyn LogSink> = emitter.clone();
 
-    let config = MonitorConfig {
-        session: session.clone(),
-        sync_interval: Duration::from_millis(500),
-        create_session: true,
-        group_target: None,
-        throttle_interval: Duration::from_millis(32),
-        throttle_threshold: 20,
-        rate_window: Duration::from_millis(100),
-        working_dir: Some(crate::state::find_workspace_root()),
-        observer: state.read_only,
-    };
+    let config = monitor_config(&session, &state);
 
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
@@ -1305,9 +1480,11 @@ pub async fn start_monitoring(
             let exists = session_exists(&session).await;
 
             if !exists {
-                if ever_ran_successfully {
-                    // Session was intentionally destroyed (e.g., kill-session from test cleanup)
-                    info!(%session, "tmux session no longer exists (was running), stopping monitor loop");
+                if ever_ran_successfully || state.read_only {
+                    // Session was intentionally destroyed (e.g., kill-session
+                    // from test cleanup), or this is a viewer's server, which
+                    // never brings a session back — it watches or it stops.
+                    info!(%session, "tmux session no longer exists, stopping monitor loop");
                     break;
                 }
                 // Session died before ever running — recreate it
@@ -1549,6 +1726,167 @@ mod tests {
         let _ = handle_command(cmd, "s", state, Some(1)).await;
     }
 
+    fn query(name: Option<&str>) -> SessionQuery {
+        SessionQuery {
+            session: name.map(str::to_string),
+        }
+    }
+
+    fn rejection_status(state: &AppState, name: Option<&str>) -> StatusCode {
+        match query(name).session(state) {
+            Ok(_) => StatusCode::OK,
+            Err(rejection) => rejection.into_response().status(),
+        }
+    }
+
+    /// SEC-12: the documented viewer setup is a `--read-only` server beside a
+    /// writer **on the same socket**, so a name the viewer picks used to hand
+    /// it any other session's screen.
+    #[test]
+    fn a_pinned_server_serves_its_own_session_and_no_other() {
+        let state = AppState::new()
+            .with_read_only(true)
+            .with_session_pin(Some("shared".into()));
+        assert_eq!(
+            query(Some("shared")).session(&state).unwrap(),
+            "shared".to_string()
+        );
+        assert_eq!(
+            rejection_status(&state, Some("felipes-private-work")),
+            StatusCode::NOT_FOUND
+        );
+        // A request naming nothing asks for the default name, which is not the
+        // pinned one here — it gets the same refusal, not a silent redirect.
+        assert_eq!(rejection_status(&state, None), StatusCode::NOT_FOUND);
+    }
+
+    /// A writable server's client can run `new-session` itself, so pinning it
+    /// would only break switching sessions.
+    #[test]
+    fn a_writable_server_serves_every_session_name() {
+        let state = AppState::new();
+        assert_eq!(
+            query(Some("anything")).session(&state).unwrap(),
+            "anything".to_string()
+        );
+        assert_eq!(
+            query(None).session(&state).unwrap(),
+            tmuxy_core::DEFAULT_SESSION_NAME.to_string()
+        );
+    }
+
+    /// A name that would end the control-mode command line is refused before
+    /// the pin is consulted — it is malformed, not merely someone else's.
+    #[test]
+    fn an_unwritable_session_name_is_still_a_400() {
+        let state = AppState::new();
+        assert_eq!(rejection_status(&state, Some("")), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            rejection_status(&state, Some("a\nkill-server")),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    /// SEC-11: `create_session` was hard-coded true, so every distinct
+    /// `?session=` a viewer invented became a live shell that outlived them.
+    #[test]
+    fn a_read_only_server_never_creates_the_session_it_watches() {
+        let viewer = AppState::new().with_read_only(true);
+        let config = monitor_config("invented-by-a-viewer", &viewer);
+        assert!(!config.create_session);
+        assert!(config.observer);
+
+        let writer = monitor_config("tmuxy", &AppState::new());
+        assert!(writer.create_session);
+        assert!(!writer.observer);
+    }
+
+    /// SEC-13. tmux paste buffers are global to the tmux SERVER, so a yank or
+    /// a `load-buffer secret.txt` in ANY session fires `%paste-buffer-changed`
+    /// and used to reach every connected client — a `--read-only` viewer
+    /// included, which then wrote the writer's text to its own system
+    /// clipboard. Text the viewer was never shown.
+    #[tokio::test]
+    async fn a_viewer_is_never_handed_the_writers_clipboard() {
+        let broadcast = Arc::new(crate::state::SessionBroadcast::new());
+        let mut rx = broadcast.subscribe();
+        let viewer = Arc::new(AppState::new().with_read_only(true));
+        let emitter = SseEmitter::new(broadcast.clone(), viewer);
+
+        emitter.write_clipboard("", "a secret someone yanked elsewhere".into());
+
+        assert!(rx.try_recv().is_err(), "nothing should have been broadcast");
+    }
+
+    #[tokio::test]
+    async fn a_writable_server_still_forwards_a_clipboard_write() {
+        let broadcast = Arc::new(crate::state::SessionBroadcast::new());
+        let mut rx = broadcast.subscribe();
+        let emitter = SseEmitter::new(broadcast.clone(), Arc::new(AppState::new()));
+
+        emitter.write_clipboard("%0", "yanked".into());
+
+        let (_, message) = rx.try_recv().unwrap();
+        assert!(message.contains("yanked"));
+    }
+
+    /// SEC-01/SEC-13. The paste-buffer mirror arrives with no pane, so the
+    /// aggregator's active-pane gate never sees it — the size cap is the one
+    /// bound that path has.
+    #[tokio::test]
+    async fn a_clipboard_write_over_the_cap_is_not_broadcast() {
+        let broadcast = Arc::new(crate::state::SessionBroadcast::new());
+        let mut rx = broadcast.subscribe();
+        let emitter = SseEmitter::new(broadcast.clone(), Arc::new(AppState::new()));
+
+        emitter.write_clipboard(
+            "",
+            "x".repeat(tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES + 1),
+        );
+
+        assert!(rx.try_recv().is_err());
+    }
+
+    /// SEC-16. Each `/events` stream is a long-lived task holding a broadcast
+    /// receiver and a place in the sessions map, and every one of them also ran
+    /// three external `tmux` processes on a worker thread. Nothing counted
+    /// them, so a connection flood grew all of it without bound.
+    #[test]
+    fn open_streams_are_capped_and_the_slot_comes_back() {
+        let state = Arc::new(AppState::new());
+        let limit = state.max_live_streams();
+
+        let slots: Vec<_> = (0..limit)
+            .map(|i| {
+                state
+                    .claim_stream_slot()
+                    .unwrap_or_else(|| panic!("slot {i} of {limit} should be free"))
+            })
+            .collect();
+        assert!(
+            state.claim_stream_slot().is_none(),
+            "the {}th stream should be refused",
+            limit + 1
+        );
+
+        // A client disconnecting drops its generator, which drops the slot.
+        drop(slots);
+        assert!(state.claim_stream_slot().is_some());
+    }
+
+    /// A viewer's server is the one whose address gets handed around, so it
+    /// keeps a tighter budget than the one its owner writes through.
+    #[test]
+    fn a_read_only_server_serves_fewer_streams_than_a_writable_one() {
+        let viewer = Arc::new(AppState::new().with_read_only(true));
+        let writer = Arc::new(AppState::new());
+        assert!(viewer.max_live_streams() < writer.max_live_streams());
+        assert!(
+            viewer.max_live_streams() >= 2,
+            "a viewer still gets to reconnect"
+        );
+    }
+
     #[tokio::test]
     async fn a_writable_server_sizes_the_session_to_the_client_asking_for_state() {
         let state = Arc::new(AppState::new());
@@ -1557,6 +1895,53 @@ mod tests {
         let sizes = state.sessions.read().await["s"].client_sizes.clone();
         assert_eq!(sizes.get(&1), Some(&(40, 12)));
         assert_eq!(*resizes.lock().await, vec![(40, 12)]);
+    }
+
+    /// The 12-touch bug. `last_resize` is the record of a size that REACHED
+    /// tmux, and it was written before anything was sent — so a monitor that
+    /// had not registered its command channel yet meant the resize was dropped
+    /// while the size was remembered as applied. Every later attempt then
+    /// short-circuited on "same size as last time", and the client's viewport
+    /// was lost for the life of the session: the window stayed at the
+    /// control-mode PTY's 200x50 while a phone-width client drew 41 columns.
+    ///
+    /// Timing-dependent, which is why it failed on a CI runner and not on a
+    /// developer's machine.
+    #[tokio::test]
+    async fn a_size_that_reached_no_monitor_is_asked_for_again() {
+        let state = Arc::new(AppState::new());
+        // A session whose monitor has not registered its channel yet.
+        let mut conns = SessionConnections::new();
+        conns.connections.push(1);
+        conns.monitor_command_tx = None;
+        state.sessions.write().await.insert("s".to_string(), conns);
+
+        set_client_size(&state, "s", Some(1), 41, 29).await;
+        assert_eq!(
+            state.sessions.read().await["s"].last_resize,
+            None,
+            "a size nothing received must not be recorded as applied"
+        );
+
+        // The monitor comes up, and the same size is offered again — which the
+        // old code refused to forward, because it believed it already had.
+        let resizes = session_with_fake_monitor(&state, "s").await;
+        set_client_size(&state, "s", Some(1), 41, 29).await;
+        // `send` returns once the value is in the channel; the fake monitor
+        // reads it in its own task, so wait for it to be seen rather than
+        // assuming the scheduler got there.
+        for _ in 0..200 {
+            if !resizes.lock().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert_eq!(*resizes.lock().await, vec![(41, 29)]);
+        assert_eq!(
+            state.sessions.read().await["s"].last_resize,
+            Some((41, 29)),
+            "a delivered size IS recorded, so it is not re-sent on every tick"
+        );
     }
 
     #[tokio::test]

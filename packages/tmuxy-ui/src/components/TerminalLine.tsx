@@ -18,7 +18,7 @@ import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls } from '../utils/urlDetect';
-import { openExternalUrl } from '../utils/openUrl';
+import { openExternalUrl, safeHref } from '../utils/openUrl';
 
 /**
  * Compute a numeric key for grouping cells by style.
@@ -240,7 +240,7 @@ export const TerminalLine = memo(
           spans.push(
             <a
               key={spans.length}
-              href={linkUrl}
+              href={safeHref(linkUrl)}
               target="_blank"
               rel="noopener noreferrer"
               draggable={false}

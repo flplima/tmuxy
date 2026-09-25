@@ -55,6 +55,13 @@ pub struct ServerArgs {
     #[arg(long)]
     pub read_only: bool,
 
+    /// The session a `--read-only` server shows, and the only one it will
+    /// show — a viewer naming another gets a 404 rather than that session's
+    /// screen. Defaults to `tmuxy`. Ignored without `--read-only`, where
+    /// switching sessions is the feature. Also read from TMUXY_SESSION.
+    #[arg(long, value_name = "NAME")]
+    pub session: Option<String>,
+
     /// Run in development mode (proxy to Vite dev server)
     #[arg(long)]
     pub dev: bool,
@@ -87,7 +94,10 @@ fn env_flag(name: &str) -> bool {
 fn with_optional_auth(app: axum::Router, password: Option<String>) -> axum::Router {
     match password {
         Some(pw) => app.layer(axum::middleware::from_fn_with_state(
-            std::sync::Arc::new(pw),
+            std::sync::Arc::new(crate::auth::AuthState {
+                password: pw,
+                throttle: crate::auth::AuthThrottle::new(),
+            }),
             crate::auth::require_basic_auth,
         )),
         None => app,
@@ -135,13 +145,41 @@ fn resolve_listen(
              Set TMUXY_PASSWORD (or --password), listen on --host 127.0.0.1, or pass --no-auth on a network you trust."
         ));
     }
+    // SEC-10/SEC-15: a routable bind keeps the allowed list and still checks
+    // `Host` against it. It used to be discarded here, so `--allowed-host` (and
+    // `TMUXY_ALLOWED_HOSTS`, which the public demo builds it from) silently did
+    // nothing, and a routable `--no-auth` bind was one DNS rebind from a shell.
+    // `bound` is None for a wildcard, where the server cannot know its address.
+    let bound = (!ip.is_unspecified()).then_some(ip);
     Ok(Listen {
         ip,
-        policy: HostPolicy::Any,
+        policy: HostPolicy::Bound {
+            bound,
+            allowed: allowed_hosts,
+        },
     })
 }
 
 /// `--allowed-host` values plus the comma-separated `TMUXY_ALLOWED_HOSTS`.
+/// The session a server is pinned to, if any.
+///
+/// Only a `--read-only` server is pinned: it is the one whose client cannot
+/// already run `new-session` for itself, and the one that may share a socket
+/// with a writer whose other sessions are none of a viewer's business. A
+/// writable server stays unpinned so session switching keeps working.
+fn resolve_session_pin(flag: Option<String>, read_only: bool) -> Option<String> {
+    if !read_only {
+        return None;
+    }
+    let name = flag
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        // The same resolution the rest of tmuxy uses: `TMUXY_SESSION`, else
+        // the default name.
+        .unwrap_or_else(tmuxy_core::session::session_name);
+    Some(name)
+}
+
 fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
     let env = std::env::var("TMUXY_ALLOWED_HOSTS").unwrap_or_default();
     flag.into_iter()
@@ -173,7 +211,7 @@ fn announce_security(listen: &Listen, password_set: bool) {
         println!(
             "tmuxy server: HTTP Basic auth enabled (any username; use the configured password)"
         );
-    } else if listen.policy == HostPolicy::Any {
+    } else if matches!(listen.policy, HostPolicy::Bound { .. }) {
         eprintln!(
             "warning: --no-auth on {} — anyone who can reach this port has full shell access.",
             listen.ip
@@ -231,10 +269,11 @@ pub async fn run(args: ServerArgs) {
             require_tmux();
             announce_trace(args.trace.clone(), dev_mode);
             let read_only = args.read_only || env_flag("TMUXY_READ_ONLY");
+            let session_pin = resolve_session_pin(args.session.clone(), read_only);
             if dev_mode {
-                start_dev_server(args.port, listen, password, read_only).await
+                start_dev_server(args.port, listen, password, read_only, session_pin).await
             } else {
-                start_server(args.port, listen, password, read_only).await
+                start_server(args.port, listen, password, read_only, session_pin).await
             }
         }
         Some(ServerAction::Stop) => stop_server(args.port),
@@ -263,6 +302,7 @@ async fn start_dev_server(
     listen: Listen,
     password: Option<String>,
     read_only: bool,
+    session_pin: Option<String>,
 ) {
     // Honor PORT env (legacy) when present, otherwise fall back to the CLI arg.
     let port = std::env::var("PORT")
@@ -302,7 +342,11 @@ async fn start_dev_server(
     // direct "Add Pane to Group" menu commands resolve at the absolute
     // `$HOME/.config/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
     tmuxy_core::session::ensure_bin_scripts();
-    let state = Arc::new(AppState::new().with_read_only(read_only));
+    let state = Arc::new(
+        AppState::new()
+            .with_read_only(read_only)
+            .with_session_pin(session_pin.clone()),
+    );
 
     println!(
         "[dev] Starting Vite dev server on port {}...",
@@ -350,22 +394,38 @@ async fn start_dev_server(
 
     let listener = bind_with_retry(addr, 5).await;
 
-    if let Err(e) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(state, vec![vite_child, demo_child]))
-        .await
+    // `into_make_service_with_connect_info` rather than the plain router: the
+    // auth layer reads the peer address to rate-limit failed passwords per
+    // source, and `ConnectInfo` is only populated by this make-service.
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(state, vec![vite_child, demo_child]))
+    .await
     {
         error!(error = %e, "axum serve loop exited with error");
     }
 }
 
 /// Start the production server with embedded frontend assets
-async fn start_server(port: u16, listen: Listen, password: Option<String>, read_only: bool) {
+async fn start_server(
+    port: u16,
+    listen: Listen,
+    password: Option<String>,
+    read_only: bool,
+    session_pin: Option<String>,
+) {
     write_pid_file(port);
     tmuxy_core::session::ensure_config();
     tmuxy_core::session::ensure_themes();
     tmuxy_core::session::ensure_bin_scripts();
 
-    let state = Arc::new(AppState::new().with_read_only(read_only));
+    let state = Arc::new(
+        AppState::new()
+            .with_read_only(read_only)
+            .with_session_pin(session_pin.clone()),
+    );
 
     let app = crate::state::api_routes(listen.policy.clone())
         .fallback(serve_embedded)
@@ -379,13 +439,22 @@ async fn start_server(port: u16, listen: Listen, password: Option<String>, read_
     announce_security(&listen, password_set);
     if read_only {
         println!("tmuxy server: read-only — clients can watch the session, not change it");
+        if let Some(session) = &session_pin {
+            println!("tmuxy server: pinned to session {session} — no other one is served");
+        }
     }
 
     let listener = bind_with_retry(addr, 5).await;
 
-    if let Err(e) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(state, vec![]))
-        .await
+    // `into_make_service_with_connect_info` rather than the plain router: the
+    // auth layer reads the peer address to rate-limit failed passwords per
+    // source, and `ConnectInfo` is only populated by this make-service.
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(state, vec![]))
+    .await
     {
         error!(error = %e, "axum serve loop exited with error");
     }
@@ -764,17 +833,44 @@ mod tests {
     #[test]
     fn a_routable_address_needs_a_password_or_no_auth() {
         assert!(resolve_listen("0.0.0.0", false, false, vec![]).is_err());
+        // A wildcard bind knows no address of its own, so there is nothing to
+        // compare a `Host` against beyond an allowed list.
         assert_eq!(
             resolve_listen("0.0.0.0", true, false, vec![])
                 .unwrap()
                 .policy,
-            HostPolicy::Any
+            HostPolicy::Bound {
+                bound: None,
+                allowed: vec![]
+            }
         );
         assert_eq!(
             resolve_listen("192.168.1.20", false, true, vec![])
                 .unwrap()
                 .policy,
-            HostPolicy::Any
+            HostPolicy::Bound {
+                bound: Some("192.168.1.20".parse().unwrap()),
+                allowed: vec![]
+            }
+        );
+    }
+
+    /// SEC-15: the allowed list was kept only on a loopback bind, so
+    /// `--allowed-host` (and `TMUXY_ALLOWED_HOSTS`, which the public demo
+    /// builds it from) silently did nothing on the routable bind that actually
+    /// needed it — while `deploy/public-demo/README.md` said every other call
+    /// would answer 403.
+    #[test]
+    fn a_routable_bind_keeps_the_allowed_hosts_it_was_given() {
+        let policy = resolve_listen("0.0.0.0", true, false, vec!["demo.example".into()])
+            .unwrap()
+            .policy;
+        assert_eq!(
+            policy,
+            HostPolicy::Bound {
+                bound: None,
+                allowed: vec!["demo.example".to_string()]
+            }
         );
     }
 
@@ -782,6 +878,31 @@ mod tests {
     fn a_host_that_is_not_an_address_is_an_error_rather_than_every_interface() {
         assert!(resolve_listen("::1:9000", false, false, vec![]).is_err());
         assert!(resolve_listen("my-laptop", true, false, vec![]).is_err());
+    }
+
+    /// SEC-11/12: a viewer's server shows the session it was started for and
+    /// refuses the rest. A writable one stays unpinned — its client can run
+    /// `new-session` itself, and switching sessions is the feature.
+    #[test]
+    fn only_a_read_only_server_is_pinned_to_one_session() {
+        assert_eq!(
+            resolve_session_pin(Some("shared".into()), true),
+            Some("shared".to_string())
+        );
+        assert_eq!(
+            resolve_session_pin(None, true),
+            Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string())
+        );
+        assert_eq!(resolve_session_pin(Some("shared".into()), false), None);
+        assert_eq!(resolve_session_pin(None, false), None);
+    }
+
+    #[test]
+    fn a_blank_session_flag_falls_back_to_the_default_name() {
+        assert_eq!(
+            resolve_session_pin(Some("   ".into()), true),
+            Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string())
+        );
     }
 
     #[test]
@@ -825,6 +946,17 @@ mod tests {
                 axum::http::HeaderValue::from_str(value).unwrap(),
             );
         }
+        // The auth layer rate-limits per peer address, so it extracts
+        // `ConnectInfo` — which the server populates via
+        // `into_make_service_with_connect_info` and a bare `oneshot` does not.
+        // Without it every probe would 500 on a missing extension rather than
+        // exercise the gate.
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                55555,
+            ))));
         request
     }
 

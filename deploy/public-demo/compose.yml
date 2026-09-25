@@ -58,9 +58,18 @@ services:
 
     # The session is scripted and stateless: if it wedges, the honest fix is a
     # fresh container, which is also what clears anything a visitor managed to
-    # leave behind.
+    # leave behind. So the probe has to reach the RUNNING server: `--help`
+    # exits 0 out of a fresh process no matter how wedged the listener is, and
+    # `restart: unless-stopped` never fired. The image carries no curl or wget
+    # on purpose, so this is bash's own /dev/tcp.
     healthcheck:
-      test: ['CMD', 'tmuxy-server', '--help']
+      test:
+        [
+          'CMD',
+          'bash',
+          '-c',
+          'exec 3<>/dev/tcp/127.0.0.1/9000 && printf "GET / HTTP/1.0\r\n\r\n" >&3 && head -n 1 <&3 | grep -q "^HTTP/1.. [23]"',
+        ]
       interval: 30s
       timeout: 5s
       retries: 3

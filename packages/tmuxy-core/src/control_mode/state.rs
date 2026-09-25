@@ -7,7 +7,7 @@ use crate::{
     extract_cells_from_screen, extract_cells_with_urls, PaneContent, TmuxPane, TmuxState,
     TmuxWindow, WindowType,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::warn;
 
 // The settling debounce uses a monotonic clock. `std::time::Instant::now()`
@@ -259,6 +259,9 @@ pub struct PaneState {
 
     /// Stored images keyed by image ID (for HTTP retrieval)
     pub image_store: HashMap<u32, super::images::StoredImage>,
+    /// Insertion order for `image_store`, so the cap evicts the oldest picture
+    /// rather than an arbitrary one.
+    image_store_order: std::collections::VecDeque<u32>,
 
     /// Position in window (from layout)
     pub x: u32,
@@ -369,6 +372,7 @@ impl PaneState {
             scroll_baseline_alt: false,
             image_parser: super::images::ImageParser::new(),
             image_store: HashMap::new(),
+            image_store_order: std::collections::VecDeque::new(),
             x: 0,
             y: 0,
             width,
@@ -527,6 +531,28 @@ impl PaneState {
         let image_result = self.image_parser.process(content);
         for (id, stored) in image_result.new_images {
             self.image_store.insert(id, stored);
+            self.image_store_order.push_back(id);
+        }
+        // SEC-22: nothing evicted while the pane lived, so a loop printing
+        // images grew the process without bound — the server's own store is
+        // trimmed only for DEAD panes. The images a pane can actually be
+        // showing are bounded by its screen; this is far above that and
+        // bounded, which is the point.
+        while self.image_store.len() > MAX_STORED_IMAGES_PER_PANE {
+            match self.image_store_order.pop_front() {
+                Some(oldest) => {
+                    self.image_store.remove(&oldest);
+                }
+                // The order log and the store disagree (an id was removed
+                // elsewhere): drop the store's own oldest rather than spin.
+                None => {
+                    if let Some(&any) = self.image_store.keys().next() {
+                        self.image_store.remove(&any);
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
 
         // Process remaining bytes through OSC parser to extract hyperlinks/clipboard
@@ -1239,6 +1265,42 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
     }
 }
 
+/// The largest OSC 52 clipboard write a pane may make, decoded.
+///
+/// A pane's output is not trusted: `cat` of a crafted file is enough to reach
+/// this path, so the write is bounded rather than being whatever the file was.
+/// 64 KiB is comfortably above a real yank and below xterm's own ~100 KB.
+pub const MAX_CLIPBOARD_BYTES: usize = 64 * 1024;
+
+/// The most decoded images one pane keeps.
+///
+/// A pane can only SHOW as many pictures as its grid has room for; this is
+/// well above that so scrolling back over recent output still finds them, and
+/// bounded so a program printing images in a loop cannot grow the process for
+/// the life of the pane.
+pub const MAX_STORED_IMAGES_PER_PANE: usize = 256;
+
+/// Whether an OSC 52 write from `pane_id` is honoured, and with what text.
+///
+/// Two bounds, both because the sequence comes from pane output rather than
+/// from the user:
+/// - **Only the active pane.** A background pane — a tailed log, a stray ssh
+///   session — cannot silently replace what the user is about to paste.
+/// - **A size cap.** See `MAX_CLIPBOARD_BYTES`.
+pub fn accepted_clipboard_write(
+    pane_id: &str,
+    active_pane_id: Option<&str>,
+    text: String,
+) -> Option<String> {
+    if active_pane_id != Some(pane_id) {
+        return None;
+    }
+    if text.len() > MAX_CLIPBOARD_BYTES {
+        return None;
+    }
+    Some(text)
+}
+
 pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
 /// Marker printed immediately AFTER a self-issued capture-pane command.
 pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
@@ -1836,6 +1898,14 @@ impl StateAggregator {
         }]
     }
 
+    /// The pane a keystroke would reach: the active pane of the active window.
+    fn active_pane_id(&self) -> Option<String> {
+        self.active_window_id
+            .as_ref()
+            .and_then(|id| self.windows.get(id))
+            .and_then(|w| w.active_pane_id.clone())
+    }
+
     /// Shared body of the `%output` / `%extended-output` arms.
     fn output_result(&mut self, pane_id: String, content: &[u8]) -> ProcessEventResult {
         let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, content);
@@ -1844,7 +1914,9 @@ impl StateAggregator {
         } else {
             vec![(pane_id.clone(), new_imgs)]
         };
+        let active = self.active_pane_id();
         let clipboard_writes = clipboard
+            .and_then(|text| accepted_clipboard_write(&pane_id, active.as_deref(), text))
             .map(|text| vec![(pane_id.clone(), text)])
             .unwrap_or_default();
         ProcessEventResult {
@@ -2305,7 +2377,9 @@ impl StateAggregator {
             }
             // Only process if pane has a valid window_id (was seen in list-panes)
             if !pane.window_id.is_empty() {
-                let store_before: Vec<u32> = pane.image_store.keys().copied().collect();
+                // A set, not a Vec: `contains` on the Vec made every chunk of
+                // output O(images²) in a pane that had accumulated them.
+                let store_before: HashSet<u32> = pane.image_store.keys().copied().collect();
                 pane.process_output(content);
                 // Collect newly added images
                 let new_imgs: Vec<(u32, super::images::StoredImage)> = pane
@@ -3429,6 +3503,16 @@ mod tests {
         agg.panes.insert(pane_id.to_string(), pane);
     }
 
+    /// Seed a pane and make it the one a keystroke would reach — what the
+    /// clipboard gate asks about.
+    fn seed_active_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
+        seed_pane(agg, pane_id, window_id);
+        let mut window = WindowState::new(window_id);
+        window.active_pane_id = Some(pane_id.to_string());
+        agg.windows.insert(window_id.to_string(), window);
+        agg.active_window_id = Some(window_id.to_string());
+    }
+
     /// A version-pinned launcher must not name the pane after its version.
     ///
     /// `#{pane_current_command}` is the resolved executable's file name, so
@@ -3767,7 +3851,7 @@ mod tests {
         // OSC 52 base64-encoded "hello world" payload — what an app like
         // `printf '\e]52;c;%s\e\\' "$(printf hello\ world | base64)'` sends.
         let mut agg = StateAggregator::new();
-        seed_pane(&mut agg, "%0", "@0");
+        seed_active_pane(&mut agg, "%0", "@0");
 
         let event = ControlModeEvent::Output {
             pane_id: "%0".to_string(),
@@ -3796,6 +3880,83 @@ mod tests {
 
         let result = agg.process_event(event);
         assert!(result.clipboard_writes.is_empty());
+    }
+
+    /// SEC-22. Nothing evicted from a pane's image store while the pane lived
+    /// — the server's own store is trimmed only for DEAD panes — so a program
+    /// printing pictures in a loop grew the process for the life of the pane,
+    /// on nothing but pane output.
+    #[test]
+    fn a_pane_stops_hoarding_pictures_at_the_cap() {
+        let mut pane = PaneState::new("%0", 80, 24);
+        for id in 0..(MAX_STORED_IMAGES_PER_PANE as u32 * 2) {
+            pane.image_store.insert(
+                id,
+                crate::control_mode::StoredImage {
+                    data: vec![0u8; 8],
+                    mime_type: "image/png".to_string(),
+                },
+            );
+            pane.image_store_order.push_back(id);
+        }
+        // The eviction runs on output, which is the only way images arrive.
+        pane.process_output(b"");
+        assert!(
+            pane.image_store.len() <= MAX_STORED_IMAGES_PER_PANE,
+            "holding {} images, over the {MAX_STORED_IMAGES_PER_PANE} cap",
+            pane.image_store.len()
+        );
+        // The oldest go first, so scrolling back over RECENT output still finds
+        // its pictures.
+        assert!(pane
+            .image_store
+            .contains_key(&(MAX_STORED_IMAGES_PER_PANE as u32 * 2 - 1)));
+        assert!(!pane.image_store.contains_key(&0));
+    }
+
+    /// SEC-01. OSC 52 arrives in pane OUTPUT, so `cat` of a crafted file is
+    /// enough to reach it — a background pane (a tailed log, a stray ssh
+    /// session) could silently replace what the user was about to paste.
+    #[test]
+    fn osc52_from_a_pane_the_user_is_not_in_is_dropped() {
+        let mut agg = StateAggregator::new();
+        seed_active_pane(&mut agg, "%0", "@0");
+        seed_pane(&mut agg, "%1", "@0");
+
+        let result = agg.process_event(ControlModeEvent::Output {
+            pane_id: "%1".to_string(),
+            content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
+        });
+
+        assert!(
+            result.clipboard_writes.is_empty(),
+            "a background pane must not reach the system clipboard"
+        );
+    }
+
+    /// SEC-01. The payload is whatever the file held, so it is bounded.
+    #[test]
+    fn an_osc52_write_over_the_cap_is_dropped() {
+        let under = accepted_clipboard_write("%0", Some("%0"), "x".repeat(MAX_CLIPBOARD_BYTES));
+        assert_eq!(under.map(|t| t.len()), Some(MAX_CLIPBOARD_BYTES));
+
+        let over = accepted_clipboard_write("%0", Some("%0"), "x".repeat(MAX_CLIPBOARD_BYTES + 1));
+        assert_eq!(over, None);
+    }
+
+    #[test]
+    fn a_clipboard_write_needs_an_active_pane_to_match() {
+        assert_eq!(
+            accepted_clipboard_write("%0", Some("%0"), "yank".into()),
+            Some("yank".to_string())
+        );
+        assert_eq!(
+            accepted_clipboard_write("%0", Some("%1"), "yank".into()),
+            None
+        );
+        // Nothing is active yet (a session still coming up): no pane is the
+        // one the user is in, so none may write.
+        assert_eq!(accepted_clipboard_write("%0", None, "yank".into()), None);
     }
 
     /// Build a LIST_PANES_CMD line with the given title and border_title, in the

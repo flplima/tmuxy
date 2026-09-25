@@ -187,22 +187,35 @@ function findExistingTmuxyPage(browser) {
 // ==================== Structural Checks ====================
 
 test('structural snapshot: UI matches tmux state', async () => {
-  // Single attempt with settle delay — no retries.
-  // If the snapshot doesn't match on first check, it's a real bug.
-  await delay(DELAYS.SYNC * 3);
-
   const sessionName = await page.evaluate(() => window.app?.getSnapshot()?.context?.sessionName);
   expect(sessionName).toBeTruthy();
 
-  const [uiState, tmuxState] = await Promise.all([
-    extractUIState(page),
-    Promise.resolve(extractTmuxState(sessionName)),
-  ]);
+  // Wait for the two to AGREE rather than sampling once after a fixed delay.
+  //
+  // The client asks tmux for the grid it measured and redraws when tmux says it
+  // resized, so for a moment after load the UI and tmux legitimately disagree —
+  // `UI=200x49, tmux=139x26` is the control-mode PTY's size on one side and the
+  // client's on the other, mid-handshake. A fixed settle delay makes that a
+  // race the runner's speed decides; the thing being asserted is that they
+  // converge, so that is what is waited for. A real mismatch still fails, just
+  // after the deadline instead of before the handshake finishes.
+  let uiState = null;
+  let tmuxState = null;
+  let result = null;
+  const deadline = Date.now() + 20000;
+  do {
+    [uiState, tmuxState] = await Promise.all([
+      extractUIState(page),
+      Promise.resolve(extractTmuxState(sessionName)),
+    ]);
+    result = uiState && tmuxState ? compareSnapshots(uiState, tmuxState) : null;
+    if (result?.pass) break;
+    await delay(250);
+  } while (Date.now() < deadline);
 
   expect(uiState).not.toBeNull();
   expect(tmuxState).not.toBeNull();
-
-  const result = compareSnapshots(uiState, tmuxState);
+  expect(result).not.toBeNull();
 
   // Report all checks
   for (const check of result.checks) {

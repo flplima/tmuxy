@@ -12,7 +12,7 @@
     "macOSPrivateApi": true,
     "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' tauri: asset: tmuxyfile: tmuxyimg: http://asset.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: tauri: asset: tmuxyfile: tmuxyimg: http://asset.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:; font-src 'self' data:; media-src 'self' data: blob: tauri: asset: tmuxyfile: tmuxyimg: http://asset.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:; frame-src *; connect-src 'self' data: blob: tauri: asset: tmuxyfile: tmuxyimg: http://asset.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:"
     }
   },
   "bundle": {

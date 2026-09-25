@@ -134,10 +134,45 @@ pub fn tmux_argv(pty: bool) -> Vec<String> {
 
 /// Create a `Command` for tmux targeting the resolved socket (and SSH tunnel,
 /// if any). Used for one-off reads/writes — no remote tty (`pty = false`).
+///
+/// **When the arguments come from a client, use [`tmux_command_with`]** —
+/// appending them to this yourself is safe locally and is not over ssh.
 pub fn tmux_command() -> Command {
     let argv = tmux_argv(false);
     let mut cmd = Command::new(&argv[0]);
     cmd.args(&argv[1..]);
+    cmd
+}
+
+/// Shell-quote a value for a remote command line.
+fn ssh_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// A tmux `Command` carrying `args`, safe on both transports.
+///
+/// SEC-17: locally, argv elements are passed to `execvp` and a value with a
+/// space or a `;` in it is simply that value. Over ssh they are not: ssh JOINS
+/// its trailing arguments with spaces and hands the result to the remote login
+/// SHELL, so a pane id of `%0;touch x` — which a client can send, and which a
+/// read-only server accepts for `get_scrollback_cells` — becomes two remote
+/// commands. Quoting per argument, only when tunnelling, keeps the local path
+/// byte-for-byte unchanged.
+pub fn tmux_command_with<I, S>(args: I) -> Command
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let tunnelled = ssh_target().is_some();
+    let mut cmd = tmux_command();
+    for arg in args {
+        let arg = arg.as_ref();
+        if tunnelled {
+            cmd.arg(ssh_quote(arg));
+        } else {
+            cmd.arg(arg);
+        }
+    }
     cmd
 }
 
@@ -1113,6 +1148,27 @@ pub fn create_or_attach(session_name: &str) -> Result<()> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+
+    /// SEC-17. Locally an argv element is that element; over ssh the trailing
+    /// arguments are joined and handed to the remote login SHELL, so a value a
+    /// client chose becomes remote shell syntax. A read-only server accepts a
+    /// client's `paneId` for `get_scrollback_cells`, which is the concrete way
+    /// in.
+    #[test]
+    fn a_pane_id_carrying_a_semicolon_is_quoted_for_a_remote_shell() {
+        assert_eq!(
+            super::ssh_quote("%0;touch /tmp/pwned"),
+            "'%0;touch /tmp/pwned'"
+        );
+        assert_eq!(super::ssh_quote("%0"), "'%0'");
+    }
+
+    #[test]
+    fn a_value_containing_a_quote_is_escaped_not_terminated() {
+        // The closing quote, an escaped literal quote, then the quote reopens —
+        // the standard POSIX idiom, so the value survives whole.
+        assert_eq!(super::ssh_quote("it's"), r"'it'\''s'");
+    }
     use super::*;
 
     #[test]

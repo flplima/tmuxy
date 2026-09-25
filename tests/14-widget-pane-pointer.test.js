@@ -110,6 +110,19 @@ describe('Scenario: a pane showing a page still belongs to the app', () => {
 
     // 1. A click on the PAGE activates the pane it is in. The click still
     //    reaches the page — one gesture, as on a terminal pane.
+    //
+    // What is actually under the cursor, recorded before the click: an
+    // `<iframe>` covered by any transparent thing at all would take the click
+    // itself, and the symptom ("the pane did not activate") looks identical.
+    const underCursor = await ctx.page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return {
+        tag: el?.tagName ?? null,
+        className: typeof el?.className === 'string' ? el.className : null,
+        isTheFrame: el?.classList?.contains('widget-browser-frame') ?? false,
+      };
+    }, centre);
+
     await ctx.page.mouse.move(centre.x, centre.y);
     await ctx.page.mouse.down();
     await delay(DELAYS.MEDIUM);
@@ -118,7 +131,24 @@ describe('Scenario: a pane showing a page still belongs to the app', () => {
       ctx.page,
       async () => (await paneState(ctx.page)).activePaneId === framePaneId,
       10000,
-      'clicking the embedded page to activate its pane',
+      // Focus is the only signal that crosses a frame boundary
+      // (`useFramedPaneFocus`): a click inside blurs the parent window and
+      // makes the `<iframe>` the parent document's activeElement. Every part
+      // of that can be missing in a headless browser, and "the pane did not
+      // activate" alone cannot say which.
+      async () => {
+        const seen = await ctx.page.evaluate(() => {
+          const el = document.activeElement;
+          return {
+            activeTag: el?.tagName ?? null,
+            activeClass: typeof el?.className === 'string' ? el.className : null,
+            documentHasFocus: document.hasFocus(),
+            insideWidgetPane: !!el?.closest?.('[role=group][aria-label^="Widget pane"]'),
+          };
+        });
+        const state = await paneState(ctx.page);
+        return `clicking the embedded page to activate its pane (wanted ${framePaneId}, active ${state.activePaneId}; under the cursor ${JSON.stringify(underCursor)}; after ${JSON.stringify(seen)})`;
+      },
     );
 
     // 2. A divider dragged ACROSS the page keeps resizing. The frame used to

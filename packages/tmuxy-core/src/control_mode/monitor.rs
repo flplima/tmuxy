@@ -127,6 +127,39 @@ pub trait StateEmitter: super::log::LogSink {
     fn on_initial_sync_complete(&self) {}
 }
 
+/// Size one window, having first made sure tmux will let us.
+///
+/// `window-size` and `aggressive-resize` are WINDOW options. The pair set at
+/// attach reaches only whichever window was current then, so every other one
+/// keeps tmux's default `window-size latest` — under which tmux sizes the
+/// window to the latest attached client and undoes the `resizew`. The
+/// control-mode PTY is 200x50, which is exactly the grid a phone-width client
+/// was left stuck with.
+///
+/// Sent per window, immediately before its resize: idempotent, and it needs no
+/// bookkeeping about which windows have been seen.
+fn window_sizing_commands(window_id: &str, (cols, rows): (u32, u32)) -> [String; 3] {
+    [
+        format!("setw -t {window_id} window-size manual"),
+        format!("setw -t {window_id} aggressive-resize off"),
+        format!("resizew -t {window_id} -x {cols} -y {rows}"),
+    ]
+}
+
+/// The `resizew` that gives a freshly attached session the initial PTY size.
+///
+/// The session name is quoted: it reaches the monitor from a client
+/// (`GET /events?session=`), and control mode reads an unquoted `;` in a
+/// command line as the start of another command.
+fn initial_resize_command(session: &str) -> String {
+    format!(
+        "resizew -t {} -x {} -y {}",
+        crate::executor::tmux_quote(session),
+        INITIAL_PTY_COLS,
+        INITIAL_PTY_ROWS
+    )
+}
+
 /// Configuration for TmuxMonitor
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
@@ -415,6 +448,9 @@ pub struct TmuxMonitor {
     /// authority is now `window_extent`, what tmux itself reports, and this
     /// only bounds the retries so a size tmux genuinely refuses cannot spin.
     resize_attempts: HashMap<String, ((u32, u32), u8)>,
+    /// Windows already reported as ones tmux will not size, so the warning is
+    /// said once rather than on every sync.
+    resize_given_up: HashSet<String>,
 
     /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
     /// inside the loop so tests can advance time with `FakeClock`.
@@ -471,6 +507,7 @@ impl TmuxMonitor {
                 window_tags_migrated: false,
                 client_size: None,
                 resize_attempts: HashMap::new(),
+                resize_given_up: HashSet::new(),
                 ctx,
                 pending_replies: HashMap::new(),
                 next_reply_id: 0,
@@ -495,10 +532,7 @@ impl TmuxMonitor {
         // The browser will send a proper resize once it connects.
         if !self.config.observer {
             self.connection
-                .send_command(&format!(
-                    "resizew -t {} -x {} -y {}",
-                    self.config.session, INITIAL_PTY_COLS, INITIAL_PTY_ROWS
-                ))
+                .send_command(&initial_resize_command(&self.config.session))
                 .await?;
         }
 
@@ -747,6 +781,19 @@ impl TmuxMonitor {
         // %paste-buffer-changed; read the buffer (read-only) and mirror it to the
         // web clipboard through the same emitter path as application OSC 52.
         if let ControlModeEvent::PasteBufferChanged { buffer_name } = &event {
+            // SEC-13: paste buffers are global to the tmux SERVER, and the
+            // event names no origin — so a `load-buffer secret.txt` or a yank
+            // in someone else's session would otherwise be mirrored to every
+            // client of this one. The documented fallback for "did this come
+            // from here?" is the only signal available: a pane of THIS
+            // session is in copy mode, which is what a yank leaves behind.
+            if !self.aggregator.has_pane_in_copy_mode() {
+                debug!(
+                    buffer = %buffer_name,
+                    "paste buffer changed with no pane of this session in copy mode; not mirrored"
+                );
+                return true;
+            }
             match crate::executor::show_buffer_named(buffer_name) {
                 Ok(text) if !text.is_empty() => emitter.write_clipboard("", text),
                 Ok(_) => {}
@@ -879,6 +926,9 @@ impl TmuxMonitor {
         let live: HashSet<&str> = desired.iter().map(|(wid, _)| wid.as_str()).collect();
         self.resize_attempts
             .retain(|wid, _| live.contains(wid.as_str()));
+        self.resize_given_up
+            .retain(|wid| live.contains(wid.as_str()));
+        let desired_snapshot = desired.clone();
 
         // tmux's own report decides whether a window still needs sizing. A
         // window already AT the wanted size is done however many commands it
@@ -896,15 +946,53 @@ impl TmuxMonitor {
             })
             .collect();
         if pending.is_empty() {
+            // Nothing to send. If a window is nevertheless still the wrong
+            // size, we have stopped asking — say so once, because silence here
+            // is indistinguishable from success and leaves the client drawing
+            // a grid tmux never agreed to (a phone asking for 41 columns and
+            // getting the control-mode PTY's 200 is what this looked like).
+            for (wid, size) in &desired_snapshot {
+                let actual = self.aggregator.window_extent(wid);
+                if actual == Some(*size) {
+                    continue;
+                }
+                let tries = self.resize_attempts.get(wid).map_or(0, |a| a.1);
+                if tries >= MAX_RESIZE_ATTEMPTS && !self.resize_given_up.contains(wid) {
+                    self.resize_given_up.insert(wid.clone());
+                    warn!(
+                        window = %wid,
+                        wanted = ?size,
+                        actual = ?actual,
+                        tries,
+                        "tmux will not take this window size; no longer asking"
+                    );
+                }
+            }
             return;
         }
+        // Asking again means the size is not settled, so a later refusal is
+        // worth reporting afresh.
+        for (wid, _) in &pending {
+            self.resize_given_up.remove(wid);
+        }
 
+        // `window-size` and `aggressive-resize` are WINDOW options, and the
+        // pair set at attach (`sync_initial_state`, `enforce_settings`) reached
+        // only the window that happened to be current then. Any other window —
+        // a tab made later, or simply a different one at attach — kept tmux's
+        // default `window-size latest`, under which tmux sizes the window to
+        // the latest attached client and undoes the `resizew` below: the
+        // control-mode PTY is 200x50, which is exactly the grid a phone-width
+        // client was stuck with (`targetCols: 41, totalWidth: 200`).
+        //
+        // Setting it per window, immediately before the resize, is idempotent
+        // and needs no bookkeeping about which windows have been seen.
         let cmds: Vec<String> = pending
             .iter()
-            .map(|(wid, (w, h))| format!("resizew -t {} -x {} -y {}", wid, w, h))
+            .flat_map(|(wid, size)| window_sizing_commands(wid, *size))
             .collect();
         debug!(
-            count = cmds.len(),
+            count = pending.len(),
             cols, rows, "applying client size to windows"
         );
         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
@@ -1396,6 +1484,43 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use super::initial_resize_command;
+
+    /// SEC-14: `GET /events?session=` lets a client pick the name, and an
+    /// unquoted one carrying `;` used to be parsed by control mode as a
+    /// second command — `?session=x ; run-shell "id>/tmp/p" ; resizew` ran it.
+    #[test]
+    fn a_session_name_carrying_a_semicolon_stays_one_command() {
+        let cmd = initial_resize_command(r#"x ; run-shell "id>/tmp/p" ; resizew"#);
+        assert_eq!(
+            cmd,
+            r#"resizew -t 'x ; run-shell "id>/tmp/p" ; resizew' -x 200 -y 50"#
+        );
+    }
+
+    #[test]
+    fn a_session_name_carrying_a_quote_is_escaped_not_terminated() {
+        assert!(initial_resize_command("it's").starts_with(r"resizew -t 'it'\''s' "));
+    }
+
+    /// tmux will not take a `resizew` on a window still set to size itself to
+    /// the latest client — it applies ours and then puts its own back. The
+    /// options are per WINDOW, so the ones set at attach covered exactly one.
+    #[test]
+    fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
+        let cmds = window_sizing_commands("@3", (41, 29));
+        assert_eq!(
+            cmds,
+            [
+                "setw -t @3 window-size manual".to_string(),
+                "setw -t @3 aggressive-resize off".to_string(),
+                "resizew -t @3 -x 41 -y 29".to_string(),
+            ]
+        );
+        // The order is the point: tmux would re-apply its own size between a
+        // resize and a later opt-out.
+        assert!(cmds[2].starts_with("resizew"));
+    }
 
     /// The bug this replaced: `resizew` is fire-and-forget, and recording the
     /// SEND as the truth meant one dropped command left the client asking for

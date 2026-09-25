@@ -14,8 +14,7 @@ if [ "${1:-}" = "--json" ]; then
   JSON=true
 fi
 
-SOCKET="${TMUX_SOCKET:-tmuxy}"
-BASE="/tmp/tmuxy-queues/$SOCKET"
+BASE="$(queue_base)"
 
 if [ ! -d "$BASE" ]; then
   if $JSON; then
@@ -32,16 +31,16 @@ if $JSON; then
   printf '['
 fi
 
-for queue_dir in "$BASE"/*/; do
-  [ -d "$queue_dir" ] || continue
-  name="$(basename "$queue_dir")"
-  cursor=$(cat "$queue_dir/cursor" 2>/dev/null || echo -1)
-  next=$(cat "$queue_dir/next" 2>/dev/null || echo 0)
+for qdir in "$BASE"/*/; do
+  [ -d "$qdir" ] || continue
+  name="$(basename "$qdir")"
+  cursor=$(cat "$qdir/cursor" 2>/dev/null || echo -1)
+  next=$(cat "$qdir/next" 2>/dev/null || echo 0)
 
   pending=0
   first_payload=""
   first_n=""
-  for f in "$queue_dir"/msg.[0-9]*; do
+  for f in "$qdir"/msg.[0-9]*; do
     [ -f "$f" ] || continue
     n="${f##*/msg.}"
     case "$n" in *.tmp) continue ;; esac

@@ -297,9 +297,9 @@ pub async fn get_themes_list() -> Result<Value, String> {
 /// The git subprocesses stay off Tauri's async runtime.
 #[tauri::command]
 pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, String> {
-    use tmuxy_core::worktrees::{list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD};
+    use tmuxy_core::worktrees::{list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing};
     let state = windows::monitor_for(&window)?;
-    let listing = query_via_monitor(&state, LIST_PANE_PATHS_CMD).await?;
+    let listing = query_via_monitor(&state, &list_pane_paths_cmd(None)).await?;
     let repositories = tauri::async_runtime::spawn_blocking(move || {
         list_git_worktrees(paths_from_pane_listing(&listing))
     })

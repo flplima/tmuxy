@@ -1,29 +1,90 @@
 /**
  * tmuxy queue (alias: q) — the inter-agent coordination queue.
  *
- * Storage is /tmp/tmuxy-queues/<socket>/<name>/, with sequence allocation and
- * consume serialized by the mkdir mutex in bin/tmuxy/_lib (mkdir rather than
- * flock, which macOS does not ship). Each test uses a unique socket name so
+ * Storage is <runtime dir>/tmuxy-queues-<uid>/<socket>/<name>/, with sequence
+ * allocation and consume serialized by the mkdir mutex in bin/tmuxy/_lib
+ * (mkdir rather than flock, which macOS does not ship). The root is per-user
+ * and 0700 so another local account cannot read the messages, plant its own,
+ * or pre-create the path as a symlink. Each test uses a unique socket name so
  * runs are isolated from each other and from any real queue.
  */
 
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { runCLI, runCLIConcurrent, reapedPid } = require('./helpers/run-cli');
 
-/** Unique socket per test → unique /tmp/tmuxy-queues namespace. */
+/** Unique socket per test → unique queue namespace. */
 function freshSocket() {
   return `tmuxy-queue-test-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** The root the scripts compute, mirrored here so the tests read real files. */
+function queueRoot() {
+  return path.join(process.env.XDG_RUNTIME_DIR || '/tmp', `tmuxy-queues-${os.userInfo().uid}`);
+}
+
 function queueDir(socket, name) {
-  return `/tmp/tmuxy-queues/${socket}/${name}`;
+  return path.join(queueRoot(), socket, name);
 }
 
 function cleanup(socket) {
-  fs.rmSync(`/tmp/tmuxy-queues/${socket}`, { recursive: true, force: true });
+  fs.rmSync(path.join(queueRoot(), socket), { recursive: true, force: true });
 }
 
 describe('CLI queue subcommands', () => {
+  /**
+   * SEC-06. The name becomes a PATH SEGMENT, and it arrives from whatever asked
+   * for the queue — an agent passing an untrusted string is the realistic
+   * route. `tmuxy queue clear ../../../foo` ended in `rm -rf /tmp/foo`.
+   */
+  describe('queue name validation', () => {
+    test.each([
+      ['../../../etc', 'a traversal out of the queue root'],
+      ['..', 'the parent directory itself'],
+      ['a/b', 'a nested path'],
+      ['.hidden', 'a leading dot'],
+      ['', 'an empty name'],
+    ])('refuses %s (%s)', (name) => {
+      const socket = freshSocket();
+      try {
+        for (const verb of ['push', 'peek', 'pop', 'clear']) {
+          const args = verb === 'push' ? ['queue', verb, name, 'x'] : ['queue', verb, name];
+          const result = runCLI(args, { socket });
+          expect(result.status).not.toBe(0);
+        }
+      } finally {
+        cleanup(socket);
+      }
+    });
+
+    test('a traversing clear removes nothing outside the queue root', () => {
+      const socket = freshSocket();
+      const bystander = path.join(os.tmpdir(), `tmuxy-sec06-${process.pid}`);
+      fs.mkdirSync(bystander, { recursive: true });
+      fs.writeFileSync(path.join(bystander, 'keep'), 'still here');
+      try {
+        const escape = path.relative(queueDir(socket, 'x'), bystander);
+        runCLI(['queue', 'clear', escape], { socket });
+        expect(fs.existsSync(path.join(bystander, 'keep'))).toBe(true);
+      } finally {
+        fs.rmSync(bystander, { recursive: true, force: true });
+        cleanup(socket);
+      }
+    });
+
+    test('the queue root is readable only by its owner', () => {
+      const socket = freshSocket();
+      try {
+        runCLI(['queue', 'push', 'ok', 'hello'], { socket });
+        const mode = fs.statSync(queueRoot()).mode & 0o777;
+        expect(mode).toBe(0o700);
+      } finally {
+        cleanup(socket);
+      }
+    });
+  });
+
   describe('queue push & send', () => {
     test('writes the message and signals waiters', () => {
       const socket = freshSocket();
