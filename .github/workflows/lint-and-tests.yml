@@ -179,6 +179,9 @@ jobs:
     # themselves, this is what puts the server on it too.
     env:
       TMUX_SOCKET: tmuxy-test
+      # And the suite's own port, for the same reason — matches DEFAULT_PORT in
+      # tests/helpers/config.js, which is where the tests look for the server.
+      TMUXY_PORT: 9100
 
     steps:
       - uses: actions/checkout@v7
@@ -262,14 +265,15 @@ jobs:
 
       - name: Start server
         run: |
-          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
+          ./target/release/tmuxy-server --port "$TMUXY_PORT" 2>/tmp/tmuxy-server.log &
           node -e "
             const start = Date.now();
             const timeout = 30000;
+            const url = 'http://localhost:' + process.env.TMUXY_PORT;
             const check = async () => {
               while (Date.now() - start < timeout) {
                 try {
-                  const res = await fetch('http://localhost:9000');
+                  const res = await fetch(url);
                   if (res.ok) { process.exit(0); }
                 } catch {}
                 await new Promise(r => setTimeout(r, 500));

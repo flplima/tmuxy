@@ -10,7 +10,21 @@ const path = require('path');
 // own headless browser instead — the shape CI runs in, and the only way to
 // chase a failure that only happens there from a machine that has a Chrome.
 const CDP_PORT = Number(process.env.TMUXY_CDP_PORT || 9222);
-const TMUXY_PORT = parseInt(process.env.TMUXY_PORT || '9000', 10);
+/**
+ * The port the E2E suite owns, when `TMUXY_PORT` says nothing else.
+ *
+ * One port per environment, for the same reason there is one socket per
+ * environment (see DEFAULT_SOCKET in helpers/tmux-socket.js): the server is the
+ * other half of every round trip, so a run that finds a STRANGER's server on
+ * its port is driving a server attached to a different tmux socket. That fails
+ * as a wall of unrelated flakes — sessions that "don't exist", waits that time
+ * out, a different test failing each run — rather than as a port conflict.
+ *
+ * 9000 belongs to a released build and `bin/dev`; this suite takes 9100, which
+ * a dev server or a second agent cannot collide with by accident.
+ */
+const DEFAULT_PORT = 9100;
+const TMUXY_PORT = parseInt(process.env.TMUXY_PORT || String(DEFAULT_PORT), 10);
 const TMUXY_URL = `http://localhost:${TMUXY_PORT}`;
 
 // Paths
@@ -28,6 +42,7 @@ const DELAYS = {
 
 module.exports = {
   CDP_PORT,
+  DEFAULT_PORT,
   TMUXY_PORT,
   TMUXY_URL,
   WORKSPACE_ROOT,

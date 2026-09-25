@@ -28,7 +28,62 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const { waitForServer, disconnectBrowser } = require('./helpers/browser');
-const { TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
+const { TMUXY_PORT, TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
+
+/**
+ * The tmux socket the server on `TMUXY_URL` is attached to, or null when it
+ * cannot be asked.
+ *
+ * `query_tmux` is the client's own read path, answered in-band on the monitor's
+ * control-mode connection, so this is tmux itself reporting which socket that
+ * connection is on — not a guess from the port or the process table.
+ *
+ * The monitor only exists while a client is attached, so this attaches one the
+ * way the browser does — an `/events` stream, held open for the query and
+ * dropped after — rather than adding an endpoint the app itself would not use.
+ */
+async function serverSocketPath() {
+  const stream = new AbortController();
+  try {
+    // Deliberately not awaited to completion: an SSE stream never ends. The
+    // response resolving is the connection being accepted; the monitor comes up
+    // a moment later, which is what the retry below waits for.
+    fetch(`${TMUXY_URL}/events`, { signal: stream.signal }).catch(() => {});
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const response = await fetch(`${TMUXY_URL}/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cmd: 'query_tmux',
+          args: { command: "display-message -p -F '#{socket_path}'" },
+        }),
+      });
+      const body = response.ok ? await response.json() : {};
+      if (typeof body.result === 'string' && body.result.trim()) return body.result.trim();
+      // The monitor attaches asynchronously after the stream is accepted, so an
+      // early "no monitor connection" is NOT an answer — keep waiting.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    stream.abort();
+  }
+}
+
+/**
+ * Whether a socket path reported by a server is this run's socket.
+ *
+ * `TMUX_SOCKET` is a name (`-L tmuxy-test`) or a full path (`-S /tmp/...`);
+ * tmux always answers with the path, so a name is compared against its last
+ * segment.
+ */
+function isOurSocket(socketPath) {
+  const ours = tmuxSocket();
+  return ours.includes('/') ? socketPath === ours : socketPath.split('/').pop() === ours;
+}
 
 let _weStartedServer = false;
 let _serverPid = null;
@@ -44,16 +99,28 @@ beforeAll(async () => {
   }
 
   if (serverRunning) {
-    // A server that was already up is used as-is, and it reports no socket, so
-    // this cannot be verified — only flagged. When it is attached elsewhere,
-    // every test fails at "session not found" while the UI looks fine, which
-    // is a genuinely confusing hour if nobody said this out loud.
-    console.warn(
-      `[setup] Reusing the server already on ${TMUXY_URL}. This suite drives ` +
-        `tmux socket "${tmuxSocket()}"; if that server is attached to another ` +
-        `socket, stop it and re-run, or start it with ` +
-        `TMUX_SOCKET=${tmuxSocket()}.`,
-    );
+    // A server that was already up is only reused once it has said it is on
+    // this run's socket. One that is not — a dev server, another agent's run —
+    // fails every test at "session not found" while the UI looks perfectly
+    // fine: a wall of unrelated flakes instead of the one real problem. Ask it,
+    // and refuse rather than spend an hour reading the wrong symptom.
+    const socketPath = await serverSocketPath();
+    if (!socketPath) {
+      throw new Error(
+        `[setup] A server answers on ${TMUXY_URL} but would not say which tmux ` +
+          `socket it is on, so it cannot be reused. Stop it and re-run, or ` +
+          `point this run elsewhere with TMUXY_PORT.`,
+      );
+    }
+    if (!isOurSocket(socketPath)) {
+      throw new Error(
+        `[setup] The server on ${TMUXY_URL} drives tmux socket "${socketPath}", ` +
+          `but this suite drives "${tmuxSocket()}". Stop that server and ` +
+          `re-run, start it with TMUX_SOCKET=${tmuxSocket()}, or give this run ` +
+          `a port of its own with TMUXY_PORT.`,
+      );
+    }
+    console.warn(`[setup] Reusing the server already on ${TMUXY_URL} (socket ${socketPath}).`);
   }
 
   if (!serverRunning) {
@@ -65,10 +132,13 @@ beforeAll(async () => {
       const { spawn } = require('child_process');
       const fs = require('fs');
       const serverStderr = fs.openSync('/tmp/tmuxy-server-stderr.log', 'w');
-      // Explicit env, not the inherited one: the server is the other half of
-      // every round trip, so it has to attach to the socket the helpers read
-      // and write. tmuxEnv() is the same resolution they use.
-      const server = spawn('./target/release/tmuxy-server', [], {
+      // Explicit port AND explicit env, not the inherited ones: the server is
+      // the other half of every round trip, so it has to listen where the
+      // helpers look and attach to the socket they read and write. Without
+      // `--port` it took the default 9000 whatever TMUXY_PORT said, so two
+      // runs — or a run and a dev server — fought over one port while each
+      // believed it had its own. tmuxEnv() is the helpers' own resolution.
+      const server = spawn('./target/release/tmuxy-server', ['--port', String(TMUXY_PORT)], {
         cwd: WORKSPACE_ROOT,
         stdio: ['ignore', 'ignore', serverStderr],
         detached: true,

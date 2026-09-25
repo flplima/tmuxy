@@ -204,7 +204,7 @@ Helpers live in `tests/helpers/`, one file per domain: `browser.js` (CDP connect
 
 - Tests connect to an existing Chrome via CDP on port 9222 — never install Playwright browsers locally (CI provisions its own chromium; that's the one exception)
 - All E2E tests run sequentially (`maxWorkers: 1`) — they share one tmux server
-- A tmuxy server must be reachable on `TMUXY_PORT` (default 9000, `tests/helpers/config.js`); the suite builds and starts one itself if nothing answers
+- A tmuxy server must be reachable on `TMUXY_PORT` (default 9100, `tests/helpers/config.js`); the suite builds and starts one itself — on that port — if nothing answers. One port per environment, like one socket per environment: 9000 belongs to a released build and `bin/dev`, 9100 to this suite. A server that is already up is asked which tmux socket it drives and REFUSED unless it is this run's, because a stranger's server fails the suite as a wall of unrelated flakes rather than as a port conflict
 - Missing prerequisites FAIL the run. A suite that cannot reach Chrome or the server used to skip every test and report green, which is worse than a red: it says a suite ran that never did. Set `TMUXY_E2E_ALLOW_SKIP=1` to opt into the old behaviour
 
 ### What the helpers guarantee
