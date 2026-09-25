@@ -198,10 +198,42 @@ set_group_id() {
   _tmux set-option -p -t "$1" @tmuxy-group-id "$2"
 }
 
-# Clear a pane's @tmuxy-group-id (degroup a lone survivor).
+# Clear a pane's @tmuxy-group-id (degroup a lone survivor) and undo the
+# arming that went with membership.
 # Args: $1=pane_id
 clear_group_id() {
   _tmux set-option -pu -t "$1" @tmuxy-group-id 2>/dev/null || true
+  group_disarm_pane "$1"
+}
+
+# Make a group member's pane outlive the program running in it, and route its
+# death back through pane-group-close.
+#
+# Without this, a member that ends by ITSELF — `exit`, Ctrl+D, a crashed
+# process — is removed by tmux directly. The visible member's slot disappears
+# with it, the hidden siblings are left with no visible pane, and the whole
+# group vanishes from the UI: the user typed `exit` in one tab of a group and
+# lost all of them. Every other close path goes through pane-group-close, which
+# promotes a sibling; this is the one that did not.
+#
+# `remain-on-exit on` holds the pane open as a dead placeholder so there is
+# still a slot to swap a sibling into, and the pane-scoped `pane-died` hook
+# runs the same promotion the close button does. Both are per-pane, so nothing
+# outside a group changes behaviour, and both travel with the pane across the
+# stash swap.
+# Args: $1=pane_id
+group_arm_pane() {
+  _tmux set-option -p -t "$1" remain-on-exit on 2>/dev/null || true
+  _tmux set-hook -p -t "$1" pane-died \
+    "run-shell \"bash $SCRIPTS_DIR/pane-group-close $1\"" 2>/dev/null || true
+}
+
+# Undo group_arm_pane, so a pane that is no longer a group member closes the
+# way any other pane does.
+# Args: $1=pane_id
+group_disarm_pane() {
+  _tmux set-option -pu -t "$1" remain-on-exit 2>/dev/null || true
+  _tmux set-hook -pu -t "$1" pane-died 2>/dev/null || true
 }
 
 # Mint a fresh group id from an anchor pane id: %5 -> g5. Pane ids are never

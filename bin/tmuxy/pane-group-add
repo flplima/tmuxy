@@ -27,6 +27,10 @@ GID=$(group_id_of_pane "$PANE_ID")
 if [ -z "$GID" ]; then
   GID=$(new_group_id "$PANE_ID")
   set_group_id "$PANE_ID" "$GID"
+  # The anchor becomes a member too, so it needs the same arming — a group
+  # opened from a pane running a shell loses the whole group when that shell
+  # exits otherwise.
+  group_arm_pane "$PANE_ID"
 fi
 
 # Create the new pane in the current window, then atomically break it into its
@@ -35,6 +39,7 @@ fi
 NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}')
 _tmux break-pane -d -s "$NEW_PANE_ID" -t "${STASH_SESSION}:" \; \
   set-option -p -t "$NEW_PANE_ID" @tmuxy-group-id "$GID"
+group_arm_pane "$NEW_PANE_ID"
 
 # Size the stash window to the visible slot, then swap the new pane into view.
 _tmux resize-window -t "$NEW_PANE_ID" -x "$PANE_WIDTH" -y "$PANE_HEIGHT"

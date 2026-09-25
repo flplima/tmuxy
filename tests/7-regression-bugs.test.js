@@ -488,6 +488,61 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
+  test('typing exit in a pane group closes only that member and promotes the next one', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // ALPHA is the anchor, visible to start with.
+    const alphaId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId || null,
+    );
+    expect(alphaId).not.toBeNull();
+    await runCommand(ctx.page, 'echo ALPHA_MARK', 'ALPHA_MARK');
+
+    // Group it: BETA is created and swapped into the visible slot.
+    await clickPaneGroupAdd(ctx.page);
+    await waitForGroupTabs(ctx.page, 2);
+    await delay(DELAYS.SYNC);
+
+    const betaId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId || null,
+    );
+    expect(betaId).not.toBe(alphaId);
+    await runCommand(ctx.page, 'echo BETA_MARK', 'BETA_MARK');
+
+    // The real user path, and the one every other close path skipped: end the
+    // program yourself. `exit` is not the close button, not kill-pane, and not
+    // the CLI — tmux removes the pane on its own, taking the visible slot with
+    // it, and the hidden sibling was left with no visible member. The whole
+    // group vanished: one `exit` closed tabs the user never asked to close.
+    await typeInTerminal(ctx.page, 'exit');
+    await pressEnter(ctx.page);
+
+    // One member left, so the group dissolves into an ordinary pane — but the
+    // SURVIVOR has to still be there, showing its own content.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate((gone) => {
+          const panes = window.app?.getSnapshot()?.context?.panes ?? [];
+          return panes.length > 0 && !panes.some((p) => p.tmuxId === gone);
+        }, betaId),
+      20000,
+      'the exited pane to go and the group to survive it',
+    );
+
+    // ALPHA is back in the visible slot with the content it had — proving a
+    // promotion happened rather than the group being torn down and a fresh
+    // shell appearing.
+    await waitForTerminalText(ctx.page, 'ALPHA_MARK', 20000);
+
+    const survivors = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.panes?.map((p) => p.tmuxId) ?? [],
+    );
+    expect(survivors).toContain(alphaId);
+    expect(survivors).not.toContain(betaId);
+  }, 120000);
+
   test('Typing immediately after a pane-group tab click hits the clicked pane, not the previously-visible one', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
