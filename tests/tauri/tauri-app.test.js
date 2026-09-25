@@ -369,15 +369,16 @@ describe('IPC Commands', () => {
   test('get_scrollback_cells is exposed and returns the expected shape', async () => {
     await setupApp();
 
-    // Wait for a pane, do not guess one. `?? '%0'` looked like a harmless
-    // fallback and was the failure: when the app's state had not landed yet the
-    // test asked tmux about a pane that does not exist, and the command
-    // correctly answered "tmux pane '%0' does not exist" — a real refusal read
-    // as the binding being broken.
+    // `panes[0].id` — `getAppState` projects each pane as `{ id, windowId, … }`,
+    // so the `panes[0]?.tmuxId` this used to read was ALWAYS undefined and the
+    // `?? '%0'` fallback always fired. The test then asked tmux about a pane
+    // that does not exist and read the honest "tmux pane '%0' does not exist"
+    // as the IPC binding being broken. No fallback now: wait for the pane, and
+    // say so if it never arrives.
     let paneId;
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline && !paneId) {
-      paneId = (await getAppState(driver)).panes[0]?.tmuxId;
+      paneId = (await getAppState(driver)).panes?.[0]?.id;
       if (!paneId) await driver.pause(200);
     }
     expect(paneId).toMatch(/^%\d+$/);
