@@ -31,7 +31,7 @@ import {
   selectCharSize,
   selectKeyboardElsewhere,
 } from '../machines/AppContext';
-import { usePaneMouse, usePaneTouch } from '../hooks';
+import { usePaneMouse, usePaneTouch, useLatchedContent } from '../hooks';
 import { LogProfiler } from '../utils/renderLog';
 import { RowEdges } from './RowEdges';
 import { AskOverlay } from './AskOverlay';
@@ -65,6 +65,10 @@ interface TerminalPaneProps {
 export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: TerminalPaneProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
+  // The grid to draw: the pane's own, or the last real one while a capture
+  // refresh leaves it momentarily empty. A pane-group switch does `swap-pane`,
+  // which is exactly that gap — and drawing it blinked the pane.
+  const content = useLatchedContent(pane?.content);
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const gridCell = useAppSelector(selectCharSize);
@@ -368,7 +372,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
         <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
           {/* The padding columns, row by row, in the first / last cell's colours.
               Beside the scroll container on purpose: it would clip them. */}
-          {!copyState && <RowEdges lines={pane.content} cols={pane.width} />}
+          {!copyState && <RowEdges lines={content} cols={pane.width} />}
           <div
             ref={scrollRef}
             className="pane-scroll-container hide-scrollbar"
@@ -394,7 +398,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                   style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
                 >
                   <Terminal
-                    content={pane.content}
+                    content={content}
                     cursorX={pane.cursorX}
                     cursorY={pane.cursorY}
                     // Kept mounted but not the live pane while a view is open:
