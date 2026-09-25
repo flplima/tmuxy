@@ -110,6 +110,19 @@ describe('Scenario: a pane showing a page still belongs to the app', () => {
 
     // 1. A click on the PAGE activates the pane it is in. The click still
     //    reaches the page — one gesture, as on a terminal pane.
+    //
+    // What is actually under the cursor, recorded before the click: an
+    // `<iframe>` covered by any transparent thing at all would take the click
+    // itself, and the symptom ("the pane did not activate") looks identical.
+    const underCursor = await ctx.page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return {
+        tag: el?.tagName ?? null,
+        className: typeof el?.className === 'string' ? el.className : null,
+        isTheFrame: el?.classList?.contains('widget-browser-frame') ?? false,
+      };
+    }, centre);
+
     await ctx.page.mouse.move(centre.x, centre.y);
     await ctx.page.mouse.down();
     await delay(DELAYS.MEDIUM);
@@ -134,7 +147,7 @@ describe('Scenario: a pane showing a page still belongs to the app', () => {
           };
         });
         const state = await paneState(ctx.page);
-        return `clicking the embedded page to activate its pane (wanted ${framePaneId}, active ${state.activePaneId}; ${JSON.stringify(seen)})`;
+        return `clicking the embedded page to activate its pane (wanted ${framePaneId}, active ${state.activePaneId}; under the cursor ${JSON.stringify(underCursor)}; after ${JSON.stringify(seen)})`;
       },
     );
 
