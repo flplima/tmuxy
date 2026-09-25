@@ -61,6 +61,34 @@ CURRENT_TYPE=$(window_type "$CURRENT_WIN")
 
 # Default float size, in terminal cells (never a percentage - tmux sizes panes
 # in cells, and so does the UI that draws the float over them).
+# Every value below is interpolated into a command STRING that `run-shell`
+# hands to a shell and tmux expands `#(...)` in, so each one is checked here
+# rather than trusted. They reach this script from a client: a site can
+# navigate the user to a crafted `?session=` and the names travel onwards.
+case "${WIDTH:-}" in
+  '' | *[!0-9]*)
+    if [ -n "${WIDTH:-}" ]; then
+      echo "tmuxy float: --width takes a number of cells (got '$WIDTH')" >&2
+      exit 2
+    fi
+    ;;
+esac
+case "${HEIGHT:-}" in
+  '' | *[!0-9]*)
+    if [ -n "${HEIGHT:-}" ]; then
+      echo "tmuxy float: --height takes a number of cells (got '$HEIGHT')" >&2
+      exit 2
+    fi
+    ;;
+esac
+case "${BG:-}" in
+  '' | dim | blur | none) ;;
+  *)
+    echo "tmuxy float: --bg takes dim, blur or none (got '$BG')" >&2
+    exit 2
+    ;;
+esac
+
 DEFAULT_WIDTH=60
 DEFAULT_HEIGHT=15
 

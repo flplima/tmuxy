@@ -54,9 +54,25 @@ echo ""
 tmux "$SOCKET_FLAG" "$SOCKET" has-session -t tmuxy 2>/dev/null \
     || tmux "$SOCKET_FLAG" "$SOCKET" new-session -d -s tmuxy -x 200 -y 50
 
-# The container's published port reaches the server on the container's own
-# interface, not its loopback, and only this machine can reach that port.
+# Where to listen. In a CONTAINER the published port reaches the server on the
+# container's own interface rather than its loopback, so it has to bind
+# 0.0.0.0 — and only this machine can reach that published port.
+#
+# On a laptop that pair is a different thing entirely: `npm start` runs this
+# same script, and 0.0.0.0 with --no-auth serves the tmuxy-dev shell to the
+# whole LAN — a coffee-shop network included — with no password. So the
+# container is detected rather than assumed, and everywhere else listens on
+# loopback. TMUXY_DEV_HOST overrides it for the case this misses.
+if [ -n "${TMUXY_DEV_HOST:-}" ]; then
+    HOST="$TMUXY_DEV_HOST"
+elif [ -f /.dockerenv ] || [ -n "${CONTAINER_NAME:-}" ] || [ -n "${CODESPACES:-}" ]; then
+    HOST=0.0.0.0
+else
+    HOST=127.0.0.1
+fi
+echo "   Listening on $HOST:$PORT"
+
 exec cargo watch \
     -w packages/tmuxy-core/src \
     -w packages/tmuxy-server/src \
-    -x "run -p tmuxy-server -- --port $PORT --host 0.0.0.0 --no-auth --dev"
+    -x "run -p tmuxy-server -- --port $PORT --host $HOST --no-auth --dev"

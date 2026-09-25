@@ -275,6 +275,24 @@ describe('CLI pane subcommands', () => {
       MOCK_TMUX_LIST_WINDOWS: '0\n1',
     };
 
+    /**
+     * SEC-24. `--width`, `--height` and `--bg` are interpolated into the
+     * command STRING that `run-shell` hands to a shell, and tmux expands
+     * `#(...)` in that string before the shell ever sees it. The values reach
+     * this script from a client, so each is checked rather than trusted.
+     */
+    test.each([
+      ['--width', '50; touch /tmp/pwned'],
+      ['--width', '#(touch /tmp/pwned)'],
+      ['--height', "12' ; touch /tmp/pwned ; '"],
+      ['--bg', 'dim #(touch /tmp/pwned)'],
+      ['--bg', 'sideways'],
+    ])('refuses %s %j rather than splicing it into the command', (flag, value) => {
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'float', flag, value], { env: floatEnv });
+      expect(exitCode).not.toBe(0);
+      expect(tmuxCalls.filter((c) => c.args[0] === 'run-shell')).toHaveLength(0);
+    });
+
     test('creates the float in a single tmux command list', () => {
       const { stdout, exitCode, tmuxCalls } = runCLI(
         ['pane', 'float', '--width', '50', '--height', '12'],
