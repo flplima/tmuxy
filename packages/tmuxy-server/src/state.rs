@@ -249,6 +249,23 @@ pub struct AppState {
     /// writer, the whole tmux server. `None` on a writable server, where a
     /// client can already run anything and session switching is the feature.
     pub session_pin: Option<String>,
+    /// Live `/events` streams, across every session.
+    ///
+    /// SEC-16: each one is a long-lived task holding a broadcast receiver and a
+    /// place in the `sessions` map, and nothing counted them. A connection
+    /// flood grew both without bound.
+    pub live_streams: AtomicU64,
+}
+
+/// A live `/events` stream's place in the server's budget, released on drop.
+pub struct StreamSlot {
+    state: Arc<AppState>,
+}
+
+impl Drop for StreamSlot {
+    fn drop(&mut self) {
+        self.state.live_streams.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl Default for AppState {
@@ -274,6 +291,7 @@ impl AppState {
             ctx,
             read_only: false,
             session_pin: None,
+            live_streams: AtomicU64::new(0),
         }
     }
 
@@ -287,6 +305,47 @@ impl AppState {
     pub fn with_session_pin(mut self, session: Option<String>) -> Self {
         self.session_pin = session;
         self
+    }
+
+    /// The most `/events` streams this server serves at once.
+    ///
+    /// Generous for real use — a browser opens one per tab, and tmuxy is not a
+    /// broadcast service — and far below the point where the tasks and their
+    /// buffers are the problem. A viewer's server gets a tighter bound: it is
+    /// the one whose address may be handed around.
+    pub fn max_live_streams(&self) -> u64 {
+        if self.read_only {
+            8
+        } else {
+            32
+        }
+    }
+
+    /// Claim a slot for a new `/events` stream, or `None` when full.
+    ///
+    /// The returned guard releases the slot when dropped, which is what the
+    /// stream generator being dropped on client disconnect does.
+    pub fn claim_stream_slot(self: &Arc<Self>) -> Option<StreamSlot> {
+        let limit = self.max_live_streams();
+        let mut current = self.live_streams.load(Ordering::SeqCst);
+        loop {
+            if current >= limit {
+                return None;
+            }
+            match self.live_streams.compare_exchange(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => {
+                    return Some(StreamSlot {
+                        state: Arc::clone(self),
+                    })
+                }
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     /// Whether `name` is a session this server will serve.

@@ -211,6 +211,23 @@ pub struct KeyBindings {
 }
 
 impl KeyBindings {
+    /// `current()` off the async runtime.
+    ///
+    /// SEC-16: it runs three synchronous `tmux` subprocesses and waits on each.
+    /// Called from inside the `/events` stream generator that was a tokio
+    /// worker thread parked in `wait()` — one per connecting client, with no
+    /// cap on clients, and every one of them also another external `tmux`
+    /// process, which docs/TMUX.md says destabilises tmux 3.5a.
+    async fn current_offthread() -> Self {
+        tokio::task::spawn_blocking(Self::current)
+            .await
+            .unwrap_or_else(|_| Self {
+                prefix_key: "C-b".into(),
+                prefix_bindings: Vec::new(),
+                root_bindings: Vec::new(),
+            })
+    }
+
     /// Snapshot the live tmux bindings with the standard fallbacks. The one
     /// assembly point for the SSE greeting, `on_initial_sync_complete`, and
     /// `broadcast_keybindings` (previously three identical copies).
@@ -361,6 +378,23 @@ pub async fn sse_handler(
         return SessionRejection::NotServed.into_response();
     }
 
+    // SEC-16: one long-lived task and one broadcast receiver per stream, with
+    // nothing counting them. The slot is released when the stream generator is
+    // dropped, which is what a client disconnecting does.
+    let Some(stream_slot) = state.claim_stream_slot() else {
+        tracing::warn!(
+            target: "tmuxy_server::sse",
+            %session,
+            limit = state.max_live_streams(),
+            "refused an /events stream: already serving the maximum"
+        );
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many open event streams\n",
+        )
+            .into_response();
+    };
+
     // Browser passes the id of the last event it received via the standard
     // `Last-Event-Id` header on reconnect. If we can find it in the per-session
     // ring buffer, we replay the missing events. If the id is older than the
@@ -466,6 +500,9 @@ pub async fn sse_handler(
         // When this generator is dropped (client disconnect), _drop_guard is dropped,
         // which drops drop_tx, signaling the cleanup task.
         let _drop_guard = drop_tx;
+        // Same lifetime, same reason: the slot this stream occupies in the
+        // server's budget is given back when the generator goes.
+        let _stream_slot = stream_slot;
 
         // Send connection info as first event
         let default_shell = std::env::var("SHELL")
@@ -486,7 +523,7 @@ pub async fn sse_handler(
         // (monitor already running, config already sourced), this is the only
         // chance to receive them. The monitor also broadcasts updated keybindings
         // via on_initial_sync_complete() after sourcing config for the first time.
-        let keybindings = KeyBindings::current();
+        let keybindings = KeyBindings::current_offthread().await;
         let kb_event = SseEvent::KeyBindings(keybindings);
         if let Some(s) = encode_event(&kb_event) {
             yield Ok(Event::default().event("keybindings").data(s));
@@ -943,7 +980,7 @@ async fn handle_command(
 
 /// Re-fetch keybindings from tmux and broadcast to all SSE clients for a session.
 async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
-    let keybindings = KeyBindings::current();
+    let keybindings = KeyBindings::current_offthread().await;
     let kb_event = SseEvent::KeyBindings(keybindings);
     let Some(msg) = encode_event(&kb_event) else {
         return;
@@ -1786,6 +1823,46 @@ mod tests {
         );
 
         assert!(rx.try_recv().is_err());
+    }
+
+    /// SEC-16. Each `/events` stream is a long-lived task holding a broadcast
+    /// receiver and a place in the sessions map, and every one of them also ran
+    /// three external `tmux` processes on a worker thread. Nothing counted
+    /// them, so a connection flood grew all of it without bound.
+    #[test]
+    fn open_streams_are_capped_and_the_slot_comes_back() {
+        let state = Arc::new(AppState::new());
+        let limit = state.max_live_streams();
+
+        let slots: Vec<_> = (0..limit)
+            .map(|i| {
+                state
+                    .claim_stream_slot()
+                    .unwrap_or_else(|| panic!("slot {i} of {limit} should be free"))
+            })
+            .collect();
+        assert!(
+            state.claim_stream_slot().is_none(),
+            "the {}th stream should be refused",
+            limit + 1
+        );
+
+        // A client disconnecting drops its generator, which drops the slot.
+        drop(slots);
+        assert!(state.claim_stream_slot().is_some());
+    }
+
+    /// A viewer's server is the one whose address gets handed around, so it
+    /// keeps a tighter budget than the one its owner writes through.
+    #[test]
+    fn a_read_only_server_serves_fewer_streams_than_a_writable_one() {
+        let viewer = Arc::new(AppState::new().with_read_only(true));
+        let writer = Arc::new(AppState::new());
+        assert!(viewer.max_live_streams() < writer.max_live_streams());
+        assert!(
+            viewer.max_live_streams() >= 2,
+            "a viewer still gets to reconnect"
+        );
     }
 
     #[tokio::test]
