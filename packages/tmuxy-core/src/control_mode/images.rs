@@ -88,6 +88,8 @@ pub struct ImageParser {
     /// Kitty chunked transfers in progress, keyed by image id (`i=`).
     /// Single-chunk transfers (no `m=` key) bypass this map.
     kitty_chunks: std::collections::HashMap<u32, KittyChunked>,
+    /// The order transfers were opened in, so the cap evicts the oldest.
+    kitty_chunk_order: std::collections::VecDeque<u32>,
     /// An image escape (iTerm2/kitty/sixel) split across `%output` chunks,
     /// carried into the next `process()` call so a large payload isn't torn —
     /// its header rendered as garbage text and the image dropped.
@@ -102,6 +104,22 @@ pub struct ImageParser {
 /// large, so this is generous; beyond it we assume a malformed stream and stop
 /// buffering rather than grow without bound.
 const MAX_PENDING_IMAGE: usize = 8 * 1024 * 1024;
+
+/// Upper bound on ONE chunked Kitty transfer, assembled.
+///
+/// `MAX_PENDING_IMAGE` bounds the unparsed tail of the stream, which is a
+/// different thing: a chunked transfer (`m=1`) is assembled here, across many
+/// well-formed escapes, and nothing was watching that total.
+const MAX_CHUNKED_IMAGE: usize = MAX_PENDING_IMAGE;
+
+/// How many chunked transfers may be in flight at once.
+///
+/// Each `m=1` with a fresh id opens an entry that lives until its `m=0`
+/// arrives — which a program is under no obligation to send. A loop opening
+/// ids and never finishing them grew the map for the life of the pane; past
+/// this the oldest is dropped, which costs a hostile stream its earliest
+/// transfer and a legitimate one nothing (a terminal sends one at a time).
+const MAX_INFLIGHT_CHUNKED: usize = 16;
 
 /// Result of processing raw output through the image parser.
 pub struct ImageProcessResult {
@@ -120,6 +138,7 @@ impl ImageParser {
         self.placements.clear();
         self.main_screen_placements = None;
         self.kitty_chunks.clear();
+        self.kitty_chunk_order.clear();
         self.cursor_row = 0;
         self.cursor_col = 0;
         self.pending.clear();
@@ -148,6 +167,7 @@ impl ImageParser {
     /// periodic pane re-sync, never surviving at all).
     pub fn reset_for_capture(&mut self) {
         self.kitty_chunks.clear();
+        self.kitty_chunk_order.clear();
         self.cursor_row = 0;
         self.cursor_col = 0;
     }
@@ -531,6 +551,18 @@ impl ImageParser {
         // Chunked transfer (m=1 / m=0): accumulate; only finish on m=0 or
         // when no `m` key is present (single-chunk).
         let entry = if let Some(more) = more_chunks {
+            // SEC-03: the payload comes from pane output, so both the number
+            // of open transfers and the size of each are bounded.
+            if !self.kitty_chunks.contains_key(&image_id)
+                && self.kitty_chunks.len() >= MAX_INFLIGHT_CHUNKED
+            {
+                if let Some(oldest) = self.kitty_chunk_order.pop_front() {
+                    self.kitty_chunks.remove(&oldest);
+                }
+            }
+            if !self.kitty_chunks.contains_key(&image_id) {
+                self.kitty_chunk_order.push_back(image_id);
+            }
             let entry = self
                 .kitty_chunks
                 .entry(image_id)
@@ -542,10 +574,19 @@ impl ImageParser {
                     cols,
                     ..Default::default()
                 });
+            if entry.payload.len().saturating_add(payload_str.len()) > MAX_CHUNKED_IMAGE {
+                // Over the cap: drop the transfer rather than keep growing it.
+                // A real image never reaches this; a stream that does is not
+                // one we can finish anyway.
+                self.kitty_chunks.remove(&image_id);
+                self.kitty_chunk_order.retain(|id| *id != image_id);
+                return Some((consumed, None));
+            }
             entry.payload.push_str(payload_str);
             if more {
                 return Some((consumed, None));
             }
+            self.kitty_chunk_order.retain(|id| *id != image_id);
             self.kitty_chunks.remove(&image_id)?
         } else {
             KittyChunked {
@@ -1107,6 +1148,61 @@ mod tests {
         assert_eq!(parser.placements.len(), 1);
         assert_eq!(parser.placements[0].protocol, ImageProtocol::Kitty);
         assert_eq!(r2.new_images[0].1.mime_type, "image/png");
+    }
+
+    /// SEC-03. A chunked transfer is assembled across many well-formed
+    /// escapes, and nothing watched the total: `MAX_PENDING_IMAGE` bounds the
+    /// unparsed TAIL of the stream, which is a different thing. A program
+    /// opening ids with `m=1` and never sending `m=0` grew the map for the
+    /// life of the pane.
+    #[test]
+    fn unfinished_chunked_transfers_are_bounded_in_number() {
+        let mut parser = ImageParser::new();
+        // Far more ids than the cap, none of them ever finished.
+        for id in 1..=(MAX_INFLIGHT_CHUNKED as u32 * 4) {
+            let chunk = format!("\x1b_Ga=T,f=32,i={id},s=1,v=1,m=1;AAAA\x1b\\");
+            parser.process(chunk.as_bytes());
+        }
+        assert!(
+            parser.kitty_chunks.len() <= MAX_INFLIGHT_CHUNKED,
+            "{} transfers in flight, over the {MAX_INFLIGHT_CHUNKED} cap",
+            parser.kitty_chunks.len()
+        );
+    }
+
+    #[test]
+    fn one_chunked_transfer_cannot_grow_without_end() {
+        let mut parser = ImageParser::new();
+        // One id, fed far past the cap and never finished.
+        let filler = "A".repeat(64 * 1024);
+        let opening = format!("\x1b_Ga=T,f=32,i=1,s=1,v=1,m=1;{filler}\x1b\\");
+        parser.process(opening.as_bytes());
+        for _ in 0..((MAX_CHUNKED_IMAGE / filler.len()) + 4) {
+            let more = format!("\x1b_Gi=1,m=1;{filler}\x1b\\");
+            parser.process(more.as_bytes());
+        }
+        let held = parser
+            .kitty_chunks
+            .get(&1)
+            .map_or(0, |entry| entry.payload.len());
+        assert!(
+            held <= MAX_CHUNKED_IMAGE,
+            "holding {held} bytes for one transfer, over the {MAX_CHUNKED_IMAGE} cap"
+        );
+    }
+
+    /// The bounds must not cost a real image: one transfer at a time, finished
+    /// properly, is what a terminal actually sends.
+    #[test]
+    fn a_finished_transfer_leaves_nothing_in_flight() {
+        let mut parser = ImageParser::new();
+        let pixels: Vec<u8> = vec![255, 0, 0, 255];
+        let full_b64 = base64::engine::general_purpose::STANDARD.encode(&pixels);
+        let (a, b) = full_b64.split_at(full_b64.len() / 2);
+        parser.process(format!("\x1b_Ga=T,f=32,i=9,s=1,v=1,m=1;{a}\x1b\\").as_bytes());
+        parser.process(format!("\x1b_Gi=9,m=0;{b}\x1b\\").as_bytes());
+        assert!(parser.kitty_chunks.is_empty());
+        assert!(parser.kitty_chunk_order.is_empty());
     }
 
     #[test]
