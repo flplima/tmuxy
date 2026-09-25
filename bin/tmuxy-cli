@@ -83,6 +83,104 @@ find_server_binary() {
   fi
 }
 
+# --- Config ---
+
+# Where tmuxy keeps its config and state. Mirrors tmuxy-core's config_dir().
+tmuxy_config_dir() {
+  echo "${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy"
+}
+
+# Read one boolean out of tmuxy.state.json without a JSON parser: the file is
+# written by serde_json's pretty printer, so a key sits on its own line.
+state_bool() {
+  local key="$1" file
+  file="$(tmuxy_config_dir)/tmuxy.state.json"
+  [ -f "$file" ] || return 1
+  grep -q "\"$key\": true" "$file"
+}
+
+cmd_config() {
+  local setting="${1:-}"
+  case "$setting" in
+    use-tmux-conf)
+      shift
+      cmd_config_use_tmux_conf "$@"
+      ;;
+    ""|--help|-h)
+      cat <<'EOF'
+Usage: tmuxy config <setting> [value]
+
+Settings:
+  use-tmux-conf [on|off]   Source your own ~/.tmux.conf on tmuxy's socket.
+                           With no value, prints the current setting.
+
+With `use-tmux-conf on`, tmuxy sources ~/.tmux.conf and then re-applies
+tmuxy.essentials.conf on top: your prefix, status line and plugins win over
+tmuxy's defaults, and the settings tmuxy needs to function are restored
+afterwards whatever your config did to them.
+
+Takes effect on the next tmux server start for that socket — the config chain
+is read when the server starts, so restart tmuxy (or `tmuxy server stop`) after
+changing it.
+EOF
+      ;;
+    *)
+      echo "Unknown config setting: $setting" >&2
+      echo "Hint: tmuxy config --help" >&2
+      return 1
+      ;;
+  esac
+}
+
+cmd_config_use_tmux_conf() {
+  local dir state_file value="${1:-}"
+  dir="$(tmuxy_config_dir)"
+  state_file="$dir/tmuxy.state.json"
+
+  if [ -z "$value" ]; then
+    if state_bool use_tmux_conf; then
+      echo "use-tmux-conf: on  (~/.tmux.conf is sourced, then tmuxy.essentials.conf on top)"
+    else
+      echo "use-tmux-conf: off (tmuxy uses its own config only)"
+    fi
+    return 0
+  fi
+
+  case "$value" in
+    on|true|1) value=true ;;
+    off|false|0) value=false ;;
+    *)
+      echo "Usage: tmuxy config use-tmux-conf [on|off]" >&2
+      return 1
+      ;;
+  esac
+
+  mkdir -p "$dir"
+  # Rewrite the one key, preserving everything else in the file. node is not a
+  # dependency of the CLI, so this is done with the tools a shell always has.
+  if [ -f "$state_file" ]; then
+    if grep -q '"use_tmux_conf"' "$state_file"; then
+      # -E: BSD sed has no \| alternation in a basic regex, and silently
+      # matches nothing rather than erroring — which read as "off does not work".
+      sed -i.bak -E "s/(\"use_tmux_conf\": )(true|false)/\1$value/" "$state_file"
+      rm -f "$state_file.bak"
+    else
+      # Insert after the opening brace so the file stays valid JSON.
+      sed -i.bak "1s/^{/{\n  \"use_tmux_conf\": $value,/" "$state_file"
+      rm -f "$state_file.bak"
+    fi
+  else
+    printf '{\n  "use_tmux_conf": %s\n}\n' "$value" > "$state_file"
+  fi
+
+  if [ "$value" = true ]; then
+    echo "use-tmux-conf: on — tmuxy will source ~/.tmux.conf, then re-apply its essentials."
+  else
+    echo "use-tmux-conf: off — tmuxy will use its own config only."
+  fi
+  echo "Restart tmuxy for this to take effect (the config chain is read at tmux server start)."
+}
+
 # --- Info & Skill ---
 
 cmd_info() {
@@ -1196,6 +1294,10 @@ case "${1:-}" in
       exec "$(find_server_binary)" trace --health "$@"
     fi
     exec "$(find_server_binary)" trace "$@"
+    ;;
+  config)
+    shift
+    cmd_config "$@"
     ;;
   info)
     shift

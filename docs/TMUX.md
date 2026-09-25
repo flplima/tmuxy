@@ -208,9 +208,54 @@ The keys stay distinct from the tab keys: `ctrl+1`…`ctrl+9` select a **tab**, 
 
 ## tmux Configuration
 
-No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically. On every session connect, the monitor's initial sync (`sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`) sets `window-size manual` and `aggressive-resize off` (so multi-client viewport sizing stays under tmuxy's control), plus `allow-passthrough on`, `mouse on`, `focus-events on`, pane-border options, and title options. Settings are applied per-session rather than globally, to avoid a tmux 3.5a crash triggered by global settings under control mode.
+No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically, and by default does not read `~/.tmux.conf` at all (see [the config chain](#the-config-chain-and-where-a-users-own-tmuxconf-fits)). On every session connect, the monitor's initial sync (`sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`) sets `window-size manual` and `aggressive-resize off` (so multi-client viewport sizing stays under tmuxy's control), plus `allow-passthrough on`, `mouse on`, `focus-events on`, pane-border options, and title options. Settings are applied per-session rather than globally, to avoid a tmux 3.5a crash triggered by global settings under control mode.
 
 OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
+
+### The config chain, and where a user's own `~/.tmux.conf` fits
+
+tmux starts with `-f tmuxy.conf`, so a user's `~/.tmux.conf` is NOT read by default. That is deliberate — it is also the single loudest first-hour complaint from a tmux user, because their prefix, their status line and their plugins all vanish on tmuxy's socket with nothing saying why.
+
+The chain, in order:
+
+| # | File | Owner | Refreshed |
+| - | ---- | ----- | --------- |
+| 1 | `tmuxy.conf` | user | written once, never again |
+| 2 | ↳ `tmuxy.defaults.conf` | app | every launch |
+| 3 | &nbsp;&nbsp;↳ `tmuxy.essentials.conf` | app | every launch |
+| 4 | &nbsp;&nbsp;↳ *(tmuxy's defaults: prefix, status line, bindings)* | app | every launch |
+| 5 | &nbsp;&nbsp;↳ `tmuxy.user.conf` | app, generated | every launch |
+| 6 | &nbsp;&nbsp;&nbsp;&nbsp;↳ `~/.tmux.conf`, then `tmuxy.essentials.conf` again | user | opt-in only |
+| 7 | ↳ *(the user's own edits in `tmuxy.conf`)* | user | — |
+
+`tmuxy config use-tmux-conf on` fills in step 6. The order is the whole design: the user's config comes after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.essentials.conf` is then sourced **again** on top, so the settings tmuxy cannot work without are restored whatever their config did to them.
+
+The generated bridge is a separate file, sourced from the end of `tmuxy.defaults.conf`, because `tmuxy.conf` is written once and never again — anything that has to reach people who already installed tmuxy must live in a file the app refreshes.
+
+### What a user's config can break, and what protects it
+
+Three layers protect the app, and they cover different things:
+
+| Layer | Where | Covers |
+| ----- | ----- | ------ |
+| `enforce_settings()` | `control_mode/monitor.rs`, every connect, per-session | `pane-border-status`/`-format`, `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `window-size manual`, `aggressive-resize off` |
+| `tmuxy.essentials.conf` | sourced after the user's config | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
+| nothing | — | everything else, which is taste |
+
+The ones that actually bite, and why each is in the essentials file rather than left to chance:
+
+- **`destroy-unattached on`** — a reasonable thing to have in a personal config, and fatal here. tmuxy's client is a control-mode connection that comes and goes with every page reload, so the session would be destroyed the moment a browser tab closed.
+- **`default-terminal screen-256color`** — the renderer decodes 24-bit colour from the control-mode stream; a 256-colour TERM makes every truecolour application render in the wrong palette.
+- **`history-limit 500`** — scrollback is a client-side reimplementation over tmux's history. A small limit reads to the user as "tmuxy lost my scrollback".
+- **`command-alias[100…122]`** — every tmuxy binding and the whole CLI resolve through these. A config that sets the same indices silently replaces them, and nav, pane groups and stacks stop working with no error anywhere.
+- **`escape-time`** — a non-zero value makes Escape feel broken in vim.
+
+What is deliberately NOT protected, because protecting it would defeat the point: the prefix, the status line, `mode-keys`, `base-index`, key bindings, colours, and anything a plugin does. A user who opts in gets their own.
+
+Two hazards that remain the user's to judge, and are called out in `tmuxy config use-tmux-conf --help` rather than silently handled:
+
+- **tpm and plugins** load on tmuxy's socket too. `tmux-continuum` in particular will happily auto-save and auto-restore sessions there.
+- **A status line that draws itself** may fight tmuxy's own chrome, which is cosmetic but ugly.
 
 ## `pane_in_mode` Is Not "In Copy Mode"
 

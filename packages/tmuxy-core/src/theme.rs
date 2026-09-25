@@ -232,7 +232,7 @@ pub async fn set_cursor_blink(ctx: &Ctx, enabled: bool) -> Result<(), String> {
     )
     .await
     .map_err(|e| format!("Failed to set cursor blink: {}", e))?;
-    if let Err(e) = session::write_managed_state(None, None, Some(enabled)) {
+    if let Err(e) = session::write_managed_state(None, None, Some(enabled), None) {
         tracing::warn!(error = %e, "could not persist the cursor blink to tmuxy.state.json");
     }
     Ok(())
@@ -266,7 +266,7 @@ pub async fn set_theme(ctx: &Ctx, name: &str, mode: Option<&str>) -> Result<(), 
         .await
         .map_err(|e| format!("Failed to set theme mode: {}", e))?;
     }
-    if let Err(e) = session::write_managed_state(Some(name), mode, None) {
+    if let Err(e) = session::write_managed_state(Some(name), mode, None, None) {
         tracing::warn!(error = %e, "could not persist theme to tmuxy.state.json");
     }
     Ok(())
@@ -285,7 +285,7 @@ pub async fn set_theme_mode(ctx: &Ctx, mode: &str) -> Result<(), String> {
     )
     .await
     .map_err(|e| format!("Failed to set theme mode: {}", e))?;
-    if let Err(e) = session::write_managed_state(None, Some(mode), None) {
+    if let Err(e) = session::write_managed_state(None, Some(mode), None, None) {
         tracing::warn!(error = %e, "could not persist theme mode to tmuxy.state.json");
     }
     Ok(())
