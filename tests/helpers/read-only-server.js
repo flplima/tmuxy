@@ -13,7 +13,17 @@ const { startExtraServer } = require('./extra-server');
 const READ_ONLY_PORT = parseInt(process.env.TMUXY_READ_ONLY_PORT || String(TMUXY_PORT + 100), 10);
 const READ_ONLY_URL = `http://localhost:${READ_ONLY_PORT}`;
 
-/** Start the read-only server; resolves to a function that stops it. */
-const startReadOnlyServer = () => startExtraServer(READ_ONLY_PORT, ['--read-only']);
+/**
+ * Start the read-only server for one session; resolves to a function that
+ * stops it.
+ *
+ * `session` is required because a read-only server is pinned to it: it serves
+ * that name and 404s every other, which is what keeps a viewer beside a writer
+ * on the same socket from naming its way into the writer's other sessions.
+ */
+const startReadOnlyServer = (session) => {
+  if (!session) throw new Error('startReadOnlyServer needs the session to pin to');
+  return startExtraServer(READ_ONLY_PORT, ['--read-only', '--session', session]);
+};
 
 module.exports = { READ_ONLY_URL, startReadOnlyServer };

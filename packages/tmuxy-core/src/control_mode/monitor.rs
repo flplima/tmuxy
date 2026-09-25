@@ -127,6 +127,20 @@ pub trait StateEmitter: super::log::LogSink {
     fn on_initial_sync_complete(&self) {}
 }
 
+/// The `resizew` that gives a freshly attached session the initial PTY size.
+///
+/// The session name is quoted: it reaches the monitor from a client
+/// (`GET /events?session=`), and control mode reads an unquoted `;` in a
+/// command line as the start of another command.
+fn initial_resize_command(session: &str) -> String {
+    format!(
+        "resizew -t {} -x {} -y {}",
+        crate::executor::tmux_quote(session),
+        INITIAL_PTY_COLS,
+        INITIAL_PTY_ROWS
+    )
+}
+
 /// Configuration for TmuxMonitor
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
@@ -495,10 +509,7 @@ impl TmuxMonitor {
         // The browser will send a proper resize once it connects.
         if !self.config.observer {
             self.connection
-                .send_command(&format!(
-                    "resizew -t {} -x {} -y {}",
-                    self.config.session, INITIAL_PTY_COLS, INITIAL_PTY_ROWS
-                ))
+                .send_command(&initial_resize_command(&self.config.session))
                 .await?;
         }
 
@@ -747,6 +758,19 @@ impl TmuxMonitor {
         // %paste-buffer-changed; read the buffer (read-only) and mirror it to the
         // web clipboard through the same emitter path as application OSC 52.
         if let ControlModeEvent::PasteBufferChanged { buffer_name } = &event {
+            // SEC-13: paste buffers are global to the tmux SERVER, and the
+            // event names no origin — so a `load-buffer secret.txt` or a yank
+            // in someone else's session would otherwise be mirrored to every
+            // client of this one. The documented fallback for "did this come
+            // from here?" is the only signal available: a pane of THIS
+            // session is in copy mode, which is what a yank leaves behind.
+            if !self.aggregator.has_pane_in_copy_mode() {
+                debug!(
+                    buffer = %buffer_name,
+                    "paste buffer changed with no pane of this session in copy mode; not mirrored"
+                );
+                return true;
+            }
             match crate::executor::show_buffer_named(buffer_name) {
                 Ok(text) if !text.is_empty() => emitter.write_clipboard("", text),
                 Ok(_) => {}
@@ -1396,6 +1420,24 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use super::initial_resize_command;
+
+    /// SEC-14: `GET /events?session=` lets a client pick the name, and an
+    /// unquoted one carrying `;` used to be parsed by control mode as a
+    /// second command — `?session=x ; run-shell "id>/tmp/p" ; resizew` ran it.
+    #[test]
+    fn a_session_name_carrying_a_semicolon_stays_one_command() {
+        let cmd = initial_resize_command(r#"x ; run-shell "id>/tmp/p" ; resizew"#);
+        assert_eq!(
+            cmd,
+            r#"resizew -t 'x ; run-shell "id>/tmp/p" ; resizew' -x 200 -y 50"#
+        );
+    }
+
+    #[test]
+    fn a_session_name_carrying_a_quote_is_escaped_not_terminated() {
+        assert!(initial_resize_command("it's").starts_with(r"resizew -t 'it'\''s' "));
+    }
 
     /// The bug this replaced: `resizew` is fire-and-forget, and recording the
     /// SEND as the truth meant one dropped command left the client asking for

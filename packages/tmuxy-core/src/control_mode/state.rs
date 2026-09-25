@@ -1239,6 +1239,34 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
     }
 }
 
+/// The largest OSC 52 clipboard write a pane may make, decoded.
+///
+/// A pane's output is not trusted: `cat` of a crafted file is enough to reach
+/// this path, so the write is bounded rather than being whatever the file was.
+/// 64 KiB is comfortably above a real yank and below xterm's own ~100 KB.
+pub const MAX_CLIPBOARD_BYTES: usize = 64 * 1024;
+
+/// Whether an OSC 52 write from `pane_id` is honoured, and with what text.
+///
+/// Two bounds, both because the sequence comes from pane output rather than
+/// from the user:
+/// - **Only the active pane.** A background pane — a tailed log, a stray ssh
+///   session — cannot silently replace what the user is about to paste.
+/// - **A size cap.** See `MAX_CLIPBOARD_BYTES`.
+pub fn accepted_clipboard_write(
+    pane_id: &str,
+    active_pane_id: Option<&str>,
+    text: String,
+) -> Option<String> {
+    if active_pane_id != Some(pane_id) {
+        return None;
+    }
+    if text.len() > MAX_CLIPBOARD_BYTES {
+        return None;
+    }
+    Some(text)
+}
+
 pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
 /// Marker printed immediately AFTER a self-issued capture-pane command.
 pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
@@ -1836,6 +1864,14 @@ impl StateAggregator {
         }]
     }
 
+    /// The pane a keystroke would reach: the active pane of the active window.
+    fn active_pane_id(&self) -> Option<String> {
+        self.active_window_id
+            .as_ref()
+            .and_then(|id| self.windows.get(id))
+            .and_then(|w| w.active_pane_id.clone())
+    }
+
     /// Shared body of the `%output` / `%extended-output` arms.
     fn output_result(&mut self, pane_id: String, content: &[u8]) -> ProcessEventResult {
         let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, content);
@@ -1844,7 +1880,9 @@ impl StateAggregator {
         } else {
             vec![(pane_id.clone(), new_imgs)]
         };
+        let active = self.active_pane_id();
         let clipboard_writes = clipboard
+            .and_then(|text| accepted_clipboard_write(&pane_id, active.as_deref(), text))
             .map(|text| vec![(pane_id.clone(), text)])
             .unwrap_or_default();
         ProcessEventResult {
@@ -3429,6 +3467,16 @@ mod tests {
         agg.panes.insert(pane_id.to_string(), pane);
     }
 
+    /// Seed a pane and make it the one a keystroke would reach — what the
+    /// clipboard gate asks about.
+    fn seed_active_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
+        seed_pane(agg, pane_id, window_id);
+        let mut window = WindowState::new(window_id);
+        window.active_pane_id = Some(pane_id.to_string());
+        agg.windows.insert(window_id.to_string(), window);
+        agg.active_window_id = Some(window_id.to_string());
+    }
+
     /// A version-pinned launcher must not name the pane after its version.
     ///
     /// `#{pane_current_command}` is the resolved executable's file name, so
@@ -3767,7 +3815,7 @@ mod tests {
         // OSC 52 base64-encoded "hello world" payload — what an app like
         // `printf '\e]52;c;%s\e\\' "$(printf hello\ world | base64)'` sends.
         let mut agg = StateAggregator::new();
-        seed_pane(&mut agg, "%0", "@0");
+        seed_active_pane(&mut agg, "%0", "@0");
 
         let event = ControlModeEvent::Output {
             pane_id: "%0".to_string(),
@@ -3796,6 +3844,51 @@ mod tests {
 
         let result = agg.process_event(event);
         assert!(result.clipboard_writes.is_empty());
+    }
+
+    /// SEC-01. OSC 52 arrives in pane OUTPUT, so `cat` of a crafted file is
+    /// enough to reach it — a background pane (a tailed log, a stray ssh
+    /// session) could silently replace what the user was about to paste.
+    #[test]
+    fn osc52_from_a_pane_the_user_is_not_in_is_dropped() {
+        let mut agg = StateAggregator::new();
+        seed_active_pane(&mut agg, "%0", "@0");
+        seed_pane(&mut agg, "%1", "@0");
+
+        let result = agg.process_event(ControlModeEvent::Output {
+            pane_id: "%1".to_string(),
+            content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
+        });
+
+        assert!(
+            result.clipboard_writes.is_empty(),
+            "a background pane must not reach the system clipboard"
+        );
+    }
+
+    /// SEC-01. The payload is whatever the file held, so it is bounded.
+    #[test]
+    fn an_osc52_write_over_the_cap_is_dropped() {
+        let under = accepted_clipboard_write("%0", Some("%0"), "x".repeat(MAX_CLIPBOARD_BYTES));
+        assert_eq!(under.map(|t| t.len()), Some(MAX_CLIPBOARD_BYTES));
+
+        let over = accepted_clipboard_write("%0", Some("%0"), "x".repeat(MAX_CLIPBOARD_BYTES + 1));
+        assert_eq!(over, None);
+    }
+
+    #[test]
+    fn a_clipboard_write_needs_an_active_pane_to_match() {
+        assert_eq!(
+            accepted_clipboard_write("%0", Some("%0"), "yank".into()),
+            Some("yank".to_string())
+        );
+        assert_eq!(
+            accepted_clipboard_write("%0", Some("%1"), "yank".into()),
+            None
+        );
+        // Nothing is active yet (a session still coming up): no pane is the
+        // one the user is in, so none may write.
+        assert_eq!(accepted_clipboard_write("%0", None, "yank".into()), None);
     }
 
     /// Build a LIST_PANES_CMD line with the given title and border_title, in the

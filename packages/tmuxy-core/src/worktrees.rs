@@ -21,9 +21,23 @@ use thiserror::Error;
 pub const MAX_DISCOVERY_PATHS: usize = 256;
 
 /// The tmux listing whose output feeds discovery: one pane cwd per line.
-pub const LIST_PANE_PATHS_CMD: &str = "list-panes -a -F '#{pane_current_path}'";
+///
+/// `session` scopes it. A server pinned to one session (a `--read-only`
+/// viewer, which may sit on the same socket as a writer) passes its own name,
+/// so discovery reports that session's repositories rather than every pane on
+/// the tmux server. `None` lists every session, which is what a writable
+/// server — whose client can run `list-panes -a` itself — wants.
+pub fn list_pane_paths_cmd(session: Option<&str>) -> String {
+    match session {
+        Some(name) => format!(
+            "list-panes -s -t {} -F '#{{pane_current_path}}'",
+            crate::executor::tmux_quote(name)
+        ),
+        None => "list-panes -a -F '#{pane_current_path}'".to_string(),
+    }
+}
 
-/// The distinct, non-empty paths in a `LIST_PANE_PATHS_CMD` listing, in
+/// The distinct, non-empty paths in a `list_pane_paths_cmd` listing, in
 /// order, capped at `MAX_DISCOVERY_PATHS` so a runaway pane count bounds the
 /// git work rather than failing it.
 pub fn paths_from_pane_listing(listing: &str) -> Vec<String> {
@@ -429,6 +443,35 @@ fn normalize_branch(branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SEC-12: a `--read-only` viewer beside a writer on the same socket used
+    /// to get `list-panes -a` — the repo path and branch of every pane in
+    /// every session on the tmux server, not just the one it was shown.
+    #[test]
+    fn a_pinned_server_only_lists_its_own_sessions_panes() {
+        assert_eq!(
+            list_pane_paths_cmd(Some("shared")),
+            "list-panes -s -t 'shared' -F '#{pane_current_path}'"
+        );
+    }
+
+    #[test]
+    fn an_unpinned_server_still_lists_every_pane() {
+        assert_eq!(
+            list_pane_paths_cmd(None),
+            "list-panes -a -F '#{pane_current_path}'"
+        );
+    }
+
+    /// The name is quoted for the same reason SEC-14 quotes it: the listing is
+    /// a control-mode command line, where `;` starts another command.
+    #[test]
+    fn a_session_name_is_quoted_into_the_listing() {
+        assert_eq!(
+            list_pane_paths_cmd(Some("a ; kill-server")),
+            "list-panes -s -t 'a ; kill-server' -F '#{pane_current_path}'"
+        );
+    }
 
     #[test]
     fn empty_paths_never_fall_back_to_an_ambient_scan() {

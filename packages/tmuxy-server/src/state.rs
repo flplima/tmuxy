@@ -241,6 +241,14 @@ pub struct AppState {
     /// commands `ClientCommand::is_read` names are served, and no client's
     /// viewport is ever recorded, so a viewer cannot resize the session.
     pub read_only: bool,
+    /// The one session this server is allowed to show, if it is pinned.
+    ///
+    /// A `--read-only` server is pinned to the session it was started for, so
+    /// a viewer cannot name another one in `GET /events?session=` and be
+    /// handed a different screen — or, on a writable socket shared with a
+    /// writer, the whole tmux server. `None` on a writable server, where a
+    /// client can already run anything and session switching is the feature.
+    pub session_pin: Option<String>,
 }
 
 impl Default for AppState {
@@ -265,6 +273,7 @@ impl AppState {
             shutdown: CancellationToken::new(),
             ctx,
             read_only: false,
+            session_pin: None,
         }
     }
 
@@ -272,6 +281,20 @@ impl AppState {
     pub fn with_read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
         self
+    }
+
+    /// Pin this server to one session: see `AppState::session_pin`.
+    pub fn with_session_pin(mut self, session: Option<String>) -> Self {
+        self.session_pin = session;
+        self
+    }
+
+    /// Whether `name` is a session this server will serve.
+    pub fn serves_session(&self, name: &str) -> bool {
+        match &self.session_pin {
+            Some(pinned) => pinned == name,
+            None => true,
+        }
     }
 
     /// Spawn a background task into the shutdown-tracked `JoinSet`.

@@ -172,6 +172,26 @@ impl StateEmitter for SseEmitter {
     }
 
     fn write_clipboard(&self, pane_id: &str, text: String) {
+        // SEC-13: a viewer never receives the writer's clipboard. tmux paste
+        // buffers are global to the tmux SERVER, so `%paste-buffer-changed`
+        // carries a yank from any session — text a viewer was never shown —
+        // and every client that receives it writes it to its own system
+        // clipboard.
+        if self.app_state.read_only {
+            tracing::debug!(%pane_id, "read-only server: clipboard write not forwarded");
+            return;
+        }
+        // SEC-01/SEC-13: the OSC 52 path bounds this at the aggregator, where
+        // the active pane is known; a paste-buffer mirror arrives here with no
+        // pane at all, so the size cap is applied for both on the way out.
+        if text.len() > tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES {
+            tracing::debug!(
+                %pane_id,
+                bytes = text.len(),
+                "clipboard write over the cap, dropped"
+            );
+            return;
+        }
         self.send_event(&SseEvent::Clipboard {
             pane_id: pane_id.to_string(),
             text,
@@ -265,12 +285,23 @@ pub struct SessionQuery {
     session: Option<String>,
 }
 
-/// A `?session=` the server will not write into a command line; a 400.
-struct InvalidSession;
+/// A `?session=` the server will not serve.
+#[derive(Debug)]
+enum SessionRejection {
+    /// A name the server will not write into a command line; a 400.
+    Invalid,
+    /// A name other than the one this server is pinned to; a 404, which says
+    /// no more to a prober than that this server does not have it.
+    NotServed,
+}
 
-impl IntoResponse for InvalidSession {
+impl IntoResponse for SessionRejection {
     fn into_response(self) -> Response {
-        (StatusCode::BAD_REQUEST, "invalid session name\n").into_response()
+        match self {
+            Self::Invalid => (StatusCode::BAD_REQUEST, "invalid session name\n"),
+            Self::NotServed => (StatusCode::NOT_FOUND, "no such session\n"),
+        }
+        .into_response()
     }
 }
 
@@ -278,12 +309,17 @@ impl SessionQuery {
     /// The session the request names — the default one when it names none.
     /// The name is written into control-mode command lines, where a newline
     /// (or any control character) would end the command and start another.
-    fn session(self) -> Result<String, InvalidSession> {
+    ///
+    /// A pinned server (`AppState::session_pin`) serves that name only.
+    fn session(self, state: &AppState) -> Result<String, SessionRejection> {
         let session = self
             .session
             .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
         if session.is_empty() || session.chars().any(char::is_control) {
-            return Err(InvalidSession);
+            return Err(SessionRejection::Invalid);
+        }
+        if !state.serves_session(&session) {
+            return Err(SessionRejection::NotServed);
         }
         Ok(session)
     }
@@ -313,10 +349,17 @@ pub async fn sse_handler(
     Query(query): Query<SessionQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let session = match query.session() {
+    let session = match query.session(&state) {
         Ok(session) => session,
         Err(rejection) => return rejection.into_response(),
     };
+
+    // A read-only server never brings a session into being: `new-session -A`
+    // would hand a viewer a live shell in the workspace dir, once per distinct
+    // name they ask for, none of it cleaned up when they leave.
+    if state.read_only && !session_exists(&session).await {
+        return SessionRejection::NotServed.into_response();
+    }
 
     // Browser passes the id of the last event it received via the standard
     // `Last-Event-Id` header on reconnect. If we can find it in the per-session
@@ -554,7 +597,7 @@ pub async fn commands_handler(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let session = match query.session() {
+    let session = match query.session(&state) {
         Ok(session) => session,
         Err(rejection) => return rejection.into_response(),
     };
@@ -747,6 +790,16 @@ async fn handle_command(
             // particular sometimes races a pending layout change and returns
             // transient io::Error; the retry layer absorbs those.
             let policy = tmuxy_core::RetryPolicy::standard();
+
+            // The pane id is the client's. On a pinned server it is resolved
+            // against that session's own panes first, so `%N` or `other:0.0`
+            // cannot dump a pane the viewer was never shown.
+            if let Some(pinned) = state.session_pin.as_deref() {
+                if !session_owns_pane(state, pinned, &pane_id).await {
+                    return Err(format!("pane {pane_id} is not in session {pinned}"));
+                }
+            }
+
             let width_output = state
                 .tmux_call_with_policy(
                     vec![
@@ -843,9 +896,13 @@ async fn handle_command(
             // The pane cwds come from tmux, not the request (see the variant),
             // and git runs off the async runtime like the other subprocess reads.
             use tmuxy_core::worktrees::{
-                list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD,
+                list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing,
             };
-            let listing = query_via_control_mode(state, session, LIST_PANE_PATHS_CMD)
+            // A pinned server reports only its own session's repositories —
+            // otherwise a viewer learns the repo path and branch of every pane
+            // on the tmux server, including the writer's.
+            let cmd = list_pane_paths_cmd(state.session_pin.as_deref());
+            let listing = query_via_control_mode(state, session, &cmd)
                 .await?
                 .into_result()?;
             let repositories = tokio::task::spawn_blocking(move || {
@@ -1236,6 +1293,75 @@ async fn session_exists(session: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// The monitor settings this server watches `session` with.
+///
+/// `create_session` is the SEC-11 line: a read-only server never brings a
+/// session into being, so a viewer inventing `?session=` names cannot spawn a
+/// live shell per name. `observer` keeps it from resizing what it watches.
+fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
+    MonitorConfig {
+        session: session.to_string(),
+        sync_interval: Duration::from_millis(500),
+        create_session: !state.read_only,
+        group_target: None,
+        throttle_interval: Duration::from_millis(32),
+        throttle_threshold: 20,
+        rate_window: Duration::from_millis(100),
+        working_dir: Some(crate::state::find_workspace_root()),
+        observer: state.read_only,
+    }
+}
+
+/// Whether `pane_id` names a pane of `session`.
+///
+/// Resolved from tmux's own listing rather than by parsing the id, because a
+/// client may send either form (`%7` or `session:0.0`) and only tmux knows
+/// which pane each resolves to.
+async fn session_owns_pane(state: &AppState, session: &str, pane_id: &str) -> bool {
+    // Canonicalise first: the client may send `%7` or `session:0.0`, and only
+    // tmux knows which pane the second form resolves to.
+    let resolved = state
+        .tmux_call_with_policy(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.into(),
+                "-p".into(),
+                "#{pane_id}".into(),
+            ],
+            "scrollback:pane_resolve",
+            tmuxy_core::RetryPolicy::standard(),
+        )
+        .await;
+    let Ok(resolved) = resolved else {
+        return false;
+    };
+    let resolved = resolved.trim().to_string();
+    if resolved.is_empty() {
+        return false;
+    }
+
+    let listing = state
+        .tmux_call_with_policy(
+            vec![
+                "list-panes".into(),
+                "-s".into(),
+                "-t".into(),
+                session.into(),
+                "-F".into(),
+                "#{pane_id}".into(),
+            ],
+            "scrollback:pane_allowlist",
+            tmuxy_core::RetryPolicy::standard(),
+        )
+        .await;
+    match listing {
+        Ok(listing) => listing.lines().any(|line| line.trim() == resolved),
+        // tmux could not answer: refuse rather than fall open.
+        Err(_) => false,
+    }
+}
+
 pub async fn start_monitoring(
     broadcast: Arc<crate::state::SessionBroadcast>,
     session: String,
@@ -1244,17 +1370,7 @@ pub async fn start_monitoring(
     let emitter = Arc::new(SseEmitter::new(broadcast.clone(), Arc::clone(&state)));
     let log_sink: Arc<dyn LogSink> = emitter.clone();
 
-    let config = MonitorConfig {
-        session: session.clone(),
-        sync_interval: Duration::from_millis(500),
-        create_session: true,
-        group_target: None,
-        throttle_interval: Duration::from_millis(32),
-        throttle_threshold: 20,
-        rate_window: Duration::from_millis(100),
-        working_dir: Some(crate::state::find_workspace_root()),
-        observer: state.read_only,
-    };
+    let config = monitor_config(&session, &state);
 
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
@@ -1305,9 +1421,11 @@ pub async fn start_monitoring(
             let exists = session_exists(&session).await;
 
             if !exists {
-                if ever_ran_successfully {
-                    // Session was intentionally destroyed (e.g., kill-session from test cleanup)
-                    info!(%session, "tmux session no longer exists (was running), stopping monitor loop");
+                if ever_ran_successfully || state.read_only {
+                    // Session was intentionally destroyed (e.g., kill-session
+                    // from test cleanup), or this is a viewer's server, which
+                    // never brings a session back — it watches or it stops.
+                    info!(%session, "tmux session no longer exists, stopping monitor loop");
                     break;
                 }
                 // Session died before ever running — recreate it
@@ -1547,6 +1665,127 @@ mod tests {
         };
         // The fake monitor never answers with a state; only the sizing matters.
         let _ = handle_command(cmd, "s", state, Some(1)).await;
+    }
+
+    fn query(name: Option<&str>) -> SessionQuery {
+        SessionQuery {
+            session: name.map(str::to_string),
+        }
+    }
+
+    fn rejection_status(state: &AppState, name: Option<&str>) -> StatusCode {
+        match query(name).session(state) {
+            Ok(_) => StatusCode::OK,
+            Err(rejection) => rejection.into_response().status(),
+        }
+    }
+
+    /// SEC-12: the documented viewer setup is a `--read-only` server beside a
+    /// writer **on the same socket**, so a name the viewer picks used to hand
+    /// it any other session's screen.
+    #[test]
+    fn a_pinned_server_serves_its_own_session_and_no_other() {
+        let state = AppState::new()
+            .with_read_only(true)
+            .with_session_pin(Some("shared".into()));
+        assert_eq!(
+            query(Some("shared")).session(&state).unwrap(),
+            "shared".to_string()
+        );
+        assert_eq!(
+            rejection_status(&state, Some("felipes-private-work")),
+            StatusCode::NOT_FOUND
+        );
+        // A request naming nothing asks for the default name, which is not the
+        // pinned one here — it gets the same refusal, not a silent redirect.
+        assert_eq!(rejection_status(&state, None), StatusCode::NOT_FOUND);
+    }
+
+    /// A writable server's client can run `new-session` itself, so pinning it
+    /// would only break switching sessions.
+    #[test]
+    fn a_writable_server_serves_every_session_name() {
+        let state = AppState::new();
+        assert_eq!(
+            query(Some("anything")).session(&state).unwrap(),
+            "anything".to_string()
+        );
+        assert_eq!(
+            query(None).session(&state).unwrap(),
+            tmuxy_core::DEFAULT_SESSION_NAME.to_string()
+        );
+    }
+
+    /// A name that would end the control-mode command line is refused before
+    /// the pin is consulted — it is malformed, not merely someone else's.
+    #[test]
+    fn an_unwritable_session_name_is_still_a_400() {
+        let state = AppState::new();
+        assert_eq!(rejection_status(&state, Some("")), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            rejection_status(&state, Some("a\nkill-server")),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    /// SEC-11: `create_session` was hard-coded true, so every distinct
+    /// `?session=` a viewer invented became a live shell that outlived them.
+    #[test]
+    fn a_read_only_server_never_creates_the_session_it_watches() {
+        let viewer = AppState::new().with_read_only(true);
+        let config = monitor_config("invented-by-a-viewer", &viewer);
+        assert!(!config.create_session);
+        assert!(config.observer);
+
+        let writer = monitor_config("tmuxy", &AppState::new());
+        assert!(writer.create_session);
+        assert!(!writer.observer);
+    }
+
+    /// SEC-13. tmux paste buffers are global to the tmux SERVER, so a yank or
+    /// a `load-buffer secret.txt` in ANY session fires `%paste-buffer-changed`
+    /// and used to reach every connected client — a `--read-only` viewer
+    /// included, which then wrote the writer's text to its own system
+    /// clipboard. Text the viewer was never shown.
+    #[tokio::test]
+    async fn a_viewer_is_never_handed_the_writers_clipboard() {
+        let broadcast = Arc::new(crate::state::SessionBroadcast::new());
+        let mut rx = broadcast.subscribe();
+        let viewer = Arc::new(AppState::new().with_read_only(true));
+        let emitter = SseEmitter::new(broadcast.clone(), viewer);
+
+        emitter.write_clipboard("", "a secret someone yanked elsewhere".into());
+
+        assert!(rx.try_recv().is_err(), "nothing should have been broadcast");
+    }
+
+    #[tokio::test]
+    async fn a_writable_server_still_forwards_a_clipboard_write() {
+        let broadcast = Arc::new(crate::state::SessionBroadcast::new());
+        let mut rx = broadcast.subscribe();
+        let emitter = SseEmitter::new(broadcast.clone(), Arc::new(AppState::new()));
+
+        emitter.write_clipboard("%0", "yanked".into());
+
+        let (_, message) = rx.try_recv().unwrap();
+        assert!(message.contains("yanked"));
+    }
+
+    /// SEC-01/SEC-13. The paste-buffer mirror arrives with no pane, so the
+    /// aggregator's active-pane gate never sees it — the size cap is the one
+    /// bound that path has.
+    #[tokio::test]
+    async fn a_clipboard_write_over_the_cap_is_not_broadcast() {
+        let broadcast = Arc::new(crate::state::SessionBroadcast::new());
+        let mut rx = broadcast.subscribe();
+        let emitter = SseEmitter::new(broadcast.clone(), Arc::new(AppState::new()));
+
+        emitter.write_clipboard(
+            "",
+            "x".repeat(tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES + 1),
+        );
+
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

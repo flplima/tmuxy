@@ -10,11 +10,11 @@ set -euo pipefail
 
 SOCKET="${TMUX_SOCKET:-tmuxy-public}"
 PORT="${TMUXY_PORT:-9000}"
-# `tmuxy` because that is the name a client that names no session asks for, and
-# it is a COMPILE-TIME constant on that path (tmuxy_core::DEFAULT_SESSION_NAME,
-# used by SessionQuery::session) — the TMUXY_SESSION env var does not move it.
-# Get this wrong and the server quietly creates an empty session of its own
-# beside this one, and the demo shows a bare prompt with nothing saying why.
+# The one session the read-only server is pinned to, and so the only one it
+# serves: a `?session=` naming anything else answers 404. It must also be the
+# name a client that names none asks for (tmuxy_core::DEFAULT_SESSION_NAME), so
+# the default page load lands on it. Get this wrong and the demo answers 404
+# with nothing saying why — the server no longer creates a session of its own.
 SESSION="${TMUXY_SESSION:-tmuxy}"
 
 tmux() { command tmux -L "$SOCKET" "$@"; }

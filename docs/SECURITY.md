@@ -53,14 +53,17 @@ Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credenti
 
 `tmuxy server --read-only` (or `TMUXY_READ_ONLY=1`) serves viewers: every client receives the state stream and none can change the session. It is a property of the server process, not of a client or a URL, so there is nothing for a client to drop or forge. To share a session for watching, run a second server on its own port beside the one you write through (each port keeps its own pid file, so `tmuxy server --port N stop` stops the right one).
 
+A read-only server is **pinned to one session** — `--session <name>` (or `TMUXY_SESSION`), defaulting to `tmuxy`. This matters because the recommended setup puts the viewer on the _same tmux socket_ as the writer, where every other session of yours is one name away: without the pin, a viewer naming any session in `?session=` was handed that session's screen.
+
 What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`:
 
 - **Refuses every command that is not a read** with a 403, decided before dispatch from `ClientCommand::is_read` — state, scrollback, themes, git worktrees and trace settings are reads; everything else is not, including `query_tmux`, which carries an arbitrary tmux command that nothing here can classify.
 - **Never records a client's viewport**, so a viewer's small window cannot resize the session under whoever is writing, and its monitor attaches without the initial resize (`MonitorConfig::observer`).
 - **Refuses `/trace`** and announces the mode in the `connection-info` greeting, which is how the frontend knows to stop offering changes.
+- **Serves one session and creates none.** A name other than the pinned one answers 404, and so does the pinned one before it exists — a viewer's server attaches to a session or it does not run, where it used to answer every invented name with `new-session -A`, spawning a live shell per name that outlived the viewer. Pane ids in a scrollback request are resolved against that session's own panes before `capture-pane` sees them, and worktree discovery lists only that session's panes.
 - **Refuses `/api/file` and `/api/browse`** with a 403. "Read-only" is about the session, and those two routes are a different power: they read any file the server process can, anywhere on the disk. A read-only server is the one meant to be handed to people who are not trusted with the machine, so the arbitrary-read routes are exactly the ones it must not serve. Only the browser widget uses them, and opening one takes a command a viewer cannot send.
 
-What it does not do: it is not confidentiality. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server, and for a genuinely public viewer see [A Public Read-Only Viewer](#a-public-read-only-viewer).
+What it does not do: it is not confidentiality _within the session it shows_. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server, and for a genuinely public viewer see [A Public Read-Only Viewer](#a-public-read-only-viewer).
 
 ### Behind a Reverse Proxy
 
@@ -139,7 +142,7 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 4. **Clipboard Poisoning (OSC 52)**
    - _Vector:_ A program writing malicious shell commands to the system clipboard via OSC 52, tricking the user into pasting and executing dangerous commands.
-   - _Policy:_ OSC 52 clipboard writes must require explicit user interaction/consent or obey strict size and rate limits. The server or client must never allow unauthorized background clipboard reads.
+   - _Policy:_ OSC 52 clipboard writes obey bounds rather than a prompt — a confirmation on every yank would break the legitimate use (nvim or tmux yanking over ssh, which is the reason the sequence is honoured at all) and train the user to click through it. The bounds: only the **active pane** may write, so a tailed log or a stray ssh session cannot replace what the user is about to paste; the decoded payload is capped (`MAX_CLIPBOARD_BYTES`); and every accepted write announces itself on the status line, naming the pane and the size, so a clipboard the user did not set is never silent. tmux paste buffers, which are global to the tmux server, are mirrored only when a pane of _this_ session is in copy mode, and never on a `--read-only` server. The server or client must never allow unauthorized background clipboard reads.
 
 5. **ReDoS & Parser Desynchronization**
    - _Vector:_ Pathological escape sequences designed to trigger exponential regex backtracking in parsers or desynchronize the terminal state machine.

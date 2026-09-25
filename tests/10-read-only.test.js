@@ -63,16 +63,20 @@ describe('Scenario 30: Read-only viewer', () => {
   const ctx = createTestContext();
   let stopReadOnlyServer = () => {};
 
-  beforeAll(async () => {
-    await ctx.beforeAll();
-    stopReadOnlyServer = await startReadOnlyServer();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  // The read-only server is pinned to one session, and the session is made per
+  // test, so the server is started per test too — after `ctx.beforeEach` has
+  // named it and before anything navigates to it.
+  beforeEach(async () => {
+    await ctx.beforeEach();
+    stopReadOnlyServer = await startReadOnlyServer(ctx.session.name);
   }, ctx.hookTimeout);
-  afterAll(async () => {
+  afterEach(async () => {
     stopReadOnlyServer();
-    await ctx.afterAll();
-  });
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+    stopReadOnlyServer = () => {};
+    await ctx.afterEach();
+  }, ctx.hookTimeout);
 
   test('viewer follows output → keeps its own tab → cannot type, resize or change anything', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -184,5 +188,56 @@ describe('Scenario 30: Read-only viewer', () => {
     expect(status).toBe(403);
 
     await viewer.close();
+  }, 120000);
+
+  /**
+   * SEC-11/SEC-12. The recommended setup puts the viewer on the SAME tmux
+   * socket as the writer, so every other session of yours is one `?session=`
+   * away. A viewer used to be handed any of them — and handed a brand new one,
+   * shell and all, for any name that did not exist yet.
+   */
+  test('a viewer cannot reach a session beside the one it was given, or bring one into being', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // A second session on the same socket, the way a writer's other work sits
+    // beside the shared one. It is made the way a user makes one — by opening
+    // it on the WRITABLE server — because an external `tmux new-session`
+    // crashes tmux 3.5a while control mode is attached (docs/TMUX.md).
+    const neighbour = `${ctx.session.name}-neighbour`;
+    const other = await ctx.browser.newPage();
+    await navigateToSession(other, neighbour);
+    const invented = `${ctx.session.name}-invented`;
+
+    const viewer = await ctx.browser.newPage();
+    await navigateToSession(viewer, ctx.session.name, READ_ONLY_URL);
+
+    const statusOf = (session) =>
+      viewer.evaluate(async (name) => {
+        const response = await fetch(`/events?session=${encodeURIComponent(name)}`);
+        // Read nothing: a 200 would be an open stream, and the status is the answer.
+        return response.status;
+      }, session);
+
+    expect(await statusOf(neighbour)).toBe(404);
+    expect(await statusOf(invented)).toBe(404);
+
+    // ...and asking for it did not create it.
+    const sessions = await other.evaluate(async (name) => {
+      const response = await fetch(`/commands?session=${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cmd: 'query_tmux',
+          args: { command: "list-sessions -F '#{session_name}'" },
+        }),
+      });
+      return (await response.json()).result;
+    }, neighbour);
+    expect(sessions).toContain(neighbour);
+    expect(sessions).not.toContain(invented);
+
+    await viewer.close();
+    await other.close();
   }, 120000);
 });
