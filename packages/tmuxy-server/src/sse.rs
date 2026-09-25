@@ -1170,8 +1170,14 @@ async fn set_client_size(
             if session_conns.last_resize == Some(min) {
                 return;
             }
-            session_conns.last_resize = Some(min);
             trace!(?sizes, "all client sizes");
+            // `last_resize` is NOT written here. It is the record of a size
+            // that reached tmux, and it is only known below whether one did:
+            // a monitor that has not registered its command channel yet means
+            // the resize is dropped, and marking it applied made every later
+            // attempt short-circuit on the check above — the client's size
+            // lost for the life of the session, with the window left at the
+            // control-mode PTY's 200x50 while the client drew 41 columns.
             (Some(min), session_conns.monitor_command_tx.clone())
         } else {
             (None, None)
@@ -1180,22 +1186,38 @@ async fn set_client_size(
 
     if let Some((min_cols, min_rows)) = min_size {
         debug!(min_cols, min_rows, "resizing to min");
-        if let Some(tx) = command_tx {
-            match tx
-                .send(MonitorCommand::ResizeWindow {
-                    cols: min_cols,
-                    rows: min_rows,
-                })
-                .await
-            {
-                Ok(_) => trace!("resize command sent via monitor"),
-                Err(e) => {
-                    warn!(error = %e, "monitor channel error, falling back to executor");
-                    let _ = executor::resize_window(session, min_cols, min_rows);
+        let delivered = match command_tx {
+            Some(tx) => {
+                match tx
+                    .send(MonitorCommand::ResizeWindow {
+                        cols: min_cols,
+                        rows: min_rows,
+                    })
+                    .await
+                {
+                    Ok(_) => {
+                        trace!("resize command sent via monitor");
+                        true
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "monitor channel error, falling back to executor");
+                        executor::resize_window(session, min_cols, min_rows).is_ok()
+                    }
                 }
             }
-        } else {
-            debug!("no monitor channel yet, skipping resize");
+            None => {
+                // The monitor is still connecting. Leaving `last_resize` unset
+                // is the whole point: the next client size — or the same one
+                // again — has to be able to try, or this size never arrives.
+                debug!("no monitor channel yet, leaving the size to be asked again");
+                false
+            }
+        };
+        if delivered {
+            let mut sessions = state.sessions.write().await;
+            if let Some(session_conns) = sessions.get_mut(session) {
+                session_conns.last_resize = Some((min_cols, min_rows));
+            }
         }
     }
 }
@@ -1873,6 +1895,53 @@ mod tests {
         let sizes = state.sessions.read().await["s"].client_sizes.clone();
         assert_eq!(sizes.get(&1), Some(&(40, 12)));
         assert_eq!(*resizes.lock().await, vec![(40, 12)]);
+    }
+
+    /// The 12-touch bug. `last_resize` is the record of a size that REACHED
+    /// tmux, and it was written before anything was sent — so a monitor that
+    /// had not registered its command channel yet meant the resize was dropped
+    /// while the size was remembered as applied. Every later attempt then
+    /// short-circuited on "same size as last time", and the client's viewport
+    /// was lost for the life of the session: the window stayed at the
+    /// control-mode PTY's 200x50 while a phone-width client drew 41 columns.
+    ///
+    /// Timing-dependent, which is why it failed on a CI runner and not on a
+    /// developer's machine.
+    #[tokio::test]
+    async fn a_size_that_reached_no_monitor_is_asked_for_again() {
+        let state = Arc::new(AppState::new());
+        // A session whose monitor has not registered its channel yet.
+        let mut conns = SessionConnections::new();
+        conns.connections.push(1);
+        conns.monitor_command_tx = None;
+        state.sessions.write().await.insert("s".to_string(), conns);
+
+        set_client_size(&state, "s", Some(1), 41, 29).await;
+        assert_eq!(
+            state.sessions.read().await["s"].last_resize,
+            None,
+            "a size nothing received must not be recorded as applied"
+        );
+
+        // The monitor comes up, and the same size is offered again — which the
+        // old code refused to forward, because it believed it already had.
+        let resizes = session_with_fake_monitor(&state, "s").await;
+        set_client_size(&state, "s", Some(1), 41, 29).await;
+        // `send` returns once the value is in the channel; the fake monitor
+        // reads it in its own task, so wait for it to be seen rather than
+        // assuming the scheduler got there.
+        for _ in 0..200 {
+            if !resizes.lock().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert_eq!(*resizes.lock().await, vec![(41, 29)]);
+        assert_eq!(
+            state.sessions.read().await["s"].last_resize,
+            Some((41, 29)),
+            "a delivered size IS recorded, so it is not re-sent on every tick"
+        );
     }
 
     #[tokio::test]

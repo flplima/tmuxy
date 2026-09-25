@@ -369,8 +369,18 @@ describe('IPC Commands', () => {
   test('get_scrollback_cells is exposed and returns the expected shape', async () => {
     await setupApp();
 
-    const state = await getAppState(driver);
-    const paneId = state.panes[0]?.tmuxId ?? '%0';
+    // Wait for a pane, do not guess one. `?? '%0'` looked like a harmless
+    // fallback and was the failure: when the app's state had not landed yet the
+    // test asked tmux about a pane that does not exist, and the command
+    // correctly answered "tmux pane '%0' does not exist" — a real refusal read
+    // as the binding being broken.
+    let paneId;
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline && !paneId) {
+      paneId = (await getAppState(driver)).panes[0]?.tmuxId;
+      if (!paneId) await driver.pause(200);
+    }
+    expect(paneId).toMatch(/^%\d+$/);
     const result = await invokeCommand(driver, 'get_scrollback_cells', {
       paneId,
       start: -200,
