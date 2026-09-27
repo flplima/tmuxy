@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
+import { sanitizeSvg } from './sanitizeSvg';
 
 let mermaidInitialized = false;
 let renderCounter = 0;
@@ -45,7 +46,18 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
     mermaid.render(id, chart).then(
       ({ svg }) => {
         if (!cancelled && containerRef.current) {
-          containerRef.current.innerHTML = svg;
+          // Parsed and stripped rather than assigned to `innerHTML`: this
+          // renders in the APP's origin, where anything that executes can drive
+          // the API. See sanitizeSvg — mermaid sanitizes too, and this is the
+          // second pass a bypass would also have to get past.
+          const safe = sanitizeSvg(svg);
+          if (!safe) {
+            setError('the diagram did not render as valid SVG');
+            return;
+          }
+          containerRef.current.replaceChildren(
+            containerRef.current.ownerDocument.importNode(safe, true),
+          );
           setError(null);
         }
       },
