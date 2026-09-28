@@ -268,7 +268,7 @@ export const ItFadesAndSlidesBothWays: Story = {
       story: { inline: false, iframeHeight: 460 },
       description: {
         story:
-          'The card fades in with a short slide down from the strip it belongs to, and leaves the same way rather than blinking out — sampled per paint, so a declared animation that never runs would fail. With `@tmuxy-animations off` it simply appears and simply goes.',
+          'The card fades in with a short slide down from the strip it belongs to, and leaves the same way rather than blinking out — the card is caught as it enters the DOM and as it starts to leave, and the animation it carries at each moment must be the declared one and must play through, so one that never runs would fail. With `@tmuxy-animations off` it simply appears and simply goes.',
       },
     },
   },
@@ -281,33 +281,69 @@ export const ItFadesAndSlidesBothWays: Story = {
     const alpha = tabButton(canvasElement, 'alpha');
     const pane = canvasElement.querySelector<HTMLElement>('.pane-layout-item');
 
-    /** Sample the card's painted opacity while `act` runs. */
-    const sample = async (act: () => void, ms: number) => {
-      const seen: number[] = [];
-      let sampling = true;
-      const frame = () => {
-        const el = preview();
-        if (el) seen.push(Number(getComputedStyle(el).opacity));
-        if (sampling) requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
-      act();
-      await new Promise((r) => setTimeout(r, ms));
-      sampling = false;
-      return seen;
+    /**
+     * The declared CSS animations on `el` by name, after a style flush. A
+     * finished animation with no fill drops out of `getAnimations()`, so this
+     * has to be read while the animation is current — which is why the card
+     * is caught at insertion and at the class change, not on a later poll.
+     */
+    const animationNames = (el: HTMLElement) => {
+      void getComputedStyle(el).opacity;
+      return el.getAnimations().map((a) => (a as CSSAnimation).animationName);
+    };
+    /** The animation named `name` on `el`, which must be running and real. */
+    const running = (el: HTMLElement, name: string) => {
+      const animation = el.getAnimations().find((a) => (a as CSSAnimation).animationName === name);
+      expect(animation, `no running ${name} animation on the card`).toBeDefined();
+      expect(animation!.playState).toBe('running');
+      expect(animation!.effect!.getTiming().duration).toBeGreaterThan(0);
+      return animation!;
     };
 
-    // In: it is drawn part-way there, not switched on.
-    const appearing = await sample(() => void userEvent.hover(alpha), 1600);
+    // In: the card is caught the moment it enters the DOM, and what it carries
+    // then is the entrance animation — which must then run to its end. Caught
+    // by mutation rather than by polling, so a busy runner that paints the
+    // card only after its 150ms entrance has finished still sees it.
+    const inserted = new Promise<HTMLElement>((resolve) => {
+      const seen = preview();
+      if (seen) return resolve(seen);
+      const observer = new MutationObserver(() => {
+        const el = preview();
+        if (el) {
+          observer.disconnect();
+          resolve(el);
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    void userEvent.hover(alpha);
+    const card = await inserted;
+    expect(animationNames(card)).toContain('tab-preview-in');
+    // The node stays, so the entrance can be watched to its end.
+    await running(card, 'tab-preview-in').finished;
     await waitForPreview();
-    expect(appearing.some((o) => o > 0.02 && o < 0.98)).toBe(true);
 
-    // Out: the same, in reverse — and it is still in the DOM while it goes.
-    const leaving = await sample(() => {
-      void userEvent.unhover(alpha);
-      if (pane) void userEvent.hover(pane);
-    }, 900);
-    expect(leaving.some((o) => o > 0.02 && o < 0.98)).toBe(true);
+    // Out: the same, in reverse — the node is kept while it goes, and what it
+    // carries then is the exit animation, which must run to its end before
+    // the node is gone.
+    const leaving = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (card.classList.contains('is-leaving')) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(card, { attributes: true, attributeFilter: ['class'] });
+    });
+    void userEvent.unhover(alpha);
+    if (pane) void userEvent.hover(pane);
+    await leaving;
+    expect(animationNames(card)).toContain('tab-preview-out');
+    // Not awaited to its end: the node is held for exactly the exit's length
+    // and its removal cancels the animation, so `finished` can reject on the
+    // very frame the exit completes. Running with a real duration, then gone,
+    // is the whole of what "leaves the same way" means.
+    running(card, 'tab-preview-out');
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };
