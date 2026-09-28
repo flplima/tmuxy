@@ -10,16 +10,30 @@
  *
  * So the SVG is parsed as SVG and stripped again before it is adopted:
  *
- * - **`DOMParser` with `image/svg+xml`** builds the tree in an inert document.
+ * - **`DOMParser` with `text/html`** builds the tree in an inert document.
  *   Nothing in it runs while it is being parsed, unlike assigning to
  *   `innerHTML`, where a `<script>` still does not execute but an inline
- *   handler on a rendered element very much does.
+ *   handler on a rendered element very much does. `text/html` and not
+ *   `image/svg+xml`: the latter is a STRICT XML parse, and mermaid's real
+ *   output is not well-formed XML — it puts HTML in its labels (`<br>`,
+ *   `&nbsp;`), so strict parsing rejected the whole diagram and the story
+ *   asserting `.widget-mermaid svg` got null. The HTML parser is as lenient as
+ *   `innerHTML` about that while still being inert, which is the property that
+ *   matters here.
  * - **Every `on*` attribute goes**, whatever its case, because that is the one
  *   thing adoption would otherwise carry into the live document alive.
- * - **`<script>` and `<foreignObject>` go.** A script adopted this way does not
- *   execute, but removing it costs nothing and means nobody has to remember
- *   why it was safe. `<foreignObject>` is the door from SVG back into HTML, and
- *   a diagram has no business using it.
+ * - **Elements that fetch or run go**, anywhere in the tree: `<script>`,
+ *   `<iframe>`, `<object>`, `<embed>`, `<link>`, `<meta>`, `<base>`, `<form>`.
+ *   A script adopted this way does not execute, but removing it costs nothing
+ *   and means nobody has to remember why it was safe.
+ *
+ *   `<foreignObject>` STAYS, and that is a deliberate trade rather than an
+ *   oversight. It is the door from SVG back into HTML — but mermaid's default
+ *   `htmlLabels` renders every node's label through one, so removing it
+ *   removes the text of the diagram. What made it dangerous is the HTML it can
+ *   carry, and that HTML is walked by the same two rules as everything else:
+ *   no `on*` handlers, nothing that fetches or runs. `<style>` stays too,
+ *   because mermaid's theming is in it.
  * - **Only `http(s):`, `data:` and same-document `#` references survive** on
  *   `href`/`xlink:href`, the same shape of allowlist the terminal's own links
  *   use (`utils/openUrl`).
@@ -31,14 +45,14 @@
 const SAFE_REF = /^(?:https?:\/\/|data:image\/|#)/i;
 
 export function sanitizeSvg(svg: string): SVGElement | null {
-  const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
-  // A parse failure produces a <parsererror> document rather than throwing.
-  if (parsed.getElementsByTagName('parsererror').length > 0) return null;
+  // The HTML parser puts `<svg>` in the SVG namespace as foreign content, so
+  // the element that comes out is a real SVGElement and imports as one.
+  const parsed = new DOMParser().parseFromString(svg, 'text/html');
+  const root = parsed.body.querySelector('svg');
+  if (!root) return null;
 
-  const root = parsed.documentElement;
-  if (!root || root.nodeName.toLowerCase() !== 'svg') return null;
-
-  for (const el of Array.from(root.querySelectorAll('script, foreignObject'))) {
+  const REMOVE = 'script, iframe, object, embed, link, meta, base, form';
+  for (const el of Array.from(root.querySelectorAll(REMOVE))) {
     el.remove();
   }
 

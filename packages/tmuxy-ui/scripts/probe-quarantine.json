@@ -2,7 +2,7 @@
   "_policy": [
     "Quarantined stories still RUN and are still REPORTED, but their failures do",
     "not turn the storybook-probe job red. Quarantine is a stopgap for a story",
-    "whose flakiness is understood but not yet fixed \u2014 never a parking lot.",
+    "whose flakiness is understood but not yet fixed — never a parking lot.",
     "",
     "Rules enforced by scripts/probe-stories.mjs, which refuses to run if broken:",
     "  - at most `maxEntries` stories may be quarantined at once;",
@@ -14,7 +14,7 @@
     "`a11yEntries` does the same for ONE axe rule on one story (`id` \"*\" means",
     "every story): the violation is still printed, it just does not gate. Same",
     "cap (`maxA11yEntries`), same required reason and expiry. Only `critical`",
-    "and `serious` violations gate in the first place \u2014 lowering that threshold",
+    "and `serious` violations gate in the first place — lowering that threshold",
     "instead of quarantining a rule is not an option, because it silences every",
     "future violation too."
   ],
@@ -22,7 +22,12 @@
   "entries": [
     {
       "id": "mocked-app-sidebar--tab-order-never-traps-the-keyboard",
-      "reason": "The app calls preventDefault() on every Tab keydown (machines/actors/keyboardActor.ts), so Tab is sent to tmux and the page has no keyboard tab order at all \u2014 not in the header, the tab strip or the sidebar. Verified with a real browser Tab, not only with userEvent. The check is correct and stays; freeing Tab while the chrome (rather than a pane) holds the keyboard is the fix, and is not a story-side change.",
+      "reason": "The app calls preventDefault() on every Tab keydown (machines/actors/keyboardActor.ts), so Tab is sent to tmux and the page has no keyboard tab order at all — not in the header, the tab strip or the sidebar. Verified with a real browser Tab, not only with userEvent. The check is correct and stays; freeing Tab while the chrome (rather than a pane) holds the keyboard is the fix, and is not a story-side change.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "components-widgets-mermaidblock--flowchart",
+      "reason": "Mermaid loads each diagram type as a DYNAMIC import, and Vite's dep optimizer only discovers `flowDiagram-*` when a story first renders one — it then re-optimizes, renames the chunk, and the already-loaded mermaid entry still points at the old name. Observed in a real browser: the page requests flowDiagram-HODETNUW-OY4LGNFO.js, the file on disk is flowDiagram-HODETNUW-ZXSBNWFE.js, and the server answers 504 Outdated Optimize Dep, so mermaid rejects and MermaidBlock renders the error instead of an SVG. Neither optimizeDeps.include (covers mermaid's ENTRY, not the diagram modules) nor exclude (the story then never mounts at all — strictly worse) fixes it; both were tried and reverted. The same re-optimization reload is what tore down the probe's contexts and left storybook-probe sitting until its 30-minute timeout in CI. The fix is a Storybook/Vite dep-handling change for mermaid, not a story change.",
       "expires": "2026-11-01"
     }
   ],

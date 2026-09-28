@@ -28,14 +28,50 @@ describe('sanitizeSvg', () => {
     }
   });
 
-  it('strips script and the door back into HTML', () => {
-    const out = sanitizeSvg(
-      svg('<script>alert(1)</script><foreignObject><div>html</div></foreignObject><rect/>'),
-    );
+  it('strips a script without taking the diagram with it', () => {
+    const out = sanitizeSvg(svg('<script>alert(1)</script><rect/>'));
     expect(out?.querySelector('script')).toBeNull();
-    expect(out?.querySelector('foreignObject')).toBeNull();
-    // ...without taking the diagram with it.
     expect(out?.querySelector('rect')).not.toBeNull();
+  });
+
+  /**
+   * Two mechanisms reach the same end, and both are worth pinning: the strip
+   * list removes these, AND the HTML parser treats several of them as breakout
+   * elements that terminate SVG foreign content — so they land OUTSIDE the
+   * `<svg>`, which `body.querySelector('svg')` never returns. Either way none
+   * of them is in what gets adopted.
+   */
+  it('lets nothing that fetches or runs into the adopted tree', () => {
+    for (const tag of [
+      '<iframe src="https://evil.example"></iframe>',
+      '<object data="x"></object>',
+      '<embed src="x"/>',
+      '<form action="/commands"></form>',
+      '<link rel="stylesheet" href="https://evil.example/x.css"/>',
+      '<base href="https://evil.example/"/>',
+    ]) {
+      const out = sanitizeSvg(svg(`${tag}<rect/>`));
+      const name = /<(\w+)/.exec(tag)![1];
+      expect(out?.querySelector(name), `${name} reached the tree`).toBeNull();
+    }
+  });
+
+  /**
+   * `<foreignObject>` is how mermaid's default `htmlLabels` renders the text of
+   * every node, so removing it removes the diagram's words. It is kept, and the
+   * HTML inside it is held to the same two rules as the rest of the tree.
+   */
+  it('keeps the labels mermaid draws in HTML, with their handlers gone', () => {
+    const out = sanitizeSvg(
+      svg(
+        '<foreignObject><div onclick="alert(1)">tmuxy-wasm</div>' +
+          '<script>alert(2)</script></foreignObject>',
+      ),
+    );
+    expect(out?.querySelector('foreignObject')).not.toBeNull();
+    expect(out?.textContent).toContain('tmuxy-wasm');
+    expect(out?.querySelector('div')?.hasAttribute('onclick')).toBe(false);
+    expect(out?.querySelector('script')).toBeNull();
   });
 
   it('drops a reference it would not follow, and keeps the ones it would', () => {

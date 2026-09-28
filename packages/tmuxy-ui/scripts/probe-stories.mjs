@@ -273,6 +273,52 @@ function isTornContext(result) {
   );
 }
 
+/**
+ * The longest one story may take before it is called a failure.
+ *
+ * Nothing in the probe was bounded, and a single story that never settles
+ * therefore stopped the whole pool: `page.evaluate` has no timeout of its own,
+ * so an `axe.run` that neither resolves nor rejects inside the browser simply
+ * never came back. The job then sat until GitHub killed it at 30 minutes, with
+ * no report and no clue which story it was — `storybook-probe` was cancelled in
+ * EVERY run for exactly that reason.
+ *
+ * Generous on purpose: a cold CI runner compiling a story on demand is slow, and
+ * this must not turn slowness into a failure. It is here to make a hang
+ * finite and NAMED, not to police speed.
+ */
+const STORY_TIMEOUT_MS = Number(process.env.PROBE_STORY_TIMEOUT_MS ?? 120000);
+
+/**
+ * `fn(item)`, or a failure result if it has not answered in time.
+ *
+ * The losing promise cannot be cancelled — Playwright has no abort for an
+ * in-flight `evaluate` — so it is left pending and `browser.close()` in the
+ * caller's `finally` is what releases it. That is why the pool moves on rather
+ * than trying to clean up here.
+ */
+async function withStoryDeadline(fn, item) {
+  let timer;
+  const expired = new Promise((resolve) => {
+    timer = setTimeout(
+      () =>
+        resolve({
+          id: item.id,
+          attempt: item.attempt,
+          ok: false,
+          reason: 'probe-timeout',
+          message: `no answer in ${STORY_TIMEOUT_MS}ms — the probe hung on this story`,
+        }),
+      STORY_TIMEOUT_MS,
+    );
+  });
+  try {
+    return await Promise.race([fn(item), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runPool(items, n, fn) {
   const queue = [...items];
   const results = [];
@@ -280,10 +326,10 @@ async function runPool(items, n, fn) {
     Array.from({ length: n }, async () => {
       while (queue.length) {
         const item = queue.shift();
-        let result = await fn(item);
+        let result = await withStoryDeadline(fn, item);
         if (isTornContext(result)) {
           process.stdout.write(`  RETRY ${result.id} (storybook reloaded the preview)\n`);
-          result = await fn(item);
+          result = await withStoryDeadline(fn, item);
         }
         results.push(result);
         const status = quarantineStatus(result.id);
