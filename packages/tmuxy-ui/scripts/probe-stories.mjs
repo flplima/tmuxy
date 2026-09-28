@@ -159,11 +159,11 @@ async function writeArtifacts(page, label, result) {
     'stack:',
     result.stack ?? '(none)',
     '',
-    `page errors (${result.pageErrors.length}):`,
-    ...result.pageErrors.map((e) => `  ${e}`),
+    `page errors (${(result.pageErrors ?? []).length}):`,
+    ...(result.pageErrors ?? []).map((e) => `  ${e}`),
     '',
-    `console errors (${result.consoleErrors.length}):`,
-    ...result.consoleErrors.map((e) => `  ${e}`),
+    `console errors (${(result.consoleErrors ?? []).length}):`,
+    ...(result.consoleErrors ?? []).map((e) => `  ${e}`),
   ];
   writeFileSync(`${base}.txt`, `${lines.join('\n')}\n`);
   try {
@@ -347,6 +347,13 @@ async function withStoryDeadline(fn, item) {
           ok: false,
           reason: 'probe-timeout',
           message: `no answer in ${STORY_TIMEOUT_MS}ms — the probe hung on this story`,
+          // The reporter walks these on every failure. A synthetic result that
+          // omits them crashed it with `Cannot read properties of undefined
+          // (reading 'slice')` AFTER the run had finished and passed — the job
+          // went red on the summary, not on a story. Empty is also honest: a
+          // story that never answered told us nothing to report.
+          consoleErrors: [],
+          pageErrors: [],
         }),
       STORY_TIMEOUT_MS,
     );
@@ -427,10 +434,10 @@ const report = (list, heading) => {
     if (f.stack) {
       for (const line of f.stack.split('\n').slice(0, 12)) console.log(`      ${line}`);
     }
-    for (const e of f.pageErrors.slice(0, 2)) {
+    for (const e of (f.pageErrors ?? []).slice(0, 2)) {
       console.log(`      pageerror: ${e.split('\n')[0]}`);
     }
-    for (const e of f.consoleErrors.slice(0, 3)) {
+    for (const e of (f.consoleErrors ?? []).slice(0, 3)) {
       console.log(`      console: ${e.slice(0, 300)}`);
     }
     if (f.artifact) console.log(`      screenshot: ${f.artifact}`);
