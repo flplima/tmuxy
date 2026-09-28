@@ -3705,10 +3705,11 @@ export const NavigateKeysImmediate: Story = {
     await clickPane(single);
 
     // Navigate from the single pane toward the stacked column.
+    // Alt+hjkl, not Ctrl: pane navigation moved off Ctrl in e8231aa, which gave
+    // those chords back to the terminal. A story still pressing Ctrl+l sends an
+    // `l` to the shell and waits for a pane switch that was never asked for.
     const towardStack =
-      rects.get(single)!.left < rects.get(mruTarget)!.left
-        ? '{Control>}l{/Control}'
-        : '{Control>}h{/Control}';
+      rects.get(single)!.left < rects.get(mruTarget)!.left ? '{Alt>}l{/Alt}' : '{Alt>}h{/Alt}';
     const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
     const mruEl = paneGroups(canvas).find(
       (p: HTMLElement) => p.getAttribute('data-pane-id') === mruTarget,
