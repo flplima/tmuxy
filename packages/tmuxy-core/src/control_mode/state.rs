@@ -1009,6 +1009,10 @@ fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>)
 pub type SidebarSizing = (String, u32, Option<u32>);
 
 pub struct StateAggregator {
+    /// How many `list-panes` reports have been applied. A monitor sizing a
+    /// window judges each `resizew` by the report that FOLLOWS it, so this is
+    /// what tells one report from the next (see `monitor::needs_resize`).
+    pub pane_reports: u64,
     /// Windows whose `@tmuxy-collapsible` just dropped: their first-level rows
     /// are evened out on the next step (see `collapsible_layout_commands`).
     even_out_pending: Vec<String>,
@@ -1401,6 +1405,7 @@ impl StateAggregator {
     pub fn with_session_name(session_name: &str) -> Self {
         Self {
             session_name: session_name.to_string(),
+            pane_reports: 0,
             panes: HashMap::new(),
             windows: HashMap::new(),
             active_window_id: None,
@@ -2670,6 +2675,7 @@ impl StateAggregator {
         }
 
         if is_list_panes_response {
+            self.pane_reports = self.pane_reports.wrapping_add(1);
             self.panes_synced = true;
         }
 

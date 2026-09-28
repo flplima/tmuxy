@@ -240,22 +240,34 @@ const MAX_RESIZE_ATTEMPTS: u8 = 3;
 /// Should this window be sent a `resizew` for `desired`?
 ///
 /// `actual` is what tmux reports the window's grid to be (`None` before any
-/// pane of it has been seen), `asked` the size last requested and how many
-/// times running. tmux's report is the authority: a window already at the
-/// size is done no matter how it got there, and one that is not gets asked
-/// again, because a `resizew` can be dropped and believing the send left the
-/// client asking for a size tmux never applied. The count only stops a size
-/// tmux refuses from becoming a command on every step.
+/// pane of it has been seen), `asked` the size last requested, how many times
+/// running, and which `list-panes` report was current when it was last asked;
+/// `reports` is the report count now. tmux's report is the authority: a
+/// window already at the size is done no matter how it got there, and one
+/// that is not gets asked again, because a `resizew` can be dropped and
+/// believing the send left the client asking for a size tmux never applied.
+///
+/// An ask is judged by the report that FOLLOWS it, so until a new report has
+/// arrived there is nothing to judge and no second ask. This runs on every
+/// control-mode step, and counting a step as an attempt burned the whole
+/// budget in the first thirty milliseconds of an attach — three `resizew`s
+/// before tmux had reported a single pane — after which the window was never
+/// asked again, and a phone-width client kept the control-mode PTY's 200
+/// columns. The count only stops a size tmux refuses from becoming a command
+/// on every report.
 fn needs_resize(
     actual: Option<(u32, u32)>,
     desired: (u32, u32),
-    asked: Option<((u32, u32), u8)>,
+    asked: Option<((u32, u32), u8, u64)>,
+    reports: u64,
 ) -> bool {
     if actual == Some(desired) {
         return false;
     }
     match asked {
-        Some((prev, tries)) if prev == desired => tries < MAX_RESIZE_ATTEMPTS,
+        Some((prev, tries, asked_at)) if prev == desired => {
+            reports != asked_at && tries < MAX_RESIZE_ATTEMPTS
+        }
         _ => true,
     }
 }
@@ -447,7 +459,7 @@ pub struct TmuxMonitor {
     /// session — the phone layout's `targetCols: 41, totalWidth: 200`. The
     /// authority is now `window_extent`, what tmux itself reports, and this
     /// only bounds the retries so a size tmux genuinely refuses cannot spin.
-    resize_attempts: HashMap<String, ((u32, u32), u8)>,
+    resize_attempts: HashMap<String, ((u32, u32), u8, u64)>,
     /// Windows already reported as ones tmux will not size, so the warning is
     /// said once rather than on every sync.
     resize_given_up: HashSet<String>,
@@ -936,6 +948,7 @@ impl TmuxMonitor {
         self.resize_given_up
             .retain(|wid| live.contains(wid.as_str()));
         let desired_snapshot = desired.clone();
+        let reports = self.aggregator.pane_reports;
 
         // tmux's own report decides whether a window still needs sizing. A
         // window already AT the wanted size is done however many commands it
@@ -949,6 +962,7 @@ impl TmuxMonitor {
                     self.aggregator.window_extent(wid),
                     *size,
                     self.resize_attempts.get(wid).copied(),
+                    reports,
                 )
             })
             .collect();
@@ -1007,9 +1021,12 @@ impl TmuxMonitor {
         } else {
             for (wid, size) in pending {
                 match self.resize_attempts.get_mut(&wid) {
-                    Some(entry) if entry.0 == size => entry.1 = entry.1.saturating_add(1),
+                    Some(entry) if entry.0 == size => {
+                        entry.1 = entry.1.saturating_add(1);
+                        entry.2 = reports;
+                    }
                     _ => {
-                        self.resize_attempts.insert(wid, (size, 1));
+                        self.resize_attempts.insert(wid, (size, 1, reports));
                     }
                 }
             }
@@ -1535,8 +1552,30 @@ mod tests {
     /// for the life of the session, with the phone's terminal off screen.
     #[test]
     fn a_window_tmux_did_not_resize_is_asked_again() {
-        // Asked once, and tmux still reports the old grid: ask again.
-        assert!(needs_resize(Some((200, 50)), (41, 29), Some(((41, 29), 1))));
+        // Asked once at report 3, and the report after it (4) still shows
+        // the old grid: ask again.
+        assert!(needs_resize(
+            Some((200, 50)),
+            (41, 29),
+            Some(((41, 29), 1, 3)),
+            4
+        ));
+    }
+
+    /// The bug this replaced: this runs on every control-mode step, and a
+    /// step counted as an attempt. Three steps fit in the first thirty
+    /// milliseconds of an attach, before tmux had reported anything, and the
+    /// window was never asked again.
+    #[test]
+    fn a_window_is_not_asked_again_until_tmux_has_reported_since() {
+        // Asked at report 3, still at report 3: nothing to judge yet.
+        assert!(!needs_resize(None, (41, 29), Some(((41, 29), 1, 3)), 3));
+        assert!(!needs_resize(
+            Some((200, 50)),
+            (41, 29),
+            Some(((41, 29), 1, 3)),
+            3
+        ));
     }
 
     #[test]
@@ -1545,39 +1584,52 @@ mod tests {
         assert!(!needs_resize(
             Some((41, 29),),
             (41, 29),
-            Some(((41, 29), 3))
+            Some(((41, 29), 3, 3)),
+            4
         ));
         // ...even at the cap, which is about refusals, not successes.
-        assert!(!needs_resize(Some((41, 29)), (41, 29), Some(((41, 29), 9))));
+        assert!(!needs_resize(
+            Some((41, 29)),
+            (41, 29),
+            Some(((41, 29), 9, 3)),
+            4
+        ));
     }
 
     #[test]
     fn a_size_tmux_keeps_refusing_stops_being_asked() {
         // Bounded, so a size tmux will not take cannot become a command on
-        // every control-mode step for the rest of the session.
-        assert!(needs_resize(Some((200, 50)), (41, 29), Some(((41, 29), 2))));
+        // every report for the rest of the session.
+        assert!(needs_resize(
+            Some((200, 50)),
+            (41, 29),
+            Some(((41, 29), 2, 3)),
+            4
+        ));
         assert!(!needs_resize(
             Some((200, 50)),
             (41, 29),
-            Some(((41, 29), MAX_RESIZE_ATTEMPTS))
+            Some(((41, 29), MAX_RESIZE_ATTEMPTS, 3)),
+            4
         ));
     }
 
     #[test]
     fn a_new_size_starts_its_own_attempts() {
         // The viewport changed again: the old size's exhausted count must not
-        // suppress the new one.
+        // suppress the new one, even before any further report.
         assert!(needs_resize(
             Some((200, 50)),
             (80, 24),
-            Some(((41, 29), MAX_RESIZE_ATTEMPTS))
+            Some(((41, 29), MAX_RESIZE_ATTEMPTS, 3)),
+            3
         ));
     }
 
     #[test]
     fn a_window_with_no_panes_yet_is_still_asked() {
         // `None` is "no pane of it seen yet", which is not "zero columns".
-        assert!(needs_resize(None, (41, 29), None));
+        assert!(needs_resize(None, (41, 29), None, 0));
     }
     #[test]
     fn reorder_commands_re_list_the_windows() {
