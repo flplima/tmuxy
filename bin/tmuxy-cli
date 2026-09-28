@@ -294,7 +294,8 @@ tmuxy pane select -U|-D|-L|-R|%id # select pane
 tmuxy pane kill [%id]           # close pane
 tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
 tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
-tmuxy widget browser <file|url> # show an HTML file, a site, a .md file or an image
+tmuxy open <file|url|host>      # show an HTML file, a site, a .md file or an image
+tmuxy widget browser <file|url> # the same, spelled out
 tmuxy queue push <name> <msg|-> # push to a named queue (alias: send)
 tmuxy queue pop <name>          # block and pop oldest message (also: peek, list, clear)
 tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
@@ -318,6 +319,7 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect)
   nav         Navigate across groups, splits, and tabs
+  open        Show a page, file or image in a browser pane (alias of widget browser)
   widget      Display widgets (browser, tree)
   queue, q    Inter-agent coordination queue (push/send, pop, peek, list, clear)
   tree        Open the sidebar tree view (tabs + panes)
@@ -1249,6 +1251,27 @@ case "${1:-}" in
   widget)
     shift
     cmd_widget "$@"
+    ;;
+  open)
+    shift
+    case "${1:-}" in
+      --help|-h)
+        cat <<'OEOF'
+Usage: tmuxy open [--color-filter] <file|url|host|->
+
+Show a page in a browser pane: a local HTML, markdown or image file, a
+website, or a host — `localhost:3000`, `192.168.1.10:8080` and
+`example.com/docs` are read as addresses when no such file exists. `-`
+renders markdown from stdin. The same as `tmuxy widget browser`.
+
+Options:
+  --color-filter  Recolour a page or an image into the theme's colours
+  --resolve       Print what the target resolves to and open nothing
+OEOF
+        ;;
+      "") echo "Error: file, url or host required" >&2; exit 1 ;;
+      *) exec "$SCRIPTS_DIR/tmuxy-widget-browser" "$@" ;;
+    esac
     ;;
   queue|q)
     shift
