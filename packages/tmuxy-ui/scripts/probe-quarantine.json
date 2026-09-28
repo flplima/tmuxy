@@ -29,6 +29,11 @@
       "id": "components-widgets-mermaidblock--flowchart",
       "reason": "Mermaid loads each diagram type as a DYNAMIC import, and Vite's dep optimizer only discovers `flowDiagram-*` when a story first renders one — it then re-optimizes, renames the chunk, and the already-loaded mermaid entry still points at the old name. Observed in a real browser: the page requests flowDiagram-HODETNUW-OY4LGNFO.js, the file on disk is flowDiagram-HODETNUW-ZXSBNWFE.js, and the server answers 504 Outdated Optimize Dep, so mermaid rejects and MermaidBlock renders the error instead of an SVG. Neither optimizeDeps.include (covers mermaid's ENTRY, not the diagram modules) nor exclude (the story then never mounts at all — strictly worse) fixes it; both were tried and reverted. The same re-optimization reload is what tore down the probe's contexts and left storybook-probe sitting until its 30-minute timeout in CI. The fix is a Storybook/Vite dep-handling change for mermaid, not a story change.",
       "expires": "2026-11-01"
+    },
+    {
+      "id": "mocked-app-sidebar--right-click-context-menus",
+      "reason": "Exceeds every budget the probe has — still `probe-timeout` at a 200s per-story deadline, locally and on CI. What it is NOT, each ruled out by measurement rather than reasoning: not the `useFloatingSurface` render loop fixed in 1832264 (this survives it, and the page's main thread answers an outside eval, so nothing is spinning); not the a11y scan (the axe deadline added in f5ad22b reports a NOTE, and none fires); not a concurrency artefact (it fails alone at PROBE_CONCURRENCY=1); and not an unbounded wait in the story, whose every waitFor is 5-8s and whose waitForTree is 8s. Observed detail worth keeping: opening the story directly leaves the sidebar tree unrendered (0 treeitems, 0 menuitems), so the right-click the story is about never gets a row to aim at. Cause not yet identified — quarantined to keep the job honest rather than because it is understood.",
+      "expires": "2026-11-01"
     }
   ],
   "maxA11yEntries": 7,
