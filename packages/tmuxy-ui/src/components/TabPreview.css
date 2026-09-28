@@ -2,10 +2,13 @@
    rather than appearing and disappearing at each. That slide is the point of
    reusing the node, so `left` and `top` carry a transition of their own,
    separate from the fade-and-slide it arrives and leaves on. Both stop when
-   the config says no animations. */
+   the config says no animations.
+
+   Position, layer and the arrive/leave animations are `.floating-surface`'s
+   (components/floating/FloatingSurface.css) — the card and the menus are the
+   same kind of object and share them. What is left here is what a PICTURE of a
+   tab looks like. */
 .tab-preview {
-  position: fixed;
-  z-index: var(--z-tooltip);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
@@ -19,10 +22,21 @@
   /* The card takes the pointer: it holds a close button, and reaching for one
      must not be what dismisses it. */
   pointer-events: auto;
+  /* The slide from tab to tab is the preview's own: there is one card for the
+     whole strip and it travels rather than being replaced at every stop. */
   transition:
     left var(--transition-normal),
     top var(--transition-normal);
-  animation: tab-preview-in var(--transition-normal);
+}
+
+.app-no-animations .tab-preview {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-preview {
+    transition: none;
+  }
 }
 
 /* The picture itself: the tab's aspect ratio, with the boxes positioned as
@@ -68,48 +82,6 @@
 .tab-preview-close:hover {
   color: var(--term-white);
   background-color: var(--bg-medium);
-}
-
-/* Arriving and leaving: a fade with a short slide down from the strip it
-   belongs to, and the reverse on the way out. `forwards` holds the last frame
-   so the card does not flash back to full opacity before it is unmounted. */
-@keyframes tab-preview-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes tab-preview-out {
-  from {
-    opacity: 1;
-    transform: none;
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-}
-
-.tab-preview.is-leaving {
-  animation: tab-preview-out var(--transition-normal) forwards;
-  pointer-events: none;
-}
-
-.app-no-animations .tab-preview {
-  transition: none;
-  animation: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-preview {
-    transition: none;
-    animation: none;
-  }
 }
 
 /* Each pane in the picture wears its own header — the real one, at the real

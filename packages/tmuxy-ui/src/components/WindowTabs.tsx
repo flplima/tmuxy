@@ -74,6 +74,10 @@ interface TabContextMenuState {
   x: number;
   y: number;
   windowId: string;
+  /** The tab's button, when the menu is taking a preview card's place. */
+  anchorEl: HTMLElement | null;
+  /** That card's box, for the menu to grow out of. */
+  morphFrom: DOMRect | null;
 }
 
 interface DragState {
@@ -111,11 +115,23 @@ export const WindowTabs = memo(function WindowTabs() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);
   const dismissPreviewRef = useRef<() => void>(() => {});
+  /**
+   * The card that was on screen when the current press began, and its box.
+   *
+   * Read at `pointerdown` rather than at `contextmenu`, because the press
+   * itself puts the card away (a press is an action on the tab, and the
+   * picture is in the way of seeing what it did) — by the time the context
+   * menu is asked for, the card is already playing its exit. This is what the
+   * menu grows out of.
+   */
+  const pressedPreviewRef = useRef<{ windowId: string; rect: DOMRect } | null>(null);
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>({
     visible: false,
     x: 0,
     y: 0,
     windowId: '',
+    anchorEl: null,
+    morphFrom: null,
   });
 
   // Dedup safety net: ensure no duplicate window IDs reach the DOM
@@ -143,11 +159,16 @@ export const WindowTabs = memo(function WindowTabs() {
       if (readOnly) return;
       // The preview TURNS INTO the menu. Right-clicking a tab you are already
       // looking at used to draw the menu on top of its own preview — two cards
-      // about the same tab, overlapping, one of them now unreachable. The card
-      // goes first and the menu opens where the pointer is, so there is one
-      // surface about one tab at any moment.
+      // about the same tab, overlapping, one of them now unreachable. Now the
+      // card's box is handed to the menu, which opens under the same tab and
+      // grows out of it: one surface about one tab, and one object rather than
+      // a disappearance and an appearance. With no card up (a tab crossed on
+      // the way past) the menu opens at the pointer, as any context menu does.
+      const pressed = pressedPreviewRef.current;
+      const morphFrom = pressed?.windowId === windowId ? pressed.rect : null;
+      const anchorEl = morphFrom ? (e.currentTarget as HTMLElement) : null;
       dismissPreviewRef.current();
-      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId });
+      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId, anchorEl, morphFrom });
     },
     [readOnly],
   );
@@ -312,6 +333,14 @@ export const WindowTabs = memo(function WindowTabs() {
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLSpanElement>, index: number) => {
+    // Before the card goes: a right-click turns it into the menu, and the menu
+    // needs the box it is growing out of (see `pressedPreviewRef`).
+    const card = document.querySelector<HTMLElement>(
+      '[data-testid="tab-preview"]:not(.is-leaving)',
+    );
+    pressedPreviewRef.current = card
+      ? { windowId: card.dataset.windowId ?? '', rect: card.getBoundingClientRect() }
+      : null;
     dismissPreview();
     const tab = visibleWindows[index];
     // A lone tab is the desktop window's drag handle, not a control.
@@ -476,28 +505,35 @@ export const WindowTabs = memo(function WindowTabs() {
             New Tab
           </span>
         )}
-        {/* Always mounted: the card owns its own exit, and unmounting it here
-            would take the animation with it. */}
-        <TabPreview
-          windowId={previewWindow?.id ?? null}
-          label={
-            previewWindow ? `${previewIndex}:${previewWindow.name || `Tab ${previewIndex}`}` : ''
-          }
-          onPointerEnter={cancelClose}
-          onPointerLeave={scheduleClose}
-          onActivate={(id) => {
-            dismissPreview();
-            send({ type: 'SELECT_TAB', windowId: id });
-          }}
-          // Another floating surface took the layer (the app menu, a pane's
-          // context menu). The card is not a peer that argues; it goes.
-          onDismiss={dismissPreview}
-        />
+        {/* Mounted except while the context menu is up: the card owns its own
+            exit, and unmounting it would normally take that animation with it —
+            but the menu IS this card, and the two must never be on screen
+            together. Going in the same commit the menu arrives in is what makes
+            that structural rather than a race between two timers. */}
+        {!contextMenu.visible && (
+          <TabPreview
+            windowId={previewWindow?.id ?? null}
+            label={
+              previewWindow ? `${previewIndex}:${previewWindow.name || `Tab ${previewIndex}`}` : ''
+            }
+            onPointerEnter={cancelClose}
+            onPointerLeave={scheduleClose}
+            onActivate={(id) => {
+              dismissPreview();
+              send({ type: 'SELECT_TAB', windowId: id });
+            }}
+            // Another floating surface took the layer (the app menu, a pane's
+            // context menu). The card is not a peer that argues; it goes.
+            onDismiss={dismissPreview}
+          />
+        )}
         {contextMenu.visible && (
           <TabContextMenu
             windowId={contextMenu.windowId}
             x={contextMenu.x}
             y={contextMenu.y}
+            anchorEl={contextMenu.anchorEl}
+            morphFrom={contextMenu.morphFrom}
             onClose={closeContextMenu}
             onRename={() => {
               dismissPreview();

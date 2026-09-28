@@ -18,12 +18,15 @@ export const OpenMenu: Story = {
     </ProviderHarness>
   ),
   play: async ({ canvasElement }) => {
+    // The button is in the story; the menu is a floating surface portalled out
+    // of it (components/floating), so its items are queried on the document.
     const canvas = within(canvasElement);
+    const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
 
     // All top-level submenus render.
     for (const label of ['Pane', 'Tab', 'Session', 'Theme', 'View', 'Debug', 'Help']) {
-      expect(canvas.getByRole('menuitem', { name: label })).toBeInTheDocument();
+      expect(menu.getByRole('menuitem', { name: label })).toBeInTheDocument();
     }
   },
 };
@@ -35,19 +38,22 @@ export const TabSubmenuKeybindings: Story = {
     </ProviderHarness>
   ),
   play: async ({ canvasElement }) => {
+    // The button is in the story; the menu is a floating surface portalled out
+    // of it (components/floating), so its items are queried on the document.
     const canvas = within(canvasElement);
+    const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-    await userEvent.click(canvas.getByRole('menuitem', { name: 'Tab' }));
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Tab' }));
 
     // Keybinding labels come from the adapter's get_key_bindings snapshot
     // (prefix C-a, `c` = new-window), not from hardcoded strings.
-    const newTab = await waitFor(() => canvas.getByRole('menuitem', { name: /new tab/i }));
+    const newTab = await waitFor(() => menu.getByRole('menuitem', { name: /new tab/i }));
     const keyLabel = newTab.querySelector('.menu-keybinding');
     expect(keyLabel).not.toBeNull();
     expect(keyLabel!.textContent).toBe('ctrl+a c');
 
     // With a single window, tab navigation is disabled.
-    expect(canvas.getByRole('menuitem', { name: /next tab/i })).toHaveAttribute(
+    expect(menu.getByRole('menuitem', { name: /next tab/i })).toHaveAttribute(
       'aria-disabled',
       'true',
     );
@@ -61,15 +67,18 @@ export const ThemeSubmenu: Story = {
     </ProviderHarness>
   ),
   play: async ({ canvasElement }) => {
+    // The button is in the story; the menu is a floating surface portalled out
+    // of it (components/floating), so its items are queried on the document.
     const canvas = within(canvasElement);
+    const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-    await userEvent.click(canvas.getByRole('menuitem', { name: 'Theme' }));
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Theme' }));
 
     // Mode toggles always render; the active mode carries the filled marker.
-    const dark = await waitFor(() => canvas.getByRole('menuitem', { name: /dark mode/i }));
-    expect(canvas.getByRole('menuitem', { name: /light mode/i })).toBeInTheDocument();
+    const dark = await waitFor(() => menu.getByRole('menuitem', { name: /dark mode/i }));
+    expect(menu.getByRole('menuitem', { name: /light mode/i })).toBeInTheDocument();
     expect(
-      `${dark.textContent}${canvas.getByRole('menuitem', { name: /light mode/i }).textContent}`,
+      `${dark.textContent}${menu.getByRole('menuitem', { name: /light mode/i }).textContent}`,
     ).toContain('●');
   },
 };
@@ -89,19 +98,22 @@ export const DebugTraceControls: Story = {
     </ProviderHarness>
   ),
   play: async ({ canvasElement }) => {
+    // The button is in the story; the menu is a floating surface portalled out
+    // of it (components/floating), so its items are queried on the document.
     const canvas = within(canvasElement);
+    const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-    await userEvent.click(canvas.getByRole('menuitem', { name: 'Debug' }));
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Debug' }));
 
     const toggle = await waitFor(() =>
-      canvas.getByRole('menuitemcheckbox', { name: /enable traces/i }),
+      menu.getByRole('menuitemcheckbox', { name: /enable traces/i }),
     );
     // Off by default — a normal install records nothing.
     expect(toggle).toHaveAttribute('aria-checked', 'false');
 
     const levels = ['Shape', 'Labeled', 'Full'] as const;
-    const levelItem = (name: string) => canvas.getByRole('menuitemradio', { name });
-    const copyPath = () => canvas.getByRole('menuitem', { name: /copy trace.ndjson path/i });
+    const levelItem = (name: string) => menu.getByRole('menuitemradio', { name });
+    const copyPath = () => menu.getByRole('menuitem', { name: /copy trace.ndjson path/i });
 
     // Everything the switch gates starts disabled.
     for (const name of levels) {
@@ -112,15 +124,15 @@ export const DebugTraceControls: Story = {
     // Turn it on: the menu closes on click, so reopen to read the new state.
     await userEvent.click(toggle);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-    await userEvent.click(canvas.getByRole('menuitem', { name: 'Debug' }));
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Debug' }));
 
     await waitFor(() =>
-      expect(canvas.getByRole('menuitemcheckbox', { name: /enable traces/i })).toHaveAttribute(
+      expect(menu.getByRole('menuitemcheckbox', { name: /enable traces/i })).toHaveAttribute(
         'aria-checked',
         'true',
       ),
     );
-    // react-menu omits aria-disabled entirely when an item is enabled.
+    // An enabled item carries no aria-disabled at all.
     for (const name of levels) {
       expect(levelItem(name)).not.toHaveAttribute('aria-disabled', 'true');
     }
@@ -132,7 +144,7 @@ export const DebugTraceControls: Story = {
     // Picking a level is exclusive — the previous one clears.
     await userEvent.click(levelItem('Full'));
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-    await userEvent.click(canvas.getByRole('menuitem', { name: 'Debug' }));
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Debug' }));
     await waitFor(() => expect(levelItem('Full')).toHaveAttribute('aria-checked', 'true'));
     expect(levelItem('Shape')).toHaveAttribute('aria-checked', 'false');
   },

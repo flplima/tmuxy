@@ -368,6 +368,7 @@ export function PaneHeader({
         <Tooltip label="Pane menu">
           <button
             className="pane-header-menu"
+            aria-haspopup="menu"
             onClick={(e) => handleMenuClick(e, forPaneId)}
             aria-label={`Pane menu for ${forPaneId}`}
           >
@@ -453,7 +454,12 @@ export function PaneHeader({
       {!isGroup && !readOnly && (
         <>
           <Tooltip label="Pane menu">
-            <button className="pane-header-menu" onClick={handleMenuClick} aria-label="Pane menu">
+            <button
+              className="pane-header-menu"
+              onClick={handleMenuClick}
+              aria-haspopup="menu"
+              aria-label="Pane menu"
+            >
               ⋮
             </button>
           </Tooltip>

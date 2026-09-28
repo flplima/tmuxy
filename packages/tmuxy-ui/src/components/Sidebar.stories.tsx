@@ -9,7 +9,7 @@
  * tab and its panes → clicking / keyboard-navigating a node activates it through
  * the same events the rest of the UI uses.
  *
- * Context menus (`@szhsin/react-menu`) portal to document.body, so menu queries
+ * Context menus are floating surfaces portalled out of the tree, so menu queries
  * run against `document`, not `canvasElement`.
  */
 

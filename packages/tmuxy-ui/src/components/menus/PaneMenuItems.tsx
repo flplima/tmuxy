@@ -2,7 +2,7 @@
  * PaneMenuItems - Shared pane menu items used by AppMenu, PaneContextMenu, and PaneHeader icon menu.
  */
 
-import { MenuItem, MenuDivider } from '@szhsin/react-menu';
+import { MenuItem, MenuDivider } from '../floating/Menu';
 import type { KeyBindings } from '../../machines/types';
 import type { WidgetMenuItem } from '../widgets';
 import { KeyLabel } from './KeyLabel';

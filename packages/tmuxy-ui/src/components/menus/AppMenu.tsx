@@ -1,7 +1,9 @@
 /**
  * AppMenu - Application-level hamburger menu with submenus
  *
- * Uses @szhsin/react-menu for menu rendering.
+ * A floating surface hanging off the hamburger (components/floating/Menu), the
+ * same object as the context menus and the tab preview: one of them is open at
+ * a time, and they arrive and leave the same way.
  * Submenus: Pane, Tab, Session, Theme, View, Debug, Help
  * Keybinding labels are derived from server-provided keybindings.
  *
@@ -14,15 +16,13 @@
 
 import { useRef, useState } from 'react';
 import {
-  Menu,
+  FloatingMenu,
   MenuItem,
   SubMenu,
   MenuDivider,
   MenuHeader,
   MenuRadioGroup,
-  type MenuInstance,
-} from '@szhsin/react-menu';
-import '@szhsin/react-menu/dist/index.css';
+} from '../floating/Menu';
 import {
   useAppActor,
   useAppSend,
@@ -50,17 +50,15 @@ import { useWidgetMenuItems } from '../widgets/usePaneWidget';
 import type { WidgetMenuItem } from '../widgets';
 import { KeyLabel } from './KeyLabel';
 import { WindowMenu } from './WindowMenu';
-import { useSurfaceClaim } from '../floating/useFloatingSurface';
 import './AppMenu.css';
 
 export function AppMenu() {
-  // This menu owns its own open state (it is the uncontrolled `Menu`, opened by
-  // its button), so the floating layer is claimed from `onMenuChange` and
-  // released when it closes. Dismissal goes through the instance rather than a
-  // state flag, because there is no flag to set.
-  const menuRef = useRef<MenuInstance>(null);
+  // The button owns the open flag and the menu hangs off the button: the
+  // floating layer, the placement and the exit are the surface's
+  // (components/floating), which is what makes this the same object as the
+  // context menus and the tab preview.
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  useSurfaceClaim('app-menu', () => menuRef.current?.closeMenu(), menuOpen);
 
   const send = useAppSend();
   const actor = useAppActor();
@@ -87,249 +85,271 @@ export function AppMenu() {
     executeMenuAction(send, actionId, activeCloseTarget(activePaneId, focusedFloatPaneId));
   };
 
-  const menuButton = (
-    <button className="app-menu-button" aria-label="Menu">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-        <rect x="2" y="3" width="12" height="1.5" rx="0.5" />
-        <rect x="2" y="7.25" width="12" height="1.5" rx="0.5" />
-        <rect x="2" y="11.5" width="12" height="1.5" rx="0.5" />
-      </svg>
-    </button>
-  );
-
   return (
-    <Menu
-      menuButton={menuButton}
-      transition={false}
-      instanceRef={menuRef}
-      onMenuChange={(e) => setMenuOpen(e.open)}
-    >
-      {!readOnly && (
-        <SubMenu label="Pane">
-          <PaneMenuItems
-            keybindings={keybindings}
-            isSinglePane={isSinglePane}
-            widgetItems={widgetItems}
-            onWidgetAction={(item: WidgetMenuItem) => send(item.event)}
-            isMarked={markedPaneId !== null && markedPaneId === activePaneId}
-            hasMarked={markedPaneId !== null}
-            onAction={handleAction}
-          />
-        </SubMenu>
-      )}
-
-      <SubMenu label="Tab">
-        {!readOnly && (
-          <MenuItem onClick={() => handleAction('tab-new')}>
-            New Tab
-            <KeyLabel keybindings={keybindings} command="new-window" />
-          </MenuItem>
-        )}
-        <MenuItem onClick={() => handleAction('tab-overview')}>
-          Show All Tabs
-          <span className="menu-keybinding">ctrl+0</span>
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
-          Next Tab
-          <KeyLabel keybindings={keybindings} command="next-window" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
-          Previous Tab
-          <KeyLabel keybindings={keybindings} command="previous-window" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
-          Last Tab
-          <KeyLabel keybindings={keybindings} command="last-window" />
-        </MenuItem>
-        {!readOnly && (
-          <>
-            <MenuItem onClick={() => handleAction('tab-rename')}>
-              Rename Tab
-              <KeyLabel
+    <>
+      <button
+        ref={buttonRef}
+        className="app-menu-button"
+        aria-label="Menu"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="2" y="3" width="12" height="1.5" rx="0.5" />
+          <rect x="2" y="7.25" width="12" height="1.5" rx="0.5" />
+          <rect x="2" y="11.5" width="12" height="1.5" rx="0.5" />
+        </svg>
+      </button>
+      {menuOpen && (
+        <FloatingMenu
+          id="app-menu"
+          label="Application"
+          anchor={{ kind: 'element', element: buttonRef.current }}
+          onClose={() => setMenuOpen(false)}
+          // The press that closes an open menu must not be the press that
+          // reopens it: the button is the menu's own, not "outside" it.
+          ignoreRef={buttonRef}
+        >
+          {!readOnly && (
+            <SubMenu label="Pane">
+              <PaneMenuItems
                 keybindings={keybindings}
-                command={'command-prompt -I "#W" "rename-window -- \'%%\'"'}
+                isSinglePane={isSinglePane}
+                widgetItems={widgetItems}
+                onWidgetAction={(item: WidgetMenuItem) => send(item.event)}
+                isMarked={markedPaneId !== null && markedPaneId === activePaneId}
+                hasMarked={markedPaneId !== null}
+                onAction={handleAction}
               />
-            </MenuItem>
-            <MenuDivider />
-            <MenuItem onClick={() => handleAction('tab-close')}>
-              Close Tab
-              <KeyLabel keybindings={keybindings} command="kill-window" />
-            </MenuItem>
-          </>
-        )}
-      </SubMenu>
+            </SubMenu>
+          )}
 
-      {!readOnly && (
-        <SubMenu label="Session">
-          <MenuItem onClick={() => handleAction('session-new')} disabled={isDemo}>
-            New Session
-          </MenuItem>
-          <MenuItem onClick={() => handleAction('session-rename')} disabled={isDemo}>
-            Rename Session
-            <KeyLabel
-              keybindings={keybindings}
-              command={'command-prompt -I "#S" "rename-session -- \'%%\'"'}
-            />
-          </MenuItem>
-          <MenuItem onClick={() => handleAction('session-detach')} disabled={isDemo}>
-            Detach Session
-            <KeyLabel keybindings={keybindings} command="detach-client" />
-          </MenuItem>
-          <MenuItem onClick={() => handleAction('session-kill')} disabled={isDemo}>
-            Kill Session
-          </MenuItem>
-          <MenuDivider />
-          <MenuItem onClick={() => handleAction('session-reload-config')} disabled={isDemo}>
-            Reload Config
-          </MenuItem>
-        </SubMenu>
-      )}
+          <SubMenu label="Tab">
+            {!readOnly && (
+              <MenuItem onClick={() => handleAction('tab-new')}>
+                New Tab
+                <KeyLabel keybindings={keybindings} command="new-window" />
+              </MenuItem>
+            )}
+            <MenuItem onClick={() => handleAction('tab-overview')}>
+              Show All Tabs
+              <span className="menu-keybinding">ctrl+0</span>
+            </MenuItem>
+            <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
+              Next Tab
+              <KeyLabel keybindings={keybindings} command="next-window" />
+            </MenuItem>
+            <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
+              Previous Tab
+              <KeyLabel keybindings={keybindings} command="previous-window" />
+            </MenuItem>
+            <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
+              Last Tab
+              <KeyLabel keybindings={keybindings} command="last-window" />
+            </MenuItem>
+            {!readOnly && (
+              <>
+                <MenuItem onClick={() => handleAction('tab-rename')}>
+                  Rename Tab
+                  <KeyLabel
+                    keybindings={keybindings}
+                    command={'command-prompt -I "#W" "rename-window -- \'%%\'"'}
+                  />
+                </MenuItem>
+                <MenuDivider />
+                <MenuItem onClick={() => handleAction('tab-close')}>
+                  Close Tab
+                  <KeyLabel keybindings={keybindings} command="kill-window" />
+                </MenuItem>
+              </>
+            )}
+          </SubMenu>
 
-      {/* OS windows are the desktop app's to manage; a browser tab has none. */}
-      {isTauri() && <WindowMenu />}
+          {!readOnly && (
+            <SubMenu label="Session">
+              <MenuItem onClick={() => handleAction('session-new')} disabled={isDemo}>
+                New Session
+              </MenuItem>
+              <MenuItem onClick={() => handleAction('session-rename')} disabled={isDemo}>
+                Rename Session
+                <KeyLabel
+                  keybindings={keybindings}
+                  command={'command-prompt -I "#S" "rename-session -- \'%%\'"'}
+                />
+              </MenuItem>
+              <MenuItem onClick={() => handleAction('session-detach')} disabled={isDemo}>
+                Detach Session
+                <KeyLabel keybindings={keybindings} command="detach-client" />
+              </MenuItem>
+              <MenuItem onClick={() => handleAction('session-kill')} disabled={isDemo}>
+                Kill Session
+              </MenuItem>
+              <MenuDivider />
+              <MenuItem onClick={() => handleAction('session-reload-config')} disabled={isDemo}>
+                Reload Config
+              </MenuItem>
+            </SubMenu>
+          )}
 
-      <SubMenu label="Theme">
-        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
-          {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
-        </MenuItem>
-        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
-          {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
-        </MenuItem>
-        {availableThemes.length > 0 && <MenuDivider />}
-        {availableThemes.map((t) => (
-          <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
-            {themeName === t.name ? '\u2713 ' : '\u2003 '}
-            {t.displayName}
-          </MenuItem>
-        ))}
-      </SubMenu>
+          {/* OS windows are the desktop app's to manage; a browser tab has none. */}
+          {isTauri() && <WindowMenu />}
 
-      <SubMenu label="View">
-        {!readOnly && (
-          <>
-            <MenuItem onClick={() => handleAction('view-zoom')}>
-              Zoom Pane
-              <KeyLabel keybindings={keybindings} command="resize-pane -Z" />
+          <SubMenu label="Theme">
+            <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
+              {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
             </MenuItem>
-            <MenuItem onClick={() => handleAction('view-layout-even-horizontal')}>
-              Even Horizontal
+            <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
+              {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
             </MenuItem>
-            <MenuItem onClick={() => handleAction('view-layout-even-vertical')}>
-              Even Vertical
+            {availableThemes.length > 0 && <MenuDivider />}
+            {availableThemes.map((t) => (
+              <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
+                {themeName === t.name ? '\u2713 ' : '\u2003 '}
+                {t.displayName}
+              </MenuItem>
+            ))}
+          </SubMenu>
+
+          <SubMenu label="View">
+            {!readOnly && (
+              <>
+                <MenuItem onClick={() => handleAction('view-zoom')}>
+                  Zoom Pane
+                  <KeyLabel keybindings={keybindings} command="resize-pane -Z" />
+                </MenuItem>
+                <MenuItem onClick={() => handleAction('view-layout-even-horizontal')}>
+                  Even Horizontal
+                </MenuItem>
+                <MenuItem onClick={() => handleAction('view-layout-even-vertical')}>
+                  Even Vertical
+                </MenuItem>
+                <MenuItem onClick={() => handleAction('view-layout-main-horizontal')}>
+                  Main Horizontal
+                </MenuItem>
+                <MenuItem onClick={() => handleAction('view-layout-main-vertical')}>
+                  Main Vertical
+                </MenuItem>
+                <MenuItem onClick={() => handleAction('view-layout-tiled')}>Tiled</MenuItem>
+                <MenuDivider />
+              </>
+            )}
+            <MenuItem onClick={() => send({ type: 'INCREASE_FONT_SIZE' })}>
+              Make Text Bigger
             </MenuItem>
-            <MenuItem onClick={() => handleAction('view-layout-main-horizontal')}>
-              Main Horizontal
+            <MenuItem onClick={() => send({ type: 'DECREASE_FONT_SIZE' })}>
+              Make Text Smaller
             </MenuItem>
-            <MenuItem onClick={() => handleAction('view-layout-main-vertical')}>
-              Main Vertical
+            <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>
+              Make Text Normal Size
             </MenuItem>
-            <MenuItem onClick={() => handleAction('view-layout-tiled')}>Tiled</MenuItem>
-            <MenuDivider />
-          </>
-        )}
-        <MenuItem onClick={() => send({ type: 'INCREASE_FONT_SIZE' })}>Make Text Bigger</MenuItem>
-        <MenuItem onClick={() => send({ type: 'DECREASE_FONT_SIZE' })}>Make Text Smaller</MenuItem>
-        <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>Make Text Normal Size</MenuItem>
-        {!readOnly && (
-          <>
-            <MenuDivider />
-            {/* One switch for the machine, written back to the tmuxy config —
+            {!readOnly && (
+              <>
+                <MenuDivider />
+                {/* One switch for the machine, written back to the tmuxy config —
                 not a per-client preference like the theme. */}
-            <MenuItem
-              type="checkbox"
-              checked={cursorBlink}
-              onClick={() => send({ type: 'TOGGLE_CURSOR_BLINK' })}
-            >
-              Blinking Cursor
-            </MenuItem>
-          </>
-        )}
-      </SubMenu>
+                <MenuItem
+                  type="checkbox"
+                  checked={cursorBlink}
+                  onClick={() => send({ type: 'TOGGLE_CURSOR_BLINK' })}
+                >
+                  Blinking Cursor
+                </MenuItem>
+              </>
+            )}
+          </SubMenu>
 
-      {/*
+          {/*
         Debug — the local action trace and nothing else (docs/TELEMETRY.md).
         Settings are read on open rather than held: the backend is the
         authority (a DO_NOT_TRACK kill switch can refuse an enable), and the
         native macOS menu can flip the same switch behind this one's back.
       */}
-      {!readOnly && (
-        <SubMenu
-          label="Debug"
-          onMenuChange={(e) => {
-            if (e.open) send({ type: 'FETCH_TRACE_SETTINGS' });
-          }}
-        >
-          <MenuItem
-            type="checkbox"
-            checked={trace?.enabled ?? false}
-            disabled={trace?.locked ?? false}
-            onClick={(e) => send({ type: 'SET_TRACE_ENABLED', enabled: !!e.checked })}
-          >
-            Enable Traces
-          </MenuItem>
+          {!readOnly && (
+            <SubMenu
+              label="Debug"
+              onMenuChange={(e) => {
+                if (e.open) send({ type: 'FETCH_TRACE_SETTINGS' });
+              }}
+            >
+              <MenuItem
+                type="checkbox"
+                checked={trace?.enabled ?? false}
+                disabled={trace?.locked ?? false}
+                onClick={(e) => send({ type: 'SET_TRACE_ENABLED', enabled: !!e.checked })}
+              >
+                Enable Traces
+              </MenuItem>
 
-          <MenuDivider />
-          <MenuHeader>Trace Level</MenuHeader>
-          <MenuRadioGroup
-            value={trace?.level ?? 'shape'}
-            onRadioChange={(e) => send({ type: 'SET_TRACE_LEVEL', level: e.value as TraceLevel })}
-          >
-            <MenuItem type="radio" value="shape" disabled={!trace?.enabled}>
-              Shape
-            </MenuItem>
-            <MenuItem type="radio" value="labeled" disabled={!trace?.enabled}>
-              Labeled
-            </MenuItem>
-            <MenuItem type="radio" value="full" disabled={!trace?.enabled}>
-              Full
-            </MenuItem>
-          </MenuRadioGroup>
+              <MenuDivider />
+              <MenuHeader>Trace Level</MenuHeader>
+              <MenuRadioGroup
+                value={trace?.level ?? 'shape'}
+                onRadioChange={(e) =>
+                  send({ type: 'SET_TRACE_LEVEL', level: e.value as TraceLevel })
+                }
+              >
+                <MenuItem type="radio" value="shape" disabled={!trace?.enabled}>
+                  Shape
+                </MenuItem>
+                <MenuItem type="radio" value="labeled" disabled={!trace?.enabled}>
+                  Labeled
+                </MenuItem>
+                <MenuItem type="radio" value="full" disabled={!trace?.enabled}>
+                  Full
+                </MenuItem>
+              </MenuRadioGroup>
 
-          <MenuDivider />
-          {/* The trace file lives on the machine running the backend, so only the
+              <MenuDivider />
+              {/* The trace file lives on the machine running the backend, so only the
               desktop app can open it — a browser tab cannot. */}
-          {isTauri() && (
-            <MenuItem disabled={!trace?.enabled} onClick={() => send({ type: 'OPEN_TRACE_FILE' })}>
-              Open trace.ndjson
-            </MenuItem>
+              {isTauri() && (
+                <MenuItem
+                  disabled={!trace?.enabled}
+                  onClick={() => send({ type: 'OPEN_TRACE_FILE' })}
+                >
+                  Open trace.ndjson
+                </MenuItem>
+              )}
+              <MenuItem
+                disabled={!trace?.enabled || !trace?.path}
+                onClick={() =>
+                  copyTracePath(trace?.path ?? null, {
+                    onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
+                    onFailed: (text) => send({ type: 'NOTIFY', text }),
+                  })
+                }
+              >
+                Copy trace.ndjson Path
+              </MenuItem>
+
+              <MenuItem
+                onClick={() =>
+                  copyAppState(actor.getSnapshot().context, {
+                    onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
+                    onFailed: (text) => send({ type: 'NOTIFY', text }),
+                  })
+                }
+              >
+                Copy App State
+              </MenuItem>
+
+              <MenuDivider />
+              <MenuItem onClick={restartApp}>Restart App</MenuItem>
+            </SubMenu>
           )}
-          <MenuItem
-            disabled={!trace?.enabled || !trace?.path}
-            onClick={() =>
-              copyTracePath(trace?.path ?? null, {
-                onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
-                onFailed: (text) => send({ type: 'NOTIFY', text }),
-              })
-            }
-          >
-            Copy trace.ndjson Path
-          </MenuItem>
 
-          <MenuItem
-            onClick={() =>
-              copyAppState(actor.getSnapshot().context, {
-                onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
-                onFailed: (text) => send({ type: 'NOTIFY', text }),
-              })
-            }
-          >
-            Copy App State
-          </MenuItem>
-
-          <MenuDivider />
-          <MenuItem onClick={restartApp}>Restart App</MenuItem>
-        </SubMenu>
+          <SubMenu label="Help">
+            <MenuItem onClick={() => handleAction('help-github')}>
+              Tmuxy on GitHub<span className="menu-external">{'\u2197'}</span>
+            </MenuItem>
+            <MenuItem onClick={() => handleAction('help-report-bug')}>
+              Report a Bug<span className="menu-external">{'\u2197'}</span>
+            </MenuItem>
+          </SubMenu>
+        </FloatingMenu>
       )}
-
-      <SubMenu label="Help">
-        <MenuItem onClick={() => handleAction('help-github')}>
-          Tmuxy on GitHub<span className="menu-external">{'\u2197'}</span>
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('help-report-bug')}>
-          Report a Bug<span className="menu-external">{'\u2197'}</span>
-        </MenuItem>
-      </SubMenu>
-    </Menu>
+    </>
   );
 }
 

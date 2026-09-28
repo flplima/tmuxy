@@ -2,17 +2,15 @@
  * SelectionContextMenu - Right-click context menu for selected text.
  *
  * Two things to do with a selection: copy it, or type it into the pane.
- * Uses @szhsin/react-menu ControlledMenu (same pattern as PaneContextMenu).
+ * A floating surface at the point that was right-clicked, like every other
+ * menu (components/floating/Menu).
  */
 
 import { useEffect } from 'react';
-import { ControlledMenu, MenuItem } from '@szhsin/react-menu';
-import '@szhsin/react-menu/dist/index.css';
+import { FloatingMenu, MenuItem } from './floating/Menu';
 import { useAppSend, useReadOnly } from '../machines/AppContext';
 import { literalTextCommands } from '../tmux/keyBatching';
 import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
-import { useSurfaceClaim } from './floating/useFloatingSurface';
-import './menus/AppMenu.css';
 import { flashCopiedRange } from '../utils/copyFlash';
 import { writeClipboard } from '../utils/clipboard';
 
@@ -60,8 +58,6 @@ export function SelectionContextMenu({
   selectionRange = null,
   onClose,
 }: SelectionContextMenuProps) {
-  // One floating surface at a time — see components/floating/surfaceRegistry.
-  useSurfaceClaim('selection-context-menu', onClose);
   const send = useAppSend();
   const readOnly = useReadOnly();
   useSelectionPinned(selectionRange);
@@ -74,7 +70,12 @@ export function SelectionContextMenu({
   };
 
   return (
-    <ControlledMenu state="open" anchorPoint={{ x, y }} onClose={onClose} transition={false}>
+    <FloatingMenu
+      id="selection-context-menu"
+      label="Selection"
+      anchor={{ kind: 'point', x, y }}
+      onClose={onClose}
+    >
       <MenuItem
         onClick={() => {
           writeClipboard(selectedText, paneId);
@@ -99,6 +100,6 @@ export function SelectionContextMenu({
           Send keys
         </MenuItem>
       )}
-    </ControlledMenu>
+    </FloatingMenu>
   );
 }

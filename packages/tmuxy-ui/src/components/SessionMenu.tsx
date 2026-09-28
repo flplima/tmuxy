@@ -24,8 +24,7 @@
  */
 
 import type React from 'react';
-import { ControlledMenu, MenuItem, MenuDivider, MenuHeader } from '@szhsin/react-menu';
-import '@szhsin/react-menu/dist/index.css';
+import { FloatingMenu, MenuItem, MenuDivider, MenuHeader } from './floating/Menu';
 import {
   useAppSend,
   useAppSelector,
@@ -34,24 +33,22 @@ import {
   selectSessions,
 } from '../machines/AppContext';
 import { isTauri } from '../tmux/adapters';
-import './menus/AppMenu.css';
 
 interface SessionMenuProps {
   /**
    * The control the menu hangs from. An element rather than a point, because
-   * the library measures an element to keep the menu on screen — given a bare
-   * point it positions blindly, and the status line's menu ran off the bottom
-   * of the window.
+   * the surface measures both to keep the menu on screen — and which SIDE it
+   * opens on follows from that: the status line's switcher is a 27px strip on
+   * the last row of the window, so its menu is placed above rather than off
+   * the bottom of the screen (`positionSurface`).
    */
   // `useRef<T>(null)` yields `RefObject<T | null>`; the menu reads `.current`
   // only once it is open, by which point React has attached the element.
   anchorRef: React.RefObject<HTMLElement | null>;
-  /** Which way it opens from the anchor; `top` for a control at the bottom. */
-  direction?: 'top' | 'bottom';
   onClose: () => void;
 }
 
-export function SessionMenu({ anchorRef, direction = 'bottom', onClose }: SessionMenuProps) {
+export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
   const send = useAppSend();
   const readOnly = useReadOnly();
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
@@ -83,18 +80,12 @@ export function SessionMenu({ anchorRef, direction = 'bottom', onClose }: Sessio
   const showServers = isTauri() && servers.length > 1;
 
   return (
-    <ControlledMenu
-      state="open"
-      anchorRef={anchorRef as React.RefObject<HTMLElement>}
-      direction={direction}
-      align="start"
-      // To the body, so the menu is positioned against the VIEWPORT. Left in
-      // place it renders inside its anchor — and the status line's anchor is a
-      // 27px strip on the last row of the window, which left the menu nowhere
-      // to go but off the bottom of the screen.
-      portal
+    <FloatingMenu
+      id="session-menu"
+      label="Sessions"
+      anchor={{ kind: 'element', element: anchorRef.current }}
       onClose={onClose}
-      transition={false}
+      ignoreRef={anchorRef}
     >
       <MenuHeader>Sessions</MenuHeader>
       {names.map((name) => {
@@ -142,6 +133,6 @@ export function SessionMenu({ anchorRef, direction = 'bottom', onClose }: Sessio
           </MenuItem>
         </>
       )}
-    </ControlledMenu>
+    </FloatingMenu>
   );
 }

@@ -61,6 +61,9 @@ export const CopyOrSendKeys: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    // The menu is a floating surface portalled out of the story's tree
+    // (components/floating), so its items are queried on the document.
+    const menu = within(document.body);
     // Select the text the way the user did, then open the menu about it.
     const selectAll = (el: HTMLElement) => {
       const range = document.createRange();
@@ -74,7 +77,7 @@ export const CopyOrSendKeys: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /open menu/i }));
 
     const items = await waitFor(() => {
-      const found = canvas.getAllByRole('menuitem');
+      const found = menu.getAllByRole('menuitem');
       expect(found).toHaveLength(2);
       return found;
     });
@@ -85,7 +88,7 @@ export const CopyOrSendKeys: Story = {
       expect(icon).not.toBeNull();
       expect(icon!.getBoundingClientRect().width).toBeGreaterThan(0);
     }
-    expect(canvas.queryByRole('menuitem', { name: /google|chatgpt/i })).toBeNull();
+    expect(menu.queryByRole('menuitem', { name: /google|chatgpt/i })).toBeNull();
 
     // The selection is pinned while the menu is up: the menu takes focus on
     // open and each item on hover, which collapses the selection on WebKit.
@@ -98,7 +101,7 @@ export const CopyOrSendKeys: Story = {
     });
 
     // Sending the keys is the end of the selection's job: the menu closes.
-    await userEvent.click(canvas.getByRole('menuitem', { name: /send keys/i }));
+    await userEvent.click(menu.getByRole('menuitem', { name: /send keys/i }));
     await waitFor(() => {
       expect(canvas.getByTestId('ctx-state')).toHaveTextContent('closed');
     });

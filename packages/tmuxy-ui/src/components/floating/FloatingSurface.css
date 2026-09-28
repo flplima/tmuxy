@@ -1,0 +1,87 @@
+/* ============================================
+   The floating layer: one look, one timing
+   ============================================
+
+   A tab's preview and every menu are the same kind of object — a card over the
+   grid, anchored to something, alive until something else takes the layer. They
+   each used to arrive and leave in their own way (the preview faded and slid;
+   the menus appeared and vanished, their library's transitions switched off),
+   which read as two different mechanisms for one idea. These are the timings
+   and the animations all of them share; what each one looks like is its own.
+*/
+
+.floating-surface {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  animation: floating-surface-in var(--transition-normal);
+}
+
+/* Arriving and leaving: a fade with a short slide down from whatever it hangs
+   off, and the reverse on the way out. `forwards` holds the last frame so the
+   surface does not flash back to full opacity before it is unmounted. */
+@keyframes floating-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes floating-surface-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.floating-surface.is-leaving {
+  animation: floating-surface-out var(--transition-normal) forwards;
+  pointer-events: none;
+}
+
+/* Becoming, rather than arriving.
+
+   Right-clicking a tab you are already looking at turns its preview into the
+   menu about it. The menu is placed where it belongs and then drawn from the
+   card's box — the offsets and scales are measured in `Menu.tsx` and written
+   here as custom properties, so this is one object changing shape rather than
+   one disappearing while another appears somewhere else. */
+@keyframes floating-surface-morph {
+  from {
+    opacity: 0.35;
+    transform: translate(var(--morph-x, 0), var(--morph-y, 0))
+      scale(var(--morph-sx, 1), var(--morph-sy, 1));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.floating-surface.is-morphing {
+  transform-origin: top left;
+  animation: floating-surface-morph var(--transition-normal);
+}
+
+.app-no-animations .floating-surface,
+.app-no-animations .floating-surface.is-leaving,
+.app-no-animations .floating-surface.is-morphing {
+  transition: none;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floating-surface,
+  .floating-surface.is-leaving,
+  .floating-surface.is-morphing {
+    transition: none;
+    animation: none;
+  }
+}

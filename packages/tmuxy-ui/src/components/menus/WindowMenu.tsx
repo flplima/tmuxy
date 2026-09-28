@@ -12,7 +12,7 @@
  */
 
 import { useState } from 'react';
-import { MenuItem, SubMenu, MenuDivider } from '@szhsin/react-menu';
+import { MenuItem, SubMenu, MenuDivider } from '../floating/Menu';
 import {
   focusGuiWindow,
   getWindowStyle,

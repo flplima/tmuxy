@@ -33,16 +33,18 @@ export const SinglePane: Story = {
       <ContextMenuHost />
     </ProviderHarness>
   ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const closeItem = await waitFor(() => canvas.getByRole('menuitem', { name: /close pane/i }));
+  play: async () => {
+    // The menu is portalled out of the story's tree (components/floating), so
+    // its items live on the document.
+    const menu = within(document.body);
+    const closeItem = await waitFor(() => menu.getByRole('menuitem', { name: /close pane/i }));
 
     // Keybinding labels are derived from the adapter's bindings (prefix x).
     expect(closeItem.querySelector('.menu-keybinding')?.textContent).toBe('ctrl+a x');
-    expect(canvas.getByRole('menuitem', { name: /split pane below/i })).toBeInTheDocument();
+    expect(menu.getByRole('menuitem', { name: /split pane below/i })).toBeInTheDocument();
 
     // Pane navigation needs a second pane.
-    expect(canvas.getByRole('menuitem', { name: /next pane/i })).toHaveAttribute(
+    expect(menu.getByRole('menuitem', { name: /next pane/i })).toHaveAttribute(
       'aria-disabled',
       'true',
     );
@@ -57,15 +59,16 @@ export const MultiPane: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const menu = within(document.body);
 
     // Once the split lands, navigation items become enabled.
     await waitFor(() => {
-      const nextPane = canvas.getByRole('menuitem', { name: /next pane/i });
+      const nextPane = menu.getByRole('menuitem', { name: /next pane/i });
       expect(nextPane).not.toHaveAttribute('aria-disabled');
     });
 
     // Selecting an item fires the host's onClose (menu dismissed).
-    await userEvent.click(canvas.getByRole('menuitem', { name: /copy mode/i }));
+    await userEvent.click(menu.getByRole('menuitem', { name: /copy mode/i }));
     await waitFor(() => {
       expect(canvas.getByTestId('ctx-state')).toHaveTextContent('closed');
     });

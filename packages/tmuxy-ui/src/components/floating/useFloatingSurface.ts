@@ -2,12 +2,16 @@
  * The mechanics every floating surface shares: where it goes, how long it
  * stays, and who else has to go away first.
  *
- * Pulled out of TabPreview, which had all three woven into one component — so
- * the context menus, which want exactly the same behaviour, each grew their own
- * partial version instead. The positioning and the exit hold are the fiddly
- * parts (a card that unmounts the instant its state goes false has no exit
- * animation to play, and one that clamps to the window without measuring itself
- * hangs off the edge for the tabs at either end).
+ * Pulled out of TabPreview, which had all three woven into one component while
+ * the menus — the same object, wanting the same behaviour — got theirs from a
+ * library with its own placement, its own portal and its own transitions. Both
+ * are built on this now (`Menu.tsx` adds what makes a surface a MENU), so
+ * there is one answer to each question rather than two that disagree.
+ *
+ * The positioning and the exit hold are the fiddly parts: a card that unmounts
+ * the instant its state goes false has no exit animation to play, and one that
+ * clamps to the window without measuring itself hangs off the edge for the tabs
+ * at either end.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -24,6 +28,27 @@ const GAP_PX = 6;
 const EDGE_PX = 8;
 
 /**
+ * How long every floating surface takes to come and go.
+ *
+ * One number for the preview and the menus: they are the same kind of object,
+ * and a menu that appears instantly where a card faded reads as two different
+ * mechanisms. Must stay in sync with the keyframes in `FloatingSurface.css` —
+ * the node is held exactly this long so the exit has something to play on.
+ */
+export const SURFACE_EXIT_MS = 150;
+
+/** Which side of its anchor a surface hangs on, and how it lines up. */
+export interface SurfacePlacement {
+  /** `below` for a menu or a preview, `right` for a submenu beside its item. */
+  side?: 'below' | 'right';
+  /**
+   * Across the anchor: `center` ties a picture to the thing it is of, `start`
+   * lines a menu's left edge up with its button the way a menu bar does.
+   */
+  align?: 'center' | 'start';
+}
+
+/**
  * Place `surface` against `anchor`, kept inside the viewport.
  *
  * Measures the surface rather than assuming a size: the clamp has to know how
@@ -32,11 +57,38 @@ const EDGE_PX = 8;
  *
  * Flips above the anchor when there is no room below — a menu opened near the
  * bottom of the window otherwise runs off it, and a menu you have to scroll to
- * is a menu you cannot use.
+ * is a menu you cannot use. The same flip on the other axis is what keeps a
+ * submenu on screen at the right-hand edge.
  */
-export function positionSurface(surface: HTMLElement, anchor: SurfaceAnchor): void {
+export function positionSurface(
+  surface: HTMLElement,
+  anchor: SurfaceAnchor,
+  placement: SurfacePlacement = {},
+): void {
   const box = surface.getBoundingClientRect();
   if (box.width === 0 && box.height === 0) return;
+
+  const clampLeft = (left: number) =>
+    Math.min(Math.max(EDGE_PX, left), Math.max(EDGE_PX, window.innerWidth - box.width - EDGE_PX));
+  const place = (left: number, top: number) => {
+    surface.style.left = `${Math.round(left)}px`;
+    surface.style.top = `${Math.round(top)}px`;
+  };
+
+  // Beside its anchor rather than under it: a submenu. It opens away from the
+  // edge it would otherwise run off, so the last column of a menu chain folds
+  // back to the left instead of hanging outside the window.
+  if (placement.side === 'right' && anchor.kind === 'element') {
+    if (!anchor.element) return;
+    const rect = anchor.element.getBoundingClientRect();
+    const right = rect.right + GAP_PX;
+    const left = right + box.width + EDGE_PX <= window.innerWidth ? right : rect.left - box.width;
+    place(
+      clampLeft(left),
+      Math.max(EDGE_PX, Math.min(rect.top, window.innerHeight - box.height - EDGE_PX)),
+    );
+    return;
+  }
 
   let preferredLeft: number;
   let below: number;
@@ -50,22 +102,16 @@ export function positionSurface(surface: HTMLElement, anchor: SurfaceAnchor): vo
     if (!anchor.element) return;
     const rect = anchor.element.getBoundingClientRect();
     // Centred on what it belongs to, which is what makes the tie between the
-    // two read without a pointer or a line.
-    preferredLeft = rect.left + rect.width / 2 - box.width / 2;
+    // two read without a pointer or a line; a menu instead lines its left edge
+    // up with its button, which is where the eye already is.
+    preferredLeft =
+      placement.align === 'start' ? rect.left : rect.left + rect.width / 2 - box.width / 2;
     below = rect.bottom + GAP_PX;
     above = rect.top - GAP_PX;
   }
 
-  const left = Math.min(
-    Math.max(EDGE_PX, preferredLeft),
-    Math.max(EDGE_PX, window.innerWidth - box.width - EDGE_PX),
-  );
-
   const fitsBelow = below + box.height + EDGE_PX <= window.innerHeight;
-  const top = fitsBelow ? below : Math.max(EDGE_PX, above - box.height);
-
-  surface.style.left = `${Math.round(left)}px`;
-  surface.style.top = `${Math.round(top)}px`;
+  place(clampLeft(preferredLeft), fitsBelow ? below : Math.max(EDGE_PX, above - box.height));
 }
 
 /** The element floating surfaces portal into. */
@@ -80,6 +126,16 @@ interface FloatingSurfaceOptions<T> {
   content: T | null;
   /** Where it hangs. Re-read on every render, so a moving anchor is followed. */
   anchor: SurfaceAnchor;
+  /** Which side of the anchor, and how it lines up across it. */
+  placement?: SurfacePlacement;
+  /**
+   * Whether this surface holds the floating layer (`surfaceRegistry`).
+   *
+   * A top-level surface does: opening it puts away whatever else was open. A
+   * submenu does NOT — it belongs to the menu that opened it, and a child that
+   * claimed the layer would dismiss its own parent on the way up.
+   */
+  claim?: boolean;
   /** How long the exit animation runs; the node is held exactly that long. */
   exitMs: number;
   /** False when the app's animation switch is off — then exits are instant. */
@@ -110,6 +166,8 @@ export function useFloatingSurface<T>({
   id,
   content,
   anchor,
+  placement,
+  claim = true,
   exitMs,
   animated,
   onDismiss,
@@ -156,9 +214,9 @@ export function useFloatingSurface<T>({
   // as long as it is drawn: the tail of an exit animation must not dismiss the
   // surface that replaced it.
   useEffect(() => {
-    if (contentKey === null) return;
+    if (contentKey === null || !claim) return;
     return openSurface(id, () => dismissRef.current());
-  }, [contentKey, id]);
+  }, [contentKey, claim, id]);
 
   // The anchor is rebuilt every render (it is an object literal at the call
   // site), so it is read through a ref rather than depended on: as a dependency
@@ -166,10 +224,12 @@ export function useFloatingSurface<T>({
   // new function each time, re-firing every effect that holds it.
   const anchorRef = useRef(anchor);
   anchorRef.current = anchor;
+  const placementRef = useRef(placement);
+  placementRef.current = placement;
 
   const reposition = useCallback(() => {
     const surface = ref.current;
-    if (surface) positionSurface(surface, anchorRef.current);
+    if (surface) positionSurface(surface, anchorRef.current, placementRef.current);
   }, []);
 
   // Keyed on what actually moves the surface: the thing being shown, and the
@@ -182,26 +242,4 @@ export function useFloatingSurface<T>({
   }, [shown, anchorKey, reposition]);
 
   return { ref, shown, leaving, reposition };
-}
-
-/**
- * Claim the floating layer for a surface that positions itself.
- *
- * The context menus and the app menu come from `@szhsin/react-menu`, which owns
- * their placement and their portal — so they want the COORDINATION half of a
- * floating surface without the mechanics. Mounting one puts away whatever else
- * was open (a tab preview, another menu), and unmounting releases the layer.
- *
- * `onDismiss` must close the menu at its own source of truth. Without it a peer
- * can take the layer while the menu's own `visible` flag stays true, and the
- * menu sits there owning nothing.
- */
-export function useSurfaceClaim(id: string, onDismiss: () => void, open = true): void {
-  const dismissRef = useRef(onDismiss);
-  dismissRef.current = onDismiss;
-
-  useEffect(() => {
-    if (!open) return;
-    return openSurface(id, () => dismissRef.current());
-  }, [id, open]);
 }

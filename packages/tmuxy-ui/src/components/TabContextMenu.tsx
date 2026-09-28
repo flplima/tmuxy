@@ -2,12 +2,13 @@
  * TabContextMenu - Right-click context menu for tab (window) operations.
  *
  * Extracted from WindowTabs so the sidebar tree's tab rows get the identical
- * menu. Follows PaneContextMenu's pattern: always `state="open"`, mounted only
- * while visible by the caller, positioned at an anchor point.
+ * menu. Mounted only while the caller wants it, anchored at the point that was
+ * right-clicked — or, when the tab's preview was up, AT THE CARD: the strip
+ * hands over the card's box (`morphFrom`) and the menu grows out of it rather
+ * than appearing beside the ghost of something that just vanished.
  */
 
-import { ControlledMenu, MenuItem, MenuDivider } from '@szhsin/react-menu';
-import '@szhsin/react-menu/dist/index.css';
+import { FloatingMenu, MenuItem, MenuDivider } from './floating/Menu';
 import {
   useAppSend,
   useAppSelector,
@@ -16,24 +17,31 @@ import {
   selectWindows,
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
-import { useSurfaceClaim } from './floating/useFloatingSurface';
 import { KeyLabel } from './menus/KeyLabel';
-import './menus/AppMenu.css';
 
 interface TabContextMenuProps {
   /** tmux window index the actions target (Close/Rename operate on this tab). */
   windowId: string;
   x: number;
   y: number;
+  /** The tab's button, when the menu is replacing that tab's preview card. */
+  anchorEl?: HTMLElement | null;
+  /** The preview card's box, when this menu is what it turns into. */
+  morphFrom?: DOMRect | null;
   onClose: () => void;
   /** Start renaming this tab where it is drawn; the caller owns the field. */
   onRename: () => void;
 }
 
-export function TabContextMenu({ windowId, x, y, onClose, onRename }: TabContextMenuProps) {
-  // One floating surface at a time: opening this puts away the tab preview it
-  // was drawn on top of, and any other menu.
-  useSurfaceClaim('tab-context-menu', onClose);
+export function TabContextMenu({
+  windowId,
+  x,
+  y,
+  anchorEl = null,
+  morphFrom = null,
+  onClose,
+  onRename,
+}: TabContextMenuProps) {
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const allWindows = useAppSelectorShallow(selectWindows);
@@ -74,7 +82,18 @@ export function TabContextMenu({ windowId, x, y, onClose, onRename }: TabContext
   };
 
   return (
-    <ControlledMenu state="open" anchorPoint={{ x, y }} onClose={onClose} transition={false}>
+    <FloatingMenu
+      // One floating surface at a time: opening this puts away the tab preview
+      // it is replacing, and any other menu (components/floating).
+      id="tab-context-menu"
+      label="Tab"
+      // Where the card was, when there was one: the menu is that card becoming
+      // something else, so it belongs under the tab rather than at the pointer.
+      anchor={anchorEl ? { kind: 'element', element: anchorEl } : { kind: 'point', x, y }}
+      placement={anchorEl ? { align: 'center' } : undefined}
+      morphFrom={morphFrom}
+      onClose={onClose}
+    >
       <MenuItem onClick={() => handleAction('tab-new')}>
         New Tab
         <KeyLabel keybindings={keybindings} command="new-window" />
@@ -110,6 +129,6 @@ export function TabContextMenu({ windowId, x, y, onClose, onRename }: TabContext
         Close Tab
         <KeyLabel keybindings={keybindings} command="kill-window" />
       </MenuItem>
-    </ControlledMenu>
+    </FloatingMenu>
   );
 }

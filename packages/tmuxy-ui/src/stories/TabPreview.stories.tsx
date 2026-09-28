@@ -318,9 +318,9 @@ export const ItFadesAndSlidesBothWays: Story = {
     });
     void userEvent.hover(alpha);
     const card = await inserted;
-    expect(animationNames(card)).toContain('tab-preview-in');
+    expect(animationNames(card)).toContain('floating-surface-in');
     // The node stays, so the entrance can be watched to its end.
-    await running(card, 'tab-preview-in').finished;
+    await running(card, 'floating-surface-in').finished;
     await waitForPreview();
 
     // Out: the same, in reverse — the node is kept while it goes, and what it
@@ -338,12 +338,12 @@ export const ItFadesAndSlidesBothWays: Story = {
     void userEvent.unhover(alpha);
     if (pane) void userEvent.hover(pane);
     await leaving;
-    expect(animationNames(card)).toContain('tab-preview-out');
+    expect(animationNames(card)).toContain('floating-surface-out');
     // Not awaited to its end: the node is held for exactly the exit's length
     // and its removal cancels the animation, so `finished` can reject on the
     // very frame the exit completes. Running with a real duration, then gone,
     // is the whole of what "leaves the same way" means.
-    running(card, 'tab-preview-out');
+    running(card, 'floating-surface-out');
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };
@@ -397,7 +397,7 @@ export const RightClickTurnsThePreviewIntoTheMenu: Story = {
       story: { inline: false, iframeHeight: 460 },
       description: {
         story:
-          'Right-clicking a tab you are already looking at replaces its preview with its menu. The two are surfaces about the same tab, so only one may be up: drawn together, the menu covered the picture it was opened from and left a card underneath that nothing could reach. One floating surface holds the layer at a time (components/floating/surfaceRegistry).',
+          'Right-clicking a tab you are already looking at turns its preview INTO its menu. The two are surfaces about the same tab, so only one may be up: drawn together, the menu covered the picture it was opened from and left a card underneath that nothing could reach. The card goes in the same commit the menu arrives in, and the menu opens from the box the card occupied — one object changing shape rather than a disappearance beside an appearance (components/floating).',
       },
     },
   },
@@ -411,10 +411,14 @@ export const RightClickTurnsThePreviewIntoTheMenu: Story = {
     const tab = tabButton(canvasElement, 'bravo');
     const windowId = tab.dataset.windowId as string;
 
-    // Rest on it until the picture is up.
+    // Rest on it until the picture is up — and settled: its box is measured
+    // here and compared with the menu's below, so it is read once the entrance
+    // has stopped moving it rather than somewhere along the slide.
     await userEvent.hover(tab);
     const card = await waitForPreview(windowId);
-    expect(card.getBoundingClientRect().height).toBeGreaterThan(0);
+    await Promise.all(card.getAnimations().map((a) => a.finished.catch(() => undefined)));
+    const cardBox = card.getBoundingClientRect();
+    expect(cardBox.height).toBeGreaterThan(0);
 
     // Then right-click the same tab.
     await userEvent.pointer({ target: tab, keys: '[MouseRight]' });
@@ -422,7 +426,7 @@ export const RightClickTurnsThePreviewIntoTheMenu: Story = {
     // The menu is up...
     const menu = await waitFor(
       () => {
-        const el = document.querySelector<HTMLElement>('.szh-menu');
+        const el = document.querySelector<HTMLElement>('.floating-menu');
         expect(el, 'no context menu').not.toBeNull();
         return el!;
       },
@@ -444,5 +448,29 @@ export const RightClickTurnsThePreviewIntoTheMenu: Story = {
       },
       { timeout: 3000 },
     );
+
+    // The menu is the card, changed: it is placed under the same tab, and it
+    // is drawn from where the card was and animated to where it belongs. The
+    // offsets are asserted rather than the frames — a 150ms animation is over
+    // before a busy runner can sample it, while the distance it was told to
+    // travel is there for as long as the menu is.
+    expect(menu.classList.contains('is-morphing'), 'the menu did not morph').toBe(true);
+    // Read from the placement the surface WROTE, not from a measured box: the
+    // morph is a transform, so a box read while it plays is the box on the way
+    // rather than the one it is heading for.
+    const left = parseFloat(menu.style.left);
+    const top = parseFloat(menu.style.top);
+    const morphX = parseFloat(menu.style.getPropertyValue('--morph-x'));
+    const morphY = parseFloat(menu.style.getPropertyValue('--morph-y'));
+    // Named in the failure, because "off by 50" only means something next to
+    // where each of the three boxes actually was.
+    const where =
+      `menu placed at (${left},${top}), morph offset (${morphX},${morphY}), ` +
+      `card was at (${Math.round(cardBox.left)},${Math.round(cardBox.top)})`;
+    expect(Math.abs(left + morphX - cardBox.left), `x: ${where}`).toBeLessThanOrEqual(2);
+    expect(Math.abs(top + morphY - cardBox.top), `y: ${where}`).toBeLessThanOrEqual(2);
+
+    // And it hangs off the tab, not off the pointer: the card's own anchor.
+    expect(top).toBeGreaterThanOrEqual(tab.getBoundingClientRect().bottom - 1);
   },
 };

@@ -16,10 +16,12 @@
  * browse, and the next preview waits its delay again. Clicking it opens that
  * tab, the way clicking the button would — it IS the button, drawn larger.
  *
- * Positioning, the portal and the exit hold are `useFloatingSurface`, shared
- * with the context menus — a preview and a menu are the same kind of object and
- * used to disagree about all three. That hook also holds the floating layer,
- * which is what stops a menu drawing on top of this card.
+ * Positioning, the portal, the exit hold and the arrive/leave animation are
+ * `useFloatingSurface` and `.floating-surface`, shared with the menus — a
+ * preview and a menu are the same kind of object and used to disagree about all
+ * of it. That hook also holds the floating layer, which is what stops a menu
+ * drawing on top of this card; right-clicking the tab turns this card INTO the
+ * menu (see `WindowTabs`).
  */
 
 import { useLayoutEffect, useState } from 'react';
@@ -38,7 +40,12 @@ import { Tooltip } from './Tooltip';
 import { slotBoxes } from '../utils/tabOverview';
 import { useTabStill } from '../hooks/useTabStill';
 import { TabShot } from './TabShot';
-import { useFloatingSurface, surfacePortalTarget } from './floating/useFloatingSurface';
+import {
+  useFloatingSurface,
+  surfacePortalTarget,
+  SURFACE_EXIT_MS,
+} from './floating/useFloatingSurface';
+import './floating/FloatingSurface.css';
 import './TabPreview.css';
 
 /**
@@ -47,13 +54,6 @@ import './TabPreview.css';
  * stopping on a tab feels like it answered.
  */
 export const TAB_PREVIEW_DELAY_MS = 500;
-
-/**
- * How long the card takes to fade and slide away. Must stay in sync with the
- * `tab-preview-out` keyframes (TabPreview.css) — the node is held for exactly
- * this long so the exit has something to play on.
- */
-const TAB_PREVIEW_EXIT_MS = 150;
 
 const WIDTH_PX = 280;
 
@@ -101,7 +101,10 @@ export function TabPreview({
         ? document.querySelector<HTMLElement>(`.tab-name[data-window-id="${windowId}"]`)
         : null,
     },
-    exitMs: TAB_PREVIEW_EXIT_MS,
+    // Centred under the tab it is of: the tie between the picture and the
+    // button is what makes it read without a pointer or a line.
+    placement: { align: 'center' },
+    exitMs: SURFACE_EXIT_MS,
     animated: animations,
     onDismiss,
   });
@@ -134,7 +137,7 @@ export function TabPreview({
   return createPortal(
     <div
       ref={rootRef}
-      className={`tab-preview${leaving ? ' is-leaving' : ''}`}
+      className={`floating-surface tab-preview${leaving ? ' is-leaving' : ''}`}
       role="tooltip"
       data-testid="tab-preview"
       data-window-id={card.windowId}

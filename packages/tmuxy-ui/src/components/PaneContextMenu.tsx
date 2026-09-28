@@ -1,11 +1,12 @@
 /**
  * PaneContextMenu - Right-click context menu for pane operations
  *
- * Uses @szhsin/react-menu ControlledMenu with anchor point positioning.
+ * A floating surface anchored at the point that was right-clicked
+ * (components/floating/Menu) — the same object as every other menu and the tab
+ * preview, so opening it puts whichever of those was up away.
  */
 
-import { ControlledMenu } from '@szhsin/react-menu';
-import '@szhsin/react-menu/dist/index.css';
+import { FloatingMenu } from './floating/Menu';
 import {
   useAppSend,
   useAppSelector,
@@ -14,11 +15,9 @@ import {
   selectMarkedPaneId,
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
-import { useSurfaceClaim } from './floating/useFloatingSurface';
 import { PaneMenuItems } from './menus/PaneMenuItems';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';
 import type { WidgetMenuItem } from './widgets';
-import './menus/AppMenu.css';
 
 interface PaneContextMenuProps {
   paneId: string;
@@ -30,8 +29,6 @@ interface PaneContextMenuProps {
 }
 
 export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
-  // One floating surface at a time — see components/floating/surfaceRegistry.
-  useSurfaceClaim('pane-context-menu', onClose);
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const visiblePanes = useAppSelector(selectVisiblePanes);
@@ -59,7 +56,12 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
   };
 
   return (
-    <ControlledMenu state="open" anchorPoint={{ x, y }} onClose={onClose} transition={false}>
+    <FloatingMenu
+      id="pane-context-menu"
+      label="Pane"
+      anchor={{ kind: 'point', x, y }}
+      onClose={onClose}
+    >
       <PaneMenuItems
         keybindings={keybindings}
         isSinglePane={isSinglePane}
@@ -76,6 +78,6 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
         }
         onAction={handleAction}
       />
-    </ControlledMenu>
+    </FloatingMenu>
   );
 }

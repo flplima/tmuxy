@@ -1,0 +1,118 @@
+/* ============================================
+   Menus — the floating surface, with items in it
+   ============================================
+
+   One stylesheet for every menu in the app: the hamburger, the tab and pane
+   context menus, the selection menu and the session switcher. They used to be
+   a third-party menu's classes with a sheet of overrides on top, which is why
+   "the menus" had a look that no file described.
+*/
+
+.floating-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 0;
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+  border-radius: 0;
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  /* Long menus (the theme list) stay inside the window and scroll rather than
+     running off the bottom of it. */
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  outline: none;
+}
+
+.floating-menu-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  color: var(--text-primary);
+  /* A menu item is a target, not a text run: the pointer that opened the menu
+     is the one choosing, and a caret in the middle of it says otherwise. */
+  cursor: default;
+  outline: none;
+  user-select: none;
+}
+
+/* Hover and keyboard focus are the same state — the item you would choose if
+   you acted now. Two different highlights for one idea is what makes a menu
+   feel like two menus depending on how you opened it. */
+.floating-menu-item:hover,
+.floating-menu-item:focus,
+.floating-menu-item.is-open {
+  background-color: var(--bg-highlight);
+  color: var(--text-primary);
+}
+
+.floating-menu-item.is-disabled {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.floating-menu-item.is-disabled:hover,
+.floating-menu-item.is-disabled:focus {
+  background-color: transparent;
+  color: var(--text-muted);
+}
+
+/* The mark that an item opens a column of its own. */
+.floating-menu-arrow {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 8px;
+  color: inherit;
+}
+
+.floating-menu-divider {
+  height: 1px;
+  margin: 0;
+  background-color: var(--border-medium);
+}
+
+.floating-menu-header {
+  padding: 4px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Item icon: muted at rest, the item's colour once it is the one you would
+   choose. */
+.menu-item-icon {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+
+.floating-menu-item:hover .menu-item-icon,
+.floating-menu-item:focus .menu-item-icon {
+  color: inherit;
+}
+
+/* Keybinding hint, right-aligned and quiet until the item is under the
+   pointer — it is the answer to "how do I do this without the menu". */
+.menu-keybinding {
+  margin-left: auto;
+  padding-left: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.floating-menu-item:hover .menu-keybinding,
+.floating-menu-item:focus .menu-keybinding {
+  color: var(--text-primary);
+}
+
+/* Leaves the app: the arrow says so before the click does. */
+.menu-external {
+  margin-left: 4px;
+  font-size: 10px;
+  color: inherit;
+}

@@ -27,7 +27,7 @@ type Story = StoryObj<typeof AppHarness>;
 async function waitForMenu(): Promise<HTMLElement> {
   return waitFor(
     () => {
-      const el = document.querySelector('.szh-menu--state-open') as HTMLElement | null;
+      const el = document.querySelector('.floating-menu') as HTMLElement | null;
       if (!el) throw new Error('the session menu is not open');
       const box = el.getBoundingClientRect();
       if (box.width < 40 || box.height < 20) throw new Error('the menu has no readable box');
@@ -89,7 +89,7 @@ export const TheSwitcherIsADropdown: Story = {
     // Picking the session you are already on is a no-op that closes the menu.
     await user.click(row);
     await waitFor(() => {
-      expect(document.querySelector('.szh-menu--state-open')).toBeNull();
+      expect(document.querySelector('.floating-menu')).toBeNull();
     });
   },
 };
@@ -132,7 +132,7 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
     // gesture that has a handler of its own.
     await user.click(menu.querySelector('[data-current="true"]') as HTMLElement);
     await waitFor(() => {
-      expect(document.querySelector('.szh-menu--state-open')).toBeNull();
+      expect(document.querySelector('.floating-menu')).toBeNull();
     });
 
     // What `isTauri()` reads (tmux/adapters.ts). The harness builds its own
@@ -157,7 +157,7 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
 
       await user.click(connect);
       await waitFor(() => {
-        expect(document.querySelector('.szh-menu--state-open')).toBeNull();
+        expect(document.querySelector('.floating-menu')).toBeNull();
       });
       // The form is a pane, so the menu asks for one rather than drawing it.
       expect(raised).toContain('OPEN_CONNECT_FLOAT');

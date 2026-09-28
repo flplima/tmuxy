@@ -12,6 +12,7 @@ Feature-to-files retrieval map for agents.
 | Tauri bridge and desktop shell | `packages/tmuxy-tauri-app` |
 | GUI windows on one session, and the Window menu | `packages/tmuxy-tauri-app/src/windows.rs`<br>`packages/tmuxy-ui/src/components/menus/WindowMenu.tsx`<br>`packages/tmuxy-ui/src/utils/guiWindows.ts` |
 | Window styles (iTerm2's set) | `packages/tmuxy-tauri-app/src/window_style.rs` |
+| Menus, the tab preview, and the one-surface-at-a-time rule | `packages/tmuxy-ui/src/components/floating/Menu.tsx`<br>`packages/tmuxy-ui/src/components/floating/useFloatingSurface.ts`<br>`packages/tmuxy-ui/src/components/floating/surfaceRegistry.ts`<br>`packages/tmuxy-ui/src/components/TabPreview.tsx` |
 | Copy mode behavior | `docs/COPY-MODE.md` + related UI files |
 | Rich rendering / OSC / image protocols | `docs/RICH-RENDERING.md` |
 | Performance harnesses | `perf`<br>`packages/tmuxy-ui/scripts` |

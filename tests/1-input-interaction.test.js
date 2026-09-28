@@ -559,7 +559,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     await delay(DELAYS.MEDIUM);
     expect(await readSelection()).toBe(selected);
     const menuItems = await ctx.page.evaluate(() =>
-      [...document.querySelectorAll('.szh-menu__item')].map((el) => ({
+      [...document.querySelectorAll('[role^="menuitem"]')].map((el) => ({
         text: el.textContent.trim(),
         icon: !!el.querySelector('svg.menu-item-icon'),
       })),
@@ -579,13 +579,30 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
       3000,
       'the selection to be restored under the open menu',
     );
+    // Escape puts the MENU away and stops there: one press dismisses the
+    // surface you opened last, not everything behind it. The view the menu was
+    // opened over is still up, and the key never reached the program in the
+    // pane either.
     await ctx.page.keyboard.press('Escape');
-    await delay(DELAYS.SHORT);
+    await waitForCondition(
+      ctx.page,
+      async () => (await ctx.page.$('[role="menu"]')) === null,
+      5000,
+      'the selection menu to close on Escape',
+    );
+    expect((await getCopyModeState(ctx.page))?.mode).toBe('scroll');
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
 
     // Step 4: typing closes the view and lands at the prompt, as in any
-    // terminal — the key is not swallowed by a mode.
-    await runCommand(ctx.page, 'echo AFTER_SCROLL_VIEW', 'AFTER_SCROLL_VIEW');
+    // terminal — the key is not swallowed by a mode. Typed at the view, which
+    // is what is on screen: the live screen is mounted but hidden behind it
+    // (TerminalPane), so aiming at that would be aiming at something the user
+    // cannot see either.
+    await typeInTerminal(ctx.page, 'echo AFTER_SCROLL_VIEW', {
+      target: '[data-testid="scrollback-terminal"]',
+    });
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'AFTER_SCROLL_VIEW', 20000);
     expect(await getCopyModeState(ctx.page)).toBeNull();
 
     // Step 5: a double-click selects natively and still enters no mode.

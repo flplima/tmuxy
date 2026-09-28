@@ -275,13 +275,7 @@ export function TmuxStatusBar() {
           >
             [{sessionName}]
           </span>
-          {menuOpen && (
-            <SessionMenu
-              anchorRef={switcherRef}
-              direction="top"
-              onClose={() => setMenuOpen(false)}
-            />
-          )}
+          {menuOpen && <SessionMenu anchorRef={switcherRef} onClose={() => setMenuOpen(false)} />}
         </div>
       </div>
     </div>
