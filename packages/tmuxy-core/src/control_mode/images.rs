@@ -21,6 +21,13 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+// `std::time::Instant::now()` panics on wasm32; web-time backs it with
+// performance.now() in the browser (the same arrangement as `state.rs`).
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
+
 /// Image protocol that produced this image.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -64,7 +71,7 @@ pub struct StoredImage {
 #[derive(Debug)]
 struct KittyChunked {
     /// When the transfer was opened; see `MAX_CHUNKED_AGE`.
-    opened_at: std::time::Instant,
+    opened_at: Instant,
     /// Accumulated base64 payload (still encoded).
     payload: String,
     /// Image format (`f=`) from the first chunk: 32 = RGBA, 24 = RGB, 100 = PNG.
@@ -134,7 +141,7 @@ const MAX_CHUNKED_AGE: std::time::Duration = std::time::Duration::from_secs(30);
 impl ImageParser {
     /// Drop every chunked transfer that has been open longer than
     /// `MAX_CHUNKED_AGE` as of `now`.
-    fn expire_stale_chunked(&mut self, now: std::time::Instant) {
+    fn expire_stale_chunked(&mut self, now: Instant) {
         if self.kitty_chunks.is_empty() {
             return;
         }
@@ -578,7 +585,7 @@ impl ImageParser {
             // SEC-03: the payload comes from pane output, so the number of
             // open transfers, the size of each and how long one may stay open
             // are all bounded.
-            self.expire_stale_chunked(std::time::Instant::now());
+            self.expire_stale_chunked(Instant::now());
             if !self.kitty_chunks.contains_key(&image_id)
                 && self.kitty_chunks.len() >= MAX_INFLIGHT_CHUNKED
             {
@@ -593,7 +600,7 @@ impl ImageParser {
                 .kitty_chunks
                 .entry(image_id)
                 .or_insert_with(|| KittyChunked {
-                    opened_at: std::time::Instant::now(),
+                    opened_at: Instant::now(),
                     payload: String::new(),
                     format,
                     src_width: src_w,
@@ -617,7 +624,7 @@ impl ImageParser {
             self.kitty_chunks.remove(&image_id)?
         } else {
             KittyChunked {
-                opened_at: std::time::Instant::now(),
+                opened_at: Instant::now(),
                 payload: payload_str.to_string(),
                 format,
                 src_width: src_w,
@@ -1229,10 +1236,10 @@ mod tests {
         parser.process(b"\x1b_Ga=T,f=100,i=1,m=1;AAAA\x1b\\");
         assert_eq!(parser.kitty_chunks.len(), 1);
         // Not yet: a transfer opened a moment ago is still streaming.
-        parser.expire_stale_chunked(std::time::Instant::now());
+        parser.expire_stale_chunked(Instant::now());
         assert_eq!(parser.kitty_chunks.len(), 1);
         // Past the cap it is gone, and so is its place in the eviction order.
-        parser.expire_stale_chunked(std::time::Instant::now() + MAX_CHUNKED_AGE);
+        parser.expire_stale_chunked(Instant::now() + MAX_CHUNKED_AGE);
         assert!(parser.kitty_chunks.is_empty());
         assert!(parser.kitty_chunk_order.is_empty());
     }

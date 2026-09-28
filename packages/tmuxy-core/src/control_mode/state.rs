@@ -13,7 +13,7 @@ use tracing::warn;
 // The settling debounce uses a monotonic clock. `std::time::Instant::now()`
 // panics on wasm32; web-time backs it with performance.now() in the browser.
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
@@ -1289,7 +1289,7 @@ pub const MAX_CLIPBOARD_BYTES: usize = 64 * 1024;
 /// A yank is something the user does, and nobody does it several times a
 /// second; a program that writes the clipboard in a loop is fighting the user
 /// for it. The first write in each interval goes through, the rest are dropped.
-pub const MIN_CLIPBOARD_INTERVAL: Duration = Duration::from_secs(1);
+pub const MIN_CLIPBOARD_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The most decoded images one pane keeps.
 ///
