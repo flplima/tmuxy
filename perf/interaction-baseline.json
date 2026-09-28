@@ -58,6 +58,122 @@
         }
       ],
       "target": "web"
+    },
+    "linux-x64/web": {
+      "schema": 1,
+      "label": "ci",
+      "generatedAt": "2026-09-28T15:49:20.935Z",
+      "commit": "20fa169",
+      "platform": "linux-x64",
+      "target": "web",
+      "url": "http://localhost:9000",
+      "samplesRequested": 12,
+      "reference": "key-echo",
+      "interactions": [
+        {
+          "name": "key-echo",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 24.3,
+          "p95": 40,
+          "max": 40.4,
+          "ratioToReference": 1
+        },
+        {
+          "name": "pane-nav-keyboard",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 4.7,
+          "p95": 5.4,
+          "max": 5.6,
+          "ratioToReference": 0.2
+        },
+        {
+          "name": "pane-zoom-toggle",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 89.9,
+          "p95": 91.4,
+          "max": 91.6,
+          "ratioToReference": 3.7
+        },
+        {
+          "name": "pane-split",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 68.6,
+          "p95": 69.1,
+          "max": 69.6,
+          "ratioToReference": 2.8
+        },
+        {
+          "name": "tab-switch",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 5.4,
+          "p95": 5.6,
+          "max": 5.8,
+          "ratioToReference": 0.2
+        }
+      ]
+    },
+    "linux-x64/tauri": {
+      "schema": 1,
+      "label": "ci-desktop",
+      "generatedAt": "2026-09-28T15:52:58.968Z",
+      "commit": "20fa169",
+      "platform": "linux-x64",
+      "target": "tauri",
+      "url": "/home/runner/work/tmuxy/tmuxy/target/release/tmuxy",
+      "samplesRequested": 12,
+      "reference": "key-echo",
+      "interactions": [
+        {
+          "name": "key-echo",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 27,
+          "p95": 31,
+          "max": 36,
+          "ratioToReference": 1
+        },
+        {
+          "name": "pane-nav-keyboard",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 5,
+          "p95": 6,
+          "max": 6,
+          "ratioToReference": 0.2
+        },
+        {
+          "name": "pane-zoom-toggle",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 88,
+          "p95": 95,
+          "max": 105,
+          "ratioToReference": 3.3
+        },
+        {
+          "name": "pane-split",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 83,
+          "p95": 84,
+          "max": 86,
+          "ratioToReference": 3.1
+        },
+        {
+          "name": "tab-switch",
+          "samples": 12,
+          "timeouts": 0,
+          "p50": 6,
+          "p95": 8,
+          "max": 10,
+          "ratioToReference": 0.2
+        }
+      ]
     }
   }
 }
