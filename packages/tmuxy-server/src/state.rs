@@ -255,6 +255,14 @@ pub struct AppState {
     /// place in the `sessions` map, and nothing counted them. A connection
     /// flood grew both without bound.
     pub live_streams: AtomicU64,
+    /// The key bindings a viewer's server greets every stream with, read from
+    /// tmux once.
+    ///
+    /// SEC-11/SEC-16: the greeting ran three `tmux` subprocesses per connecting
+    /// client. A writable server re-reads them because its own monitor sources
+    /// the config and may change them; a viewer's server changes nothing, so
+    /// the first read is the last.
+    pub viewer_key_bindings: tokio::sync::OnceCell<crate::sse::KeyBindings>,
 }
 
 /// A live `/events` stream's place in the server's budget, released on drop.
@@ -292,6 +300,7 @@ impl AppState {
             read_only: false,
             session_pin: None,
             live_streams: AtomicU64::new(0),
+            viewer_key_bindings: tokio::sync::OnceCell::new(),
         }
     }
 

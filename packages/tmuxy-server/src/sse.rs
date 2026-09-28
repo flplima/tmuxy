@@ -228,6 +228,21 @@ impl KeyBindings {
             })
     }
 
+    /// The bindings to greet a new stream of `state` with: read once and kept
+    /// on a viewer's server (`AppState::viewer_key_bindings`), read afresh on
+    /// a writable one.
+    async fn for_greeting(state: &AppState) -> Self {
+        if state.read_only {
+            state
+                .viewer_key_bindings
+                .get_or_init(Self::current_offthread)
+                .await
+                .clone()
+        } else {
+            Self::current_offthread().await
+        }
+    }
+
     /// Snapshot the live tmux bindings with the standard fallbacks. The one
     /// assembly point for the SSE greeting, `on_initial_sync_complete`, and
     /// `broadcast_keybindings` (previously three identical copies).
@@ -523,7 +538,7 @@ pub async fn sse_handler(
         // (monitor already running, config already sourced), this is the only
         // chance to receive them. The monitor also broadcasts updated keybindings
         // via on_initial_sync_complete() after sourcing config for the first time.
-        let keybindings = KeyBindings::current_offthread().await;
+        let keybindings = KeyBindings::for_greeting(&state).await;
         let kb_event = SseEvent::KeyBindings(keybindings);
         if let Some(s) = encode_event(&kb_event) {
             yield Ok(Event::default().event("keybindings").data(s));
@@ -1785,6 +1800,29 @@ mod tests {
         let writer = monitor_config("tmuxy", &AppState::new());
         assert!(writer.create_session);
         assert!(!writer.observer);
+    }
+
+    /// SEC-11/SEC-16. The greeting's bindings cost three `tmux` subprocesses
+    /// per connecting client; a viewer's server reads them once and keeps
+    /// them, so a flood of viewers is a flood of clones, not of processes.
+    #[tokio::test]
+    async fn a_viewers_server_reads_its_key_bindings_once() {
+        let viewer = AppState::new().with_read_only(true);
+        let first = KeyBindings {
+            prefix_key: "C-space".into(),
+            prefix_bindings: Vec::new(),
+            root_bindings: Vec::new(),
+        };
+        viewer.viewer_key_bindings.set(first).unwrap();
+        // Whatever tmux says now, a viewer's server answers with what it read.
+        assert_eq!(
+            KeyBindings::for_greeting(&viewer).await.prefix_key,
+            "C-space"
+        );
+        assert_eq!(
+            KeyBindings::for_greeting(&viewer).await.prefix_key,
+            "C-space"
+        );
     }
 
     /// SEC-13. tmux paste buffers are global to the tmux SERVER, so a yank or
