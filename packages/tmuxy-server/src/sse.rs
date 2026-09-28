@@ -935,6 +935,13 @@ async fn handle_command(
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
         ClientCommand::ListGitWorktrees => {
+            // SEC-11: a viewer is shown one session's screen, not the working
+            // directory of every pane on the socket — and a viewer's request
+            // must not spawn `git` on the host. The tree simply has no
+            // repositories for a viewer.
+            if state.read_only {
+                return Ok(serde_json::json!([]));
+            }
             // The pane cwds come from tmux, not the request (see the variant),
             // and git runs off the async runtime like the other subprocess reads.
             use tmuxy_core::worktrees::{

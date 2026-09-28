@@ -233,6 +233,33 @@ describe('Scenario 30: Read-only viewer', () => {
     expect(await statusOf(neighbour)).toBe(404);
     expect(await statusOf(invented)).toBe(404);
 
+    // Nor is a viewer told about the host beyond the screen it watches: the
+    // trace settings name a file under the server's home, and the repository
+    // list is the cwd of every pane on the socket — refused and empty.
+    const command = (cmd) =>
+      viewer.evaluate(
+        async ({ body, session }) => {
+          const response = await fetch(`/commands?session=${encodeURIComponent(session)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const text = await response.text();
+          let parsed = null;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            parsed = { text };
+          }
+          return { status: response.status, body: parsed };
+        },
+        { body: cmd, session: ctx.session.name },
+      );
+    expect((await command({ cmd: 'get_trace_settings', args: {} })).status).toBe(403);
+    const worktrees = await command({ cmd: 'list_git_worktrees', args: {} });
+    expect(worktrees.status).toBe(200);
+    expect(worktrees.body.result).toEqual([]);
+
     // ...and asking for it did not create it.
     const sessions = await other.evaluate(async (name) => {
       const response = await fetch(`/commands?session=${encodeURIComponent(name)}`, {

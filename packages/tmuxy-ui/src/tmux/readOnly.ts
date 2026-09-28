@@ -14,7 +14,6 @@ const READ_COMMANDS = new Set([
   'get_theme_settings',
   'get_themes_list',
   'list_git_worktrees',
-  'get_trace_settings',
 ]);
 
 export function isReadCommand(cmd: string): boolean {

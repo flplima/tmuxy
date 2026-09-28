@@ -55,6 +55,8 @@ Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credenti
 
 `tmuxy server --read-only` (or `TMUXY_READ_ONLY=1`) serves viewers: every client receives the state stream and none can change the session. It is a property of the server process, not of a client or a URL, so there is nothing for a client to drop or forge. To share a session for watching, run a second server on its own port beside the one you write through (each port keeps its own pid file, so `tmuxy server --port N stop` stops the right one).
 
+A viewer is answered from the session it watches and nothing else: the trace settings (which name the trace file under the server's home) are refused, and the sidebar's repository list is empty rather than the working directory of every pane on the socket, so a viewer's request never runs `git` on the host.
+
 A read-only server is **pinned to one session** — `--session <name>` (or `TMUXY_SESSION`), defaulting to `tmuxy`. This matters because the recommended setup puts the viewer on the _same tmux socket_ as the writer, where every other session of yours is one name away: without the pin, a viewer naming any session in `?session=` was handed that session's screen.
 
 What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`:

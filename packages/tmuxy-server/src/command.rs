@@ -90,7 +90,10 @@ pub enum ClientCommand {
 impl ClientCommand {
     /// Whether the command only reads. These are all a `--read-only` server
     /// answers. `QueryTmux` is not among them: it carries an arbitrary tmux
-    /// command, and nothing here can tell a read from a write.
+    /// command, and nothing here can tell a read from a write. Nor is
+    /// `GetTraceSettings`, a read that answers with the trace file's path —
+    /// the server's home directory, which is the writer's business, not a
+    /// viewer's (SEC-11).
     pub fn is_read(&self) -> bool {
         matches!(
             self,
@@ -99,7 +102,6 @@ impl ClientCommand {
                 | Self::GetThemeSettings
                 | Self::GetThemesList
                 | Self::ListGitWorktrees
-                | Self::GetTraceSettings
         )
     }
 
@@ -165,7 +167,6 @@ mod tests {
             json!({ "cmd": "get_theme_settings" }),
             json!({ "cmd": "get_themes_list" }),
             json!({ "cmd": "list_git_worktrees" }),
-            json!({ "cmd": "get_trace_settings" }),
         ];
         for body in reads {
             assert!(parse(body.clone()).is_read(), "{body}");
@@ -179,6 +180,7 @@ mod tests {
             json!({ "cmd": "set_cursor_blink", "args": { "enabled": true } }),
             json!({ "cmd": "set_trace_enabled", "args": { "enabled": true } }),
             json!({ "cmd": "set_trace_level", "args": { "level": "debug" } }),
+            json!({ "cmd": "get_trace_settings" }),
         ];
         for body in writes {
             assert!(!parse(body.clone()).is_read(), "{body}");

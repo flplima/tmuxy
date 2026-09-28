@@ -790,6 +790,8 @@ mod api_guard_tests {
             r#"{"cmd":"query_tmux","args":{"command":"list-panes"}}"#,
             r#"{"cmd":"set_client_size","args":{"cols":10,"rows":5}}"#,
             r#"{"cmd":"set_cursor_blink","args":{"enabled":false}}"#,
+            // A read, but one that answers with the server's home path.
+            r#"{"cmd":"get_trace_settings"}"#,
         ] {
             let response = app
                 .clone()
@@ -798,6 +800,19 @@ mod api_guard_tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::FORBIDDEN, "{body}");
         }
+        // A viewer's tree has no repositories: the answer is empty, and no
+        // `git` ran for it.
+        let response = app
+            .clone()
+            .oneshot(same_origin_command(r#"{"cmd":"list_git_worktrees"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(parsed["result"], serde_json::json!([]));
         let trace = Request::post("/trace")
             .header("host", "localhost:9000")
             .header("origin", "http://localhost:9000")
