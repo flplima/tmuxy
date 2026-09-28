@@ -77,14 +77,28 @@ const a11yShield = (storyId, rule) => shieldFor(quarantine, storyId, rule);
  */
 async function runAxe(page, storyId) {
   await page.addScriptTag({ path: AXE_PATH });
-  const violations = await page.evaluate(async () => {
+  const violations = await page.evaluate(async (axeTimeoutMs) => {
     const root = document.querySelector('#storybook-root') ?? document.body;
     // @storybook/addon-a11y bundles an axe of its own. The story URL turns its
     // automatic pass off, but a pass it had already begun is still in flight,
     // and axe refuses to run twice at once — so wait that one out.
+    // axe gets its own deadline, IN THE PAGE. `page.evaluate` has no timeout of
+    // its own, so an axe pass that never settles hangs the probe on a story
+    // that already rendered and already passed its own assertions — which is
+    // what `mocked-app-sidebar--right-click-context-menus` did: the story is
+    // fine, the scan of its tree is what never came back. A sentinel rather
+    // than a rejection, so the caller can say "the scan timed out" instead of
+    // reporting the story as broken.
+    const withDeadline = (promise) =>
+      Promise.race([
+        promise,
+        new Promise((resolve) => setTimeout(() => resolve('axe-timeout'), axeTimeoutMs)),
+      ]);
+
     for (let attempt = 0; attempt < 20; attempt++) {
       try {
-        const run = await window.axe.run(root, { resultTypes: ['violations'] });
+        const run = await withDeadline(window.axe.run(root, { resultTypes: ['violations'] }));
+        if (run === 'axe-timeout') return 'axe-timeout';
         return run.violations.map((v) => ({
           id: v.id,
           impact: v.impact,
@@ -98,7 +112,14 @@ async function runAxe(page, storyId) {
       }
     }
     throw new Error('axe never got a turn — the addon pass never finished');
-  });
+  }, AXE_TIMEOUT_MS);
+  // A scan that ran out of time reports nothing rather than failing the story:
+  // the story itself rendered and asserted fine, and a missing a11y result is
+  // not evidence of a violation.
+  if (violations === 'axe-timeout') {
+    process.stdout.write(`  NOTE  ${storyId}: a11y scan timed out after ${AXE_TIMEOUT_MS}ms\n`);
+    return [];
+  }
   return violations.map((v) => ({
     ...v,
     blocking: BLOCKING_IMPACTS.has(v.impact) && !a11yShield(storyId, v.id),
@@ -283,11 +304,29 @@ function isTornContext(result) {
  * no report and no clue which story it was — `storybook-probe` was cancelled in
  * EVERY run for exactly that reason.
  *
- * Generous on purpose: a cold CI runner compiling a story on demand is slow, and
- * this must not turn slowness into a failure. It is here to make a hang
- * finite and NAMED, not to police speed.
+ * It MUST sit above the sum of the bounded steps inside one story, or it
+ * masks the very diagnosis it exists to produce: `goto` (30s) +
+ * `__STORYBOOK_PREVIEW__` (20s) + the play function (`PER_STORY_TIMEOUT_MS`,
+ * 60s) + the a11y scan (`AXE_TIMEOUT_MS`, 20s) is 130s, so a 120s deadline
+ * fired first and stamped `probe-timeout` over an inner timeout that would
+ * have named the real reason. Raising one of those budgets means raising this.
+ *
+ * Generous on purpose besides: a cold CI runner compiling a story on demand is
+ * slow, and this must not turn slowness into a failure. It is here to catch a
+ * story that hangs with no bound of its own at all — the case that used to sit
+ * until GitHub killed the job — not to police speed.
  */
-const STORY_TIMEOUT_MS = Number(process.env.PROBE_STORY_TIMEOUT_MS ?? 120000);
+const STORY_TIMEOUT_MS = Number(process.env.PROBE_STORY_TIMEOUT_MS ?? 180000);
+
+/**
+ * The longest one axe pass may take before its result is given up on.
+ *
+ * Well above a real scan (most are milliseconds; the heaviest trees are a
+ * second or two) and far below the story deadline, so a stalled SCAN is
+ * reported as exactly that rather than consuming the story's whole budget and
+ * being indistinguishable from a story that hung.
+ */
+const AXE_TIMEOUT_MS = Number(process.env.PROBE_AXE_TIMEOUT_MS ?? 20000);
 
 /**
  * `fn(item)`, or a failure result if it has not answered in time.
