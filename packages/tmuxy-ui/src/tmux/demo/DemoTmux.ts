@@ -109,6 +109,12 @@ export class DemoTmux {
    * through the real option rather than through a prop.
    */
   private paneAsks = new Map<string, string>();
+  /**
+   * `@tmuxy-pane-widget` for panes the demo turned into widgets. A widget is
+   * rendered only when this names it, the same as on a real server, where
+   * `tmuxy-widget` writes the option before printing its marker.
+   */
+  private paneWidgets = new Map<string, string>();
   private windows: FakeWindow[] = [];
   private activeWindowId = '@0';
   private activePaneId = '%0';
@@ -260,6 +266,7 @@ export class DemoTmux {
         cursor_hidden: false,
         pane_state: this.paneStates.get(pane.id) ?? null,
         pane_ask: this.paneAsks.get(pane.id) ?? null,
+        pane_widget: this.paneWidgets.get(pane.id) ?? null,
         images: pane.images,
       });
     }
@@ -1421,6 +1428,7 @@ export class DemoTmux {
     const pane = this.panes.get(paneId);
     if (!pane) return;
     pane.shell.writeWidgetContent(widgetName, lines);
+    this.paneWidgets.set(paneId, widgetName);
     pane.title = widgetName;
     pane.command = widgetName;
   }

@@ -102,6 +102,13 @@ pub mod tmux_options {
     /// withdrawn is ignored rather than acted on.
     pub const ASK_ANSWER: &str = "@tmuxy-ask-answer";
 
+    /// Pane-scoped authorisation for a widget, written by `tmuxy-widget` on the
+    /// pane it runs in. The `__TMUXY_WIDGET__:` marker the widget prints is
+    /// pane OUTPUT — a crafted file, a commit message in `git log`, an ssh MOTD
+    /// — so the marker alone never turns a pane into a widget: the client
+    /// honours it only when this option names the same widget.
+    pub const PANE_WIDGET: &str = "@tmuxy-pane-widget";
+
     /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
     pub const THEME: &str = "@tmuxy-theme";
     /// Theme mode: `dark` / `light`.
@@ -284,7 +291,7 @@ pub mod tmux_formats {
         "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
         "#{selection_present},",
         "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id},",
-        "#{@tmuxy-pane-state},#{@tmuxy-ask}'",
+        "#{@tmuxy-pane-state},#{@tmuxy-ask},#{@tmuxy-pane-widget}'",
     );
 
     /// Enumerates the HIDDEN pane-group members parked in

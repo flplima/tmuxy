@@ -68,6 +68,12 @@ export interface TmuxPane {
    * question is pending.
    */
   paneAsk?: string | null;
+  /**
+   * Which widget this pane may render (`@tmuxy-pane-widget`), written by
+   * `tmuxy-widget`. The `__TMUXY_WIDGET__:` marker travels in pane OUTPUT and
+   * so authorises nothing on its own — see `components/widgets/detectWidget`.
+   */
+  paneWidget?: string | null;
 }
 
 /** An image placement on the terminal grid */
@@ -268,6 +274,12 @@ export interface ServerPane {
   cursor_hidden?: boolean;
   pane_state?: string | null;
   pane_ask?: string | null;
+  /**
+   * `@tmuxy-pane-widget`: which widget this pane may render. The
+   * `__TMUXY_WIDGET__:` marker is pane OUTPUT, so it authorises nothing on its
+   * own — see `detectWidget`.
+   */
+  pane_widget?: string | null;
 }
 
 /** Image placement in snake_case from backend */
@@ -353,6 +365,12 @@ export interface PaneDelta {
   cursor_hidden?: boolean;
   pane_state?: string | null;
   pane_ask?: string | null;
+  /**
+   * `@tmuxy-pane-widget`: which widget this pane may render. The
+   * `__TMUXY_WIDGET__:` marker is pane OUTPUT, so it authorises nothing on its
+   * own — see `detectWidget`.
+   */
+  pane_widget?: string | null;
 }
 
 export interface WindowDelta {

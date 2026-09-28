@@ -18,7 +18,7 @@
  */
 
 import { memo, useRef, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
-import { useAppSelector, useAppSend } from '../../../machines/AppContext';
+import { useAppSelector, useAppSend, useReadOnly } from '../../../machines/AppContext';
 import type { WidgetProps } from '../index';
 import { browserView } from './view';
 import { classifySource, isRemote, loadUrl, parseColorFilter } from './source';
@@ -119,9 +119,16 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
   // across unrelated model ticks, so the pane does not re-render on every
   // snapshot the way a freshly-built view object would make it.
   const state = useAppSelector((context) => context.browserStates[paneId]);
+  const readOnly = useReadOnly();
   const view = browserView(state, lines);
   const kind = classifySource(view.url);
-  usePageTitle(paneId, view.source, view.url, loadUrl(view.url, view.reloadNonce), kind === 'page');
+  usePageTitle(
+    paneId,
+    view.source,
+    view.url,
+    loadUrl(view.url, view.reloadNonce),
+    kind === 'page' && !readOnly,
+  );
 
   /** The bar, then whatever the source resolves to, in one column. */
   const framed = (className: string, style: CSSProperties | undefined, body: ReactNode) => (
@@ -133,6 +140,24 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
 
   if (!view.url) {
     return <div className="widget-browser-empty">Waiting for a page...</div>;
+  }
+
+  // A read-only viewer is watching a session someone else drives. Whoever ran
+  // `tmuxy widget browser` there chose the page; the viewer did not, and their
+  // browser fetching it — a remote site tracking the visit, a local file the
+  // read-only server refuses anyway — is not something watching a terminal
+  // should do. The address says what the pane is showing; the content stays
+  // with the session that asked for it.
+  if (readOnly) {
+    return framed(
+      'widget-browser',
+      undefined,
+      <div className="widget-browser-empty" data-testid="browser-read-only">
+        {view.url}
+        <br />
+        Pages are not loaded on a read-only view.
+      </div>,
+    );
   }
 
   const src = loadUrl(view.url, view.reloadNonce);

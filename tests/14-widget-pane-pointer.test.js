@@ -19,6 +19,7 @@ const {
   splitPaneKeyboard,
   waitForPaneCount,
   waitForCondition,
+  waitForTerminalText,
   DELAYS,
 } = require('./helpers');
 
@@ -35,6 +36,9 @@ function paneState(page) {
     };
   });
 }
+
+/** Whether an embedded frame is painted with a real box. */
+const frameIsVisible = async (page) => (await frameCentre(page)) !== null;
 
 /** The centre of the embedded frame, in viewport pixels. */
 function frameCentre(page) {
@@ -184,5 +188,74 @@ describe('Scenario: a pane showing a page still belongs to the app', () => {
       10000,
       'the resize to end when the button came up over the page',
     );
+  }, 120000);
+
+  /**
+   * SEC-18. The `__TMUXY_WIDGET__:` marker is pane OUTPUT: a crafted file
+   * under `cat`, a commit message in `git log`, an ssh MOTD can all print it.
+   * Only `tmuxy-widget` — which tags the pane with `@tmuxy-pane-widget` out of
+   * band before printing — may turn a pane into a frame, and once it has
+   * exited the tag goes with it, so the same pane cannot be talked back into a
+   * widget by what its shell prints next.
+   */
+  test('a marker printed by the shell draws no frame; the real widget does, and its exit closes the door again', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page);
+
+    const stamp = Date.now();
+    const file = `/tmp/tmuxy-widget-forged-${stamp}.html`;
+    const frameCount = () =>
+      ctx.page.evaluate(() => document.querySelectorAll('.widget-browser-frame').length);
+    const widgetPanes = () =>
+      ctx.page.evaluate(
+        () => document.querySelectorAll('[role=group][aria-label^="Widget pane"]').length,
+      );
+
+    // 1. The forgery: exactly what tmuxy-widget-browser prints, from a shell.
+    //    The marker arrives, the frame does not.
+    await typeInTerminal(
+      ctx.page,
+      `printf '<h1>FORGED</h1>' > ${file}; printf '__TMUXY_WIDGET__:browser\\n__SRC__:${file}\\nFORGED_DONE_${stamp}\\n'`,
+    );
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, `FORGED_DONE_${stamp}`, 15000);
+    // The metadata sync that would carry an authorisation has had time to land.
+    await delay(DELAYS.SYNC);
+    expect(await frameCount()).toBe(0);
+    expect(await widgetPanes()).toBe(0);
+    expect(await frameIsVisible(ctx.page)).toBe(false);
+
+    // 2. The real thing, in the same pane, on the same file.
+    await typeInTerminal(ctx.page, `clear; ${TMUXY_CLI} widget browser ${file}`);
+    await pressEnter(ctx.page);
+    await waitForCondition(
+      ctx.page,
+      () => frameIsVisible(ctx.page),
+      30000,
+      'the real widget to draw its frame',
+    );
+    expect(await widgetPanes()).toBe(1);
+
+    // 3. Leaving the widget clears the tag, and the pane is a shell again.
+    await ctx.page.keyboard.press('Control+c');
+    await waitForCondition(
+      ctx.page,
+      async () => (await frameCount()) === 0,
+      15000,
+      'the frame to go when the widget exits',
+    );
+    await waitForShellPrompt(ctx.page);
+
+    // 4. ...and that shell's output still authorises nothing.
+    await typeInTerminal(
+      ctx.page,
+      `printf '__TMUXY_WIDGET__:browser\\n__SRC__:${file}\\nFORGED_AGAIN_${stamp}\\n'`,
+    );
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, `FORGED_AGAIN_${stamp}`, 15000);
+    await delay(DELAYS.SYNC);
+    expect(await frameCount()).toBe(0);
+    expect(await widgetPanes()).toBe(0);
   }, 120000);
 });

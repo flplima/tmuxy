@@ -60,7 +60,11 @@ other — but what it draws is a component, not cells.
 A pane declares itself a widget by printing a marker line: `__TMUXY_WIDGET__:<name>`, which
 `bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend scans pane content for
 it (`components/widgets/index.ts`), and everything the pane prints after the marker is the
-widget's content — the channel a widget's script uses to hand it a payload. The process must stay
+widget's content — the channel a widget's script uses to hand it a payload. The marker alone is
+not enough: it is pane output, and anything a pane prints could forge it, so `tmuxy-widget` also
+tags the pane with `@tmuxy-pane-widget` out of band before printing, and the frontend renders a
+widget only when that tag names the same one (see [SECURITY.md](SECURITY.md) and the option
+schema in [TMUX.md](TMUX.md)). The process must stay
 alive; closing the pipe fires the wrapper's EXIT trap, which clears the marker and hands the pane
 back to a shell. That is what ctrl+c in a widget pane does.
 

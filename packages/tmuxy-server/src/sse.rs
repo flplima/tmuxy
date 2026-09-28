@@ -2303,6 +2303,7 @@ mod protocol_fixtures {
                     cursor_hidden: true,
                     pane_state: Some("working".to_string()),
                     pane_ask: Some("eyJ0b2tlbiI6ImExIn0=".to_string()),
+                    pane_widget: Some("browser".to_string()),
                 },
                 TmuxPane {
                     id: 3,
@@ -2336,6 +2337,7 @@ mod protocol_fixtures {
                     cursor_hidden: false,
                     pane_state: None,
                     pane_ask: None,
+                    pane_widget: None,
                 },
             ],
             windows: vec![
@@ -2405,6 +2407,7 @@ mod protocol_fixtures {
                 group_id: Some(None),
                 pane_state: Some(Some("idle".to_string())),
                 pane_ask: Some(None),
+                pane_widget: Some(Some("browser".to_string())),
                 in_mode: Some(false),
                 copy_cursor_x: Some(7),
                 copy_cursor_y: Some(8),
@@ -2482,6 +2485,7 @@ mod protocol_fixtures {
                 cursor_hidden: false,
                 pane_state: None,
                 pane_ask: None,
+                pane_widget: None,
             }]),
             new_windows: Some(vec![TmuxWindow {
                 id: "@3".to_string(),
