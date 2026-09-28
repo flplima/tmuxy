@@ -386,13 +386,6 @@ pub async fn sse_handler(
         Err(rejection) => return rejection.into_response(),
     };
 
-    // A read-only server never brings a session into being: `new-session -A`
-    // would hand a viewer a live shell in the workspace dir, once per distinct
-    // name they ask for, none of it cleaned up when they leave.
-    if state.read_only && !session_exists(&session).await {
-        return SessionRejection::NotServed.into_response();
-    }
-
     // SEC-16: one long-lived task and one broadcast receiver per stream, with
     // nothing counting them. The slot is released when the stream generator is
     // dropped, which is what a client disconnecting does.
@@ -427,8 +420,25 @@ pub async fn sse_handler(
     // with its own control mode connection, without routing through an existing monitor
     // (which would trigger %session-changed and contaminate the original session's state).
 
-    // Register connection and get/create shared session resources
-    let (session_rx, session_broadcast) = {
+    // Register connection and get/create shared session resources.
+    //
+    // A viewer's server has exactly one session and one monitor, started with
+    // the server (`start_viewer_monitor`), never by a client: a viewer is not
+    // counted among the session's connections, so it cannot start a monitor,
+    // hold one open, or shut one down. It subscribes to the broadcast that
+    // exists, or is told there is nothing to show — the monitor's own state
+    // says whether the session is attached right now, and no `has-session`
+    // subprocess runs on a viewer's behalf.
+    let (session_rx, session_broadcast) = if state.read_only {
+        let sessions = state.sessions.read().await;
+        let Some(attached) = sessions
+            .get(&session)
+            .filter(|conns| conns.monitor_command_tx.is_some())
+        else {
+            return SessionRejection::NotServed.into_response();
+        };
+        (attached.broadcast.subscribe(), attached.broadcast.clone())
+    } else {
         let mut sessions = state.sessions.write().await;
         let session_conns = sessions
             .entry(session.clone())
@@ -735,13 +745,7 @@ const TRACE_MAX_EVENTS: usize = 1000;
 /// body is dropped regardless of what the client believes, so a stale client
 /// flag can never reopen the sink. Every event is re-sanitized server-side
 /// (`trace::record_client_event`) before it touches the file.
-pub async fn trace_handler(
-    State(state): State<Arc<AppState>>,
-    body: axum::body::Bytes,
-) -> StatusCode {
-    if state.read_only {
-        return StatusCode::FORBIDDEN;
-    }
+pub async fn trace_handler(body: axum::body::Bytes) -> StatusCode {
     if !tmuxy_core::trace::is_enabled() {
         return StatusCode::NO_CONTENT;
     }
@@ -845,16 +849,12 @@ async fn handle_command(
 
             // The pane id is the client's, and it goes into three tmux command
             // lines as a target: it has to be one (`%N`) before it goes
-            // anywhere. On a pinned server it is then checked against that
-            // session's own panes, so a viewer cannot dump a pane it was never
-            // shown.
+            // anywhere.
             if !tmuxy_core::session::is_pane_id(&pane_id) {
                 return Err(format!("not a pane id: {pane_id:?}"));
             }
-            if let Some(pinned) = state.session_pin.as_deref() {
-                if !session_owns_pane(state, pinned, &pane_id).await {
-                    return Err(format!("pane {pane_id} is not in session {pinned}"));
-                }
+            if state.read_only {
+                return viewer_scrollback(state, session, &pane_id, start, end).await;
             }
 
             let width_output = state
@@ -1251,6 +1251,11 @@ async fn set_client_size(
 
 /// Remove a connection and resize tmux to remaining clients' minimum viewport
 async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) {
+    // A viewer was never counted: it reported no viewport, and the monitor's
+    // life is the server's (`start_viewer_monitor`), not the viewers'.
+    if state.read_only {
+        return;
+    }
     let (resize_to, command_tx, needs_deferred_cleanup) = {
         let mut sessions = state.sessions.write().await;
 
@@ -1398,28 +1403,97 @@ fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
     }
 }
 
-/// Whether `pane_id` — already checked to be a canonical `%N` — names a pane
-/// of `session`, by tmux's own listing of that session.
-async fn session_owns_pane(state: &AppState, session: &str, pane_id: &str) -> bool {
-    let listing = state
-        .tmux_call_with_policy(
-            vec![
-                "list-panes".into(),
-                "-s".into(),
-                "-t".into(),
-                session.into(),
-                "-F".into(),
-                "#{pane_id}".into(),
-            ],
-            "scrollback:pane_allowlist",
-            tmuxy_core::RetryPolicy::standard(),
-        )
-        .await;
-    match listing {
-        Ok(listing) => listing.lines().any(|line| line.trim() == pane_id),
-        // tmux could not answer: refuse rather than fall open.
-        Err(_) => false,
+/// The most rows of scrollback one request from a viewer is answered with.
+///
+/// A viewer is shown the screen and recent history, not the whole backlog:
+/// the request is served by the session's own control-mode connection, and a
+/// `capture-pane` of a hundred-thousand-line history on every scroll is not
+/// something a watcher gets to make tmux do.
+const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
+
+/// A viewer's scrollback: the same answer as the writable path, but built on
+/// the session's control-mode connection alone — the one already attached —
+/// rather than three `tmux` subprocesses per request (SEC-11/SEC-16).
+///
+/// `pane_id` is already known to be a `%N`. It is checked against the
+/// session's own panes first, from tmux's listing over that same connection,
+/// so a viewer cannot dump a pane it was never shown; and the range is capped
+/// at `MAX_VIEWER_SCROLLBACK_ROWS` from the end, with the clamped `start`
+/// returned so the client lays the rows out where they belong.
+async fn viewer_scrollback(
+    state: &Arc<AppState>,
+    session: &str,
+    pane_id: &str,
+    start: i64,
+    end: i64,
+) -> Result<serde_json::Value, String> {
+    let panes = query_via_control_mode(state, session, "list-panes -s -F '#{pane_id}'")
+        .await?
+        .into_result()?;
+    if !panes.lines().any(|line| line.trim() == pane_id) {
+        return Err(format!("pane {pane_id} is not in session {session}"));
     }
+
+    let geometry = query_via_control_mode(
+        state,
+        session,
+        &format!("display-message -p -t {pane_id} '#{{pane_width}},#{{history_size}}'"),
+    )
+    .await?
+    .into_result()?;
+    let (width, history_size) = geometry
+        .trim()
+        .split_once(',')
+        .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
+        .ok_or_else(|| format!("Failed to parse pane geometry from tmux: {geometry:?}"))?;
+
+    let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
+    let raw = query_via_control_mode(
+        state,
+        session,
+        &format!("capture-pane -p -e -t {pane_id} -S {start} -E {end}"),
+    )
+    .await?
+    .into_result()?;
+    let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
+    Ok(serde_json::json!({
+        "cells": cells,
+        "historySize": history_size,
+        "start": start,
+        "end": end,
+        "width": width
+    }))
+}
+
+/// How long a viewer's monitor waits between looks for a session that is not
+/// there. Long enough not to be a `has-session` treadmill, short enough that
+/// a session made while people are watching shows up while they still are.
+const VIEWER_ATTACH_RETRY: Duration = Duration::from_secs(2);
+
+/// Start the one monitor a `--read-only` server has, on the session it is
+/// pinned to. Called by the server before it listens, never by a client.
+///
+/// SEC-11. A read-only server used to be the writable one with a command
+/// filter: every `/events` made a session entry, started a monitor if none was
+/// running, and the last viewer leaving shut it down — so viewers decided when
+/// tmux was attached to, and a name they invented was created. Now the server
+/// owns the entry and the monitor from startup: viewers subscribe to its
+/// broadcast (`sse_handler`) and hold nothing (`cleanup_connection`).
+pub async fn start_viewer_monitor(state: &Arc<AppState>) {
+    let Some(session) = state.session_pin.clone().filter(|_| state.read_only) else {
+        return;
+    };
+    let mut sessions = state.sessions.write().await;
+    let conns = sessions
+        .entry(session.clone())
+        .or_insert_with(SessionConnections::new);
+    let broadcast = conns.broadcast.clone();
+    let monitor_state = Arc::clone(state);
+    let monitor_session = session.clone();
+    conns.monitor_handle = Some(tokio::spawn(async move {
+        start_monitoring(broadcast, monitor_session, monitor_state).await;
+    }));
+    info!(%session, "viewer monitor started with the server");
 }
 
 pub async fn start_monitoring(
@@ -1454,21 +1528,38 @@ pub async fn start_monitoring(
             break;
         }
 
-        // Stop reconnecting if session was cleaned up (no more clients)
-        let has_clients = {
-            let sessions = state.sessions.read().await;
-            if let Some(session_conns) = sessions.get(&session) {
-                !session_conns.connections.is_empty()
-            } else {
-                false
+        // A viewer's monitor lives as long as the server and attaches to the
+        // session whenever it exists: absent at start, killed and re-made
+        // later, it is watched or waited for, never created. Clients do not
+        // enter into it — there is one monitor whether none or many are
+        // watching.
+        if state.read_only {
+            if !session_exists(&session).await {
+                debug!(%session, "session not present; looking again shortly");
+                tokio::select! {
+                    _ = tokio::time::sleep(VIEWER_ATTACH_RETRY) => {}
+                    _ = shutdown.cancelled() => {}
+                }
+                is_first_connect = false;
+                continue;
             }
-        };
-        if !has_clients {
-            info!(%session, "no clients, stopping monitor loop");
-            // Clean up the session entry so a fresh monitor can start next time
-            let mut sessions = state.sessions.write().await;
-            sessions.remove(&session);
-            break;
+        } else {
+            // Stop reconnecting if session was cleaned up (no more clients)
+            let has_clients = {
+                let sessions = state.sessions.read().await;
+                if let Some(session_conns) = sessions.get(&session) {
+                    !session_conns.connections.is_empty()
+                } else {
+                    false
+                }
+            };
+            if !has_clients {
+                info!(%session, "no clients, stopping monitor loop");
+                // Clean up the session entry so a fresh monitor can start next time
+                let mut sessions = state.sessions.write().await;
+                sessions.remove(&session);
+                break;
+            }
         }
 
         // On reconnect (not first connect), check if the tmux session still exists.
@@ -1477,14 +1568,13 @@ pub async fn start_monitoring(
         // before ever running successfully (crash on startup), retry with
         // create_session=true to recreate it.
         let mut connect_config = config.clone();
-        if !is_first_connect {
+        if !is_first_connect && !state.read_only {
             let exists = session_exists(&session).await;
 
             if !exists {
-                if ever_ran_successfully || state.read_only {
+                if ever_ran_successfully {
                     // Session was intentionally destroyed (e.g., kill-session
-                    // from test cleanup), or this is a viewer's server, which
-                    // never brings a session back — it watches or it stops.
+                    // from test cleanup).
                     info!(%session, "tmux session no longer exists, stopping monitor loop");
                     break;
                 }
@@ -1640,13 +1730,20 @@ pub async fn start_monitoring(
                 //   and exit instead of looping forever trying to attach.
                 // - Everything else (`Timeout`, `ProcessExited`, `Io`, generic `ControlMode`)
                 //   is retried with exponential backoff up to `MAX_CONSECUTIVE_FAILURES`.
-                if matches!(e, tmuxy_core::TmuxError::SessionNotFound { .. })
-                    && ever_ran_successfully
-                {
-                    info!(%session, error = %e, "session destroyed externally, stopping monitor loop");
-                    let mut sessions = state.sessions.write().await;
-                    sessions.remove(&session);
-                    return;
+                if matches!(e, tmuxy_core::TmuxError::SessionNotFound { .. }) {
+                    if state.read_only {
+                        // Gone between the check above and the attach: the
+                        // loop's own wait handles absence, and this is not
+                        // a failure of tmux.
+                        is_first_connect = false;
+                        continue;
+                    }
+                    if ever_ran_successfully {
+                        info!(%session, error = %e, "session destroyed externally, stopping monitor loop");
+                        let mut sessions = state.sessions.write().await;
+                        sessions.remove(&session);
+                        return;
+                    }
                 }
 
                 consecutive_failures += 1;
@@ -1800,6 +1897,66 @@ mod tests {
         let writer = monitor_config("tmuxy", &AppState::new());
         assert!(writer.create_session);
         assert!(!writer.observer);
+    }
+
+    /// SEC-11. A viewer's server has one monitor, started with the server;
+    /// a stream is answered from it or told there is nothing to show. It
+    /// never starts a monitor of its own, and no `has-session` runs for it.
+    #[tokio::test]
+    async fn a_viewer_stream_is_refused_until_the_servers_monitor_is_attached() {
+        let state = Arc::new(
+            AppState::new()
+                .with_read_only(true)
+                .with_session_pin(Some("shared".into())),
+        );
+        let ask = |state: &Arc<AppState>| {
+            sse_handler(
+                State(Arc::clone(state)),
+                Query(query(Some("shared"))),
+                HeaderMap::new(),
+            )
+        };
+
+        // Nothing attached yet: not found, and nothing was made.
+        assert_eq!(ask(&state).await.status(), StatusCode::NOT_FOUND);
+        assert!(state.sessions.read().await.is_empty());
+
+        // The server's monitor is up: the stream is served from it.
+        session_with_fake_monitor(&state, "shared").await;
+        assert_eq!(ask(&state).await.status(), StatusCode::OK);
+
+        // The monitor lost the session (it clears its sender): nothing to
+        // show again, and the entry is the server's, still there.
+        state
+            .sessions
+            .write()
+            .await
+            .get_mut("shared")
+            .unwrap()
+            .monitor_command_tx = None;
+        assert_eq!(ask(&state).await.status(), StatusCode::NOT_FOUND);
+        assert!(state.sessions.read().await.contains_key("shared"));
+    }
+
+    /// SEC-11. A viewer leaving is not "the last client left": the monitor's
+    /// life is the server's, so no grace-period task is scheduled and nothing
+    /// is torn down.
+    #[tokio::test]
+    async fn a_viewer_leaving_does_not_touch_the_servers_monitor() {
+        let state = Arc::new(
+            AppState::new()
+                .with_read_only(true)
+                .with_session_pin(Some("shared".into())),
+        );
+        session_with_fake_monitor(&state, "shared").await;
+        let tasks_before = state.join_set.lock().await.len();
+        cleanup_connection(&state, "shared", 7).await;
+        // The deferred cleanup a writable server would schedule lives in the
+        // join set; none was.
+        assert_eq!(state.join_set.lock().await.len(), tasks_before);
+        let sessions = state.sessions.read().await;
+        let conns = sessions.get("shared").expect("the server's entry is gone");
+        assert!(conns.monitor_command_tx.is_some());
     }
 
     /// SEC-11/SEC-16. The greeting's bindings cost three `tmux` subprocesses

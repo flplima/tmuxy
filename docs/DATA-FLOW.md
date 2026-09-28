@@ -73,7 +73,7 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 
 ### Read-only servers
 
-Against a `tmuxy server --read-only` the lifecycle differs in one direction only: the client still opens the stream and still asks for `get_initial_state`, but without its viewport, and it never sends `set_client_size` — so steps 5 and 6 size nothing, and the viewer draws the grid the writing client sized, scaled down to fit its own window (`selectFitScale` in `tmuxy-ui/src/machines/selectors.ts`). Every other command is refused by the server and never sent by the client (`tmuxy-ui/src/tmux/readOnly.ts`, `HttpAdapter`). The sessions poll is a `query_tmux`, so a viewer's tree shows the attached session only. See [SECURITY.md](SECURITY.md#read-only-server).
+Against a `tmuxy server --read-only` the server side is a different shape: one monitor per server, started with it and pinned to one session, that every viewer's stream subscribes to (viewers never start, hold or stop a monitor; see [SECURITY.md](SECURITY.md#read-only-server)). On the client the lifecycle differs in one direction only: the client still opens the stream and still asks for `get_initial_state`, but without its viewport, and it never sends `set_client_size` — so steps 5 and 6 size nothing, and the viewer draws the grid the writing client sized, scaled down to fit its own window (`selectFitScale` in `tmuxy-ui/src/machines/selectors.ts`). Every other command is refused by the server and never sent by the client (`tmuxy-ui/src/tmux/readOnly.ts`, `HttpAdapter`). The sessions poll is a `query_tmux`, so a viewer's tree shows the attached session only. See [SECURITY.md](SECURITY.md#read-only-server).
 
 ## Connection Lifecycle (Tauri)
 

@@ -405,10 +405,24 @@ impl AppState {
 /// Every route answers only the app itself: `host_policy` says which `Host`
 /// names count as this server (see `request_guard`). No CORS headers are sent,
 /// so no other origin can read a response either.
-pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/events", get(crate::sse::sse_handler))
-        .route("/commands", post(crate::sse::commands_handler))
+///
+/// A `--read-only` server gets [`viewer_routes`]: the same guard over a
+/// smaller surface.
+pub fn api_routes(host_policy: HostPolicy, read_only: bool) -> Router<Arc<AppState>> {
+    let routes = if read_only {
+        viewer_routes()
+    } else {
+        writable_routes()
+    };
+    routes.layer(axum::middleware::from_fn_with_state(
+        Arc::new(host_policy),
+        crate::request_guard::require_same_origin,
+    ))
+}
+
+/// Everything the app can ask of a server its owner writes through.
+fn writable_routes() -> Router<Arc<AppState>> {
+    viewer_routes()
         // Client trace ingest (docs/TELEMETRY.md). Capped at 256 KiB/request so a
         // hostile client can't exhaust the disk in one call; the handler also
         // fails closed when tracing is off.
@@ -418,11 +432,23 @@ pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
         )
         .route("/api/file", get(file_handler))
         .route("/api/browse/{*path}", get(browse_handler))
+}
+
+/// What a viewer's server serves, and all of it: the state stream, the read
+/// commands (`/commands` refuses the rest before dispatch), and the pictures
+/// that are part of the screen it shows.
+///
+/// SEC-11. "Read-only" is about the SESSION; the file routes are a different
+/// power — they read any file the server process can, anywhere on the disk —
+/// and `/trace` writes to it. A read-only server is the one meant to be handed
+/// to people who are not trusted with the machine, so those routes do not
+/// exist on it rather than exist and refuse. Only the browser widget used the
+/// file routes, and a viewer cannot open one (it takes a command).
+fn viewer_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/events", get(crate::sse::sse_handler))
+        .route("/commands", post(crate::sse::commands_handler))
         .route("/api/images/{pane_id}/{image_id}", get(image_handler))
-        .layer(axum::middleware::from_fn_with_state(
-            Arc::new(host_policy),
-            crate::request_guard::require_same_origin,
-        ))
 }
 
 // ============================================
@@ -434,13 +460,7 @@ struct FileQuery {
     path: String,
 }
 
-async fn file_handler(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<FileQuery>,
-) -> Response {
-    if let Some(refusal) = refuse_when_read_only(&state) {
-        return refusal;
-    }
+async fn file_handler(Query(query): Query<FileQuery>) -> Response {
     read_file_offthread(query.path).await
 }
 
@@ -454,12 +474,9 @@ async fn file_handler(
 /// the absolute path on disk round-trips.
 ///
 /// Like `/api/file` this reads anywhere the server process can, gated by the
-/// optional `--password` Basic auth and refused outright on a `--read-only`
-/// server. See docs/SECURITY.md.
-async fn browse_handler(State(state): State<Arc<AppState>>, Path(path): Path<String>) -> Response {
-    if let Some(refusal) = refuse_when_read_only(&state) {
-        return refusal;
-    }
+/// optional `--password` Basic auth and absent from a `--read-only` server
+/// (`viewer_routes`). See docs/SECURITY.md.
+async fn browse_handler(Path(path): Path<String>) -> Response {
     read_file_offthread(format!("/{}", path.trim_start_matches('/'))).await
 }
 
@@ -476,31 +493,6 @@ async fn read_file_offthread(path: String) -> Response {
             &serde_json::json!({ "error": format!("file read task failed: {e}") }),
         ),
     }
-}
-
-/// 403 for the file routes on a `--read-only` server, or None to serve.
-///
-/// "Read-only" is about what a VIEWER may do to the session, and the command
-/// path already enforces that. These two routes are a different power: they read
-/// any file the server process can, anywhere on the disk, which is not part of
-/// watching someone's terminal. A read-only server is the one meant to be handed
-/// to people who are not trusted with the machine — a public demo above all —
-/// so the arbitrary-read routes are exactly the ones it must not serve.
-///
-/// The browser widget is the only client of these routes, and a viewer of a
-/// read-only session cannot open one (it takes a command), so nothing a viewer
-/// can legitimately do is lost.
-fn refuse_when_read_only(state: &AppState) -> Option<Response> {
-    if !state.read_only {
-        return None;
-    }
-    Some(
-        (
-            StatusCode::FORBIDDEN,
-            "read-only server: file routes are disabled\n",
-        )
-            .into_response(),
-    )
 }
 
 /// The Content-Security-Policy every file route answers with: the document
@@ -762,7 +754,8 @@ mod api_guard_tests {
     use tower::ServiceExt;
 
     fn app() -> Router {
-        api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::new()))
+        api_routes(HostPolicy::Loopback { allowed: vec![] }, false)
+            .with_state(Arc::new(AppState::new()))
     }
 
     /// The POST a hostile page can make without a preflight: `text/plain`,
@@ -793,7 +786,7 @@ mod api_guard_tests {
     #[tokio::test]
     async fn a_read_only_server_refuses_every_write() {
         let state = Arc::new(AppState::new().with_read_only(true));
-        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
+        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
         for body in [
             r#"{"cmd":"run_tmux_command","args":{"command":"kill-server"}}"#,
             r#"{"cmd":"query_tmux","args":{"command":"list-panes"}}"#,
@@ -822,6 +815,8 @@ mod api_guard_tests {
             .unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(parsed["result"], serde_json::json!([]));
+        // `/trace` writes to the server's disk; a viewer's server has no
+        // such route at all.
         let trace = Request::post("/trace")
             .header("host", "localhost:9000")
             .header("origin", "http://localhost:9000")
@@ -829,18 +824,20 @@ mod api_guard_tests {
             .body(Body::from("[]"))
             .unwrap();
         let response = app.clone().oneshot(trace).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
-    /// A read-only server must not serve the arbitrary-file-read routes.
+    /// A read-only server has no arbitrary-file-read routes.
     ///
     /// They are the reason a read-only server is not automatically safe to
     /// expose: refusing every non-read COMMAND says nothing about them, and they
-    /// read anything the server process can, anywhere on the disk.
+    /// read anything the server process can, anywhere on the disk. SEC-11: the
+    /// viewer's router is built without them (`viewer_routes`), so there is no
+    /// handler to refuse — the route is not there.
     #[tokio::test]
-    async fn a_read_only_server_refuses_the_file_routes() {
+    async fn a_read_only_server_has_no_file_routes() {
         let state = Arc::new(AppState::new().with_read_only(true));
-        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
+        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
 
         for uri in ["/api/file?path=/etc/hosts", "/api/browse/etc/hosts"] {
             let request = Request::get(uri)
@@ -849,8 +846,18 @@ mod api_guard_tests {
                 .body(Body::empty())
                 .unwrap();
             let response = app.clone().oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
         }
+        // ...while the pictures that are part of the screen still have a route
+        // (a missing one is a 404 from the handler, not from the router; the
+        // point is that the route answers as itself, not as the file routes).
+        let request = Request::get("/api/images/%251/1")
+            .header("host", "localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_ne!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     /// ...and a normal server still serves them, so the guard above is the
@@ -953,22 +960,24 @@ mod api_guard_tests {
         )
     }
 
-    /// The route table as `api_routes` declares it, read out of this file's
-    /// own source.
+    /// The route table as `api_routes` and the two builders under it declare
+    /// it, read out of this file's own source.
     ///
-    /// The guard is a `.layer()` at the end of `api_routes`, and a layer only
-    /// covers the routes declared before it. A route added below that line —
-    /// or a whole new route nobody thought to test — is served with no origin
-    /// check at all, which on this API means a remote shell. So the routes are
-    /// enumerated rather than listed by hand: a new one that the coverage
-    /// table below does not know about fails this test by name.
+    /// The guard is the `.layer()` in `api_routes`, and it covers whatever
+    /// `writable_routes` / `viewer_routes` built. A route added anywhere else
+    /// — or a whole new route nobody thought to test — is served with no
+    /// origin check at all, which on this API means a remote shell. So the
+    /// routes are enumerated rather than listed by hand: a new one that the
+    /// coverage table below does not know about fails this test by name.
     fn declared_routes() -> Vec<String> {
         let source = include_str!("state.rs");
         let start = source
             .find("pub fn api_routes")
             .expect("api_routes moved out of state.rs");
         let body = &source[start..];
-        let end = body.find("\n}\n").expect("api_routes has no end");
+        let end = body
+            .find("// Internal Handlers")
+            .expect("the route builders are no longer followed by the handlers");
         let body = &body[..end];
 
         // The literal is split so this scan does not find itself.
@@ -1053,7 +1062,7 @@ mod api_guard_tests {
     #[tokio::test]
     async fn a_read_only_server_refuses_keystrokes_and_resizes() {
         let state = Arc::new(AppState::new().with_read_only(true));
-        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
+        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
         for body in [
             // Typing into a pane — the write a viewer most obviously wants.
             r#"{"cmd":"run_tmux_command","args":{"command":"send-keys -t %1 'rm -rf ~' Enter"}}"#,

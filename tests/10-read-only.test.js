@@ -17,6 +17,7 @@ const {
   DELAYS,
 } = require('./helpers');
 const { READ_ONLY_URL, startReadOnlyServer } = require('./helpers/read-only-server');
+const { getCopyModeState } = require('./helpers/copy-mode');
 
 const TMUXY_CLI = path.resolve(__dirname, '..', 'bin/tmuxy-cli');
 
@@ -278,6 +279,143 @@ describe('Scenario 30: Read-only viewer', () => {
     await viewer.close();
     await other.close();
   }, 120000);
+
+  /**
+   * SEC-11. The viewer's server has one monitor, started with the server and
+   * kept for its life: it waits for a session that is not there yet, attaches
+   * when it appears, answers "nothing to show" while it is gone, and attaches
+   * again when it is re-made — and none of that is a viewer's doing.
+   */
+  test('the viewer server waits for its session, survives it being killed, and picks it up again', async () => {
+    if (ctx.skipIfNotReady()) return;
+    // The viewer's server first, pinned to a session nobody has made.
+    await viewerServer();
+    const viewer = await ctx.browser.newPage();
+    await viewer.goto(READ_ONLY_URL);
+    const streamStatus = () =>
+      viewer.evaluate(async (name) => {
+        const response = await fetch(`/events?session=${encodeURIComponent(name)}`);
+        return response.status;
+      }, ctx.session.name);
+    expect(await streamStatus()).toBe(404);
+
+    // The writer brings the session into being; the viewer's server notices
+    // on its own and attaches. The wait is for that attach, however long the
+    // runner takes to get there.
+    await ctx.setupPage();
+    const writer = ctx.page;
+    await waitForCondition(
+      viewer,
+      async () => (await streamStatus()) === 200,
+      20000,
+      'the viewer server to attach',
+    );
+    const FIRST = `FIRST_${Date.now()}`;
+    await typeInTerminal(writer, `echo ${FIRST}`);
+    await pressEnter(writer);
+    await navigateToSession(viewer, ctx.session.name, READ_ONLY_URL);
+    await waitForCondition(
+      viewer,
+      () => shows(viewer, FIRST),
+      15000,
+      'the viewer to see the session',
+    );
+
+    // A viewer's scrollback is served on the session's own control-mode
+    // connection, checked against its own pane list there: rows that scrolled
+    // off the writer's screen come back into the viewer's scroll view.
+    await typeInTerminal(writer, 'for i in $(seq 0 79); do echo "line-$i"; done');
+    await pressEnter(writer);
+    await waitForCondition(
+      viewer,
+      () => shows(viewer, 'line-79'),
+      15000,
+      'the viewer to see the last line',
+    );
+    const lowestLine = (rows) => {
+      const numbers = rows.flatMap((t) => [...t.matchAll(/line-(\d+)/g)].map((m) => Number(m[1])));
+      return numbers.length > 0 ? Math.min(...numbers) : null;
+    };
+    // The screen cannot hold 80 lines, so the early ones have scrolled off —
+    // they are what the scroll view has to bring back.
+    const liveLowest = lowestLine(
+      (await viewer.evaluate(visibleTerminals)).terminals.map((t) => t.text),
+    );
+    expect(liveLowest).toBeGreaterThan(0);
+    const pane = await viewer.evaluate(() => {
+      const r = document.querySelector('[data-pane-id] [role="log"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await viewer.mouse.move(pane.x, pane.y);
+    await waitForCondition(
+      viewer,
+      async () => {
+        await viewer.mouse.wheel(0, -120);
+        await delay(100);
+        return (await getCopyModeState(viewer))?.mode === 'scroll';
+      },
+      15000,
+      "the viewer's scroll view to open",
+    );
+    // Rows drawn in the view with a real box, and among them one from above
+    // the live screen: history the viewer's server fetched on the session's
+    // own connection.
+    let drawnLowest = null;
+    await waitForCondition(
+      viewer,
+      async () => {
+        const drawn = await viewer.evaluate(() => {
+          const el = document.querySelector('[data-testid="scrollback-terminal"]');
+          if (!el) return [];
+          return [...el.querySelectorAll('.terminal-line')]
+            .filter((l) => {
+              const b = l.getBoundingClientRect();
+              return b.width > 0 && b.height > 0 && b.bottom > 0 && b.top < innerHeight;
+            })
+            .map((l) => l.textContent || '');
+        });
+        drawnLowest = lowestLine(drawn);
+        return drawnLowest !== null && drawnLowest < liveLowest;
+      },
+      15000,
+      async () =>
+        `a row from above the live screen to be drawn in the scroll view (live lowest line-${liveLowest}, drawn lowest ${drawnLowest}, state ${JSON.stringify(await getCopyModeState(viewer))})`,
+    );
+
+    // The session goes away under it. The writer's page is closed first so
+    // the writable server does not recreate the session on its behalf.
+    await writer.close();
+    await ctx.session.destroy();
+    await waitForCondition(
+      viewer,
+      async () => (await streamStatus()) === 404,
+      20000,
+      'the viewer server to notice the session is gone',
+    );
+
+    // ...and comes back, by the writer's hand, not the viewer's.
+    ctx.page = await ctx.browser.newPage();
+    await navigateToSession(ctx.page, ctx.session.name);
+    ctx.session.created = true;
+    await waitForCondition(
+      viewer,
+      async () => (await streamStatus()) === 200,
+      20000,
+      'the viewer server to attach again',
+    );
+    const SECOND = `SECOND_${Date.now()}`;
+    await typeInTerminal(ctx.page, `echo ${SECOND}`);
+    await pressEnter(ctx.page);
+    await navigateToSession(viewer, ctx.session.name, READ_ONLY_URL);
+    await waitForCondition(
+      viewer,
+      () => shows(viewer, SECOND),
+      15000,
+      'the viewer to see the re-made session',
+    );
+
+    await viewer.close();
+  }, 180000);
 
   /**
    * SEC-18. Whoever ran `tmuxy widget browser` in the session chose its page;

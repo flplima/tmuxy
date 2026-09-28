@@ -380,7 +380,8 @@ async fn start_dev_server(
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let app = crate::state::api_routes(listen.policy.clone())
+    crate::sse::start_viewer_monitor(&state).await;
+    let app = crate::state::api_routes(listen.policy.clone(), read_only)
         .route(
             "/demo",
             axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
@@ -440,7 +441,11 @@ async fn start_server(
             .with_session_pin(session_pin.clone()),
     );
 
-    let app = crate::state::api_routes(listen.policy.clone())
+    // A viewer's server attaches to its session before it listens, and keeps
+    // that one monitor for its whole life; nothing a client does starts or
+    // stops it.
+    crate::sse::start_viewer_monitor(&state).await;
+    let app = crate::state::api_routes(listen.policy.clone(), read_only)
         .fallback(serve_embedded)
         .with_state(state.clone());
     let password_set = password.is_some();
@@ -930,7 +935,7 @@ mod tests {
     /// The app exactly as `start_server` assembles it, optionally behind the
     /// password layer.
     fn served_app(password: Option<&str>) -> axum::Router {
-        let app = crate::state::api_routes(loopback(vec![]))
+        let app = crate::state::api_routes(loopback(vec![]), false)
             .fallback(serve_embedded)
             .with_state(Arc::new(AppState::new()));
         with_optional_auth(app, password.map(str::to_string))
