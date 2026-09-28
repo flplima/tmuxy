@@ -123,24 +123,42 @@ export function useFloatingSurface<T>({
   const dismissRef = useRef(onDismiss);
   dismissRef.current = onDismiss;
 
+  // `contentKey`, not `content`, drives this — and that is load-bearing.
+  //
+  // Callers build `content` as an object literal at the call site (a preview
+  // passes `{ windowId, label }`), so its IDENTITY changes on every render
+  // while its VALUE does not. An effect keyed on the identity that also
+  // `setShown(content)` is an infinite loop: render, new object, effect,
+  // setState, render. It pegged a core for as long as a surface was open, and
+  // it is why two TabPreview stories and the sidebar's context-menu story
+  // stopped responding entirely — the main thread never came back, so even
+  // reading the DOM from outside hung (`storybook-probe` then sat until its
+  // 30-minute timeout).
+  //
+  // `anchorKey` below exists for exactly this reason on the anchor. This is the
+  // same rule applied to the content, so a caller cannot reintroduce the loop
+  // by passing a literal — which is the natural way to call this.
+  const contentKey = content === null ? null : JSON.stringify(content);
+  const contentRef = useRef(content);
+  contentRef.current = content;
   useEffect(() => {
-    if (content !== null) {
-      setShown(content);
+    if (contentKey !== null) {
+      setShown(contentRef.current);
       setLeaving(false);
       return;
     }
     setLeaving(true);
     const timer = setTimeout(() => setShown(null), animated ? exitMs : 0);
     return () => clearTimeout(timer);
-  }, [content, animated, exitMs]);
+  }, [contentKey, animated, exitMs]);
 
   // Hold the floating layer for exactly as long as this surface is WANTED, not
   // as long as it is drawn: the tail of an exit animation must not dismiss the
   // surface that replaced it.
   useEffect(() => {
-    if (content === null) return;
+    if (contentKey === null) return;
     return openSurface(id, () => dismissRef.current());
-  }, [content, id]);
+  }, [contentKey, id]);
 
   // The anchor is rebuilt every render (it is an object literal at the call
   // site), so it is read through a ref rather than depended on: as a dependency
