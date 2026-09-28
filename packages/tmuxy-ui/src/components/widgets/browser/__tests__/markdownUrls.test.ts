@@ -1,64 +1,61 @@
 import { describe, it, expect } from 'vitest';
+import { resolveAgainstDocument } from '../markdownUrls';
 
 /**
- * SEC-20. The markdown is fetched and rendered in the APP's origin, so a
- * relative URL the document wrote resolved against the app rather than against
- * the file the document was written next to — `![](/api/images/0/1)` and
- * `[x](/commands)` reaching the app's own API through the reader's session.
- *
- * The resolver is exercised through the same logic MarkdownView uses; it is
- * duplicated here rather than exported because it is one expression and the
- * behaviour under test is the POLICY, not the plumbing.
+ * SEC-20. The markdown is fetched and rendered in the APP's origin, so a URL
+ * the document wrote resolved against the app rather than against the file the
+ * document was written next to — `![](/api/images/0/1)` and `[x](/commands)`
+ * reaching the app's own API through the reader's session.
  */
-function resolveAgainstDocument(raw: string | undefined, base: string): string | undefined {
-  if (!raw) return undefined;
-  try {
-    const resolved = new URL(raw, new URL(base, 'http://localhost:9000/'));
-    const allowed = ['http:', 'https:', 'data:', 'blob:', 'tmuxyfile:'];
-    return allowed.includes(resolved.protocol) ? resolved.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
+const app = 'http://localhost:9000/';
+const doc = 'http://localhost:9000/api/browse/Users/felipe/notes/readme.md';
+const resolve = (raw: string | undefined, base = doc) => resolveAgainstDocument(raw, base, app);
 
 describe('a markdown document resolves its own URLs', () => {
-  const doc = 'http://localhost:9000/api/browse/Users/felipe/notes/readme.md';
-
   it('resolves a relative image against the document, not the app root', () => {
-    expect(resolveAgainstDocument('./diagram.png', doc)).toBe(
+    expect(resolve('./diagram.png')).toBe(
       'http://localhost:9000/api/browse/Users/felipe/notes/diagram.png',
     );
-    expect(resolveAgainstDocument('../img/logo.png', doc)).toBe(
+    expect(resolve('../img/logo.png')).toBe(
       'http://localhost:9000/api/browse/Users/felipe/img/logo.png',
     );
   });
 
-  it('still resolves an app-absolute path, so the reader can see where it went', () => {
-    // This is the shape that used to be silently aimed at the API. It resolves,
-    // which is what a browser does — the point is that a RELATIVE url no longer
-    // lands here by accident.
-    expect(resolveAgainstDocument('/api/images/0/1', doc)).toBe(
-      'http://localhost:9000/api/images/0/1',
+  it('refuses an app-absolute path that is not a file route', () => {
+    // The shape that used to be aimed at the API: the reader's browser would
+    // have made these requests with the reader's session.
+    for (const raw of ['/api/images/0/1', '/events?session=x', '/commands', '/', '/index.html']) {
+      expect(resolve(raw)).toBeUndefined();
+    }
+    // Written as a full URL to the same origin, it is the same request.
+    expect(resolve('http://localhost:9000/api/images/0/1')).toBeUndefined();
+  });
+
+  it('keeps the two routes that serve files, which is how local images arrive', () => {
+    expect(resolve('/api/browse/Users/felipe/pic.png')).toBe(
+      'http://localhost:9000/api/browse/Users/felipe/pic.png',
+    );
+    expect(resolve('/api/file?path=/Users/felipe/pic.png')).toBe(
+      'http://localhost:9000/api/file?path=/Users/felipe/pic.png',
     );
   });
 
   it('drops a scheme a document must not pull from', () => {
     for (const raw of ['javascript:alert(1)', 'file:///etc/passwd', 'vscode://x']) {
-      expect(resolveAgainstDocument(raw, doc)).toBeUndefined();
+      expect(resolve(raw)).toBeUndefined();
     }
   });
 
   it('carries the schemes a local page legitimately uses', () => {
-    expect(resolveAgainstDocument('pic.png', 'tmuxyfile://localhost/Users/f/a/doc.md')).toBe(
+    expect(resolve('pic.png', 'tmuxyfile://localhost/Users/f/a/doc.md')).toBe(
       'tmuxyfile://localhost/Users/f/a/pic.png',
     );
-    expect(resolveAgainstDocument('data:image/png;base64,AAAA', doc)).toBe(
-      'data:image/png;base64,AAAA',
-    );
+    expect(resolve('data:image/png;base64,AAAA')).toBe('data:image/png;base64,AAAA');
+    expect(resolve('https://example.com/a.png')).toBe('https://example.com/a.png');
   });
 
   it('has nothing to say about a missing url', () => {
-    expect(resolveAgainstDocument(undefined, doc)).toBeUndefined();
-    expect(resolveAgainstDocument('', doc)).toBeUndefined();
+    expect(resolve(undefined)).toBeUndefined();
+    expect(resolve('')).toBeUndefined();
   });
 });

@@ -602,6 +602,13 @@ impl TmuxMonitor {
             // Allow applications to set pane title via OSC 0/2.
             ("allow-rename", "on"),
             ("set-titles", "on"),
+            // SEC-01: tmux itself honours OSC 52 by loading the text into a
+            // paste buffer, and paste buffers are global to the tmux server —
+            // so a background pane's write reached every client through the
+            // buffer mirror, past the active-pane gate the aggregator applies
+            // to the same sequence. tmuxy carries OSC 52 to the client's own
+            // clipboard on its own; tmux need not.
+            ("set-clipboard", "off"),
         ];
 
         for (key, value) in &settings {

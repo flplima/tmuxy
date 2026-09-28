@@ -42,6 +42,38 @@ describe('CLI session commands', () => {
     });
   });
 
+  /**
+   * SEC-24. The switcher hands the chosen name to `run-shell`, which
+   * format-expands its string (`#(...)` runs a command) before a shell parses
+   * it (a stray quote ends the word). A session is named by whoever created
+   * it, so the name is quoted for both, not trusted.
+   */
+  describe('session switch --float with a hostile session name', () => {
+    const hostile = "a'b#(true)";
+
+    test('the name reaches run-shell as one quoted word with its # doubled', () => {
+      const { exitCode, stdout, tmuxCalls } = runCLI(['session', 'switch', '--float'], {
+        input: '2\n',
+        env: {
+          MOCK_TMUX_SESSION: 'main',
+          MOCK_TMUX_LIST_SESSIONS: `main\n${hostile}`,
+        },
+      });
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain(hostile);
+
+      const setEnv = tmuxCalls
+        .filter((call) => call.args[0] === 'run-shell')
+        .map((call) => call.args[1])
+        .find((cmd) => cmd.includes('set-environment -g TMUXY_SWITCH_TO'));
+      expect(setEnv).toBeDefined();
+      // `shquote`: single-quoted, the embedded quote escaped, `#` doubled so
+      // run-shell's format expansion yields a literal `#` — never `#(true)`.
+      expect(setEnv).toContain("TMUXY_SWITCH_TO 'a'\\''b##(true)'");
+      expect(setEnv).not.toMatch(/[^#]#\(true\)/);
+    });
+  });
+
   describe('top-level help includes session', () => {
     test('session listed in top-level help', () => {
       const { stdout } = runCLI(['--help']);

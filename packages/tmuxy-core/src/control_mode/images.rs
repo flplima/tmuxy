@@ -61,8 +61,10 @@ pub struct StoredImage {
 /// Kitty splits large payloads into chunks with `m=1` (more) and `m=0` (last).
 /// Subsequent chunks may omit metadata (other than `i=`/`m=`), so we cache the
 /// first chunk's transmission keys on the entry.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct KittyChunked {
+    /// When the transfer was opened; see `MAX_CHUNKED_AGE`.
+    opened_at: std::time::Instant,
     /// Accumulated base64 payload (still encoded).
     payload: String,
     /// Image format (`f=`) from the first chunk: 32 = RGBA, 24 = RGB, 100 = PNG.
@@ -120,6 +122,28 @@ const MAX_CHUNKED_IMAGE: usize = MAX_PENDING_IMAGE;
 /// this the oldest is dropped, which costs a hostile stream its earliest
 /// transfer and a legitimate one nothing (a terminal sends one at a time).
 const MAX_INFLIGHT_CHUNKED: usize = 16;
+
+/// How long an unfinished chunked transfer is kept.
+///
+/// The in-flight cap bounds how MANY transfers a pane can leave open, not for
+/// how long: sixteen half-sent images sat in memory for the life of the pane.
+/// A real transfer streams its chunks back to back, so one that has gone
+/// quiet this long is abandoned and dropped the next time any chunk arrives.
+const MAX_CHUNKED_AGE: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl ImageParser {
+    /// Drop every chunked transfer that has been open longer than
+    /// `MAX_CHUNKED_AGE` as of `now`.
+    fn expire_stale_chunked(&mut self, now: std::time::Instant) {
+        if self.kitty_chunks.is_empty() {
+            return;
+        }
+        self.kitty_chunks
+            .retain(|_, entry| now.duration_since(entry.opened_at) < MAX_CHUNKED_AGE);
+        let live = &self.kitty_chunks;
+        self.kitty_chunk_order.retain(|id| live.contains_key(id));
+    }
+}
 
 /// Result of processing raw output through the image parser.
 pub struct ImageProcessResult {
@@ -551,8 +575,10 @@ impl ImageParser {
         // Chunked transfer (m=1 / m=0): accumulate; only finish on m=0 or
         // when no `m` key is present (single-chunk).
         let entry = if let Some(more) = more_chunks {
-            // SEC-03: the payload comes from pane output, so both the number
-            // of open transfers and the size of each are bounded.
+            // SEC-03: the payload comes from pane output, so the number of
+            // open transfers, the size of each and how long one may stay open
+            // are all bounded.
+            self.expire_stale_chunked(std::time::Instant::now());
             if !self.kitty_chunks.contains_key(&image_id)
                 && self.kitty_chunks.len() >= MAX_INFLIGHT_CHUNKED
             {
@@ -567,12 +593,13 @@ impl ImageParser {
                 .kitty_chunks
                 .entry(image_id)
                 .or_insert_with(|| KittyChunked {
+                    opened_at: std::time::Instant::now(),
+                    payload: String::new(),
                     format,
                     src_width: src_w,
                     src_height: src_h,
                     rows,
                     cols,
-                    ..Default::default()
                 });
             if entry.payload.len().saturating_add(payload_str.len()) > MAX_CHUNKED_IMAGE {
                 // Over the cap: drop the transfer rather than keep growing it.
@@ -590,6 +617,7 @@ impl ImageParser {
             self.kitty_chunks.remove(&image_id)?
         } else {
             KittyChunked {
+                opened_at: std::time::Instant::now(),
                 payload: payload_str.to_string(),
                 format,
                 src_width: src_w,
@@ -1193,6 +1221,22 @@ mod tests {
 
     /// The bounds must not cost a real image: one transfer at a time, finished
     /// properly, is what a terminal actually sends.
+    /// SEC-03. A transfer that stopped sending is not kept for the life of
+    /// the pane: once it is older than the age cap it goes on the next chunk.
+    #[test]
+    fn an_abandoned_transfer_is_dropped_once_it_is_old() {
+        let mut parser = ImageParser::default();
+        parser.process(b"\x1b_Ga=T,f=100,i=1,m=1;AAAA\x1b\\");
+        assert_eq!(parser.kitty_chunks.len(), 1);
+        // Not yet: a transfer opened a moment ago is still streaming.
+        parser.expire_stale_chunked(std::time::Instant::now());
+        assert_eq!(parser.kitty_chunks.len(), 1);
+        // Past the cap it is gone, and so is its place in the eviction order.
+        parser.expire_stale_chunked(std::time::Instant::now() + MAX_CHUNKED_AGE);
+        assert!(parser.kitty_chunks.is_empty());
+        assert!(parser.kitty_chunk_order.is_empty());
+    }
+
     #[test]
     fn a_finished_transfer_leaves_nothing_in_flight() {
         let mut parser = ImageParser::new();

@@ -683,6 +683,76 @@ pub fn session_name() -> String {
     std::env::var("TMUXY_SESSION").unwrap_or_else(|_| crate::DEFAULT_SESSION_NAME.to_string())
 }
 
+/// Whether `name` is a session name the server will write into a command line.
+///
+/// SEC-14. A client names its session in `?session=`, and that name goes into
+/// control-mode commands and into `run-shell` strings that tmux format-expands
+/// before a shell sees them. Rather than escape for each of those contexts,
+/// the name is held to letters, digits and `_ - @ +` — every name tmuxy itself
+/// creates fits, tmux forbids `.` and `:` in any case, and nothing in the
+/// alphabet means anything to a format string, a shell or a command parser.
+pub fn is_safe_session_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'+'))
+}
+
+/// Whether `id` is a pane id in tmux's own canonical spelling, `%<digits>`.
+///
+/// SEC-17. A client that names a pane names it this way — it only ever learned
+/// ids from `list-panes` — so anything else (`other:0.0`, `{last}`, a name) is
+/// not a pane the client was shown, and is refused before it reaches tmux.
+pub fn is_pane_id(id: &str) -> bool {
+    id.strip_prefix('%')
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    #[test]
+    fn session_names_are_held_to_the_alphabet() {
+        for ok in ["tmuxy", "tmuxy_test_1727", "a-b", "me@host", "c++", "x"] {
+            assert!(is_safe_session_name(ok), "{ok:?} should be accepted");
+        }
+        for bad in [
+            "",
+            "a b",
+            "a'b",
+            "a;b",
+            "a#(id)",
+            "a.b",
+            "a:b",
+            "a\nb",
+            "a\u{7f}b",
+            "ünïcode",
+        ] {
+            assert!(!is_safe_session_name(bad), "{bad:?} should be refused");
+        }
+    }
+
+    #[test]
+    fn pane_ids_are_tmux_canonical_only() {
+        for ok in ["%0", "%7", "%1234"] {
+            assert!(is_pane_id(ok), "{ok:?}");
+        }
+        for bad in [
+            "",
+            "%",
+            "7",
+            "%7a",
+            "%-1",
+            "other:0.0",
+            "{last}",
+            "%7 ; kill-server",
+        ] {
+            assert!(!is_pane_id(bad), "{bad:?}");
+        }
+    }
+}
+
 pub fn apply_managed_state(session_name: &str) {
     let state = read_managed_state();
     let blink = state.cursor_blink.map(|on| if on { "on" } else { "off" });

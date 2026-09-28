@@ -14,32 +14,7 @@ import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import { MermaidBlock } from './MermaidBlock';
 import { openExternalUrl, safeHref } from '../../../utils/openUrl';
-
-/**
- * Resolve a URL a markdown document wrote against the DOCUMENT, not the app.
- *
- * SEC-20. The markdown is fetched and rendered in the app's own origin, so a
- * relative `![](/api/images/0/1)` or `[x](/commands)` resolved against the APP
- * — the document reaching the app's API through the reader's session, and not
- * the file it was actually written next to. Resolving against `base` is what
- * the document meant and what a browser would have done.
- *
- * `undefined` for anything that survives resolution as a scheme we will not
- * load: `javascript:`, and anything else a document might invent.
- */
-function resolveAgainstDocument(raw: string | undefined, base: string): string | undefined {
-  if (!raw) return undefined;
-  try {
-    const resolved = new URL(raw, new URL(base, window.location.href));
-    // The schemes a document may pull a subresource from. `tmuxyfile:` and the
-    // server's own file route are how a local page's own images arrive, which
-    // is the legitimate relative case.
-    const allowed = ['http:', 'https:', 'data:', 'blob:', 'tmuxyfile:'];
-    return allowed.includes(resolved.protocol) ? resolved.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
+import { resolveAgainstDocument } from './markdownUrls';
 
 function markdownComponents(base: string): Components {
   return {
@@ -48,7 +23,7 @@ function markdownComponents(base: string): Components {
      * http(s)/mailto allowlist, in a new tab, never navigating the app.
      */
     a({ href, children, ...props }) {
-      const resolved = resolveAgainstDocument(href, base);
+      const resolved = resolveAgainstDocument(href, base, window.location.href);
       const safe = resolved ? safeHref(resolved) : undefined;
       return (
         <a
@@ -66,7 +41,11 @@ function markdownComponents(base: string): Components {
       );
     },
     img({ src, alt, ...props }) {
-      const resolved = resolveAgainstDocument(typeof src === 'string' ? src : undefined, base);
+      const resolved = resolveAgainstDocument(
+        typeof src === 'string' ? src : undefined,
+        base,
+        window.location.href,
+      );
       if (!resolved) return null;
       return <img {...props} src={resolved} alt={alt ?? ''} />;
     },

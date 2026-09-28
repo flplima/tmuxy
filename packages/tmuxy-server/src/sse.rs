@@ -332,7 +332,7 @@ impl SessionQuery {
         let session = self
             .session
             .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
-        if session.is_empty() || session.chars().any(char::is_control) {
+        if !tmuxy_core::session::is_safe_session_name(&session) {
             return Err(SessionRejection::Invalid);
         }
         if !state.serves_session(&session) {
@@ -828,9 +828,14 @@ async fn handle_command(
             // transient io::Error; the retry layer absorbs those.
             let policy = tmuxy_core::RetryPolicy::standard();
 
-            // The pane id is the client's. On a pinned server it is resolved
-            // against that session's own panes first, so `%N` or `other:0.0`
-            // cannot dump a pane the viewer was never shown.
+            // The pane id is the client's, and it goes into three tmux command
+            // lines as a target: it has to be one (`%N`) before it goes
+            // anywhere. On a pinned server it is then checked against that
+            // session's own panes, so a viewer cannot dump a pane it was never
+            // shown.
+            if !tmuxy_core::session::is_pane_id(&pane_id) {
+                return Err(format!("not a pane id: {pane_id:?}"));
+            }
             if let Some(pinned) = state.session_pin.as_deref() {
                 if !session_owns_pane(state, pinned, &pane_id).await {
                     return Err(format!("pane {pane_id} is not in session {pinned}"));
@@ -1371,35 +1376,9 @@ fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
     }
 }
 
-/// Whether `pane_id` names a pane of `session`.
-///
-/// Resolved from tmux's own listing rather than by parsing the id, because a
-/// client may send either form (`%7` or `session:0.0`) and only tmux knows
-/// which pane each resolves to.
+/// Whether `pane_id` — already checked to be a canonical `%N` — names a pane
+/// of `session`, by tmux's own listing of that session.
 async fn session_owns_pane(state: &AppState, session: &str, pane_id: &str) -> bool {
-    // Canonicalise first: the client may send `%7` or `session:0.0`, and only
-    // tmux knows which pane the second form resolves to.
-    let resolved = state
-        .tmux_call_with_policy(
-            vec![
-                "display-message".into(),
-                "-t".into(),
-                pane_id.into(),
-                "-p".into(),
-                "#{pane_id}".into(),
-            ],
-            "scrollback:pane_resolve",
-            tmuxy_core::RetryPolicy::standard(),
-        )
-        .await;
-    let Ok(resolved) = resolved else {
-        return false;
-    };
-    let resolved = resolved.trim().to_string();
-    if resolved.is_empty() {
-        return false;
-    }
-
     let listing = state
         .tmux_call_with_policy(
             vec![
@@ -1415,7 +1394,7 @@ async fn session_owns_pane(state: &AppState, session: &str, pane_id: &str) -> bo
         )
         .await;
     match listing {
-        Ok(listing) => listing.lines().any(|line| line.trim() == resolved),
+        Ok(listing) => listing.lines().any(|line| line.trim() == pane_id),
         // tmux could not answer: refuse rather than fall open.
         Err(_) => false,
     }

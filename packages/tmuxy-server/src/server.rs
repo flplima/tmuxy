@@ -167,9 +167,9 @@ fn resolve_listen(
 /// already run `new-session` for itself, and the one that may share a socket
 /// with a writer whose other sessions are none of a viewer's business. A
 /// writable server stays unpinned so session switching keeps working.
-fn resolve_session_pin(flag: Option<String>, read_only: bool) -> Option<String> {
+fn resolve_session_pin(flag: Option<String>, read_only: bool) -> Result<Option<String>, String> {
     if !read_only {
-        return None;
+        return Ok(None);
     }
     let name = flag
         .map(|s| s.trim().to_string())
@@ -177,7 +177,14 @@ fn resolve_session_pin(flag: Option<String>, read_only: bool) -> Option<String> 
         // The same resolution the rest of tmuxy uses: `TMUXY_SESSION`, else
         // the default name.
         .unwrap_or_else(tmuxy_core::session::session_name);
-    Some(name)
+    // SEC-14: `?session=` is held to the same alphabet, so a pin outside it
+    // would be a server no client could ever name a session to.
+    if !tmuxy_core::session::is_safe_session_name(&name) {
+        return Err(format!(
+            "--session {name:?}: a session name is letters, digits and _ - @ +"
+        ));
+    }
+    Ok(Some(name))
 }
 
 fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
@@ -269,7 +276,13 @@ pub async fn run(args: ServerArgs) {
             require_tmux();
             announce_trace(args.trace.clone(), dev_mode);
             let read_only = args.read_only || env_flag("TMUXY_READ_ONLY");
-            let session_pin = resolve_session_pin(args.session.clone(), read_only);
+            let session_pin = match resolve_session_pin(args.session.clone(), read_only) {
+                Ok(pin) => pin,
+                Err(message) => {
+                    eprintln!("tmuxy server: {message}");
+                    std::process::exit(2);
+                }
+            };
             if dev_mode {
                 start_dev_server(args.port, listen, password, read_only, session_pin).await
             } else {
@@ -887,21 +900,23 @@ mod tests {
     fn only_a_read_only_server_is_pinned_to_one_session() {
         assert_eq!(
             resolve_session_pin(Some("shared".into()), true),
-            Some("shared".to_string())
+            Ok(Some("shared".to_string()))
         );
         assert_eq!(
             resolve_session_pin(None, true),
-            Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string())
+            Ok(Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string()))
         );
-        assert_eq!(resolve_session_pin(Some("shared".into()), false), None);
-        assert_eq!(resolve_session_pin(None, false), None);
+        assert_eq!(resolve_session_pin(Some("shared".into()), false), Ok(None));
+        assert_eq!(resolve_session_pin(None, false), Ok(None));
+        // A pin no `?session=` could ever match is refused up front.
+        assert!(resolve_session_pin(Some("shared session".into()), true).is_err());
     }
 
     #[test]
     fn a_blank_session_flag_falls_back_to_the_default_name() {
         assert_eq!(
             resolve_session_pin(Some("   ".into()), true),
-            Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string())
+            Ok(Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string()))
         );
     }
 

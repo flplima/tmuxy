@@ -13,7 +13,7 @@ use tracing::warn;
 // The settling debounce uses a monotonic clock. `std::time::Instant::now()`
 // panics on wasm32; web-time backs it with performance.now() in the browser.
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
@@ -340,6 +340,10 @@ pub struct PaneState {
     /// enough on its own.
     pub pane_widget: Option<String>,
 
+    /// When this pane last had an OSC 52 write honoured; see
+    /// `MIN_CLIPBOARD_INTERVAL`.
+    pub last_clipboard_write: Option<Instant>,
+
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<std::sync::Arc<PaneContent>>,
 
@@ -403,6 +407,7 @@ impl PaneState {
             pane_state: None,
             pane_ask: None,
             pane_widget: None,
+            last_clipboard_write: None,
             copy_mode_content: None,
             cursor_shape: 0,
             cursor_hidden: false,
@@ -444,7 +449,7 @@ impl PaneState {
     }
 
     /// Write one hyperlinked run, marking every cell it paints.
-    fn feed_linked(&mut self, bytes: &[u8], url: &str) {
+    fn feed_linked(&mut self, bytes: &[u8], url: &std::sync::Arc<str>) {
         for chunk in utf8_chunks(bytes) {
             let (row, col) = self.terminal.screen().cursor_position();
             safe_process(&mut self.terminal, chunk);
@@ -1279,6 +1284,13 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
 /// 64 KiB is comfortably above a real yank and below xterm's own ~100 KB.
 pub const MAX_CLIPBOARD_BYTES: usize = 64 * 1024;
 
+/// The least time between two OSC 52 writes from one pane.
+///
+/// A yank is something the user does, and nobody does it several times a
+/// second; a program that writes the clipboard in a loop is fighting the user
+/// for it. The first write in each interval goes through, the rest are dropped.
+pub const MIN_CLIPBOARD_INTERVAL: Duration = Duration::from_secs(1);
+
 /// The most decoded images one pane keeps.
 ///
 /// A pane can only SHOW as many pictures as its grid has room for; this is
@@ -1913,6 +1925,21 @@ impl StateAggregator {
             .and_then(|w| w.active_pane_id.clone())
     }
 
+    /// Whether `pane_id` may have a clipboard write honoured at `now` — the
+    /// rate limit of `MIN_CLIPBOARD_INTERVAL` — recording `now` when it may.
+    fn clipboard_write_due(&mut self, pane_id: &str, now: Instant) -> bool {
+        let Some(pane) = self.panes.get_mut(pane_id) else {
+            return false;
+        };
+        let due = pane
+            .last_clipboard_write
+            .is_none_or(|last| now.duration_since(last) >= MIN_CLIPBOARD_INTERVAL);
+        if due {
+            pane.last_clipboard_write = Some(now);
+        }
+        due
+    }
+
     /// Shared body of the `%output` / `%extended-output` arms.
     fn output_result(&mut self, pane_id: String, content: &[u8]) -> ProcessEventResult {
         let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, content);
@@ -1924,6 +1951,7 @@ impl StateAggregator {
         let active = self.active_pane_id();
         let clipboard_writes = clipboard
             .and_then(|text| accepted_clipboard_write(&pane_id, active.as_deref(), text))
+            .filter(|_| self.clipboard_write_due(&pane_id, Instant::now()))
             .map(|text| vec![(pane_id.clone(), text)])
             .unwrap_or_default();
         ProcessEventResult {
@@ -3880,6 +3908,30 @@ mod tests {
             vec![("%0".to_string(), "hello world".to_string())],
             "OSC 52 sequence must surface as a clipboard write on the event result"
         );
+    }
+
+    /// SEC-01. One write per pane per `MIN_CLIPBOARD_INTERVAL`: a program
+    /// writing the clipboard in a loop gets its first write and no more until
+    /// the interval has passed.
+    #[test]
+    fn a_pane_writing_the_clipboard_in_a_loop_is_rate_limited() {
+        let mut agg = StateAggregator::new();
+        seed_active_pane(&mut agg, "%0", "@0");
+        let write = || ControlModeEvent::Output {
+            pane_id: "%0".to_string(),
+            content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
+        };
+
+        assert_eq!(agg.process_event(write()).clipboard_writes.len(), 1);
+        assert!(
+            agg.process_event(write()).clipboard_writes.is_empty(),
+            "a second write inside the interval is dropped"
+        );
+
+        // Once the interval has passed the pane may write again.
+        let earlier = Instant::now() - MIN_CLIPBOARD_INTERVAL;
+        agg.panes.get_mut("%0").unwrap().last_clipboard_write = Some(earlier);
+        assert_eq!(agg.process_event(write()).clipboard_writes.len(), 1);
     }
 
     #[test]

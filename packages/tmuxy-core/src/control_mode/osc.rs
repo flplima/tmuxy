@@ -5,6 +5,7 @@
 //! - OSC 52: Clipboard operations
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Upper bound on a buffered incomplete OSC sequence carried across `process()`
 /// calls. tmux emits `%output` in bounded chunks and a real OSC (hyperlink URL,
@@ -20,10 +21,10 @@ pub struct OscOutput {
     pub bytes: Vec<u8>,
     /// `(start, end, url)` half-open ranges into `bytes`, in order and
     /// non-overlapping, that were emitted while an OSC 8 link was open.
-    pub links: Vec<(usize, usize, String)>,
+    pub links: Vec<(usize, usize, Arc<str>)>,
 }
 
-fn push_link(links: &mut Vec<(usize, usize, String)>, start: usize, end: usize, url: String) {
+fn push_link(links: &mut Vec<(usize, usize, Arc<str>)>, start: usize, end: usize, url: Arc<str>) {
     if end > start {
         links.push((start, end, url));
     }
@@ -38,15 +39,24 @@ fn push_link(links: &mut Vec<(usize, usize, String)>, start: usize, end: usize, 
 /// re-attached to whatever text a later frame drew there.
 #[derive(Debug, Clone)]
 pub struct CellMark {
-    url: String,
+    /// SEC-22: shared by every cell the same OSC 8 pair covered, and with the
+    /// open hyperlink itself, so a screen full of linked text holds one copy
+    /// of each URL rather than one per cell — pane output could otherwise
+    /// multiply a long URL by every cell on the screen.
+    url: Arc<str>,
     ch: String,
 }
+
+/// The longest OSC 8 URL honoured. Longer ones open no link and their text is
+/// drawn plain: the URL comes from pane output, and a link the size of the
+/// screen is not one anybody follows.
+pub const MAX_HYPERLINK_URL_BYTES: usize = 8 * 1024;
 
 /// OSC parser state for a single pane
 #[derive(Debug, Default)]
 pub struct OscParser {
     /// Active hyperlink (URL currently being applied to output)
-    active_hyperlink: Option<(String, Option<String>)>, // (url, id)
+    active_hyperlink: Option<(Arc<str>, Option<String>)>, // (url, id)
     /// Visible height of the pane, in rows. Bounds `cell_urls` to the screen:
     /// a mark shifted above row 0 by scrolling is dropped.
     viewport_height: u32,
@@ -137,14 +147,14 @@ impl OscParser {
     /// has been asked where the byte landed, so wrapping, scrolling, and every
     /// cursor-moving escape are already accounted for.
     /// Record `url` on the cell at (`row`, `col`), which currently holds `ch`.
-    pub fn mark_cell(&mut self, row: u32, col: u32, url: &str, ch: &str) {
+    pub fn mark_cell(&mut self, row: u32, col: u32, url: &Arc<str>, ch: &str) {
         if self.viewport_height > 0 && row >= self.viewport_height {
             return;
         }
         self.cell_urls.insert(
             (row, col),
             CellMark {
-                url: url.to_string(),
+                url: Arc::clone(url),
                 ch: ch.to_string(),
             },
         );
@@ -190,7 +200,7 @@ impl OscParser {
             let intact = (col..end).all(|c| mark_at(c).is_some_and(|m| m.ch == chars[c]));
             if intact {
                 for slot in out[col..end].iter_mut() {
-                    *slot = Some(mark.url.as_str());
+                    *slot = Some(&*mark.url);
                 }
             }
             col = end;
@@ -199,8 +209,8 @@ impl OscParser {
     }
 
     /// The URL currently open, if the stream is inside an OSC 8 pair.
-    pub fn active_url(&self) -> Option<&str> {
-        self.active_hyperlink.as_ref().map(|(url, _)| url.as_str())
+    pub fn active_url(&self) -> Option<&Arc<str>> {
+        self.active_hyperlink.as_ref().map(|(url, _)| url)
     }
 
     /// Process raw output bytes, extracting OSC sequences.
@@ -236,9 +246,9 @@ impl OscParser {
                 // OSC sequence: ESC ] ... ST or ESC ] ... BEL
                 match self.find_osc_end(&content[i..]) {
                     Some((osc_end, osc_content)) => {
-                        let before = self.active_url().map(str::to_string);
+                        let before = self.active_url().cloned();
                         self.parse_osc(osc_content);
-                        let after = self.active_url().map(str::to_string);
+                        let after = self.active_url().cloned();
                         if before != after {
                             let here = out.bytes.len();
                             if let (Some(start), Some(url)) = (open_at.take(), before) {
@@ -269,7 +279,7 @@ impl OscParser {
         }
 
         let here = out.bytes.len();
-        if let (Some(start), Some(url)) = (open_at, self.active_url().map(str::to_string)) {
+        if let (Some(start), Some(url)) = (open_at, self.active_url().cloned()) {
             push_link(&mut out.links, start, here, url);
         }
 
@@ -325,15 +335,16 @@ impl OscParser {
         let params = parts[0];
         let url = parts[1];
 
-        if url.is_empty() {
-            // End of hyperlink
+        if url.is_empty() || url.len() > MAX_HYPERLINK_URL_BYTES {
+            // End of hyperlink — or one too long to be honoured, which closes
+            // whatever was open and opens nothing.
             self.active_hyperlink = None;
         } else {
             // Start of hyperlink. Parse optional id from params (id=value).
             let id = params
                 .split(':')
                 .find_map(|p| p.strip_prefix("id=").map(|v| v.to_string()));
-            self.active_hyperlink = Some((url.to_string(), id));
+            self.active_hyperlink = Some((Arc::from(url), id));
         }
     }
 
@@ -409,6 +420,30 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, &'static str> {
 mod tests {
     use super::*;
 
+    /// SEC-22. One URL, many cells: the map shares it rather than copying it.
+    #[test]
+    fn cells_under_one_link_share_its_url() {
+        let mut parser = OscParser::new();
+        let out = parser.process(b"\x1b]8;;https://example.com\x07label\x1b]8;;\x07");
+        let (_, _, url) = &out.links[0];
+        for (col, ch) in "label".chars().enumerate() {
+            parser.mark_cell(0, col as u32, url, &ch.to_string());
+        }
+        // The link's own Arc plus five cells: six strong references, one string.
+        assert_eq!(Arc::strong_count(url), 6);
+    }
+
+    #[test]
+    fn an_oversized_url_opens_no_link() {
+        let mut parser = OscParser::new();
+        let url = "https://example.com/".to_string() + &"a".repeat(MAX_HYPERLINK_URL_BYTES);
+        let seq = format!("\x1b]8;;{url}\x07text\x1b]8;;\x07");
+        let out = parser.process(seq.as_bytes());
+        assert_eq!(out.bytes, b"text");
+        assert!(out.links.is_empty());
+        assert!(parser.active_url().is_none());
+    }
+
     #[test]
     fn osc8_strips_the_escapes_and_reports_the_linked_span() {
         let mut parser = OscParser::new();
@@ -421,7 +456,7 @@ mod tests {
         // ...and the caller is told exactly which of those bytes were linked,
         // so it can ask vt100 where they landed. This parser maps no cells
         // itself — it has no cursor to map them with.
-        assert_eq!(out.links, vec![(0, 5, "https://example.com".to_string())]);
+        assert_eq!(out.links, vec![(0, 5, "https://example.com".into())]);
     }
 
     #[test]
@@ -429,7 +464,7 @@ mod tests {
         let mut parser = OscParser::new();
         let out = parser.process(b"before\x1b]8;;http://x\x07IN\x1b]8;;\x07after");
         assert_eq!(out.bytes, b"beforeINafter");
-        assert_eq!(out.links, vec![(6, 8, "http://x".to_string())]);
+        assert_eq!(out.links, vec![(6, 8, "http://x".into())]);
     }
 
     #[test]
@@ -440,10 +475,7 @@ mod tests {
         assert_eq!(out.bytes, b"A B");
         assert_eq!(
             out.links,
-            vec![
-                (0, 1, "http://a".to_string()),
-                (2, 3, "http://b".to_string()),
-            ]
+            vec![(0, 1, "http://a".into()), (2, 3, "http://b".into()),]
         );
     }
 
@@ -453,12 +485,12 @@ mod tests {
         // Link opened but not closed before the chunk ends.
         let first = parser.process(b"\x1b]8;;http://x\x07AB");
         assert_eq!(first.bytes, b"AB");
-        assert_eq!(first.links, vec![(0, 2, "http://x".to_string())]);
+        assert_eq!(first.links, vec![(0, 2, "http://x".into())]);
 
         // Still open: the next chunk's bytes are linked from offset 0.
         let second = parser.process(b"CD\x1b]8;;\x07EF");
         assert_eq!(second.bytes, b"CDEF");
-        assert_eq!(second.links, vec![(0, 2, "http://x".to_string())]);
+        assert_eq!(second.links, vec![(0, 2, "http://x".into())]);
     }
 
     /// The row as `row_urls` wants it: one entry per column.
@@ -470,8 +502,8 @@ mod tests {
     fn shift_rows_up_moves_marks_and_drops_what_scrolls_off() {
         let mut parser = OscParser::new();
         parser.set_viewport_height(3);
-        parser.mark_cell(0, 0, "http://gone", "A");
-        parser.mark_cell(2, 1, "http://kept", "B");
+        parser.mark_cell(0, 0, &Arc::from("http://gone"), "A");
+        parser.mark_cell(2, 1, &Arc::from("http://kept"), "B");
 
         parser.shift_rows_up(1);
 
@@ -486,7 +518,7 @@ mod tests {
     fn marks_past_the_bottom_row_are_refused() {
         let mut parser = OscParser::new();
         parser.set_viewport_height(3);
-        parser.mark_cell(3, 0, "http://offscreen", "A");
+        parser.mark_cell(3, 0, &Arc::from("http://offscreen"), "A");
         assert!(parser.cell_urls.is_empty());
     }
 
@@ -499,7 +531,7 @@ mod tests {
         let mut parser = OscParser::new();
         parser.set_viewport_height(2);
         for (col, ch) in "AB CD".chars().enumerate() {
-            parser.mark_cell(0, col as u32, "http://label", &ch.to_string());
+            parser.mark_cell(0, col as u32, &Arc::from("http://label"), &ch.to_string());
         }
 
         assert_eq!(
@@ -519,10 +551,10 @@ mod tests {
         let mut parser = OscParser::new();
         parser.set_viewport_height(2);
         for (col, ch) in "AA".chars().enumerate() {
-            parser.mark_cell(0, col as u32, "http://a", &ch.to_string());
+            parser.mark_cell(0, col as u32, &Arc::from("http://a"), &ch.to_string());
         }
         for (col, ch) in "BB".chars().enumerate() {
-            parser.mark_cell(0, col as u32 + 3, "http://b", &ch.to_string());
+            parser.mark_cell(0, col as u32 + 3, &Arc::from("http://b"), &ch.to_string());
         }
 
         assert_eq!(
@@ -541,7 +573,7 @@ mod tests {
         assert!(out1.bytes.is_empty());
         let out2 = parser.process(b"mple.com\x07hi\x1b]8;;\x07");
         assert_eq!(out2.bytes, b"hi");
-        assert_eq!(out2.links, vec![(0, 2, "https://example.com".to_string())]);
+        assert_eq!(out2.links, vec![(0, 2, "https://example.com".into())]);
     }
 
     #[test]

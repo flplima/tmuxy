@@ -48,6 +48,11 @@ case "${1:-}" in
       printf '%%1\t@0\t120\t40\tvim\t0\n'
     fi
     ;;
+  list-sessions)
+    if [ -n "${MOCK_TMUX_LIST_SESSIONS:-}" ]; then
+      printf '%b\n' "$MOCK_TMUX_LIST_SESSIONS"
+    fi
+    ;;
   list-windows)
     if [ -n "${MOCK_TMUX_LIST_WINDOWS:-}" ]; then
       echo "$MOCK_TMUX_LIST_WINDOWS"
