@@ -779,7 +779,7 @@ async fn handle_command(
                     set_client_size(state, session, conn_id, c, r).await;
                 }
             }
-            let snapshot = initial_state_via_control_mode(state, session).await?;
+            let snapshot = initial_state_for_size(state, session).await?;
             serde_json::to_value(snapshot).map_err(|e| format!("Failed to serialize state: {}", e))
         }
         ClientCommand::SetClientSize { cols, rows } => {
@@ -1112,6 +1112,62 @@ async fn initial_state_via_control_mode(
         .map_err(|_| "monitor went away before answering".to_string())
 }
 
+/// How long a client's first state waits for the resize it just asked for.
+///
+/// tmux answers in milliseconds over a local socket. The bound is what stops a
+/// size tmux will not take (`resize_given_up` in the monitor) from holding up
+/// the first paint: past it the client is given the freshest state there is.
+const INITIAL_STATE_RESIZE_WAIT: Duration = Duration::from_millis(750);
+
+/// The initial state, agreeing with the size the session has been told to be.
+///
+/// A resize is QUEUED, not applied, when `set_client_size` returns: tmux's
+/// resize, and the `%layout-change` that reports it, land afterwards. So a
+/// state read straight after one is the grid from BEFORE it — and a client that
+/// applies this answer after the stream has already delivered the new grid goes
+/// back to the old one. On an idle session nothing follows to correct it, so it
+/// stays wrong: `UI=200x49, tmux=139x26`, the control-mode PTY's grid drawn by
+/// a client that had asked for its own, for as long as the session stays quiet.
+/// (Which is what the structural snapshot kept catching, in half of its runs.)
+///
+/// The target is `last_resize` — the size that reached tmux — and NOT whatever
+/// this call happened to deliver. A client sends its viewport as soon as it has
+/// measured one, so by the time it asks for state the resize is usually already
+/// on its way and this call delivers nothing: waiting only on its own delivery
+/// left exactly the common case unprotected, which is how the first version of
+/// this still failed half the time.
+///
+/// Nothing is invented: the answer is always a state the monitor gave us, just
+/// not one that is knowably stale.
+async fn initial_state_for_size(
+    state: &Arc<AppState>,
+    session: &str,
+) -> Result<tmuxy_core::TmuxState, String> {
+    let mut snapshot = initial_state_via_control_mode(state, session).await?;
+    let asked = {
+        let sessions = state.sessions.read().await;
+        sessions.get(session).and_then(|conns| conns.last_resize)
+    };
+    let Some((cols, rows)) = asked else {
+        return Ok(snapshot);
+    };
+    let deadline = tokio::time::Instant::now() + INITIAL_STATE_RESIZE_WAIT;
+    while snapshot.total_width != cols || snapshot.total_height != rows {
+        if tokio::time::Instant::now() >= deadline {
+            debug!(
+                %session,
+                asked = ?(cols, rows),
+                got = ?(snapshot.total_width, snapshot.total_height),
+                "first state still disagrees with the size asked for; sending it anyway"
+            );
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        snapshot = initial_state_via_control_mode(state, session).await?;
+    }
+    Ok(snapshot)
+}
+
 /// Run a command through the session's control-mode connection and wait for
 /// what it printed. The counterpart of `send_via_control_mode` for reads.
 async fn query_via_control_mode(
@@ -1170,6 +1226,10 @@ async fn new_window_client_size(state: &Arc<AppState>, session: &str) -> Option<
 /// Skips the resize command if the computed minimum is the same as the last resize
 /// to prevent feedback loops when multiple clients have different viewport sizes.
 #[instrument(skip(state), fields(%session))]
+/// Apply a client's viewport: record it, and resize tmux to the minimum across
+/// every client watching. What reached tmux is remembered as `last_resize`,
+/// which is also what a client's first state is held back for
+/// (`initial_state_for_size`).
 async fn set_client_size(
     state: &Arc<AppState>,
     session: &str,
@@ -1897,6 +1957,147 @@ mod tests {
         let writer = monitor_config("tmuxy", &AppState::new());
         assert!(writer.create_session);
         assert!(!writer.observer);
+    }
+
+    /// A monitor whose reported grid catches up with a resize LATE — the real
+    /// one's asynchrony, which is the whole bug: handling `ResizeWindow` only
+    /// sends `resizew` to tmux, and the aggregator learns the new grid when
+    /// tmux reports it, a round trip later. A fake that changed size while
+    /// handling the command would make the race impossible to reproduce and the
+    /// test unable to fail.
+    async fn session_with_resizing_monitor(state: &Arc<AppState>, session: &str) {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let size = Arc::new(std::sync::Mutex::new((200u32, 50u32)));
+        tokio::spawn(async move {
+            while let Some(cmd) = rx.recv().await {
+                match cmd {
+                    MonitorCommand::ResizeWindow { cols, rows } => {
+                        let late = Arc::clone(&size);
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(120)).await;
+                            #[allow(clippy::unwrap_used)]
+                            let mut current = late.lock().unwrap();
+                            *current = (cols, rows);
+                        });
+                    }
+                    MonitorCommand::GetState { reply } => {
+                        #[allow(clippy::unwrap_used)]
+                        let size = *size.lock().unwrap();
+                        let _ = reply.send(tmuxy_core::TmuxState {
+                            session_name: "s".to_string(),
+                            active_window_id: None,
+                            active_pane_id: None,
+                            panes: Vec::new(),
+                            windows: Vec::new(),
+                            total_width: size.0,
+                            total_height: size.1,
+                            status_line: String::new(),
+                            focus_request: None,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        });
+        let mut conns = SessionConnections::new();
+        conns.connections.push(1);
+        conns.monitor_command_tx = Some(tx);
+        state
+            .sessions
+            .write()
+            .await
+            .insert(session.to_string(), conns);
+    }
+
+    /// The first state a client is given agrees with the size it just set.
+    ///
+    /// The resize is queued, not applied, when `set_client_size` returns — so
+    /// the state read straight after it is the grid from BEFORE. A client that
+    /// applies that answer after the stream has delivered the new grid goes
+    /// back to the old one, and on an idle session nothing corrects it:
+    /// `UI=200x49, tmux=139x26`, for as long as the session stays quiet.
+    #[tokio::test]
+    async fn a_clients_first_state_is_not_the_grid_from_before_its_resize() {
+        let state = Arc::new(AppState::new());
+        session_with_resizing_monitor(&state, "s").await;
+
+        let answer = handle_command(
+            ClientCommand::GetInitialState {
+                cols: Some(139),
+                rows: Some(27),
+            },
+            "s",
+            &state,
+            Some(1),
+        )
+        .await
+        .expect("initial state");
+
+        assert_eq!(answer["total_width"], 139, "{answer}");
+        assert_eq!(answer["total_height"], 27, "{answer}");
+    }
+
+    /// The case that actually breaks in the wild: the client sends its viewport
+    /// as soon as it has measured one, so by the time it asks for state the
+    /// resize is already on its way and the `get_initial_state` call itself
+    /// delivers nothing. A wait that keyed on its OWN delivery skipped exactly
+    /// this, and the client went back to the pre-resize grid half the time.
+    #[tokio::test]
+    async fn a_first_state_waits_for_a_resize_an_earlier_call_sent() {
+        let state = Arc::new(AppState::new());
+        session_with_resizing_monitor(&state, "s").await;
+
+        // The viewport arrives first, on its own — as it does in the app.
+        handle_command(
+            ClientCommand::SetClientSize {
+                cols: 139,
+                rows: 27,
+            },
+            "s",
+            &state,
+            Some(1),
+        )
+        .await
+        .expect("set size");
+
+        // ...and this call, which changes nothing, must still not hand back the
+        // grid from before it.
+        let answer = handle_command(
+            ClientCommand::GetInitialState {
+                cols: Some(139),
+                rows: Some(27),
+            },
+            "s",
+            &state,
+            Some(1),
+        )
+        .await
+        .expect("initial state");
+
+        assert_eq!(answer["total_width"], 139, "{answer}");
+        assert_eq!(answer["total_height"], 27, "{answer}");
+    }
+
+    /// ...and a client that asked for nothing is answered at once, with
+    /// whatever the monitor has: there is no resize on its way to wait for.
+    #[tokio::test]
+    async fn a_client_that_sets_no_size_waits_for_nothing() {
+        let state = Arc::new(AppState::new());
+        session_with_resizing_monitor(&state, "s").await;
+
+        let answer = handle_command(
+            ClientCommand::GetInitialState {
+                cols: None,
+                rows: None,
+            },
+            "s",
+            &state,
+            Some(1),
+        )
+        .await
+        .expect("initial state");
+
+        assert_eq!(answer["total_width"], 200, "{answer}");
     }
 
     /// SEC-11. A viewer's server has one monitor, started with the server;
