@@ -698,21 +698,28 @@ pub async fn commands_handler(
         }
     };
 
-    // A read-only server serves reads and nothing else. Refused here, ahead of
-    // the dispatch, so no variant added later is writable by default.
-    if state.read_only && !cmd.is_read() {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(CommandResponse {
-                result: None,
-                error: Some("read-only server".to_string()),
-            }),
-        )
-            .into_response();
-    }
+    // A viewer's server has its own, total dispatch: `serve_viewer` names
+    // every command a viewer is served and refuses the rest, so the writable
+    // implementation below is never reached on this server at all.
+    let outcome = if state.read_only {
+        match serve_viewer(cmd, &session, &state).await {
+            Some(result) => result,
+            None => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(CommandResponse {
+                        result: None,
+                        error: Some("read-only server".to_string()),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        handle_command(cmd, &session, &state, conn_id).await
+    };
 
-    // Handle the command
-    match handle_command(cmd, &session, &state, conn_id).await {
+    match outcome {
         Ok(result) => (
             StatusCode::OK,
             Json(CommandResponse {
@@ -764,6 +771,58 @@ pub async fn trace_handler(body: axum::body::Bytes) -> StatusCode {
 // Command Handler
 // ============================================
 
+/// Everything a viewer's server serves, and nothing else.
+///
+/// SEC-11. The role used to be ten `state.read_only` branches scattered
+/// through a router, a dispatch and a monitor loop, with a separate allowlist
+/// deciding what was refused — so a command added to that allowlist fell
+/// straight into the writable implementation, and a command added to neither
+/// was decided by whichever branch happened to notice.
+///
+/// This match is the whole answer instead. `None` is a refusal (403), and it
+/// is what an unlisted command gets, so a variant added later is viewer-safe
+/// by default and is served only when someone writes down how.
+///
+/// Note what is NOT here: no viewport is recorded, because recording one
+/// would resize the session under whoever is writing; nothing runs a tmux
+/// subprocess or a `git`, because a viewer's request must cost the watched
+/// host nothing.
+async fn serve_viewer(
+    cmd: ClientCommand,
+    session: &str,
+    state: &Arc<AppState>,
+) -> Option<Result<serde_json::Value, String>> {
+    Some(match cmd {
+        // The viewport that arrives with it is ignored, deliberately.
+        ClientCommand::GetInitialState { .. } => match initial_state_for_size(state, session).await
+        {
+            Ok(snapshot) => serde_json::to_value(snapshot)
+                .map_err(|e| format!("Failed to serialize state: {}", e)),
+            Err(e) => Err(e),
+        },
+        // From the monitor's own history, never from tmux.
+        ClientCommand::GetScrollbackCells {
+            pane_id,
+            start,
+            end,
+        } => {
+            if !tmuxy_core::session::is_pane_id(&pane_id) {
+                Err(format!("not a pane id: {pane_id:?}"))
+            } else {
+                viewer_scrollback(state, session, &pane_id, start, end).await
+            }
+        }
+        // Read from tmux once per server, not once per request.
+        ClientCommand::GetThemeSettings => Ok(theme_settings_for(state).await),
+        // A static list compiled in; no tmux, no host.
+        ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
+        // A viewer is shown one session's screen, not the working directory of
+        // every pane on the socket, and never makes the host run `git`.
+        ClientCommand::ListGitWorktrees => Ok(serde_json::json!([])),
+        _ => return None,
+    })
+}
+
 async fn handle_command(
     cmd: ClientCommand,
     session: &str,
@@ -772,9 +831,8 @@ async fn handle_command(
 ) -> Result<serde_json::Value, String> {
     match cmd {
         ClientCommand::GetInitialState { cols, rows } => {
-            // Apply client size before capturing state. A viewer's viewport
-            // never counts: it would shrink the session under whoever writes.
-            if let (Some(c), Some(r), false) = (cols, rows, state.read_only) {
+            // Apply client size before capturing state.
+            if let (Some(c), Some(r)) = (cols, rows) {
                 if c > 0 && r > 0 {
                     set_client_size(state, session, conn_id, c, r).await;
                 }
@@ -853,10 +911,6 @@ async fn handle_command(
             if !tmuxy_core::session::is_pane_id(&pane_id) {
                 return Err(format!("not a pane id: {pane_id:?}"));
             }
-            if state.read_only {
-                return viewer_scrollback(state, session, &pane_id, start, end).await;
-            }
-
             let width_output = state
                 .tmux_call_with_policy(
                     vec![
@@ -948,13 +1002,6 @@ async fn handle_command(
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
         ClientCommand::ListGitWorktrees => {
-            // SEC-11: a viewer is shown one session's screen, not the working
-            // directory of every pane on the socket — and a viewer's request
-            // must not spawn `git` on the host. The tree simply has no
-            // repositories for a viewer.
-            if state.read_only {
-                return Ok(serde_json::json!([]));
-            }
             // The pane cwds come from tmux, not the request (see the variant),
             // and git runs off the async runtime like the other subprocess reads.
             use tmuxy_core::worktrees::{
@@ -1886,13 +1933,21 @@ mod tests {
         resizes
     }
 
+    /// `get_initial_state` carrying a viewport, dispatched the way the HTTP
+    /// layer dispatches it — by role. A viewer's server never reaches the
+    /// writable implementation at all, so asking it directly would prove
+    /// nothing about what a viewer can do.
     async fn initial_state_with_viewport(state: &Arc<AppState>) {
         let cmd = ClientCommand::GetInitialState {
             cols: Some(40),
             rows: Some(12),
         };
         // The fake monitor never answers with a state; only the sizing matters.
-        let _ = handle_command(cmd, "s", state, Some(1)).await;
+        if state.read_only {
+            let _ = serve_viewer(cmd, "s", state).await;
+        } else {
+            let _ = handle_command(cmd, "s", state, Some(1)).await;
+        }
     }
 
     fn query(name: Option<&str>) -> SessionQuery {
@@ -2192,6 +2247,61 @@ mod tests {
             KeyBindings::for_greeting(&viewer).await.prefix_key,
             "C-space"
         );
+    }
+
+    /// SEC-11. `serve_viewer` is the whole of what a viewer's server serves:
+    /// the five reads, and a refusal for everything else. The refusal is the
+    /// default, so a command variant added later is viewer-safe until someone
+    /// writes down how a viewer should be served it.
+    #[tokio::test]
+    async fn a_viewer_is_served_the_reads_and_refused_everything_else() {
+        let tmux = Arc::new(tmuxy_core::ctx::MockTmux::new());
+        let ctx = Arc::new(tmuxy_core::ctx::Ctx {
+            tmux,
+            clock: Arc::new(tmuxy_core::ctx::FakeClock::new(std::time::Instant::now())),
+            retry_policy: tmuxy_core::retry::RetryPolicy::none(),
+        });
+        let viewer = Arc::new(AppState::with_ctx(ctx).with_read_only(true));
+
+        let parse = |v: serde_json::Value| -> ClientCommand {
+            serde_json::from_value(v).expect("should parse")
+        };
+
+        // Served — reached the dispatch, whatever each one then answers.
+        for body in [
+            serde_json::json!({ "cmd": "get_initial_state", "args": { "cols": 80, "rows": 24 } }),
+            serde_json::json!({ "cmd": "get_scrollback_cells", "args": { "paneId": "%1" } }),
+            serde_json::json!({ "cmd": "get_theme_settings" }),
+            serde_json::json!({ "cmd": "get_themes_list" }),
+            serde_json::json!({ "cmd": "list_git_worktrees" }),
+        ] {
+            assert!(
+                serve_viewer(parse(body.clone()), "watched", &viewer)
+                    .await
+                    .is_some(),
+                "a viewer is served {body}"
+            );
+        }
+
+        // Refused — a 403, before anything runs.
+        for body in [
+            serde_json::json!({ "cmd": "set_client_size", "args": { "cols": 80, "rows": 24 } }),
+            serde_json::json!({ "cmd": "run_tmux_command", "args": { "command": "kill-server" } }),
+            serde_json::json!({ "cmd": "query_tmux", "args": { "command": "list-panes" } }),
+            serde_json::json!({ "cmd": "set_theme", "args": { "name": "default" } }),
+            serde_json::json!({ "cmd": "set_theme_mode", "args": { "mode": "dark" } }),
+            serde_json::json!({ "cmd": "set_cursor_blink", "args": { "enabled": true } }),
+            serde_json::json!({ "cmd": "set_trace_enabled", "args": { "enabled": true } }),
+            serde_json::json!({ "cmd": "set_trace_level", "args": { "level": "debug" } }),
+            serde_json::json!({ "cmd": "get_trace_settings" }),
+        ] {
+            assert!(
+                serve_viewer(parse(body.clone()), "watched", &viewer)
+                    .await
+                    .is_none(),
+                "a viewer is refused {body}"
+            );
+        }
     }
 
     /// SEC-11. `GetThemeSettings` read four tmux options per request, and a

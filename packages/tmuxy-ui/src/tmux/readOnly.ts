@@ -7,7 +7,7 @@
  * be confirmed and no request is made only to be refused.
  */
 
-/** The `/commands` a read-only server answers (`ClientCommand::is_read`). */
+/** The `/commands` a read-only server answers (`serve_viewer` in `sse.rs`). */
 const READ_COMMANDS = new Set([
   'get_initial_state',
   'get_scrollback_cells',

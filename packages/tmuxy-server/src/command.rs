@@ -88,23 +88,6 @@ pub enum ClientCommand {
 }
 
 impl ClientCommand {
-    /// Whether the command only reads. These are all a `--read-only` server
-    /// answers. `QueryTmux` is not among them: it carries an arbitrary tmux
-    /// command, and nothing here can tell a read from a write. Nor is
-    /// `GetTraceSettings`, a read that answers with the trace file's path —
-    /// the server's home directory, which is the writer's business, not a
-    /// viewer's (SEC-11).
-    pub fn is_read(&self) -> bool {
-        matches!(
-            self,
-            Self::GetInitialState { .. }
-                | Self::GetScrollbackCells { .. }
-                | Self::GetThemeSettings
-                | Self::GetThemesList
-                | Self::ListGitWorktrees
-        )
-    }
-
     /// Decode a `/commands` request body into a [`ClientCommand`].
     ///
     /// The TS adapter always sends `{ "cmd": ..., "args": ... }`, defaulting
@@ -157,34 +140,6 @@ mod tests {
 
     fn parse(v: serde_json::Value) -> ClientCommand {
         serde_json::from_value(v).expect("should parse")
-    }
-
-    #[test]
-    fn only_the_commands_that_cannot_change_anything_count_as_reads() {
-        let reads = [
-            json!({ "cmd": "get_initial_state", "args": { "cols": 80, "rows": 24 } }),
-            json!({ "cmd": "get_scrollback_cells", "args": { "paneId": "%1" } }),
-            json!({ "cmd": "get_theme_settings" }),
-            json!({ "cmd": "get_themes_list" }),
-            json!({ "cmd": "list_git_worktrees" }),
-        ];
-        for body in reads {
-            assert!(parse(body.clone()).is_read(), "{body}");
-        }
-        let writes = [
-            json!({ "cmd": "set_client_size", "args": { "cols": 80, "rows": 24 } }),
-            json!({ "cmd": "run_tmux_command", "args": { "command": "kill-server" } }),
-            json!({ "cmd": "query_tmux", "args": { "command": "list-panes" } }),
-            json!({ "cmd": "set_theme", "args": { "name": "default" } }),
-            json!({ "cmd": "set_theme_mode", "args": { "mode": "dark" } }),
-            json!({ "cmd": "set_cursor_blink", "args": { "enabled": true } }),
-            json!({ "cmd": "set_trace_enabled", "args": { "enabled": true } }),
-            json!({ "cmd": "set_trace_level", "args": { "level": "debug" } }),
-            json!({ "cmd": "get_trace_settings" }),
-        ];
-        for body in writes {
-            assert!(!parse(body.clone()).is_read(), "{body}");
-        }
     }
 
     #[test]
