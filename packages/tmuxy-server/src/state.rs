@@ -263,6 +263,15 @@ pub struct AppState {
     /// the config and may change them; a viewer's server changes nothing, so
     /// the first read is the last.
     pub viewer_key_bindings: tokio::sync::OnceCell<crate::sse::KeyBindings>,
+    /// The theme name, mode and appearance a viewer's server answers
+    /// `GetThemeSettings` with, read from tmux once.
+    ///
+    /// SEC-11: the command ran four `read_option` round trips per request, and
+    /// a viewer's client asks on every reconnect. The value can only change
+    /// when a config is sourced, which is a writer's act on a writer's server —
+    /// a viewer's server sources nothing, so the first read is the last, the
+    /// same bargain `viewer_key_bindings` already makes.
+    pub viewer_theme_settings: tokio::sync::OnceCell<serde_json::Value>,
 }
 
 /// A live `/events` stream's place in the server's budget, released on drop.
@@ -301,6 +310,7 @@ impl AppState {
             session_pin: None,
             live_streams: AtomicU64::new(0),
             viewer_key_bindings: tokio::sync::OnceCell::new(),
+            viewer_theme_settings: tokio::sync::OnceCell::new(),
         }
     }
 

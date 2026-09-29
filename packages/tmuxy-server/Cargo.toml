@@ -38,3 +38,6 @@ tmuxy-connect = { path = "../tmuxy-connect" }
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }
 libc = "0.2"
+
+[dev-dependencies]
+tmuxy-core = { path = "../tmuxy-core", features = ["test-support"] }

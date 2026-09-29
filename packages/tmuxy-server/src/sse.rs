@@ -937,9 +937,7 @@ async fn handle_command(
                 "width": width
             }))
         }
-        ClientCommand::GetThemeSettings => {
-            Ok(tmuxy_core::theme::get_theme_settings(&state.ctx).await)
-        }
+        ClientCommand::GetThemeSettings => Ok(theme_settings_for(state).await),
         ClientCommand::SetTheme { name, mode } => {
             tmuxy_core::theme::set_theme(&state.ctx, &name, mode.as_deref()).await?;
             Ok(serde_json::json!(null))
@@ -1019,8 +1017,22 @@ async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
     }
 }
 
+/// The theme name, mode and appearance to answer a client with: read once and
+/// kept on a viewer's server (`AppState::viewer_theme_settings`), read afresh
+/// on a writable one, whose own `source-file` can change it.
+async fn theme_settings_for(state: &Arc<AppState>) -> serde_json::Value {
+    if state.read_only {
+        return state
+            .viewer_theme_settings
+            .get_or_init(|| tmuxy_core::theme::get_theme_settings(&state.ctx))
+            .await
+            .clone();
+    }
+    tmuxy_core::theme::get_theme_settings(&state.ctx).await
+}
+
 async fn broadcast_theme_settings(state: &Arc<AppState>, session: &str) {
-    let settings = tmuxy_core::theme::get_theme_settings(&state.ctx).await;
+    let settings = theme_settings_for(state).await;
     let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) else {
         return;
     };
@@ -2181,6 +2193,33 @@ mod tests {
             KeyBindings::for_greeting(&viewer).await.prefix_key,
             "C-space"
         );
+    }
+
+    /// SEC-11. `GetThemeSettings` read four tmux options per request, and a
+    /// viewer's client asks on every reconnect. A viewer's server sources no
+    /// config, so nothing it serves can change: it reads once and answers
+    /// every later request from that value, at zero tmux round trips.
+    #[tokio::test]
+    async fn a_viewers_server_reads_its_theme_settings_once() {
+        let tmux = Arc::new(tmuxy_core::ctx::MockTmux::new());
+        let ctx = Arc::new(tmuxy_core::ctx::Ctx {
+            tmux: tmux.clone(),
+            clock: Arc::new(tmuxy_core::ctx::FakeClock::new(std::time::Instant::now())),
+            retry_policy: tmuxy_core::retry::RetryPolicy::none(),
+        });
+        let viewer = Arc::new(AppState::with_ctx(ctx).with_read_only(true));
+
+        let first = theme_settings_for(&viewer).await;
+        let after_first = tmux.calls().len();
+        assert!(after_first > 0, "the first read must reach tmux");
+
+        let second = theme_settings_for(&viewer).await;
+        assert_eq!(
+            tmux.calls().len(),
+            after_first,
+            "a viewer's second request must cost no tmux call"
+        );
+        assert_eq!(first, second);
     }
 
     /// SEC-13. tmux paste buffers are global to the tmux SERVER, so a yank or
