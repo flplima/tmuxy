@@ -61,7 +61,7 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
     // the pane stays blank until a client touches it, so waiting for the
     // prompt before that never finishes.
     await wakePane(ctx.page);
-    await waitForShellPrompt(ctx.page, 30000);
+    await waitForShellPrompt(ctx.page);
 
     // Launch the TUI script. It enters alt-screen, draws the layout, and
     // prints TUI_READY as the final cell — that marker is what the test
@@ -117,7 +117,7 @@ describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before
     await focusPage(ctx.page);
     const page = ctx.page;
     await wakePane(page);
-    await waitForShellPrompt(page, 30000);
+    await waitForShellPrompt(page);
 
     // A program that turns on the alternate screen and SGR mouse tracking,
     // then echoes every byte it receives as visible text.

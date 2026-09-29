@@ -691,7 +691,7 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     // The keyboard actor won't route input until activePaneId matches.
     // After killing a pane, the surviving pane's content is reset by
     // capture-pane. Wait for the prompt to render before typing.
-    await waitForShellPrompt(ctx.page, 10000);
+    await waitForShellPrompt(ctx.page);
 
     // Step 3: SGR click
     const { contentBox, charSize } = await startMouseCapture(ctx);
@@ -1217,7 +1217,7 @@ describe('Scenario 7c: Mouse lands on the clicked cell', () => {
   test('a click reaches tmux at the cell under the pointer, in a pane and in the dock', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
-    await waitForShellPrompt(ctx.page, 10000);
+    await waitForShellPrompt(ctx.page);
 
     // 1. A tiled pane. The click on a cell's right half is the one that went
     //    wrong: positions were read from the padded content box, half a cell
@@ -1252,7 +1252,7 @@ describe('Scenario 7c: Mouse lands on the clicked cell', () => {
       10000,
       'the dock to take the keyboard',
     );
-    await waitForShellPrompt(ctx.page, 10000);
+    await waitForShellPrompt(ctx.page);
     // Started in the dock's own terminal: by default the capture goes to the
     // active tiled pane.
     await startMouseCapture(ctx, {

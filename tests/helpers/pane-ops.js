@@ -171,21 +171,67 @@ async function waitForTerminalText(page, text, timeout = 15000, { scope } = {}) 
 }
 
 /**
- * Wait for a shell prompt to appear in the terminal.
- * Matches common prompt characters: $ # % > ❯
+ * Whether one terminal's text shows a shell sitting at a prompt, waiting.
+ *
+ * The prompt character has to be at the END of the text, not merely somewhere
+ * in it. A `>` or `$` in the output of a previous command satisfied "somewhere"
+ * and made this report ready while the shell was still mid-command, which is
+ * how waiting for the prompt could succeed and the NEXT step fail instead.
+ *
+ * The cursor lives inside `[role="log"]` and always contributes a character
+ * (`Cursor.tsx`), so the raw text ends with the cursor's cell. At a prompt the
+ * cursor sits one cell past it over blank space, so trimming reveals the
+ * prompt; mid-command it sits over the glyph it is covering, which is exactly
+ * the state this must reject.
  */
-async function waitForShellPrompt(page, timeout = 10000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const content = await getTerminalText(page);
-    const found = content.length > 5 && /[$#%>❯]/.test(content);
-    if (found) return await getTerminalText(page);
+function showsShellPrompt(text) {
+  return /[$#%>❯]$/.test((text || '').trimEnd());
+}
+
+/**
+ * Wait for a shell prompt to appear in a terminal on screen.
+ *
+ * Patience, not a stopwatch. `timeout` bounds how long the terminal may go
+ * WITHOUT CHANGING, and any change resets it, so a slow runner that is still
+ * drawing keeps its wait — "not ready yet" means keep waiting, never done. A
+ * fixed deadline is a constant that encodes how fast the machine is: at 10s it
+ * passed on a dev machine and failed on a loaded CI runner whose shell had not
+ * yet written its first byte (observed content: one space).
+ *
+ * `ceiling` is the only bound on a pane that never stops changing, so a
+ * runaway `yes` reports here rather than as an opaque jest timeout.
+ */
+async function waitForShellPrompt(page, timeout = 30000, { ceiling = 120000 } = {}) {
+  const started = Date.now();
+  let lastText = null;
+  let lastChange = Date.now();
+  for (;;) {
+    const terminals = await visibleTerminals(page);
+    if (terminals.some((t) => showsShellPrompt(t.text))) {
+      return terminals.map((t) => t.text).join('\n');
+    }
+    const seen = terminals.map((t) => t.text).join('\n');
+    if (seen !== lastText) {
+      lastText = seen;
+      lastChange = Date.now();
+    }
+    const quietFor = Date.now() - lastChange;
+    const elapsed = Date.now() - started;
+    if (quietFor >= timeout || elapsed >= ceiling) {
+      const why =
+        elapsed >= ceiling
+          ? `still changing after ${elapsed}ms`
+          : lastText
+            ? `unchanged for ${quietFor}ms`
+            : `nothing on screen for ${quietFor}ms`;
+      throw new Error(
+        `Timeout waiting for a shell prompt (${why}). ` +
+          `A prompt must be the last thing in a terminal, not merely present. ` +
+          `Content (${seen.length} chars): "${seen.slice(0, 200)}"`,
+      );
+    }
     await delay(100);
   }
-  const content = await getTerminalText(page);
-  throw new Error(
-    `Timeout waiting for shell prompt (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`,
-  );
 }
 
 /**
@@ -364,6 +410,7 @@ module.exports = {
   getTerminalText,
   waitForTerminalText,
   waitForShellPrompt,
+  showsShellPrompt,
   waitForLayoutSettled,
   runCommand,
   runCommandWithDelay,

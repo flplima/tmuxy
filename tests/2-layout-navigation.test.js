@@ -2135,7 +2135,7 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await delay(DELAYS.SYNC);
     // Wait for new pane content to render via SSE (non-fatal on CI)
     try {
-      await waitForShellPrompt(ctx.page, 10000);
+      await waitForShellPrompt(ctx.page);
     } catch {
       /* CI SSE may not deliver new pane content */
     }
