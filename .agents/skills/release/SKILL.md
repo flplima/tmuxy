@@ -178,13 +178,13 @@ An earlier version of this policy asked for a full working day and claimed the `
 
 ## Workflow-side changes this skill assumes
 
-These live in `.github/workflows/build-app.yml`, which this skill does not own. Until they land, the gaps below are real and the skill compensates for them by hand. Keep the two in step — if you change one, say so here.
+These live in `.github/workflows/build-app.yml`, which this skill does not own. Keep the two in step — if you change one, say so here, and **check this table against the workflow before believing it**: a row that says a gap is open when the workflow has closed it is worse than no row at all. Every one below except the `.deb` install had landed while this table still called it missing, which is how a release came to be told by hand that CI does not check signing, when it does and had just passed.
 
 | # | Change | Why |
 |---|---|---|
-| a | The `release` job must depend on the **test workflow for the tag ref**, not just `needs: build` | A tag push today triggers `Build App` only; `lint and tests` never runs on the tag ref at all, so the artifacts that reach users were never tested as tagged. `tag-and-push`'s CI gate covers the sha, not the ref — the job-level dependency is what makes it structural |
-| b | Smoke-test the artifacts that **actually ship** | Smoke today runs the raw `target/release` binary, which is not what any user installs: mount the macOS DMG and launch the signed app out of it; run the Linux AppImage; install the `.deb` in a clean container and launch it |
-| c | Assert signing and notarization on tag builds, and **fail** when they were skipped | With `APPLE_CERTIFICATE` absent the Tauri CLI skips signing *silently* (see §0), so a missing secret ships an unsigned DMG that looks identical in the logs. On a tag build assert `codesign --verify --deep --strict`, `spctl -a`, and `xcrun stapler validate`, and fail the job rather than warn |
+| ~~a~~ | ~~The `release` job must depend on the **test workflow for the tag ref**~~ | **Done.** `build-app.yml` has a `tests` job that calls `lint-and-tests.yml` on a tag ref, and `release` is `needs: [build, tests, upgrade-path]` — so the artifacts that reach users were tested as tagged, structurally rather than by `tag-and-push`'s sha gate alone |
+| b | Install the `.deb` in a clean container and launch it | The other two now ship-test what ships: "Smoke-test the shipped DMG" mounts the DMG and launches the signed app out of it, and "Smoke-test the shipped AppImage" runs the AppImage. The `.deb` is still only built, never installed, so nothing would notice a package that unpacks to the wrong place or misses a dependency |
+| ~~c~~ | ~~Assert signing and notarization on tag builds~~ | **Done.** "Assert the DMG is signed, notarized and stapled (macOS, tags)" runs `codesign --verify --deep --strict`, `spctl -a` (requiring `accepted` and `source=Notarized Developer ID`) and `xcrun stapler validate`, and fails the job. Verified on v0.0.10-alpha.67: the step ran on the tag build and passed, and the published DMG checks out by hand too |
 | ~~d~~ | ~~Stop marking every alpha `--latest`~~ | **Done.** A tag push publishes a pre-release; `bump-cask`, `bump-formula` and `verify-brew-cask` are gated on `release: released`, so only a promotion reaches the tap. The two bump jobs now hash the PUBLISHED assets (`gh release download`) rather than the build's artifacts, which is the drift `verify-release` check 3 was watching for |
 
 ## Common failures
