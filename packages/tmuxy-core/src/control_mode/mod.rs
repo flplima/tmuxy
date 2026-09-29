@@ -31,7 +31,8 @@ pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};
 pub use log::{LogKind, LogSink};
 #[cfg(feature = "native")]
 pub use monitor::{
-    CommandReply, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor,
+    CommandReply, MonitorCommand, MonitorCommandSender, MonitorConfig, ScrollbackChunk,
+    StateEmitter, TmuxMonitor,
 };
 pub use octal::decode_octal;
 pub use osc::OscParser;

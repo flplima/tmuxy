@@ -353,6 +353,21 @@ pub mod control_events {
 /// grow by more than one screen height, so a couple of hundred rows is ample.
 pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 
+/// Rows of history an OBSERVER monitor keeps per pane, so a viewer scrolling
+/// back costs no tmux round trip at all.
+///
+/// SEC-11: a viewer's `get_scrollback` ran three in-band control-mode queries
+/// per request — a `list-panes`, a `display-message` and a `capture-pane` —
+/// on a connection the writer's own monitor shares. Scrolling a viewer was
+/// therefore work charged to the writer's session. An observer's aggregator
+/// keeps its own history instead, and serves the request from memory.
+///
+/// Kept only for an observer (a writer's client reads its history from tmux,
+/// which has the real backlog) and bounded, because rows held here are rows
+/// held per pane for the life of the server. At 2000 rows this is a viewer
+/// seeing less history than tmux holds, which is the documented trade.
+pub const VIEWER_SCROLLBACK_ROWS: usize = 2000;
+
 #[cfg(test)]
 mod tests {
     use super::*;

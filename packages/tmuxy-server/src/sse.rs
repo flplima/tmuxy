@@ -1477,20 +1477,23 @@ fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
 
 /// The most rows of scrollback one request from a viewer is answered with.
 ///
-/// A viewer is shown the screen and recent history, not the whole backlog:
-/// the request is served by the session's own control-mode connection, and a
-/// `capture-pane` of a hundred-thousand-line history on every scroll is not
-/// something a watcher gets to make tmux do.
+/// A viewer is shown the screen and recent history, not the whole backlog.
+/// The monitor keeps `VIEWER_SCROLLBACK_ROWS` per pane, so this only bounds
+/// one response; it can never exceed what is held.
 const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
 
-/// A viewer's scrollback: the same answer as the writable path, but built on
-/// the session's control-mode connection alone — the one already attached —
-/// rather than three `tmux` subprocesses per request (SEC-11/SEC-16).
+/// A viewer's scrollback, answered from the monitor's own grid at zero tmux
+/// round trips (SEC-11/SEC-16).
 ///
-/// `pane_id` is already known to be a `%N`. It is checked against the
-/// session's own panes first, from tmux's listing over that same connection,
-/// so a viewer cannot dump a pane it was never shown; and the range is capped
-/// at `MAX_VIEWER_SCROLLBACK_ROWS` from the end, with the clamped `start`
+/// An observer's aggregator keeps `VIEWER_SCROLLBACK_ROWS` of history per
+/// pane precisely so this request costs the writer's session nothing — it
+/// used to cost three in-band control-mode queries, on the connection that
+/// session shares, on every scroll.
+///
+/// `pane_id` is already known to be a `%N`. The monitor holds only the
+/// session it monitors, so a pane it does not know is a pane this viewer was
+/// never shown, and the request is refused. The range is capped at
+/// `MAX_VIEWER_SCROLLBACK_ROWS` from the end, with the clamped `start`
 /// returned so the client lays the rows out where they belong.
 async fn viewer_scrollback(
     state: &Arc<AppState>,
@@ -1499,41 +1502,37 @@ async fn viewer_scrollback(
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, String> {
-    let panes = query_via_control_mode(state, session, "list-panes -s -F '#{pane_id}'")
-        .await?
-        .into_result()?;
-    if !panes.lines().any(|line| line.trim() == pane_id) {
-        return Err(format!("pane {pane_id} is not in session {session}"));
-    }
-
-    let geometry = query_via_control_mode(
-        state,
-        session,
-        &format!("display-message -p -t {pane_id} '#{{pane_width}},#{{history_size}}'"),
-    )
-    .await?
-    .into_result()?;
-    let (width, history_size) = geometry
-        .trim()
-        .split_once(',')
-        .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
-        .ok_or_else(|| format!("Failed to parse pane geometry from tmux: {geometry:?}"))?;
+    let command_tx = {
+        let sessions = state.sessions.read().await;
+        sessions
+            .get(session)
+            .and_then(|s| s.monitor_command_tx.clone())
+    };
+    let Some(tx) = command_tx else {
+        return Err("No monitor connection available".to_string());
+    };
 
     let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
-    let raw = query_via_control_mode(
-        state,
-        session,
-        &format!("capture-pane -p -e -t {pane_id} -S {start} -E {end}"),
-    )
-    .await?
-    .into_result()?;
-    let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    tx.send(MonitorCommand::GetScrollback {
+        pane_id: pane_id.to_string(),
+        start,
+        end,
+        reply,
+    })
+    .await
+    .map_err(|e| format!("Monitor channel error: {}", e))?;
+    let chunk = rx
+        .await
+        .map_err(|_| "monitor went away before answering".to_string())?
+        .ok_or_else(|| format!("pane {pane_id} is not in session {session}"))?;
+
     Ok(serde_json::json!({
-        "cells": cells,
-        "historySize": history_size,
+        "cells": chunk.cells,
+        "historySize": chunk.history_size,
         "start": start,
         "end": end,
-        "width": width
+        "width": chunk.width
     }))
 }
 

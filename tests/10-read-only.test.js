@@ -321,9 +321,10 @@ describe('Scenario 30: Read-only viewer', () => {
       'the viewer to see the session',
     );
 
-    // A viewer's scrollback is served on the session's own control-mode
-    // connection, checked against its own pane list there: rows that scrolled
-    // off the writer's screen come back into the viewer's scroll view.
+    // A viewer's scrollback is served from its own monitor's history, at no
+    // tmux round trip at all: rows that scrolled off the writer's screen came
+    // through the observer's connection as output, and come back into the
+    // viewer's scroll view from the grid that kept them.
     await typeInTerminal(writer, 'for i in $(seq 0 79); do echo "line-$i"; done');
     await pressEnter(writer);
     await waitForCondition(
@@ -358,8 +359,7 @@ describe('Scenario 30: Read-only viewer', () => {
       "the viewer's scroll view to open",
     );
     // Rows drawn in the view with a real box, and among them one from above
-    // the live screen: history the viewer's server fetched on the session's
-    // own connection.
+    // the live screen: history the viewer's own monitor kept.
     let drawnLowest = null;
     await waitForCondition(
       viewer,

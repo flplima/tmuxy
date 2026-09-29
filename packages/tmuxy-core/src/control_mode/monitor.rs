@@ -81,9 +81,31 @@ pub enum MonitorCommand {
     GetState {
         reply: oneshot::Sender<crate::TmuxState>,
     },
+    /// A pane's scrollback as rendered rows, from the monitor's own grid.
+    ///
+    /// SEC-11: a viewer's scrollback used to cost three in-band control-mode
+    /// queries on a connection shared with the writer's session. An observer's
+    /// aggregator keeps the history itself, so this is answered from memory.
+    /// `None` means the monitor has no such pane; a receiver that has gone
+    /// away is ignored.
+    GetScrollback {
+        pane_id: String,
+        start: i64,
+        end: i64,
+        reply: oneshot::Sender<Option<ScrollbackChunk>>,
+    },
     /// Gracefully shutdown the monitor
     /// Sends detach-client and waits for the connection to close cleanly
     Shutdown,
+}
+
+/// One answer to [`MonitorCommand::GetScrollback`]: the requested rows, how
+/// much history the pane holds above its screen, and the pane's width.
+#[derive(Debug, Clone)]
+pub struct ScrollbackChunk {
+    pub cells: crate::PaneContent,
+    pub history_size: usize,
+    pub width: u32,
 }
 
 /// Trait for emitting state changes (adapter pattern).
@@ -513,7 +535,13 @@ impl TmuxMonitor {
         Ok((
             Self {
                 connection,
-                aggregator: StateAggregator::new(),
+                aggregator: {
+                    let mut agg = StateAggregator::new();
+                    if config.observer {
+                        agg.set_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
+                    }
+                    agg
+                },
                 config,
                 command_rx,
                 window_tags_migrated: false,
@@ -1397,6 +1425,22 @@ impl TmuxMonitor {
             Some(MonitorCommand::GetState { reply }) => {
                 self.pending_state_requests.push(reply);
                 self.answer_state_requests();
+                true
+            }
+            Some(MonitorCommand::GetScrollback {
+                pane_id,
+                start,
+                end,
+                reply,
+            }) => {
+                let chunk = self.aggregator.pane_scrollback(&pane_id, start, end).map(
+                    |(cells, history_size, width)| ScrollbackChunk {
+                        cells,
+                        history_size,
+                        width,
+                    },
+                );
+                let _ = reply.send(chunk);
                 true
             }
             Some(MonitorCommand::Shutdown) => {

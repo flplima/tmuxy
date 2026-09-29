@@ -254,6 +254,14 @@ pub struct PaneState {
     /// its own counter and its own text.
     scroll_baseline_alt: bool,
 
+    /// Rows of vt100 history this pane keeps.
+    ///
+    /// `REFLOW_SCROLLBACK_ROWS` normally, which is only enough to survive a
+    /// shrink-then-grow reflow. An OBSERVER's aggregator raises it to
+    /// `VIEWER_SCROLLBACK_ROWS` so a viewer's scrollback request is answered
+    /// from this grid instead of from tmux (see `scrollback_cells`).
+    scrollback_rows: usize,
+
     /// Image protocol parser (iTerm2, Sixel)
     pub image_parser: super::images::ImageParser,
 
@@ -375,6 +383,7 @@ impl PaneState {
             index: 0,
             window_id: String::new(),
             terminal: vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS),
+            scrollback_rows: crate::constants::REFLOW_SCROLLBACK_ROWS,
             osc_parser,
             last_scroll_delta: 0,
             scroll_baseline_alt: false,
@@ -414,6 +423,64 @@ impl PaneState {
             content_dirty: true,
             cached_content: None,
         }
+    }
+
+    /// Keep `rows` of history in this pane's grid instead of the reflow
+    /// minimum. Called at creation, before any output has been fed, because
+    /// vt100 fixes the scrollback capacity when the grid is built.
+    fn with_scrollback_rows(mut self, rows: usize) -> Self {
+        self.scrollback_rows = rows;
+        self.terminal = self.fresh_terminal();
+        self
+    }
+
+    /// The pane's history as rendered rows, from `start` to `end` inclusive,
+    /// where row `0` is the top of the screen and negative rows are history.
+    ///
+    /// Answers the viewer scrollback request from this grid, at zero tmux
+    /// round trips. vt100 only ever exposes one screen-sized window onto its
+    /// scrollback, so the range is walked a screen at a time and the offset
+    /// tmux actually granted is read back each time — asking for more history
+    /// than exists clamps rather than fails, and the clamped value is what
+    /// says which row the window starts on.
+    ///
+    /// Returns the rows and the history depth (how many rows sit above the
+    /// screen), or `None` if the grid holds no such pane.
+    pub fn scrollback_cells(&mut self, start: i64, end: i64) -> (crate::PaneContent, usize) {
+        let screen = self.terminal.screen_mut();
+        let height = screen.size().0 as i64;
+        let entered = screen.scrollback();
+
+        // The deepest the grid will go, which is also the history depth.
+        screen.set_scrollback(usize::MAX);
+        let depth = screen.scrollback();
+
+        let mut rows: crate::PaneContent = Vec::new();
+        let mut want = start;
+        while want <= end {
+            let asked = if want < 0 { (-want) as usize } else { 0 };
+            let screen = self.terminal.screen_mut();
+            screen.set_scrollback(asked);
+            // What the grid granted, which is where this window really starts.
+            let granted = screen.scrollback() as i64;
+            let window = extract_cells_with_urls(self.terminal.screen(), None);
+            let first = -granted;
+            for (i, line) in window.into_iter().enumerate() {
+                let row = first + i as i64;
+                if row >= want && row <= end {
+                    rows.push(line);
+                }
+            }
+            let next = first + height;
+            if next <= want {
+                // The grid could not go as deep as asked and cannot advance.
+                break;
+            }
+            want = next;
+        }
+
+        self.terminal.screen_mut().set_scrollback(entered);
+        (rows, depth)
     }
 
     /// Feed vt100 the OSC-stripped bytes, recording which cells a hyperlink
@@ -639,7 +706,7 @@ impl PaneState {
     fn fresh_terminal(&self) -> vt100::Parser {
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
-        let mut terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
+        let mut terminal = vt100::Parser::new(h, w, self.scrollback_rows);
         if self.alternate_on {
             terminal.process(b"\x1b[?1049h");
         }
@@ -1022,6 +1089,12 @@ pub struct StateAggregator {
     /// Pane states indexed by pane ID
     panes: HashMap<String, PaneState>,
 
+    /// Rows of history each pane keeps. Raised to
+    /// `constants::VIEWER_SCROLLBACK_ROWS` on an observer's aggregator, whose
+    /// clients are viewers and must be served scrollback without touching
+    /// tmux; the reflow minimum otherwise.
+    scrollback_rows: usize,
+
     /// Window states indexed by window ID
     windows: HashMap<String, WindowState>,
 
@@ -1401,12 +1474,41 @@ impl StateAggregator {
         Self::with_session_name(crate::DEFAULT_SESSION_NAME)
     }
 
+    /// Keep `rows` of history per pane instead of the reflow minimum.
+    ///
+    /// Set by an observer's monitor at construction, before any pane exists,
+    /// so every pane this aggregator creates can answer a viewer's scrollback
+    /// request from memory.
+    pub fn set_scrollback_rows(&mut self, rows: usize) {
+        self.scrollback_rows = rows;
+    }
+
+    /// A pane's history as rendered rows, from `start` to `end` inclusive
+    /// (row `0` is the top of the screen, negative rows are history), plus
+    /// its width and how many rows of history it holds.
+    ///
+    /// `None` when this aggregator has no such pane — which is also the
+    /// membership check a viewer's request needs, since an aggregator only
+    /// ever holds the session it monitors.
+    pub fn pane_scrollback(
+        &mut self,
+        pane_id: &str,
+        start: i64,
+        end: i64,
+    ) -> Option<(crate::PaneContent, usize, u32)> {
+        let pane = self.panes.get_mut(pane_id)?;
+        let width = pane.width;
+        let (rows, depth) = pane.scrollback_cells(start, end);
+        Some((rows, depth, width))
+    }
+
     /// Create with a specific session name
     pub fn with_session_name(session_name: &str) -> Self {
         Self {
             session_name: session_name.to_string(),
             pane_reports: 0,
             panes: HashMap::new(),
+            scrollback_rows: crate::constants::REFLOW_SCROLLBACK_ROWS,
             windows: HashMap::new(),
             active_window_id: None,
             pending_captures: std::collections::VecDeque::new(),
@@ -2557,7 +2659,8 @@ impl StateAggregator {
                 }
             } else {
                 // New pane discovered in layout: create with geometry
-                let mut pane = PaneState::new(&lp.id, lp.width, lp.height);
+                let mut pane = PaneState::new(&lp.id, lp.width, lp.height)
+                    .with_scrollback_rows(self.scrollback_rows);
                 pane.window_id = window_id.to_string();
                 pane.index = lp.index;
                 pane.x = lp.x;
@@ -2870,11 +2973,11 @@ impl StateAggregator {
 
         // Check if this is a new pane
         let is_new_pane = !self.panes.contains_key(&pane_id_string);
+        let scrollback_rows = self.scrollback_rows;
 
-        let pane = self
-            .panes
-            .entry(pane_id_string.clone())
-            .or_insert_with(|| PaneState::new(pane_id, width, height));
+        let pane = self.panes.entry(pane_id_string.clone()).or_insert_with(|| {
+            PaneState::new(pane_id, width, height).with_scrollback_rows(scrollback_rows)
+        });
 
         // Replay any early %output that arrived before this pane was created
         if is_new_pane {
@@ -3542,6 +3645,55 @@ impl Default for StateAggregator {
 
 #[cfg(test)]
 mod tests {
+
+    /// SEC-11. A viewer's scroll used to cost three in-band control-mode
+    /// queries on the writer's own connection. An observer's panes keep the
+    /// history themselves, so the rows come back with no tmux involved at
+    /// all — and a pane at the reflow default cannot answer for history it
+    /// never kept, which is what makes the raised capacity load-bearing.
+    #[test]
+    fn an_observers_pane_answers_scrollback_from_its_own_history() {
+        let feed = |pane: &mut PaneState| {
+            for n in 0..600 {
+                pane.process_output(format!("line {n}\r\n").as_bytes());
+            }
+        };
+
+        let mut viewer = PaneState::new("%1", 40, 10)
+            .with_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
+        feed(&mut viewer);
+        let (rows, depth) = viewer.scrollback_cells(-400, -391);
+        assert_eq!(rows.len(), 10, "ten rows were asked for");
+        assert!(
+            depth >= 400,
+            "the observer's pane kept its history: {depth}"
+        );
+        let text: String = rows[0].iter().map(|c| c.char.clone()).collect();
+        assert!(
+            text.trim_end().ends_with("line 191"),
+            "row -400 of a 600-line feed on a 10-row screen is `line 191`, got {text:?}"
+        );
+
+        // The reflow default keeps far less, so the same request is clamped to
+        // what exists rather than reaching back 400 rows.
+        let mut writer = PaneState::new("%1", 40, 10);
+        feed(&mut writer);
+        let (_, shallow) = writer.scrollback_cells(-400, -391);
+        assert!(
+            shallow < 400,
+            "a writer's pane keeps only the reflow minimum, got {shallow}"
+        );
+    }
+
+    /// The membership check a viewer's request relies on: an aggregator holds
+    /// only the session it monitors, so a pane it does not know is a pane the
+    /// viewer was never shown.
+    #[test]
+    fn an_aggregator_has_no_scrollback_for_a_pane_it_does_not_hold() {
+        let mut agg = StateAggregator::new();
+        agg.set_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
+        assert!(agg.pane_scrollback("%99", -10, 0).is_none());
+    }
     use super::*;
 
     /// Manually seat a pane in the aggregator so handle_output() processes it
