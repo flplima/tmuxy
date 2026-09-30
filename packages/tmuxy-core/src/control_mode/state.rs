@@ -429,6 +429,13 @@ impl PaneState {
     /// minimum. Called at creation, before any output has been fed, because
     /// vt100 fixes the scrollback capacity when the grid is built.
     fn with_scrollback_rows(mut self, rows: usize) -> Self {
+        // A writer's panes ask for the capacity they already have, and every
+        // pane goes through here: rebuilding unconditionally threw away a
+        // freshly built vt100 grid per pane for nothing, which `full_sync`
+        // measured.
+        if rows == self.scrollback_rows {
+            return self;
+        }
         self.scrollback_rows = rows;
         self.terminal = self.fresh_terminal();
         self
