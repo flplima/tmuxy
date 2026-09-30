@@ -40,7 +40,32 @@ const DELAYS = {
   PREFIX: 300, // Delay after tmux prefix key before next key
 };
 
+/**
+ * How much longer this machine needs than the one a wait's budget was written
+ * on.
+ *
+ * Every `waitForCondition` in the suite carries a number someone measured on
+ * their own laptop — 145 of them, from 1000ms to 45000ms. A number like that
+ * encodes how fast one machine was on one day, so on a slower or busier one
+ * the whole set is miscalibrated at once and the suite flakes for no reason
+ * the test can see.
+ *
+ * The numbers stay, but they are now RELATIVE: one knob restates all of them
+ * for a machine that is not the one they were written on, instead of 145
+ * edits. Default 1, so nothing changes where they were already right.
+ *
+ * Raising it cannot turn a failing test green — a condition that will never
+ * hold still never holds — it only buys a slow machine the time to be right.
+ * That asymmetry is why this is safe to raise and pointless to lower.
+ */
+const WAIT_SCALE = Math.max(0.1, parseFloat(process.env.TMUXY_WAIT_SCALE || '1') || 1);
+
+/** A wait budget in ms, restated for this machine. */
+const waitBudget = (ms) => Math.round(ms * WAIT_SCALE);
+
 module.exports = {
+  WAIT_SCALE,
+  waitBudget,
   CDP_PORT,
   DEFAULT_PORT,
   TMUXY_PORT,

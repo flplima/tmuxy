@@ -41,6 +41,7 @@ const {
   getThemeAccent,
   assertLayoutInvariants,
   waitForShellPrompt,
+  showsShellPrompt,
   waitForCondition,
   DELAYS,
 } = require('./helpers');
@@ -2443,27 +2444,32 @@ describe('Scenario 22: Float fzf Workflow', () => {
     );
     expect(floatPaneId).toBeTruthy();
 
-    // Wait for float prompt (non-fatal on CI)
+    // Synchronise on the float's own prompt, using the shared predicate rather
+    // than a copy of it: an inlined one here matched a prompt character
+    // ANYWHERE in the text and required more than five characters, the two
+    // bugs `showsShellPrompt` exists to not have twice.
+    //
+    // Non-fatal on purpose: this only buys the typing below a settled prompt
+    // to land on, and the echo assertion that follows is the real gate. A
+    // failure here would report the same bug one step earlier, not a
+    // different one.
     try {
       await waitForCondition(
         ctx.page,
         async () => {
-          return await ctx.page.evaluate(() => {
+          const text = await ctx.page.evaluate(() => {
             const fc =
               document.querySelector('.float-container') ||
               document.querySelector('.modal-container');
-            if (!fc) return false;
-            const log = fc.querySelector('[role="log"]');
-            if (!log) return false;
-            const content = log.textContent || '';
-            return content.length > 5 && /[$#%>❯]/.test(content);
+            return fc?.querySelector('[role="log"]')?.textContent ?? null;
           });
+          return text !== null && showsShellPrompt(text);
         },
         10000,
         'float pane shell prompt to render',
       );
     } catch {
-      /* CI SSE may not deliver new pane content */
+      /* the echo assertion below is the real gate */
     }
 
     // Step 4: Run echo in the float and verify output

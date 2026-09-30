@@ -5,7 +5,7 @@
  */
 
 const { delay } = require('./browser');
-const { DELAYS } = require('./config');
+const { DELAYS, waitBudget } = require('./config');
 const {
   sendKeyCombo,
   sendPrefixCommand,
@@ -153,9 +153,10 @@ async function textIsReadable(page, index, text) {
  * (Browser-side waitForFunction can miss transient DOM states on CI.)
  */
 async function waitForTerminalText(page, text, timeout = 15000, { scope } = {}) {
+  const budget = waitBudget(timeout);
   const start = Date.now();
   let why = 'it never appeared';
-  while (Date.now() - start < timeout) {
+  while (Date.now() - start < budget) {
     for (const terminal of await visibleTerminals(page, scope)) {
       if (!terminal.text.includes(text)) continue;
       const verdict = await textIsReadable(page, terminal.index, text);
@@ -166,7 +167,7 @@ async function waitForTerminalText(page, text, timeout = 15000, { scope } = {}) 
   }
   const content = await getTerminalText(page, { scope });
   throw new Error(
-    `Timeout waiting for "${text}" to be visible in the terminal (${timeout}ms, ${why}). Content (${content.length} chars): "${content.slice(0, 200)}"`,
+    `Timeout waiting for "${text}" to be visible in the terminal (${budget}ms, ${why}). Content (${content.length} chars): "${content.slice(0, 200)}"`,
   );
 }
 
@@ -202,6 +203,8 @@ function showsShellPrompt(text) {
  * runaway `yes` reports here rather than as an opaque jest timeout.
  */
 async function waitForShellPrompt(page, timeout = 30000, { ceiling = 120000 } = {}) {
+  const patience = waitBudget(timeout);
+  const hardStop = waitBudget(ceiling);
   const started = Date.now();
   let lastText = null;
   let lastChange = Date.now();
@@ -217,9 +220,9 @@ async function waitForShellPrompt(page, timeout = 30000, { ceiling = 120000 } = 
     }
     const quietFor = Date.now() - lastChange;
     const elapsed = Date.now() - started;
-    if (quietFor >= timeout || elapsed >= ceiling) {
+    if (quietFor >= patience || elapsed >= hardStop) {
       const why =
-        elapsed >= ceiling
+        elapsed >= hardStop
           ? `still changing after ${elapsed}ms`
           : lastText
             ? `unchanged for ${quietFor}ms`

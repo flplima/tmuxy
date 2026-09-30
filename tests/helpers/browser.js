@@ -5,7 +5,7 @@
  */
 
 const { chromium } = require('playwright');
-const { CDP_PORT, TMUXY_URL, DELAYS } = require('./config');
+const { CDP_PORT, TMUXY_URL, DELAYS, WAIT_SCALE, waitBudget } = require('./config');
 const { tmuxQuery } = require('./cli');
 
 /**
@@ -275,6 +275,7 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
  * @param {number} timeout - Max wait time in ms
  */
 async function waitForWindowCount(page, expectedCount, timeout = 10000) {
+  const budget = waitBudget(timeout);
   try {
     await page.waitForFunction(
       (count) => {
@@ -282,7 +283,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
         return tabs.length === count;
       },
       expectedCount,
-      { timeout, polling: 50 },
+      { timeout: budget, polling: 50 },
     );
   } catch {
     const diag = await page.evaluate(() => {
@@ -298,7 +299,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
       return { count: tabs.length, tabInfo, windows };
     });
     throw new Error(
-      `Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${timeout}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  XState windows: ${JSON.stringify(diag.windows)}`,
+      `Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${budget}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  XState windows: ${JSON.stringify(diag.windows)}`,
     );
   }
 }
@@ -310,6 +311,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
  * @param {number} timeout - Max wait time in ms
  */
 async function waitForPaneCount(page, expectedCount, timeout = 3000) {
+  const budget = waitBudget(timeout);
   try {
     await page.waitForFunction(
       (count) => {
@@ -325,7 +327,7 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
         return ids.size === count;
       },
       expectedCount,
-      { timeout, polling: 50 },
+      { timeout: budget, polling: 50 },
     );
     return true;
   } catch {
@@ -342,13 +344,17 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
  * @param {string|Function} description - Description for error message
  */
 async function waitForCondition(page, fn, timeout = 10000, description = 'condition') {
+  // The caller's number says how long this SHOULD take on the machine it was
+  // written on; `waitBudget` restates it for the machine it is running on.
+  const budget = waitBudget(timeout);
   const start = Date.now();
-  while (Date.now() - start < timeout) {
+  while (Date.now() - start < budget) {
     if (await fn()) return;
     await delay(100);
   }
   const desc = typeof description === 'function' ? await description() : description;
-  throw new Error(`Timed out waiting for ${desc} (${timeout}ms)`);
+  const scaled = budget === timeout ? '' : `, ${timeout}ms x${WAIT_SCALE}`;
+  throw new Error(`Timed out waiting for ${desc} (${budget}ms${scaled})`);
 }
 
 module.exports = {
