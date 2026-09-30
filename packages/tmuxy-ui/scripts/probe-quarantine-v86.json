@@ -6,7 +6,7 @@
     "and on the expiry date the entry stops shielding so the sweep goes red",
     "again and someone has to fix, delete or consciously renew it.",
     "",
-    "These 13 stories drive the REAL tmux running in the emulated x86 guest and",
+    "These 12 stories drive the REAL tmux running in the emulated x86 guest and",
     "have never passed there — the nightly sweep was red every night with this",
     "exact set, which is the same as having no nightly at all. They are listed",
     "so the sweep reports a NEW failure instead of drowning it, not because any",
@@ -15,7 +15,7 @@
     "maxEntries is a ratchet: it only ever goes DOWN. Fixing a story means",
     "deleting its entry and lowering the cap in the same commit."
   ],
-  "maxEntries": 13,
+  "maxEntries": 12,
   "entries": [
     {
       "id": "scenarios-application--wheel-scroll-enters-copy-mode",
@@ -35,11 +35,6 @@
     {
       "id": "scenarios-application--double-triple-click-select",
       "reason": "Word/line selection reads back empty instead of the target word.",
-      "expires": "2026-11-30"
-    },
-    {
-      "id": "scenarios-application--resize",
-      "reason": "The pane height does not grow — 'expected 40 to be greater than 40', i.e. the resize never reached the guest's tmux.",
       "expires": "2026-11-30"
     },
     {
