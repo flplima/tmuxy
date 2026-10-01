@@ -1422,17 +1422,7 @@ export const PaneContextMenuSplit: Story = {
       }),
     );
     const doc = canvasElement.ownerDocument;
-    let item: HTMLElement | undefined;
-    await waitFor(
-      () => {
-        item = [...doc.querySelectorAll('[role=menuitem]')].find((m) =>
-          /Split Pane Below/i.test(m.textContent ?? ''),
-        ) as HTMLElement | undefined;
-        expect(item).toBeTruthy();
-      },
-      { timeout: 10000, interval: 300 },
-    );
-    await user.click(item!);
+    await user.click(await findMenuItem(doc, /Split Pane Below/i));
     await waitFor(
       () => {
         expect(paneGroups(canvas).length).toBeGreaterThan(before);
@@ -2888,25 +2878,44 @@ export const TabCompletion: Story = {
 // ───────────────────────── §8 Themes, status bar, menus ─────────────────────────
 
 /** Open the hamburger app menu and return a submenu-item clicker. */
+/** Every role a menu item can carry, so a checkbox or radio item is findable too. */
+const MENU_ITEM_ROLES = '[role=menuitem], [role=menuitemcheckbox], [role=menuitemradio]';
+
+/**
+ * A menu item's label as a user HEARS it, not as the DOM spells it.
+ *
+ * A submenu item draws a `▶` and a radio item a bullet, both in `aria-hidden`
+ * spans — decoration, correctly absent from the accessible name. Raw
+ * `textContent` keeps them, so `/^Help$/` tested against "Help▶" and five
+ * stories failed on markup no user or screen reader perceives.
+ */
+function menuItemLabel(el: Element): string {
+  const clone = el.cloneNode(true) as HTMLElement;
+  for (const hidden of clone.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/** The visible menu item whose label matches, waiting for the menu to render it. */
+async function findMenuItem(doc: Document, label: RegExp): Promise<HTMLElement> {
+  let el: HTMLElement | undefined;
+  await waitFor(
+    () => {
+      el = [...doc.querySelectorAll(MENU_ITEM_ROLES)].find((m) => label.test(menuItemLabel(m))) as
+        | HTMLElement
+        | undefined;
+      expect(el).toBeTruthy();
+    },
+    { timeout: 10000, interval: 300 },
+  );
+  return el!;
+}
+
 async function openAppMenu(canvasElement: HTMLElement, user: ReturnType<typeof userEvent.setup>) {
   const doc = canvasElement.ownerDocument;
   const btn = canvasElement.querySelector('.app-menu-button') as HTMLElement;
   expect(btn).not.toBeNull();
   await user.click(btn);
-  const item = async (label: RegExp): Promise<HTMLElement> => {
-    let el: HTMLElement | undefined;
-    await waitFor(
-      () => {
-        el = [...doc.querySelectorAll('[role=menuitem]')].find((m) =>
-          label.test(m.textContent ?? ''),
-        ) as HTMLElement | undefined;
-        expect(el).toBeTruthy();
-      },
-      { timeout: 10000, interval: 300 },
-    );
-    return el!;
-  };
-  return { item };
+  return { item: (label: RegExp) => findMenuItem(doc, label) };
 }
 
 /**
