@@ -137,6 +137,38 @@ jobs:
         run: npx tauri build ${{ matrix.tauri-args }}
         working-directory: packages/tmuxy-tauri-app
 
+      # The Tauri CLI notarizes and staples the .app, then wraps it in a DMG —
+      # so the DMG itself carries a Developer ID signature and no ticket of its
+      # own. Mounted, the app is accepted; but a DMG downloaded in a BROWSER is
+      # quarantined, and Gatekeeper assesses the image before anything inside
+      # it: `spctl` rejects it with `source=Unnotarized Developer ID` and the
+      # user gets the "cannot be opened" dialog on the thing they just
+      # downloaded. Verified on alpha.67 and alpha.68 alike, so this was never
+      # right rather than newly broken.
+      #
+      # Submitting the image too, and stapling the ticket INTO it, is what
+      # makes the direct-download path match what the signing section of the
+      # release skill already promises. Homebrew is unaffected either way (the
+      # cask strips the quarantine attribute) — this is for the person who
+      # clicks the asset on the releases page.
+      - name: Notarize and staple the DMG itself (macOS)
+        if: matrix.platform == 'macos' && env.APPLE_API_KEY != ''
+        run: |
+          set -euo pipefail
+          DMG=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          echo "submitting $DMG"
+          # --wait, because the ticket has to exist before it can be stapled;
+          # notarytool exits non-zero on anything but Accepted.
+          xcrun notarytool submit "$DMG" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$DMG"
+          # Prove it on the spot: a stapled image validates offline, which is
+          # the whole point — the ticket travels with the file.
+          xcrun stapler validate "$DMG"
+
       # --- Smoke Test (Linux + macOS) ---
       # Both platforms use WebdriverIO for full GUI verification: launch app,
       # type a command, verify output appears in the terminal UI.
@@ -337,6 +369,23 @@ jobs:
 
           hdiutil detach "$MOUNT"
           trap - EXIT
+
+          # And the image itself, which is the file a browser downloads and
+          # quarantines. Asserted with the `open` context and the primary
+          # signature — the same assessment Gatekeeper makes on a mount — so a
+          # DMG that carries no ticket of its own fails here rather than
+          # greeting a user with "cannot be opened". This is the check that was
+          # missing when alpha.67 and alpha.68 shipped an unnotarized image.
+          echo "--- the DMG itself ---"
+          set +e
+          spctl -a -vvv -t open --context context:primary-signature "$DMG" \
+            > "${RUNNER_TEMP}/spctl-dmg.txt" 2>&1
+          DMG_STATUS=$?
+          set -e
+          cat "${RUNNER_TEMP}/spctl-dmg.txt"
+          [ "$DMG_STATUS" -eq 0 ] || { echo "spctl rejected the DMG"; exit 1; }
+          grep -q 'source=Notarized Developer ID' "${RUNNER_TEMP}/spctl-dmg.txt"
+          xcrun stapler validate "$DMG"
 
       - name: Smoke-test the shipped AppImage (Linux)
         if: matrix.platform == 'linux'

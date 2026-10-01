@@ -41,6 +41,8 @@ The API key is used rather than `APPLE_ID` + an app-specific password because it
 
 Signing changes nothing about the cask — Homebrew already strips the quarantine xattr — but it removes the *"couldn't verify tmuxy's signer"* warning and lets the app open on a Mac that downloaded the DMG directly.
 
+**The DMG is notarized separately from the app it contains.** The Tauri CLI notarizes and staples the `.app`, then wraps it in a disk image, so the image carries a Developer ID signature and no ticket of its own. Mounted, the app is accepted; but a browser-downloaded DMG is quarantined, and Gatekeeper assesses the *image* before anything inside it — `spctl -a -t open` rejects it as `source=Unnotarized Developer ID` and the user gets "cannot be opened" on the file they just downloaded. v0.0.10-alpha.67 and .68 both shipped that way. `build-app.yml` now submits the image too and staples the ticket into it, and the tag-build assertion checks the DMG as well as the app, so a future one fails the job instead of reaching a user.
+
 ## 1. Land the change on main
 
 Stage files explicitly, commit with a gitmoji prefix, push to `origin/main`. A push to main runs `lint and tests` and (when it touched the demo or UI sources) `Deploy Demo`. **`Build App` does not run on a push to main** — it triggers on tags, on a daily schedule, and on manual dispatch. The 3-platform build that matters for the release is the tag-triggered one in step 6, whose `release` job depends on `build`, `upgrade-path` and `tests` (the full suite re-run on the tag ref).
