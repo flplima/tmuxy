@@ -203,6 +203,18 @@ function showsShellPrompt(text) {
  * runaway `yes` reports here rather than as an opaque jest timeout.
  */
 async function waitForShellPrompt(page, timeout = 30000, { ceiling = 120000 } = {}) {
+  return waitForPrompts(page, 'some', timeout, ceiling);
+}
+
+/**
+ * The shared loop behind both prompt waiters: `some` for "a shell is up
+ * somewhere", `every` for "every pane on screen has one".
+ *
+ * One loop rather than two because the patience accounting is the subtle part
+ * — a change resetting the clock, a separate ceiling for a pane that never
+ * stops changing — and two copies of it drift.
+ */
+async function waitForPrompts(page, quantifier, timeout, ceiling) {
   const patience = waitBudget(timeout);
   const hardStop = waitBudget(ceiling);
   const started = Date.now();
@@ -210,9 +222,12 @@ async function waitForShellPrompt(page, timeout = 30000, { ceiling = 120000 } = 
   let lastChange = Date.now();
   for (;;) {
     const terminals = await visibleTerminals(page);
-    if (terminals.some((t) => showsShellPrompt(t.text))) {
-      return terminals.map((t) => t.text).join('\n');
-    }
+    const ready =
+      quantifier === 'every'
+        ? terminals.length > 0 && terminals.every((t) => showsShellPrompt(t.text))
+        : terminals.some((t) => showsShellPrompt(t.text));
+    if (ready) return terminals.map((t) => t.text).join('\n');
+
     const seen = terminals.map((t) => t.text).join('\n');
     if (seen !== lastText) {
       lastText = seen;
@@ -227,8 +242,12 @@ async function waitForShellPrompt(page, timeout = 30000, { ceiling = 120000 } = 
           : lastText
             ? `unchanged for ${quietFor}ms`
             : `nothing on screen for ${quietFor}ms`;
+      const which =
+        quantifier === 'every'
+          ? `${terminals.filter((t) => !showsShellPrompt(t.text)).length} of ${terminals.length} panes have no shell prompt`
+          : 'no terminal shows a shell prompt';
       throw new Error(
-        `Timeout waiting for a shell prompt (${why}). ` +
+        `Timeout waiting for a shell prompt: ${which} (${why}). ` +
           `A prompt must be the last thing in a terminal, not merely present. ` +
           `Content (${seen.length} chars): "${seen.slice(0, 200)}"`,
       );
@@ -266,7 +285,6 @@ async function runCommandWithDelay(page, command, delayMs = 1000) {
  * Split pane via keyboard
  */
 async function splitPaneKeyboard(page, direction = 'horizontal') {
-  // Use sendPrefixCommand for reliable timing
   // " = horizontal split (Shift+'), % = vertical split (Shift+5)
   if (direction === 'horizontal') {
     await sendPrefixCommand(page, "'", { shift: true });
@@ -274,6 +292,25 @@ async function splitPaneKeyboard(page, direction = 'horizontal') {
     await sendPrefixCommand(page, '5', { shift: true });
   }
   await waitForLayoutSettled(page);
+  // A split is not finished when the grid stops moving — it is finished when
+  // the new pane has a shell that can be typed into. `waitForShellPrompt`
+  // cannot answer this: it returns as soon as ANY visible terminal shows a
+  // prompt, and the pane that was split already did before the key was
+  // pressed. So a caller that split and then typed was racing the new shell's
+  // start-up, and won only because `sendPrefixCommand` used to sleep 500ms
+  // afterwards for unrelated reasons.
+  await waitForEveryShellPrompt(page);
+}
+
+/**
+ * Resolve once EVERY visible terminal shows a shell prompt.
+ *
+ * Patience, not a stopwatch, on the same terms as `waitForShellPrompt`: the
+ * budget bounds how long the screen may go without changing, and any change
+ * resets it, so a slow runner that is still drawing keeps its wait.
+ */
+async function waitForEveryShellPrompt(page, timeout = 30000, { ceiling = 120000 } = {}) {
+  return waitForPrompts(page, 'every', timeout, ceiling);
 }
 
 /**
@@ -413,6 +450,7 @@ module.exports = {
   getTerminalText,
   waitForTerminalText,
   waitForShellPrompt,
+  waitForEveryShellPrompt,
   showsShellPrompt,
   waitForLayoutSettled,
   runCommand,

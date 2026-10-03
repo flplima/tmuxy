@@ -5,7 +5,7 @@
  * — tmux's copy mode and the native-like scroll view both live in it.
  */
 
-const { delay } = require('./browser');
+const { delay, waitForCondition } = require('./browser');
 const { enterCopyModeKeyboard } = require('./ui');
 
 /**
@@ -60,11 +60,41 @@ async function waitForCopyMode(page, active, timeout = 15000) {
 }
 
 /**
- * Enter copy mode via keyboard (prefix + [) and wait for it to become active.
+ * Enter copy mode via keyboard (prefix + [) and wait until it can be DRIVEN.
+ *
+ * `waitForCopyMode` resolves as soon as the pane has a copy-mode record, which
+ * is earlier than the point a motion key does anything: the client fetches the
+ * scrollback it is about to navigate, and until those rows land the cursor has
+ * nothing to move through — `k` is accepted and changes nothing.
+ *
+ * So this also waits for the fetch to settle. Previously the gap was covered
+ * by `sendPrefixCommand` sleeping 500ms after every prefix key, which happened
+ * to be long enough on the machines anyone looked at; a test that pressed `k`
+ * three times and asserted the cursor had risen was reading that sleep, not
+ * this state.
  */
 async function enterCopyModeAndWait(page, timeout = 15000) {
   await enterCopyModeKeyboard(page);
-  return await waitForCopyMode(page, true, timeout);
+  const entered = await waitForCopyMode(page, true, timeout);
+
+  try {
+    await waitForCondition(
+      page,
+      async () => {
+        const cs = await getCopyModeState(page);
+        if (!cs?.active) return true; // left copy mode — the caller will say so
+        return (
+          !cs.loading && (cs.loadedRanges?.length ?? 0) > 0 && typeof cs.cursorRow === 'number'
+        );
+      },
+      timeout,
+      'copy mode to finish loading the scrollback it will navigate',
+    );
+  } catch {
+    // Not fatal: a pane with no history to load never reports rows, and the
+    // caller's own assertions are a better error than one from here.
+  }
+  return (await getCopyModeState(page)) ?? entered;
 }
 
 module.exports = {
