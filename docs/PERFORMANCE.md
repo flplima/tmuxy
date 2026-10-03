@@ -40,15 +40,15 @@ the right place to catch a regression in the parse/aggregate/delta pipeline.
 `perf/compare-core-bench.mjs` reads criterion's output and judges it the same
 two ways Axis C does, for the same reason:
 
-| Signal | Compared against | On regression |
-| --- | --- | --- |
-| ratio between two benchmarks of the same run | a budget in `compare-core-bench.mjs` | **fails the job** |
-| absolute mean | `perf/core-pipeline-baseline.json`, keyed by platform | warns in the step summary |
+| Signal                                       | Compared against                                      | On regression             |
+| -------------------------------------------- | ----------------------------------------------------- | ------------------------- |
+| ratio between two benchmarks of the same run | a budget in `compare-core-bench.mjs`                  | **fails the job**         |
+| absolute mean                                | `perf/core-pipeline-baseline.json`, keyed by platform | warns in the step summary |
 
 The ratio is what makes this a gate at all. Absolute nanoseconds from a shared
 runner cannot block a merge, and a platform with no baseline recorded has
 nothing to compare against — but `delta_rename / full_sync` is a statement
-about the *shape* of the pipeline that holds on any machine. It is budgeted at
+about the _shape_ of the pipeline that holds on any machine. It is budgeted at
 0.4 and measures 0.11–0.17 depending on the machine; before grids were
 `Arc`-shared it was ~0.78, because a one-field delta deep-copied every pane's
 cell grid and therefore scaled with grid size. If that pathology returns, this
@@ -127,9 +127,9 @@ transport regression on one is invisible in the other. What is measured lives
 once in `packages/tmuxy-ui/scripts/lib/perf-harness.mjs`; only the driver
 differs:
 
-| Target | Harness | Driver | Report |
-| --- | --- | --- | --- |
-| web | `measure-interactions.mjs` | Playwright (or an existing Chrome over CDP) | `target: "web"` |
+| Target  | Harness                          | Driver                                         | Report            |
+| ------- | -------------------------------- | ---------------------------------------------- | ----------------- |
+| web     | `measure-interactions.mjs`       | Playwright (or an existing Chrome over CDP)    | `target: "web"`   |
 | desktop | `measure-interactions-tauri.mjs` | WebdriverIO → `tauri-driver` → WebKitWebDriver | `target: "tauri"` |
 
 Baselines are keyed by `<platform>/<target>`, so desktop milliseconds are never
@@ -150,16 +150,16 @@ same commit can vary two-fold between runs. So each interaction is also
 reported as a **ratio to the keystroke echo measured in the same run on the
 same machine**. A keystroke is the cheapest complete round trip tmuxy has; a
 loaded runner inflates it and every other interaction together, and the ratio
-divides that out. Only a real change in how much *work* an interaction does
+divides that out. Only a real change in how much _work_ an interaction does
 moves a ratio.
 
 That gives two signals with very different standing, and
 `compare-interactions.mjs` treats them differently:
 
-| Signal | Compared against | On regression |
-| --- | --- | --- |
-| ratio to `key-echo` | a per-interaction budget in `compare-interactions.mjs` | **fails the job** |
-| absolute p50 | `perf/interaction-baseline.json`, keyed by platform | warns in the step summary |
+| Signal              | Compared against                                       | On regression             |
+| ------------------- | ------------------------------------------------------ | ------------------------- |
+| ratio to `key-echo` | a per-interaction budget in `compare-interactions.mjs` | **fails the job**         |
+| absolute p50        | `perf/interaction-baseline.json`, keyed by platform    | warns in the step summary |
 
 Budgets are ceilings with headroom, not targets. Raising one is a deliberate
 edit that shows up in review; tightening one belongs in the commit that earns
@@ -197,11 +197,11 @@ npm run perf:compare -- --report perf/interaction-report-tauri.json
 CI runs both, each in the job that already has what it needs, uploading the
 report as an artifact and writing the table into the job summary:
 
-| Job | Workflow | Measures | Reuses |
-| --- | --- | --- | --- |
-| `interaction-latency` | `lint-and-tests.yml` | Axis C, web | the release server + frontend dist from `build-artifacts` |
-| `desktop` | `lint-and-tests.yml` | Axis C, desktop | the release Tauri binary, Xvfb and `tauri-driver` it already builds for the E2E suite |
-| `rust-tests` | `ci-rust-tests.yml` | Axis A bench | the Rust toolchain and cache it already has |
+| Job                   | Workflow             | Measures        | Reuses                                                                                |
+| --------------------- | -------------------- | --------------- | ------------------------------------------------------------------------------------- |
+| `interaction-latency` | `lint-and-tests.yml` | Axis C, web     | the release server + frontend dist from `build-artifacts`                             |
+| `desktop`             | `lint-and-tests.yml` | Axis C, desktop | the release Tauri binary, Xvfb and `tauri-driver` it already builds for the E2E suite |
+| `rust-tests`          | `ci-rust-tests.yml`  | Axis A bench    | the Rust toolchain and cache it already has                                           |
 
 Neither perf job builds anything of its own — that was the condition for adding
 them per-commit rather than leaving them on demand.
@@ -212,13 +212,13 @@ Local server on an isolated socket, macOS arm64, 10 samples per interaction,
 tmux 3.7. Same machine and same session shape for both columns. Treat the
 ratios as the durable part and the milliseconds as machine-specific.
 
-| Interaction | before | after | × keystroke (before → after) |
-| --- | ---: | ---: | --- |
-| `key-echo` | 29.2 ms | 38.3 ms | 1× → 1× |
-| `pane-nav-keyboard` | 356 ms | **10.1 ms** | 12.2× → **0.3×** |
-| `pane-zoom-toggle` | 235.1 ms | **92.3 ms** | 8.1× → 2.4× |
-| `pane-split` | 82.1 ms | 78.1 ms | 2.8× → 2.0× |
-| `tab-switch` | 3.5 ms | 4.7 ms | 0.1× → 0.1× |
+| Interaction         |   before |       after | × keystroke (before → after) |
+| ------------------- | -------: | ----------: | ---------------------------- |
+| `key-echo`          |  29.2 ms |     38.3 ms | 1× → 1×                      |
+| `pane-nav-keyboard` |   356 ms | **10.1 ms** | 12.2× → **0.3×**             |
+| `pane-zoom-toggle`  | 235.1 ms | **92.3 ms** | 8.1× → 2.4×                  |
+| `pane-split`        |  82.1 ms |     78.1 ms | 2.8× → 2.0×                  |
+| `tab-switch`        |   3.5 ms |      4.7 ms | 0.1× → 0.1×                  |
 
 "Before" is the state this harness was written to explain: keyboard pane
 navigation cost twelve keystroke round trips. What the three fixes were, and
@@ -239,7 +239,7 @@ to the parse/aggregate/delta pipeline or the transport.
 
 **Bench-integrity note.** The first published numbers (3.7–3.8 ms for
 `full_sync`/`delta_rename`) were an artifact: on the native feature the
-status-line dirty-refresh spawns `tmux display-message` subprocesses *inside*
+status-line dirty-refresh spawns `tmux display-message` subprocesses _inside_
 `to_state_update`, and the bench hit that in the timed region — measuring
 process-spawn latency, not the pipeline. The bench now supplies the status
 line out-of-band (`set_status_line`, exactly what the wasm host does) and
@@ -266,7 +266,7 @@ bump, and the diff skips it by pointer identity. A metadata-only delta is
 `metadata_delta_shares_content_and_omits_grids` test in
 `tmuxy-core/src/control_mode/state.rs`.
 
-Remaining honest cost: when content *does* change, extraction + line diff
+Remaining honest cost: when content _does_ change, extraction + line diff
 still walk the grid (the µs-scale `full_sync`/burst numbers above) — that is
 real work the pipeline must do, and byte parsing itself remains cheap
 (~40 MiB/s).
@@ -278,13 +278,13 @@ apart (clean per-key round trips, no batching), driven headless through the
 real `POST /commands` + `GET /events` path. RTT injected with the latency proxy.
 All latencies in ms.
 
-| Condition                 | Injected 1-way / RTT | p50   | p95   | p99   | max    | pending | added vs C0 |
-| ------------------------- | -------------------- | ----- | ----- | ----- | ------ | ------- | ----------- |
-| C0 direct                 | 0 / 0                | 22.3  | 42.3  | 44.4  | 67.4   | 0       | —           |
-| C1 LAN                    | 30 / ~60             | 86.7  | 99.0  | 100.0 | 243.2  | 0       | +64         |
-| C2 typical remote VM      | 75 / ~150            | 173.4 | 194.5 | 194.6 | 215.7  | 0       | +151        |
-| C3 far / bad mobile       | 150 / ~300           | 325.8 | 355.8 | 356.4 | 359.4  | 0       | +304        |
-| C4 150 ms RTT + 5% loss   | 75 / ~150 + loss     | 589.2 | 710.2 | 978.1 | 1034.5 | 1       | tail blows up |
+| Condition               | Injected 1-way / RTT | p50   | p95   | p99   | max    | pending | added vs C0   |
+| ----------------------- | -------------------- | ----- | ----- | ----- | ------ | ------- | ------------- |
+| C0 direct               | 0 / 0                | 22.3  | 42.3  | 44.4  | 67.4   | 0       | —             |
+| C1 LAN                  | 30 / ~60             | 86.7  | 99.0  | 100.0 | 243.2  | 0       | +64           |
+| C2 typical remote VM    | 75 / ~150            | 173.4 | 194.5 | 194.6 | 215.7  | 0       | +151          |
+| C3 far / bad mobile     | 150 / ~300           | 325.8 | 355.8 | 356.4 | 359.4  | 0       | +304          |
+| C4 150 ms RTT + 5% loss | 75 / ~150 + loss     | 589.2 | 710.2 | 978.1 | 1034.5 | 1       | tail blows up |
 
 **Transport is a clean additive term.** The added latency over the C0 floor
 tracks the injected RTT almost exactly (+64, +151, +304) — SSE+POST introduces
@@ -295,17 +295,17 @@ apply. (Measured against a debug server the floor was ~24.5 ms — only ~2 ms
 higher — which confirms it is transport-bound, not compute-bound.)
 
 **The tracker starts at send, not at keydown.** `markInput()` fires when the
-command leaves the adapter — so any client-side delay *before* the send is
+command leaves the adapter — so any client-side delay _before_ the send is
 invisible to the table above. That mattered: the `KeyBatcher` used to hold
 every keystroke for its full 16 ms window before sending, an extra ~16 ms of
 real, user-felt latency the tracker never saw. Measured keydown→paint
 (MutationObserver on the pressed letter's echo, debug server, same machine):
 
-| keydown→paint  | always-batch (old) | leading-edge flush (new) |
-| -------------- | ------------------ | ------------------------ |
-| p50            | 42.5 ms            | **25.4 ms**              |
-| p95            | 62.5 ms            | 38.8 ms                  |
-| max            | 66.0 ms            | 40.9 ms                  |
+| keydown→paint | always-batch (old) | leading-edge flush (new) |
+| ------------- | ------------------ | ------------------------ |
+| p50           | 42.5 ms            | **25.4 ms**              |
+| p95           | 62.5 ms            | 38.8 ms                  |
+| max           | 66.0 ms            | 40.9 ms                  |
 
 The `KeyBatcher` now sends an isolated keystroke immediately (leading edge)
 and opens its 16 ms window for what follows; a non-empty trailing flush
@@ -325,7 +325,7 @@ This, not steady-state RTT, is the signal a QUIC/WebTransport move would flatten
 **Throughput is decoupled from output volume.** A `seq 1 50000` flood (50k
 lines) produced only **~6–8 client-side state updates** total, peaking at ~35
 updates/sec, with `pending` never above 2 — the client never backed up. tmuxy
-renders the *current visible grid*, not the scrollback, so the server's
+renders the _current visible grid_, not the scrollback, so the server's
 aggregator coalesces an arbitrarily large burst into a handful of snapshots.
 The real throughput ceiling is the Axis-A cost of extracting + diffing a
 changed grid (µs-scale per snapshot, see the bench table), not client render
@@ -338,12 +338,12 @@ tmuxy is **not** a local GPU terminal emulator; it is a tmux UI that renders
 server-parsed cell-grid state to the DOM over a transport. The category
 difference matters when comparing:
 
-| Class                                     | Input latency (reference)      | Output throughput            | Network         |
-| ----------------------------------------- | ------------------------------ | ---------------------------- | --------------- |
-| Native GPU (alacritty/kitty/wezterm)      | ~5–45 ms (Typometer/Dan Luu)   | multi-GB/s `cat`             | none (local)    |
-| Browser/xterm.js (VS Code terminal)       | higher; DOM/canvas render cost | DOM/canvas-bound             | none (local)    |
-| mosh                                       | ~0 perceived (local echo)      | predicted locally            | RTT hidden      |
-| **tmuxy**                                  | ~25 ms keydown→paint + RTT     | volume-decoupled (see above) | the whole point |
+| Class                                | Input latency (reference)      | Output throughput            | Network         |
+| ------------------------------------ | ------------------------------ | ---------------------------- | --------------- |
+| Native GPU (alacritty/kitty/wezterm) | ~5–45 ms (Typometer/Dan Luu)   | multi-GB/s `cat`             | none (local)    |
+| Browser/xterm.js (VS Code terminal)  | higher; DOM/canvas render cost | DOM/canvas-bound             | none (local)    |
+| mosh                                 | ~0 perceived (local echo)      | predicted locally            | RTT hidden      |
+| **tmuxy**                            | ~25 ms keydown→paint + RTT     | volume-decoupled (see above) | the whole point |
 
 The honest read: tmuxy's ~25 ms local keydown→paint floor is competitive with
 the upper end of a local GPU terminal, and its snapshot model makes it
@@ -382,7 +382,6 @@ Still open:
    command was routed through control mode: each keystroke's `send-keys` was
    an external `sh -c "tmux …"` — a shell and a tmux client forked per
    character typed — while the web sent the same string down the connection.
-
    - **Navigation had lost its optimistic prediction.** `Alt+hjkl` /
      `Ctrl+arrow` are bound to the `tmuxy-nav-*` command alias, and
      `parseCommandToOp` matched that spelling — but bindings reach the client
@@ -390,7 +389,7 @@ Still open:
      a keypress actually carried was
      `run-shell "bash …/bin/tmuxy/nav <dir> …"`. That fell through to
      `RawCommand`, no prediction, and the user waited out the shell script
-     *and* the round trip. The parser now recognises both spellings; tmux
+     _and_ the round trip. The parser now recognises both spellings; tmux
      still receives the original command, so the script's group/sidebar
      semantics are untouched. This was the whole difference between 356 ms and
      10 ms — the two below are what the server no longer has to hurry through.
@@ -398,8 +397,8 @@ Still open:
      `executor::capture_status_line` is five `tmux display-message` calls plus
      a `sh -c` per `#(…)` in `status-right` (the shipped default is
      `#(whoami)@#H`, so six process spawns), synchronous, inside
-     `to_state_update`. It was marked dirty by every window-level event *and
-     by every `list-windows` response* — several times a second. It now
+     `to_state_update`. It was marked dirty by every window-level event _and
+     by every `list-windows` response_ — several times a second. It now
      refreshes only when something it renders actually changed (a fingerprint
      over the session name and each window's id/index/name/active), with a
      15 s staleness fallback matching tmux's own `status-interval` so a
@@ -417,6 +416,43 @@ Still open:
    the Rust monitor already holds the window/pane/group state the script
    shells out to rediscover. Prediction hides that from the user, but the
    server-side move is still the honest fix.
+
+## Axis D — retention over a long session
+
+Every axis above measures one operation against a budget. None of them can see
+a leak: a retained reference keeps each individual interaction just as fast
+while the heap, the DOM and the server's memory climb underneath it, and no
+suite runs long enough for the climb to matter. Axis D is the question nothing
+else asks — **does a long session degrade?**
+
+|          |                                                                                           |
+| -------- | ----------------------------------------------------------------------------------------- |
+| Harness  | `packages/tmuxy-ui/scripts/measure-soak.mjs` (`npm run perf:soak`)                        |
+| Load     | Tens of MB of output through one pane, then hundreds of split/close cycles                |
+| Measures | JS heap, DOM nodes, JS event listeners (CDP `Performance.getMetrics`), server RSS         |
+| Verdict  | A **plateau**, not a ceiling: each measure's second-half mean against its first-half mean |
+| Where    | `soak` job in `.github/workflows/nightly-perf.yml` — nightly, table in the run summary    |
+| Gating   | Not yet. `--gate` turns it on once the nightly numbers have a known shape                 |
+
+Three things about it are deliberate and worth not undoing:
+
+**It asserts a plateau rather than a number.** Absolute heap and RSS depend on
+the machine, the Chrome build and what else the runner is doing, so a ceiling in
+megabytes is either meaningless or permanently red. Growth between the halves of
+one run divides all of that out, and it is also the only form that distinguishes
+a leak from warm-up — which a single before/after reading cannot.
+
+**Load comes from the CLI, not the keyboard.** Axis C types, because the
+keystroke path is its subject. Axis D's subject is what the app retains while
+rendering someone else's output, so it drives load through `tmuxy pane send`.
+That is also a practical necessity: typing a long command line into a pane drops
+characters often enough that the load generator sometimes runs a different
+command than the one it was given.
+
+**It needs a tmux socket of its own.** It types into the active pane and splits
+panes in whatever session the server it is pointed at is serving. A server
+started with no `TMUX_SOCKET` serves the default `tmuxy` socket — on a dev
+machine, the session someone is working in.
 
 ## What's still absent (by choice, for now)
 
@@ -441,6 +477,11 @@ Still open:
 - **No Axis B measurement in CI.** The RTT curve and the latency-injection
   proxy are a controlled experiment run by hand, not a gate — injected delay is
   the independent variable, so there is nothing for a runner to regress.
+- **Axis D does not gate yet.** Its plateau tolerances are guesses until a
+  corpus of nightly runs exists to calibrate them against, and a guessed
+  threshold on a long job produces a nightly nobody trusts. The numbers are
+  published every night in the run summary; turning on `--gate` in the workflow
+  is the follow-up.
 
 ## Related
 

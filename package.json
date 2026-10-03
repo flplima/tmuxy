@@ -27,6 +27,7 @@
     "perf:interactions": "node packages/tmuxy-ui/scripts/measure-interactions.mjs",
     "perf:interactions:tauri": "node packages/tmuxy-ui/scripts/measure-interactions-tauri.mjs",
     "perf:compare": "node packages/tmuxy-ui/scripts/compare-interactions.mjs",
+    "perf:soak": "node packages/tmuxy-ui/scripts/measure-soak.mjs",
     "lint": "eslint tests/ && npm run lint -w tmuxy-ui",
     "lint:tests": "eslint tests/",
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",

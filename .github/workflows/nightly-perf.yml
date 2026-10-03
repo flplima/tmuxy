@@ -9,25 +9,49 @@ name: perf measurements
 # 2. `interaction-baseline` — a manual (workflow_dispatch) run of the Axis-C
 #    interaction harness on `ubuntu-latest` whose only product is a refreshed
 #    `perf/interaction-baseline.json` for a human to review and commit.
+# 3. `soak` — the one job here that IS nightly, because its product is a trend
+#    rather than a number: does a long session degrade? Tens of MB of output
+#    and 200 split/kill cycles, watching heap, DOM nodes, listeners and server
+#    RSS for a plateau. Nothing else in the suite runs long enough to see a
+#    leak, since every other tier measures one interaction and a leak keeps
+#    each individual interaction fast. It writes its table into the run
+#    SUMMARY, not only an artifact — see the note below about why that
+#    matters here.
 #
 # Neither job gates anything. Absolute milliseconds/nanoseconds from a shared
 # GitHub runner are not a merge signal — the ratio gate in the per-commit
 # `interaction-latency` job is.
 #
-# So this is ON DEMAND, not nightly. Both jobs exist to hand a human a number:
-# the bench report to compare against the stored baseline, and the refreshed
+# So the first two are ON DEMAND. Both exist to hand a human a number: the
+# bench report to compare against the stored baseline, and the refreshed
 # `perf/interaction-baseline.json` to review and commit. A nightly schedule
 # produced neither — it wrote artifacts nobody opened, and the baseline it
-# exists to feed has never been refreshed from one. Run it (Actions → "perf
+# exists to feed has never been refreshed from one. Run them (Actions → "perf
 # measurements" → Run workflow) when you want the number.
+#
+# `soak` is the exception, and the difference is what it produces. A soak run
+# answers a yes/no question about THAT run — did everything plateau — and the
+# answer is only interesting as a sequence: one night proves nothing, thirty
+# nights show a slope. So it is scheduled, and it prints its verdict table into
+# `$GITHUB_STEP_SUMMARY` where it is readable from the run page. That is the
+# specific failure of the old nightlies this does not repeat: an artifact is
+# only read by someone who already suspects something.
 
 on:
+  schedule:
+    # 02:30 UTC — an hour before the tmux matrix, two before the v86 sweep, so
+    # the three nightlies never contend for runners.
+    - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       open_pr:
         description: 'Open a PR with the refreshed interaction baseline'
         type: boolean
         default: true
+      soak:
+        description: 'Also run the soak job (it is otherwise nightly-only)'
+        type: boolean
+        default: false
 
 # The interaction-baseline job pushes a branch and opens a PR with the refreshed
 # numbers; everything else here only reads.
@@ -66,6 +90,9 @@ jobs:
   # gates regardless — it runs per-commit in ci-rust-tests.yml, not here.
   # ---------------------------------------------------------------------------
   core-bench:
+    # On demand only. The schedule above exists for `soak`; a nightly bench
+    # report is the artifact-nobody-opens this workflow's header is about.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -318,6 +345,158 @@ jobs:
               echo "review the numbers, and commit \`perf/interaction-baseline.json\` yourself."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Server logs (debug)
+        if: failure()
+        run: tail -2000 /tmp/tmuxy-server.log
+
+  # ---------------------------------------------------------------------------
+  # Does a long session degrade?
+  #
+  # Non-blocking on purpose, and `--gate` is deliberately absent: the harness's
+  # plateau tolerances are guesses until there is a corpus of nightly runs to
+  # calibrate them against, and a guessed threshold on a long job produces a
+  # nightly nobody trusts. The step summary carries the numbers every night;
+  # once their shape is known, add `--gate` here and the guesses become budgets.
+  #
+  # Smaller load than the harness defaults: a shared runner is slower than a
+  # dev machine at both halves, and the plateau comparison needs the WINDOWS to
+  # be clean more than it needs them to be large.
+  # ---------------------------------------------------------------------------
+  soak:
+    if: github.event_name == 'schedule' || inputs.soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison
+
+      # The same source-built 3.7a and cache key as every other job: a leak in
+      # pane teardown is version-sensitive, and the answer has to be about the
+      # tmux the rest of CI runs against.
+      - name: Cache tmux 3.7a
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a (cache miss)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
+
+      - name: Confirm tmux version
+        run: tmux -V
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Build frontend
+        run: npm run build -w tmuxy-ui
+
+      # Release: a debug server's own allocation behaviour is not the thing
+      # being measured, and its RSS would swamp the signal.
+      - name: Build server (release)
+        run: cargo build --release -p tmuxy-server
+
+      - name: Link tmuxy CLI onto PATH
+        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+
+      # The pid is captured here rather than discovered: the harness reads
+      # server RSS for it, and a wrong pid reports `not measured` rather than
+      # failing, which would quietly drop a third of the signal.
+      # A socket of its own, not the default `tmuxy`. The runner is empty so
+      # nothing would collide today, but the harness types into whichever pane
+      # is active and splits panes in the session it is given — on any machine
+      # that is not empty, the default socket is someone's working session.
+      - name: Start server
+        run: |
+          TMUX_SOCKET=tmuxy-soak ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
+          echo "TMUXY_SERVER_PID=$!" >> "$GITHUB_ENV"
+          node -e "
+            const start = Date.now();
+            const check = async () => {
+              while (Date.now() - start < 30000) {
+                try {
+                  const res = await fetch('http://localhost:9000');
+                  if (res.ok) process.exit(0);
+                } catch {}
+                await new Promise(r => setTimeout(r, 500));
+              }
+              process.exit(1);
+            };
+            check();
+          "
+
+      - name: Soak the session
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run perf:soak -- \
+            --url http://localhost:9000 \
+            --output-mb 16 \
+            --cycles 120 \
+            --windows 8 \
+            --label ci-nightly \
+            --server-pid "$TMUXY_SERVER_PID" \
+            --out perf/soak-report.json \
+            | tee /tmp/soak.log
+
+      # The point of the job: readable from the run page, without downloading
+      # anything. A reader who has to fetch an artifact to find out whether
+      # last night was fine does not find out.
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo '## Soak — does a long session degrade?'
+            echo
+            echo '16MB of output, 120 split/kill cycles, 8 sample windows per phase.'
+            echo 'Each measure compares the second half of the run to the first:'
+            echo 'growth within tolerance is a plateau, above it is a possible leak.'
+            echo 'Not gating yet — see the harness header.'
+            echo
+            echo '```'
+            sed -n '/^output:/,$p' /tmp/soak.log || echo '(no table — the run failed before measuring)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the soak report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak-report-${{ github.run_id }}
+          path: perf/soak-report.json
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Server logs (debug)
         if: failure()
