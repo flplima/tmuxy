@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# Reap shells left hanging in the kernel by a pane that died while its shell
+# was still starting up.
+#
+# A shell opens its controlling terminal during start-up without O_NONBLOCK. If
+# tmux closes the PTY master in that window — which `kill-pane`, `kill-window`
+# and `kill-session` all do immediately after the SIGHUP — the open() never
+# returns: on Darwin ptsopen() waits for a carrier that will never come, and the
+# shell sleeps in the kernel forever. tmux exiting reparents it to pid 1, which
+# reaps dead children but never signals live ones, so the only way out is
+# SIGKILL. Each one holds a PTY slave open, and a machine that runs the E2E
+# suite enough times exhausts `kern.tty.ptmx_max` and can no longer open a
+# terminal at all.
+#
+# What identifies one, as opposed to a shell someone is using:
+#
+#   * reparented to pid 1 — a live pane's shell has the tmux server as parent;
+#   * it is a shell;
+#   * it has accumulated no CPU time at all. This is the discriminator. The
+#     process is blocked inside start-up, before the first line of user code,
+#     so it has never run long enough to register a tick. A login shell that
+#     outlived its parent has always run something.
+#
+# Usage: reap-orphan-shells [-n|--dry-run] [-q|--quiet]
+# Exit:  0 whether or not anything was found; 2 on bad usage.
+
+set -euo pipefail
+
+DRY_RUN=0
+QUIET=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n | --dry-run) DRY_RUN=1 ;;
+    -q | --quiet) QUIET=1 ;;
+    -h | --help)
+      sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      echo "reap-orphan-shells: unknown argument '$1'" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+say() { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
+
+# A shell by basename: ps reports the command as an absolute path, or with a
+# leading '-' for a login shell.
+is_shell() {
+  case "${1##*/}" in
+    zsh | -zsh | bash | -bash | sh | -sh | fish | -fish | dash | -dash) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# True when a ps TIME field is zero. macOS writes `0:00.00`, Linux `00:00:00`;
+# both reduce to all-zero once the separators are gone.
+no_cpu_time() {
+  case "${1//[:.]/}" in
+    *[!0]*) return 1 ;;
+    '') return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+candidates=()
+while read -r pid ppid cputime comm; do
+  [ "$ppid" = "1" ] || continue
+  is_shell "$comm" || continue
+  no_cpu_time "$cputime" || continue
+  candidates+=("$pid")
+done < <(ps -Ao pid=,ppid=,time=,comm= 2>/dev/null)
+
+if [ "${#candidates[@]}" -eq 0 ]; then
+  say "No orphaned shells."
+  exit 0
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  say "Would reap ${#candidates[@]} orphaned shell(s): ${candidates[*]}"
+  exit 0
+fi
+
+reaped=0
+for pid in "${candidates[@]}"; do
+  # SIGKILL is the only signal that lands: the process is blocked in an
+  # uninterruptible open() and will not run a handler.
+  if kill -9 "$pid" 2>/dev/null; then
+    reaped=$((reaped + 1))
+  fi
+done
+
+say "Reaped $reaped orphaned shell(s)."

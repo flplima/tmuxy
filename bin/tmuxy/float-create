@@ -259,10 +259,18 @@ SCRIPT
   # Wait for the command to finish
   _tmux wait-for "$WAIT_CHAN"
 
-  # Auto-close the float window
+  # Auto-close the float window.
+  #
+  # The pane pids are read first: kill-window closes each PTY master right
+  # after the SIGHUP, and a shell still inside its own start-up never returns
+  # from opening its controlling terminal — it sleeps in the kernel holding a
+  # PTY slave (see `reap-orphan-shells`). A float whose command exits
+  # immediately is exactly that race.
   WIN_ID=$(_tmux display-message -t "$NEW_PANE_ID" -p '#{window_id}' 2>/dev/null || true)
   if [ -n "$WIN_ID" ]; then
+    FLOAT_PANE_PIDS=$(_tmux list-panes -t "$WIN_ID" -F '#{pane_pid}' 2>/dev/null || true)
     _run_safe "kill-window -t $WIN_ID"
+    reap_pids "$FLOAT_PANE_PIDS"
   fi
 
   # Output captured stdout

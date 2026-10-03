@@ -221,10 +221,34 @@ request_focus() {
 # new-session -d (a detached, separate session) is control-mode safe — unlike
 # new-window, which crashes the server — and the core suppresses the resulting
 # %sessions-changed. Idempotent.
+# The payload runs in the stash session's own initial window, which exists only
+# so the session does. `tail -f /dev/null` sleeps in a read; the default
+# interactive shell would instead open its controlling tty, and a shell killed
+# mid-`init_io` hangs in the kernel forever (see `bin/tmuxy/reap-orphan-shells`).
+STASH_PAYLOAD='tail -f /dev/null'
+
 ensure_stash_session() {
   if ! _tmux has-session -t "$STASH_SESSION" 2>/dev/null; then
-    _tmux new-session -d -s "$STASH_SESSION" -x 80 -y 24 2>/dev/null || true
+    _tmux new-session -d -s "$STASH_SESSION" -n stash -x 80 -y 24 "$STASH_PAYLOAD" 2>/dev/null || true
   fi
+}
+
+# SIGKILL any of the given pids that outlived their window and were adopted by
+# pid 1. Still having a real parent means it is exiting in good order; pid 1
+# after the window is gone means nothing will signal it again, and a process
+# blocked in an uninterruptible open() runs no handler anyway.
+# Args: $1 = whitespace-separated pids (may be empty)
+reap_pids() {
+  local pid ppid
+  for pid in ${1:-}; do
+    case "$pid" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || continue
+    ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ "$ppid" = "1" ] || continue
+    kill -9 "$pid" 2>/dev/null || true
+  done
 }
 
 # Read a pane's @tmuxy-group-id.

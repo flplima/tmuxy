@@ -16,6 +16,8 @@ const os = require('os');
 const { WORKSPACE_ROOT } = require('./config');
 const { tmuxRun, tmuxQuery } = require('./cli');
 const { tmuxCmd } = require('./tmux-socket');
+const { waitForCondition } = require('./browser');
+const { reapPids } = require('./reap');
 
 /**
  * Get the path to the tmuxy config file
@@ -144,9 +146,26 @@ class TmuxTestSession {
   /**
    * Destroy the tmux session.
    * kill-session is safe to run externally (per docs/TMUX.md).
+   *
+   * The pane pids are read BEFORE the kill, because afterwards there is no
+   * session to list them from. tmux closes each PTY master immediately after
+   * the SIGHUP, so a shell still inside its own start-up never returns from
+   * opening its controlling terminal and hangs in the kernel holding a PTY
+   * slave open — one orphan per pane, until the machine runs out of
+   * pseudoterminals (see `bin/tmuxy/reap-orphan-shells`).
    */
   async destroy() {
     if (!this.created) return;
+
+    let panePids = [];
+    try {
+      panePids = tmuxQuery(`list-panes -s -t ${this.name} -F '#{pane_pid}'`)
+        .split('\n')
+        .map((line) => parseInt(line.trim(), 10))
+        .filter((pid) => Number.isInteger(pid) && pid > 1);
+    } catch {
+      // No session to list — nothing to follow up on either
+    }
 
     try {
       tmuxQuery(`kill-session -t ${this.name}`);
@@ -154,8 +173,10 @@ class TmuxTestSession {
       // Session may already be gone
     }
 
-    // Wait for monitor to process the %exit event and disconnect
-    await new Promise((r) => setTimeout(r, 500));
+    // Wait for the monitor to process the %exit event and disconnect.
+    await waitForCondition(null, () => !this.exists(), 5000, `session ${this.name} to be gone`);
+
+    reapPids(panePids);
 
     this.created = false;
     this.page = null;

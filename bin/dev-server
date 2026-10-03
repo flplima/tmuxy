@@ -93,6 +93,13 @@ cmd_start() {
   fi
 
   mkdir -p "$STATE_DIR"
+
+  # Reap shells left hanging in the kernel by an earlier run's torn-down panes.
+  # Each one holds a pseudoterminal open, and a machine that has run the suite
+  # enough times cannot allocate one for a new pane at all — which presents as
+  # the dev server failing to create panes, not as leftover processes.
+  bash "$REPO_ROOT/bin/tmuxy/reap-orphan-shells" --quiet || true
+
   # Truncate rather than append: the log answers "what is it doing now", and a
   # file that only grows is one nobody reads the top of anyway.
   : >"$LOG_FILE"

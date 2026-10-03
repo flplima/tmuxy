@@ -324,6 +324,7 @@ Commands:
   queue, q    Inter-agent coordination queue (push/send, pop, peek, list, clear)
   tree        Open the sidebar tree view (tabs + panes)
   run         Run any tmux command safely
+  cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TELEMETRY.md)
@@ -1296,6 +1297,26 @@ OEOF
         exec "$(find_server_binary)" tree "$@"
         ;;
     esac
+    ;;
+  cleanup)
+    shift
+    case "${1:-}" in
+      --help | -h)
+        cat <<'CEOF'
+Usage: tmuxy cleanup [-n|--dry-run] [-q|--quiet]
+
+Reap shells left hanging in the kernel by a pane that died while its shell was
+still starting up. Each one holds a PTY slave open, and enough of them exhaust
+the machine's pseudoterminals so that no new pane can be created.
+
+Options:
+  -n, --dry-run  List what would be reaped and exit
+  -q, --quiet    Print nothing
+CEOF
+        exit 0
+        ;;
+    esac
+    exec "$SCRIPTS_DIR/reap-orphan-shells" "$@"
     ;;
   run)
     shift

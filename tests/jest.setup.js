@@ -1,6 +1,7 @@
 // Jest setup for E2E tests
 
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+const path = require('path');
 
 // Pin the tmux socket before anything can shell out.
 //
@@ -175,5 +176,25 @@ afterAll(async () => {
     } catch {
       // Best effort — process may already be gone
     }
+  }
+
+  // A run creates and destroys hundreds of panes, and each teardown races the
+  // shell's own start-up: one that loses hangs in the kernel holding a PTY
+  // slave, outliving the run. The per-session follow-up in
+  // `TmuxTestSession.destroy` catches the ones it knows the pids of; this is
+  // the net under the whole run, so a suite can never leave the machine with
+  // fewer pseudoterminals than it found.
+  try {
+    const reaped = execFileSync(
+      'bash',
+      [path.join(WORKSPACE_ROOT, 'bin/tmuxy/reap-orphan-shells')],
+      {
+        encoding: 'utf-8',
+        timeout: 15000,
+      },
+    ).trim();
+    if (!reaped.startsWith('No orphaned')) console.warn(`[jest] ${reaped}`);
+  } catch {
+    // Best effort — never fail a green run over cleanup
   }
 });
