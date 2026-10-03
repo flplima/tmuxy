@@ -72,6 +72,9 @@ install_crate cargo-watch
 if [ "$FULL" -eq 1 ]; then
     # `npm run test:tauri` drives the desktop build through this.
     install_crate tauri-driver
+    # `npm run mutants` — asks whether the Rust suite actually bites
+    # (.cargo/mutants.toml). On demand, not a gate, so FULL only.
+    install_crate cargo-mutants
     # `npm run build:wasm` — the CLI version must match the wasm-bindgen crate
     # pinned in Cargo.lock, which is why this one is not floating.
     install_crate wasm-bindgen-cli --version 0.2.111 --locked

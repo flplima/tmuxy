@@ -615,6 +615,62 @@ mod tests {
         }
     }
 
+    /// `%extended-output` carries a pane's bytes with the age of the data, and
+    /// nothing tested it at all: `cargo mutants` turned `parts.len() < 2` into
+    /// `<= 2`, which makes the function return None for every line tmux can
+    /// send — `splitn(2, …)` never yields more than two parts — and the whole
+    /// suite still passed. A pane whose output arrives this way would have gone
+    /// silent with no test failing.
+    #[test]
+    fn extended_output_carries_the_panes_bytes_and_their_age() {
+        let mut parser = Parser::new();
+        match parser.parse_line(r"%extended-output %3 142 : \033[0mhi") {
+            Some(ControlModeEvent::ExtendedOutput {
+                pane_id,
+                age_ms,
+                content,
+            }) => {
+                assert_eq!(pane_id, "%3");
+                assert_eq!(age_ms, 142);
+                assert_eq!(content, b"\x1b[0mhi");
+            }
+            other => panic!("expected ExtendedOutput, got {other:?}"),
+        }
+    }
+
+    /// The age field is optional in practice, and an unparseable one must not
+    /// take the output down with it — the bytes still have to reach the pane.
+    #[test]
+    fn extended_output_without_a_readable_age_still_delivers_its_bytes() {
+        let mut parser = Parser::new();
+        match parser.parse_line("%extended-output %3 notanumber : hi") {
+            Some(ControlModeEvent::ExtendedOutput {
+                pane_id,
+                age_ms,
+                content,
+            }) => {
+                assert_eq!(pane_id, "%3");
+                assert_eq!(
+                    age_ms, 0,
+                    "an unreadable age reads as 0, not as a dropped event"
+                );
+                assert_eq!(content, b"hi");
+            }
+            other => panic!("expected ExtendedOutput, got {other:?}"),
+        }
+    }
+
+    /// A line with no ` : ` separator is not an extended-output line, and must
+    /// be refused rather than half-read. This is the branch the surviving
+    /// mutant inverted, so it is asserted from both sides.
+    #[test]
+    fn extended_output_without_a_separator_is_not_an_event() {
+        let mut parser = Parser::new();
+        assert!(parser
+            .parse_line("%extended-output %3 142 no separator here")
+            .is_none());
+    }
+
     #[test]
     fn response_keeps_leading_blank_lines() {
         // A capture-pane whose top rows are blank: the blank lines are real

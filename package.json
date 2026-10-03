@@ -40,9 +40,13 @@
     "check:fast": "npm run check:policy && npm run preflight && npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
     "check:full": "npm run check:policy && npm run preflight:full && npm run check:fast && npm run test:cli && TERM=xterm-256color cargo test --workspace",
     "test:coverage": "npm run test:coverage -w tmuxy-ui",
-    "coverage:rust": "cargo llvm-cov --workspace --summary-only"
+    "coverage:rust": "cargo llvm-cov --workspace --summary-only",
+    "mutants": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo mutants",
+    "mutants:ui": "npm run mutants -w tmuxy-ui"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@tauri-apps/cli": "^2.9.0",
     "eslint-plugin-jest": "^29.15.0",
     "jest": "^29.7.0",

@@ -735,6 +735,28 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    /// Version skew, case 3 (see `tests/version_skew.rs`): two servers running
+    /// at once must not share a pid file.
+    ///
+    /// They are the normal state of a dev machine — a released build on
+    /// `tmuxy`, the dev server on `tmuxy-dev`, the test suite on `tmuxy-test`
+    /// — and each writes its pid so `tmuxy server stop` and `status` can find
+    /// it. One shared file would mean the second server's write silently
+    /// replaces the first's, after which `stop` signals whichever pid was
+    /// written last, on whatever port the user asked about.
+    #[test]
+    fn two_servers_on_different_ports_do_not_share_a_pid_file() {
+        let default = super::pid_file_path(super::DEFAULT_PORT);
+        let other = super::pid_file_path(super::DEFAULT_PORT + 1);
+        let third = super::pid_file_path(9999);
+
+        assert_ne!(default, other);
+        assert_ne!(other, third);
+        assert_ne!(default, third);
+        // Stable, or a server cannot find the file it wrote itself.
+        assert_eq!(default, super::pid_file_path(super::DEFAULT_PORT));
+    }
+
     use super::*;
 
     /// A scratch pid-file path unique to this test, cleaned up on drop.

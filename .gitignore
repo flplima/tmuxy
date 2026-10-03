@@ -62,3 +62,8 @@ perf/core-pipeline-report.json
 
 # Failure screenshots, DOM dumps and stacks written by the storybook probe.
 packages/tmuxy-ui/probe-artifacts/
+
+# Mutation-testing output (bin/check-repo-policy.mjs explains the runs;
+# `npm run mutants` / `mutants:ui` regenerate it).
+/mutants.out/
+.stryker-tmp/
