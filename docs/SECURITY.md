@@ -68,6 +68,7 @@ What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`
 - **Costs the writer's session nothing.** A connect reads no `has-session` (the monitor's own state says whether the session is attached); the key bindings and the theme settings are each read once per server, not once per request. A scrollback request touches tmux not at all: an observer's monitor keeps its own bounded history per pane (`VIEWER_SCROLLBACK_ROWS`) as output flows past, and the request is answered from that grid. The pane must be one the monitor holds, which is the session it was pinned to, so a viewer cannot name a pane it was never shown; one response is capped at 5000 rows (`MAX_VIEWER_SCROLLBACK_ROWS`).
 
   The trade is deliberate: a viewer sees the history its own monitor witnessed, not tmux's full backlog, and nothing from before it attached. Scrolling a viewer is therefore never work charged to the session being watched — which matters most exactly when the viewer is untrusted or numerous.
+
 - **Announces the mode** in the `connection-info` greeting, which is how the frontend knows to stop offering changes.
 - **Serves fewer open event streams.** A viewer's server is the one whose address gets handed around, so it holds a tighter budget than the one its owner writes through: each `/events` stream is a long-lived task, and past the cap a new one answers 503 rather than being accepted.
 - **Serves one session and creates none.** A name other than the pinned one answers 404, and so does the pinned one while it does not exist — the server's monitor waits for it, where the old shape answered every invented name with `new-session -A`, spawning a live shell per name that outlived the viewer.
@@ -89,11 +90,11 @@ The desktop app serves no HTTP: all communication is local IPC within the app pr
 
 The API is a remote shell, and a browser sends requests on behalf of whatever page is open in it. A site the user visits can POST to `http://localhost:9000/commands` without a CORS preflight (a `text/plain` body is enough), and a site whose domain is re-pointed at 127.0.0.1 (DNS rebinding) looks same-origin to the browser. So every API route checks where a request came from before any handler runs (`tmuxy-server/src/request_guard.rs`):
 
-| Header                      | Rule                                                                 | Stops                                                                      |
-| --------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `Sec-Fetch-Site`            | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
-| `Origin`                    | Must name the host the request was sent to                           | The same, in a browser without Fetch Metadata                              |
-| `Host`                      | Must be a loopback name, the address the server bound, or an `--allowed-host` | DNS rebinding                                                     |
+| Header           | Rule                                                                          | Stops                                                                      |
+| ---------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `Sec-Fetch-Site` | Must be `same-origin` (the app) or `none` (typed in the address bar)          | Any other origin, including another port on localhost and a sandboxed page |
+| `Origin`         | Must name the host the request was sent to                                    | The same, in a browser without Fetch Metadata                              |
+| `Host`           | Must be a loopback name, the address the server bound, or an `--allowed-host` | DNS rebinding                                                              |
 
 The API sends **no CORS headers**, so no other origin can read a response even when a request is let through. A request with none of these headers is not a browser acting for a page (`curl`, a script) and is allowed. Cached Basic-auth credentials do not help a hostile page: its requests are refused by origin before the password matters.
 
@@ -110,6 +111,56 @@ The desktop webview carries its own `Content-Security-Policy` (`tauri.conf.json`
 The cost: a local page cannot use cookies or storage, and a link followed inside it is invisible to the widget. A website is another origin already, so it keeps `allow-same-origin` (its logins and storage work) but is still sandboxed — without `allow-top-navigation`, so a framed page cannot set `window.top.location` and navigate the whole tmuxy tab away, which would be a convincing place to phish the Basic-auth prompt.
 
 Which pane is a widget at all is not decided by pane content. The `__TMUXY_WIDGET__:<name>` marker is output, so anything a pane prints could otherwise replace it with an iframe of an attacker's page: the client renders a widget only when the pane also carries `@tmuxy-pane-widget` naming it, which `tmuxy-widget` writes out of band and clears on exit (see [docs/TMUX.md](TMUX.md)).
+
+## A Server-Side Browser Changes Whose Network This Is
+
+The browser widget frames pages in the VIEWER's browser, so a page it opens has
+the viewer's network position and the viewer's cookies, and tmuxy never sees
+either. A server-driven engine inverts all three, and none of the reasoning
+above carries over.
+
+**The network position becomes the server's.** `goto http://10.0.0.5/admin`
+from a session served over a tunnel is a request from inside the server's
+network, by a client that reaches whatever that host reaches — a database admin
+page, a metadata endpoint at `169.254.169.254`, a service bound to loopback
+that was never meant to be reachable. The viewer's browser could not have made
+that request; the server can, and the viewer chooses the URL. This is SSRF with
+the URL supplied over the wire, and it is the single largest change the feature
+makes. It is why `tmuxy browser` is a WRITE command: a `--read-only` server
+must never expose it, for the same reason it does not expose the file routes
+(SEC-11).
+
+**CDP is an unauthenticated full-control API.** Anything that can speak to the
+engine's debugging endpoint can read every cookie in the profile, run script in
+any page, and navigate to `file://` URLs — i.e. read the disk. So the endpoint
+is not a port: the engine is launched with `--remote-debugging-pipe`, which
+speaks over inherited file descriptors and opens no socket for anything on the
+machine to find. A port is the fallback only where the pipe is unavailable, and
+then on `127.0.0.1` with a kernel-assigned number, never `0.0.0.0` and never a
+fixed 9222 — the number every scanner and every other automation tool on the
+machine already tries.
+
+**The profile is a credential store on the server's disk.** Milestone 1 uses a
+throwaway `--user-data-dir` per session, removed when the session ends, so
+nothing is retained and no login survives. That is a deliberate limit rather
+than an oversight: a persistent profile that a logged-in user can be handed is
+a different security object, and it is the point at which "anyone who can drive
+this session can act as that account" starts being true. It is not in this
+milestone.
+
+**The engine is the user's, not tmuxy's.** tmuxy ships no browser; it finds
+one (`TMUXY_CHROME`, then the platform's usual paths) and refuses the command
+when there is none. That means the engine is patched on the user's own
+schedule rather than pinned to a tmuxy release — the right side of that trade
+for a component with a browser's attack surface — and it means a machine
+without one simply does not have the feature.
+
+**What a page cannot reach.** The engine runs headless with a profile of its
+own, no extensions, and no access to the tmuxy API: it is a separate process
+whose only channel is CDP, and the REPL is the only thing holding the other end.
+A page cannot send a tmux command, because nothing connects a page to
+`/commands` — unlike the framed local-file case above, where the page and the
+app shared an origin until the sandbox separated them.
 
 ## Input That Reaches Control Mode
 

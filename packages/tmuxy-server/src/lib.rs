@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod browser;
 pub mod command;
 mod dev;
 pub mod request_guard;
