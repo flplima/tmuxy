@@ -235,13 +235,21 @@ async function waitForPrompts(page, quantifier, timeout, ceiling) {
     }
     const quietFor = Date.now() - lastChange;
     const elapsed = Date.now() - started;
-    if (quietFor >= patience || elapsed >= hardStop) {
-      const why =
-        elapsed >= hardStop
+    // A pane that has shown NOTHING yet is in a different state from one that
+    // showed something and stopped: it has not started, so the idle budget is
+    // the wrong clock for it. Judging a cold start by `patience` turns "this
+    // runner is slow to fork the first shell" into a failure — the exact thing
+    // a budget measured on someone's laptop cannot know. An empty pane waits
+    // for the ceiling, which is the bound that exists for "this is never going
+    // to happen".
+    const neverStarted = (lastText ?? '').trim() === '';
+    const outOfPatience = neverStarted ? elapsed >= hardStop : quietFor >= patience;
+    if (outOfPatience || elapsed >= hardStop) {
+      const why = neverStarted
+        ? `nothing on screen after ${elapsed}ms`
+        : elapsed >= hardStop
           ? `still changing after ${elapsed}ms`
-          : lastText
-            ? `unchanged for ${quietFor}ms`
-            : `nothing on screen for ${quietFor}ms`;
+          : `unchanged for ${quietFor}ms`;
       const which =
         quantifier === 'every'
           ? `${terminals.filter((t) => !showsShellPrompt(t.text)).length} of ${terminals.length} panes have no shell prompt`

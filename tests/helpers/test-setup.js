@@ -87,21 +87,30 @@ function createTestContext({ snapshot = false } = {}) {
     // Ensure the tmuxy-socket tmux server is alive. Stress tests can crash
     // older tmux; booting the server recovers it for the next test.
     //
-    // `start-server` boots the daemon and nothing else. The old recovery was
-    // `new-session -d -s _warmup && kill-session -t _warmup`, which spawned an
-    // interactive shell and killed it microseconds later — and a shell killed
-    // during `init_io` blocks forever in the kernel opening a tty slave whose
-    // master tmux has already closed, leaving one orphan per call (see
-    // `bin/tmuxy/reap-orphan-shells`).
+    // The warmup session runs `tail -f /dev/null`, NOT the default interactive
+    // shell. Two things have to be true at once and only this shape gets both:
+    //
+    //   * A session has to be created and destroyed, not just the server
+    //     started. `start-server` alone was tried and made the suite
+    //     intermittently fail with a pane whose shell never wrote a byte —
+    //     creating a session first is what has the server fork a process and
+    //     warm whatever that first fork pays for.
+    //   * The process it forks must not be a shell. A shell killed during
+    //     `init_io` blocks forever in the kernel opening a tty slave whose
+    //     master tmux has already closed, so the old
+    //     `new-session && kill-session` leaked one orphan per call (see
+    //     `bin/tmuxy/reap-orphan-shells`). `tail -f /dev/null` sleeps in a
+    //     read and never opens a terminal.
     const { tmuxCmd } = require('./tmux-socket');
     try {
       require('child_process').execSync(`${tmuxCmd()} has-session 2>/dev/null`, { timeout: 5000 });
     } catch {
       try {
-        require('child_process').execSync(`${tmuxCmd()} start-server`, {
-          timeout: 10000,
-          encoding: 'utf-8',
-        });
+        require('child_process').execSync(
+          `${tmuxCmd()} new-session -d -s _warmup 'tail -f /dev/null' && ` +
+            `${tmuxCmd()} kill-session -t _warmup`,
+          { timeout: 10000, encoding: 'utf-8' },
+        );
       } catch {
         // tmux binary missing or other fatal error — let subsequent steps fail naturally
       }
