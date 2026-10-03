@@ -198,6 +198,10 @@ pub fn find_browser_with(
 }
 
 #[cfg(test)]
+// A test's `expect` IS its assertion: the panic message is the failure report.
+// Same allowance the integration tests carry; CI does not lint test code
+// (docs/TESTS.md, Known Gaps), so this is for whoever runs it with --tests.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
