@@ -56,6 +56,7 @@ async function pressUntilWindowChanged(ctx, press, label, attempts = 3) {
  * break-pane workaround (since new-window crashes tmux 3.5a control mode).
  */
 async function createWindowKeyboard(page) {
+  const before = await windowCount(page);
   await page.evaluate(async (url) => {
     const session = window.app?.getSnapshot()?.context?.sessionName || '';
     await fetch(`${url}/commands?session=${encodeURIComponent(session)}`, {
@@ -64,7 +65,21 @@ async function createWindowKeyboard(page) {
       body: JSON.stringify({ cmd: 'run_tmux_command', args: { command: 'new-window' } }),
     });
   }, TMUXY_URL);
-  await delay(DELAYS.SYNC);
+  // The window arriving in the app's own state is the thing being waited for.
+  // The 1.5s this replaced was long enough on the machine it was written on
+  // and silently short on a loaded runner, where the next step then ran
+  // against a session that still had one window.
+  await waitForCondition(
+    page,
+    async () => (await windowCount(page)) > before,
+    8000,
+    `window count to rise above ${before}`,
+  );
+}
+
+/** How many windows the app currently knows about. */
+async function windowCount(page) {
+  return page.evaluate(() => window.app?.getSnapshot()?.context?.windows?.length ?? 0);
 }
 
 /**
@@ -85,11 +100,24 @@ async function nextWindowKeyboard(page) {
 async function prevWindowKeyboard(page) {
   await focusTerminal(page);
   // Root bindings are matched against the same keybinding table as prefix ones,
-  // so it must be loaded before the chord is delivered.
+  // so it must be loaded before the chord is delivered. waitForKeybindings
+  // already resolves on that, so no beat is needed after it.
   await waitForKeybindings(page);
-  await delay(DELAYS.MEDIUM);
+  const before = await activeWindowId(page);
   await page.keyboard.press('Control+Shift+Tab');
-  await delay(DELAYS.LONG);
+  // `pressUntilWindowChanged` retries this helper when the chord is dropped,
+  // so a press that does not land must fail here rather than resolve blindly.
+  await waitForCondition(
+    page,
+    async () => (await activeWindowId(page)) !== before,
+    3000,
+    'C-S-Tab to change the active window',
+  );
+}
+
+/** The app's current active window id. */
+async function activeWindowId(page) {
+  return page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId ?? null);
 }
 
 /**
@@ -131,8 +159,14 @@ async function renameWindowKeyboard(page, name) {
  * confirm prompt. So we use the command prompt instead.
  */
 async function killWindowKeyboard(page) {
+  const before = await windowCount(page);
   await tmuxCommandKeyboard(page, 'kill-window');
-  await delay(DELAYS.SYNC);
+  await waitForCondition(
+    page,
+    async () => (await windowCount(page)) < before,
+    8000,
+    `window count to fall below ${before}`,
+  );
 }
 
 module.exports = {

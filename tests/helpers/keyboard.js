@@ -4,7 +4,7 @@
  * Focus, key combos, tmux prefix, typing, and tmux command line.
  */
 
-const { delay } = require('./browser');
+const { delay, waitForCondition } = require('./browser');
 const { DELAYS } = require('./config');
 
 // ==================== Focus Helper ====================
@@ -110,7 +110,6 @@ async function sendTmuxPrefix(page) {
   // prefix-bound key is delivered — otherwise the second keystroke is
   // silently dropped, and the test waiting on its effect times out.
   await waitForKeybindings(page);
-  await delay(DELAYS.MEDIUM);
 
   // Read the actual prefix key from the browser's XState context
   const prefix = await getPrefixKey(page);
@@ -132,15 +131,32 @@ async function sendTmuxPrefix(page) {
  * in prefixBindings and not silently fall through to send-keys.
  */
 async function waitForPrefixActive(page, timeout = 2000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const active = await page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.prefixActive === true;
-    });
-    if (active) return;
-    await delay(25);
-  }
-  throw new Error(`Prefix mode did not activate within ${timeout}ms`);
+  await waitForCondition(
+    page,
+    () => page.evaluate(() => window.app?.getSnapshot()?.context?.prefixActive === true),
+    timeout,
+    'prefix mode to activate',
+  );
+}
+
+/**
+ * Block until ctx.prefixActive flips back to false — the keyboard actor has
+ * consumed the key after the prefix and dispatched whatever it was bound to.
+ *
+ * This is as far as a generic prefix helper can honestly wait. What the
+ * binding then DOES lands asynchronously through tmux and SSE, and only the
+ * caller knows which effect to watch for: `waitForPaneCount` after a split,
+ * `assertContentMatch` after a command. The fixed 500ms this replaced stood in
+ * for both jobs and did neither — too long on a fast machine, too short on a
+ * loaded CI runner, and silent either way.
+ */
+async function waitForPrefixConsumed(page, timeout = 3000) {
+  await waitForCondition(
+    page,
+    () => page.evaluate(() => window.app?.getSnapshot()?.context?.prefixActive !== true),
+    timeout,
+    'the key after the prefix to be consumed',
+  );
 }
 
 /**
@@ -170,8 +186,10 @@ async function sendPrefixCommand(page, key, options = {}) {
     await page.keyboard.up('Shift');
   }
 
-  // Wait for command to be processed
-  await delay(DELAYS.LONG);
+  // The key has been delivered; wait for the actor to have consumed it rather
+  // than for a fixed number of milliseconds. The binding's EFFECT is the
+  // caller's to wait for — see waitForPrefixConsumed.
+  await waitForPrefixConsumed(page);
 }
 
 /**
@@ -321,6 +339,7 @@ module.exports = {
   getPrefixKey,
   waitForKeybindings,
   waitForPrefixActive,
+  waitForPrefixConsumed,
   sendTmuxPrefix,
   sendPrefixCommand,
   typeChar,

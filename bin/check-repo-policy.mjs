@@ -88,7 +88,9 @@ function checkWorkflowInvariants() {
     const expectedGroup =
       "group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}";
     if (!lintAndTests.content.includes(expectedGroup)) {
-      addError('[workflow] lint-and-tests.yml concurrency.group drifted from the canonical PR/run_id policy.');
+      addError(
+        '[workflow] lint-and-tests.yml concurrency.group drifted from the canonical PR/run_id policy.',
+      );
     }
     if (!/cancel-in-progress:\s*true/.test(lintAndTests.content)) {
       addError('[workflow] lint-and-tests.yml must set concurrency.cancel-in-progress: true.');
@@ -98,7 +100,9 @@ function checkWorkflowInvariants() {
   for (const wf of workflows) {
     if (wf.name === 'copilot-setup-steps.yml') {
       if (!/copilot-setup-steps:[\s\S]*?permissions:\n\s+contents:\s+read/m.test(wf.content)) {
-        addError('[workflow] copilot-setup-steps.yml must keep contents: read permissions on the copilot-setup-steps job.');
+        addError(
+          '[workflow] copilot-setup-steps.yml must keep contents: read permissions on the copilot-setup-steps job.',
+        );
       }
     } else if (!/^permissions:\n\s+contents:\s+/m.test(wf.content)) {
       addError(`[workflow] ${wf.name} must define top-level contents permissions.`);
@@ -107,7 +111,9 @@ function checkWorkflowInvariants() {
     const keyLines = wf.content.match(/^[ \t]*key:\s*.+$/gm) || [];
     for (const keyLine of keyLines) {
       if (!keyLine.includes('runner.os') && !keyLine.includes('matrix.os')) {
-        addError(`[workflow] ${wf.name} cache key must include runner/matrix OS namespace: ${keyLine.trim()}`);
+        addError(
+          `[workflow] ${wf.name} cache key must include runner/matrix OS namespace: ${keyLine.trim()}`,
+        );
       }
     }
   }
@@ -156,7 +162,12 @@ function checkDocsToScriptsConsistency() {
       if (!token.includes('/')) continue;
       if (token.includes(' ')) continue;
       if (token.includes('*') || token.includes('..') || token.includes('://')) continue;
-      if (!/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|CLAUDE\.md|\.agents|\.claude)\//.test(token) && !['AGENTS.md', 'CLAUDE.md', 'Cargo.lock', 'package.json'].includes(token)) {
+      if (
+        !/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|CLAUDE\.md|\.agents|\.claude)\//.test(
+          token,
+        ) &&
+        !['AGENTS.md', 'CLAUDE.md', 'Cargo.lock', 'package.json'].includes(token)
+      ) {
         continue;
       }
       const cleaned = token.replace(/[),.:;]+$/, '');
@@ -169,7 +180,10 @@ function checkDocsToScriptsConsistency() {
   }
 
   const agentsContent = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
-  const copilotInstructions = fs.readFileSync(path.join(root, '.github/copilot-instructions.md'), 'utf8');
+  const copilotInstructions = fs.readFileSync(
+    path.join(root, '.github/copilot-instructions.md'),
+    'utf8',
+  );
   const canonicalTargets = [agentsContent, copilotInstructions].join('\n');
 
   for (const command of requiredCanonicalCommands) {
@@ -181,7 +195,75 @@ function checkDocsToScriptsConsistency() {
   for (const docPath of wrapperStrictDocs) {
     const content = fs.readFileSync(path.join(root, docPath), 'utf8');
     if (/npm run (?:agent|copilot):/.test(content)) {
-      addError(`[docs] ${docPath} should use the canonical commands (bootstrap/check:*), not agent/copilot aliases.`);
+      addError(
+        `[docs] ${docPath} should use the canonical commands (bootstrap/check:*), not agent/copilot aliases.`,
+      );
+    }
+  }
+}
+
+/**
+ * A ratchet on blind waits in the test suite.
+ *
+ * `delay(n)` sleeps for a number someone measured on their own laptop. A CI
+ * runner is slower, so the wait that was generous here is short there, and the
+ * test fails for a reason it cannot report — the whole class of flake that
+ * "it passed locally" cannot rule out. `waitForCondition` has no such failure
+ * mode: a condition that holds is observed the moment it holds, and one that
+ * never holds fails with a description.
+ *
+ * Converting all of them at once is not realistic, so the count is pinned
+ * instead. The ceiling may only be lowered — when a conversion lands, drop the
+ * number in the same commit. It is not a budget to spend; a new test that
+ * needs a wait uses `waitForCondition`, which this check does not count.
+ *
+ * `delay()` remains legitimate in two places and is not counted: inside
+ * `waitForCondition`'s own poll loop, and as a sub-100ms beat between the parts
+ * of one input gesture (keyboard.down → press → up), where there is no
+ * observable state between the halves to wait on.
+ */
+const BLIND_WAIT_CEILING = {
+  // Shared machinery. A blind wait here is multiplied by every test that calls
+  // the helper, so this is the number that matters most.
+  'tests/helpers': 49,
+  // Test bodies. Each one affects a single test.
+  tests: 209,
+};
+
+function countBlindWaits(content) {
+  // `await delay(...)` and bare `delay(...)` calls, but not the identifier
+  // appearing in a comment, an import, or a property name.
+  const matches = content.match(/(?<![\w.])delay\s*\(/g) ?? [];
+  return matches.length;
+}
+
+function checkBlindWaitRatchet() {
+  const counts = { 'tests/helpers': 0, tests: 0 };
+  const helperDir = path.join(root, 'tests/helpers');
+
+  for (const file of listFiles(path.join(root, 'tests'), new Set(['.js']))) {
+    const relative = rel(file);
+    // The definition and the poll loop live here; counting them would pin a
+    // number that has nothing to do with blind waiting.
+    if (relative === 'tests/helpers/browser.js') continue;
+    const bucket = file.startsWith(helperDir) ? 'tests/helpers' : 'tests';
+    counts[bucket] += countBlindWaits(fs.readFileSync(file, 'utf8'));
+  }
+
+  for (const [bucket, ceiling] of Object.entries(BLIND_WAIT_CEILING)) {
+    const count = counts[bucket];
+    if (count > ceiling) {
+      addError(
+        `[tests] ${count} blind delay() calls in ${bucket}/ exceeds the ceiling of ${ceiling}. ` +
+          'Use waitForCondition(page, fn, budget, description) instead — see ' +
+          'BLIND_WAIT_CEILING in bin/check-repo-policy.mjs.',
+      );
+    } else if (count < ceiling) {
+      addError(
+        `[tests] ${count} blind delay() calls in ${bucket}/ is below the ceiling of ${ceiling}. ` +
+          `Lower BLIND_WAIT_CEILING['${bucket}'] to ${count} in bin/check-repo-policy.mjs so the ` +
+          'ratchet holds the ground this commit just gained.',
+      );
     }
   }
 }
@@ -189,6 +271,7 @@ function checkDocsToScriptsConsistency() {
 checkControlModeEnforcement();
 checkWorkflowInvariants();
 checkDocsToScriptsConsistency();
+checkBlindWaitRatchet();
 
 if (errors.length > 0) {
   console.error('Repo policy checks failed:\n');

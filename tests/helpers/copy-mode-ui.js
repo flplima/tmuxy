@@ -4,7 +4,7 @@
  * Enter/exit copy mode and paste operations via keyboard.
  */
 
-const { delay } = require('./browser');
+const { delay, waitForCondition } = require('./browser');
 const { DELAYS } = require('./config');
 const { sendPrefixCommand } = require('./keyboard');
 
@@ -19,8 +19,31 @@ async function enterCopyModeKeyboard(page) {
  * Exit copy mode via keyboard (q in vi mode)
  */
 async function exitCopyModeKeyboard(page) {
+  // Which panes are in copy mode BEFORE the key: `q` exits one of them, and
+  // waiting for *every* pane to be out would hang a test that deliberately
+  // left a second pane in copy mode.
+  const panesInCopyMode = () =>
+    page.evaluate(() =>
+      Object.entries(window.app?.getSnapshot()?.context?.copyModeStates ?? {})
+        .filter(([, state]) => Boolean(state?.mode))
+        .map(([paneId]) => paneId),
+    );
+  const before = (await panesInCopyMode()).length;
+
   await page.keyboard.press('q');
-  await delay(DELAYS.LONG);
+
+  // The client-side engine dropping the pane's mode is the end of the gesture
+  // (docs/COPY-MODE.md), and it is readable from the app — unlike the 500ms
+  // this replaced, which was the same number whether the exit took 20ms or
+  // never happened at all.
+  if (before > 0) {
+    await waitForCondition(
+      page,
+      async () => (await panesInCopyMode()).length < before,
+      5000,
+      'copy mode to exit',
+    );
+  }
 }
 
 /**

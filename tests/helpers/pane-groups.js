@@ -4,8 +4,7 @@
  * Helpers for interacting with pane groups (tabbed panes).
  */
 
-const { delay } = require('./browser');
-const { DELAYS } = require('./config');
+const { waitForCondition } = require('./browser');
 
 /**
  * Click "Add Pane to Group" via the ⋮ menu on the active pane header
@@ -21,14 +20,21 @@ async function clickPaneGroupAdd(page) {
     (await page.$('.pane-header-menu'));
   if (!menuBtn) throw new Error('Pane header menu button (⋮) not found');
   await menuBtn.click();
-  await delay(DELAYS.SHORT);
+  // waitForSelector's `state: 'visible'` is itself the wait for the menu to
+  // open, so the beat before it only delayed the first poll.
   const addItem = await page.waitForSelector('[role="menuitem"] >> text=Add Pane to Group', {
     state: 'visible',
     timeout: 5000,
   });
   if (!addItem) throw new Error('"Add Pane to Group" menu item not found');
+  const before = await getGroupTabCount(page);
   await addItem.click();
-  await delay(DELAYS.SYNC);
+  await waitForCondition(
+    page,
+    async () => (await getGroupTabCount(page)) > before,
+    8000,
+    `group tab count to rise above ${before}`,
+  );
 }
 
 /**
@@ -65,7 +71,17 @@ async function clickGroupTab(page, index) {
   if (index >= tabs.length)
     throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
   await tabs[index].click();
-  await delay(DELAYS.SYNC);
+  // The selected tab moving is what the click is for, and it is readable.
+  await waitForCondition(
+    page,
+    () =>
+      page.evaluate((i) => {
+        const tabs = document.querySelectorAll('.pane-tabs .pane-tab');
+        return tabs[i]?.classList.contains('pane-tab-selected') === true;
+      }, index),
+    8000,
+    `group tab ${index} to become selected`,
+  );
 }
 
 /**
@@ -82,8 +98,14 @@ async function clickGroupTabClose(page, index) {
     timeout: 5000,
   });
   if (!closeItem) throw new Error('Close Pane menu item not found in context menu');
+  const before = await getGroupTabCount(page);
   await closeItem.click();
-  await delay(DELAYS.SYNC);
+  await waitForCondition(
+    page,
+    async () => (await getGroupTabCount(page)) < before,
+    8000,
+    `group tab count to fall below ${before}`,
+  );
 }
 
 /**
