@@ -9,7 +9,7 @@
 import { fileUrl } from '../../../utils/fileUrl';
 
 /** How the current source is rendered. */
-export type SourceKind = 'image' | 'markdown' | 'page';
+export type SourceKind = 'image' | 'markdown' | 'page' | 'session';
 
 const IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i;
 const MARKDOWN_EXTENSIONS = /\.(?:md|markdown)$/i;
@@ -38,6 +38,14 @@ export function parseSource(lines: string[]): string {
  */
 export function parseColorFilter(lines: string[]): boolean {
   return lines.join('').includes(COLOR_FILTER_MARKER);
+}
+
+/** The URL an `<img>` streams a session's page from. */
+export function sessionStreamUrl(session: string, nonce = 0): string {
+  const base = `/api/browser/${encodeURIComponent(session)}/stream`;
+  // A reload has to change the URL: the browser holds one long-lived request
+  // per `src`, so re-assigning the same one does not restart the stream.
+  return nonce > 0 ? `${base}?_tmuxyReload=${nonce}` : base;
 }
 
 export function classifySource(src: string): SourceKind {

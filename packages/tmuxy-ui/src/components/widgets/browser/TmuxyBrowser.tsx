@@ -26,6 +26,7 @@ import { rampTables, readThemeRamp, themeFilterId } from '../../../utils/themeCo
 import { getThemeVersion, subscribeTheme } from '../../../utils/themeManager';
 import { MarkdownView } from './MarkdownView';
 import { BrowserNav } from './BrowserNav';
+import { SessionView } from './SessionView';
 import { canReadPageTitle, fetchPageTitle } from './pageTitle';
 
 /**
@@ -114,12 +115,18 @@ function usePageTitle(
   }
 }
 
-export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
+export function TmuxyBrowser({ paneId, instance, lines }: WidgetProps) {
   // The raw per-pane record, not a derived object: it is reference-stable
   // across unrelated model ticks, so the pane does not re-render on every
   // snapshot the way a freshly-built view object would make it.
   const state = useAppSelector((context) => context.browserStates[paneId]);
   const readOnly = useReadOnly();
+  // The server-side session, carried by the pane's authorisation tag
+  // (`@tmuxy-pane-widget: browser:<name>`) rather than by output: a REPL that
+  // keeps printing scrolls its own markers away, and a session name deserves
+  // the same out-of-band handling as the tag it belongs to.
+  const browserSession = instance;
+  const isActivePane = useAppSelector((context) => context.activePaneId === paneId);
   const view = browserView(state, lines);
   const kind = classifySource(view.url);
   usePageTitle(
@@ -133,10 +140,28 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
   /** The bar, then whatever the source resolves to, in one column. */
   const framed = (className: string, style: CSSProperties | undefined, body: ReactNode) => (
     <div className={`widget-browser-shell ${className}`} style={style}>
-      <BrowserNav paneId={paneId} view={view} />
+      <BrowserNav paneId={paneId} view={view} session={browserSession || undefined} />
       {body}
     </div>
   );
+
+  // A SERVER-SIDE session takes precedence over every other kind, and is
+  // checked before the empty-source case: such a pane has no `__SRC__` marker
+  // at all — its page is named by a session, not by a URL this client could
+  // fetch. The address bar still shows above it, reading the page's own URL
+  // back from the engine rather than from the marker.
+  if (browserSession) {
+    return framed(
+      'widget-browser widget-browser-remote',
+      { '--widget-zoom': view.zoom } as CSSProperties,
+      <SessionView
+        session={browserSession}
+        reloadNonce={view.reloadNonce}
+        active={isActivePane}
+        zoom={view.zoom}
+      />,
+    );
+  }
 
   if (!view.url) {
     return <div className="widget-browser-empty">Waiting for a page...</div>;

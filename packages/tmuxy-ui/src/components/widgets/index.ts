@@ -5,6 +5,15 @@ import type { AppMachineContext, AppMachineEvent } from '../../machines/types';
 export interface WidgetProps {
   paneId: string;
   widgetName: string;
+  /**
+   * Which instance of the widget this pane shows, from the `widget:instance`
+   * form of `@tmuxy-pane-widget`. Empty for a widget that has no instances.
+   *
+   * The browser widget uses it for the server-side session name; it is carried
+   * by the authorisation rather than by pane output because output scrolls away
+   * and because a session name is as sensitive as the tag it belongs to.
+   */
+  instance: string;
   lines: string[];
   lastLine: string;
   rawContent: PaneContent;
@@ -35,6 +44,8 @@ export interface WidgetMenuItem {
 /** What a widget's key handler is given to act with. */
 export interface WidgetKeyContext {
   paneId: string;
+  /** The widget instance (see `WidgetProps.instance`). */
+  instance: string;
   lines: string[];
   context: AppMachineContext;
   send: (event: AppMachineEvent) => void;
@@ -98,9 +109,22 @@ const WIDGET_MARKER_PREFIX = '__TMUXY_WIDGET__:';
 export function detectWidget(
   content: PaneContent,
   authorizedWidget: string | null | undefined,
-): { widgetName: string; contentLines: string[] } | null {
+): { widgetName: string; instance: string; contentLines: string[] } | null {
   if (content.length === 0) return null;
+  // The authorisation is the whole question. It is a tmux pane option, set out
+  // of band by `tmuxy-widget` and cleared on its way out, so no amount of pane
+  // output can produce or change it.
   if (!authorizedWidget) return null;
+
+  // `browser:live` — the widget, and which instance of it this pane shows. The
+  // instance travels with the authorisation rather than in output because a
+  // pane that keeps printing scrolls its output away, and because a session
+  // name is exactly as sensitive as the authorisation it belongs to: whatever
+  // may decide one may decide the other.
+  const separator = authorizedWidget.indexOf(':');
+  const authorizedName = separator === -1 ? authorizedWidget : authorizedWidget.slice(0, separator);
+  const instance = separator === -1 ? '' : authorizedWidget.slice(separator + 1);
+  if (!widgetRegistry[authorizedName]) return null;
 
   // Scan all lines for the marker (it may not be at line 0 if run from a shell)
   for (let i = 0; i < content.length; i++) {
@@ -114,7 +138,7 @@ export function detectWidget(
       // The marker must name the widget the pane was tagged for. A pane
       // legitimately running one widget must not be turned into another by
       // something it prints.
-      if (widgetName !== authorizedWidget) continue;
+      if (widgetName !== authorizedName) continue;
 
       // Content lines are everything after the marker line
       const contentLines = content.slice(i + 1).map((line) =>
@@ -124,9 +148,34 @@ export function detectWidget(
           .trimEnd(),
       );
 
-      return { widgetName, contentLines };
+      return { widgetName, instance, contentLines };
     }
   }
 
-  return null;
+  // No marker on screen. For a pane tagged with an INSTANCE, that is expected
+  // and the tag alone is enough.
+  //
+  // Only for an instance, and the narrowness is the point. A pane tagged
+  // `browser:live` runs a REPL that keeps printing and scrolls its own marker
+  // out of the visible region; without this it would silently stop being a
+  // widget the moment it filled the screen, which no symptom would explain. A
+  // pane tagged plainly (`browser`, `tree`) prints its marker once and then
+  // sleeps, so a missing marker there means something else — a widget killed
+  // without its EXIT trap running, leaving a stale tag over a live shell — and
+  // showing a widget over that shell would be worse than showing nothing.
+  //
+  // Note this branch lets output choose NOTHING: the tag supplies the widget
+  // and the instance, and every line is content since there is no marker to
+  // measure from.
+  if (!instance) return null;
+  return {
+    widgetName: authorizedName,
+    instance,
+    contentLines: content.map((line) =>
+      line
+        .map((cell) => cell.c)
+        .join('')
+        .trimEnd(),
+    ),
+  };
 }

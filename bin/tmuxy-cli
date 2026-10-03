@@ -1340,6 +1340,28 @@ BEOF
         exit 0
         ;;
     esac
+    # `--repl` means a PANE: the REPL's output goes through `tmuxy-widget`, so
+    # the pane renders the live page while its text stays the transcript an
+    # agent reads with `tmuxy pane capture`. Every other form is a one-shot
+    # command and talks to the server directly.
+    #
+    # The flag is removed by REBUILDING the list, not by substituting it away.
+    # `"${@/--repl/}"` leaves an empty argument in its place, and the server's
+    # verb line is a trailing var-arg — so an empty first element swallowed
+    # `--session NAME` into the verb and the REPL silently drove the `default`
+    # session instead of the named one.
+    BROWSER_IS_REPL=0
+    BROWSER_ARGS=()
+    for arg in "$@"; do
+      if [ "$arg" = "--repl" ]; then
+        BROWSER_IS_REPL=1
+      else
+        BROWSER_ARGS+=("$arg")
+      fi
+    done
+    if [ "$BROWSER_IS_REPL" -eq 1 ]; then
+      exec "$SCRIPTS_DIR/tmuxy-browser-pane" ${BROWSER_ARGS[@]+"${BROWSER_ARGS[@]}"}
+    fi
     exec "$(find_server_binary)" browser "$@"
     ;;
   cleanup)

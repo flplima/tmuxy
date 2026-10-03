@@ -827,7 +827,9 @@ async fn serve_viewer(
         // all.
         ClientCommand::BrowserRun { .. }
         | ClientCommand::BrowserList
-        | ClientCommand::BrowserClose { .. } => return None,
+        | ClientCommand::BrowserClose { .. }
+        | ClientCommand::BrowserViewport { .. }
+        | ClientCommand::BrowserInput { .. } => return None,
         _ => return None,
     })
 }
@@ -912,10 +914,56 @@ async fn handle_command(
         } => Ok(serde_json::json!(
             state.browsers.close(&browser_session).await
         )),
+        // Viewport and input act on a session that already exists, and must not
+        // start one: a pane that is merely being resized should not launch a
+        // browser, and neither should a stray mouse move.
+        #[cfg(unix)]
+        ClientCommand::BrowserViewport {
+            session: browser_session,
+            width,
+            height,
+            device_scale_factor,
+        } => {
+            let Some(session) = state.browsers.existing(&browser_session).await else {
+                return Err(format!("no browser session called {browser_session:?}"));
+            };
+            // Bound, so the guard is dropped before the match arm's value is
+            // produced — a temporary guard would outlive the borrow.
+            let outcome = {
+                let mut session = session.lock().await;
+                session
+                    .set_viewport(width, height, device_scale_factor.unwrap_or(1.0))
+                    .await
+            };
+            outcome
+                .map(|_| serde_json::json!(null))
+                .map_err(|error| error.to_string())
+        }
+        #[cfg(unix)]
+        ClientCommand::BrowserInput {
+            session: browser_session,
+            method,
+            params,
+        } => {
+            let Some(session) = state.browsers.existing(&browser_session).await else {
+                return Err(format!("no browser session called {browser_session:?}"));
+            };
+            // Bound, so the guard is dropped before the match arm's value is
+            // produced — a temporary guard would outlive the borrow.
+            let outcome = {
+                let mut session = session.lock().await;
+                session.forward_input(&method, params).await
+            };
+            outcome
+                .map(|_| serde_json::json!(null))
+                .map_err(|error| error.to_string())
+        }
         #[cfg(not(unix))]
         ClientCommand::BrowserRun { .. }
         | ClientCommand::BrowserList
-        | ClientCommand::BrowserClose { .. } => {
+        | ClientCommand::BrowserClose { .. }
+        | ClientCommand::BrowserViewport { .. }
+        | ClientCommand::BrowserInput { .. } => {
             Err("the server-side browser needs a unix host".to_string())
         }
         ClientCommand::SetClientSize { cols, rows } => {

@@ -1715,6 +1715,38 @@
   justify-content: center;
 }
 
+/* The surface a SERVER-SIDE session's page is painted on.
+   Owns the pointer, because every click, drag and wheel over it is forwarded
+   to the page rather than acted on here — and because `getBoundingClientRect`
+   on this element is what page coordinates are measured from, so it has to be
+   exactly the area the frame fills and nothing more. */
+.widget-browser-session {
+  position: relative;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  /* The page is remote, so the pane cannot know what it will paint. White, as
+     a real browser window is, or an unstyled page's black text lands on the
+     pane's dark background. */
+  background: #fff;
+}
+
+.widget-browser-session-frame {
+  display: block;
+  /* The frame is capped on the server and scaled here, so it fills the surface
+     rather than sitting at whatever pixel size was encoded. `contain` keeps
+     the aspect ratio: a page stretched to the pane would be a page at the
+     wrong shape, which is worse than letterboxing. */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: top left;
+  /* A drag over the page is a drag IN the page — selecting text, moving a
+     slider — so the browser's own image-drag must not intercept it. */
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 .widget-browser-image img {
   max-width: 100%;
   max-height: 100%;

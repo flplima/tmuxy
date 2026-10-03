@@ -29,12 +29,20 @@ import type { BrowserView } from './view';
 interface BrowserNavProps {
   paneId: string;
   view: BrowserView;
+  /**
+   * The SERVER-SIDE session this pane shows, if it shows one.
+   *
+   * Changes what Enter in the address means: a framed pane navigates by having
+   * its `src` changed, while a session's page lives in an engine that has to be
+   * told. Everything else about the bar is the same.
+   */
+  session?: string;
 }
 
 /** nf-fa-external_link — the way out to the system browser. */
 const EXTERNAL_ICON = '';
 
-export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavProps) {
+export const BrowserNav = memo(function BrowserNav({ paneId, view, session }: BrowserNavProps) {
   const send = useAppSend();
   const { url, source } = view;
   const [draft, setDraft] = useState(url);
@@ -96,6 +104,9 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
         onSubmit={(e) => {
           e.preventDefault();
           send({ type: 'BROWSER_NAVIGATE', paneId, source, url: draft });
+          // A server-side session also has to be told: the pane shows a picture
+          // of a page the engine holds, and the engine only moves when asked.
+          if (session) send({ type: 'BROWSER_RUN', session, line: `goto ${draft}` });
           inputRef.current?.blur();
         }}
       >

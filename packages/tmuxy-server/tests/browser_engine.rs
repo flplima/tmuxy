@@ -198,8 +198,11 @@ async fn events_arrive_without_being_asked_for() {
         .await
         .expect("Page.navigate");
 
+    // Taken rather than borrowed: there is one event stream, and `Session`
+    // takes it for the screencast pump in normal use.
+    let mut events = engine.take_events().expect("the event stream is unclaimed");
     let saw_event = tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        while let Some((method, _params)) = engine.events.recv().await {
+        while let Some((method, _params)) = events.recv().await {
             if method.starts_with("Page.") {
                 return true;
             }
@@ -600,6 +603,262 @@ async fn a_screenshot_is_a_png_on_disk() {
         b"\x89PNG\r\n\x1a\n",
         "the file must be a real PNG, not an empty or mis-decoded one"
     );
+
+    session.close().await;
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+// ===========================================================================
+// The screencast: a picture of the page, for the pane
+// ===========================================================================
+
+/// A session nobody has navigated still produces a frame.
+///
+/// This is the case that broke twice while building it, both times silently.
+/// Chromium emits a screencast frame only when the page CHANGES visually, so a
+/// page someone has opened to READ produces nothing at all — and a `watch`
+/// channel's `send` throws the value away when no receiver is attached yet, so
+/// even the explicit first frame went missing. Either bug alone leaves a blank
+/// pane and no error anywhere.
+#[tokio::test]
+async fn a_still_page_still_produces_a_frame() {
+    let state = scratch_dir("screencast-still");
+    let Some(mut session) = session_or_skip("a_still_page_still_produces_a_frame", &state).await
+    else {
+        return;
+    };
+
+    // Deliberately NOT navigated: `about:blank` is as static as a page gets.
+    let mut frames = session.watch_frames().await.expect("watch_frames");
+    let frame = frames.borrow_and_update().clone();
+
+    assert!(
+        !frame.is_empty(),
+        "a subscriber must be handed the current frame, not an empty one — a page \
+         that never changes produces no screencast event, so the first frame has \
+         to be captured explicitly AND retained for whoever connects next"
+    );
+    assert_eq!(
+        &frame[..3],
+        b"\xff\xd8\xff",
+        "the frame must be a JPEG (SOI marker), not an empty or mis-decoded buffer"
+    );
+
+    session.close().await;
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+/// A page that changes keeps producing frames, which is the acknowledgement
+/// working: Chromium sends up to a small number of unacknowledged frames and
+/// then stops, so a pump that published without acking would show the first few
+/// and then a still picture — looking like the page had stopped, not the stream.
+#[tokio::test]
+async fn a_changing_page_keeps_producing_frames() {
+    use tmuxy_server::browser::verbs::Verb;
+
+    let state = scratch_dir("screencast-moving");
+    let Some(mut session) = session_or_skip("a_changing_page_keeps_producing_frames", &state).await
+    else {
+        return;
+    };
+
+    let mut frames = session.watch_frames().await.expect("watch_frames");
+    session
+        .run(Verb::Goto {
+            url: format!(
+                "data:text/html,{}",
+                urlencode(
+                    "<body><h1 id=n>0</h1><script>let n=0;\
+                     setInterval(()=>{n++;document.getElementById('n').textContent=n;\
+                     document.body.style.background=n%2?'#123':'#321'},120)</script></body>"
+                )
+            ),
+        })
+        .await
+        .expect("goto");
+
+    // Count distinct frames rather than events: an implementation that stopped
+    // after its unacknowledged allowance would deliver a handful and stall.
+    let mut seen = 0;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+    while std::time::Instant::now() < deadline && seen < 8 {
+        if tokio::time::timeout(std::time::Duration::from_secs(3), frames.changed())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        if !frames.borrow_and_update().is_empty() {
+            seen += 1;
+        }
+    }
+
+    assert!(
+        seen >= 8,
+        "only {seen} frames arrived; Chromium stops sending once its unacknowledged \
+         allowance is used up, so this is what a missing Page.screencastFrameAck \
+         looks like"
+    );
+
+    session.close().await;
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+/// The viewport is what the PAGE lays out against, so the pane's size has to
+/// reach it — and a nonsense size has to be refused rather than clamped: a pane
+/// mid-resize reports 0, and a viewport of 0 makes Chromium stop painting
+/// altogether, which is indistinguishable from the feature being broken.
+#[tokio::test]
+async fn the_viewport_follows_the_pane_and_refuses_nonsense() {
+    use tmuxy_server::browser::session::Output;
+    use tmuxy_server::browser::verbs::Verb;
+
+    let state = scratch_dir("viewport");
+    let Some(mut session) =
+        session_or_skip("the_viewport_follows_the_pane_and_refuses_nonsense", &state).await
+    else {
+        return;
+    };
+
+    session
+        .set_viewport(480, 800, 1.0)
+        .await
+        .expect("set_viewport");
+    assert_eq!(
+        session
+            .run(Verb::Eval {
+                expression: "innerWidth + 'x' + innerHeight".to_string()
+            })
+            .await
+            .expect("read the viewport"),
+        Output::Line("480x800".to_string()),
+        "the page must lay out at the size it was given"
+    );
+
+    for (w, h) in [(0, 800), (480, 0), (99_999, 800)] {
+        assert!(
+            session.set_viewport(w, h, 1.0).await.is_err(),
+            "{w}x{h} must be refused, not clamped"
+        );
+    }
+    // And the refusal left the usable one in place.
+    assert_eq!(
+        session
+            .run(Verb::Eval {
+                expression: "innerWidth".to_string()
+            })
+            .await
+            .expect("viewport survived"),
+        Output::Line("480".to_string())
+    );
+
+    session.close().await;
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+/// Forwarded input reaches the page, and only the three `Input` methods a pane
+/// needs may be named.
+///
+/// The allowlist is the security half: `method` and `params` come from a
+/// client, so without it this would be a general door into CDP — where
+/// `Runtime.evaluate` runs anything and `Page.navigate` goes anywhere.
+#[tokio::test]
+async fn forwarded_input_reaches_the_page_and_nothing_else_does() {
+    use tmuxy_server::browser::session::Output;
+    use tmuxy_server::browser::verbs::Verb;
+
+    let state = scratch_dir("input");
+    let Some(mut session) = session_or_skip(
+        "forwarded_input_reaches_the_page_and_nothing_else_does",
+        &state,
+    )
+    .await
+    else {
+        return;
+    };
+
+    session.set_viewport(800, 600, 1.0).await.expect("viewport");
+    session
+        .run(Verb::Goto {
+            url: format!(
+                "data:text/html,{}",
+                urlencode(
+                    "<body style='margin:0'><div id=hit style='width:400px;height:200px'></div>\
+                     <p id=out>none</p>\
+                     <script>document.getElementById('hit')\
+                     .addEventListener('click',()=>{document.getElementById('out').textContent='hit'});\
+                     document.addEventListener('keydown',e=>{\
+                     document.getElementById('out').textContent='key:'+e.key})</script></body>"
+                )
+            ),
+        })
+        .await
+        .expect("goto");
+
+    // A click, as the pane forwards one: press then release at the same point.
+    for phase in ["mousePressed", "mouseReleased"] {
+        session
+            .forward_input(
+                "Input.dispatchMouseEvent",
+                serde_json::json!({
+                    "type": phase,
+                    "x": 100, "y": 60,
+                    "button": "left",
+                    "buttons": if phase == "mousePressed" { 1 } else { 0 },
+                    "clickCount": 1,
+                }),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("forward {phase}: {e}"));
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert_eq!(
+        session
+            .run(Verb::Text {
+                selector: Some("#out".to_string())
+            })
+            .await
+            .expect("read the click's effect"),
+        Output::Text("hit".to_string()),
+        "a press and release forwarded from the pane must land as a click"
+    );
+
+    // A key, likewise.
+    session
+        .forward_input(
+            "Input.dispatchKeyEvent",
+            serde_json::json!({ "type": "keyDown", "key": "q", "text": "q" }),
+        )
+        .await
+        .expect("forward a key");
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert_eq!(
+        session
+            .run(Verb::Text {
+                selector: Some("#out".to_string())
+            })
+            .await
+            .expect("read the key's effect"),
+        Output::Text("key:q".to_string())
+    );
+
+    // And the door is only this wide.
+    for method in [
+        "Runtime.evaluate",
+        "Page.navigate",
+        "Browser.close",
+        "Input.setInterceptDrags",
+        "Input.dispatchTouchEvent",
+    ] {
+        let refused = session
+            .forward_input(method, serde_json::json!({}))
+            .await
+            .expect_err(method);
+        assert!(
+            refused.to_string().contains(method),
+            "the refusal names what was refused: {refused}"
+        );
+    }
 
     session.close().await;
     let _ = std::fs::remove_dir_all(&state);

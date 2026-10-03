@@ -43,6 +43,7 @@ function widgetProps(src: string, colorFilter = false): WidgetProps {
   return {
     paneId: '%0',
     widgetName: 'browser',
+    instance: '',
     lines: [...(colorFilter ? ['__COLOR_FILTER__'] : []), `__SRC__:${src}`],
     lastLine: `__SRC__:${src}`,
     rawContent: [],

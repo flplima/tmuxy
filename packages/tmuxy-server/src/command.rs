@@ -107,6 +107,33 @@ pub enum ClientCommand {
     BrowserClose {
         session: String,
     },
+    /// Lay a browser session's page out for a pane of this many CSS pixels.
+    ///
+    /// Sent by the widget when the pane is first shown and whenever it is
+    /// resized, so the page gets the layout its width deserves rather than a
+    /// scaled-down copy of whatever the engine started at.
+    BrowserViewport {
+        session: String,
+        width: u32,
+        height: u32,
+        /// The viewer's `devicePixelRatio`, so text is laid out at the density
+        /// it will be displayed at.
+        #[serde(default, rename = "deviceScaleFactor")]
+        device_scale_factor: Option<f64>,
+    },
+    /// Forward one input event from the pane to the page.
+    ///
+    /// `method` and `params` are CDP's own `Input.*` shapes rather than a
+    /// tmuxy-shaped event, because re-modelling them would be a second schema
+    /// to keep in step with the protocol for no gain. The server holds an
+    /// allowlist of the methods a pane may name, so this is not a general door
+    /// into CDP.
+    BrowserInput {
+        session: String,
+        method: String,
+        #[serde(default)]
+        params: Value,
+    },
 }
 
 impl ClientCommand {

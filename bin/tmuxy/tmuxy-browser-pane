@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# A pane that SHOWS a server-side browser session and lets you drive it.
+#
+# Two things in one pane, which is the point:
+#
+#   * the widget renders the live page, because the REPL prints a
+#     `__BROWSER_SESSION__:` marker and `tmuxy-widget` tags the pane as a
+#     browser widget;
+#   * the pane's own text is the REPL transcript, so another pane or an agent
+#     drives it with `tmuxy pane send` and reads the answers back with
+#     `tmuxy pane capture` — needing no API of its own.
+#
+# The REPL's stdout is piped through `tmuxy-widget`, which prints the widget
+# marker and then passes everything through. Its stdin stays the terminal (the
+# head of a pipeline keeps the tty), which is what makes `send-keys` work.
+#
+# Usage: tmuxy-browser-pane [--session NAME] [--port N]
+set -euo pipefail
+
+SELF="$0"
+if [ -L "$SELF" ]; then SELF="$(readlink -f "$SELF")"; fi
+SCRIPTS_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
+
+SESSION="default"
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --session)
+      SESSION="${2:?--session needs a name}"
+      ARGS+=("--session" "$SESSION")
+      shift 2
+      ;;
+    --session=*)
+      SESSION="${1#--session=}"
+      ARGS+=("--session" "$SESSION")
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# The server binary, found the way `tmuxy server` finds it: a release install
+# has it on PATH, a checkout has it under target/.
+find_server_binary() {
+  if command -v tmuxy-server >/dev/null 2>&1; then
+    command -v tmuxy-server
+    return
+  fi
+  for candidate in "$REPO_ROOT/target/release/tmuxy-server" "$REPO_ROOT/target/debug/tmuxy-server"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return
+    fi
+  done
+  echo "tmuxy browser: no tmuxy-server binary found (build one with \`cargo build -p tmuxy-server\`)" >&2
+  exit 1
+}
+
+# `--repl` reads stdin, which is this pane's tty; stdout goes through the
+# widget wrapper. The title is what a PARKED pane calls itself, where the
+# widget's own title is unavailable.
+# `browser:$SESSION` — the widget and which session it shows, in one tag.
+# The client splits it: the name authorises the widget, the instance tells it
+# which page to stream. Both are then out of band, which output cannot be.
+"$(find_server_binary)" browser --repl ${ARGS[@]+"${ARGS[@]}"} \
+  | "$SCRIPTS_DIR/tmuxy-widget" "browser:$SESSION" "browser: $SESSION"

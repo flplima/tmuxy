@@ -14,11 +14,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use super::discover;
 use super::engine::profile_dir;
-use super::process::{Engine, EngineError};
+use super::process::{Channel, Engine, EngineError};
 use super::verbs::{self, Verb};
 
 /// How long a `wait` verb polls before giving up.
@@ -29,6 +29,27 @@ use super::verbs::{self, Verb};
 const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 /// How often `wait` re-asks. Cheap — one `Runtime.evaluate` per tick.
 const WAIT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How the page is encoded for the pane.
+///
+/// JPEG rather than PNG: the pane is showing a live page, so each frame is
+/// replaced within a tenth of a second and compression artefacts are invisible,
+/// while a PNG of a photographic page is several times the bytes. Quality 70 is
+/// where text stays crisp and the size stops falling much.
+const FRAME_FORMAT: &str = "jpeg";
+const FRAME_QUALITY: u32 = 70;
+
+/// A cap on the frame's pixel size, independent of the viewport.
+///
+/// The viewport is what the PAGE lays out against and follows the pane; this is
+/// only how many pixels get encoded and sent. A retina pane asking for its full
+/// device resolution would triple the bytes for detail the pane cannot show
+/// after scaling, so the frame is capped and the `<img>` scales it.
+const FRAME_MAX_WIDTH: u32 = 1920;
+const FRAME_MAX_HEIGHT: u32 = 1200;
+
+/// One encoded frame of the page.
+pub type Frame = Arc<Vec<u8>>;
 
 /// What a verb produced, as the REPL and the CLI print it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +86,10 @@ pub enum SessionError {
     WaitedTooLong { selector: String },
     #[error("the page refused to evaluate that: {0}")]
     PageThrew(String),
+    #[error("a {width}x{height} viewport is not usable")]
+    BadViewport { width: u32, height: u32 },
+    #[error("`{method}` is not an input event a pane may forward")]
+    NotForwardable { method: String },
     #[error("could not write {path}: {source}")]
     Write {
         path: PathBuf,
@@ -76,6 +101,20 @@ pub enum SessionError {
 /// One browser session.
 pub struct Session {
     engine: Engine,
+    /// The latest frame of the page, for anyone streaming it.
+    ///
+    /// A `watch` rather than a broadcast queue, because this is video: a client
+    /// that falls behind should see the CURRENT frame, not work through a
+    /// backlog of stale ones. `watch` keeps only the latest and drops the rest,
+    /// which is exactly that policy, and it cannot lag-error the way a
+    /// broadcast receiver can.
+    frames: watch::Sender<Frame>,
+    /// Whether `Page.startScreencast` has been sent.
+    ///
+    /// Started lazily, on the first client that asks to stream, so a session
+    /// nobody is looking at encodes nothing. Chromium only emits a frame when
+    /// the page changes visually, so an idle page then costs nothing either.
+    screencasting: bool,
     /// Where `shot` puts a screenshot nobody named a path for.
     shots_dir: PathBuf,
     /// Only for the error message when the profile cannot be cleaned up.
@@ -87,7 +126,7 @@ impl Session {
     pub async fn start(state_dir: &Path, name: &str) -> Result<Self, SessionError> {
         let browser = discover::find_browser()?;
         let profile = profile_dir(state_dir, name);
-        let engine = Engine::launch(&browser, &profile).await?;
+        let mut engine = Engine::launch(&browser, &profile).await?;
 
         // `Page` has to be enabled before its events arrive, and `Runtime`
         // before `Runtime.evaluate` reports exceptions properly. Both are
@@ -97,11 +136,146 @@ impl Session {
         engine.send("Page.enable", serde_json::json!({})).await?;
         engine.send("Runtime.enable", serde_json::json!({})).await?;
 
+        // An empty first frame, so a client that connects before the page has
+        // painted gets a well-formed stream rather than a stalled one. The
+        // receiver is dropped immediately — every real one comes from
+        // `subscribe()` — which is exactly why frames are published with
+        // `send_replace` rather than `send`: see the pump.
+        let (frames, _) = watch::channel(Arc::new(Vec::new()));
+
+        // One pump for the engine's whole event stream. It owns the receiver,
+        // so nothing else can take half the events, and it holds a `Channel`
+        // rather than the session — acknowledging a frame must not wait on the
+        // lock the verbs use.
+        if let Some(events) = engine.take_events() {
+            tokio::spawn(pump_events(engine.channel(), events, frames.clone()));
+        }
+
         Ok(Self {
             engine,
+            frames,
+            screencasting: false,
             shots_dir: state_dir.join("browser-shots").join(name),
             profile,
         })
+    }
+
+    /// Subscribe to the page's frames, starting the screencast if this is the
+    /// first subscriber.
+    pub async fn watch_frames(&mut self) -> Result<watch::Receiver<Frame>, SessionError> {
+        if !self.screencasting {
+            self.engine
+                .send(
+                    "Page.startScreencast",
+                    serde_json::json!({
+                        "format": FRAME_FORMAT,
+                        "quality": FRAME_QUALITY,
+                        "maxWidth": FRAME_MAX_WIDTH,
+                        "maxHeight": FRAME_MAX_HEIGHT,
+                    }),
+                )
+                .await?;
+            self.screencasting = true;
+
+            // Chromium emits a screencast frame only when the page CHANGES
+            // visually. A page someone has opened to read does not change, so
+            // without this the stream carries nothing at all and the pane stays
+            // blank until the user happens to make something move — which, for
+            // an article or a dashboard, may be never.
+            //
+            // So the first frame is taken explicitly. `captureScreenshot` is
+            // the on-demand form of the same picture; after it the screencast
+            // supplies every subsequent one.
+            if let Ok(shot) = self
+                .engine
+                .send(
+                    "Page.captureScreenshot",
+                    serde_json::json!({ "format": FRAME_FORMAT, "quality": FRAME_QUALITY }),
+                )
+                .await
+            {
+                if let Some(bytes) = shot
+                    .get("data")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(base64_decode)
+                {
+                    if !bytes.is_empty() {
+                        self.frames.send_replace(Arc::new(bytes));
+                    }
+                }
+            }
+        }
+        Ok(self.frames.subscribe())
+    }
+
+    /// Lay the page out for a pane of this many CSS pixels.
+    ///
+    /// The viewport is what the page's own media queries and layout see, so a
+    /// narrow pane should get the narrow layout rather than a scaled-down wide
+    /// one. `deviceScaleFactor` is the viewer's, so text is laid out at the
+    /// density it will be shown at.
+    ///
+    /// Zero or absurd sizes are refused rather than clamped: a pane mid-resize
+    /// momentarily reports 0, and a viewport of 0 makes Chromium stop painting
+    /// altogether, which looks exactly like the feature being broken.
+    pub async fn set_viewport(
+        &mut self,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<Output, SessionError> {
+        if !(MIN_VIEWPORT..=MAX_VIEWPORT).contains(&width)
+            || !(MIN_VIEWPORT..=MAX_VIEWPORT).contains(&height)
+        {
+            return Err(SessionError::BadViewport { width, height });
+        }
+        let scale = if (0.5..=4.0).contains(&scale) {
+            scale
+        } else {
+            1.0
+        };
+        self.engine
+            .send(
+                "Emulation.setDeviceMetricsOverride",
+                serde_json::json!({
+                    "width": width,
+                    "height": height,
+                    "deviceScaleFactor": scale,
+                    "mobile": false,
+                }),
+            )
+            .await?;
+        Ok(Output::Silent)
+    }
+
+    /// Forward one input event to the page.
+    ///
+    /// The params are passed through as the client built them, because they are
+    /// CDP's own `Input.*` shapes and re-modelling them here would be a second
+    /// schema to keep in step with the protocol. What this does add is the
+    /// method allowlist: only the three `Input` methods the pane needs, so a
+    /// client cannot reach the rest of CDP through this door.
+    pub async fn forward_input(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<Output, SessionError> {
+        if !FORWARDABLE_INPUT.contains(&method) {
+            return Err(SessionError::NotForwardable {
+                method: method.to_string(),
+            });
+        }
+        // Awaited, unlike the screencast ack. It is tempting not to — a
+        // keystroke that waits for a round trip seems like it would type at the
+        // speed of the network — but the caller is a `/commands` POST that is
+        // already waiting for its HTTP response, so skipping the CDP reply
+        // saves one write-and-read on a local pipe and nothing else. What it
+        // would cost is every error: a dispatch that Chromium rejects comes
+        // back as a reply nobody is waiting for and is dropped, which is how a
+        // click that silently does nothing becomes impossible to debug. That
+        // happened while building this, and it is why the reply is read.
+        self.engine.send(method, params).await?;
+        Ok(Output::Silent)
     }
 
     /// Run one verb.
@@ -355,6 +529,79 @@ impl Session {
     }
 }
 
+/// The `Input` methods a client may have forwarded to the page.
+///
+/// An allowlist rather than a prefix check: `Input` also carries
+/// `setInterceptDrags` and the touch-emulation switches, and "anything starting
+/// with Input." is the kind of rule that silently widens as the protocol grows.
+const FORWARDABLE_INPUT: &[&str] = &[
+    "Input.dispatchKeyEvent",
+    "Input.dispatchMouseEvent",
+    "Input.insertText",
+];
+
+/// Viewport bounds. The lower one matters: a pane mid-resize reports 0, and a
+/// viewport of 0 makes Chromium stop painting, which looks like a broken
+/// feature rather than a bad number.
+const MIN_VIEWPORT: u32 = 16;
+const MAX_VIEWPORT: u32 = 16384;
+
+/// Read the engine's events forever: publish frames, acknowledge them, and
+/// ignore the rest.
+///
+/// The acknowledgement is not optional. Chromium sends frames up to a small
+/// outstanding limit and then stops until they are acked, so a pump that
+/// publishes without acking shows the first few frames and then a still
+/// picture — which looks like the page having stopped rather than the stream.
+async fn pump_events(
+    channel: Arc<Channel>,
+    mut events: tokio::sync::mpsc::UnboundedReceiver<(String, serde_json::Value)>,
+    frames: watch::Sender<Frame>,
+) {
+    while let Some((method, params)) = events.recv().await {
+        if method != "Page.screencastFrame" {
+            continue;
+        }
+        // Ack first, by session id, before any decoding: the sooner Chromium is
+        // free to send the next frame the smoother the stream, and a frame that
+        // fails to decode must not stall every frame after it.
+        if let Some(ack) = params.get("sessionId").cloned() {
+            if channel
+                .fire(
+                    "Page.screencastFrameAck",
+                    serde_json::json!({ "sessionId": ack }),
+                )
+                .await
+                .is_err()
+            {
+                // The engine is gone; so is the session.
+                break;
+            }
+        }
+
+        let Some(encoded) = params.get("data").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        match base64_decode(encoded) {
+            Some(bytes) if !bytes.is_empty() => {
+                // `send_replace`, not `send`. `send` FAILS when there are no
+                // receivers and throws the value away with it — and a session
+                // nobody is currently streaming is the normal case, not an
+                // error. The frame still has to be kept, because the next
+                // client to connect is handed the current value and nothing
+                // else: dropping it meant a new viewer saw the empty initial
+                // frame and then waited for the page to change, which for a
+                // page someone is reading never happens. The pane stayed blank.
+                frames.send_replace(Arc::new(bytes));
+            }
+            _ => tracing::debug!(
+                target: "tmuxy_server::browser",
+                "a screencast frame did not decode"
+            ),
+        }
+    }
+}
+
 /// Every running session, by name.
 ///
 /// The registry is what makes a session outlive the pane showing it: it is held
@@ -381,6 +628,15 @@ impl Sessions {
         let session = Arc::new(Mutex::new(Session::start(state_dir, name).await?));
         sessions.insert(name.to_string(), Arc::clone(&session));
         Ok(session)
+    }
+
+    /// The session called `name`, only if it is already running.
+    ///
+    /// Separate from `get_or_start` because a GET must not be able to launch a
+    /// browser: the stream route is named by an `<img>` tag, and a reload of a
+    /// stale page would otherwise resurrect a session the user closed.
+    pub async fn existing(&self, name: &str) -> Option<Arc<Mutex<Session>>> {
+        self.inner.lock().await.get(name).map(Arc::clone)
     }
 
     /// The names of the running sessions.

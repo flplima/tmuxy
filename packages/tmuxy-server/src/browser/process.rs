@@ -60,28 +60,43 @@ pub enum EngineError {
 /// A request waiting for its reply.
 type Pending = oneshot::Sender<Result<serde_json::Value, String>>;
 
-/// A live engine process and the pipe to it.
-pub struct Engine {
-    child: Child,
+/// Everything needed to send a command and await its reply, with no access to
+/// the child process.
+///
+/// Separate from `Engine`, and cloneable, because a background task has to be
+/// able to talk to the engine while something else holds the session. The
+/// screencast is the case that forced it: each frame must be acknowledged or
+/// Chromium stops sending after its buffer fills, and the pump doing the
+/// acknowledging cannot be holding the lock that the verbs also need.
+pub struct Channel {
     /// The parent's write half of the child's fd 3.
     outbox: Mutex<tokio::fs::File>,
     /// Requests awaiting replies, by id.
     pending: Arc<Mutex<std::collections::HashMap<u64, Pending>>>,
     ids: Mutex<RequestIds>,
-    /// The attached page's session id. Every `send` carries it; see the module
-    /// docs for why a connection without one can only talk to the browser.
-    page_session: String,
-    /// Events the browser reported on its own. The screencast and console
-    /// plumbing read from here; nothing else has to care that they exist.
-    pub events: mpsc::UnboundedReceiver<(String, serde_json::Value)>,
+    /// The attached page's session id. Every page-level send carries it; see
+    /// the module docs for why a connection without one can only talk to the
+    /// browser.
+    page_session: Mutex<String>,
+}
+
+/// A live engine process and the pipe to it.
+pub struct Engine {
+    child: Child,
+    channel: Arc<Channel>,
+    /// Events the browser reported on its own, taken once by whoever pumps
+    /// them. `Session` does, so the screencast and console plumbing read from
+    /// there rather than from here.
+    events: Option<mpsc::UnboundedReceiver<(String, serde_json::Value)>>,
 }
 
 impl Engine {
     /// Launch `browser` with a profile at `profile`, read its pipe, and attach
     /// to a page so the page-level commands work.
     pub async fn launch(browser: &Path, profile: &Path) -> Result<Self, EngineError> {
-        let mut engine = Self::launch_detached(browser, profile)?;
-        engine.page_session = engine.attach_to_a_page().await?;
+        let engine = Self::launch_detached(browser, profile)?;
+        let session = engine.attach_to_a_page().await?;
+        *engine.channel.page_session.lock().await = session;
         Ok(engine)
     }
 
@@ -146,11 +161,13 @@ impl Engine {
 
         Ok(Self {
             child,
-            outbox: Mutex::new(outbox),
-            pending,
-            ids: Mutex::new(RequestIds::default()),
-            page_session: String::new(),
-            events,
+            channel: Arc::new(Channel {
+                outbox: Mutex::new(outbox),
+                pending,
+                ids: Mutex::new(RequestIds::default()),
+                page_session: Mutex::new(String::new()),
+            }),
+            events: Some(events),
         })
     }
 
@@ -210,16 +227,75 @@ impl Engine {
             })
     }
 
+    /// A handle to talk to this engine, cloneable and independent of the
+    /// session lock.
+    pub fn channel(&self) -> Arc<Channel> {
+        Arc::clone(&self.channel)
+    }
+
+    /// Take the event stream. The second caller gets `None` — there is one
+    /// stream, and two consumers would each see half the events.
+    pub fn take_events(&mut self) -> Option<mpsc::UnboundedReceiver<(String, serde_json::Value)>> {
+        self.events.take()
+    }
+
     /// Send a page-level CDP command and wait for its reply.
-    ///
-    /// This is what nearly everything wants: `Page.*`, `Runtime.*`, `Input.*`,
-    /// `Emulation.*` are all addressed to the attached page.
     pub async fn send(
         &self,
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, EngineError> {
-        if self.page_session.is_empty() {
+        self.channel.send(method, params).await
+    }
+
+    /// Send a browser-level CDP command: `Browser.*`, `Target.*`.
+    pub async fn send_browser(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.channel.send_browser(method, params).await
+    }
+
+    /// Whatever the engine printed to stderr, for a launch that failed.
+    pub fn take_stderr(&mut self) -> Option<std::process::ChildStderr> {
+        self.child.stderr.take()
+    }
+
+    /// End the engine.
+    ///
+    /// `Browser.close` first, because it lets Chromium flush and release the
+    /// profile lock; SIGKILL only if it does not go. A profile left locked by a
+    /// half-dead engine is the one failure that outlives the session and breaks
+    /// the NEXT one.
+    pub async fn shutdown(&mut self) {
+        let _ = self
+            .send_browser("Browser.close", serde_json::json!({}))
+            .await;
+        for _ in 0..20 {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => tokio::time::sleep(Duration::from_millis(100)).await,
+                Err(_) => break,
+            }
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Channel {
+    /// Send a page-level CDP command and wait for its reply.
+    ///
+    /// This is what nearly everything wants: `Page.*`, `Runtime.*`, `Input.*`
+    /// and `Emulation.*` are all addressed to the attached page.
+    pub async fn send(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        let session = self.page_session.lock().await.clone();
+        if session.is_empty() {
             // Reached only by a caller that used `launch_detached` and then
             // asked for a page command. Saying so beats the browser's
             // `'Page.enable' wasn't found`, which reads like a version problem.
@@ -228,8 +304,7 @@ impl Engine {
                 message: "no page is attached; use Engine::launch, not launch_detached".to_string(),
             });
         }
-        self.dispatch(method, params, Some(&self.page_session))
-            .await
+        self.dispatch(method, params, Some(&session)).await
     }
 
     /// Send a browser-level CDP command: `Browser.*`, `Target.*`.
@@ -239,6 +314,30 @@ impl Engine {
         params: serde_json::Value,
     ) -> Result<serde_json::Value, EngineError> {
         self.dispatch(method, params, None).await
+    }
+
+    /// Fire a command and do not wait for the reply.
+    ///
+    /// For `Page.screencastFrameAck` and input events, where the reply carries
+    /// nothing and waiting for it would serialise the pump against the frame
+    /// rate — an ack that waits a round trip per frame is an ack that falls
+    /// behind. The request id is still allocated and still correlated, so the
+    /// reply is matched and discarded rather than mistaken for something else.
+    pub async fn fire(&self, method: &str, params: serde_json::Value) -> Result<(), EngineError> {
+        let session = self.page_session.lock().await.clone();
+        let id = self.ids.lock().await.next_id();
+        let mut payload = serde_json::json!({ "id": id, "method": method, "params": params });
+        if !session.is_empty() {
+            payload["sessionId"] = serde_json::Value::String(session);
+        }
+        let bytes = frame(&serde_json::to_vec(&payload).map_err(EngineError::Malformed)?);
+        let mut outbox = self.outbox.lock().await;
+        outbox
+            .write_all(&bytes)
+            .await
+            .map_err(|_| EngineError::Gone)?;
+        outbox.flush().await.map_err(|_| EngineError::Gone)?;
+        Ok(())
     }
 
     async fn dispatch(
@@ -285,32 +384,6 @@ impl Engine {
                 })
             }
         }
-    }
-
-    /// Whatever the engine printed to stderr, for a launch that failed.
-    pub fn take_stderr(&mut self) -> Option<std::process::ChildStderr> {
-        self.child.stderr.take()
-    }
-
-    /// End the engine.
-    ///
-    /// `Browser.close` first, because it lets Chromium flush and release the
-    /// profile lock; SIGKILL only if it does not go. A profile left locked by a
-    /// half-dead engine is the one failure that outlives the session and breaks
-    /// the NEXT one.
-    pub async fn shutdown(&mut self) {
-        let _ = self
-            .send_browser("Browser.close", serde_json::json!({}))
-            .await;
-        for _ in 0..20 {
-            match self.child.try_wait() {
-                Ok(Some(_)) => return,
-                Ok(None) => tokio::time::sleep(Duration::from_millis(100)).await,
-                Err(_) => break,
-            }
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 

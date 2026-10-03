@@ -155,6 +155,26 @@ schedule rather than pinned to a tmuxy release — the right side of that trade
 for a component with a browser's attack surface — and it means a machine
 without one simply does not have the feature.
 
+**The page is a picture, and the picture is a write-only route.** The pane shows
+the page as a motion-JPEG stream (`/api/browser/<session>/stream`), which a
+`--read-only` server does not register at all — same as the file routes, and for
+the same reason: the frames are of a page fetched from the server's network, so
+a viewer seeing them sees hosts they cannot reach themselves. The stream also
+only ever attaches to a session that is ALREADY running: a GET that could start
+a browser would mean an `<img>` tag launching a process, and a reload of a stale
+page resurrecting a session its owner had closed.
+
+**Input forwarded from a pane is an allowlist, not a channel.** A browser pane
+forwards keys and pointer events to the page as CDP's own `Input.*` shapes,
+which means the client names a CDP method. The server accepts exactly three —
+`dispatchKeyEvent`, `dispatchMouseEvent`, `insertText` — because the alternative,
+"anything starting with `Input.`", silently widens as the protocol grows, and
+because without any check this would be a general door into CDP, where
+`Runtime.evaluate` runs arbitrary script and `Page.navigate` goes anywhere. The
+tmux prefix never reaches the page: the widget declines every key tmuxy owns
+(`tmuxyOwnsKey`) rather than claiming what it wants, so a page cannot swallow
+`C-a` and make its pane impossible to leave.
+
 **What a page cannot reach.** The engine runs headless with a profile of its
 own, no extensions, and no access to the tmuxy API: it is a separate process
 whose only channel is CDP, and the REPL is the only thing holding the other end.

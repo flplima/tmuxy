@@ -23,7 +23,7 @@ import { useFramedPaneFocus } from '../hooks';
 
 interface WidgetPaneProps {
   paneId: string;
-  widgetInfo: { widgetName: string; contentLines: string[] };
+  widgetInfo: { widgetName: string; instance: string; contentLines: string[] };
 }
 
 export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
@@ -71,6 +71,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       if (
         def.onKeyDown?.(e, {
           paneId: pid,
+          instance: widgetKeyRef.current.widgetInfo.instance,
           lines: widgetKeyRef.current.widgetInfo.contentLines,
           context: act.getSnapshot().context,
           send: s,
@@ -191,6 +192,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
         <WidgetComponent
           paneId={paneId}
           widgetName={widgetInfo.widgetName}
+          instance={widgetInfo.instance}
           lines={widgetInfo.contentLines}
           lastLine={lastLine}
           rawContent={pane.content}

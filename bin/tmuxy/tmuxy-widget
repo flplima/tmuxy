@@ -40,5 +40,10 @@ _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget $(shquote
 trap 'printf "\033]2;\007"; _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget"; clear; exec "${SHELL:-bash}" </dev/tty' EXIT
 
 printf '\033]2;%s\007' "$TITLE"
-echo "__TMUXY_WIDGET__:${COMPONENT}"
+# Only the widget NAME goes in the marker; an instance suffix
+# (`browser:live`) is part of the pane tag, not of the output. The client
+# compares the marker to the tag's name half, so a tagged instance still
+# matches, and the instance itself never travels through output — where it
+# would scroll away and where a pane could claim one it was not given.
+echo "__TMUXY_WIDGET__:${COMPONENT%%:*}"
 cat

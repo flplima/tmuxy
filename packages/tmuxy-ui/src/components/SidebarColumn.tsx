@@ -250,6 +250,9 @@ function SidebarPane({
       <Tree
         paneId={pane.tmuxId}
         widgetName="tree"
+        // The sidebar's tree is not a tagged pane — it is the column itself —
+        // so there is no instance to carry.
+        instance=""
         lines={[]}
         lastLine=""
         rawContent={pane.content}
