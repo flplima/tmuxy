@@ -23,6 +23,7 @@
 pub mod discover;
 pub mod engine;
 pub mod pipe;
+pub mod verbs;
 // The pipe transport places file descriptors in a forked child, which has no
 // Windows equivalent; the desktop app does not use this module at all.
 #[cfg(unix)]
