@@ -237,6 +237,15 @@ pub struct AppState {
     /// Threaded into `TmuxMonitor` and reused for ad-hoc tmux dispatch via the
     /// Tower stack. Production uses `Ctx::live()`; tests substitute a mock ctx.
     pub ctx: Arc<Ctx>,
+    /// Every running server-side browser session, by name.
+    ///
+    /// Held here rather than by the pane showing one, which is the whole reason
+    /// a session can outlive a reload, a detach or a dropped SSE connection —
+    /// those are all events on the viewing side. Unix only: the engine is
+    /// driven over a pipe whose fds are placed in a forked child
+    /// (`browser::process`).
+    #[cfg(unix)]
+    pub browsers: crate::browser::session::Sessions,
     /// `--read-only`: every client of this server is a viewer. Only the
     /// commands `ClientCommand::is_read` names are served, and no client's
     /// viewport is ever recorded, so a viewer cannot resize the session.
@@ -306,6 +315,8 @@ impl AppState {
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
             ctx,
+            #[cfg(unix)]
+            browsers: crate::browser::session::Sessions::default(),
             read_only: false,
             session_pin: None,
             live_streams: AtomicU64::new(0),

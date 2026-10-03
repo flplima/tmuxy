@@ -243,6 +243,10 @@ pub enum ServerAction {
     /// Inspect a local action-trace file: print a summary, or export a
     /// Chrome-trace/Perfetto timeline with `--export` (docs/TELEMETRY.md).
     Trace(crate::trace_view::TraceViewArgs),
+    /// Drive a server-side browser session: one verb line, or `--repl` for the
+    /// loop a pane runs. Backs `tmuxy browser`.
+    #[cfg(unix)]
+    Browser(crate::browser::client::BrowserArgs),
 }
 
 /// Activate action tracing per the gating rules and announce it loudly, so it
@@ -305,6 +309,10 @@ pub async fn run(args: ServerArgs) {
                 std::process::exit(1);
             }
         },
+        #[cfg(unix)]
+        Some(ServerAction::Browser(browser_args)) => {
+            crate::browser::client::run(browser_args).await;
+        }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
     }
 }

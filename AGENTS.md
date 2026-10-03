@@ -27,13 +27,14 @@ Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> -
 
 ## Running it
 
-| Want             | Do                                                                                                                 | Notes                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| The dev server   | `npm start`, `npm stop`, `npm restart`, `npm logs`                                                                 | `bin/dev` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev` |
-| A one-off server | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev`                                                         | No watcher — what to reach for when `cargo watch` is missing              |
-| Drive the app    | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                      |
-| The trace        | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TELEMETRY.md](docs/TELEMETRY.md)   |
-| Server logs      | `npm logs` (`bin/dev-server`), or the server's own stderr                                                          | `RUST_LOG` filters it                                                      |
+| Want                | Do                                                                                                                 | Notes                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| The dev server      | `npm start`, `npm stop`, `npm restart`, `npm logs`                                                                 | `bin/dev` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev`                                                     |
+| A one-off server    | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev`                                                         | No watcher — what to reach for when `cargo watch` is missing                                                                   |
+| Drive the app       | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                                                                          |
+| A page, server-side | `tmuxy browser goto localhost:3000`, then `eval`/`click`/`text`; `--repl` for the pane loop                        | Headless engine on the server (your own Chrome; `TMUXY_CHROME` picks one). Frames what an iframe cannot, and outlives the pane |
+| The trace           | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TELEMETRY.md](docs/TELEMETRY.md)                                                       |
+| Server logs         | `npm logs` (`bin/dev-server`), or the server's own stderr                                                          | `RUST_LOG` filters it                                                                                                          |
 
 **Three sockets, never mixed:** a released build serves `tmuxy`, the dev server
 `tmuxy-dev`, the E2E suite `tmuxy-test`. A change of socket is a change of

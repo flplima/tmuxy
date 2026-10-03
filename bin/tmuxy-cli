@@ -324,6 +324,7 @@ Commands:
   queue, q    Inter-agent coordination queue (push/send, pop, peek, list, clear)
   tree        Open the sidebar tree view (tabs + panes)
   run         Run any tmux command safely
+  browser     Drive a server-side headless browser (verbs, REPL, sessions)
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
@@ -1297,6 +1298,49 @@ OEOF
         exec "$(find_server_binary)" tree "$@"
         ;;
     esac
+    ;;
+  browser)
+    shift
+    case "${1:-}" in
+      --help | -h)
+        cat <<'BEOF'
+Usage: tmuxy browser [--session NAME] [--repl|--close|--list] [verb ...]
+
+Drive a server-side browser session. Unlike `tmuxy open`, which frames a page
+in YOUR browser, this one runs a headless engine on the machine the server is
+on — so it can show a site that refuses to be framed, be driven by a script,
+and outlive the pane showing it.
+
+The engine is your own Chrome/Chromium/Edge/Brave; tmuxy ships none. Set
+TMUXY_CHROME to choose one.
+
+Verbs:
+  goto <url>              navigate (a bare host gets a scheme)
+  eval <js>               evaluate in the page and print the result
+  click <selector>        click the first match
+  type <selector> <text>  focus a selector and type
+  wait <selector>         block until a selector exists
+  text [selector]         the visible text of the page, or of one element
+  title | url             the page's title or current URL
+  shot [path]             save a PNG
+  back | reload           history
+
+Options:
+  --session NAME  Which session (default: `default`); one engine per name
+  --repl          Read verbs from stdin — what a browser pane runs
+  --close         End the session and remove its throwaway profile
+  --list          List the running sessions
+  --port N        The tmuxy server's port (default: TMUXY_PORT or 9000)
+
+Examples:
+  tmuxy browser goto localhost:3000
+  tmuxy browser eval 'document.title'
+  tmuxy browser --session agent1 click '#submit'
+BEOF
+        exit 0
+        ;;
+    esac
+    exec "$(find_server_binary)" browser "$@"
     ;;
   cleanup)
     shift

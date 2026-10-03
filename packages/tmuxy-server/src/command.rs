@@ -85,6 +85,28 @@ pub enum ClientCommand {
     SetTraceLevel {
         level: String,
     },
+    /// Run one `tmuxy browser` verb against a named server-side browser
+    /// session, starting the session if it is not already running.
+    ///
+    /// A WRITE command, and never served by a `--read-only` server: the engine
+    /// fetches pages from the SERVER's network position, so a viewer who could
+    /// name a URL could reach hosts the server can and they cannot. See
+    /// `docs/SECURITY.md`, "A Server-Side Browser Changes Whose Network This
+    /// Is", and SEC-11 for the same reasoning about the file routes.
+    BrowserRun {
+        /// The session name. One engine per name; a name is something a script
+        /// can say again later, unlike a pane id.
+        session: String,
+        /// The verb line, in the grammar `browser::verbs` parses.
+        line: String,
+    },
+    /// The names of the running browser sessions. A write command for the same
+    /// reason: it discloses that the feature is in use and with what names.
+    BrowserList,
+    /// End a browser session and remove its throwaway profile.
+    BrowserClose {
+        session: String,
+    },
 }
 
 impl ClientCommand {

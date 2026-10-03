@@ -819,8 +819,64 @@ async fn serve_viewer(
         // A viewer is shown one session's screen, not the working directory of
         // every pane on the socket, and never makes the host run `git`.
         ClientCommand::ListGitWorktrees => Ok(serde_json::json!([])),
+        // The server-side browser is NOT served to a viewer, and that is the
+        // point rather than an omission: the engine fetches pages from the
+        // SERVER's network position, so a viewer who could name a URL could
+        // reach hosts the server can and they cannot. Same reasoning as the
+        // file routes (SEC-11), which a read-only server does not register at
+        // all.
+        ClientCommand::BrowserRun { .. }
+        | ClientCommand::BrowserList
+        | ClientCommand::BrowserClose { .. } => return None,
         _ => return None,
     })
+}
+
+/// Run one browser verb, parsing the line and starting the session if needed.
+///
+/// Everything here is a `Result<Value, String>` because that is the `/commands`
+/// contract, and the strings reach the user verbatim — a REPL in a pane and an
+/// agent reading `capture-pane` both see exactly this text, so a parse error
+/// says what the verb needs rather than "invalid request".
+#[cfg(unix)]
+async fn browser_run(
+    state: &Arc<AppState>,
+    session_name: &str,
+    line: &str,
+) -> Result<serde_json::Value, String> {
+    use crate::browser::verbs;
+
+    // Parsed before the engine is touched: a typo should not cost a browser
+    // launch, and `help` has to work on a machine with no browser at all.
+    let verb = match verbs::parse(line) {
+        Ok(verb) => verb,
+        Err(verbs::ParseError::Empty) => return Ok(serde_json::json!("")),
+        Err(error) => return Err(error.to_string()),
+    };
+    if matches!(verb, verbs::Verb::Help) {
+        return Ok(serde_json::json!(verbs::HELP));
+    }
+
+    // The session name shares the tmux session alphabet: it becomes a directory
+    // name for the profile, so `../` or a slash in it would place a profile
+    // somewhere nobody asked for.
+    if !tmuxy_core::session::is_safe_session_name(session_name) {
+        return Err(format!("not a usable session name: {session_name:?}"));
+    }
+
+    let state_dir = crate::browser::state_dir();
+    let session = state
+        .browsers
+        .get_or_start(&state_dir, session_name)
+        .await
+        .map_err(|error| error.to_string())?;
+    let output = session
+        .lock()
+        .await
+        .run(verb)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!(output.to_string()))
 }
 
 async fn handle_command(
@@ -839,6 +895,28 @@ async fn handle_command(
             }
             let snapshot = initial_state_for_size(state, session).await?;
             serde_json::to_value(snapshot).map_err(|e| format!("Failed to serialize state: {}", e))
+        }
+        // The server-side browser. Unix only: the engine is driven over a pipe
+        // whose fds are placed in a forked child, which has no Windows
+        // equivalent (`browser::process`).
+        #[cfg(unix)]
+        ClientCommand::BrowserRun {
+            session: browser_session,
+            line,
+        } => browser_run(state, &browser_session, &line).await,
+        #[cfg(unix)]
+        ClientCommand::BrowserList => Ok(serde_json::json!(state.browsers.names().await)),
+        #[cfg(unix)]
+        ClientCommand::BrowserClose {
+            session: browser_session,
+        } => Ok(serde_json::json!(
+            state.browsers.close(&browser_session).await
+        )),
+        #[cfg(not(unix))]
+        ClientCommand::BrowserRun { .. }
+        | ClientCommand::BrowserList
+        | ClientCommand::BrowserClose { .. } => {
+            Err("the server-side browser needs a unix host".to_string())
         }
         ClientCommand::SetClientSize { cols, rows } => {
             if cols > 0 && rows > 0 {
