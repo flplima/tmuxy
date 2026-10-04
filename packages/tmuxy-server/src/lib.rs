@@ -24,11 +24,29 @@ pub use command::ClientCommand;
 /// until `tmuxy_core::trace::init` installs the writer, so registering it here
 /// costs nothing when tracing is off.
 pub fn init_logging() {
+    init_logging_with(DEFAULT_LOG_FILTER)
+}
+
+/// The filter used when `RUST_LOG` says nothing.
+pub const DEFAULT_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info,warn";
+
+/// The same, for a command that OWNS THE SCREEN.
+///
+/// `tmuxy browser --repl` draws a picture of a page over the whole pane; a
+/// stray `WARN` from a dependency written to stderr lands in the middle of it,
+/// and chromiumoxide emits one for every CDP message it does not model. So the
+/// blanket `warn` goes: tmuxy's own logs still appear (they are few, and worth
+/// seeing), and `RUST_LOG` still overrides everything when something needs
+/// debugging.
+pub const QUIET_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info";
+
+/// `init_logging`, with the default filter named explicitly.
+pub fn init_logging_with(default_filter: &str) {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{fmt, EnvFilter};
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("tmuxy_core=info,tmuxy_server=info,warn"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
     let fmt_layer = fmt::layer()
         .with_target(true)
         .with_thread_ids(false)

@@ -104,6 +104,51 @@ impl LogSink for SseEmitter {
     }
 }
 
+/// The most a single pane's images may hold in memory.
+///
+/// A pane used to accumulate images forever: the store is only swept when the
+/// PANE goes away, and nothing retires an image whose placement was replaced.
+/// That was survivable while an image meant a picture someone `icat`ed, and is
+/// not survivable now that `tmuxy browser --repl` draws a JPEG of the page
+/// several times a second — the same anchor, a new image id each time, so the
+/// placements stay at one while the bytes behind them grow without limit.
+///
+/// Generous on purpose: this is a backstop against a stream, not a budget for
+/// ordinary use. A pane full of distinct pictures in its scrollback stays
+/// whole, and a page at 30KB a frame has room for several hundred frames
+/// before the oldest is dropped.
+const MAX_PANE_IMAGE_BYTES: usize = 24 * 1024 * 1024;
+
+/// Drop a pane's oldest images until it is back under the cap.
+///
+/// Oldest by image id, which the core assigns increasing per pane, so the one
+/// dropped first is the one least likely to still be placed on screen. An image
+/// whose placement is live is only dropped if a pane is holding 24MB of newer
+/// images, in which case the alternative was unbounded growth.
+fn trim_pane_images(
+    store: &mut HashMap<(String, u32), tmuxy_core::control_mode::StoredImage>,
+    pane_id: &str,
+) {
+    let mut ids: Vec<(u32, usize)> = store
+        .iter()
+        .filter(|((pane, _), _)| pane == pane_id)
+        .map(|((_, id), img)| (*id, img.data.len()))
+        .collect();
+    let mut total: usize = ids.iter().map(|(_, len)| *len).sum();
+    if total <= MAX_PANE_IMAGE_BYTES {
+        return;
+    }
+    ids.sort_unstable_by_key(|(id, _)| *id);
+    for (id, len) in ids {
+        if total <= MAX_PANE_IMAGE_BYTES {
+            break;
+        }
+        if store.remove(&(pane_id.to_string(), id)).is_some() {
+            total = total.saturating_sub(len);
+        }
+    }
+}
+
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
         // Garbage-collect orphaned images when we have a full state snapshot
@@ -168,6 +213,7 @@ impl StateEmitter for SseEmitter {
             for (id, img) in images {
                 guard.insert((pane_id.clone(), id), img);
             }
+            trim_pane_images(&mut guard, &pane_id);
         }
     }
 
@@ -819,66 +865,8 @@ async fn serve_viewer(
         // A viewer is shown one session's screen, not the working directory of
         // every pane on the socket, and never makes the host run `git`.
         ClientCommand::ListGitWorktrees => Ok(serde_json::json!([])),
-        // The server-side browser is NOT served to a viewer, and that is the
-        // point rather than an omission: the engine fetches pages from the
-        // SERVER's network position, so a viewer who could name a URL could
-        // reach hosts the server can and they cannot. Same reasoning as the
-        // file routes (SEC-11), which a read-only server does not register at
-        // all.
-        ClientCommand::BrowserRun { .. }
-        | ClientCommand::BrowserList
-        | ClientCommand::BrowserClose { .. }
-        | ClientCommand::BrowserViewport { .. }
-        | ClientCommand::BrowserInput { .. } => return None,
         _ => return None,
     })
-}
-
-/// Run one browser verb, parsing the line and starting the session if needed.
-///
-/// Everything here is a `Result<Value, String>` because that is the `/commands`
-/// contract, and the strings reach the user verbatim — a REPL in a pane and an
-/// agent reading `capture-pane` both see exactly this text, so a parse error
-/// says what the verb needs rather than "invalid request".
-#[cfg(unix)]
-async fn browser_run(
-    state: &Arc<AppState>,
-    session_name: &str,
-    line: &str,
-) -> Result<serde_json::Value, String> {
-    use crate::browser::verbs;
-
-    // Parsed before the engine is touched: a typo should not cost a browser
-    // launch, and `help` has to work on a machine with no browser at all.
-    let verb = match verbs::parse(line) {
-        Ok(verb) => verb,
-        Err(verbs::ParseError::Empty) => return Ok(serde_json::json!("")),
-        Err(error) => return Err(error.to_string()),
-    };
-    if matches!(verb, verbs::Verb::Help) {
-        return Ok(serde_json::json!(verbs::HELP));
-    }
-
-    // The session name shares the tmux session alphabet: it becomes a directory
-    // name for the profile, so `../` or a slash in it would place a profile
-    // somewhere nobody asked for.
-    if !tmuxy_core::session::is_safe_session_name(session_name) {
-        return Err(format!("not a usable session name: {session_name:?}"));
-    }
-
-    let state_dir = crate::browser::state_dir();
-    let session = state
-        .browsers
-        .get_or_start(&state_dir, session_name)
-        .await
-        .map_err(|error| error.to_string())?;
-    let output = session
-        .lock()
-        .await
-        .run(verb)
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(serde_json::json!(output.to_string()))
 }
 
 async fn handle_command(
@@ -897,74 +885,6 @@ async fn handle_command(
             }
             let snapshot = initial_state_for_size(state, session).await?;
             serde_json::to_value(snapshot).map_err(|e| format!("Failed to serialize state: {}", e))
-        }
-        // The server-side browser. Unix only: the engine is driven over a pipe
-        // whose fds are placed in a forked child, which has no Windows
-        // equivalent (`browser::process`).
-        #[cfg(unix)]
-        ClientCommand::BrowserRun {
-            session: browser_session,
-            line,
-        } => browser_run(state, &browser_session, &line).await,
-        #[cfg(unix)]
-        ClientCommand::BrowserList => Ok(serde_json::json!(state.browsers.names().await)),
-        #[cfg(unix)]
-        ClientCommand::BrowserClose {
-            session: browser_session,
-        } => Ok(serde_json::json!(
-            state.browsers.close(&browser_session).await
-        )),
-        // Viewport and input act on a session that already exists, and must not
-        // start one: a pane that is merely being resized should not launch a
-        // browser, and neither should a stray mouse move.
-        #[cfg(unix)]
-        ClientCommand::BrowserViewport {
-            session: browser_session,
-            width,
-            height,
-            device_scale_factor,
-        } => {
-            let Some(session) = state.browsers.existing(&browser_session).await else {
-                return Err(format!("no browser session called {browser_session:?}"));
-            };
-            // Bound, so the guard is dropped before the match arm's value is
-            // produced — a temporary guard would outlive the borrow.
-            let outcome = {
-                let mut session = session.lock().await;
-                session
-                    .set_viewport(width, height, device_scale_factor.unwrap_or(1.0))
-                    .await
-            };
-            outcome
-                .map(|_| serde_json::json!(null))
-                .map_err(|error| error.to_string())
-        }
-        #[cfg(unix)]
-        ClientCommand::BrowserInput {
-            session: browser_session,
-            method,
-            params,
-        } => {
-            let Some(session) = state.browsers.existing(&browser_session).await else {
-                return Err(format!("no browser session called {browser_session:?}"));
-            };
-            // Bound, so the guard is dropped before the match arm's value is
-            // produced — a temporary guard would outlive the borrow.
-            let outcome = {
-                let mut session = session.lock().await;
-                session.forward_input(&method, params).await
-            };
-            outcome
-                .map(|_| serde_json::json!(null))
-                .map_err(|error| error.to_string())
-        }
-        #[cfg(not(unix))]
-        ClientCommand::BrowserRun { .. }
-        | ClientCommand::BrowserList
-        | ClientCommand::BrowserClose { .. }
-        | ClientCommand::BrowserViewport { .. }
-        | ClientCommand::BrowserInput { .. } => {
-            Err("the server-side browser needs a unix host".to_string())
         }
         ClientCommand::SetClientSize { cols, rows } => {
             if cols > 0 && rows > 0 {
@@ -3329,6 +3249,87 @@ mod protocol_fixtures {
             unique.len(),
             names.len(),
             "duplicate SSE event names: {names:?}"
+        );
+    }
+    /// A pane that keeps producing frames must not grow without limit, and a
+    /// pane with a screenful of ordinary pictures must not be trimmed at all.
+    ///
+    /// The frame case is the one that bit: `browser --repl` draws at the same
+    /// anchor, so the PLACEMENTS stay at one while every frame adds a new image
+    /// id — and the store is otherwise only swept when the pane goes away.
+    #[test]
+    fn a_pane_streaming_frames_stops_growing_but_keeps_the_newest() {
+        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
+            HashMap::new();
+        let frame = |len: usize| tmuxy_core::control_mode::StoredImage {
+            data: vec![0u8; len],
+            mime_type: "image/jpeg".to_string(),
+        };
+
+        // A megabyte a frame, far past the cap.
+        for id in 0..40u32 {
+            store.insert(("%1".to_string(), id), frame(1024 * 1024));
+            trim_pane_images(&mut store, "%1");
+        }
+
+        let total: usize = store.values().map(|img| img.data.len()).sum();
+        assert!(
+            total <= MAX_PANE_IMAGE_BYTES,
+            "a streaming pane must stay under the cap, held {total}"
+        );
+        assert!(
+            store.contains_key(&("%1".to_string(), 39)),
+            "the newest frame is the one on screen and must survive"
+        );
+        assert!(
+            !store.contains_key(&("%1".to_string(), 0)),
+            "the oldest frame is the one to drop"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_pane_of_pictures_is_left_alone() {
+        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
+            HashMap::new();
+        for id in 0..50u32 {
+            store.insert(
+                ("%1".to_string(), id),
+                tmuxy_core::control_mode::StoredImage {
+                    data: vec![0u8; 200 * 1024],
+                    mime_type: "image/png".to_string(),
+                },
+            );
+        }
+        trim_pane_images(&mut store, "%1");
+        assert_eq!(store.len(), 50, "10MB of pictures is under the cap");
+    }
+
+    /// One pane's flood must not evict another pane's pictures: the cap is per
+    /// pane, and a browser pane beside an editor would otherwise empty it.
+    #[test]
+    fn the_cap_is_per_pane() {
+        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
+            HashMap::new();
+        store.insert(
+            ("%2".to_string(), 1),
+            tmuxy_core::control_mode::StoredImage {
+                data: vec![0u8; 1024],
+                mime_type: "image/png".to_string(),
+            },
+        );
+        for id in 0..40u32 {
+            store.insert(
+                ("%1".to_string(), id),
+                tmuxy_core::control_mode::StoredImage {
+                    data: vec![0u8; 1024 * 1024],
+                    mime_type: "image/jpeg".to_string(),
+                },
+            );
+            trim_pane_images(&mut store, "%1");
+        }
+        assert!(
+            store.contains_key(&("%2".to_string(), 1)),
+            "the neighbouring pane's picture is untouched"
         );
     }
 }

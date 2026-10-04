@@ -1,330 +1,124 @@
-//! The client half: reaching a browser session from outside the server.
+//! `tmuxy browser` — the command line onto a browser session.
 //!
-//! The session lives in the running server, so the REPL in a pane and the CLI
-//! both have to get a verb line across a process boundary. They do it over the
-//! server's own `/commands` endpoint rather than a new socket, because every
-//! property that endpoint already has is one this does not have to re-earn: the
-//! host policy, the Basic-auth check, the read-only refusal, and the single
-//! place where a client command is dispatched.
+//! There is no client/server split here any more, and its absence is the point.
+//! The engine used to live in the running tmuxy server, with verbs posted to
+//! `/commands` and frames streamed out over HTTP, because the page was being
+//! painted by a React widget in the viewer's browser. Once the page is drawn by
+//! a PANE — an inline image written to a pty — none of that is load-bearing:
+//! the pane program is the session's owner, and this is just the way to start
+//! one or to ask a one-off question.
 //!
-//! Finding the server is the only new problem, and the answer is the pid file it
-//! already writes (`server::pid_file_path`): it names the port, and the port is
-//! all this needs.
+//! What that removes: a route, a widget, five client commands, a session
+//! registry, and the whole question of whether a viewer may drive a browser
+//! that fetches from the SERVER's network (SEC-11). The engine now runs as the
+//! person who typed the command, which is the only answer that needs no policy.
+//!
+//! Three shapes:
+//!
+//!   * `tmuxy browser goto example.com` — one verb, its own engine, gone after.
+//!   * `tmuxy browser --repl` — the pane program (`pane`), which draws the page.
+//!   * `tmuxy browser --attach <ws://…>` — the same, against a browser somebody
+//!     else started. See `--attach`'s own help for why that is the escape hatch
+//!     for a desktop build and for the user's real profile.
+//!
+//! To drive a session that is already open in a pane, send it a line: the pane
+//! program's `:` command mode reads keys from the pty, so `tmuxy pane send -t
+//! %7 ':goto example.com' Enter` works from any other pane or agent, and
+//! `tmuxy pane capture` reads the answer back off the status row. That is the
+//! whole agent protocol, and it needed no API.
 
-use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
-
-use super::verbs;
+use super::session::{Output, Session};
+use super::{pane, state_dir, verbs};
 
 /// What to do with a browser session, from the command line.
 #[derive(clap::Args, Debug)]
 pub struct BrowserArgs {
-    /// The session to drive. One engine per name.
+    /// The session to drive. Names the throwaway profile, so one engine per
+    /// name, and a name is something a script can say again later.
     #[arg(long, default_value = "default")]
     pub session: String,
-    /// The port the tmuxy server is on. Defaults to the one the pid file names.
-    #[arg(long)]
-    pub port: Option<u16>,
-    /// Read verb lines from stdin and print each result — the REPL the pane
-    /// runs. Without it, the remaining arguments are one verb line.
+    /// Draw the page in this pane and read input from it: the full-screen
+    /// program. Without it, the remaining arguments are one verb line.
     #[arg(long)]
     pub repl: bool,
-    /// End the session and remove its throwaway profile.
-    #[arg(long, conflicts_with = "repl")]
-    pub close: bool,
-    /// List the running sessions.
-    #[arg(long, conflicts_with_all = ["repl", "close"])]
-    pub list: bool,
-    /// One verb line: `goto example.com`, `eval document.title`, …
+    /// Attach to a browser that is already running, by DevTools endpoint
+    /// (`ws://…` from `/json/version`, or `http://127.0.0.1:PORT`).
+    ///
+    /// The escape hatch for the two cases a launch cannot serve: a desktop
+    /// build where the browser is the app's own, and the user's REAL profile,
+    /// with its logins — which Chrome will only expose after the consent prompt
+    /// at `chrome://inspect/#remote-debugging`. An attached browser is left
+    /// running and its profile untouched when the pane closes.
+    #[arg(long)]
+    pub attach: Option<String>,
+    /// One verb line: `goto example.com`, `eval document.title`, `shot`, …
     #[arg(trailing_var_arg = true)]
     pub line: Vec<String>,
 }
 
-/// Where the server writes the port it is on, for the default port.
-///
-/// Deliberately the same file `server::pid_file_path` writes; duplicating the
-/// path rather than exporting it would be two things to keep in step.
-fn default_pid_file() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".tmuxy")
-        .join("tmuxy.pid")
-}
-
-/// The port to talk to: the flag, then `TMUXY_PORT`, then the default.
-///
-/// `TMUXY_PORT` because that is the knob the dev server and the test suite
-/// already use, so a REPL started inside either reaches the right server
-/// without being told.
-fn resolve_port(explicit: Option<u16>) -> u16 {
-    if let Some(port) = explicit {
-        return port;
-    }
-    if let Some(port) = std::env::var("TMUXY_PORT")
-        .ok()
-        .and_then(|p| p.parse::<u16>().ok())
-    {
-        return port;
-    }
-    // The pid file existing at all means a server on the default port, which is
-    // the only port it is written for.
-    if default_pid_file().exists() {
-        return 9000;
-    }
-    9000
-}
-
-/// Send one `/commands` request and return the `result` string.
-async fn post(port: u16, cmd: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let url = format!("http://127.0.0.1:{port}/commands");
-    let body = serde_json::json!({ "cmd": cmd, "args": args });
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
-        .json(&body)
-        // No `sec-fetch-*` headers: this is not a browser, and the host policy
-        // lets a non-browser client through precisely so the CLI can work
-        // (`request_guard`). Saying so here because sending them would be the
-        // obvious-looking thing to do and would be wrong.
-        .send()
-        .await
-        .map_err(|error| {
-            // The most likely failure by far, so it gets the useful message
-            // rather than reqwest's.
-            if error.is_connect() {
-                format!(
-                    "no tmuxy server on port {port}. Start one (`npm start`, or \
-                     `tmuxy server`), or name the port with --port."
-                )
-            } else {
-                format!("could not reach the tmuxy server: {error}")
-            }
-        })?;
-
-    let status = response.status();
-    let payload: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| format!("the server's reply was not JSON: {error}"))?;
-
-    if let Some(error) = payload.get("error").and_then(serde_json::Value::as_str) {
-        return Err(error.to_string());
-    }
-    if !status.is_success() {
-        return Err(format!("the server answered {status}"));
-    }
-    Ok(payload
-        .get("result")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null))
-}
-
-/// What a result should print, or `None` for nothing at all.
-///
-/// Separate from printing it so the classification is testable — and the
-/// classification is the part worth testing: a verb with nothing to say that
-/// prints `null` puts a word in the pane that a `capture-pane` reads as output
-/// and a person reads as an error.
-fn rendered(result: &serde_json::Value) -> Option<String> {
-    match result {
-        serde_json::Value::Null => None,
-        serde_json::Value::String(text) if text.is_empty() => None,
-        serde_json::Value::String(text) => Some(text.clone()),
-        other => Some(other.to_string()),
-    }
-}
-
-/// Print a result the way the REPL and the CLI both should.
-fn show(result: &serde_json::Value) {
-    if let Some(text) = rendered(result) {
-        println!("{text}");
-    }
-}
-
 /// `tmuxy browser …`.
 pub async fn run(args: BrowserArgs) {
-    let port = resolve_port(args.port);
+    let state_dir = state_dir();
 
-    if args.list {
-        match post(port, "browser_list", serde_json::json!({})).await {
-            Ok(names) => {
-                for name in names.as_array().into_iter().flatten() {
-                    if let Some(name) = name.as_str() {
-                        println!("{name}");
-                    }
-                }
-            }
-            Err(message) => fail(&message),
-        }
-        return;
-    }
-
-    if args.close {
-        match post(
-            port,
-            "browser_close",
-            serde_json::json!({ "session": args.session }),
-        )
-        .await
-        {
-            Ok(closed) => {
-                if closed.as_bool() != Some(true) {
-                    eprintln!("tmuxy browser: no session called {:?}", args.session);
-                }
-            }
-            Err(message) => fail(&message),
-        }
-        return;
+    // The name becomes a directory name for the profile, so `../` or a slash in
+    // it would place a profile somewhere nobody asked for.
+    if !tmuxy_core::session::is_safe_session_name(&args.session) {
+        fail(&format!("not a usable session name: {:?}", args.session));
     }
 
     if args.repl {
-        repl(port, &args.session).await;
-        return;
+        let code = pane::run(&state_dir, &args.session, args.attach).await;
+        std::process::exit(code);
     }
 
     let line = args.line.join(" ");
-    if line.trim().is_empty() {
+    // Parsed before the engine is touched: a typo must not cost a browser
+    // launch, and `help` has to work on a machine with no browser at all.
+    let verb = match verbs::parse(&line) {
+        Ok(verb) => verb,
+        Err(verbs::ParseError::Empty) => {
+            println!("{}", verbs::HELP);
+            return;
+        }
+        Err(error) => fail(&error.to_string()),
+    };
+    if matches!(verb, verbs::Verb::Help) {
         println!("{}", verbs::HELP);
         return;
     }
-    match post(
-        port,
-        "browser_run",
-        serde_json::json!({ "session": args.session, "line": line }),
-    )
-    .await
-    {
-        Ok(result) => show(&result),
-        Err(message) => fail(&message),
+
+    // A one-shot gets an engine of its own and gives it back. That is the honest
+    // cost of asking a question with no pane to hold the answer's session:
+    // about a second of Chromium start-up. Anything cheaper would mean a
+    // background daemon, which is the thing this design just deleted.
+    let mut session = match &args.attach {
+        Some(endpoint) => Session::attach(&state_dir, &args.session, endpoint).await,
+        None => Session::launch(&state_dir, &args.session).await,
+    }
+    .unwrap_or_else(|error| fail(&error.to_string()));
+
+    let output = session.run(verb).await;
+    session.close().await;
+
+    match output {
+        Ok(output) => show(&output),
+        Err(error) => fail(&error.to_string()),
     }
 }
 
-/// The loop the pane runs.
+/// Print what a verb said, or nothing when it had nothing to say.
 ///
-/// Line-based and unadorned on purpose. Its stdout IS the pane's terminal
-/// output, which is what makes the whole thing driveable from outside: another
-/// pane or an agent sends a line with `tmuxy pane send` and reads the answer
-/// with `tmuxy pane capture`, needing no API of its own. Anything fancier —
-/// readline, colour, a spinner — would put escape sequences in the middle of
-/// the text those captures have to parse.
-async fn repl(port: u16, session: &str) {
-    // A banner, because a pane showing a bare cursor gives a person nothing to
-    // go on. One line, so a `capture-pane` is not mostly banner.
-    println!("tmuxy browser [{session}] — `help` for verbs, ctrl+c to leave");
-
-    // Start the engine now, rather than on the first verb.
-    //
-    // A session is created lazily by whatever first asks something of it, which
-    // is right for the one-shot CLI and wrong for a pane: the pane's widget
-    // streams the page from a session that does not exist yet, gets a 404, and
-    // shows nothing at all until the user happens to type a verb. Opening a
-    // browser pane should give you a browser.
-    //
-    // `url` is the cheapest verb that forces the session into existence, and
-    // its answer is worth printing: it says where the pane is pointed.
-    match post(
-        port,
-        "browser_run",
-        serde_json::json!({ "session": session, "line": "url" }),
-    )
-    .await
-    {
-        Ok(result) => show(&result),
-        // Printed, not fatal. The REPL is still usable — `help` works with no
-        // engine at all — and the message says what went wrong, which a pane
-        // that merely stayed blank would not.
-        Err(message) => println!("error: {message}"),
-    }
-    let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
-
-    loop {
-        // The prompt has to be flushed explicitly: stdout to a pipe or a pty is
-        // block-buffered, so without this the prompt appears only after the
-        // answer to the line it was asking for.
-        print!("> ");
-        let _ = io::stdout().flush();
-
-        let Some(line) = lines.next() else { break };
-        let Ok(line) = line else { break };
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        match post(
-            port,
-            "browser_run",
-            serde_json::json!({ "session": session, "line": line }),
-        )
-        .await
-        {
-            Ok(result) => show(&result),
-            // To stdout, not stderr: both land in the pane, but only stdout is
-            // ordered with respect to the results around it, and a capture that
-            // shows an error in the wrong place is worse than no error.
-            Err(message) => println!("error: {message}"),
-        }
+/// The distinction is worth the function: a verb that answers with an empty
+/// string printing a blank line, or `null`, puts a word in the pane that a
+/// `capture-pane` reads as output and a person reads as an error.
+fn show(output: &Output) {
+    let text = output.to_string();
+    if !text.is_empty() {
+        println!("{text}");
     }
 }
 
 fn fail(message: &str) -> ! {
     eprintln!("tmuxy browser: {message}");
     std::process::exit(1);
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-
-    /// A verb with nothing to say must print nothing. `null` in a pane is a
-    /// word a `capture-pane` reads as output and a person reads as an error.
-    #[test]
-    fn a_silent_result_renders_to_nothing() {
-        assert_eq!(rendered(&serde_json::Value::Null), None);
-        assert_eq!(rendered(&serde_json::json!("")), None);
-    }
-
-    /// A string renders as itself: at a prompt, `title` answering `My Page` is
-    /// what is wanted, and quotes are noise a script has to strip.
-    #[test]
-    fn a_string_renders_without_quotes() {
-        assert_eq!(
-            rendered(&serde_json::json!("My Page")),
-            Some("My Page".into())
-        );
-        assert_eq!(rendered(&serde_json::json!("0")), Some("0".into()));
-    }
-
-    /// Everything else renders as JSON, including the values that look falsy —
-    /// `false` and `0` are answers, not silence.
-    #[test]
-    fn a_falsy_non_string_still_renders() {
-        assert_eq!(rendered(&serde_json::json!(false)), Some("false".into()));
-        assert_eq!(rendered(&serde_json::json!(0)), Some("0".into()));
-        assert_eq!(rendered(&serde_json::json!([])), Some("[]".into()));
-        assert_eq!(rendered(&serde_json::json!({})), Some("{}".into()));
-    }
-
-    /// The flag wins, then `TMUXY_PORT`, then the default — so a REPL started
-    /// inside the dev server or the test suite reaches the right server without
-    /// being told.
-    #[test]
-    fn an_explicit_port_wins() {
-        assert_eq!(resolve_port(Some(9131)), 9131);
-    }
-
-    #[test]
-    fn the_default_port_is_the_servers_default() {
-        // Not read from the environment here: that is a global, and a test that
-        // writes it breaks whichever other test runs beside it. The ladder's
-        // env step is covered by the flag and default cases plus the code
-        // being three lines.
-        let resolved = resolve_port(None);
-        assert!(
-            resolved == 9000 || std::env::var("TMUXY_PORT").is_ok(),
-            "with no TMUXY_PORT set the default must be 9000, got {resolved}"
-        );
-    }
 }

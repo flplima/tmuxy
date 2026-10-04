@@ -876,39 +876,6 @@ export type BrowserCopyUrlEvent = { type: 'BROWSER_COPY_URL'; url: string };
  * same one-way path as everything else: components render, the machine talks to
  * the server (see tmuxy-ui/CLAUDE.md).
  */
-/**
- * Run one verb line against a server-side session.
- *
- * The address bar's Enter uses it: `BROWSER_NAVIGATE` records where the pane
- * was pointed, and this tells the engine to actually go there. A framed pane
- * needs no equivalent — changing the `src` IS the navigation.
- */
-export type BrowserRunEvent = {
-  type: 'BROWSER_RUN';
-  session: string;
-  line: string;
-};
-export type BrowserViewportEvent = {
-  type: 'BROWSER_VIEWPORT';
-  session: string;
-  width: number;
-  height: number;
-  deviceScaleFactor: number;
-};
-/**
- * Forward one input event to a server-side session's page.
- *
- * `method` and `params` are CDP's own `Input.*` shapes. The server holds the
- * allowlist of methods a pane may name, so this carries no authority of its
- * own — and it is only ever reached for keys and gestures tmuxy has already
- * declined (see `widgets/browser/SessionView.tsx`).
- */
-export type BrowserInputEvent = {
-  type: 'BROWSER_INPUT';
-  session: string;
-  method: string;
-  params: Record<string, unknown>;
-};
 /** Point the pane somewhere new — the address bar's Enter. */
 export type BrowserNavigateEvent = {
   type: 'BROWSER_NAVIGATE';
@@ -1314,9 +1281,6 @@ export type AppMachineEvent =
   | BrowserZoomEvent
   | BrowserReloadEvent
   | BrowserCopyUrlEvent
-  | BrowserRunEvent
-  | BrowserViewportEvent
-  | BrowserInputEvent
   | BrowserNavigateEvent
   | BrowserHistoryEvent
   | BrowserOpenExternalEvent

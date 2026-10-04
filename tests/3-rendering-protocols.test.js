@@ -1192,3 +1192,176 @@ describe('Category 17: Widgets', () => {
     });
   });
 });
+
+// ==================== Scenario 24: The Browser Pane ====================
+
+/**
+ * `tmuxy browser --repl` — a real browser drawn in a pane.
+ *
+ * The only test in the tree that exercises the whole chain this feature is:
+ * an engine on the machine, its page encoded as an inline image, written to a
+ * pty, carried through control mode, placed by the image parser and painted by
+ * the client — and then a click going back the other way, from a real mouse
+ * press on the rendered picture, through SGR mouse forwarding, to a page that
+ * navigates. Nothing smaller can see it: the Rust tests prove the engine
+ * answers and the unit tests prove the escape is well-formed, and either can be
+ * true while the pane shows nothing.
+ *
+ * SKIPS when the machine has no Chromium-family browser, for the same reason
+ * the Rust engine tests do: the engine is explicitly the user's own, and a
+ * runner without one should not go red over a browser nobody installed. The
+ * skip is loud.
+ */
+describe('Scenario 24: The Browser Pane', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  const fs = require('fs');
+  const os = require('os');
+
+  /** Where the fixture pages and the launcher live, cleaned up after. */
+  const scratch = path.join(os.tmpdir(), `tmuxy-browser-e2e-${process.pid}`);
+
+  /** The engine the pane would launch, or null with the reason printed. */
+  function engineOrSkip() {
+    const named = process.env.TMUXY_CHROME || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+    if (named && fs.existsSync(named)) return named;
+    const usual = [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+    ];
+    const found = usual.find((p) => fs.existsSync(p));
+    if (found) return found;
+    console.warn('SKIP Scenario 24: no Chromium-family browser on this machine');
+    return null;
+  }
+
+  beforeAll(() => {
+    fs.mkdirSync(scratch, { recursive: true });
+    // Two pages, the first a single link filling the viewport. Filling it is
+    // deliberate: a mouse report carries CELL coordinates, so a click lands at
+    // a cell centre and a small target would make this a test of luck.
+    fs.writeFileSync(
+      path.join(scratch, 'first.html'),
+      `<body style="margin:0"><a href="second.html"
+         style="display:block;width:100vw;height:100vh;background:#4488ff">FIRST</a></body>`,
+    );
+    fs.writeFileSync(
+      path.join(scratch, 'second.html'),
+      `<body style="margin:0;background:#ffcc00"><h1>SECOND</h1></body>`,
+    );
+    // Typed as a short path rather than a long command line: typing a long
+    // line into a pane drops characters often enough to run something else
+    // (docs/PERFORMANCE.md says the same about the soak harness).
+    fs.writeFileSync(
+      path.join(scratch, 'run'),
+      `#!/bin/sh\nexport TMUXY_STATE_DIR=${scratch}/state\n` +
+        // The repo's CLI by path, not whatever `tmuxy` resolves to: a machine
+        // may have an older one installed, and a test that runs it is testing
+        // that instead.
+        `exec ${TMUXY_CLI} browser --repl --session e2e\n`,
+      { mode: 0o755 },
+    );
+  });
+
+  afterAll(() => {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  });
+
+  /** What the pane is drawing right now, or null if it is drawing nothing. */
+  async function readPicture(page) {
+    return page.evaluate(() => {
+      const img = document.querySelector('.terminal-image');
+      if (!img) return null;
+      const r = img.getBoundingClientRect();
+      return {
+        src: img.src,
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        loaded: img.naturalWidth > 0,
+      };
+    });
+  }
+
+  /** The picture, once it is one the user could actually see. */
+  async function waitForPicture(page, description) {
+    await waitForCondition(
+      page,
+      async () => {
+        const picture = await readPicture(page);
+        // Visible, not merely present: an element clipped to nothing is not a
+        // picture of a page (docs/TESTS.md).
+        return !!picture && picture.loaded && picture.width > 20 && picture.height > 20;
+      },
+      60000,
+      description,
+    );
+    return readPicture(page);
+  }
+
+  test('draws the page, forwards a click, and answers a verb on the status row', async () => {
+    if (ctx.skipIfNotReady()) return;
+    if (!engineOrSkip()) return;
+    await ctx.setupPage();
+
+    await typeInTerminal(ctx.page, `${scratch}/run`);
+    await pressEnter(ctx.page);
+
+    // The status row ends up showing where the pane is pointed, which for a
+    // session nobody has navigated is `about:blank`. Waiting for THAT rather
+    // than the banner, because the banner is the first thing the URL replaces.
+    await waitForTerminalText(ctx.page, 'about:blank', 60000);
+
+    await typeInTerminal(ctx.page, `:goto file://${scratch}/first.html`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'first.html', 60000);
+
+    const picture = await waitForPicture(ctx.page, 'the first page is drawn in the pane');
+
+    // A real click on the picture. It goes out as an SGR mouse report, which
+    // is the same path any mouse-tracking program in a pane gets — nothing
+    // about this feature is in the client.
+    await ctx.page.mouse.click(picture.x + picture.width / 2, picture.y + picture.height / 2);
+
+    // The picture changes, which is the click having landed: the second page
+    // is a different colour, so a new frame is drawn and served under a new
+    // image id. Waiting on THAT rather than on a delay, because how long an
+    // engine takes to follow a link is exactly the kind of constant that
+    // passes here and fails on a slower runner.
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const now = await readPicture(ctx.page);
+        return !!now && now.loaded && now.src !== picture.src;
+      },
+      60000,
+      'the click reaches the page and it repaints',
+    );
+
+    // And the page followed the LINK rather than merely repainting. Asked
+    // through the verb line, because the answer prints on the status row —
+    // which is also how an agent reads it, with `tmuxy pane capture`.
+    await typeInTerminal(ctx.page, ':url');
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'second.html', 30000);
+
+    // A verb that computes rather than navigates, so the status row is shown
+    // to carry real output and not just URLs.
+    await typeInTerminal(ctx.page, ':eval 6*7');
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, '42', 30000);
+
+    // Leaving gives the shell back: the alternate screen goes away and the
+    // pane is a shell again, not a frozen picture.
+    await sendKeyCombo(ctx.page, 'Control', 'c');
+    await waitForShellPrompt(ctx.page);
+  }, 180000);
+});

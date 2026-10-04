@@ -24,14 +24,14 @@ use std::path::PathBuf;
 
 pub mod discover;
 pub mod engine;
-pub mod pipe;
 pub mod verbs;
-// The pipe transport places file descriptors in a forked child, which has no
-// Windows equivalent; the desktop app does not use this module at all.
+// The pane program puts the terminal in raw mode and reads SGR mouse reports
+// off the pty, neither of which has a Windows equivalent here. The engine and
+// the verbs are portable; driving a pane is not.
 #[cfg(unix)]
 pub mod client;
 #[cfg(unix)]
-pub mod process;
+pub mod pane;
 #[cfg(unix)]
 pub mod session;
 

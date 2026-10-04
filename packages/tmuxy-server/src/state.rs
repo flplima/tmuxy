@@ -237,15 +237,6 @@ pub struct AppState {
     /// Threaded into `TmuxMonitor` and reused for ad-hoc tmux dispatch via the
     /// Tower stack. Production uses `Ctx::live()`; tests substitute a mock ctx.
     pub ctx: Arc<Ctx>,
-    /// Every running server-side browser session, by name.
-    ///
-    /// Held here rather than by the pane showing one, which is the whole reason
-    /// a session can outlive a reload, a detach or a dropped SSE connection —
-    /// those are all events on the viewing side. Unix only: the engine is
-    /// driven over a pipe whose fds are placed in a forked child
-    /// (`browser::process`).
-    #[cfg(unix)]
-    pub browsers: crate::browser::session::Sessions,
     /// `--read-only`: every client of this server is a viewer. Only the
     /// commands `ClientCommand::is_read` names are served, and no client's
     /// viewport is ever recorded, so a viewer cannot resize the session.
@@ -315,8 +306,6 @@ impl AppState {
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
             ctx,
-            #[cfg(unix)]
-            browsers: crate::browser::session::Sessions::default(),
             read_only: false,
             session_pin: None,
             live_streams: AtomicU64::new(0),
@@ -453,11 +442,6 @@ fn writable_routes() -> Router<Arc<AppState>> {
         )
         .route("/api/file", get(file_handler))
         .route("/api/browse/{*path}", get(browse_handler))
-        // The live page of a server-side browser session. Writable-only, like
-        // the file routes and for the same reason (SEC-11): the engine fetches
-        // from the SERVER's network position, so a viewer who could reach this
-        // could see a page fetched from hosts they cannot reach themselves.
-        .route("/api/browser/{session}/stream", get(browser_stream_handler))
 }
 
 /// What a viewer's server serves, and all of it: the state stream, the read
@@ -746,160 +730,6 @@ async fn image_handler(
     }
 }
 
-/// Stream a browser session's page as motion JPEG.
-///
-/// `multipart/x-mixed-replace` is the one streaming image format a browser
-/// renders natively in an `<img>`, which is why the frames go out this way
-/// rather than over SSE as base64. Three things follow from that choice and all
-/// of them matter:
-///
-///   * The frames stay off the SSE stream, which carries terminal state. A page
-///     at ten frames a second is around a megabyte a second; putting that in
-///     the same channel as keystroke echo would trade the thing tmuxy is
-///     actually measured on (docs/PERFORMANCE.md, Axis C) for a picture.
-///   * There is no per-frame JavaScript at all. The client sets one `src` and
-///     the browser decodes, scales and paints each part as it arrives.
-///   * No base64, so no 33% on the wire.
-///
-/// A stalled stream leaves the last frame on screen, which is the behaviour
-/// wanted anyway: a page that stops changing should look like a page, not like
-/// a blank pane.
-#[cfg(unix)]
-async fn browser_stream_handler(
-    State(state): State<Arc<AppState>>,
-    Path(session_name): Path<String>,
-) -> Response {
-    /// Separates the parts. Arbitrary but must not occur in the payload, which
-    /// for JPEG bytes is what a long random-looking ASCII string guarantees in
-    /// practice.
-    const BOUNDARY: &str = "tmuxyframe8c1f4a2e";
-
-    if !tmuxy_core::session::is_safe_session_name(&session_name) {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            &serde_json::json!({ "error": "not a usable session name" }),
-        );
-    }
-
-    // Only an ALREADY RUNNING session is streamed. A GET that could launch a
-    // browser would mean an `<img>` tag starting a process, and a reload of a
-    // stale page would resurrect a session the user closed.
-    let Some(session) = state.browsers.existing(&session_name).await else {
-        return json_response(
-            StatusCode::NOT_FOUND,
-            &serde_json::json!({ "error": "no such browser session" }),
-        );
-    };
-
-    let frames = match session.lock().await.watch_frames().await {
-        Ok(frames) => frames,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &serde_json::json!({ "error": error.to_string() }),
-            )
-        }
-    };
-
-    let stream = async_stream::stream! {
-        let mut frames = frames;
-        // The opening boundary goes out once, on its own. Each frame then
-        // writes its headers, its bytes, and the NEXT boundary — so a part is
-        // terminated the moment its data is written.
-        //
-        // That eager terminator is the whole reason this is shaped oddly. A
-        // multipart part is only complete when the parser sees the following
-        // boundary, so the natural shape — boundary, headers, data, repeat —
-        // leaves the LAST part unterminated. For a video stream that is
-        // invisible, because another frame is always a few milliseconds away.
-        // For a page it is fatal: Chromium only emits a screencast frame when
-        // the page changes visually, so a page the user is reading sends ONE
-        // frame and then nothing, the part never completes, and the pane shows
-        // an image that never decoded. Observed exactly that way.
-        yield Ok::<_, std::io::Error>(axum::body::Bytes::from(format!("--{BOUNDARY}\r\n")));
-
-        /// How long to wait for a new frame before sending the last one again.
-        ///
-        /// A browser does not display a multipart part when it sees the
-        /// boundary that ends it — it displays it when the NEXT part starts
-        /// arriving. For a video stream that is invisible, because another
-        /// frame is always milliseconds away. For a PAGE it is the whole
-        /// problem: Chromium emits a frame only on visual change, so a page
-        /// someone is reading produces exactly one, and one part alone is never
-        /// displayed. Verified with a plain `<img>` against a well-formed
-        /// single-frame stream: it times out having rendered nothing.
-        ///
-        /// So an idle stream echoes its last frame once. The echo is what
-        /// flushes the real frame; the echo itself then sits unflushed, which
-        /// costs nothing because it is identical to what is already on screen.
-        const IDLE_FLUSH: std::time::Duration = std::time::Duration::from_millis(300);
-        /// Then a slow heartbeat, so a long-lived idle stream is not mistaken
-        /// for a dead one by anything in between, without re-sending a frame
-        /// every few hundred milliseconds for a page that never changes.
-        const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(20);
-
-        let part_for = |frame: &[u8]| {
-            let mut part = Vec::with_capacity(frame.len() + 128);
-            part.extend_from_slice(
-                format!(
-                    "Content-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
-                    frame.len()
-                )
-                .as_bytes(),
-            );
-            part.extend_from_slice(frame);
-            part.extend_from_slice(format!("\r\n--{BOUNDARY}\r\n").as_bytes());
-            axum::body::Bytes::from(part)
-        };
-
-        loop {
-            // Cloned out of the watch under no lock of ours: the value is an
-            // Arc, so this is a refcount bump rather than a copy of the frame.
-            let frame = frames.borrow_and_update().clone();
-            if !frame.is_empty() {
-                yield Ok::<_, std::io::Error>(part_for(&frame));
-            }
-
-            // Wait for the next frame, echoing this one if none comes. The
-            // first wait is short (that echo is what puts this frame on
-            // screen); after it the stream is genuinely idle and only needs a
-            // heartbeat.
-            let mut waited = IDLE_FLUSH;
-            loop {
-                match tokio::time::timeout(waited, frames.changed()).await {
-                    // A new frame: go round and send it.
-                    Ok(Ok(())) => break,
-                    // `changed()` errors only when the sender is gone, i.e. the
-                    // session ended — the signal to end the response rather
-                    // than an error to report, since the client is holding a
-                    // picture that is simply the last one there was.
-                    Ok(Err(_)) => return,
-                    Err(_) => {
-                        if !frame.is_empty() {
-                            yield Ok::<_, std::io::Error>(part_for(&frame));
-                        }
-                        waited = KEEPALIVE;
-                    }
-                }
-            }
-        }
-    };
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(
-            "Content-Type",
-            format!("multipart/x-mixed-replace; boundary={BOUNDARY}"),
-        )
-        // A live stream must never be cached, and must not be buffered by
-        // anything in between: a reverse proxy holding frames to fill a buffer
-        // turns a live page into a slideshow.
-        .header("Cache-Control", "no-store")
-        .header("X-Accel-Buffering", "no")
-        .body(Body::from_stream(stream))
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
-}
-
 /// Find the workspace root (directory with package.json containing "workspaces")
 pub fn find_workspace_root() -> std::path::PathBuf {
     std::env::current_dir()
@@ -1120,11 +950,6 @@ mod api_guard_tests {
         ("/api/file", "/api/file?path=/etc/hosts"),
         ("/api/browse/{*path}", "/api/browse/etc/hosts"),
         ("/api/images/{pane_id}/{image_id}", "/api/images/1/0"),
-        // A live page is a picture of something fetched from the SERVER's
-        // network. A page on another origin reaching this would see hosts its
-        // own browser cannot — which is the whole reason the route is
-        // writable-only (SEC-11) and why it belongs here.
-        ("/api/browser/{session}/stream", "/api/browser/probe/stream"),
     ];
 
     /// A request for `route` in the shape a page on another origin sends one.

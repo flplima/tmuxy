@@ -1,13 +1,13 @@
-//! Driving a real browser over a real pipe.
+//! Driving a real browser.
 //!
-//! Everything else about the engine is unit-tested without one: the framing,
-//! the reply correlation, the command line. None of that proves the pipe works,
-//! because the part that can only be wrong in the real thing is the fd
-//! placement — Chromium numbers its pipe fds from the CHILD's point of view,
-//! and a parent that puts its halves anywhere but 3 and 4 gets a browser that
-//! starts, says nothing, and times out. No unit test can see that.
+//! The configuration is unit-tested without one: the flags, the profile paths,
+//! the verb grammar, the cell-to-pixel mapping. None of that proves a page can
+//! be driven, and the parts that can only be wrong in the real thing are the
+//! ones a user notices — that a framework sees the text `type` entered, that a
+//! still page produces a frame at all, that a click forwarded from a pane cell
+//! lands where the user pointed.
 //!
-//! So this launches the engine the server would launch and asks it real
+//! So this launches the engine `tmuxy browser` launches and asks it real
 //! questions. It SKIPS when there is no browser on the machine rather than
 //! failing: the feature is explicitly "the user's own engine, or no feature",
 //! and a CI job without one should not go red over a browser nobody installed.
@@ -18,7 +18,7 @@
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
-use tmuxy_server::browser::{discover, engine, process::Engine};
+use tmuxy_server::browser::{discover, engine, session::Session};
 
 /// A scratch state dir of this test's own, cleaned up after.
 fn scratch_dir(name: &str) -> PathBuf {
@@ -39,211 +39,36 @@ fn browser_or_skip(test: &str) -> Option<PathBuf> {
     }
 }
 
-/// Launch an engine on a profile under `state`, or skip.
-async fn launch(test: &str, state: &Path) -> Option<Engine> {
-    let browser = browser_or_skip(test)?;
-    let profile = engine::profile_dir(state, "test");
-    match Engine::launch(&browser, &profile).await {
-        Ok(engine) => Some(engine),
-        Err(why) => {
-            // A launch failure is NOT a skip — the browser exists and would
-            // not start, which is the thing worth failing over.
-            panic!("{test}: could not launch {}: {why}", browser.display());
-        }
-    }
-}
-
-/// The fd placement, end to end: if the pipe halves are not at 3 and 4 in the
-/// child, this times out and nothing else in the file can pass either.
-#[tokio::test]
-async fn the_engine_answers_over_the_pipe() {
-    let state = scratch_dir("version");
-    let Some(mut engine) = launch("the_engine_answers_over_the_pipe", &state).await else {
-        return;
-    };
-
-    let version = engine
-        .send("Browser.getVersion", serde_json::json!({}))
-        .await
-        .expect("Browser.getVersion");
-
-    let product = version
-        .get("product")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    assert!(
-        product.contains('/'),
-        "a product string looks like `HeadlessChrome/120.0.0.0`, got {product:?}"
-    );
-
-    engine.shutdown().await;
-    let _ = std::fs::remove_dir_all(&state);
-}
-
-/// A page is navigated and read back. This is the shape every REPL verb takes,
-/// so it is the one that proves the transport carries real work rather than a
-/// single handshake.
-#[tokio::test]
-async fn a_page_can_be_navigated_and_read_back() {
-    let state = scratch_dir("navigate");
-    let Some(mut engine) = launch("a_page_can_be_navigated_and_read_back", &state).await else {
-        return;
-    };
-
-    // A data: URL rather than a server or a file: the subject is the transport,
-    // and a test that needs a listening socket to prove a pipe works has two
-    // things that can fail.
-    let html = "data:text/html,<title>Pipe%20OK</title><h1>hello%20from%20tmuxy</h1>";
-    engine
-        .send("Page.enable", serde_json::json!({}))
-        .await
-        .expect("Page.enable");
-    engine
-        .send("Page.navigate", serde_json::json!({ "url": html }))
-        .await
-        .expect("Page.navigate");
-
-    // Poll for the document rather than sleeping: navigation completes on its
-    // own schedule, and a fixed wait is a constant that encodes how fast the
-    // machine is.
-    let mut heading = String::new();
-    for _ in 0..100 {
-        let result = engine
-            .send(
-                "Runtime.evaluate",
-                serde_json::json!({
-                    "expression": "document.querySelector('h1')?.textContent ?? ''",
-                    "returnByValue": true,
-                }),
-            )
-            .await
-            .expect("Runtime.evaluate");
-        heading = result
-            .get("result")
-            .and_then(|r| r.get("value"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        if !heading.is_empty() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    assert_eq!(heading, "hello from tmuxy");
-
-    engine.shutdown().await;
-    let _ = std::fs::remove_dir_all(&state);
-}
-
-/// A failing command must come back as a protocol error naming the method, not
-/// as a timeout. The REPL prints these to the user, so the difference between
-/// "your selector was wrong" and "nothing happened for 30 seconds" is the
-/// difference between a usable tool and an opaque one.
-#[tokio::test]
-async fn a_bad_command_fails_fast_and_says_what_failed() {
-    let state = scratch_dir("error");
-    let Some(mut engine) = launch("a_bad_command_fails_fast_and_says_what_failed", &state).await
-    else {
-        return;
-    };
-
-    // Warm up first: the engine is still starting when `launch` returns, and
-    // measuring the first request would measure Chromium's start-up, not how
-    // fast an error comes back.
-    engine
-        .send_browser("Browser.getVersion", serde_json::json!({}))
-        .await
-        .expect("warm-up");
-
-    let started = std::time::Instant::now();
-    let error = engine
-        .send("Totally.NotAMethod", serde_json::json!({}))
-        .await
-        .expect_err("an unknown method must fail");
-
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(5),
-        "an unknown method should fail immediately, took {:?}",
-        started.elapsed()
-    );
-    let message = error.to_string();
-    assert!(
-        message.contains("Totally.NotAMethod"),
-        "the error must name the method that failed: {message}"
-    );
-
-    engine.shutdown().await;
-    let _ = std::fs::remove_dir_all(&state);
-}
-
-/// Events arrive on their own, without being asked for. The screencast and the
-/// console mirror both ride this channel, so "replies work" is not enough.
-#[tokio::test]
-async fn events_arrive_without_being_asked_for() {
-    let state = scratch_dir("events");
-    let Some(mut engine) = launch("events_arrive_without_being_asked_for", &state).await else {
-        return;
-    };
-
-    engine
-        .send("Page.enable", serde_json::json!({}))
-        .await
-        .expect("Page.enable");
-    engine
-        .send(
-            "Page.navigate",
-            serde_json::json!({ "url": "data:text/html,<p>x</p>" }),
-        )
-        .await
-        .expect("Page.navigate");
-
-    // Taken rather than borrowed: there is one event stream, and `Session`
-    // takes it for the screencast pump in normal use.
-    let mut events = engine.take_events().expect("the event stream is unclaimed");
-    let saw_event = tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        while let Some((method, _params)) = events.recv().await {
-            if method.starts_with("Page.") {
-                return true;
-            }
-        }
-        false
-    })
-    .await
-    .unwrap_or(false);
-
-    assert!(saw_event, "no Page.* event arrived after a navigation");
-
-    engine.shutdown().await;
-    let _ = std::fs::remove_dir_all(&state);
-}
-
 /// The profile lock is the one failure that outlives a session: a half-dead
 /// engine holding it means the NEXT session with that name cannot start. So
-/// shutting down and relaunching on the same profile has to work.
+/// closing and relaunching on the same name has to work.
+///
+/// The only engine-level test left. Everything else the engine does is reached
+/// through a verb, and a test that goes round the verbs to assert on CDP would
+/// be asserting on chromiumoxide rather than on tmuxy.
 #[tokio::test]
-async fn a_profile_is_reusable_after_a_clean_shutdown() {
+async fn a_profile_is_reusable_after_a_clean_close() {
     let state = scratch_dir("relaunch");
-    let Some(mut first) = launch("a_profile_is_reusable_after_a_clean_shutdown", &state).await
-    else {
+    if browser_or_skip("a_profile_is_reusable_after_a_clean_close").is_none() {
         return;
-    };
-    first
-        .send("Browser.getVersion", serde_json::json!({}))
-        .await
-        .expect("the first engine answers");
-    first.shutdown().await;
+    }
 
-    let browser = discover::find_browser().expect("a browser was found a moment ago");
-    let profile = engine::profile_dir(&state, "test");
-    let mut second = Engine::launch(&browser, &profile)
-        .await
-        .expect("the profile must be usable again after a clean shutdown");
-    second
-        .send("Browser.getVersion", serde_json::json!({}))
-        .await
-        .expect("the second engine answers");
-    second.shutdown().await;
+    for attempt in ["first", "second"] {
+        let mut session = Session::launch(&state, "relaunch")
+            .await
+            .unwrap_or_else(|why| panic!("the {attempt} launch must work: {why}"));
+        session
+            .run(tmuxy_server::browser::verbs::Verb::Url)
+            .await
+            .unwrap_or_else(|why| panic!("the {attempt} engine must answer: {why}"));
+        session.close().await;
+        // The profile is removed with the session, so the second launch also
+        // proves `close` left nothing behind that blocks a fresh one.
+        assert!(
+            !engine::profile_dir(&state, "relaunch").exists(),
+            "closing a launched session must take its throwaway profile with it"
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&state);
 }
@@ -332,7 +157,7 @@ async fn session_or_skip(
     if browser_or_skip(test).is_none() {
         return None;
     }
-    match tmuxy_server::browser::session::Session::start(state, "verbs").await {
+    match Session::launch(state, "verbs").await {
         Ok(session) => Some(session),
         Err(why) => panic!("{test}: could not start a session: {why}"),
     }
@@ -629,7 +454,7 @@ async fn a_still_page_still_produces_a_frame() {
     };
 
     // Deliberately NOT navigated: `about:blank` is as static as a page gets.
-    let mut frames = session.watch_frames().await.expect("watch_frames");
+    let mut frames = session.start_frames().await.expect("start_frames");
     let frame = frames.borrow_and_update().clone();
 
     assert!(
@@ -662,7 +487,7 @@ async fn a_changing_page_keeps_producing_frames() {
         return;
     };
 
-    let mut frames = session.watch_frames().await.expect("watch_frames");
+    let mut frames = session.start_frames().await.expect("start_frames");
     session
         .run(Verb::Goto {
             url: format!(
@@ -756,35 +581,47 @@ async fn the_viewport_follows_the_pane_and_refuses_nonsense() {
     let _ = std::fs::remove_dir_all(&state);
 }
 
-/// Forwarded input reaches the page, and only the three `Input` methods a pane
-/// needs may be named.
+/// A click and a key forwarded from a pane reach the page.
 ///
-/// The allowlist is the security half: `method` and `params` come from a
-/// client, so without it this would be a general door into CDP — where
-/// `Runtime.evaluate` runs anything and `Page.navigate` goes anywhere.
+/// Through `pane`'s own forwarding rather than a CDP call of the test's own,
+/// because the mapping is the part that can be wrong: a mouse report arrives in
+/// CELLS, and the page needs CSS pixels. An off-by-one-cell click lands next to
+/// the link the user aimed at, and nothing but a real page can tell you that.
 #[tokio::test]
-async fn forwarded_input_reaches_the_page_and_nothing_else_does() {
+async fn a_click_and_a_key_from_a_pane_reach_the_page() {
+    use tmuxy_server::browser::pane::{self, PaneSize};
     use tmuxy_server::browser::session::Output;
     use tmuxy_server::browser::verbs::Verb;
 
     let state = scratch_dir("input");
-    let Some(mut session) = session_or_skip(
-        "forwarded_input_reaches_the_page_and_nothing_else_does",
-        &state,
-    )
-    .await
+    let Some(mut session) =
+        session_or_skip("a_click_and_a_key_from_a_pane_reach_the_page", &state).await
     else {
         return;
     };
 
-    session.set_viewport(800, 600, 1.0).await.expect("viewport");
+    // A pane whose cells are a known size, so the test can name a cell and say
+    // which pixel it must become.
+    let size = PaneSize {
+        cols: 100,
+        rows: 51,
+        cell_w: 8,
+        cell_h: 16,
+    };
+    let (vw, vh) = size.viewport();
+    session
+        .set_viewport(vw, vh, 1.0)
+        .await
+        .expect("the viewport the pane implies");
+
     session
         .run(Verb::Goto {
             url: format!(
                 "data:text/html,{}",
                 urlencode(
-                    "<body style='margin:0'><div id=hit style='width:400px;height:200px'></div>\
-                     <p id=out>none</p>\
+                    "<body style='margin:0'>\
+                     <div id=hit style='position:absolute;left:0;top:0;width:400px;height:200px'></div>\
+                     <p id=out style='position:absolute;top:300px'>none</p>\
                      <script>document.getElementById('hit')\
                      .addEventListener('click',()=>{document.getElementById('out').textContent='hit'});\
                      document.addEventListener('keydown',e=>{\
@@ -795,23 +632,26 @@ async fn forwarded_input_reaches_the_page_and_nothing_else_does() {
         .await
         .expect("goto");
 
-    // A click, as the pane forwards one: press then release at the same point.
-    for phase in ["mousePressed", "mouseReleased"] {
-        session
-            .forward_input(
-                "Input.dispatchMouseEvent",
-                serde_json::json!({
-                    "type": phase,
-                    "x": 100, "y": 60,
-                    "button": "left",
-                    "buttons": if phase == "mousePressed" { 1 } else { 0 },
-                    "clickCount": 1,
-                }),
-            )
-            .await
-            .unwrap_or_else(|e| panic!("forward {phase}: {e}"));
+    // Cell (10, 5) is inside the 400x200 box at pixel (76, 72); a mapping that
+    // used the cell's corner, or forgot to make the coordinates zero-based,
+    // still lands in it — so the box is deliberately small enough that being a
+    // few cells out does not.
+    for pressed in [true, false] {
+        pane::forward_mouse(&mut session, size, 0, 10, 5, pressed).await;
     }
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    for _ in 0..40 {
+        if session
+            .run(Verb::Text {
+                selector: Some("#out".to_string()),
+            })
+            .await
+            .ok()
+            == Some(Output::Text("hit".to_string()))
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     assert_eq!(
         session
             .run(Verb::Text {
@@ -820,18 +660,25 @@ async fn forwarded_input_reaches_the_page_and_nothing_else_does() {
             .await
             .expect("read the click's effect"),
         Output::Text("hit".to_string()),
-        "a press and release forwarded from the pane must land as a click"
+        "a press and release at a pane cell must land as a click inside the box there"
     );
 
-    // A key, likewise.
-    session
-        .forward_input(
-            "Input.dispatchKeyEvent",
-            serde_json::json!({ "type": "keyDown", "key": "q", "text": "q" }),
-        )
-        .await
-        .expect("forward a key");
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    // A key, likewise — and `q` rather than an arrow because a printable key is
+    // the one that must carry `text`.
+    pane::forward_key(&mut session, b"q").await;
+    for _ in 0..40 {
+        if session
+            .run(Verb::Text {
+                selector: Some("#out".to_string()),
+            })
+            .await
+            .ok()
+            == Some(Output::Text("key:q".to_string()))
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     assert_eq!(
         session
             .run(Verb::Text {
@@ -842,23 +689,73 @@ async fn forwarded_input_reaches_the_page_and_nothing_else_does() {
         Output::Text("key:q".to_string())
     );
 
-    // And the door is only this wide.
-    for method in [
-        "Runtime.evaluate",
-        "Page.navigate",
-        "Browser.close",
-        "Input.setInterceptDrags",
-        "Input.dispatchTouchEvent",
-    ] {
-        let refused = session
-            .forward_input(method, serde_json::json!({}))
+    // The status row belongs to tmuxy, not the page: a report on it is dropped
+    // rather than forwarded to a coordinate off the bottom of the viewport.
+    pane::forward_mouse(&mut session, size, 0, 10, size.rows, true).await;
+    assert_eq!(
+        session
+            .run(Verb::Text {
+                selector: Some("#out".to_string())
+            })
             .await
-            .expect_err(method);
-        assert!(
-            refused.to_string().contains(method),
-            "the refusal names what was refused: {refused}"
-        );
+            .expect("the page is unchanged"),
+        Output::Text("key:q".to_string()),
+        "a click on the status row must not reach the page"
+    );
+
+    session.close().await;
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+/// Navigating a STILL page produces a new frame.
+///
+/// The gap the existing frame tests left: one covers a page that animates, the
+/// other a page that never changes at all. In between is what a browser pane
+/// actually does — sit on a static page, navigate, and sit on another static
+/// page — and a pane that keeps drawing the FIRST page's picture after a
+/// `:goto` looks exactly like a broken renderer.
+#[tokio::test]
+async fn navigating_a_still_page_produces_a_new_frame() {
+    use tmuxy_server::browser::verbs::Verb;
+
+    let state = scratch_dir("screencast-navigate");
+    let Some(mut session) =
+        session_or_skip("navigating_a_still_page_produces_a_new_frame", &state).await
+    else {
+        return;
+    };
+
+    let mut frames = session.start_frames().await.expect("start_frames");
+    let first = frames.borrow_and_update().clone();
+    assert!(!first.is_empty(), "the explicit first frame");
+
+    session
+        .run(Verb::Goto {
+            url: format!(
+                "data:text/html,{}",
+                urlencode("<body style='background:#c0ffee'><h1>AFTER</h1></body>")
+            ),
+        })
+        .await
+        .expect("goto");
+
+    let mut latest = first.clone();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline && latest == first {
+        if tokio::time::timeout(std::time::Duration::from_secs(3), frames.changed())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        latest = frames.borrow_and_update().clone();
     }
+
+    assert_ne!(
+        latest, first,
+        "the picture must follow the page: after a navigation the pane is still \
+         drawing the page it left"
+    );
 
     session.close().await;
     let _ = std::fs::remove_dir_all(&state);

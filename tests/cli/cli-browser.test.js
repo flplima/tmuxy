@@ -1,10 +1,10 @@
 /**
- * `tmuxy browser` — the CLI's half of the server-side browser.
+ * `tmuxy browser` — the CLI's half of the browser pane.
  *
- * The CLI does not drive the engine; it hands the verb line to the server
- * binary, which talks to the running server. So what is testable here is the
- * dispatch and the help, and that is also what breaks: an argument lost on the
- * way through is a verb that silently does something else.
+ * The CLI does not drive the engine; it hands the whole command line to the
+ * server binary, which launches a browser of its own. So what is testable here
+ * is the dispatch and the help, and that is also what breaks: an argument lost
+ * on the way through is a verb that silently does something else.
  */
 
 const { runCLI } = require('./helpers/run-cli');
@@ -37,12 +37,19 @@ describe('tmuxy browser', () => {
     expect(stdout).toContain('div.card > button');
   });
 
-  test('--repl, --close and --list reach the server', () => {
-    for (const flag of ['--repl', '--close', '--list']) {
-      const { stdout, exitCode } = runCLI(['browser', flag]);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(flag);
-    }
+  test('--repl and --attach reach the binary', () => {
+    const repl = runCLI(['browser', '--repl', '--session', 'agent1']);
+    expect(repl.exitCode).toBe(0);
+    expect(repl.stdout).toContain('--repl');
+    // The flag used to be stripped here by a wrapper script, which left an
+    // empty argument that swallowed `--session` into the verb line.
+    expect(repl.stdout).toContain('--session');
+    expect(repl.stdout).toContain('agent1');
+
+    const attach = runCLI(['browser', '--repl', '--attach', 'ws://127.0.0.1:1/x']);
+    expect(attach.exitCode).toBe(0);
+    expect(attach.stdout).toContain('--attach');
+    expect(attach.stdout).toContain('ws://127.0.0.1:1/x');
   });
 
   /// The help has to work with no server running and no browser installed —
@@ -53,6 +60,10 @@ describe('tmuxy browser', () => {
     expect(stdout).not.toContain('mock-server-started');
     expect(stdout).toContain('Usage: tmuxy browser');
     expect(stdout).toContain('TMUXY_CHROME');
+    // Both ways in, since the help is where someone learns they exist.
+    expect(stdout).toContain('--repl');
+    expect(stdout).toContain('--attach');
+    expect(stdout).toContain('chrome://inspect');
     // Every verb the server parses must be discoverable here.
     for (const verb of ['goto', 'eval', 'click', 'type', 'wait', 'text', 'shot']) {
       expect(stdout).toContain(verb);

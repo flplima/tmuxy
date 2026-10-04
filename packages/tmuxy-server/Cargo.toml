@@ -35,6 +35,7 @@ tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-tree = { path = "../tmuxy-tree" }
 tmuxy-connect = { path = "../tmuxy-connect" }
+chromiumoxide = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }

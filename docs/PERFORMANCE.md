@@ -454,6 +454,36 @@ panes in whatever session the server it is pointed at is serving. A server
 started with no `TMUX_SOCKET` serves the default `tmuxy` socket — on a dev
 machine, the session someone is working in.
 
+## The browser pane's frames
+
+`tmuxy browser --repl` draws the page as an inline JPEG written to the pty
+(`browser/pane.rs`), so every frame is base64 through control mode — the same
+channel that carries keystroke echo, which is what Axis C is measured on. The
+budget therefore matters, and it is kept by three knobs in
+`browser/session.rs`: JPEG quality 60, an encoded-size cap of 1600×1000, and a
+**time** budget of one frame per 200ms.
+
+Measured on an M-series mac, an article on Wikipedia in an 80×24 pane, scrolled
+continuously with the wheel for ten seconds (the worst case — a page being
+scrolled repaints as fast as the compositor can):
+
+|                       | Before the time budget | With it       |
+| --------------------- | ---------------------- | ------------- |
+| Frames published      | 183                    | 58            |
+| Median frame (base64) | 43 KB                  | 43 KB         |
+| Rate while scrolling  | ~18 fps                | ~5 fps        |
+| Through the pty       | ~580 KB/s              | **~215 KB/s** |
+
+An idle page publishes nothing; the pane still redraws its last frame every 3
+seconds so a client that attaches later sees the page at all (tmux strips image
+escapes from scrollback, so there is nothing to replay), which costs about
+**14 KB/s** for a pane someone is looking at and nothing for one they are not.
+
+The throttle has to be the time budget and not CDP's `everyNthFrame`, which
+counts compositor frames: at 4, the one-or-two frames a STILL page produces
+after a navigation were all dropped, and the pane went on showing the page it
+had left. See `FRAME_EVERY_NTH` for the longer version.
+
 ## What's still absent (by choice, for now)
 
 - No live production telemetry / metrics endpoint — the adaptive throttle in the

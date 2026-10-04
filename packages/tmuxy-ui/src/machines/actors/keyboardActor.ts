@@ -210,47 +210,6 @@ export function windowShortcut(event: KeyboardEvent): boolean {
 }
 
 /**
- * Whether TMUXY owns this key, rather than whatever is on screen in the pane.
- *
- * Exists for one caller — the browser widget's session view, which forwards
- * keys to a page on the server — and lives here because the answer has to be
- * the same answer this actor would give. The widget's own key handler runs in
- * the CAPTURE phase, ahead of this actor's bubble-phase listener, so a widget
- * that forwarded everything would swallow the tmux prefix and make its pane
- * impossible to leave. Instead the widget asks this and declines what tmuxy
- * owns, which produces the same precedence the other way round.
- *
- * Deliberately NOT a list of keys. `formatTmuxKey` is the same formatter the
- * actor uses to name a key for tmux, so "is this the prefix" is asked in
- * exactly the terms the binding was configured in — a prefix of `C-b` or `M-a`
- * works without this knowing anything about it.
- *
- * What tmuxy keeps:
- *   - every key while prefix mode is live, since it is the second half of a
- *     binding;
- *   - the prefix chord itself;
- *   - the app's own window and selection shortcuts (`windowShortcut`);
- *   - Alt and Meta chords that are not text, which are the root-table pane
- *     and tab bindings.
- *
- * Everything else — ordinary typing, Enter, Tab, the arrows, Ctrl chords a page
- * uses — goes to the page.
- */
-export function tmuxyOwnsKey(
-  event: KeyboardEvent,
-  options: { prefixKey: string; prefixActive: boolean },
-): boolean {
-  if (options.prefixActive) return true;
-  if (options.prefixKey && formatTmuxKey(event) === options.prefixKey) return true;
-  if (windowShortcut(event)) return true;
-  // A root binding wears Alt (or Meta, which tmux also reads as M-). Text that
-  // the OS composed with Option is not a chord — `isTextKey` already knows the
-  // difference, and asking it keeps that one judgement in one place.
-  if ((event.altKey || event.metaKey) && !isTextKey(event)) return true;
-  return false;
-}
-
-/**
  * A key that only changes what the NEXT key means.
  *
  * The scroll view stays open through these: holding Shift to extend a

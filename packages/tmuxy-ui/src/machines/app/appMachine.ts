@@ -674,41 +674,6 @@ export const appMachine = setup({
       })),
     },
 
-    // The server-side browser's page needs the pane's size in CSS pixels, and
-    // its input needs forwarding. Both go straight out as commands: neither
-    // changes any state the app holds, so there is nothing to assign.
-    BROWSER_RUN: {
-      guard: notReadOnly,
-      actions: sendTo('tmux', ({ event }) => ({
-        type: 'INVOKE' as const,
-        cmd: 'browser_run',
-        args: { session: event.session, line: event.line },
-      })),
-    },
-
-    BROWSER_VIEWPORT: {
-      guard: notReadOnly,
-      actions: sendTo('tmux', ({ event }) => ({
-        type: 'INVOKE' as const,
-        cmd: 'browser_viewport',
-        args: {
-          session: event.session,
-          width: event.width,
-          height: event.height,
-          deviceScaleFactor: event.deviceScaleFactor,
-        },
-      })),
-    },
-
-    BROWSER_INPUT: {
-      guard: notReadOnly,
-      actions: sendTo('tmux', ({ event }) => ({
-        type: 'INVOKE' as const,
-        cmd: 'browser_input',
-        args: { session: event.session, method: event.method, params: event.params },
-      })),
-    },
-
     RECONNECT_NOW: {
       actions: sendTo('tmux', { type: 'RECONNECT_NOW' as const }),
     },

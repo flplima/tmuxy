@@ -230,7 +230,6 @@ function FloatBody({
       <WidgetComponent
         paneId={pane.tmuxId}
         widgetName={widgetInfo.widgetName}
-        instance={widgetInfo.instance}
         lines={widgetInfo.contentLines}
         lastLine={widgetInfo.contentLines.filter((l) => l.trim()).pop() || ''}
         rawContent={pane.content}

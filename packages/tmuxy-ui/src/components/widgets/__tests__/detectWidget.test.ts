@@ -43,71 +43,36 @@ describe('detectWidget', () => {
   });
 
   /**
-   * `browser:live` — which widget, and which instance of it. The instance
-   * rides the authorisation rather than pane output because output scrolls
-   * away, and because a session name is exactly as sensitive as the tag it
-   * belongs to.
+   * The marker is ALWAYS required, and that is what keeps a stale tag — a
+   * widget killed before its EXIT trap could unset it — from drawing a widget
+   * over the live shell that replaced it.
+   *
+   * There was briefly an exception, for a pane whose widget kept printing and
+   * scrolled its own marker away. Nothing does that any more: the server-side
+   * browser is a full-screen pane PROGRAM (`browser/pane.rs`) and not a widget
+   * at all, so the exception went with it and the rule is simple again.
    */
-  describe('instances', () => {
-    it('splits the instance off the tag and still authorises the widget', () => {
-      const info = detectWidget(lines(MARKER, 'tmuxy browser [live]'), 'browser:live');
-      expect(info?.widgetName).toBe('browser');
-      expect(info?.instance).toBe('live');
-    });
-
-    it('reports no instance for a plain tag', () => {
-      expect(detectWidget(lines(MARKER, '__SRC__:x'), 'browser')?.instance).toBe('');
-    });
-
-    /**
-     * A pane tagged for `tree` cats a file naming `browser`. The marker is
-     * refused, and `tree` is what the pane is for — so with an instance it
-     * renders `tree`, never the widget the output asked for.
-     */
-    it('never renders the widget the OUTPUT names, only the tagged one', () => {
-      const info = detectWidget(lines(MARKER, 'x'), 'tree:whatever');
-      expect(info?.widgetName).toBe('tree');
-      expect(info?.instance).toBe('whatever');
-    });
-
-    /**
-     * Without an instance the marker is required, which is what keeps a stale
-     * tag — a widget killed before its EXIT trap could unset it — from drawing
-     * a widget over the live shell that replaced it.
-     */
-    it('renders nothing for a plain tag whose marker is absent', () => {
+  describe('the tag and the marker must agree', () => {
+    it('renders nothing when the marker is absent', () => {
       expect(detectWidget(lines('a live shell', '$ ls'), 'browser')).toBeNull();
       expect(detectWidget(lines(MARKER, 'x'), 'tree')).toBeNull();
     });
 
-    it('refuses a tag naming a widget that does not exist', () => {
-      expect(detectWidget(lines(MARKER, 'x'), 'nosuchwidget')).toBeNull();
-      expect(detectWidget(lines(MARKER, 'x'), 'nosuchwidget:live')).toBeNull();
+    /**
+     * A pane tagged for `tree` cats a file naming `browser`. The marker names a
+     * real widget and is still refused: a pane must not be turned into another
+     * widget by something it prints.
+     */
+    it('never renders the widget the OUTPUT names, only the tagged one', () => {
+      expect(detectWidget(lines(MARKER, 'x'), 'tree')).toBeNull();
+      expect(detectWidget(lines(MARKER, 'x'), 'browser')?.widgetName).toBe('browser');
     });
 
-    /**
-     * A pane whose widget keeps PRINTING scrolls its own marker out of the
-     * visible region — the browser session's REPL does exactly this. Without
-     * the tag alone being enough, such a pane silently stops being a widget
-     * the moment it fills the screen, which no symptom would explain.
-     *
-     * This branch is STRICTER than the marker one, not looser: there, output
-     * chooses among registered widgets (constrained to the tagged name); here
-     * output chooses nothing at all.
-     */
-    it('keeps rendering a tagged pane whose marker has scrolled away', () => {
-      const scrolled = lines(
-        'tmuxy browser [live] — `help` for verbs',
-        '> goto example.com',
-        'https://example.com/',
-        '> title',
-        'Example Domain',
-      );
-      const info = detectWidget(scrolled, 'browser:live');
-      expect(info?.widgetName).toBe('browser');
-      expect(info?.instance).toBe('live');
-      // Every line is content: there is no marker to measure from.
-      expect(info?.contentLines).toHaveLength(5);
+    it('refuses a tag naming a widget that does not exist', () => {
+      expect(detectWidget(lines(MARKER, 'x'), 'nosuchwidget')).toBeNull();
+      // Including the old `widget:instance` form, which is now simply a name
+      // no widget has.
+      expect(detectWidget(lines(MARKER, 'x'), 'browser:live')).toBeNull();
     });
 
     /** Still nothing without a tag, marker or no marker. */

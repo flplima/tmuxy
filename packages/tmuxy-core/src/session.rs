@@ -284,10 +284,6 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     ),
     ("tmuxy/nav", include_str!("../../../bin/tmuxy/nav")),
     (
-        "tmuxy/tmuxy-browser-pane",
-        include_str!("../../../bin/tmuxy/tmuxy-browser-pane"),
-    ),
-    (
         "tmuxy/reap-orphan-shells",
         include_str!("../../../bin/tmuxy/reap-orphan-shells"),
     ),

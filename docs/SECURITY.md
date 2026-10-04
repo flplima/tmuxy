@@ -112,75 +112,92 @@ The cost: a local page cannot use cookies or storage, and a link followed inside
 
 Which pane is a widget at all is not decided by pane content. The `__TMUXY_WIDGET__:<name>` marker is output, so anything a pane prints could otherwise replace it with an iframe of an attacker's page: the client renders a widget only when the pane also carries `@tmuxy-pane-widget` naming it, which `tmuxy-widget` writes out of band and clears on exit (see [docs/TMUX.md](TMUX.md)).
 
-## A Server-Side Browser Changes Whose Network This Is
+## A Real Browser Driven From a Pane Changes Whose Network This Is
 
 The browser widget frames pages in the VIEWER's browser, so a page it opens has
 the viewer's network position and the viewer's cookies, and tmuxy never sees
-either. A server-driven engine inverts all three, and none of the reasoning
-above carries over.
+either. `tmuxy browser` inverts all three, and none of the reasoning above
+carries over.
 
-**The network position becomes the server's.** `goto http://10.0.0.5/admin`
-from a session served over a tunnel is a request from inside the server's
-network, by a client that reaches whatever that host reaches — a database admin
-page, a metadata endpoint at `169.254.169.254`, a service bound to loopback
-that was never meant to be reachable. The viewer's browser could not have made
-that request; the server can, and the viewer chooses the URL. This is SSRF with
-the URL supplied over the wire, and it is the single largest change the feature
-makes. It is why `tmuxy browser` is a WRITE command: a `--read-only` server
-must never expose it, for the same reason it does not expose the file routes
-(SEC-11).
+**It runs as whoever typed the command, not as the server.** This is the single
+most important property, and it was not always true. The engine used to live in
+the tmuxy server, driven by a client command and streamed back over an HTTP
+route — which put the server's own network and the server's own uid behind a URL
+a viewer could choose, and made "may a read-only viewer drive a browser?" a
+question the code had to answer (SEC-11). Now the engine is launched by a
+program in a pane, so it has exactly the powers of the person at that terminal.
+There is no route, no client command, no read-only exemption to maintain, and
+nothing a viewer can name. A viewer who can send keys to a pane can already run
+any command; this is one of them.
 
-**CDP is an unauthenticated full-control API.** Anything that can speak to the
-engine's debugging endpoint can read every cookie in the profile, run script in
-any page, and navigate to `file://` URLs — i.e. read the disk. So the endpoint
-is not a port: the engine is launched with `--remote-debugging-pipe`, which
-speaks over inherited file descriptors and opens no socket for anything on the
-machine to find. A port is the fallback only where the pipe is unavailable, and
-then on `127.0.0.1` with a kernel-assigned number, never `0.0.0.0` and never a
-fixed 9222 — the number every scanner and every other automation tool on the
-machine already tries.
+**The network position is still not the viewer's.** `goto http://10.0.0.5/admin`
+from a pane on a machine reached over a tunnel is a request from inside THAT
+machine's network — a database admin page, a metadata endpoint at
+`169.254.169.254`, a service bound to loopback. That is true of `curl` in the
+same pane, which is the point: the power comes from being able to run commands
+there, not from this feature. What changed is only that it is no longer also
+reachable by anything that can speak to the server.
 
-**The profile is a credential store on the server's disk.** Milestone 1 uses a
-throwaway `--user-data-dir` per session, removed when the session ends, so
-nothing is retained and no login survives. That is a deliberate limit rather
-than an oversight: a persistent profile that a logged-in user can be handed is
-a different security object, and it is the point at which "anyone who can drive
-this session can act as that account" starts being true. It is not in this
-milestone.
+**CDP is an unauthenticated full-control API, and the transport is now a
+loopback port.** Anything that can speak to the engine's debugging endpoint can
+read every cookie in the profile, run script in any page, and navigate to
+`file://` URLs — i.e. read the disk. The engine is launched on `127.0.0.1` with
+a **kernel-assigned** port, never `0.0.0.0` and never a fixed `9222` — the
+number every scanner and every other automation tool on the machine already
+tries, and the one that would let two tools collide into each other's browser.
 
-**The engine is the user's, not tmuxy's.** tmuxy ships no browser; it finds
-one (`TMUXY_CHROME`, then the platform's usual paths) and refuses the command
-when there is none. That means the engine is patched on the user's own
-schedule rather than pinned to a tmuxy release — the right side of that trade
-for a component with a browser's attack surface — and it means a machine
-without one simply does not have the feature.
+This is weaker than what came before, and the trade is deliberate rather than
+unnoticed. The previous engine used `--remote-debugging-pipe`, which speaks over
+inherited file descriptors and opens no socket at all; a random loopback port
+is reachable by any process on the machine that enumerates ports, which is a
+lower bar than inheriting an fd. What it buys is the whole implementation: the
+pipe transport was tmuxy's own code — the framing, the reply correlation, the fd
+placement Chromium numbers from the child's point of view — and it is now
+chromiumoxide's, which does not offer the pipe. On a single-user machine the
+distinction is small; on a shared one it is real, and a session whose profile
+holds logins (`--attach`, below) is where it starts to matter.
 
-**The page is a picture, and the picture is a write-only route.** The pane shows
-the page as a motion-JPEG stream (`/api/browser/<session>/stream`), which a
-`--read-only` server does not register at all — same as the file routes, and for
-the same reason: the frames are of a page fetched from the server's network, so
-a viewer seeing them sees hosts they cannot reach themselves. The stream also
-only ever attaches to a session that is ALREADY running: a GET that could start
-a browser would mean an `<img>` tag launching a process, and a reload of a stale
-page resurrecting a session its owner had closed.
+**The profile is a credential store on disk.** A launched session gets a
+throwaway `--user-data-dir` of its own, removed when the session ends — waited
+for, not just asked: Chromium flushes its profile on the way out, so a directory
+removed before the process is gone is simply recreated. Nothing is retained and
+no login survives.
 
-**Input forwarded from a pane is an allowlist, not a channel.** A browser pane
-forwards keys and pointer events to the page as CDP's own `Input.*` shapes,
-which means the client names a CDP method. The server accepts exactly three —
-`dispatchKeyEvent`, `dispatchMouseEvent`, `insertText` — because the alternative,
-"anything starting with `Input.`", silently widens as the protocol grows, and
-because without any check this would be a general door into CDP, where
-`Runtime.evaluate` runs arbitrary script and `Page.navigate` goes anywhere. The
-tmux prefix never reaches the page: the widget declines every key tmuxy owns
-(`tmuxyOwnsKey`) rather than claiming what it wants, so a page cannot swallow
-`C-a` and make its pane impossible to leave.
+`--attach` is the exception, and it is opt-in by its nature: it drives a browser
+somebody else started, which may be the user's REAL profile with its logins.
+Chrome will only expose that after an explicit consent prompt at
+`chrome://inspect/#remote-debugging`, so the decision is the user's and is made
+in their own browser rather than here. An attached browser is left running and
+its profile untouched when the pane closes — tmuxy does not clean up something
+it did not create.
+
+**The engine is the user's, not tmuxy's.** tmuxy ships no browser; it finds one
+(`TMUXY_CHROME`, then the platform's usual paths) and refuses the command when
+there is none. That means the engine is patched on the user's own schedule
+rather than pinned to a tmuxy release — the right side of that trade for a
+component with a browser's attack surface — and it means a machine without one
+simply does not have the feature.
+
+**The page is a picture written to a pty.** Each frame is an inline image
+(`OSC 1337`) emitted by the pane program, which is to say it is pane output and
+is governed by everything in "Pane Output Threat Model" below — nothing new, and
+no route of its own. A read-only viewer sees the picture because they can see
+the pane, the same way they can see any other command's output.
+
+**Input is a pty, not a protocol.** The pane program reads keystrokes and SGR
+mouse reports off its own terminal and turns them into CDP `Input.*` calls
+itself. The old shape had a client naming a CDP method, which needed an
+allowlist to stop it being a general door into CDP; nothing names a method any
+more, so there is nothing to allow or refuse. The tmux prefix never reaches the
+page either, and for the plainest possible reason: tmux takes it first, as it
+does for every program in a pane.
 
 **What a page cannot reach.** The engine runs headless with a profile of its
-own, no extensions, and no access to the tmuxy API: it is a separate process
-whose only channel is CDP, and the REPL is the only thing holding the other end.
-A page cannot send a tmux command, because nothing connects a page to
-`/commands` — unlike the framed local-file case above, where the page and the
-app shared an origin until the sandbox separated them.
+own, no extensions and no access to the tmuxy API: a separate process whose only
+channel is CDP, with the pane program holding the other end. A page cannot send
+a tmux command, because nothing connects a page to `/commands` — unlike the
+framed local-file case above, where the page and the app shared an origin until
+the sandbox separated them.
 
 ## Input That Reaches Control Mode
 
