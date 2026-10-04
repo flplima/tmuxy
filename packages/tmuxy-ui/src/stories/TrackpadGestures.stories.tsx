@@ -68,7 +68,21 @@ function centre(el: Element) {
   return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
 }
 
-/** One wheel step per value over `el`, one a frame: the fingers are down until the steps stop. */
+/**
+ * One wheel step per value over `el`: the fingers are down until the steps stop.
+ *
+ * Dispatched back to back rather than one a frame, and that is the whole point.
+ * A slide ends after `SWIPE_IDLE_MS` (70ms) of wheel silence — real wall clock,
+ * a real `setTimeout` in `gestureActor` — while a trackpad delivers its events
+ * on its own cadence, nothing to do with how fast anything is painting. Pacing
+ * them by `requestAnimationFrame` tied this story to the frame rate: on a
+ * loaded runner one frame exceeds 70ms, the actor concludes the fingers lifted,
+ * the grid springs back, and the assertion reads a pane that never moved.
+ * Reproduced exactly that way, 4 runs out of 4, with the probe's CPU throttle.
+ *
+ * So: no await between steps, then one frame at the end so the transform the
+ * caller is about to measure has been applied.
+ */
 async function wheelSteps(el: Element, steps: number[], init: WheelEventInit = {}) {
   for (const step of steps) {
     const delta = init.ctrlKey ? { deltaY: step } : { deltaX: step };
@@ -81,8 +95,12 @@ async function wheelSteps(el: Element, steps: number[], init: WheelEventInit = {
         ...delta,
       }),
     );
-    await nextFrame();
+    // A macrotask, not a frame: each step still lands in its own task (which
+    // the momentum detector's step-by-step shrinking depends on), but the gap
+    // no longer waits for a paint.
+    await pause(0);
   }
+  await nextFrame();
 }
 const repeat = (step: number, n: number) => Array.from({ length: n }, () => step);
 
