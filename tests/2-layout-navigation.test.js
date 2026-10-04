@@ -1057,6 +1057,13 @@ describe('Scenario 4g: Drag a pane onto the tab strip', () => {
 
     await splitPaneKeyboard(page, 'vertical');
     await waitForPaneCount(page, 2);
+    // The strip is measured below, so wait for it to exist. Waiting only for
+    // the PANE count does not imply the tab strip has rendered — they are
+    // different components off different parts of the model — and reading an
+    // empty strip fails as `tabs[tabs.length - 1]` being undefined, which
+    // reports as a TypeError about `getBoundingClientRect` rather than as
+    // "the tab strip was not ready".
+    await waitForWindowCount(page, 1);
     const sourceWindow = await page.evaluate(
       () => window.app?.getSnapshot()?.context?.activeWindowId,
     );
