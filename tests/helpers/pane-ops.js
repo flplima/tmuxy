@@ -190,6 +190,22 @@ function showsShellPrompt(text) {
 }
 
 /**
+ * The hard stop for a pane that never produces a prompt.
+ *
+ * Deliberately WELL under jest's own per-test budget, and that is the whole
+ * point of the number. It used to be 120000 — exactly the test timeout — so
+ * when a pane really did stay blank, jest's timeout fired at the same moment
+ * and won: the failure read `Exceeded timeout of 120000 ms` and said nothing
+ * about a shell, a prompt, or what was on screen. A diagnostic that cannot be
+ * reached before the harness gives up is not a diagnostic.
+ *
+ * 45s is far longer than any shell takes to write its first byte, including on
+ * a cold loaded runner, and leaves the rest of the budget for the test to
+ * report with.
+ */
+const PROMPT_CEILING = 45000;
+
+/**
  * Wait for a shell prompt to appear in a terminal on screen.
  *
  * Patience, not a stopwatch. `timeout` bounds how long the terminal may go
@@ -202,7 +218,7 @@ function showsShellPrompt(text) {
  * `ceiling` is the only bound on a pane that never stops changing, so a
  * runaway `yes` reports here rather than as an opaque jest timeout.
  */
-async function waitForShellPrompt(page, timeout = 30000, { ceiling = 120000 } = {}) {
+async function waitForShellPrompt(page, timeout = 30000, { ceiling = PROMPT_CEILING } = {}) {
   return waitForPrompts(page, 'some', timeout, ceiling);
 }
 
@@ -317,7 +333,7 @@ async function splitPaneKeyboard(page, direction = 'horizontal') {
  * budget bounds how long the screen may go without changing, and any change
  * resets it, so a slow runner that is still drawing keeps its wait.
  */
-async function waitForEveryShellPrompt(page, timeout = 30000, { ceiling = 120000 } = {}) {
+async function waitForEveryShellPrompt(page, timeout = 30000, { ceiling = PROMPT_CEILING } = {}) {
   return waitForPrompts(page, 'every', timeout, ceiling);
 }
 
