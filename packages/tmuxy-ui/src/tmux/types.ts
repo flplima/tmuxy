@@ -236,6 +236,18 @@ export interface CopyModeState {
    * so the copied text blinks where it was, then closes.
    */
   copiedAt?: number;
+  /**
+   * tmux has reported `in_mode` for THIS record. Set by the reconciliation
+   * when a pane snapshot shows the mode on; never set by `ENTER_COPY_MODE`
+   * itself, which only asks tmux to enter.
+   *
+   * What it guards: "tmux left copy mode" is only evidence about this record
+   * once tmux has been seen in it. A record opened right after the previous
+   * one closed is otherwise killed by the snapshot that merely reports the
+   * PREVIOUS exit — the `-X cancel` landing a round trip late — and the view
+   * vanishes under the user's hands.
+   */
+  tmuxSeen?: boolean;
 }
 
 // ============================================

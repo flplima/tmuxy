@@ -32,6 +32,7 @@ const {
   getCopyModeState,
   waitForCondition,
   waitForCopyMode,
+  waitForTmuxOutOfMode,
   enterCopyModeAndWait,
   startMouseCapture,
   readMouseEvents,
@@ -865,8 +866,10 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     const normalEl = await ctx.page.$('[role="log"]');
     expect(normalEl).not.toBeNull();
 
-    // Step 7: Re-enter copy mode (wait for reentry cooldown)
-    await delay(DELAYS.SYNC);
+    // Step 7: Re-enter copy mode — once tmux has confirmed the exit, not
+    // after a sleep: the cancel is a round trip, and a re-entry that races it
+    // is closed by the snapshot reporting it (see waitForTmuxOutOfMode).
+    await waitForTmuxOutOfMode(ctx.page);
     await enterCopyModeAndWait(ctx.page);
 
     // Step 8: Exit with Escape
@@ -874,8 +877,8 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     await waitForCopyMode(ctx.page, false);
     expect(await getCopyModeState(ctx.page)).toBeNull();
 
-    // Step 9: Re-enter, test 'v' selection mode (wait for reentry cooldown)
-    await delay(DELAYS.SYNC);
+    // Step 9: Re-enter, test 'v' selection mode
+    await waitForTmuxOutOfMode(ctx.page);
     await enterCopyModeAndWait(ctx.page);
     // Navigate up to a line with content (the "seq 1 200" command output)
     for (let i = 0; i < 5; i++) {
@@ -887,23 +890,36 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     await delay(DELAYS.SHORT);
     // Press 'v' to enter char selection mode
     await ctx.page.keyboard.press('v');
-    await delay(DELAYS.SHORT);
+    await waitForCondition(
+      ctx.page,
+      async () => (await getCopyModeState(ctx.page))?.selectionMode === 'char',
+      5000,
+      "'v' to open a char selection",
+    );
     const csWithSelection = await getCopyModeState(ctx.page);
-    expect(csWithSelection.selectionMode).toBe('char');
     expect(csWithSelection.selectionAnchor).not.toBeNull();
     expect(csWithSelection.cursorCol).toBe(0);
     // Move cursor right to expand selection
     await ctx.page.keyboard.press('l');
     await ctx.page.keyboard.press('l');
     await ctx.page.keyboard.press('l');
-    await delay(DELAYS.SHORT);
-    const csExpanded = await getCopyModeState(ctx.page);
-    expect(csExpanded.cursorCol).toBeGreaterThan(csWithSelection.cursorCol);
+    await waitForCondition(
+      ctx.page,
+      async () => ((await getCopyModeState(ctx.page))?.cursorCol ?? 0) > csWithSelection.cursorCol,
+      5000,
+      'the cursor to move right inside the selection',
+    );
     // 'v' again toggles off selection
     await ctx.page.keyboard.press('v');
-    await delay(DELAYS.SHORT);
-    const csNoSel = await getCopyModeState(ctx.page);
-    expect(csNoSel.selectionMode).toBeNull();
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const cs = await getCopyModeState(ctx.page);
+        return !!cs && cs.selectionMode === null;
+      },
+      5000,
+      "'v' again to drop the selection",
+    );
 
     // Clean exit
     await ctx.page.keyboard.press('q');

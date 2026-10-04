@@ -227,7 +227,7 @@ const BLIND_WAIT_CEILING = {
   // the helper, so this is the number that matters most.
   'tests/helpers': 49,
   // Test bodies. Each one affects a single test.
-  tests: 209,
+  tests: 204,
 };
 
 function countBlindWaits(content) {

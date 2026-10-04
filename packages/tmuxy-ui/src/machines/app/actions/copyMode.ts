@@ -13,7 +13,7 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import type { CopyModeState, CellLine, ScrollbackMode } from '../../../tmux/types';
+import type { CopyModeState, CellLine, ScrollbackMode, TmuxPane } from '../../../tmux/types';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import {
   firstUnloadedGap,
@@ -150,6 +150,58 @@ function leaveAfterCopy(enqueue: Enqueue, context: Ctx, paneId: string): void {
   );
 }
 export const COPY_MODE_REENTRY_COOLDOWN = 2000;
+
+/** What a pane snapshot says about the copy-mode record the client holds for it. */
+export type PaneModeReconciliation =
+  /** tmux entered copy mode on its own and the client has no record: open one. */
+  | 'enter'
+  /** tmux has reported the mode on for the client's record: remember that. */
+  | 'confirm'
+  /** tmux left a copy mode it had been seen in: close the record. */
+  | 'leave'
+  | 'none';
+
+/**
+ * Reconcile one pane snapshot with the client's copy-mode record for it.
+ *
+ * Pure, so the ordering this guards can be written down as a test. The order
+ * that matters: the client closes its record and sends `-X cancel`, then opens
+ * a new one before tmux has confirmed the cancel. The next snapshot reports the
+ * PREVIOUS exit (`inMode` true → false) and used to be read as tmux leaving
+ * the NEW record's copy mode — which deleted it, a round trip after it opened.
+ * Seen on a loaded CI runner as a `v` keypress landing on no copy mode at all.
+ *
+ * So "tmux left" only counts against a record tmux has been seen IN
+ * (`tmuxSeen`). A record the client opened itself is confirmed by the first
+ * snapshot that shows the mode on, and only after that can a snapshot showing
+ * it off mean anything about it. The scroll view, which never asks tmux for a
+ * mode, is never confirmed and so is never closed by tmux either — which was
+ * always the intent, and now holds.
+ *
+ * Entering stays guarded by the exit cooldown: a snapshot that still shows the
+ * mode on right after the client left it is the same stale report in the other
+ * direction, and must not reopen what was just closed.
+ */
+export function reconcilePaneMode(
+  prevPane: Pick<TmuxPane, 'inMode'> | undefined,
+  newPane: Pick<TmuxPane, 'tmuxId' | 'inMode'>,
+  record: Pick<CopyModeState, 'copiedAt' | 'tmuxSeen'> | undefined,
+  options: { readOnly: boolean; now: number },
+): PaneModeReconciliation {
+  if (newPane.inMode) {
+    if (record) return record.tmuxSeen ? 'none' : 'confirm';
+    if (options.readOnly || prevPane?.inMode) return 'none';
+    const exitTime = copyModeExitTimes.get(newPane.tmuxId);
+    if (exitTime !== undefined && options.now - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
+      return 'none';
+    }
+    return 'enter';
+  }
+  // Not a view that is closing after a copy: tmux left on purpose, and the
+  // view stays for the copied text's blink (copiedAt).
+  if (record && record.tmuxSeen && prevPane?.inMode && !record.copiedAt) return 'leave';
+  return 'none';
+}
 
 export const copyModeActions = {
   /**

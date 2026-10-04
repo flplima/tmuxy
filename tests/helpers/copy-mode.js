@@ -97,8 +97,33 @@ async function enterCopyModeAndWait(page, timeout = 15000) {
   return (await getCopyModeState(page)) ?? entered;
 }
 
+/**
+ * Wait until tmux itself reports the active pane out of copy mode.
+ *
+ * `waitForCopyMode(page, false)` answers for the CLIENT, which drops its record
+ * the instant the user leaves and only then asks tmux to cancel. A test that
+ * re-enters on the client's word alone is racing that cancel: the snapshot
+ * reporting it can land after the next entry, and a loaded runner is where it
+ * does. This is the condition the old fixed "reentry cooldown" sleeps were
+ * standing in for, named.
+ */
+async function waitForTmuxOutOfMode(page, timeout = 15000) {
+  await waitForCondition(
+    page,
+    () =>
+      page.evaluate(() => {
+        const ctx = window.app?.getSnapshot?.()?.context;
+        const pane = ctx?.panes?.find((p) => p.tmuxId === ctx.activePaneId);
+        return !!pane && !pane.inMode;
+      }),
+    timeout,
+    'tmux to report the pane out of copy mode',
+  );
+}
+
 module.exports = {
   getCopyModeState,
   waitForCopyMode,
+  waitForTmuxOutOfMode,
   enterCopyModeAndWait,
 };

@@ -55,12 +55,61 @@ async function getBrowser() {
       await acknowledgeRiskNotice(context);
       const page = await context.newPage();
       page._context = context;
+      await throttleCpu(page);
+      surfacePageProblems(page);
       return page;
     },
     async close() {
       // No-op — shared browser persists across suites (see disconnectBrowser).
     },
   };
+}
+
+/**
+ * Print the page's own errors and warnings into the test output.
+ *
+ * A failing assertion says what the DOM or the machine looked like; it cannot
+ * say why. The one place the app explains itself — an uncaught error, a
+ * `console.warn` on a path that should not have run — was being thrown away,
+ * so a flake that was a product bug read as a timing problem in the test.
+ * Errors and warnings only: the app's `console.log` traffic is not evidence.
+ */
+function surfacePageProblems(page) {
+  // Straight to stderr: through `console`, jest decorates every line with the
+  // source frame of THIS function, which is noise that buries the message.
+  const say = (line) => process.stderr.write(`${line}\n`);
+  page.on('pageerror', (error) => say(`[page error] ${error.message}`));
+  page.on('console', (message) => {
+    const type = message.type();
+    if (type !== 'error' && type !== 'warning') return;
+    // The browser logs every refused resource as a console error. A suite that
+    // proves a route is refused (the read-only server, SEC-11) produces those
+    // on purpose, and they are the network log talking, not the app.
+    if (message.text().startsWith('Failed to load resource')) return;
+    say(`[page ${type}] ${message.text()}`);
+  });
+}
+
+/**
+ * Slow the page's renderer down by `TMUXY_E2E_CPU_THROTTLE` (a factor; unset or
+ * 1 means none).
+ *
+ * The same knob the storybook probe has (`PROBE_CPU_THROTTLE`), for the same
+ * reason: a CI runner is several times slower than a dev machine, and that is
+ * where a wait that assumes something has already happened fails. A race that
+ * passes here a hundred times out of a hundred can fail there on the first
+ * run; throttling the renderer is how to see it on this machine. Chromium only
+ * (a CDP emulation call) — a run on anything else gets no throttle and says so.
+ */
+async function throttleCpu(page) {
+  const rate = Number(process.env.TMUXY_E2E_CPU_THROTTLE || 1);
+  if (!(rate > 1)) return;
+  try {
+    const session = await page.context().newCDPSession(page);
+    await session.send('Emulation.setCPUThrottlingRate', { rate });
+  } catch (error) {
+    console.warn(`TMUXY_E2E_CPU_THROTTLE=${rate} ignored: ${error.message}`);
+  }
 }
 
 /**
