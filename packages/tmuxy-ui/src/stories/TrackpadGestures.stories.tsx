@@ -71,17 +71,26 @@ function centre(el: Element) {
 /**
  * One wheel step per value over `el`: the fingers are down until the steps stop.
  *
- * Dispatched back to back rather than one a frame, and that is the whole point.
- * A slide ends after `SWIPE_IDLE_MS` (70ms) of wheel silence — real wall clock,
- * a real `setTimeout` in `gestureActor` — while a trackpad delivers its events
- * on its own cadence, nothing to do with how fast anything is painting. Pacing
- * them by `requestAnimationFrame` tied this story to the frame rate: on a
- * loaded runner one frame exceeds 70ms, the actor concludes the fingers lifted,
- * the grid springs back, and the assertion reads a pane that never moved.
- * Reproduced exactly that way, 4 runs out of 4, with the probe's CPU throttle.
+ * Paced by a macrotask, not by a frame, and the difference is the whole point.
+ * A slide ends after `SWIPE_IDLE_MS` (70ms) of wheel silence — wall clock, a
+ * real `setTimeout` in `gestureActor` — while a trackpad delivers its events on
+ * its own cadence, nothing to do with what is painting. Waiting a
+ * `requestAnimationFrame` between steps tied the gesture to the frame rate: on a
+ * loaded runner one frame runs past 70ms, the actor concludes the fingers have
+ * lifted, the grid springs back, and the assertion reads a pane at rest.
+ * Reproduced 4 runs out of 4 at `PROBE_CPU_THROTTLE=20`; 20 out of 20 pass now.
  *
- * So: no await between steps, then one frame at the end so the transform the
- * caller is about to measure has been applied.
+ * Why this holds under ANY stall and is not just a wider margin: expired timers
+ * run in order of their due time, so the next step's `setTimeout(0)` — due at
+ * once — always runs before the idle timer due 70ms after the previous step,
+ * however long the thread was away in between. Measured in Chromium: a 120ms
+ * busy-wait after scheduling both, and the 0ms one still ran first.
+ *
+ * Still one task per step rather than one burst: the momentum detector reads
+ * the fingers lifting from steps that shrink one after another, and a burst
+ * dispatched back to back reads to it as a different gesture (measured: the
+ * flick then fell short of the commit share). One frame at the end, so the
+ * transform the caller is about to measure has been applied.
  */
 async function wheelSteps(el: Element, steps: number[], init: WheelEventInit = {}) {
   for (const step of steps) {
@@ -95,9 +104,6 @@ async function wheelSteps(el: Element, steps: number[], init: WheelEventInit = {
         ...delta,
       }),
     );
-    // A macrotask, not a frame: each step still lands in its own task (which
-    // the momentum detector's step-by-step shrinking depends on), but the gap
-    // no longer waits for a paint.
     await pause(0);
   }
   await nextFrame();
@@ -108,20 +114,18 @@ const repeat = (step: number, n: number) => Array.from({ length: n }, () => step
  * Wheel steps that pull the grid `px` to the right (fingers moving right), in a
  * fixed, small number of steps.
  *
- * Long in distance, short in time, because a loaded machine breaks this test
- * two different ways and they pull against each other. What a release commits
- * to is `dx + speed × SWIPE_PROJECT_MS`, and `speed` is px per ms BETWEEN wheel
- * events — one per animation frame here — so a fixed step SIZE reads as a
- * slower gesture on a busy runner and lands on the other side of the commit
- * share. Distance is the part a test can hold still. But spreading that
- * distance over many more steps is worse, not better: one frame stalling longer
- * than SWIPE_IDLE_MS ends the slide mid-push, and the steps after it are a
- * second slide.
+ * Long in distance, few in number. What a release commits to is
+ * `dx + speed × SWIPE_PROJECT_MS`, and `speed` is px per ms between wheel
+ * events as the actor measures them — a gap the actor clamps to 8–64ms, so it
+ * varies with the machine — which means a fixed step SIZE can read as a slower
+ * gesture on a busy runner and land on the other side of the commit share.
+ * Distance is the part a test can hold still, so the slide is sized to be past
+ * the share on distance alone and the speed cannot decide it either way.
  *
- * So: the same number of frames a slide always took, each step simply longer.
- * Fewer still would be worse in another way — the cursor overlay eases toward
- * the panes, so a slide crammed into half the frames is measured while the
- * cursor is still catching up.
+ * Few steps rather than many, because the cursor overlay eases toward the panes
+ * on its own clock (`SmoothCursor`), and the story measures it after the slide:
+ * a slide spread over many more steps is measured while the cursor is still
+ * catching up.
  */
 const slideSteps = (px: number, count = 16) => repeat(-Math.ceil(px / count), count);
 
