@@ -38,7 +38,7 @@
  * pane impossible to leave. Declining is what keeps the precedence right.
  */
 
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useAppSend, useReadOnly } from '../../../machines/AppContext';
 import { sessionStreamUrl } from './source';
 
@@ -61,6 +61,22 @@ const VIEWPORT_SETTLE_MS = 120;
  * releases and wheels are never throttled: dropping one of those loses a click.
  */
 const MOUSE_MOVE_MIN_MS = 16;
+
+/**
+ * How long to let the stream produce its first frame before re-opening it.
+ *
+ * A `multipart/x-mixed-replace` request in an `<img>` is long-lived, and the
+ * element surfaces almost nothing about its state: a connection that was
+ * answered but then produced no usable part looks exactly like a page that has
+ * not changed yet. Both end with a pane showing nothing and no error anywhere,
+ * which is the one outcome worth engineering against.
+ *
+ * So if nothing has decoded by now, the element is remounted — which re-issues
+ * the request, because a browser holds one connection per `src`. Generous,
+ * because a slow first paint is the ordinary reason to still be waiting and
+ * re-opening then would only make it slower.
+ */
+const FIRST_FRAME_WATCHDOG_MS = 6000;
 
 /** Mouse buttons, as CDP names them. */
 const CDP_BUTTONS = ['left', 'middle', 'right', 'back', 'forward'] as const;
@@ -191,6 +207,44 @@ export const SessionView = memo(function SessionView({
   }, []);
 
   /**
+   * Re-open the stream if the first frame never arrives.
+   *
+   * `attempt` is part of the image's key and of its URL, so bumping it both
+   * remounts the element and changes the `src` — either alone is not enough,
+   * since a browser reuses the connection it already has for a given URL.
+   */
+  const [attempt, setAttempt] = useState(0);
+  const [decoded, setDecoded] = useState(false);
+
+  useEffect(() => {
+    if (decoded || readOnly) return;
+    const timer = setTimeout(() => {
+      // Ask the ELEMENT, not the event. React's synthetic `onLoad` is missed
+      // when the image completes before the listener is attached, which a
+      // stream whose first part is already buffered does regularly — and
+      // trusting the event then means the watchdog tears down a stream that is
+      // working perfectly, every few seconds, forever. `naturalWidth` is the
+      // fact: it is non-zero only once a frame has actually decoded.
+      if ((imageRef.current?.naturalWidth ?? 0) > 0) {
+        setDecoded(true);
+        return;
+      }
+      setAttempt((n) => n + 1);
+    }, FIRST_FRAME_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, [decoded, readOnly, attempt, session, reloadNonce]);
+
+  // A new session or an explicit refresh starts the question again.
+  useEffect(() => {
+    setDecoded(false);
+  }, [session, reloadNonce]);
+
+  const onFrameLoad = useCallback(() => {
+    setDecoded(true);
+    reassertViewport();
+  }, [reassertViewport]);
+
+  /**
    * Where a pointer event landed, in the page's own coordinates.
    *
    * Three transforms stacked: the event is in viewport pixels, the surface is
@@ -305,14 +359,14 @@ export const SessionView = memo(function SessionView({
         // The key restarts the stream on a refresh: the browser holds one
         // long-lived request per `src`, so re-assigning the same URL does
         // nothing and remounting is what re-requests it.
-        key={reloadNonce}
-        src={sessionStreamUrl(session, reloadNonce)}
+        key={`${reloadNonce}:${attempt}`}
+        src={sessionStreamUrl(session, reloadNonce, attempt)}
         className="widget-browser-session-frame"
         // The page's own accessible content is on the server; this is a
         // picture of it, so the honest description is what it is a picture of.
         alt={`Live page of browser session ${session}`}
         data-testid="browser-session-frame"
-        onLoad={reassertViewport}
+        onLoad={onFrameLoad}
         draggable={false}
       />
     </div>

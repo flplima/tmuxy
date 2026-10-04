@@ -818,29 +818,69 @@ async fn browser_stream_handler(
         // an image that never decoded. Observed exactly that way.
         yield Ok::<_, std::io::Error>(axum::body::Bytes::from(format!("--{BOUNDARY}\r\n")));
 
+        /// How long to wait for a new frame before sending the last one again.
+        ///
+        /// A browser does not display a multipart part when it sees the
+        /// boundary that ends it — it displays it when the NEXT part starts
+        /// arriving. For a video stream that is invisible, because another
+        /// frame is always milliseconds away. For a PAGE it is the whole
+        /// problem: Chromium emits a frame only on visual change, so a page
+        /// someone is reading produces exactly one, and one part alone is never
+        /// displayed. Verified with a plain `<img>` against a well-formed
+        /// single-frame stream: it times out having rendered nothing.
+        ///
+        /// So an idle stream echoes its last frame once. The echo is what
+        /// flushes the real frame; the echo itself then sits unflushed, which
+        /// costs nothing because it is identical to what is already on screen.
+        const IDLE_FLUSH: std::time::Duration = std::time::Duration::from_millis(300);
+        /// Then a slow heartbeat, so a long-lived idle stream is not mistaken
+        /// for a dead one by anything in between, without re-sending a frame
+        /// every few hundred milliseconds for a page that never changes.
+        const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(20);
+
+        let part_for = |frame: &[u8]| {
+            let mut part = Vec::with_capacity(frame.len() + 128);
+            part.extend_from_slice(
+                format!(
+                    "Content-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+                    frame.len()
+                )
+                .as_bytes(),
+            );
+            part.extend_from_slice(frame);
+            part.extend_from_slice(format!("\r\n--{BOUNDARY}\r\n").as_bytes());
+            axum::body::Bytes::from(part)
+        };
+
         loop {
             // Cloned out of the watch under no lock of ours: the value is an
             // Arc, so this is a refcount bump rather than a copy of the frame.
             let frame = frames.borrow_and_update().clone();
             if !frame.is_empty() {
-                let mut part = Vec::with_capacity(frame.len() + 128);
-                part.extend_from_slice(
-                    format!(
-                        "Content-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
-                        frame.len()
-                    )
-                    .as_bytes(),
-                );
-                part.extend_from_slice(&frame);
-                part.extend_from_slice(format!("\r\n--{BOUNDARY}\r\n").as_bytes());
-                yield Ok::<_, std::io::Error>(axum::body::Bytes::from(part));
+                yield Ok::<_, std::io::Error>(part_for(&frame));
             }
-            // `changed()` errors only when the sender is gone, i.e. the session
-            // ended — which is the signal to end the response rather than an
-            // error to report, since the client is holding a picture that is
-            // simply the last one there was.
-            if frames.changed().await.is_err() {
-                break;
+
+            // Wait for the next frame, echoing this one if none comes. The
+            // first wait is short (that echo is what puts this frame on
+            // screen); after it the stream is genuinely idle and only needs a
+            // heartbeat.
+            let mut waited = IDLE_FLUSH;
+            loop {
+                match tokio::time::timeout(waited, frames.changed()).await {
+                    // A new frame: go round and send it.
+                    Ok(Ok(())) => break,
+                    // `changed()` errors only when the sender is gone, i.e. the
+                    // session ended — the signal to end the response rather
+                    // than an error to report, since the client is holding a
+                    // picture that is simply the last one there was.
+                    Ok(Err(_)) => return,
+                    Err(_) => {
+                        if !frame.is_empty() {
+                            yield Ok::<_, std::io::Error>(part_for(&frame));
+                        }
+                        waited = KEEPALIVE;
+                    }
+                }
             }
         }
     };

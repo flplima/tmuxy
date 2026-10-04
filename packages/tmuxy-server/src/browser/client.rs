@@ -212,6 +212,30 @@ async fn repl(port: u16, session: &str) {
     // A banner, because a pane showing a bare cursor gives a person nothing to
     // go on. One line, so a `capture-pane` is not mostly banner.
     println!("tmuxy browser [{session}] — `help` for verbs, ctrl+c to leave");
+
+    // Start the engine now, rather than on the first verb.
+    //
+    // A session is created lazily by whatever first asks something of it, which
+    // is right for the one-shot CLI and wrong for a pane: the pane's widget
+    // streams the page from a session that does not exist yet, gets a 404, and
+    // shows nothing at all until the user happens to type a verb. Opening a
+    // browser pane should give you a browser.
+    //
+    // `url` is the cheapest verb that forces the session into existence, and
+    // its answer is worth printing: it says where the pane is pointed.
+    match post(
+        port,
+        "browser_run",
+        serde_json::json!({ "session": session, "line": "url" }),
+    )
+    .await
+    {
+        Ok(result) => show(&result),
+        // Printed, not fatal. The REPL is still usable — `help` works with no
+        // engine at all — and the message says what went wrong, which a pane
+        // that merely stayed blank would not.
+        Err(message) => println!("error: {message}"),
+    }
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
 

@@ -40,12 +40,18 @@ export function parseColorFilter(lines: string[]): boolean {
   return lines.join('').includes(COLOR_FILTER_MARKER);
 }
 
-/** The URL an `<img>` streams a session's page from. */
-export function sessionStreamUrl(session: string, nonce = 0): string {
+/**
+ * The URL an `<img>` streams a session's page from.
+ *
+ * `nonce` is the pane's Refresh and `attempt` the first-frame watchdog. Both
+ * have to change the URL rather than only remount the element: a browser holds
+ * one long-lived connection per `src`, so re-requesting the same address
+ * reuses the connection that was already failing to produce frames.
+ */
+export function sessionStreamUrl(session: string, nonce = 0, attempt = 0): string {
   const base = `/api/browser/${encodeURIComponent(session)}/stream`;
-  // A reload has to change the URL: the browser holds one long-lived request
-  // per `src`, so re-assigning the same one does not restart the stream.
-  return nonce > 0 ? `${base}?_tmuxyReload=${nonce}` : base;
+  if (nonce <= 0 && attempt <= 0) return base;
+  return `${base}?_tmuxyReload=${nonce}&_tmuxyAttempt=${attempt}`;
 }
 
 export function classifySource(src: string): SourceKind {
