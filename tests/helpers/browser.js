@@ -7,6 +7,7 @@
 const { chromium } = require('playwright');
 const { CDP_PORT, TMUXY_URL, DELAYS, WAIT_SCALE, waitBudget } = require('./config');
 const { tmuxQuery } = require('./cli');
+const { tmuxSideOfSession } = require('./tmux-side');
 
 /**
  * Helper to wait for a given time
@@ -177,23 +178,41 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForSelector('[role="log"]', { timeout: 10000 });
-    } catch {
+      // A drawn pane — a terminal, or a widget where the pane shows one.
+      // Attached, not visible: the check below reads the text, and a
+      // read-only viewer's grid is scaled to fit its window, which Playwright
+      // does not always count as visible while it settles.
+      await page.waitForSelector('.pane-layout-item[data-pane-id]', {
+        state: 'attached',
+        timeout: 10000,
+      });
+    } catch (error) {
       if (attempt < maxRetries) {
-        // [role="log"] not found, retry
+        // no pane drawn yet, retry
         await delay(2000);
         continue;
       }
-      // [role="log"] not found after all retries
-      await delay(DELAYS.MEDIUM);
-      return url;
+      // The page never drew a pane at all. Carrying on from here used to
+      // hand the caller a page with nothing on it, which then failed much
+      // later on a wait that only said "no prompt".
+      throw new Error(
+        `navigateToSession: no pane on the page for '${sessionName}' after ` +
+          `${maxRetries} attempts (${error.message.split('\n')[0]})\n` +
+          (await tmuxSideOfSession(page, sessionName)),
+      );
     }
 
-    // Wait for terminal content (shell prompt)
+    // A shell prompt, when the session has a terminal to show one; a session
+    // whose panes all show widgets is drawn once they are.
     try {
       await page.waitForFunction(
         () => {
           const logs = document.querySelectorAll('[role="log"]');
+          if (logs.length === 0) {
+            return [...document.querySelectorAll('.pane-layout-item[data-pane-id]')].every(
+              (pane) => pane.querySelector('[class*="widget"]') !== null,
+            );
+          }
           const content = Array.from(logs)
             .map((l) => l.textContent || '')
             .join('\n');
@@ -215,7 +234,9 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   // cause is clear, instead of returning the URL and letting the caller die
   // later on an unrelated-looking assertion.
   throw new Error(
-    `navigateToSession: terminal content never rendered for '${sessionName}' after ${maxRetries} attempts`,
+    `navigateToSession: terminal content never rendered for '${sessionName}' after ` +
+      `${maxRetries} attempts\nthe page shows: ${JSON.stringify(await terminalText(page))}\n` +
+      (await tmuxSideOfSession(page, sessionName)),
   );
 }
 
@@ -225,10 +246,11 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
  * and waits for it to appear. This ensures the entire data path is working
  * before the test proceeds.
  */
-async function verifyRoundTrip(page, sessionName, timeout = 5000) {
-  // Wait for terminal content to stabilize — verifies the SSE pipeline is
-  // delivering tmux pane content to the DOM. Checks that the shell prompt
-  // is visible and the XState machine is connected.
+async function verifyRoundTrip(page, sessionName, timeout = 30000) {
+  // The SSE pipeline is delivering tmux pane content to the DOM: a shell
+  // prompt is visible and the XState machine is connected. Not ready yet is
+  // "keep waiting" up to the budget; past it, the setup fails here, saying
+  // what it saw, rather than letting the test die later on a bare "no prompt".
   try {
     await page.waitForFunction(
       () => {
@@ -241,13 +263,28 @@ async function verifyRoundTrip(page, sessionName, timeout = 5000) {
         const connected = snap?.context?.connected;
         return hasPrompt && connected;
       },
-      { timeout, polling: 200 },
+      { timeout: waitBudget(timeout), polling: 200 },
     );
   } catch {
-    // Non-fatal — navigateToSession already waited for the prompt.
-    // Extra settling time since the pipeline might be slow.
-    await delay(DELAYS.LONG);
+    const connected = await page
+      .evaluate(() => window.app?.getSnapshot?.()?.context?.connected ?? null)
+      .catch(() => null);
+    throw new Error(
+      `verifyRoundTrip: no prompt from a connected client for '${sessionName}' ` +
+        `(connected: ${connected})\nthe page shows: ${JSON.stringify(await terminalText(page))}\n` +
+        (await tmuxSideOfSession(page, sessionName)),
+    );
   }
+}
+
+/** What the page's terminals show, joined; empty when it cannot be read. */
+function terminalText(page) {
+  return page
+    .evaluate(() =>
+      [...document.querySelectorAll('[role="log"]')].map((l) => l.textContent || '').join('\n'),
+    )
+    .then((text) => text.slice(0, 300))
+    .catch(() => '');
 }
 
 /**

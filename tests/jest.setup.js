@@ -134,20 +134,30 @@ beforeAll(async () => {
       const fs = require('fs');
       const serverStderr = fs.openSync('/tmp/tmuxy-server-stderr.log', 'w');
       // A fresh server starts from nothing: no snapshot of a previous run's
-      // session to rebuild (see `stateDir` in helpers/tmux-socket.js).
-      fs.rmSync(stateDir(), { recursive: true, force: true });
+      // session to rebuild (see `stateDir` in helpers/tmux-socket.js). Only
+      // the snapshots: the trace beside them is the whole run's, and a suite
+      // that brings the server down mid-run must not take it with it.
+      fs.rmSync(require('path').join(stateDir(), 'sessions'), { recursive: true, force: true });
       // Explicit port AND explicit env, not the inherited ones: the server is
       // the other half of every round trip, so it has to listen where the
       // helpers look and attach to the socket they read and write. Without
       // `--port` it took the default 9000 whatever TMUXY_PORT said, so two
       // runs — or a run and a dev server — fought over one port while each
       // believed it had its own. tmuxEnv() is the helpers' own resolution.
-      const server = spawn('./target/release/tmuxy-server', ['--port', String(TMUXY_PORT)], {
-        cwd: WORKSPACE_ROOT,
-        stdio: ['ignore', 'ignore', serverStderr],
-        detached: true,
-        env: tmuxEnv(),
-      });
+      // Traced, so a failure can be read across the layers rather than from
+      // its last log lines (docs/TELEMETRY.md; markers per test come from
+      // tests/helpers/trace-environment.js). The state dir was just cleared,
+      // so the file is this run's alone.
+      const server = spawn(
+        './target/release/tmuxy-server',
+        ['--port', String(TMUXY_PORT), '--trace', process.env.TMUXY_E2E_TRACE],
+        {
+          cwd: WORKSPACE_ROOT,
+          stdio: ['ignore', 'ignore', serverStderr],
+          detached: true,
+          env: { ...tmuxEnv(), TMUXY_TRACE_LEVEL: 'labeled' },
+        },
+      );
       server.unref();
       _weStartedServer = true;
       _serverPid = server.pid;

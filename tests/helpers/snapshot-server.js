@@ -20,17 +20,9 @@ const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const { WORKSPACE_ROOT } = require('./config');
 const { waitForServer } = require('./browser');
+const { serverBinary } = require('./server-binary');
 
 const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'bin/tmuxy-cli');
-
-function serverBinary() {
-  const built = ['release', 'debug']
-    .map((profile) => path.join(WORKSPACE_ROOT, 'target', profile, 'tmuxy-server'))
-    .filter((file) => fs.existsSync(file))
-    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-  if (built.length === 0) throw new Error('no tmuxy-server binary under target/');
-  return built[0];
-}
 
 /** The environment every process on the isolated socket runs with. */
 function isolatedEnv({ socket, stateDir }) {
