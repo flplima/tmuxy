@@ -310,6 +310,17 @@ pub mod tmux_formats {
     /// by `-f` returns EMPTY (not an error) when the stash session doesn't exist
     /// yet — which is the common case on every refresh before any group is made,
     /// so it must not spam `%error` responses.
+    /// The control-mode subscription that reports a pane title change.
+    ///
+    /// tmux sends no notification when a title changes — `select-pane -T` from
+    /// a script or `tmuxy run`, or a program's OSC 0/2 — so the title used to
+    /// wait for the idle heartbeat (15 s). A subscription is checked by tmux
+    /// about once a second and answered with `%subscription-changed`, whatever
+    /// set the title (tmux 3.2+; `%*` is every pane of every window).
+    pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = "tmuxy-pane-titles";
+    pub const SUBSCRIBE_PANE_TITLES_CMD: &str =
+        "refresh-client -B 'tmuxy-pane-titles:%*:#{pane_title}'";
+
     pub const LIST_STASH_PANES_CMD: &str = concat!(
         "list-panes -a -f '#{==:#{session_name},__tmuxy_stash}' -F '",
         "stashmember,#{pane_id},#{window_id},#{@tmuxy-group-id},",
@@ -344,6 +355,7 @@ pub mod control_events {
     pub const SESSIONS_CHANGED: &str = "%sessions-changed";
     pub const SESSION_WINDOW_CHANGED: &str = "%session-window-changed ";
     pub const PASTE_BUFFER_CHANGED: &str = "%paste-buffer-changed ";
+    pub const SUBSCRIPTION_CHANGED: &str = "%subscription-changed ";
     pub const PAUSE: &str = "%pause ";
     pub const CONTINUE: &str = "%continue ";
     pub const EXIT: &str = "%exit";

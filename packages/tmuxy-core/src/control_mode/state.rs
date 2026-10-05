@@ -2226,6 +2226,18 @@ impl StateAggregator {
                 }
             }
 
+            // A title changed with no notification of its own: re-list the
+            // panes (the title rides list-panes) for the pane named.
+            ControlModeEvent::SubscriptionChanged { name, pane_id }
+                if name == crate::constants::tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME =>
+            {
+                ProcessEventResult {
+                    panes_needing_refresh: vec![pane_id],
+                    ..Default::default()
+                }
+            }
+            ControlModeEvent::SubscriptionChanged { .. } => ProcessEventResult::default(),
+
             ControlModeEvent::PaneModeChanged { pane_id } => {
                 // Toggle in_mode for the pane. %pane-mode-changed fires on both
                 // entering and exiting copy mode, so toggling is correct.

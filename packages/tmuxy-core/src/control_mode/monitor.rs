@@ -622,6 +622,12 @@ impl TmuxMonitor {
             .send_command(tmux_formats::LIST_STASH_PANES_CMD)
             .await?;
 
+        // Title changes have no notification of their own; this asks tmux to
+        // send one (see SUBSCRIBE_PANE_TITLES_CMD).
+        self.connection
+            .send_command(tmux_formats::SUBSCRIBE_PANE_TITLES_CMD)
+            .await?;
+
         // Capture current content of each pane
         // We'll do this after we receive the list-panes response
         // to know which panes exist

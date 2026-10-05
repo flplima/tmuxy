@@ -44,6 +44,10 @@ pub enum ControlModeEvent {
     /// Pane mode changed (e.g., entered/exited copy mode)
     PaneModeChanged { pane_id: String },
 
+    /// A `refresh-client -B` subscription's value changed for a pane:
+    /// `%subscription-changed <name> $session @window <index> %pane ... : value`.
+    SubscriptionChanged { name: String, pane_id: String },
+
     /// A paste buffer was created or updated (e.g. copy-mode yank, set-buffer).
     /// tmux does not forward OSC 52 to a control-mode client, so this is how
     /// tmuxy learns a copy happened and mirrors the buffer to the web clipboard.
@@ -230,6 +234,15 @@ impl Parser {
             return Some(ControlModeEvent::PaneModeChanged {
                 pane_id: rest.trim().to_string(),
             });
+        }
+
+        // %subscription-changed name $session @window index %pane ... : value
+        if let Some(rest) = line.strip_prefix(ev::SUBSCRIPTION_CHANGED) {
+            let head = rest.split(" : ").next().unwrap_or(rest);
+            let mut words = head.split_whitespace();
+            let name = words.next()?.to_string();
+            let pane_id = words.find(|w| w.starts_with('%'))?.to_string();
+            return Some(ControlModeEvent::SubscriptionChanged { name, pane_id });
         }
 
         // %paste-buffer-changed buffer-name
@@ -586,6 +599,23 @@ mod tests {
                 assert_eq!(session_name, "main");
             }
             _ => panic!("Expected SessionChanged event"),
+        }
+    }
+
+    /// A title subscription names the pane whose title changed; the value
+    /// after ` : ` is free text and may hold anything, spaces and `%` included.
+    #[test]
+    fn a_subscription_change_names_its_pane() {
+        let mut parser = Parser::new();
+        let event = parser.parse_line(
+            "%subscription-changed tmuxy-pane-titles $0 @3 1 %7 - : 100% done, %9 next",
+        );
+        match event {
+            Some(ControlModeEvent::SubscriptionChanged { name, pane_id }) => {
+                assert_eq!(name, "tmuxy-pane-titles");
+                assert_eq!(pane_id, "%7");
+            }
+            other => panic!("expected SubscriptionChanged, got {other:?}"),
         }
     }
 
