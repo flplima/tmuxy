@@ -1852,11 +1852,20 @@ pub async fn start_monitoring(
             // command: the map also holds sessions that are themselves still
             // being created, and two of those pick each other as courier and
             // both wait out the full poll below, every round, forever.
+            //
+            // Nor a peer nobody is watching: its last client left and it is in
+            // the grace period before its monitor detaches. A session made
+            // through it is born to a connection that closes a second later,
+            // and that was the one shape of creation behind the E2E start-up
+            // failure (the first test of a shard, a pane that never showed a
+            // prompt); every session made the direct way came up fine. With
+            // no watched peer, the direct `-CC new-session` below is the path.
             let candidates: Vec<(String, _)> = {
                 let sessions = state.sessions.read().await;
                 sessions
                     .iter()
                     .filter(|(name, _)| *name != &session)
+                    .filter(|(_, conns)| !conns.connections.is_empty())
                     .filter_map(|(name, conns)| {
                         conns
                             .monitor_command_tx
