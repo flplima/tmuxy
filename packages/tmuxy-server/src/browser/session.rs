@@ -105,6 +105,8 @@ pub enum SessionError {
     WaitedTooLong { selector: String },
     #[error("the page refused to evaluate that: {0}")]
     PageThrew(String),
+    #[error("the page is still loading; try again")]
+    PageReplaced,
     #[error("a {width}x{height} viewport is not usable")]
     BadViewport { width: u32, height: u32 },
     #[error("could not write {path}: {source}")]
@@ -113,6 +115,18 @@ pub enum SessionError {
         #[source]
         source: std::io::Error,
     },
+}
+
+/// How long an evaluate waits for a navigating page's new JavaScript context,
+/// and how often it asks. A navigation replaces the context in milliseconds;
+/// the bound only stops a page that never finishes loading from hanging a verb.
+const CONTEXT_SWAP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const CONTEXT_SWAP_RETRY: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Whether an evaluate failed because the context it named was just replaced.
+fn is_context_swap(error: &str) -> bool {
+    error.contains("Cannot find context with specified id")
+        || error.contains("Execution context was destroyed")
 }
 
 /// Viewport bounds. The lower one matters: a pane mid-resize reports 0, and a
@@ -437,20 +451,38 @@ impl Session {
     }
 
     /// Evaluate an expression in the page and hand back its value.
+    ///
+    /// Right after a navigation the page's JavaScript context is torn down and
+    /// a new one made; an evaluate that reaches the engine in between names the
+    /// old context and fails with "Cannot find context with specified id". That
+    /// is the page being replaced, not the page refusing, so it is retried
+    /// until the new context is there (bounded by `CONTEXT_SWAP_TIMEOUT`).
     pub async fn eval(&mut self, expression: &str) -> Result<serde_json::Value, SessionError> {
-        let result = self.page.evaluate(expression).await.map_err(|e| {
-            // A page that threw is not a transport failure: the request
-            // succeeded and the answer is an exception. Reporting it as such is
-            // the difference between "ReferenceError: foo is not defined" and
-            // "the browser is gone".
-            let text = e.to_string();
-            if text.contains("Error") || text.contains("xception") {
-                SessionError::PageThrew(text)
-            } else {
-                SessionError::Engine(text)
+        let deadline = tokio::time::Instant::now() + CONTEXT_SWAP_TIMEOUT;
+        loop {
+            match self.page.evaluate(expression).await {
+                Ok(result) => return Ok(result.into_value().unwrap_or(serde_json::Value::Null)),
+                Err(e) => {
+                    let text = e.to_string();
+                    if is_context_swap(&text) {
+                        if tokio::time::Instant::now() >= deadline {
+                            return Err(SessionError::PageReplaced);
+                        }
+                        tokio::time::sleep(CONTEXT_SWAP_RETRY).await;
+                        continue;
+                    }
+                    // A page that threw is not a transport failure: the request
+                    // succeeded and the answer is an exception. Reporting it as
+                    // such is the difference between "ReferenceError: foo is not
+                    // defined" and "the browser is gone".
+                    return Err(if text.contains("Error") || text.contains("xception") {
+                        SessionError::PageThrew(text)
+                    } else {
+                        SessionError::Engine(text)
+                    });
+                }
             }
-        })?;
-        Ok(result.into_value().unwrap_or(serde_json::Value::Null))
+        }
     }
 
     /// Lay the page out for a pane of this many CSS pixels.
@@ -670,6 +702,21 @@ fn base64_decode(encoded: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+
+    /// The two ways Chromium says an evaluate named a context a navigation
+    /// just replaced; anything else is the page's own answer or a real error.
+    #[test]
+    fn a_replaced_context_is_told_apart_from_a_page_error() {
+        assert!(is_context_swap(
+            "Error -32000: Cannot find context with specified id"
+        ));
+        assert!(is_context_swap(
+            "Execution context was destroyed, most likely because of a navigation"
+        ));
+        assert!(!is_context_swap("ReferenceError: foo is not defined"));
+        assert!(!is_context_swap("websocket closed"));
+    }
+
     use super::*;
 
     /// The only thing between a selector containing a quote and an expression
