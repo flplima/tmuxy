@@ -238,7 +238,13 @@ export function TmuxStatusBar() {
   // I", so they answer with one menu rather than two prompts that knew nothing
   // of each other. It hangs from the pair and opens UPWARD — the status line
   // is the window's last row, so a menu below it would be off the screen.
-  const handleSwitcherClick = isDemo || readOnly ? undefined : () => setMenuOpen((open) => !open);
+  const handleSwitcherClick =
+    isDemo || readOnly
+      ? undefined
+      : () => {
+          if (!menuOpen) send({ type: 'SESSION_MENU_OPENED' });
+          setMenuOpen(!menuOpen);
+        };
 
   // Center area: only show status messages (temporary display-message output).
   // The tmux status line content is not displayed — we use hardcoded hints (left)

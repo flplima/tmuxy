@@ -25,6 +25,8 @@ const { isolatedServer } = require('./helpers/snapshot-server');
 
 const SNAPSHOT_PORT = TMUXY_PORT + 200;
 const SESSION = 'snapshot';
+/** A second session, made and killed so the menu has an exited one to offer. */
+const SPARE = 'spare';
 
 /** The snapshot JSON, without the one field a save is allowed to change. */
 function shapeOf(file) {
@@ -51,11 +53,15 @@ function layoutTree(layout) {
  * prompt rather than running it, so a save after the restore sees a shell.
  */
 function comparable(shape) {
-  return shape.windows.map((w) => ({
-    ...w,
-    layout: layoutTree(w.layout),
-    panes: w.panes.map(({ command, ...pane }) => pane),
-  }));
+  return {
+    windows: shape.windows.map((w) => ({
+      ...w,
+      layout: layoutTree(w.layout),
+      panes: w.panes.map(({ command, ...pane }) => pane),
+    })),
+    // The group's member parked out of view comes back parked, in its group.
+    hidden: (shape.hidden ?? []).map(({ command, ...member }) => member),
+  };
 }
 
 /** A Chromium the browser pane can launch, or null with the reason printed. */
@@ -189,6 +195,7 @@ describe('Scenario 32: Session snapshots', () => {
           types.includes('float') &&
           types.includes('sidebar-left') &&
           panes.some((p) => p.options && p.options['@tmuxy-group-id']) &&
+          (shape.hidden ?? []).length === 1 &&
           panes.some((p) => p.restore_command === 'echo restored-ok') &&
           (!engine ||
             panes.some((p) => (p.restore_command ?? '').startsWith('tmuxy browser --repl')))
@@ -280,10 +287,55 @@ describe('Scenario 32: Session snapshots', () => {
     expect(offered).toContain('echo restored-ok');
     expect(offered).not.toContain('restored-ok\n');
 
-    // 7. Forgetting is deliberate and separate from killing: the running
+    // 7. An exited session with a snapshot is offered in the session menu,
+    //    opened from the status line with the tree sidebar closed (the menu
+    //    must read the list as it opens, not wait for the tree's poll), and
+    //    choosing it rebuilds the session and switches to it.
+    if (await page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen)) {
+      await sendPrefixCommand(page, 't');
+      await waitForCondition(
+        page,
+        () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === false),
+        15000,
+        'the tree sidebar to close',
+      );
+    }
+    srv.cli(['run', `new-session -d -s ${SPARE}`]);
+    srv.cli(['session', 'save', SPARE]);
+    srv.cli(['run', `kill-session -t ${SPARE}`]);
+    await page.click('.statusline-session');
+    const row = `[data-restore-session="${SPARE}"]`;
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 20 && r.height > 8;
+        }, row),
+      15000,
+      async () =>
+        `the exited session to be offered in the menu\nrestorable: ${await page.evaluate(() =>
+          JSON.stringify(window.app.getSnapshot().context.restorableSessions),
+        )}\nsnapshots: ${srv.cli(['session', 'snapshots'])}`,
+    );
+    await page.click(row);
+    await waitForCondition(
+      page,
+      () => page.evaluate((name) => window.app.getSnapshot().context.sessionName === name, SPARE),
+      30000,
+      async () =>
+        `the client to switch to the rebuilt session\non: ${await page.evaluate(
+          () => window.app.getSnapshot().context.sessionName,
+        )}\nsessions: ${srv.cli(['run', 'list-sessions -F "#{session_name}"'])}\nserver: ${srv.serverLog()}`,
+    );
+
+    // 8. Forgetting is deliberate and separate from killing: the running
     //    session stays unless --force, and then nothing is left to list.
     expect(() => srv.cli(['session', 'forget', SESSION])).toThrow();
     srv.cli(['session', 'forget', SESSION, '--force']);
+    srv.cli(['session', 'forget', SPARE, '--force']);
     expect(srv.cli(['session', 'snapshots'])).not.toContain(SESSION);
   }, 300000);
 });

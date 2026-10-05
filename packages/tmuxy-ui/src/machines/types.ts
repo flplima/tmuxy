@@ -1064,6 +1064,8 @@ export type SnapshotsUpdatedEvent = {
 };
 /** Rebuild a session from its snapshot, then switch to it. */
 export type RestoreSessionEvent = { type: 'RESTORE_SESSION'; sessionName: string };
+/** The session menu opened: what it lists (sessions, snapshots, servers) is read now. */
+export type SessionMenuOpenedEvent = { type: 'SESSION_MENU_OPENED' };
 /** Git worktree discovery result, from the same poll. */
 export type GitRepositoriesUpdatedEvent = {
   type: 'GIT_REPOSITORIES_UPDATED';
@@ -1330,6 +1332,7 @@ export type AppMachineEvent =
   | SessionsUpdatedEvent
   | SnapshotsUpdatedEvent
   | RestoreSessionEvent
+  | SessionMenuOpenedEvent
   | GitRepositoriesUpdatedEvent
   | ServersUpdatedEvent
   | ConnectServerEvent

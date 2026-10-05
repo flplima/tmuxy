@@ -236,20 +236,16 @@ export function createServersActor(adapter: TmuxAdapter) {
             | {
                 context?: {
                   leftSidebarOpen?: boolean;
-                  windows?: Array<{ windowType?: string | null; name?: string }>;
                 };
               }
             | undefined;
           const ctx = snap?.context;
-          // Two consumers now, so the gate cannot be the sidebar alone: the
-          // session switcher widget lists the sessions on this socket too, and
-          // it opens as a float named `session` (see openSessionFloat). With
-          // neither open nothing is watching, and these are external tmux
-          // reads — they should not churn against the control-mode pipeline.
-          const watching =
-            ctx?.leftSidebarOpen === true ||
-            ctx?.windows?.some((w) => w.windowType === 'float' && w.name === 'session') === true;
-          if (!watching) return Effect.void;
+          // The tree sidebar is the one consumer that watches continuously;
+          // the session menu asks for a forced tick as it opens
+          // (SESSION_MENU_OPENED). With the tree closed nothing is watching,
+          // and these are external tmux reads — they should not churn against
+          // the control-mode pipeline.
+          if (ctx?.leftSidebarOpen !== true) return Effect.void;
         }
 
         // Sessions tree (tmux). ignore()d so a failing tick doesn't tear down

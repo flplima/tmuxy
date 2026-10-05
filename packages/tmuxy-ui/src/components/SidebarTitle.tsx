@@ -66,7 +66,8 @@ export const SidebarTitle = memo(function SidebarTitle({
             aria-expanded={menuOpen}
             onClick={(e) => {
               e.stopPropagation();
-              setMenuOpen((open) => !open);
+              if (!menuOpen) send({ type: 'SESSION_MENU_OPENED' });
+              setMenuOpen(!menuOpen);
             }}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">

@@ -482,6 +482,12 @@ export const appMachine = setup({
         sessionName: event.sessionName,
       })),
     },
+    // The poll idles unless the tree sidebar is open; a menu opened from the
+    // status line or the sidebar title asks for one tick, so it never lists
+    // sessions or snapshots from before it was last looked at.
+    SESSION_MENU_OPENED: {
+      actions: sendTo('servers', { type: 'REFRESH_SESSIONS' as const }),
+    },
     GIT_REPOSITORIES_UPDATED: {
       actions: assign(({ event }) => ({ repositories: event.repositories })),
     },
