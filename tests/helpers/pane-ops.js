@@ -377,7 +377,7 @@ async function waitForLayoutSettled(page, { timeout = 10000 } = {}) {
 /**
  * Navigate to pane via keyboard using root bindings (Ctrl+arrow).
  *
- * The config binds BOTH Ctrl+arrow and Alt+hjkl as root bindings (no prefix
+ * The config binds BOTH Ctrl+arrow and Ctrl+hjkl as root bindings (no prefix
  * needed) for pane navigation, through the same `tmuxy-nav-*` aliases. This
  * presses the arrow form, so a test written against it is not asserting which
  * letter key the config happens to use.

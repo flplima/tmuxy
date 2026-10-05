@@ -382,7 +382,7 @@ Still open:
    command was routed through control mode: each keystroke's `send-keys` was
    an external `sh -c "tmux …"` — a shell and a tmux client forked per
    character typed — while the web sent the same string down the connection.
-   - **Navigation had lost its optimistic prediction.** `Alt+hjkl` /
+   - **Navigation had lost its optimistic prediction.** `Ctrl+hjkl` /
      `Ctrl+arrow` are bound to the `tmuxy-nav-*` command alias, and
      `parseCommandToOp` matched that spelling — but bindings reach the client
      through `list-keys`, which reports aliases **already expanded**, so what

@@ -2709,7 +2709,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Alt+h blurs → prefix T hides, reopen keeps the shell', async () => {
+  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Ctrl+h blurs → prefix T hides, reopen keeps the shell', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -2897,7 +2897,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
 
     // Step 7: Escape is an ordinary key inside the dock — a program pinned
     // there (vim, fzf) must receive it — so it neither blurs nor closes the
-    // column. Alt+h is what hands the keyboard back to the panes.
+    // column. Ctrl+h is what hands the keyboard back to the panes.
     await focusPage(ctx.page);
     await ctx.page.click('[data-testid="sidebar-title-right"] .sidebar-title-text');
     await waitForCondition(
@@ -2913,19 +2913,19 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       () => window.app?.getSnapshot()?.context?.rightSidebarFocused,
     );
     expect(stillFocusedAfterEscape).toBe(true);
-    // ...and glides back out to the tiled pane's cursor when Alt+h hands the
+    // ...and glides back out to the tiled pane's cursor when Ctrl+h hands the
     // keyboard back.
     const glideOut = await sampleCursorGlide(ctx.page, async () => {
-      await ctx.page.keyboard.down('Alt');
+      await ctx.page.keyboard.down('Control');
       await ctx.page.keyboard.press('h');
-      await ctx.page.keyboard.up('Alt');
+      await ctx.page.keyboard.up('Control');
     });
     await waitForCondition(
       ctx.page,
       async () =>
         ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
       5000,
-      'rightSidebarFocused cleared after Alt+h',
+      'rightSidebarFocused cleared after Ctrl+h',
     );
     expect(
       glidePositions(glideOut).distinct >= 3 ? 'glided' : JSON.stringify(glidePositions(glideOut)),

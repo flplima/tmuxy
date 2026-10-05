@@ -61,12 +61,11 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: '9', command: 'select-window -t :=9', description: 'Window 9' },
   ],
   root_bindings: [
-    // Pane nav lives on Alt+hjkl, not Ctrl+hjkl — those belong to readline and
-    // vim. Mirrors .devcontainer/.tmuxy.defaults.conf.
-    { key: 'M-h', command: 'tmuxy-nav left', description: 'Navigate left' },
-    { key: 'M-j', command: 'tmuxy-nav down', description: 'Navigate down' },
-    { key: 'M-k', command: 'tmuxy-nav up', description: 'Navigate up' },
-    { key: 'M-l', command: 'tmuxy-nav right', description: 'Navigate right' },
+    // Pane nav on Ctrl+hjkl. Mirrors .devcontainer/.tmuxy.defaults.conf.
+    { key: 'C-h', command: 'tmuxy-nav left', description: 'Navigate left' },
+    { key: 'C-j', command: 'tmuxy-nav down', description: 'Navigate down' },
+    { key: 'C-k', command: 'tmuxy-nav up', description: 'Navigate up' },
+    { key: 'C-l', command: 'tmuxy-nav right', description: 'Navigate right' },
     { key: 'C-Left', command: 'tmuxy-nav left', description: 'Navigate left' },
     { key: 'C-Right', command: 'tmuxy-nav right', description: 'Navigate right' },
     { key: 'C-Up', command: 'tmuxy-nav up', description: 'Navigate up' },

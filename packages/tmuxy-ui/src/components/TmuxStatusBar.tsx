@@ -50,12 +50,12 @@ function Key({ children, active }: { children: string; active?: boolean }) {
 }
 
 /**
- * The status line's label for directional pane nav — `alt+hjkl` for the default
+ * The status line's label for directional pane nav — `ctrl+hjkl` for the default
  * bindings — or null when nothing is bound to it.
  *
  * Read from the bindings rather than written down here, because the key is
- * config: the default is Alt+hjkl (Ctrl+hjkl belongs to readline and vim) and a
- * user's own `~/.tmux.conf` may move it somewhere else again. The four
+ * config: the default is Ctrl+hjkl, and a user's own `~/.tmux.conf` may move it
+ * somewhere else. The four
  * directions have to share one modifier and spell one word for a single hint to
  * be honest about them; anything else is left to the keybindings view.
  */
@@ -100,9 +100,8 @@ function StatusLineHints({
     );
   }
 
-  // The nav hint names whatever key is actually bound, rather than a key the
-  // config used to use: the default moved off Ctrl+hjkl (those belong to
-  // readline and vim) and a user's own config may move it again.
+  // The nav hint names whatever key is actually bound: a user's own config
+  // may move it off the default.
   const navKey = navHintKey(keybindings.root_bindings);
 
   const hasTabs = keybindings.root_bindings.some(

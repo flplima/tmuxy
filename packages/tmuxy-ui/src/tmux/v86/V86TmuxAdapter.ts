@@ -76,15 +76,15 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: '2', command: 'select-window -t :=2', description: 'Window 2' },
   ],
   root_bindings: [
-    // Alt+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
+    // Ctrl+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
     // `tmuxy-nav-*` command-aliases (defined at attach by the engine's
     // GUEST_SETUP — the snapshot itself lacks them). Intercepted client-side so
     // the key isn't sent to the pane as literal text. Same bindings as the real
     // app config (.devcontainer/.tmuxy.defaults.conf) — keep the two in step.
-    { key: 'M-h', command: 'tmuxy-nav-left', description: 'Navigate left' },
-    { key: 'M-j', command: 'tmuxy-nav-down', description: 'Navigate down' },
-    { key: 'M-k', command: 'tmuxy-nav-up', description: 'Navigate up' },
-    { key: 'M-l', command: 'tmuxy-nav-right', description: 'Navigate right' },
+    { key: 'C-h', command: 'tmuxy-nav-left', description: 'Navigate left' },
+    { key: 'C-j', command: 'tmuxy-nav-down', description: 'Navigate down' },
+    { key: 'C-k', command: 'tmuxy-nav-up', description: 'Navigate up' },
+    { key: 'C-l', command: 'tmuxy-nav-right', description: 'Navigate right' },
     { key: 'C-Left', command: 'tmuxy-nav-left', description: 'Navigate left' },
     { key: 'C-Right', command: 'tmuxy-nav-right', description: 'Navigate right' },
     { key: 'C-Up', command: 'tmuxy-nav-up', description: 'Navigate up' },

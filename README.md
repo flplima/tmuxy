@@ -119,7 +119,7 @@ either; `tmuxy config use-tmux-conf on` changes that (see
 
 | Keybinding           | Action                              |
 | -------------------- | ----------------------------------- |
-| `Alt+H/J/K/L`        | Move to the pane left/down/up/right |
+| `Ctrl+H/J/K/L`       | Move to the pane left/down/up/right |
 | `Ctrl+←/↓/↑/→`       | The same, with arrow keys           |
 | `Ctrl+Tab`           | Next tab / window                   |
 | `Ctrl+Shift+D`       | Split pane vertical (below)         |
