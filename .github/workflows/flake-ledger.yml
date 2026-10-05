@@ -1,0 +1,42 @@
+# The flake ledger (bin/flake-ledger): what failed on main and then passed on
+# a re-run, and which panes the E2E trace health check found silent, over the
+# last week. A green re-run hides the failure it re-ran; this is where those
+# add up into a pattern instead of vanishing one at a time.
+name: flake ledger
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'How many days back to read'
+        default: '7'
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Read the last ${{ inputs.days || '7' }} days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bin/flake-ledger --days "${{ inputs.days || '7' }}" --json flake-ledger.json
+
+      - name: Keep the ledger
+        uses: actions/upload-artifact@v7
+        with:
+          name: flake-ledger-${{ github.run_id }}
+          path: flake-ledger.json
+          retention-days: 30

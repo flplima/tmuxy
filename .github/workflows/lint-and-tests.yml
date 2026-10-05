@@ -193,6 +193,10 @@ jobs:
       # what decides a pane's size, and a pane too small to show a prompt
       # looks exactly like a shell that never started.
       RUST_LOG: 'info,tmuxy_server::sse=debug'
+      # The server's action trace (docs/TELEMETRY.md), with a marker at each
+      # test's start and end (tests/helpers/trace-environment.js). Read by the
+      # health check below on every job, uploaded when a shard fails.
+      TMUXY_E2E_TRACE: /tmp/tmuxy-e2e-trace.ndjson
 
     steps:
       - uses: actions/checkout@v7
@@ -276,7 +280,8 @@ jobs:
 
       - name: Start server
         run: |
-          ./target/release/tmuxy-server --port "$TMUXY_PORT" 2>/tmp/tmuxy-server.log &
+          TMUXY_TRACE_LEVEL=labeled ./target/release/tmuxy-server --port "$TMUXY_PORT" \
+            --trace "$TMUXY_E2E_TRACE" 2>/tmp/tmuxy-server.log &
           node -e "
             const start = Date.now();
             const timeout = 30000;
@@ -297,11 +302,32 @@ jobs:
       # No --forceExit: it masked leaked handles by killing the process before
       # jest could report them.
       - name: Run ${{ matrix.suite.name }}
-        run: npx jest ${{ matrix.suite.path }} ${{ matrix.suite.filter && format('--testNamePattern={0}', toJSON(matrix.suite.filter)) || '' }}
+        run: |
+          set -o pipefail
+          npx jest ${{ matrix.suite.path }} ${{ matrix.suite.filter && format('--testNamePattern={0}', toJSON(matrix.suite.filter)) || '' }} 2>&1 | tee /tmp/jest-output.log
+
+      # On every job, passing or not: a pane that never spoke is a fault even
+      # in a test that never waited on it, and a shard that went green on a
+      # re-run still had it. Findings are warnings on the run, not failures.
+      - name: Trace health check
+        if: always()
+        run: ./target/release/tmuxy-server trace --check --github "$TMUXY_E2E_TRACE" || true
 
       - name: Server logs (debug)
         if: failure()
         run: cat /tmp/tmuxy-server.log | tail -2000
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-${{ matrix.suite.name }}-attempt-${{ github.run_attempt }}
+          path: |
+            /tmp/tmuxy-e2e-trace.ndjson
+            /tmp/tmuxy-server.log
+            /tmp/jest-output.log
+          retention-days: 14
+          if-no-files-found: ignore
 
   # Interaction latency. Drives the handful of things a user does constantly
   # (type, move between panes, split, zoom, switch tab) through the real
