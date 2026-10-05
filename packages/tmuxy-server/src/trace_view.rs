@@ -564,16 +564,29 @@ pub fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> Vec<Sil
     out
 }
 
-/// The health check's findings as GitHub Actions annotations.
+/// The health check's findings as GitHub Actions annotations, then one plain
+/// line saying what was read — so a clean check is told apart from a missing
+/// or empty trace in the job log.
 pub fn github_annotations(events: &[Map<String, Value>]) -> String {
     let mut out = String::new();
-    for pane in silent_panes(events, SILENT_PANE_MIN_MS) {
+    let silent = silent_panes(events, SILENT_PANE_MIN_MS);
+    let marks = events
+        .iter()
+        .filter(|ev| ev.get("layer").and_then(Value::as_str) == Some("marker"))
+        .count();
+    for pane in &silent {
         // Annotation text is one line; `%` must be escaped as `%25`.
         out.push_str(&format!(
             "::warning title=Silent shell pane::{}\n",
             pane.describe().replace('%', "%25")
         ));
     }
+    out.push_str(&format!(
+        "trace health: {} events, {} markers, {} silent shell pane(s)\n",
+        events.len(),
+        marks,
+        silent.len()
+    ));
     out
 }
 
