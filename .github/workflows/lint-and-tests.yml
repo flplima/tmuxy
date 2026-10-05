@@ -189,6 +189,10 @@ jobs:
       # its own with both cleared.
       TMUXY_NO_SNAPSHOT: '1'
       TMUXY_NO_RESTORE: '1'
+      # The server log is printed when a shard fails. Each client's size is
+      # what decides a pane's size, and a pane too small to show a prompt
+      # looks exactly like a shell that never started.
+      RUST_LOG: 'info,tmuxy_server::sse=debug'
 
     steps:
       - uses: actions/checkout@v7

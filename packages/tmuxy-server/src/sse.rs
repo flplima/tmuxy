@@ -1419,7 +1419,7 @@ async fn set_client_size(
         );
         return;
     };
-    trace!(conn_id, cols, rows, "client set size");
+    debug!(%session, conn_id, cols, rows, "client set size");
     let (min_size, command_tx) = {
         let mut sessions = state.sessions.write().await;
         if let Some(session_conns) = sessions.get_mut(session) {
@@ -1430,7 +1430,7 @@ async fn set_client_size(
             if session_conns.last_resize == Some(min) {
                 return;
             }
-            trace!(?sizes, "all client sizes");
+            debug!(%session, ?sizes, ?min, "all client sizes");
             // `last_resize` is NOT written here. It is the record of a size
             // that reached tmux, and it is only known below whether one did:
             // a monitor that has not registered its command channel yet means
