@@ -1,3 +1,4 @@
+const { tmuxExec } = require('./tmux-socket');
 /**
  * Window Operations
  *
@@ -5,7 +6,7 @@
  */
 
 const { delay, waitForCondition } = require('./browser');
-const { DELAYS, TMUXY_URL } = require('./config');
+const { DELAYS } = require('./config');
 const {
   sendPrefixCommand,
   tmuxCommandKeyboard,
@@ -51,29 +52,48 @@ async function pressUntilWindowChanged(ctx, press, label, attempts = 3) {
 }
 
 /**
- * Create new window via the server's HTTP command endpoint.
- * Routes through control mode which handles the new-window → split-window +
- * break-pane workaround (since new-window crashes tmux 3.5a control mode).
+ * Create a new window the way a user does: `prefix c`. It goes through the
+ * keyboard actor and the adapter's serial command queue, so it lands after any
+ * key the test pressed before it. A side-channel POST to /commands used to
+ * stand in for it and could overtake a tab switch still in flight: tmux then
+ * made the new window and the late `select-window` took it away again.
  */
 async function createWindowKeyboard(page) {
   const before = await windowCount(page);
-  await page.evaluate(async (url) => {
-    const session = window.app?.getSnapshot()?.context?.sessionName || '';
-    await fetch(`${url}/commands?session=${encodeURIComponent(session)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Connection-Id': '1' },
-      body: JSON.stringify({ cmd: 'run_tmux_command', args: { command: 'new-window' } }),
-    });
-  }, TMUXY_URL);
-  // The window arriving in the app's own state is the thing being waited for.
-  // The 1.5s this replaced was long enough on the machine it was written on
-  // and silently short on a loaded runner, where the next step then ran
-  // against a session that still had one window.
+  const known = await page.evaluate(
+    () => window.app?.getSnapshot()?.context?.windows?.map((w) => w.id) ?? [],
+  );
+  await sendPrefixCommand(page, 'c');
+  // A new tab is created selected, so "done" is tmux's new window existing
+  // AND being the active one: the count rises a beat before the active window
+  // follows, and a caller reading activeWindowId at that beat got the old tab.
   await waitForCondition(
     page,
-    async () => (await windowCount(page)) > before,
+    async () =>
+      page.evaluate(
+        ({ before, known }) => {
+          const c = window.app?.getSnapshot()?.context;
+          // `@N`, not the optimistic placeholder the client shows until
+          // tmux confirms the window: a caller keys later steps on this id.
+          return (
+            (c?.windows?.length ?? 0) > before &&
+            /^@\d+$/.test(c?.activeWindowId ?? '') &&
+            !known.includes(c.activeWindowId)
+          );
+        },
+        { before, known },
+      ),
     8000,
-    `window count to rise above ${before}`,
+    async () =>
+      `the new window to exist and be active (had ${before})\nclient: ${await page.evaluate(() => {
+        const c = window.app?.getSnapshot()?.context;
+        return JSON.stringify({
+          active: c?.activeWindowId,
+          activePane: c?.activePaneId,
+          windows: c?.windows?.map((w) => [w.id, w.active, w.windowType ?? null]),
+          panes: c?.panes?.map((p) => [p.tmuxId, p.windowId]),
+        });
+      })}\ntmux: ${tmuxExec("list-windows -a -F '#{session_name}:#{window_id}#{?window_active,*,}#{?window_last_flag,-,}'").replace(/\n/g, ' ')}`,
   );
 }
 

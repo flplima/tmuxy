@@ -1943,7 +1943,13 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
     });
 
   const until = (label, check) =>
-    waitForCondition(ctx.page, async () => check(await where(ctx.page)), 10000, label);
+    waitForCondition(
+      ctx.page,
+      async () => check(await where(ctx.page)),
+      10000,
+      // Where the keyboard was when the wait gave up is the diagnosis.
+      async () => `${label}\nlast seen: ${JSON.stringify(await where(ctx.page))}`,
+    );
 
   test('nav right shows the next group member, then the pane on the right, then the dock; nav left walks back', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -2002,6 +2008,9 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
     await until('nav right to reach the right pane again', (w) => w.activeX > 0);
     await sendPrefixCommand(ctx.page, 'T', { shift: true });
     await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
+    // Opening the dock hands it the keyboard once its pane exists, a beat
+    // after the column draws; a nav pressed before then goes to the grid.
+    await until('the opened dock to take the keyboard', (w) => w.dockFocused === true);
     await navigatePaneKeyboard(ctx.page, 'left'); // the dock hands the keyboard back
     await until('the dock to hand the keyboard back', (w) => w.dockFocused === false);
     await navigatePaneKeyboard(ctx.page, 'right');
@@ -3090,6 +3099,10 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     // process on the first, the title on the second — and it is the TITLE line
     // that has to truncate rather than spill past the column's edge.
     const longTitle = 'a very long pane title that certainly needs truncating in this tree';
+    // The shell may set the title itself at every prompt (zsh and fish
+    // configs commonly do, over OSC 2), which would overwrite this one before
+    // the tree draws it. `allow-set-title off` keeps the title the test set.
+    await ctx.session.runCommand(`set-option -p -t ${ctx.session.name} allow-set-title off`);
     await ctx.session.runCommand(`select-pane -t ${ctx.session.name} -T '${longTitle}'`);
 
     // Step 1: Open the sidebar via the real keybinding (prefix t).
