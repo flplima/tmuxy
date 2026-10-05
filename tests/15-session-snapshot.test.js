@@ -244,7 +244,15 @@ describe('Scenario 32: Session snapshots', () => {
     //    opened from (a float shows only over its parent tab, and the session
     //    came back on the tab that was current), and the program is offered
     //    at the prompt — typed, not run.
-    const firstTab = JSON.parse(srv.cli(['tab', 'list', '--json'])).find((t) => t.index === 1);
+    //    The first tab is the lowest index the strip lists, whatever
+    //    `base-index` made that number.
+    const listed = srv.cli(['tab', 'list', '--json']);
+    const [firstTab] = JSON.parse(listed).sort((a, b) => a.index - b.index);
+    if (!firstTab) {
+      throw new Error(
+        `the restored session lists no tab\ntab list: ${listed}\npanes: ${srv.cli(['pane', 'list', '--all', '--json'])}\nserver: ${srv.serverLog()}`,
+      );
+    }
     srv.cli(['tab', 'select', firstTab.id]);
     await waitForCondition(
       page,
@@ -256,7 +264,17 @@ describe('Scenario 32: Session snapshots', () => {
           return r.width > 40 && r.height > 20;
         }),
       30000,
-      'the restored float to be visible',
+      async () =>
+        `the restored float to be visible over ${firstTab.id}\ntab list: ${listed}\nclient: ${await page.evaluate(
+          () => {
+            const c = window.app.getSnapshot().context;
+            return JSON.stringify({
+              active: c.activeWindowId,
+              windows: c.windows.map((w) => [w.id, w.index, w.windowType, w.floatParent]),
+              floats: Object.keys(c.floatPanes),
+            });
+          },
+        )}\nserver: ${srv.serverLog()}`,
     );
     const offered = srv.cli(['pane', 'capture', '%0']);
     expect(offered).toContain('echo restored-ok');
