@@ -487,3 +487,16 @@ mod tests {
         );
     }
 }
+
+/// Shells, by the basename of argv[0] (or tmux's `pane_current_command`).
+const SHELLS: [&str; 12] = [
+    "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh",
+];
+
+/// Whether a command names a shell. A login shell announces itself with a
+/// leading `-` (`-zsh`), which is stripped before the comparison.
+pub fn is_shell_name(command: &str) -> bool {
+    let base = command.trim_start_matches('-');
+    let base = base.rsplit('/').next().unwrap_or(base);
+    SHELLS.contains(&base)
+}

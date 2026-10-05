@@ -1860,7 +1860,7 @@ pub async fn start_monitoring(
             // failure (the first test of a shard, a pane that never showed a
             // prompt); every session made the direct way came up fine. With
             // no watched peer, the direct `-CC new-session` below is the path.
-            let candidates: Vec<(String, _)> = {
+            let candidates: Vec<(String, _, usize)> = {
                 let sessions = state.sessions.read().await;
                 sessions
                     .iter()
@@ -1870,19 +1870,28 @@ pub async fn start_monitoring(
                         conns
                             .monitor_command_tx
                             .clone()
-                            .map(|tx| (name.clone(), tx))
+                            .map(|tx| (name.clone(), tx, conns.connections.len()))
                     })
                     .collect()
             };
             let mut existing_tx = None;
-            for (name, tx) in candidates {
+            for (name, tx, viewers) in candidates {
                 if session_exists(&name).await {
-                    existing_tx = Some((name, tx));
+                    existing_tx = Some((name, tx, viewers));
                     break;
                 }
             }
+            // Which way a session is born is one of the few things that differs
+            // between one that comes up and one whose pane stays blank, so the
+            // trace keeps it (docs/TELEMETRY.md, pane lifecycle).
+            match &existing_tx {
+                Some((_, _, viewers)) => {
+                    debug!(%session, via = "courier", viewers = *viewers, "session creation path")
+                }
+                None => debug!(%session, via = "direct", viewers = 0usize, "session creation path"),
+            }
 
-            if let Some((via_session, tx)) = existing_tx {
+            if let Some((via_session, tx, _)) = existing_tx {
                 let working_dir = connect_config
                     .working_dir
                     .as_ref()

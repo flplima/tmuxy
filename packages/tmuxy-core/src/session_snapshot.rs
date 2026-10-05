@@ -401,20 +401,10 @@ pub fn assemble(
 // What a pane is running
 // =============================================================================
 
-/// Shells, by the basename of argv[0]. A login shell announces itself with a
-/// leading `-` (`-zsh`), which is stripped before the comparison.
-const SHELLS: [&str; 12] = [
-    "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh",
-];
-
 /// Whether argv names a shell rather than a program worth bringing back.
 pub fn is_shell(argv: &[String]) -> bool {
-    let Some(first) = argv.first() else {
-        return true;
-    };
-    let base = first.trim_start_matches('-');
-    let base = base.rsplit('/').next().unwrap_or(base);
-    SHELLS.contains(&base)
+    argv.first()
+        .is_none_or(|first| crate::constants::is_shell_name(first))
 }
 
 /// The command to ask `ps` for the processes on a pane's terminal.

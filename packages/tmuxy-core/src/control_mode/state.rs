@@ -8,7 +8,7 @@ use crate::{
     TmuxWindow, WindowType,
 };
 use std::collections::{HashMap, HashSet};
-use tracing::warn;
+use tracing::{debug, warn};
 
 // The settling debounce uses a monotonic clock. `std::time::Instant::now()`
 // panics on wasm32; web-time backs it with performance.now() in the browser.
@@ -349,6 +349,9 @@ pub struct PaneState {
     pub pane_widget: Option<String>,
     /// `@tmuxy-pane-restore`: how the pane says it comes back after a restore.
     pub pane_restore: Option<String>,
+    /// Bytes of `%output` this pane has had, for the trace's lifecycle events
+    /// (`pane first output`): a pane that never gets any is the thing to see.
+    pub output_bytes: u64,
 
     /// When this pane last had an OSC 52 write honoured; see
     /// `MIN_CLIPBOARD_INTERVAL`.
@@ -419,6 +422,7 @@ impl PaneState {
             pane_ask: None,
             pane_widget: None,
             pane_restore: None,
+            output_bytes: 0,
             last_clipboard_write: None,
             copy_mode_content: None,
             cursor_shape: 0,
@@ -1715,6 +1719,7 @@ impl StateAggregator {
         let mut queued = Vec::new();
         for pane_id in pane_ids {
             if !self.pending_captures.contains(pane_id) {
+                debug!(pane = %pane_id, "capture requested");
                 self.pending_captures.push_back(pane_id.clone());
                 queued.push(pane_id.clone());
             }
@@ -2411,6 +2416,11 @@ impl StateAggregator {
                             // to avoid corrupting the main terminal state
                             pane.process_copy_mode_capture(output.as_bytes());
                         } else {
+                            debug!(
+                                pane = %pane_id,
+                                lines = output.lines().filter(|l| !l.trim().is_empty()).count(),
+                                "pane captured"
+                            );
                             // Normal mode: reset and reprocess the main terminal
                             pane.reset_and_process_capture(output.as_bytes());
 
@@ -2546,6 +2556,10 @@ impl StateAggregator {
                 // A set, not a Vec: `contains` on the Vec made every chunk of
                 // output O(images²) in a pane that had accumulated them.
                 let store_before: HashSet<u32> = pane.image_store.keys().copied().collect();
+                if pane.output_bytes == 0 {
+                    debug!(pane = %pane_id, bytes = content.len(), "pane first output");
+                }
+                pane.output_bytes += content.len() as u64;
                 pane.process_output(content);
                 // Collect newly added images
                 let new_imgs: Vec<(u32, super::images::StoredImage)> = pane
@@ -2821,6 +2835,7 @@ impl StateAggregator {
                 }
                 // Remove panes that have a window_id but weren't in the list-panes response
                 // (they were deleted)
+                debug!(pane = %pane_id, "pane gone");
                 false
             });
             self.pending_captures
@@ -3010,15 +3025,32 @@ impl StateAggregator {
 
         // Replay any early %output that arrived before this pane was created
         if is_new_pane {
-            if let Some(early) = self.early_output.remove(&pane_id_string) {
-                pane.process_output(&early);
-            }
+            let early_bytes = match self.early_output.remove(&pane_id_string) {
+                Some(early) => {
+                    pane.output_bytes += early.len() as u64;
+                    pane.process_output(&early);
+                    early.len()
+                }
+                None => 0,
+            };
+            debug!(
+                pane = %pane_id_string,
+                window = %window_id,
+                cols = width,
+                rows = height,
+                shell = crate::constants::is_shell_name(&command),
+                bytes = early_bytes,
+                "pane appeared"
+            );
         }
 
         pane.index = pane_index;
         pane.x = x;
         pane.y = y;
         let was_resized = pane.resize(width, height);
+        if was_resized && !is_new_pane {
+            debug!(pane = %pane_id_string, cols = width, rows = height, "pane resized");
+        }
         pane.active = active;
         pane.command = command;
         pane.title = if is_graphics_payload(&title) {

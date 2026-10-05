@@ -64,6 +64,13 @@ const VERBATIM: &[&str] = &[
     "port",
     "role",
     "verb",
+    // pane lifecycle (aggregator) and session creation (server): sizes and
+    // counts only, never the bytes or lines themselves
+    "bytes",
+    "lines",
+    "shell",
+    "via",
+    "viewers",
     // window-chrome geometry (docs/TELEMETRY.md: tauri layer) — logical px
     "height",
     "y",
@@ -614,7 +621,7 @@ impl<S> Layer<S> for TraceLayer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+    fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         if !is_enabled() {
             return;
         }
@@ -627,6 +634,23 @@ where
         event.record(&mut visitor);
 
         let mut obj = visitor.fields;
+        // An event inside a span that names its session (the monitor's
+        // `run{session=…}`) belongs to that session even when it does not say
+        // so itself — the aggregator, which never knows the session's name.
+        if !obj.contains_key("session") {
+            if let Some(scope) = ctx.event_scope(event) {
+                for span in scope {
+                    if let Some(session) = span
+                        .extensions()
+                        .get::<SpanState>()
+                        .and_then(|state| state.fields.get("session").cloned())
+                    {
+                        obj.insert("session".to_string(), session);
+                        break;
+                    }
+                }
+            }
+        }
         obj.insert("layer".to_string(), Value::from(layer_for(target)));
         obj.insert("component".to_string(), Value::from(target.to_string()));
         obj.insert(
