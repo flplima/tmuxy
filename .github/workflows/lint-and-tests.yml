@@ -170,6 +170,7 @@ jobs:
           - { name: '12-touch', path: 'tests/12-touch.test.js' }
           - { name: '13-ask-confirmation', path: 'tests/13-ask-confirmation.test.js' }
           - { name: '14-widget-pane-pointer', path: 'tests/14-widget-pane-pointer.test.js' }
+          - { name: '15-session-snapshot', path: 'tests/15-session-snapshot.test.js' }
     name: e2e (${{ matrix.suite.name }})
 
     # The suite's own tmux socket, for the server started below as much as for
