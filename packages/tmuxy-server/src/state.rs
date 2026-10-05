@@ -190,6 +190,9 @@ pub struct SessionConnections {
     pub last_resize: Option<(u32, u32)>,
     /// Sender for commands to the session's monitor (resize, etc.)
     pub monitor_command_tx: Option<MonitorCommandSender>,
+    /// The autosave for this session's snapshots (`session_snapshot`), told
+    /// of every shape change by the emitter; `None` until the monitor is up.
+    pub snapshot_keeper: Option<Arc<tmuxy_core::session_snapshot::SnapshotKeeper>>,
     /// Broadcast channel + sequence id + replay buffer for this session.
     /// Wrapped in `Arc` so `SseEmitter` can clone a handle and call
     /// `broadcast()` without holding the `sessions` write lock.
@@ -205,6 +208,7 @@ impl Default for SessionConnections {
             client_sizes: HashMap::new(),
             last_resize: None,
             monitor_command_tx: None,
+            snapshot_keeper: None,
             broadcast: Arc::new(SessionBroadcast::new()),
             monitor_handle: None,
         }

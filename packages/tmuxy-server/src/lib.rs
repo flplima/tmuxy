@@ -4,6 +4,7 @@ pub mod command;
 mod dev;
 pub mod request_guard;
 pub mod server;
+pub mod session_cli;
 pub mod sse;
 pub mod state;
 pub mod trace_view;

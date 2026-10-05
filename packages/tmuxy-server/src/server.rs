@@ -55,6 +55,11 @@ pub struct ServerArgs {
     #[arg(long)]
     pub read_only: bool,
 
+    /// Start a missing session empty even when a snapshot of it exists
+    /// (`TMUXY_NO_RESTORE=1` does the same).
+    #[arg(long)]
+    pub no_restore: bool,
+
     /// The session a `--read-only` server shows, and the only one it will
     /// show — a viewer naming another gets a 404 rather than that session's
     /// screen. Defaults to `tmuxy`. Ignored without `--read-only`, where
@@ -247,6 +252,9 @@ pub enum ServerAction {
     /// this pane and send it input. Backs `tmuxy browser`.
     #[cfg(unix)]
     Browser(crate::browser::client::BrowserArgs),
+    /// Save, restore, list or forget session snapshots. Backs
+    /// `tmuxy session save|restore|snapshots|forget`.
+    Session(crate::session_cli::SessionArgs),
 }
 
 /// Activate action tracing per the gating rules and announce it loudly, so it
@@ -279,6 +287,9 @@ pub async fn run(args: ServerArgs) {
                 };
             require_tmux();
             announce_trace(args.trace.clone(), dev_mode);
+            if args.no_restore {
+                std::env::set_var("TMUXY_NO_RESTORE", "1");
+            }
             let read_only = args.read_only || env_flag("TMUXY_READ_ONLY");
             let session_pin = match resolve_session_pin(args.session.clone(), read_only) {
                 Ok(pin) => pin,
@@ -314,6 +325,7 @@ pub async fn run(args: ServerArgs) {
             crate::browser::client::run(browser_args).await;
         }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
+        Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args),
     }
 }
 
@@ -678,6 +690,9 @@ async fn bind_with_retry(addr: std::net::SocketAddr, max_retries: u32) -> tokio:
 /// How long shutdown waits for tracked tasks to finish before giving up.
 const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// How long the final snapshot of a session may hold up shutdown.
+const FINAL_SNAPSHOT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChild>>) {
     // Signal handler installation only fails on platforms without sigaction (none we
     // target) or when the process has already taken too many file descriptors —
@@ -708,6 +723,32 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
     }
 
     println!("\nShutting down...");
+
+    // The last snapshot of every session, before anything is torn down: a
+    // graceful shutdown is the common way a machine goes down, and the
+    // autosave's debounce may be holding the final change.
+    if !tmuxy_core::session_snapshot::autosave_disabled() {
+        let dir = tmuxy_core::session_snapshot::default_dir();
+        let targets: Vec<(String, tmuxy_core::control_mode::MonitorCommandSender)> = {
+            let sessions = state.sessions.read().await;
+            sessions
+                .iter()
+                .filter_map(|(name, conns)| {
+                    conns
+                        .monitor_command_tx
+                        .clone()
+                        .map(|tx| (name.clone(), tx))
+                })
+                .collect()
+        };
+        for (name, tx) in targets {
+            let _ = tokio::time::timeout(
+                FINAL_SNAPSHOT_TIMEOUT,
+                tmuxy_core::session_snapshot::save_now(&name, &dir, &tx),
+            )
+            .await;
+        }
+    }
 
     // Structured shutdown: broadcast cancellation, then drain every tracked
     // background task. Tasks already check `state.shutdown.cancelled()` in

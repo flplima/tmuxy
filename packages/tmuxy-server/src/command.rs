@@ -70,6 +70,19 @@ pub enum ClientCommand {
     /// every pane on the socket. Takes no paths from the client: on the web
     /// that would let anyone reaching the server probe the filesystem.
     ListGitWorktrees,
+    /// The sessions that have a snapshot to restore from (`session_snapshot`):
+    /// `[{ name, savedAt }]`. Write-only, like the file routes: a snapshot
+    /// names working directories and commands, which a viewer is not shown.
+    ListSnapshots,
+    /// Rebuild a session from its latest snapshot, through this session's
+    /// control-mode client. Refused when the session is already running.
+    RestoreSession {
+        session: String,
+    },
+    /// Delete a session's snapshots. The running session, if any, is untouched.
+    ForgetSession {
+        session: String,
+    },
     SetThemeMode {
         mode: String,
     },

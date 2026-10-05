@@ -360,6 +360,62 @@ pub async fn list_servers() -> Result<Value, String> {
     }))
 }
 
+/// The sessions that have a snapshot to be rebuilt from (`session_snapshot`).
+#[tauri::command]
+pub async fn list_snapshots() -> Result<Value, String> {
+    let dir = tmuxy_core::session_snapshot::default_dir();
+    let list = tokio::task::spawn_blocking(move || tmuxy_core::session_snapshot::list(&dir))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!(list
+        .into_iter()
+        .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
+        .collect::<Vec<_>>()))
+}
+
+/// Rebuild a session from its latest snapshot through this window's
+/// control-mode client, the way the web server does. Refused when the session
+/// is already running.
+#[tauri::command]
+pub async fn restore_session(window: tauri::WebviewWindow, session: String) -> Result<(), String> {
+    if !tmuxy_core::session::is_safe_session_name(&session) {
+        return Err(format!("not a usable session name: {session:?}"));
+    }
+    if tmuxy_core::session::session_exists(&session).unwrap_or(false) {
+        return Err(format!("session {session:?} is already running"));
+    }
+    let dir = tmuxy_core::session_snapshot::default_dir();
+    let snapshot = tmuxy_core::session_snapshot::read_latest(&dir, &session)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no snapshot for {session:?}"))?;
+    let state = windows::monitor_for(&window)?;
+    let tx = state
+        .cmd_tx
+        .read()
+        .map_err(|_| "monitor state poisoned".to_string())?
+        .clone()
+        .ok_or_else(|| "No monitor connection available".to_string())?;
+    let options = tmuxy_core::session_snapshot::RestoreOptions {
+        run: false,
+        fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
+        onto_existing_window: false,
+        existing_window_index: None,
+    };
+    tmuxy_core::session_snapshot::restore_via_monitor(&snapshot, &options, &tx).await
+}
+
+/// Delete a session's snapshots; a running session is untouched.
+#[tauri::command]
+pub async fn forget_session(session: String) -> Result<usize, String> {
+    if !tmuxy_core::session::is_safe_session_name(&session) {
+        return Err(format!("not a usable session name: {session:?}"));
+    }
+    let dir = tmuxy_core::session_snapshot::default_dir();
+    tokio::task::spawn_blocking(move || tmuxy_core::session_snapshot::forget(&dir, &session))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Reconnect the desktop app to a saved server by id: resolve it from
 /// servers.json and ask the monitor to retarget its socket, SSH tunnel, and
 /// session live (no relaunch). Routes through the same [`request_reconnect`]

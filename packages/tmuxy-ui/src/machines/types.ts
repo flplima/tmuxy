@@ -554,6 +554,8 @@ export interface AppMachineContext {
    */
   servers: TmuxServer[];
   currentServerId: string | null;
+  /** Sessions a snapshot could bring back; see {@link RestorableSession}. */
+  restorableSessions: RestorableSession[];
 }
 
 // ============================================
@@ -1047,6 +1049,21 @@ export type SessionsUpdatedEvent = {
   type: 'SESSIONS_UPDATED';
   sessions: SessionTreeNode[];
 };
+/**
+ * A session that has a snapshot to be rebuilt from (`session_snapshot`), and
+ * when it was last saved (unix seconds). Listed by the same poll as the
+ * sessions, so the switcher can offer what is not running beside what is.
+ */
+export interface RestorableSession {
+  name: string;
+  savedAt: number;
+}
+export type SnapshotsUpdatedEvent = {
+  type: 'SNAPSHOTS_UPDATED';
+  restorableSessions: RestorableSession[];
+};
+/** Rebuild a session from its snapshot, then switch to it. */
+export type RestoreSessionEvent = { type: 'RESTORE_SESSION'; sessionName: string };
 /** Git worktree discovery result, from the same poll. */
 export type GitRepositoriesUpdatedEvent = {
   type: 'GIT_REPOSITORIES_UPDATED';
@@ -1311,6 +1328,8 @@ export type AppMachineEvent =
   | OpenConnectFloatEvent
   | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
+  | SnapshotsUpdatedEvent
+  | RestoreSessionEvent
   | GitRepositoriesUpdatedEvent
   | ServersUpdatedEvent
   | ConnectServerEvent

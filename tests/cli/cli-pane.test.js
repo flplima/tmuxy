@@ -174,11 +174,41 @@ describe('CLI pane subcommands', () => {
     });
   });
 
+  describe('the pane an outside caller acts on', () => {
+    // From a script, a test or an SSH agent the CLI has no $TMUX_PANE, and
+    // tmux would answer a target-less command with whichever session it
+    // touched last — after `pane group add` has parked a member in the
+    // hidden stash session, that is the stash, where no client looks. So
+    // the CLI asks first, with the server's own preference: an attached
+    // real session over an idle one, and never the stash.
+    test('resolves the attached real session, skipping the stash', () => {
+      const { exitCode, paneResolution, tmuxCalls } = runCLI(['tab', 'create'], {
+        env: { MOCK_TMUX_CALLER_PANES: '0\\t__tmuxy_stash\\t%7\\n0\\tidle\\t%3\\n1\\tmain\\t%0' },
+      });
+      expect(exitCode).toBe(0);
+      expect(paneResolution).not.toBeNull();
+      expect(paneResolution.args.slice(0, 3)).toEqual(['list-panes', '-a', '-f']);
+      // The answer rides to the client run-shell spawns as its TMUX_PANE —
+      // run-shell hands it none of its own — and the break names its session
+      // rather than trusting tmux's "current" one.
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args[1]).toMatch(/^TMUX_PANE=%0 tmux -L tmuxy splitw /);
+      expect(tmuxCalls[0].args[1]).toContain("breakp -t '#{session_id}:'");
+    });
+
+    test('a pane of its own is never second-guessed', () => {
+      const { paneResolution } = runCLI(['tab', 'create'], {
+        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%4' },
+      });
+      expect(paneResolution).toBeNull();
+    });
+  });
+
   describe('pane break', () => {
     test('breaks pane', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'break']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy breakp']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy breakp -t '#{session_id}:'"]);
     });
   });
 

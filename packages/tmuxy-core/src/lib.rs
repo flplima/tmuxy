@@ -21,6 +21,8 @@ pub mod servers;
 #[cfg(feature = "native")]
 pub mod session;
 #[cfg(feature = "native")]
+pub mod session_snapshot;
+#[cfg(feature = "native")]
 pub mod theme;
 #[cfg(feature = "native")]
 pub mod tmux_check;
@@ -344,6 +346,11 @@ pub struct TmuxPane {
     /// `tmuxy-widget`, so the client renders a widget only when the two agree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_widget: Option<String>,
+    /// How the pane says it should be brought back after a session restore
+    /// (`@tmuxy-pane-restore`, `tmuxy pane restore-cmd`). Polled so that a
+    /// program declaring it is a change the session snapshot follows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_restore: Option<String>,
 }
 
 /// Window type discriminator. Set on windows tmuxy created or has adopted.
@@ -559,6 +566,9 @@ pub struct PaneDelta {
     /// the widget exiting looks like.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pane_widget: Option<Option<String>>,
+    /// `@tmuxy-pane-restore` (only if changed); nested like `pane_widget`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_restore: Option<Option<String>>,
     /// Copy mode state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_mode: Option<bool>,

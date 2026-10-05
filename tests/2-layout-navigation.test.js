@@ -3150,7 +3150,25 @@ describe('Scenario 6d: Sidebar Tree View', () => {
           );
         }, longTitle),
       8000,
-      'the long pane title to truncate onto its own line in the tree',
+      // On failure, what the tree drew and what the panes report IS the
+      // diagnosis: a missing title and a title that did not truncate look the
+      // same from the outside.
+      async () =>
+        `the long pane title to truncate onto its own line in the tree\ntree titles: ${await ctx.page.evaluate(
+          () =>
+            JSON.stringify(
+              [...document.querySelectorAll('.sidebar-tree-pane .sidebar-tree-title')].map((el) => [
+                el.textContent,
+                el.scrollWidth,
+                el.clientWidth,
+                Math.round(el.getBoundingClientRect().height),
+              ]),
+            ),
+        )}\npanes: ${await ctx.page.evaluate(() =>
+          JSON.stringify(
+            window.app.getSnapshot().context.panes.map((p) => [p.tmuxId, p.title, p.command]),
+          ),
+        )}`,
     );
 
     // The pane inside the repo shows its branch, drawn inside the column, and

@@ -199,6 +199,41 @@ a tmux command, because nothing connects a page to `/commands` — unlike the
 framed local-file case above, where the page and the app shared an origin until
 the sandbox separated them.
 
+## A Session Snapshot Is a Record of the Machine
+
+`tmuxy_core::session_snapshot` writes, on every change to a session's shape,
+what it would take to rebuild it: every pane's working directory, the argv of
+the program it was running, whatever a program declared through
+`@tmuxy-pane-restore`, and — only when asked with `--scrollback` — the text on
+its screen. That is a map of what the user was doing, kept on disk.
+
+Where it is kept follows from that. Snapshots live under the state directory
+(`TMUXY_STATE_DIR`, else the XDG state dir), one directory per tmux socket
+(`sessions/<socket>/`, since a `tmuxy` session on `tmuxy-dev` is not the one
+on `tmuxy`), next to the trace and the browser profiles — deliberately nowhere `/api/file` or `/api/browse` can reach — and
+no route serves them. The commands that touch them (`list_snapshots`,
+`restore_session`, `forget_session`) are **write** commands: a `--read-only`
+server does not answer them, for the same reason it does not serve the file
+routes (SEC-11) — a viewer is shown one session's screen, not the directories
+and commands of every pane on the machine.
+
+A restore runs what a snapshot says only in the sense that a shell line is
+TYPED at each pane's prompt, never run, unless `--run` is given. A program that
+was running when the snapshot was taken is not evidence that it should run
+again; `rm -rf …` was also running. The one exception is a window tmuxy draws
+as its own chrome: a sidebar comes back running its widget (`tmuxy widget
+tree`), because that is tmuxy's program, not the user's, and what `ps` finds
+in such a window (the helper the widget sleeps in) is never recorded. A word a
+program declared through `@tmuxy-pane-restore` is written back onto the
+restored pane as well as typed, so the next save still carries it when the
+user has not acted on the offer. What `ps` finds is also held to an age: a
+foreground program younger than two seconds is a prompt's helper (`git
+status`, `id -Gn`) as often as a program the user just started, so it is left
+out and the keeper looks again once that age has passed. Snapshot files are
+read with the same suspicion as anything on disk: a file that does not parse,
+or claims a newer format, is logged and ignored, and the session starts fresh
+— it can never stop the server from starting.
+
 ## Input That Reaches Control Mode
 
 Control mode reads one command per line, so a newline inside anything written into a command line would end that command and start another.

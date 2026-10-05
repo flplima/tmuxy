@@ -75,6 +75,7 @@ export const FIELD_OWNERS = {
   repositories: 'parent',
   servers: 'parent',
   currentServerId: 'parent',
+  restorableSessions: 'parent',
 
   // ---- layout ----
   panes: 'layout',
@@ -188,6 +189,7 @@ export function createInitialContext(): AppMachineContext {
     repositories: [],
     servers: [],
     currentServerId: null,
+    restorableSessions: [],
     floatPanes: {},
     focusedFloatPaneId: null,
     leftSidebarOpen: false,

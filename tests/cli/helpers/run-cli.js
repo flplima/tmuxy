@@ -1,4 +1,4 @@
-const { execFileSync, spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -32,6 +32,24 @@ function stripSocketArgs(tmuxCalls, extraEnv = {}) {
 }
 
 /**
+ * Drop the CLI's pane resolution. From outside a pane the CLI opens every
+ * invocation with one read-only `list-panes -a -f …` asking tmux which pane
+ * it should act on (bin/tmuxy-cli, TMUX_PANE); the tests assert on the
+ * command that follows it. `cli-pane.test.js` covers the resolver itself.
+ *
+ * @param {Array<{args: string[]}>} tmuxCalls - Calls with the socket pair stripped
+ * @returns {Array<{args: string[]}>} The same calls without the resolver
+ */
+function isPaneResolution(call) {
+  return call.args[0] === 'list-panes' && call.args[1] === '-a' && call.args[2] === '-f';
+}
+
+function withoutPaneResolution(tmuxCalls) {
+  const [first, ...rest] = tmuxCalls;
+  return first && isPaneResolution(first) ? rest : tmuxCalls;
+}
+
+/**
  * Build the environment the CLI runs under: the mock tmux on PATH, a log file
  * for the recorded calls, and any per-test overrides.
  *
@@ -60,74 +78,13 @@ function buildEnv(logFile, opts = {}) {
 }
 
 /**
- * Run the tmuxy CLI with the given arguments and return results.
- *
- * @param {string[]} args - CLI arguments
- * @param {object} [opts] - Options
- * @param {Record<string, string>} [opts.env] - Extra environment variables
- * @returns {{ stdout: string, stderr: string, exitCode: number, tmuxCalls: Array<{args: string[]}> }}
- */
-function runCLI(args, opts = {}) {
-  const logFile = path.join(
-    os.tmpdir(),
-    `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-
-  const env = buildEnv(logFile, opts);
-
-  let stdout = '';
-  let stderr = '';
-  let exitCode = 0;
-
-  try {
-    const result = execFileSync(CLI_PATH, args, {
-      env,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10000,
-    });
-    stdout = result;
-  } catch (err) {
-    stdout = err.stdout || '';
-    stderr = err.stderr || '';
-    exitCode = err.status ?? 1;
-  }
-
-  // If we got stdout but no stderr from a successful run, capture stderr too
-  // (execFileSync only throws on non-zero exit, stderr on success needs separate handling)
-  // Actually execFileSync with stdio: pipe returns stdout on success, stderr is lost.
-  // We need to use execSync or spawnSync instead for stderr capture on success.
-  // Let's use spawnSync.
-
-  let tmuxCalls = [];
-  try {
-    const logContent = fs.readFileSync(logFile, 'utf8').trim();
-    if (logContent) {
-      tmuxCalls = logContent.split('\n').map((line) => JSON.parse(line));
-    }
-  } catch {
-    // No log file or empty — no tmux calls made
-  }
-  tmuxCalls = stripSocketArgs(tmuxCalls, opts.env);
-
-  // Clean up log file
-  try {
-    fs.unlinkSync(logFile);
-  } catch {
-    /* ignore */
-  }
-
-  return { stdout, stderr, exitCode, tmuxCalls };
-}
-
-/**
  * Run the tmuxy CLI using spawnSync for full stdio capture.
  *
  * @param {string[]} args - CLI arguments
  * @param {object} [opts] - Options
  * @param {Record<string, string>} [opts.env] - Extra environment variables
  * @param {string} [opts.input] - Stdin input
- * @returns {{ stdout: string, stderr: string, exitCode: number, tmuxCalls: Array<{args: string[]}> }}
+ * @returns {{ stdout: string, stderr: string, exitCode: number, tmuxCalls: Array<{args: string[]}>, paneResolution: {args: string[]} | null }}
  */
 function runCLIFull(args, opts = {}) {
   const logFile = path.join(
@@ -154,7 +111,9 @@ function runCLIFull(args, opts = {}) {
   } catch {
     // No log file or empty — no tmux calls made
   }
-  tmuxCalls = stripSocketArgs(tmuxCalls, opts.env);
+  const allCalls = stripSocketArgs(tmuxCalls, opts.env);
+  tmuxCalls = withoutPaneResolution(allCalls);
+  const paneResolution = allCalls.find(isPaneResolution) ?? null;
 
   // Clean up log file
   try {
@@ -168,6 +127,7 @@ function runCLIFull(args, opts = {}) {
     stderr: result.stderr || '',
     exitCode: result.status ?? 1,
     tmuxCalls,
+    paneResolution,
   };
 }
 

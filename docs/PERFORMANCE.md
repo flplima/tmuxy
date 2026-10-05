@@ -484,6 +484,23 @@ counts compositor frames: at 4, the one-or-two frames a STILL page produces
 after a navigation were all dropped, and the pane went on showing the page it
 had left. See `FRAME_EVERY_NTH` for the longer version.
 
+## Session snapshots
+
+A snapshot (`tmuxy_core::session_snapshot`) is written on every change to a
+session's SHAPE, debounced one second, and once more on shutdown. Measured on an
+M-series mac, a session of three windows (a two-pane split, a float, a tab):
+
+|                                         |                                                                                                                                        |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Snapshot file                           | ~1.2 KB (JSON, pretty-printed)                                                                                                         |
+| Autosave cost                           | two `list-*` queries through control mode plus one `ps` per pane, off the async runtime; nothing when the serialized form is unchanged |
+| `tmuxy session save` (subprocess path)  | 0.63 s wall, 0.05 s CPU — the wall is tmux round-trips, one per query and per `ps`                                                     |
+| Writes over a build-up of three windows | 5 files (one per settled change), never one per keystroke: output is not a shape change (`is_structural`)                              |
+
+Screen contents are not captured unless `--scrollback N` asks; a capture is one
+more control-mode round-trip per pane and competes with the stream Axis C is
+measured on, which is why it is opt-in.
+
 ## What's still absent (by choice, for now)
 
 - No live production telemetry / metrics endpoint — the adaptive throttle in the

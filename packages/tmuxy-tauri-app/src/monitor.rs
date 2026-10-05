@@ -159,11 +159,24 @@ pub struct TauriEmitter {
     /// a pane drew was decoded and then dropped, which is why no image
     /// protocol ever rendered in the desktop app.
     images: ImageStore,
+    /// Told of every change to the session's shape, so a snapshot follows it
+    /// (`tmuxy_core::session_snapshot`), the same as the web server's emitter.
+    keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
 }
 
 impl TauriEmitter {
-    pub fn new(app: AppHandle, label: String, images: ImageStore) -> Self {
-        Self { app, label, images }
+    pub fn new(
+        app: AppHandle,
+        label: String,
+        images: ImageStore,
+        keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
+    ) -> Self {
+        Self {
+            app,
+            label,
+            images,
+            keeper,
+        }
     }
 }
 
@@ -190,6 +203,13 @@ impl LogSink for TauriEmitter {
 
 impl StateEmitter for TauriEmitter {
     fn emit_state(&self, update: StateUpdate) {
+        let structural = match &update {
+            StateUpdate::Full { .. } => true,
+            StateUpdate::Delta { delta } => tmuxy_core::session_snapshot::is_structural(delta),
+        };
+        if structural && !tmuxy_core::session_snapshot::autosave_disabled() {
+            self.keeper.note_change();
+        }
         // Trace the emit by delta seq + kind (parity with the web SseEmitter) so
         // the return leg joins to the client's applied `seq`. Content-free.
         let kind = if matches!(update, StateUpdate::Full { .. }) {
@@ -292,11 +312,14 @@ pub async fn start_monitoring_window(
     session: String,
     group_target: Option<String>,
 ) {
+    let keeper = Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new());
     let emitter = Arc::new(TauriEmitter::new(
         app.clone(),
         label.clone(),
         monitor_state.images.clone(),
+        keeper.clone(),
     ));
+    let snapshot_dir = tmuxy_core::session_snapshot::default_dir();
     let log_sink: Arc<dyn LogSink> = emitter.clone();
 
     // Start the tmux server in $HOME so the user's shell rc files cd to a
@@ -317,6 +340,7 @@ pub async fn start_monitoring_window(
         rate_window: Duration::from_millis(100),
         working_dir,
         observer: false,
+        first_window: None,
     };
 
     // Reconnect with exponential backoff, bounded by MAX_CONSECUTIVE_FAILURES.
@@ -415,8 +439,56 @@ pub async fn start_monitoring_window(
             ));
         }
 
-        match TmuxMonitor::connect(config.clone(), Some(&log_sink), ctx.clone()).await {
+        // A session about to be created may have a snapshot to come back
+        // from: ask for its first window up front, rebuild onto it after
+        // attach — over control mode, as the web server does (`sse.rs`).
+        let mut connect_config = config.clone();
+        let mut restore = if connect_config.create_session
+            && !tmuxy_core::session::session_exists(&connect_config.session).unwrap_or(true)
+        {
+            tmuxy_core::session_snapshot::restorable(&snapshot_dir, &connect_config.session)
+        } else {
+            None
+        };
+        if let Some(snapshot) = &restore {
+            connect_config.first_window =
+                snapshot.first_window_hint(&tmuxy_core::session_snapshot::fallback_cwd());
+        }
+        match TmuxMonitor::connect(connect_config, Some(&log_sink), ctx.clone()).await {
             Ok((mut monitor, cmd_tx)) => {
+                let autosave = if tmuxy_core::session_snapshot::autosave_disabled() {
+                    None
+                } else {
+                    let keeper = keeper.clone();
+                    let tx = cmd_tx.clone();
+                    let dir = snapshot_dir.clone();
+                    let name = config.session.clone();
+                    Some(tokio::spawn(async move { keeper.run(name, dir, tx).await }))
+                };
+                if let Some(snapshot) = restore.take() {
+                    let tx = cmd_tx.clone();
+                    let name = config.session.clone();
+                    tokio::spawn(async move {
+                        let options = tmuxy_core::session_snapshot::RestoreOptions {
+                            run: false,
+                            fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
+                            onto_existing_window: true,
+                            existing_window_index: None,
+                        };
+                        match tmuxy_core::session_snapshot::restore_via_monitor(
+                            &snapshot, &options, &tx,
+                        )
+                        .await
+                        {
+                            Ok(()) => tmuxy_core::debug_log::log(&format!(
+                                "[monitor] session '{name}' restored from snapshot"
+                            )),
+                            Err(e) => tmuxy_core::debug_log::log(&format!(
+                                "[monitor] session '{name}' restore stopped: {e}"
+                            )),
+                        }
+                    });
+                }
                 // Publish the live command channel so #[tauri::command]
                 // handlers can route mutations through control mode instead
                 // of spawning external tmux subprocesses (which races with
@@ -429,6 +501,9 @@ pub async fn start_monitoring_window(
                 let started = std::time::Instant::now();
                 monitor.run(emitter.as_ref()).await;
                 let lived = started.elapsed();
+                if let Some(task) = autosave {
+                    task.abort();
+                }
                 // Connection is gone — drop the stale sender so the next
                 // mutation falls back to the external path instead of
                 // sending into a dead channel.

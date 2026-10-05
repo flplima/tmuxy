@@ -14,7 +14,7 @@ const path = require('path');
 //
 // The default is the suite's own socket, never the one a live tmuxy serves —
 // see DEFAULT_SOCKET in helpers/tmux-socket.js.
-const { DEFAULT_SOCKET, tmuxEnv, tmuxSocket } = require('./helpers/tmux-socket');
+const { DEFAULT_SOCKET, tmuxEnv, tmuxSocket, stateDir } = require('./helpers/tmux-socket');
 
 process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || DEFAULT_SOCKET;
 delete process.env.TMUX;
@@ -133,6 +133,9 @@ beforeAll(async () => {
       const { spawn } = require('child_process');
       const fs = require('fs');
       const serverStderr = fs.openSync('/tmp/tmuxy-server-stderr.log', 'w');
+      // A fresh server starts from nothing: no snapshot of a previous run's
+      // session to rebuild (see `stateDir` in helpers/tmux-socket.js).
+      fs.rmSync(stateDir(), { recursive: true, force: true });
       // Explicit port AND explicit env, not the inherited ones: the server is
       // the other half of every round trip, so it has to listen where the
       // helpers look and attach to the socket they read and write. Without

@@ -49,6 +49,13 @@
   color: var(--text-primary);
 }
 
+/* A session that is not running but could be brought back from a snapshot:
+   drawn muted, since it is an offer rather than a thing that exists. */
+.floating-menu-item.is-restorable {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .floating-menu-item.is-disabled {
   color: var(--text-muted);
   opacity: 0.5;

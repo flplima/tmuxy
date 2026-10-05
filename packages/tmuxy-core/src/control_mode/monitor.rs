@@ -220,6 +220,12 @@ pub struct MonitorConfig {
     /// observer joins one that a writing client already sized, and resizing it
     /// would change the layout under that client.
     pub observer: bool,
+
+    /// Name and directory for the first window when the session is created —
+    /// a session about to be rebuilt from a snapshot asks for its first window
+    /// up front, so the rebuild runs onto it after attach. Ignored when the
+    /// session exists (`session_snapshot`).
+    pub first_window: Option<(String, String)>,
 }
 
 impl Default for MonitorConfig {
@@ -232,6 +238,7 @@ impl Default for MonitorConfig {
             throttle_interval: Duration::from_millis(32), // ~30fps during high throughput
             throttle_threshold: 20,                       // >20 events/100ms triggers throttle
             rate_window: Duration::from_millis(100),
+            first_window: None,
             working_dir: None,
             observer: false,
         }
@@ -526,6 +533,7 @@ impl TmuxMonitor {
                 log,
                 config.create_session,
                 config.group_target.as_deref(),
+                config.first_window.as_ref(),
             )
             .await?
         };

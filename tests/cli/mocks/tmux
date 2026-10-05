@@ -41,6 +41,13 @@ fi
 # Return canned responses based on subcommand
 case "${1:-}" in
   list-panes)
+    # The CLI's first call from outside a pane asks which pane it should act
+    # on (`-f` filter, see TMUX_PANE in bin/tmuxy-cli). Silent unless a test
+    # sets MOCK_TMUX_CALLER_PANES, so no other test gains a TMUX_PANE.
+    if [ "${2:-}" = "-a" ] && [ "${3:-}" = "-f" ]; then
+      [ -n "${MOCK_TMUX_CALLER_PANES:-}" ] && printf '%b\n' "$MOCK_TMUX_CALLER_PANES"
+      exit "$exit_code"
+    fi
     if [ -n "${MOCK_TMUX_LIST_PANES:-}" ]; then
       echo "$MOCK_TMUX_LIST_PANES"
     else

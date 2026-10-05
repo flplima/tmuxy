@@ -292,6 +292,8 @@ export interface ServerPane {
    * own — see `detectWidget`.
    */
   pane_widget?: string | null;
+  /** `@tmuxy-pane-restore`: the line a session restore types to bring the pane back. */
+  pane_restore?: string | null;
 }
 
 /** Image placement in snake_case from backend */
@@ -383,6 +385,8 @@ export interface PaneDelta {
    * own — see `detectWidget`.
    */
   pane_widget?: string | null;
+  /** `@tmuxy-pane-restore`: the line a session restore types to bring the pane back. */
+  pane_restore?: string | null;
 }
 
 export interface WindowDelta {

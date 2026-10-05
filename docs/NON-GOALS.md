@@ -24,9 +24,10 @@ We do NOT maintain a local terminal state machine (cursor position, SGR attribut
 
 We do NOT continuously buffer a pane's output on the client. tmux is the only owner of scrollback history.
 
-What we *do* render client-side is a **view** of it: mouse wheel in a normal shell enters copy mode and renders scrollback **fetched on demand from tmux** (`get_scrollback_cells` → `capture-pane`), lazily in chunks as the user scrolls, discarded when the pane leaves copy mode — see [COPY-MODE.md](COPY-MODE.md). In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works and scrollback renders client-side, but the history always comes from tmux at scroll time, never from a buffer we keep in sync with live output.
+What we _do_ render client-side is a **view** of it: mouse wheel in a normal shell enters copy mode and renders scrollback **fetched on demand from tmux** (`get_scrollback_cells` → `capture-pane`), lazily in chunks as the user scrolls, discarded when the pane leaves copy mode — see [COPY-MODE.md](COPY-MODE.md). In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works and scrollback renders client-side, but the history always comes from tmux at scroll time, never from a buffer we keep in sync with live output.
 
 **Why no live buffer?**
+
 - Duplicates tmux's work
 - Unbounded memory growth on the client
 - State divergence risk against the pane tmux actually holds
@@ -43,6 +44,7 @@ We do NOT implement browser-style find-in-page for terminal content. Users searc
 We do NOT predict keystrokes locally to reduce perceived latency (like mosh does). Every keystroke round-trips through tmux.
 
 **Why?**
+
 - Only benefits high-latency connections
 - Tmuxy is primarily for local/LAN use
 - Adds significant complexity
@@ -53,6 +55,7 @@ We do NOT predict keystrokes locally to reduce perceived latency (like mosh does
 We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compression.
 
 **Why?**
+
 - For local tmux, bandwidth is not the bottleneck
 - JSON is debuggable and simple
 - Premature optimization
@@ -68,16 +71,31 @@ We do NOT maintain our own `wcwidth` tables for character width calculation. Tmu
 We use DOM rendering (spans), not canvas or WebGL.
 
 **Why?**
+
 - DOM is simpler and works
 - Native text selection works with DOM
 - Accessibility (screen readers) works with DOM
 - Canvas/WebGL is premature optimization
 
+### 8a. Resuming Processes Across a Restart
+
+A session snapshot (`tmuxy_core::session_snapshot`) records a session's SHAPE —
+tabs, splits, floats, sidebars, groups, each pane's directory and the program
+it ran — and rebuilds that. It does not and cannot resume the processes: no
+portable mechanism checkpoints a live process with its ptys and sockets, and
+the one that tries (CRIU) is Linux-only and privileged. A restored pane offers
+its program at the prompt; a program that wants to come back to where it was
+says how through `tmuxy pane restore-cmd` (`claude --resume <id>`, `nvim -S`).
+Shell variables, half-typed input and remote connections are gone with the
+process, as they are in tmux-resurrect and Zellij. A pane group comes back as
+its visible member carrying the group tag: the members parked in the stash
+session are a second session the snapshot does not describe.
+
 ### 8. Simultaneous Multi-Session Views
 
 We do NOT render more than one tmux session at a time. One tmuxy instance is attached to one session; there is no split view across sessions and no cross-session pane layout.
 
-Switching between them *is* supported — the session switcher (a dropdown, `SessionMenu.tsx`), `tmuxy session switch` and the sidebar sessions tree (`SidebarTree.tsx`) reattach without a page reload. The switcher also attaches to a different tmux socket, locally or over SSH, by retargeting the running monitor rather than relaunching.
+Switching between them _is_ supported — the session switcher (a dropdown, `SessionMenu.tsx`), `tmuxy session switch` and the sidebar sessions tree (`SidebarTree.tsx`) reattach without a page reload. The switcher also attaches to a different tmux socket, locally or over SSH, by retargeting the running monitor rather than relaunching.
 
 ### 9. SSH via Web Server
 
@@ -101,6 +119,7 @@ SSH connections (remote server attachment) are only available in the Tauri deskt
 ## Revisiting Non-Goals
 
 These decisions can be revisited if:
+
 1. Target audience changes (e.g., targeting non-tmux users)
 2. A feature becomes trivial due to other work (e.g., local scrollback after OSC parsing)
 3. Strong user demand with clear use cases

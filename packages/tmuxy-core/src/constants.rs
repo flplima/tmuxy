@@ -76,6 +76,12 @@ pub mod tmux_options {
     /// acts on it unsets it.
     pub const FOCUS_REQUEST: &str = "@tmuxy-focus-request";
 
+    /// How a pane says it should be brought back after a session restore
+    /// (`tmuxy pane restore-cmd`), read by `session_snapshot`'s own query
+    /// rather than the hot-path pane poll: it changes rarely and is only
+    /// wanted when a snapshot is taken.
+    pub const PANE_RESTORE: &str = "@tmuxy-pane-restore";
+
     /// Pane-scoped group identity (e.g. `g5`). Set on every member of a pane
     /// group — the visible member (in the attached session) and each hidden
     /// member (parked in the [`crate::constants::STASH_SESSION`]). Panes sharing
@@ -291,7 +297,7 @@ pub mod tmux_formats {
         "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
         "#{selection_present},",
         "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id},",
-        "#{@tmuxy-pane-state},#{@tmuxy-ask},#{@tmuxy-pane-widget}'",
+        "#{@tmuxy-pane-state},#{@tmuxy-ask},#{@tmuxy-pane-widget},#{@tmuxy-pane-restore}'",
     );
 
     /// Enumerates the HIDDEN pane-group members parked in

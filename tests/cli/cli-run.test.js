@@ -28,7 +28,10 @@ describe('CLI run escape hatch', () => {
       // list (mirrors `tmuxy tab create`) — never a direct external tmux
       // invocation, which would crash tmux 3.5a with control mode attached.
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw \\; breakp']);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:'",
+      ]);
     });
 
     test('intercepts neww alias', () => {
@@ -36,7 +39,10 @@ describe('CLI run escape hatch', () => {
       expect(exitCode).toBe(0);
       expect(stderr).toContain('new-window intercepted');
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw \\; breakp']);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:'",
+      ]);
     });
 
     test('intercepts new-window with -n name', () => {
@@ -45,7 +51,7 @@ describe('CLI run escape hatch', () => {
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -n 'my-win'",
+        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:' -n 'my-win'",
       ]);
     });
   });

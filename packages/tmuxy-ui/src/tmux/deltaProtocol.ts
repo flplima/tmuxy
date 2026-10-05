@@ -315,6 +315,7 @@ function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
     ...(delta.pane_state !== undefined && { pane_state: delta.pane_state }),
     ...(delta.pane_ask !== undefined && { pane_ask: delta.pane_ask }),
     ...(delta.pane_widget !== undefined && { pane_widget: delta.pane_widget }),
+    ...(delta.pane_restore !== undefined && { pane_restore: delta.pane_restore }),
   };
 }
 

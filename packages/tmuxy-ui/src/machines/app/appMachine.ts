@@ -469,6 +469,19 @@ export const appMachine = setup({
     SESSIONS_UPDATED: {
       actions: assign(({ event }) => ({ sessions: event.sessions })),
     },
+    SNAPSHOTS_UPDATED: {
+      actions: assign(({ event }) => ({ restorableSessions: event.restorableSessions })),
+    },
+    // A rebuild runs through the server's own control-mode client and takes
+    // a moment; the switch follows its answer (SESSION_SWITCH_REQUESTED), not
+    // the click, or the client would attach to a session that is not there yet.
+    RESTORE_SESSION: {
+      guard: notReadOnly,
+      actions: sendTo('tmux', ({ event }) => ({
+        type: 'RESTORE_SESSION' as const,
+        sessionName: event.sessionName,
+      })),
+    },
     GIT_REPOSITORIES_UPDATED: {
       actions: assign(({ event }) => ({ repositories: event.repositories })),
     },

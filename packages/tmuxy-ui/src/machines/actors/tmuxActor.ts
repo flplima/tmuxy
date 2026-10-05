@@ -18,6 +18,7 @@ export type TmuxActorEvent =
   | { type: 'OPEN_TRACE_FILE' }
   | { type: 'FETCH_THEMES_LIST' }
   | { type: 'SWITCH_SESSION'; sessionName: string }
+  | { type: 'RESTORE_SESSION'; sessionName: string }
   | { type: 'RECONNECT_NOW' }
   | { type: 'CHECK_SESSION_SWITCH' };
 
@@ -218,6 +219,14 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       } else if (event.type === 'INVOKE') {
         logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);
         run(eff.invoke(event.cmd, event.args || {}), { logPrefix: event.cmd });
+      } else if (event.type === 'RESTORE_SESSION') {
+        logCommand(`restore_session ${event.sessionName}`);
+        run(eff.invoke('restore_session', { session: event.sessionName }), {
+          logPrefix: 'restore_session',
+          // The session exists only once the rebuild has answered.
+          onSuccess: () =>
+            parent.send({ type: 'SESSION_SWITCH_REQUESTED', sessionName: event.sessionName }),
+        });
       } else if (event.type === 'FETCH_INITIAL_STATE') {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         run(

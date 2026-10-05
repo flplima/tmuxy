@@ -1,83 +1,85 @@
+/**
+ * `tmuxy session save|restore|snapshots|forget` and `tmuxy pane restore-cmd`.
+ *
+ * The CLI owns two things here and they are what these tests hold still:
+ * which verbs may run tmux as a bare subprocess (the reads) and which must go
+ * through `run-shell` (anything that creates, splits or kills, which crashes
+ * tmux 3.5a as a subprocess while control mode is attached — docs/TMUX.md).
+ * The snapshot logic itself is Rust, tested in `tmuxy_core::session_snapshot`.
+ */
+
 const { runCLI } = require('./helpers/run-cli');
 
-describe('CLI session commands', () => {
-  describe('session help', () => {
-    test.each([
-      [['session'], 'Usage: tmuxy session <command>'],
-      [['session', '--help'], 'Usage: tmuxy session <command>'],
-      [['session', '-h'], 'Usage: tmuxy session <command>'],
-    ])('tmuxy %j shows session usage', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
+describe('tmuxy session snapshots', () => {
+  test('save and snapshots are reads: handed to the binary, no run-shell', () => {
+    const save = runCLI(['session', 'save', 'work', '--scrollback', '50']);
+    expect(save.exitCode).toBe(0);
+    expect(save.stdout).toContain('mock-server-started session save work --scrollback 50');
+    expect(save.tmuxCalls).toHaveLength(0);
+
+    const list = runCLI(['session', 'snapshots']);
+    expect(list.exitCode).toBe(0);
+    expect(list.stdout).toContain('mock-server-started session snapshots');
+    expect(list.tmuxCalls).toHaveLength(0);
   });
 
-  describe('session subcommand help', () => {
-    test.each([
-      [['session', 'switch', '--help'], 'Usage: tmuxy session switch'],
-      [['session', 'switch', '-h'], 'Usage: tmuxy session switch'],
-      [['session', 'connect', '--help'], 'Usage: tmuxy session connect'],
-      [['session', 'connect', '-h'], 'Usage: tmuxy session connect'],
-    ])('tmuxy %j shows help', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
+  /** A rebuild creates and splits, so it runs inside tmux, never beside it. */
+  test('restore goes through run-shell, with its flags', () => {
+    const { exitCode, tmuxCalls } = runCLI(['session', 'restore', 'work', '--run']);
+    expect(exitCode).toBe(0);
+    expect(tmuxCalls).toHaveLength(1);
+    expect(tmuxCalls[0].args[0]).toBe('run-shell');
+    expect(tmuxCalls[0].args[1]).toMatch(/tmuxy-server'? session restore 'work' '--run'$/);
   });
 
-  describe('session connect --web', () => {
-    test('shows not-supported message', () => {
-      const { stdout, exitCode } = runCLI(['session', 'connect', '--web']);
-      expect(exitCode).toBe(1);
-      expect(stdout).toContain('SSH connections are only available in the Tauri desktop app');
-    });
+  /** `--force` kills a running session first, which is a mutation. */
+  test('forget goes through run-shell too', () => {
+    const { exitCode, tmuxCalls } = runCLI(['session', 'forget', 'work', '--force']);
+    expect(exitCode).toBe(0);
+    expect(tmuxCalls).toHaveLength(1);
+    expect(tmuxCalls[0].args[0]).toBe('run-shell');
+    expect(tmuxCalls[0].args[1]).toMatch(/session forget 'work' '--force'$/);
   });
 
-  describe('unknown session subcommand', () => {
-    test('shows error and usage', () => {
-      const { stderr, exitCode } = runCLI(['session', 'unknown']);
-      expect(exitCode).not.toBe(0);
-      expect(stderr).toContain('Unknown session command');
+  test('the help names every verb and the restore tag', () => {
+    const { stdout, exitCode } = runCLI(['session', '--help']);
+    expect(exitCode).toBe(0);
+    for (const verb of ['save', 'restore', 'snapshots', 'forget']) {
+      expect(stdout).toContain(verb);
+    }
+    expect(stdout).toContain('tmuxy pane restore-cmd');
+  });
+});
+
+describe('tmuxy pane restore-cmd', () => {
+  test('writes the pane option for the calling pane, through run-shell', () => {
+    const { exitCode, tmuxCalls } = runCLI(['pane', 'restore-cmd', 'claude --resume abc'], {
+      // The harness drops TMUX_PANE unless a socket is pinned, since the suite
+      // itself usually runs inside a pane.
+      env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
     });
+    expect(exitCode).toBe(0);
+    expect(tmuxCalls).toHaveLength(1);
+    expect(tmuxCalls[0].args).toEqual([
+      'run-shell',
+      "TMUX_PANE=%7 tmux -L tmuxy set-option -p -t '%7' @tmuxy-pane-restore 'claude --resume abc'",
+    ]);
   });
 
-  /**
-   * SEC-24. The switcher hands the chosen name to `run-shell`, which
-   * format-expands its string (`#(...)` runs a command) before a shell parses
-   * it (a stray quote ends the word). A session is named by whoever created
-   * it, so the name is quoted for both, not trusted.
-   */
-  describe('session switch --float with a hostile session name', () => {
-    const hostile = "a'b#(true)";
-
-    test('the name reaches run-shell as one quoted word with its # doubled', () => {
-      const { exitCode, stdout, tmuxCalls } = runCLI(['session', 'switch', '--float'], {
-        input: '2\n',
-        env: {
-          MOCK_TMUX_SESSION: 'main',
-          MOCK_TMUX_LIST_SESSIONS: `main\n${hostile}`,
-        },
-      });
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(hostile);
-
-      const setEnv = tmuxCalls
-        .filter((call) => call.args[0] === 'run-shell')
-        .map((call) => call.args[1])
-        .find((cmd) => cmd.includes('set-environment -g TMUXY_SWITCH_TO'));
-      expect(setEnv).toBeDefined();
-      // `shquote`: single-quoted, the embedded quote escaped, `#` doubled so
-      // run-shell's format expansion yields a literal `#` — never `#(true)`.
-      expect(setEnv).toContain("TMUXY_SWITCH_TO 'a'\\''b##(true)'");
-      expect(setEnv).not.toMatch(/[^#]#\(true\)/);
-    });
+  test('targets an explicit pane and clears with --clear', () => {
+    const set = runCLI(['pane', 'restore-cmd', 'nvim -S', '%3']);
+    expect(set.tmuxCalls[0].args[1]).toContain("-t '%3' @tmuxy-pane-restore 'nvim -S'");
+    const clear = runCLI(['pane', 'restore-cmd', '--clear', '%3']);
+    expect(clear.exitCode).toBe(0);
+    expect(clear.tmuxCalls[0].args[1]).toBe(
+      "tmux -L tmuxy set-option -p -u -t '%3' @tmuxy-pane-restore",
+    );
   });
 
-  describe('top-level help includes session', () => {
-    test('session listed in top-level help', () => {
-      const { stdout } = runCLI(['--help']);
-      expect(stdout).toContain('session');
-    });
+  test('refuses with nothing to write and no pane to target', () => {
+    expect(
+      runCLI(['pane', 'restore-cmd'], { env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' } }).exitCode,
+    ).not.toBe(0);
+    expect(runCLI(['pane', 'restore-cmd', 'vim'], { env: { TMUX_PANE: '' } }).exitCode).not.toBe(0);
   });
 });

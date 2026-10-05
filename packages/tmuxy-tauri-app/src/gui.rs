@@ -1437,6 +1437,9 @@ pub fn run() {
             // Server picker (desktop-only): list saved tmux servers and
             // live-reconnect to one (localhost socket switch or remote SSH).
             commands::list_servers,
+            commands::list_snapshots,
+            commands::restore_session,
+            commands::forget_session,
             commands::connect_server,
             commands::add_server,
             commands::detach_client,

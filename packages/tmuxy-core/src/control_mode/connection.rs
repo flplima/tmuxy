@@ -92,6 +92,7 @@ fn build_tmux_args(
     session_name: &str,
     create_if_missing: bool,
     group_target: Option<&str>,
+    first_window: Option<&(String, String)>,
 ) -> (Vec<String>, String) {
     // Full argv including the program token: the local tmux path, or
     // `ssh -tt <dest> tmux` when tunneled to a remote host. `-tt` is required
@@ -127,6 +128,17 @@ fn build_tmux_args(
         // one. With `-A` the flag is inert when the session already exists.
         if let Some(base) = group_target {
             tmux_args.extend(["-t".to_string(), base.to_string()]);
+        }
+        // A session about to be rebuilt from a snapshot gets its first window
+        // made right here, by name and directory, so the rebuild has a
+        // window 0 to build onto. tmux ignores both when the session exists.
+        if let Some((name, cwd)) = first_window {
+            tmux_args.extend([
+                "-n".to_string(),
+                name.clone(),
+                "-c".to_string(),
+                cwd.clone(),
+            ]);
         }
     } else {
         tmux_args.extend([
@@ -255,6 +267,7 @@ impl ControlModeConnection {
         log: Option<&Arc<dyn LogSink>>,
         create_if_missing: bool,
         group_target: Option<&str>,
+        first_window: Option<&(String, String)>,
     ) -> Result<Self, TmuxError> {
         let tmux_path = crate::session::tmux_path();
         log_to(log, LogKind::Info, format!("tmux binary: {}", tmux_path));
@@ -277,7 +290,7 @@ impl ControlModeConnection {
         // gets a different `PATH` than the same binary in a terminal, so
         // operators need to see exactly what we spawned.
         let (tmux_args, shell_desc) =
-            build_tmux_args(session_name, create_if_missing, group_target);
+            build_tmux_args(session_name, create_if_missing, group_target, first_window);
         crate::debug_log::log(&format!("connect(): pty spawn: {}", shell_desc));
         log_to(log, LogKind::Command, shell_desc.clone());
 
@@ -656,7 +669,7 @@ mod tests {
         // `new-session -A` attaches to an existing session or creates one, in
         // one step. A create followed by a separate attach leaves a moment
         // with no client, which macOS launchd's reaper kills the server in.
-        let (args, desc) = build_tmux_args("tmuxy", true, None);
+        let (args, desc) = build_tmux_args("tmuxy", true, None, None);
         assert_eq!(
             tail(&args, 5),
             vec!["-CC", "new-session", "-A", "-s", "tmuxy"]
@@ -670,7 +683,7 @@ mod tests {
     fn a_grouped_session_names_the_session_it_shares_windows_with() {
         // A second GUI window attaches to its own session in the base
         // session's group: same windows, its own current window.
-        let (args, _) = build_tmux_args("tmuxy~2", true, Some("tmuxy"));
+        let (args, _) = build_tmux_args("tmuxy~2", true, Some("tmuxy"), None);
         assert_eq!(
             tail(&args, 7),
             vec!["-CC", "new-session", "-A", "-s", "tmuxy~2", "-t", "tmuxy"]
@@ -681,7 +694,7 @@ mod tests {
     fn attaching_never_creates_a_session() {
         // The monitor reconnect path must not resurrect a session the user
         // killed — it would come back empty and look like lost work.
-        let (args, _) = build_tmux_args("tmuxy", false, None);
+        let (args, _) = build_tmux_args("tmuxy", false, None, None);
         assert_eq!(tail(&args, 4), vec!["-CC", "attach-session", "-t", "tmuxy"]);
         assert!(!args.iter().any(|a| a == "new-session"));
     }
@@ -690,7 +703,7 @@ mod tests {
     fn a_session_name_with_spaces_stays_one_argument() {
         // argv, not a shell string: a name is never re-split, so it cannot
         // smuggle a second command in.
-        let (args, _) = build_tmux_args("my session; rm -rf ~", true, None);
+        let (args, _) = build_tmux_args("my session; rm -rf ~", true, None, None);
         assert_eq!(
             args.last().map(String::as_str),
             Some("my session; rm -rf ~")

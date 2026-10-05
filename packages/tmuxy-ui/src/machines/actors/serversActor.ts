@@ -184,6 +184,25 @@ export function createServersActor(adapter: TmuxAdapter) {
         Effect.ignore,
       );
 
+    /**
+     * The sessions a snapshot could bring back, on the same cadence. Answered
+     * by both hosts (`list_snapshots`); an empty list is the ordinary answer.
+     */
+    const listSnapshots = (): Effect.Effect<void> =>
+      Effect.tryPromise(() =>
+        adapter.invoke<Array<{ name: string; savedAt: number }> | null>('list_snapshots', {}),
+      ).pipe(
+        Effect.flatMap((result) =>
+          Effect.sync(() =>
+            parent.send({
+              type: 'SNAPSHOTS_UPDATED',
+              restorableSessions: result ?? [],
+            }),
+          ),
+        ),
+        Effect.ignore,
+      );
+
     const discover = (force: boolean): Effect.Effect<void> =>
       Effect.suspend(() => {
         if (!force && Date.now() - lastDiscovery < DISCOVERY_INTERVAL_MS) return Effect.void;
@@ -250,6 +269,7 @@ export function createServersActor(adapter: TmuxAdapter) {
           // the server list hostage to the worktree-discovery interval, so most
           // ticks skipped it and the switcher showed no servers at all.
           Effect.flatMap(() => listServers()),
+          Effect.flatMap(() => listSnapshots()),
           Effect.flatMap(() => discover(force)),
           Effect.ignore,
         );

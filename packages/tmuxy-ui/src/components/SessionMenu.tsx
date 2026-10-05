@@ -55,6 +55,7 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
   const sessions = useAppSelectorShallow(selectSessions);
   const servers = useAppSelectorShallow((ctx) => ctx.servers);
   const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
+  const restorable = useAppSelectorShallow((ctx) => ctx.restorableSessions);
 
   // Before the poll has answered — and on a sandbox that enumerates nothing —
   // the attached session is still the one we know for certain.
@@ -62,6 +63,19 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
 
   const switchTo = (name: string) => {
     if (name !== sessionName) send({ type: 'SWITCH_SESSION', sessionName: name });
+    onClose();
+  };
+
+  // A session that is not running but has a snapshot is offered beside the
+  // ones that are: choosing it rebuilds the session and then switches to it.
+  // Dimmed, like Zellij's session manager draws an exited session, because
+  // it is a thing that COULD exist rather than one that does. A viewer gets
+  // no such item — a rebuild is a write.
+  const exited = readOnly
+    ? []
+    : restorable.filter((r) => !names.includes(r.name)).map((r) => r.name);
+  const restore = (name: string) => {
+    send({ type: 'RESTORE_SESSION', sessionName: name });
     onClose();
   };
 
@@ -106,6 +120,17 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
           </MenuItem>
         );
       })}
+      {exited.map((name) => (
+        <MenuItem
+          key={`restore-${name}`}
+          className="is-restorable"
+          onClick={() => restore(name)}
+          data-restore-session={name}
+        >
+          {'◌ '}
+          {name}
+        </MenuItem>
+      ))}
       {showServers && (
         <>
           <MenuDivider />

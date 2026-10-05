@@ -51,6 +51,11 @@ pub struct BrowserArgs {
     /// running and its profile untouched when the pane closes.
     #[arg(long)]
     pub attach: Option<String>,
+    /// Open this page as the pane starts (`--repl` only). What a restored
+    /// browser pane is handed: the pane writes `@tmuxy-pane-restore` with the
+    /// page it is on, so a session snapshot brings it back here.
+    #[arg(long, value_name = "URL")]
+    pub goto: Option<String>,
     /// One verb line: `goto example.com`, `eval document.title`, `shot`, …
     #[arg(trailing_var_arg = true)]
     pub line: Vec<String>,
@@ -67,7 +72,7 @@ pub async fn run(args: BrowserArgs) {
     }
 
     if args.repl {
-        let code = pane::run(&state_dir, &args.session, args.attach).await;
+        let code = pane::run(&state_dir, &args.session, args.attach, args.goto).await;
         std::process::exit(code);
     }
 

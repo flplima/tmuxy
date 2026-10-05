@@ -1,3 +1,5 @@
+const os = require('os');
+const path = require('path');
 /**
  * Shared tmux socket resolution for tests.
  *
@@ -44,10 +46,28 @@ function tmuxSocket() {
  * those mutations do not reliably reach `child_process`.
  */
 function tmuxEnv() {
-  const env = { ...process.env, TMUX_SOCKET: tmuxSocket() };
+  const env = { ...process.env, TMUX_SOCKET: tmuxSocket(), TMUXY_STATE_DIR: stateDir() };
   delete env.TMUX;
   delete env.TMUX_PANE;
   return env;
+}
+
+/**
+ * Where the server under test keeps its state (session snapshots above all).
+ *
+ * The developer's own, never: the server snapshots its session on every
+ * change and rebuilds a missing one from the latest snapshot at start, so a
+ * run that wrote into the real state dir would hand the NEXT run's fresh
+ * `tmuxy-test` server the previous run's tabs — every test that expects an
+ * empty first tab then starts on someone else's layout. One scratch dir per
+ * socket, under the OS temp dir; `jest.setup.js` wipes it before it starts a
+ * server.
+ */
+function stateDir() {
+  return (
+    process.env.TMUXY_STATE_DIR ||
+    path.join(os.tmpdir(), `tmuxy-e2e-state-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`)
+  );
 }
 
 /** `tmux -L <name>` / `tmux -S <path>` prefix for building shell commands. */
@@ -70,4 +90,4 @@ function tmuxExec(args, { timeout = 10000 } = {}) {
   return execSync(`${tmuxCmd()} ${args}`, { encoding: 'utf-8', timeout, env: tmuxEnv() }).trim();
 }
 
-module.exports = { DEFAULT_SOCKET, tmuxSocket, tmuxCmd, tmuxEnv, tmuxExec };
+module.exports = { DEFAULT_SOCKET, tmuxSocket, tmuxCmd, tmuxEnv, tmuxExec, stateDir };

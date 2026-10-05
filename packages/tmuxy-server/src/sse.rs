@@ -81,13 +81,20 @@ fn encode_event<T: Serialize>(event: &T) -> Option<String> {
 pub struct SseEmitter {
     broadcast: Arc<crate::state::SessionBroadcast>,
     app_state: Arc<AppState>,
+    /// Told of every change to the session's shape, so a snapshot follows it.
+    keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
 }
 
 impl SseEmitter {
-    pub fn new(broadcast: Arc<crate::state::SessionBroadcast>, app_state: Arc<AppState>) -> Self {
+    pub fn new(
+        broadcast: Arc<crate::state::SessionBroadcast>,
+        app_state: Arc<AppState>,
+        keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
+    ) -> Self {
         Self {
             broadcast,
             app_state,
+            keeper,
         }
     }
 
@@ -158,6 +165,15 @@ impl StateEmitter for SseEmitter {
             if let Ok(mut guard) = self.app_state.image_store.try_write() {
                 guard.retain(|(pane_id, _), _| active_pane_ids.contains(pane_id.as_str()));
             }
+        }
+        // The snapshot follows the session's SHAPE, not its output: a split, a
+        // closed pane, a tag, a program starting — never bytes arriving.
+        let structural = match &update {
+            StateUpdate::Full { .. } => true,
+            StateUpdate::Delta { delta } => tmuxy_core::session_snapshot::is_structural(delta),
+        };
+        if structural && !tmuxy_core::session_snapshot::autosave_disabled() {
+            self.keeper.note_change();
         }
         // Trace the emit with the *delta* seq + kind so the return leg can be
         // correlated to the client's applied delta seq (docs/TELEMETRY.md). The
@@ -1075,6 +1091,58 @@ async fn handle_command(
         // Debug menu (docs/TELEMETRY.md). The trace file lives on THIS host, so
         // a browser client can read the switch and the path but cannot open the
         // file — the in-app menu hides that item off the desktop.
+        ClientCommand::ListSnapshots => {
+            let dir = tmuxy_core::session_snapshot::default_dir();
+            let list =
+                tokio::task::spawn_blocking(move || tmuxy_core::session_snapshot::list(&dir))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            Ok(serde_json::json!(list
+                .into_iter()
+                .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
+                .collect::<Vec<_>>()))
+        }
+        ClientCommand::RestoreSession { session: name } => {
+            if !tmuxy_core::session::is_safe_session_name(&name) {
+                return Err(format!("not a usable session name: {name:?}"));
+            }
+            if session_exists(&name).await {
+                return Err(format!("session {name:?} is already running"));
+            }
+            let dir = tmuxy_core::session_snapshot::default_dir();
+            let snapshot = tmuxy_core::session_snapshot::read_latest(&dir, &name)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("no snapshot for {name:?}"))?;
+            // Through THIS session's client: a new session made from inside a
+            // control-mode client is how the server already creates one.
+            let tx = {
+                let sessions = state.sessions.read().await;
+                sessions
+                    .get(session)
+                    .and_then(|s| s.monitor_command_tx.clone())
+            }
+            .ok_or_else(|| "No monitor connection available".to_string())?;
+            let options = tmuxy_core::session_snapshot::RestoreOptions {
+                run: false,
+                fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
+                onto_existing_window: false,
+                existing_window_index: None,
+            };
+            tmuxy_core::session_snapshot::restore_via_monitor(&snapshot, &options, &tx).await?;
+            Ok(serde_json::json!(null))
+        }
+        ClientCommand::ForgetSession { session: name } => {
+            if !tmuxy_core::session::is_safe_session_name(&name) {
+                return Err(format!("not a usable session name: {name:?}"));
+            }
+            let dir = tmuxy_core::session_snapshot::default_dir();
+            let removed = tokio::task::spawn_blocking(move || {
+                tmuxy_core::session_snapshot::forget(&dir, &name)
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(serde_json::json!(removed))
+        }
         ClientCommand::GetTraceSettings => Ok(serde_json::json!({
             "enabled": tmuxy_core::trace::is_enabled(),
             "level": tmuxy_core::trace::level_name(),
@@ -1565,6 +1633,7 @@ fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
         rate_window: Duration::from_millis(100),
         working_dir: Some(crate::state::find_workspace_root()),
         observer: state.read_only,
+        first_window: None,
     }
 }
 
@@ -1665,7 +1734,13 @@ pub async fn start_monitoring(
     session: String,
     state: Arc<AppState>,
 ) {
-    let emitter = Arc::new(SseEmitter::new(broadcast.clone(), Arc::clone(&state)));
+    let keeper = Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new());
+    let emitter = Arc::new(SseEmitter::new(
+        broadcast.clone(),
+        Arc::clone(&state),
+        keeper.clone(),
+    ));
+    let snapshot_dir = tmuxy_core::session_snapshot::default_dir();
     let log_sink: Arc<dyn LogSink> = emitter.clone();
 
     let config = monitor_config(&session, &state);
@@ -1755,6 +1830,22 @@ pub async fn start_monitoring(
         // `new-session -d` through an existing monitor's CC connection. Running
         // external `tmux new-session -d` while a CC client is attached crashes
         // tmux 3.5a. Routing through CC avoids this.
+        // A session that is about to be CREATED may have a snapshot to come
+        // back from. Decided here, once, so both ways of creating it (below)
+        // make the first window the snapshot wants and the rebuild runs onto
+        // it after attach — over control mode, never with a clientless server.
+        let mut restore =
+            if connect_config.create_session && !state.read_only && !session_exists(&session).await
+            {
+                tmuxy_core::session_snapshot::restorable(&snapshot_dir, &session)
+            } else {
+                None
+            };
+        if let Some(snapshot) = &restore {
+            connect_config.first_window =
+                snapshot.first_window_hint(&tmuxy_core::session_snapshot::fallback_cwd());
+            info!(%session, saved_at = snapshot.saved_at, "restoring session from snapshot");
+        }
         if connect_config.create_session && !session_exists(&session).await {
             // Find an existing running monitor to route through
             // Only a peer whose tmux session actually EXISTS can run the
@@ -1788,12 +1879,24 @@ pub async fn start_monitoring(
                     .as_ref()
                     .map(|d| format!(" -c {}", executor::tmux_quote(&d.display().to_string())))
                     .unwrap_or_default();
+                let first_window = connect_config
+                    .first_window
+                    .as_ref()
+                    .map(|(name, cwd)| {
+                        format!(
+                            " -n {} -c {}",
+                            executor::tmux_quote(name),
+                            executor::tmux_quote(cwd)
+                        )
+                    })
+                    .unwrap_or_default();
                 let create_cmd = format!(
-                    "new-session -d -s {} -x {} -y {}{}",
+                    "new-session -d -s {} -x {} -y {}{}{}",
                     executor::tmux_quote(&session),
                     tmuxy_core::control_mode::INITIAL_PTY_COLS,
                     tmuxy_core::control_mode::INITIAL_PTY_ROWS,
-                    working_dir
+                    working_dir,
+                    first_window
                 );
                 info!(%session, %via_session, "creating session via existing CC client");
                 let _ = tx
@@ -1830,7 +1933,8 @@ pub async fn start_monitoring(
                     let mut sessions = state.sessions.write().await;
                     if let Some(session_conns) = sessions.get_mut(&session) {
                         debug!(%session, "storing command_tx");
-                        session_conns.monitor_command_tx = Some(command_tx);
+                        session_conns.monitor_command_tx = Some(command_tx.clone());
+                        session_conns.snapshot_keeper = Some(keeper.clone());
                         true
                     } else {
                         // Session was cleaned up between connect and now
@@ -1841,6 +1945,49 @@ pub async fn start_monitoring(
 
                 if !stored {
                     break;
+                }
+
+                // The autosave, for as long as this connection lives.
+                if !tmuxy_core::session_snapshot::autosave_disabled() {
+                    let keeper = keeper.clone();
+                    let tx = command_tx.clone();
+                    let dir = snapshot_dir.clone();
+                    let name = session.clone();
+                    let shutdown = state.shutdown.clone();
+                    state
+                        .spawn(async move {
+                            tokio::select! {
+                                _ = keeper.run(name, dir, tx) => {}
+                                _ = shutdown.cancelled() => {}
+                            }
+                        })
+                        .await;
+                }
+
+                // The rebuild, onto the window `new-session` just made. Queued
+                // on the command channel, so it runs once the monitor is in its
+                // loop — after the initial sync, which is the order it needs.
+                if let Some(snapshot) = restore.take() {
+                    let tx = command_tx.clone();
+                    let name = session.clone();
+                    state
+                        .spawn(async move {
+                            let options = tmuxy_core::session_snapshot::RestoreOptions {
+                                run: false,
+                                fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
+                                onto_existing_window: true,
+                                existing_window_index: None,
+                            };
+                            match tmuxy_core::session_snapshot::restore_via_monitor(
+                                &snapshot, &options, &tx,
+                            )
+                            .await
+                            {
+                                Ok(()) => info!(session = %name, "session restored from snapshot"),
+                                Err(e) => warn!(session = %name, %e, "session restore stopped"),
+                            }
+                        })
+                        .await;
                 }
 
                 let run_start = std::time::Instant::now();
@@ -2387,7 +2534,11 @@ mod tests {
         let broadcast = Arc::new(crate::state::SessionBroadcast::new());
         let mut rx = broadcast.subscribe();
         let viewer = Arc::new(AppState::new().with_read_only(true));
-        let emitter = SseEmitter::new(broadcast.clone(), viewer);
+        let emitter = SseEmitter::new(
+            broadcast.clone(),
+            viewer,
+            Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
+        );
 
         emitter.write_clipboard("", "a secret someone yanked elsewhere".into());
 
@@ -2398,7 +2549,11 @@ mod tests {
     async fn a_writable_server_still_forwards_a_clipboard_write() {
         let broadcast = Arc::new(crate::state::SessionBroadcast::new());
         let mut rx = broadcast.subscribe();
-        let emitter = SseEmitter::new(broadcast.clone(), Arc::new(AppState::new()));
+        let emitter = SseEmitter::new(
+            broadcast.clone(),
+            Arc::new(AppState::new()),
+            Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
+        );
 
         emitter.write_clipboard("%0", "yanked".into());
 
@@ -2413,7 +2568,11 @@ mod tests {
     async fn a_clipboard_write_over_the_cap_is_not_broadcast() {
         let broadcast = Arc::new(crate::state::SessionBroadcast::new());
         let mut rx = broadcast.subscribe();
-        let emitter = SseEmitter::new(broadcast.clone(), Arc::new(AppState::new()));
+        let emitter = SseEmitter::new(
+            broadcast.clone(),
+            Arc::new(AppState::new()),
+            Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
+        );
 
         emitter.write_clipboard(
             "",
@@ -2880,6 +3039,7 @@ mod protocol_fixtures {
                     pane_state: Some("working".to_string()),
                     pane_ask: Some("eyJ0b2tlbiI6ImExIn0=".to_string()),
                     pane_widget: Some("browser".to_string()),
+                    pane_restore: None,
                 },
                 TmuxPane {
                     id: 3,
@@ -2914,6 +3074,7 @@ mod protocol_fixtures {
                     pane_state: None,
                     pane_ask: None,
                     pane_widget: None,
+                    pane_restore: None,
                 },
             ],
             windows: vec![
@@ -2984,6 +3145,7 @@ mod protocol_fixtures {
                 pane_state: Some(Some("idle".to_string())),
                 pane_ask: Some(None),
                 pane_widget: Some(Some("browser".to_string())),
+                pane_restore: None,
                 in_mode: Some(false),
                 copy_cursor_x: Some(7),
                 copy_cursor_y: Some(8),
@@ -3062,6 +3224,7 @@ mod protocol_fixtures {
                 pane_state: None,
                 pane_ask: None,
                 pane_widget: None,
+                pane_restore: None,
             }]),
             new_windows: Some(vec![TmuxWindow {
                 id: "@3".to_string(),

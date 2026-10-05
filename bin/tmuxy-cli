@@ -41,11 +41,45 @@ esac
 export TMUX_SOCKET_FLAG
 tmux() { command tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"; }
 
+# Where a target-less command lands. Inside a pane, tmux reads the caller's
+# $TMUX_PANE and every `splitw`, `breakp` and `#{pane_id}` resolves from it.
+# From OUTSIDE (a script, a test, an SSH agent) an unattached client has no
+# pane, and tmux falls back to the session with the LATEST activity — which,
+# right after `pane group add` has parked a member in the hidden
+# `__tmuxy_stash` session, is the stash: the next `tab create` or `pane
+# send` would land where no client can see it. Resolving the pane here,
+# once, with the same preference the server has (an attached real session,
+# else the first real one) hands tmux an answer it honours for an unattached
+# client the way it does for a pane's own — and `run_safe` passes it on to
+# the client it spawns inside run-shell. Read-only, and skipped when there
+# is no server to ask.
+if [ -z "${TMUX_PANE:-}" ]; then
+  _outside_pane="$(tmux list-panes -a \
+    -f '#{&&:#{window_active},#{pane_active}}' \
+    -F '#{session_attached}	#{session_name}	#{pane_id}' 2>/dev/null \
+    | awk -F'\t' '$2 != "__tmuxy_stash" { if ($1 > 0) { print $3; exit } ; if (!first) first = $3 } END { if (first) print first }' \
+    | head -1 || true)"
+  if [ -n "$_outside_pane" ]; then
+    TMUX_PANE="$_outside_pane"
+    export TMUX_PANE
+  fi
+fi
+
 # Run a mutating tmux command safely through run-shell.
 # Takes ONE pre-built tmux command string. Interpolate user-supplied values
 # with shquote so spaces, quotes and `#` survive the trip.
+#
+# The inner tmux is a client of its own, and run-shell hands it no pane: a
+# target-less `send-keys` or `breakp` in there resolves to whichever session
+# tmux touched last, not the caller's (see TMUX_PANE below). So the pane the
+# CLI acts on rides along as the inner client's TMUX_PANE, which tmux reads
+# for an unattached client the way it reads it for a shell in a pane.
 run_safe() {
-  tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+  if [ -n "${TMUX_PANE:-}" ]; then
+    tmux run-shell "TMUX_PANE=$TMUX_PANE tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+  else
+    tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+  fi
 }
 
 # `shquote` — quoting for interpolation into a run_safe command string — is
@@ -371,6 +405,7 @@ Commands:
   capture       Capture pane content [%id] [--json]
   send          Send keys to pane <keys...>
   state         Declare what the pane is doing <state> [%id]
+  restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
   group         Pane group operations (add, close, switch, next, prev)
@@ -430,6 +465,16 @@ Usage: tmuxy session <command> [args...]
 Commands:
   switch        Interactive session switcher [--float]
   connect       SSH connection prompt [--web]
+  save          Snapshot a session now [name] [--scrollback N]
+  restore       Rebuild a session from its snapshot <name> [--run]
+  snapshots     The sessions that have a snapshot, and whether they run
+  forget        Delete a session's snapshots <name> [--force]
+
+A session's shape — tabs, splits, floats, sidebars, groups, each pane's
+directory and program — is saved on every change and brought back when the
+server starts and the session is gone. Programs come back typed at the
+prompt, not run; `--run` runs them. A pane says how to bring itself back with
+`tmuxy pane restore-cmd '<command>'`.
 EOF
 }
 
@@ -545,6 +590,39 @@ cmd_pane() {
   shift 2>/dev/null || true
 
   case "$sub" in
+    restore-cmd)
+      # Say how to bring this pane back after a restore (`@tmuxy-pane-restore`):
+      # the program itself knows (`claude --resume <id>`, `nvim -S`, `ssh
+      # host`) where `ps` can only guess. Wins over discovery at restore time.
+      local value="" target=""
+      for arg in "$@"; do
+        case "$arg" in
+          --help|-h)
+            echo "Usage: tmuxy pane restore-cmd '<command>' [%id]"
+            echo "       tmuxy pane restore-cmd --clear [%id]"
+            return
+            ;;
+          --clear) value="--clear" ;;
+          %*) target="$arg" ;;
+          *) value="$arg" ;;
+        esac
+      done
+      if [ -z "$value" ]; then
+        echo "Error: command required (or --clear)" >&2
+        return 1
+      fi
+      target="${target:-${TMUX_PANE:-}}"
+      if [ -z "$target" ]; then
+        echo "Error: no pane to target (pass %id or run inside a pane)" >&2
+        return 1
+      fi
+      if [ "$value" = "--clear" ]; then
+        run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-restore"
+      else
+        run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-restore $(shquote "$value")"
+      fi
+      ;;
+
     state)
       # Declare what this pane is doing, for the sidebar tree to draw. Any
       # process can call it — an agent's hooks, a shell's precmd/preexec, a
@@ -681,7 +759,7 @@ cmd_pane() {
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane break"; return ;;
       esac
-      run_safe "breakp"
+      run_safe "breakp -t '#{session_id}:'"
       ;;
 
     capture)
@@ -870,11 +948,14 @@ cmd_tab() {
       # external tmux invocations crash CC; this routes through run-shell safely.
       # splitw+breakp creates the new window and selects it. Tabs carry no
       # marker — an untagged window in the session is a tab, so no tagging.
+      # The break names its session: `#{session_id}` is run-shell's, expanded
+      # for the calling pane, where a bare breakp would put the window in
+      # whichever session tmux last touched (see TMUX_PANE above).
       local out
       if [ -n "$name" ]; then
-        out=$(run_safe "splitw \\; breakp -n $(shquote "$name") -P -F '##{window_id}'")
+        out=$(run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name") -P -F '##{window_id}'")
       else
-        out=$(run_safe "splitw \\; breakp -P -F '##{window_id}'")
+        out=$(run_safe "splitw \\; breakp -t '#{session_id}:' -P -F '##{window_id}'")
       fi
       local tab_id
       tab_id=$(echo "$out" | grep -o '@[0-9]*' | tail -1 || true)
@@ -1029,6 +1110,35 @@ cmd_session() {
       exec bash "$SCRIPTS_DIR/session-connect" "$@"
       ;;
 
+    save|snapshots)
+      # Reads only (tmux queries and `ps`), safe as a plain subprocess.
+      exec "$(find_server_binary)" session "$sub" "$@"
+      ;;
+
+    restore)
+      # A restore creates and splits, which must not run as bare tmux
+      # subprocesses while a control-mode client is attached (docs/TMUX.md).
+      # Inside `run-shell` the binary's own tmux calls are tmux-internal, the
+      # same way every mutating helper in bin/tmuxy runs.
+      case "${1:-}" in
+        --help|-h) exec "$(find_server_binary)" session restore --help ;;
+      esac
+      local quoted=""
+      for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
+      tmux run-shell "$(shquote "$(find_server_binary)") session restore$quoted"
+      ;;
+
+    forget)
+      # `--force` kills a running session first: a kill is a mutation, so it
+      # goes through run-shell; the file removal needs nothing from tmux.
+      case "${1:-}" in
+        --help|-h) exec "$(find_server_binary)" session forget --help ;;
+      esac
+      local quoted=""
+      for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
+      tmux run-shell "$(shquote "$(find_server_binary)") session forget$quoted"
+      ;;
+
     --help|-h)
       usage_session
       ;;
@@ -1160,9 +1270,9 @@ cmd_run() {
         esac
       done
       if [ -n "$name_arg" ]; then
-        run_safe "splitw \\; breakp -n $(shquote "$name_arg")"
+        run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name_arg")"
       else
-        run_safe "splitw \\; breakp"
+        run_safe "splitw \\; breakp -t '#{session_id}:'"
       fi
       ;;
 
@@ -1359,8 +1469,10 @@ BEOF
     esac
     # Straight to the binary. There is no pane wrapper any more: the pane
     # program IS `tmuxy browser --repl`, which draws its own screen, so there is
-    # nothing for a shell script to set up around it.
-    exec "$(find_server_binary)" browser "$@"
+    # nothing for a shell script to set up around it. It is told where THIS
+    # CLI is, so it can write its restore tag through `tmuxy pane restore-cmd`
+    # wherever tmuxy is installed.
+    TMUXY_CLI="$SELF" exec "$(find_server_binary)" browser "$@"
     ;;
   cleanup)
     shift

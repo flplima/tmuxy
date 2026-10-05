@@ -351,7 +351,59 @@ pub enum ButtonMeaning {
 const WHEEL_STEP: f64 = 120.0;
 
 /// Run a browser pane until the user leaves it.
-pub async fn run(state_dir: &Path, session_name: &str, attach: Option<String>) -> i32 {
+/// How to bring this pane back, as the `tmuxy` CLI is told it
+/// (`tmuxy pane restore-cmd '<line>' <pane>` → `@tmuxy-pane-restore`, see
+/// `tmuxy_core::session_snapshot`).
+///
+/// The CLI, never tmux directly: a mutating tmux command from inside a pane
+/// while control mode is attached crashes tmux 3.5a (docs/TMUX.md), and the
+/// CLI is the one place that knows to wrap it in `run-shell`.
+pub fn restore_tag_args(pane: &str, session: &str, url: Option<&str>) -> Vec<String> {
+    let mut line = format!("tmuxy browser --repl --session {}", shell_quote(session));
+    if let Some(url) = url {
+        line.push_str(" --goto ");
+        line.push_str(&shell_quote(url));
+    }
+    vec!["pane".into(), "restore-cmd".into(), line, pane.into()]
+}
+
+/// Single-quote for a shell, as `_lib`'s `shquote` does.
+fn shell_quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', r"'\''"))
+}
+
+/// Record the page this pane is on, if it is running under tmux at all.
+///
+/// `TMUXY_CLI` is set by the CLI when it starts this program, so the pane
+/// reaches the same `tmuxy` that launched it wherever it is installed; a
+/// pane started some other way falls back to `tmuxy` on the PATH.
+fn announce_restore(session: &str, url: Option<&str>) {
+    let Some(pane) = std::env::var_os("TMUX_PANE") else {
+        return;
+    };
+    let cli = std::env::var_os("TMUXY_CLI").unwrap_or_else(|| "tmuxy".into());
+    let _ = std::process::Command::new(cli)
+        .args(restore_tag_args(&pane.to_string_lossy(), session, url))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+/// Where the page is, for the restore tag; `None` on `about:blank` or failure.
+async fn current_url(session: &mut Session) -> Option<String> {
+    match session.run(verbs::Verb::Url).await {
+        Ok(Output::Line(url)) if !url.is_empty() && url != "about:blank" => Some(url),
+        _ => None,
+    }
+}
+
+/// Run a browser pane until the user leaves it.
+pub async fn run(
+    state_dir: &Path,
+    session_name: &str,
+    attach: Option<String>,
+    goto: Option<String>,
+) -> i32 {
     let session = match attach {
         Some(endpoint) => Session::attach(state_dir, session_name, &endpoint).await,
         None => Session::launch(state_dir, session_name).await,
@@ -418,13 +470,25 @@ pub async fn run(state_dir: &Path, session_name: &str, attach: Option<String>) -
         }
     };
 
+    // A restored pane is handed the page it was on.
+    if let Some(url) = goto {
+        match session.run(verbs::Verb::Goto { url }).await {
+            Ok(Output::Line(url)) => status(&size, &url),
+            Ok(_) => {}
+            Err(error) => status(&size, &format!("error: {error}")),
+        }
+    }
+
     // Opening on the current URL tells the user where the pane is pointed, and
     // forces the page to exist before the first frame is asked for.
     if let Ok(Output::Line(url)) = session.run(verbs::Verb::Url).await {
         status(&size, &url);
     }
+    // Say how to come back — now, and after every verb (`run_line`).
+    let url = current_url(&mut session).await;
+    announce_restore(session_name, url.as_deref());
 
-    let code = read_loop(&mut session, size_rx, attached).await;
+    let code = read_loop(&mut session, size_rx, attached, session_name).await;
 
     done.store(true, Ordering::Relaxed);
     resizes.abort();
@@ -584,6 +648,7 @@ async fn read_loop(
     session: &mut Session,
     mut sizes: tokio::sync::watch::Receiver<PaneSize>,
     attached: bool,
+    session_name: &str,
 ) -> i32 {
     let mut inputs = Inputs::start();
     let mut size = *sizes.borrow_and_update();
@@ -611,7 +676,7 @@ async fn read_loop(
         match input {
             Input::Key(key) if key.as_slice() == b"\x03" => return 0, // ctrl+c
             Input::Key(key) if key.as_slice() == b":" => {
-                match command_mode(session, size, &mut inputs).await {
+                match command_mode(session, size, &mut inputs, session_name).await {
                     CommandOutcome::Continue => {}
                     CommandOutcome::Quit => return 0,
                 }
@@ -648,6 +713,7 @@ async fn command_mode(
     session: &mut Session,
     size: PaneSize,
     inputs: &mut Inputs,
+    session_name: &str,
 ) -> CommandOutcome {
     let mut line = String::new();
     loop {
@@ -667,7 +733,7 @@ async fn command_mode(
                 status(&size, "");
                 return CommandOutcome::Continue;
             }
-            b"\r" | b"\n" => return run_line(session, size, &line).await,
+            b"\r" | b"\n" => return run_line(session, size, &line, session_name).await,
             b"\x7f" | b"\x08" => {
                 line.pop();
             }
@@ -683,7 +749,12 @@ async fn command_mode(
 }
 
 /// Run one verb line and show what it said.
-async fn run_line(session: &mut Session, size: PaneSize, line: &str) -> CommandOutcome {
+async fn run_line(
+    session: &mut Session,
+    size: PaneSize,
+    line: &str,
+    session_name: &str,
+) -> CommandOutcome {
     if matches!(line.trim(), "q" | "quit" | "exit") {
         return CommandOutcome::Quit;
     }
@@ -695,6 +766,9 @@ async fn run_line(session: &mut Session, size: PaneSize, line: &str) -> CommandO
                 // back with `capture-pane` wants the answer, not a paragraph.
                 let first = text.lines().next().unwrap_or("").to_string();
                 status(&size, &first);
+                // The page may have moved; the restore tag follows it.
+                let url = current_url(session).await;
+                announce_restore(session_name, url.as_deref());
             }
             Err(error) => status(&size, &format!("error: {error}")),
         },
@@ -1046,6 +1120,28 @@ mod tests {
             "goto example.com\r",
             "the rest of the line must still be there after the `:` is taken"
         );
+    }
+
+    /// The tag is handed to the CLI, which is what makes it a run-shell write,
+    /// and it carries the page: that is what a snapshot hands back.
+    #[test]
+    fn the_restore_tag_is_handed_to_the_cli_with_the_page() {
+        let argv = restore_tag_args("%7", "notes", Some("https://example.com/a b"));
+        assert_eq!(argv[0], "pane");
+        assert_eq!(argv[1], "restore-cmd");
+        assert_eq!(argv[3], "%7");
+        assert!(
+            argv[2].starts_with("tmuxy browser --repl --session 'notes'"),
+            "{}",
+            argv[2]
+        );
+        assert!(
+            argv[2].ends_with("--goto 'https://example.com/a b'"),
+            "{}",
+            argv[2]
+        );
+        let bare = restore_tag_args("%1", "x", None);
+        assert_eq!(bare[2], "tmuxy browser --repl --session 'x'");
     }
 
     #[test]
