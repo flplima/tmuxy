@@ -28,7 +28,21 @@ pub struct TraceViewArgs {
     /// Run a field health check summarizing reconnects, rejected commands, and anomalies.
     #[arg(long, alias = "check")]
     pub health: bool,
+
+    /// With the health check: print each finding as a GitHub Actions
+    /// annotation (`::warning …`) instead of the report, for a CI step to run
+    /// on every job, passing or not.
+    #[arg(long, requires = "health")]
+    pub github: bool,
+
+    /// Read only the events between the marker with this label and the next
+    /// marker after it — one test's slice of a whole run's trace.
+    #[arg(long, value_name = "MARK")]
+    pub window: Option<String>,
 }
+
+/// A shell pane younger than this has not had a fair chance to print.
+pub const SILENT_PANE_MIN_MS: u64 = 10_000;
 
 pub fn run(args: TraceViewArgs) {
     if let Some(label) = args.mark {
@@ -60,8 +74,12 @@ pub fn run(args: TraceViewArgs) {
             std::process::exit(1);
         }
     };
+    let events = match &args.window {
+        Some(label) => window(&events, label),
+        None => events,
+    };
     if events.is_empty() {
-        println!("tmuxy trace: {} is empty", path.display());
+        println!("tmuxy trace: {} has no events to read", path.display());
         return;
     }
 
@@ -82,7 +100,9 @@ pub fn run(args: TraceViewArgs) {
             }
         }
         None => {
-            if args.health {
+            if args.health && args.github {
+                print!("{}", github_annotations(&events));
+            } else if args.health {
                 print!("{}", health_check(&events));
             } else {
                 print!("{}", summarize(&events));
@@ -276,6 +296,8 @@ pub fn summarize(events: &[Map<String, Value>]) -> String {
 #[derive(Default)]
 struct SessionHealth {
     actions: usize,
+    /// `connect` spans seen; every one after the first is a reconnect.
+    connects: usize,
     reconnects: usize,
     rejected: usize,
     errors: usize,
@@ -314,7 +336,10 @@ pub fn health_check(events: &[Map<String, Value>]) -> String {
                 .get("reconnected")
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
-            || (layer == "monitor" && name == "connect" && entry.actions > 1);
+            || (layer == "monitor" && name == "connect" && {
+                entry.connects += 1;
+                entry.connects > 1
+            });
 
         let is_error = ev
             .get("level")
@@ -368,6 +393,187 @@ pub fn health_check(events: &[Map<String, Value>]) -> String {
         "ATTENTION — minor reconnects or rejections detected"
     };
     out.push_str(&format!("\noverall status: {}\n", overall));
+
+    let silent = silent_panes(events, SILENT_PANE_MIN_MS);
+    out.push_str(&format!(
+        "\nsilent shell panes (no output for {}s or more): {}\n",
+        SILENT_PANE_MIN_MS / 1000,
+        silent.len()
+    ));
+    for pane in &silent {
+        out.push_str(&format!("  {}\n", pane.describe()));
+    }
+    out
+}
+
+/// The events between the marker labelled `label` and the marker after it.
+/// Empty when no marker has that label.
+pub fn window(events: &[Map<String, Value>], label: &str) -> Vec<Map<String, Value>> {
+    let is_mark =
+        |ev: &Map<String, Value>| ev.get("layer").and_then(Value::as_str) == Some("marker");
+    let Some(start) = events
+        .iter()
+        .position(|ev| is_mark(ev) && ev.get("label").and_then(Value::as_str) == Some(label))
+    else {
+        return Vec::new();
+    };
+    events[start..]
+        .iter()
+        .enumerate()
+        .take_while(|(i, ev)| *i == 0 || !is_mark(ev))
+        .map(|(_, ev)| ev.clone())
+        .collect()
+}
+
+/// A shell pane that never showed anything: no `%output`, nothing replayed
+/// when it was first listed, and every capture of it empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SilentPane {
+    pub session: String,
+    pub pane: String,
+    /// How long it was alive and silent, in ms.
+    pub alive_ms: u64,
+    pub captures: u64,
+    pub size: Option<(u64, u64)>,
+    /// The last marker before it appeared — in an E2E run, the test.
+    pub during: Option<String>,
+}
+
+impl SilentPane {
+    pub fn describe(&self) -> String {
+        let size = self
+            .size
+            .map(|(c, r)| format!("{c}x{r}"))
+            .unwrap_or_else(|| "size unknown".to_string());
+        let during = self
+            .during
+            .as_deref()
+            .map(|d| format!(" during \"{d}\""))
+            .unwrap_or_default();
+        format!(
+            "{} in {}: a shell pane silent for {}s, {} capture(s) all empty, {}{}",
+            self.pane,
+            self.session,
+            self.alive_ms / 1000,
+            self.captures,
+            size,
+            during
+        )
+    }
+}
+
+/// Shell panes that lived at least `min_alive_ms` without ever showing a byte.
+///
+/// A shell prints a prompt within milliseconds of starting; one that has shown
+/// nothing for seconds is either a shell that never started talking or output
+/// that never reached the aggregator — the start-up fault the E2E suite hit as
+/// "a pane that never shows a prompt". Built from the aggregator's pane
+/// lifecycle events (`pane appeared`, `pane first output`, `pane captured`,
+/// `pane resized`, `pane gone`).
+pub fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> Vec<SilentPane> {
+    struct Live {
+        shell: bool,
+        spoke: bool,
+        since: u64,
+        captures: u64,
+        size: Option<(u64, u64)>,
+        during: Option<String>,
+    }
+    let ts = |ev: &Map<String, Value>| ev.get("ts_wall").and_then(Value::as_u64).unwrap_or(0);
+    let str_of = |ev: &Map<String, Value>, k: &str| {
+        ev.get(k).and_then(Value::as_str).unwrap_or("").to_string()
+    };
+    let num = |ev: &Map<String, Value>, k: &str| ev.get(k).and_then(Value::as_u64);
+
+    let mut live: BTreeMap<(String, String), Live> = BTreeMap::new();
+    let mut out = Vec::new();
+    let mut last_mark: Option<String> = None;
+    let mut end = 0u64;
+    let finish = |key: &(String, String), p: &Live, at: u64, out: &mut Vec<SilentPane>| {
+        let alive = at.saturating_sub(p.since);
+        if p.shell && !p.spoke && alive >= min_alive_ms {
+            out.push(SilentPane {
+                session: key.0.clone(),
+                pane: key.1.clone(),
+                alive_ms: alive,
+                captures: p.captures,
+                size: p.size,
+                during: p.during.clone(),
+            });
+        }
+    };
+
+    for ev in events {
+        end = end.max(ts(ev));
+        if ev.get("layer").and_then(Value::as_str) == Some("marker") {
+            last_mark = ev.get("label").and_then(Value::as_str).map(str::to_string);
+            continue;
+        }
+        let name = ev.get("name").and_then(Value::as_str).unwrap_or("");
+        if !name.starts_with("pane ") {
+            continue;
+        }
+        let key = (str_of(ev, "session"), str_of(ev, "pane"));
+        match name {
+            "pane appeared" => {
+                // A pane id reused by a new tmux server is a new pane.
+                if let Some(old) = live.remove(&key) {
+                    finish(&key, &old, ts(ev), &mut out);
+                }
+                live.insert(
+                    key,
+                    Live {
+                        shell: ev.get("shell").and_then(Value::as_bool).unwrap_or(false),
+                        spoke: num(ev, "bytes").unwrap_or(0) > 0,
+                        since: ts(ev),
+                        captures: 0,
+                        size: num(ev, "cols").zip(num(ev, "rows")),
+                        during: last_mark.clone(),
+                    },
+                );
+            }
+            "pane first output" => {
+                if let Some(p) = live.get_mut(&key) {
+                    p.spoke = true;
+                }
+            }
+            "pane captured" => {
+                if let Some(p) = live.get_mut(&key) {
+                    p.captures += 1;
+                    if num(ev, "lines").unwrap_or(0) > 0 {
+                        p.spoke = true;
+                    }
+                }
+            }
+            "pane resized" => {
+                if let Some(p) = live.get_mut(&key) {
+                    p.size = num(ev, "cols").zip(num(ev, "rows"));
+                }
+            }
+            "pane gone" => {
+                if let Some(p) = live.remove(&key) {
+                    finish(&key, &p, ts(ev), &mut out);
+                }
+            }
+            _ => {}
+        }
+    }
+    for (key, p) in &live {
+        finish(key, p, end, &mut out);
+    }
+    out
+}
+
+/// The health check's findings as GitHub Actions annotations.
+pub fn github_annotations(events: &[Map<String, Value>]) -> String {
+    let mut out = String::new();
+    for pane in silent_panes(events, SILENT_PANE_MIN_MS) {
+        // Annotation text is one line; `%` must be escaped as `%25`.
+        out.push_str(&format!(
+            "::warning title=Silent shell pane::{}\n",
+            pane.describe().replace('%', "%25")
+        ));
+    }
     out
 }
 
@@ -381,6 +587,164 @@ mod tests {
             Value::Object(m) => m,
             _ => unreachable!(),
         }
+    }
+
+    fn lifecycle(name: &str, pane: &str, ts: u64, extra: Value) -> Map<String, Value> {
+        let mut m = ev(serde_json::json!({
+            "layer": "monitor", "name": name, "phase": "event",
+            "session": "s", "pane": pane, "ts_wall": ts
+        }));
+        if let Value::Object(x) = extra {
+            m.extend(x);
+        }
+        m
+    }
+
+    /// A shell pane that never shows a byte is found, with the test it
+    /// appeared in; one that spoke — live, replayed, or only through a
+    /// capture — is not, nor is a non-shell, nor one that was not alive long.
+    #[test]
+    fn a_shell_pane_that_never_spoke_is_reported_with_its_test() {
+        let mark = ev(serde_json::json!({
+            "layer": "marker", "name": "mark", "label": "suite › first test start", "ts_wall": 0
+        }));
+        let events = vec![
+            mark,
+            lifecycle(
+                "pane appeared",
+                "%1",
+                1_000,
+                serde_json::json!({"shell": true, "bytes": 0, "cols": 80, "rows": 24}),
+            ),
+            lifecycle(
+                "pane captured",
+                "%1",
+                1_100,
+                serde_json::json!({"lines": 0}),
+            ),
+            lifecycle(
+                "pane appeared",
+                "%2",
+                1_000,
+                serde_json::json!({"shell": true, "bytes": 0}),
+            ),
+            lifecycle(
+                "pane captured",
+                "%2",
+                1_100,
+                serde_json::json!({"lines": 2}),
+            ),
+            lifecycle(
+                "pane appeared",
+                "%3",
+                1_000,
+                serde_json::json!({"shell": true, "bytes": 90}),
+            ),
+            lifecycle(
+                "pane appeared",
+                "%4",
+                1_000,
+                serde_json::json!({"shell": false, "bytes": 0}),
+            ),
+            lifecycle(
+                "pane appeared",
+                "%5",
+                1_000,
+                serde_json::json!({"shell": true, "bytes": 0}),
+            ),
+            lifecycle(
+                "pane first output",
+                "%5",
+                1_200,
+                serde_json::json!({"bytes": 40}),
+            ),
+            lifecycle(
+                "pane appeared",
+                "%6",
+                40_000,
+                serde_json::json!({"shell": true, "bytes": 0}),
+            ),
+            lifecycle("pane gone", "%6", 41_000, serde_json::json!({})),
+            lifecycle(
+                "pane resized",
+                "%1",
+                2_000,
+                serde_json::json!({"cols": 139, "rows": 27}),
+            ),
+            lifecycle("pane gone", "%1", 46_000, serde_json::json!({})),
+        ];
+        let silent = silent_panes(&events, SILENT_PANE_MIN_MS);
+        assert_eq!(
+            silent,
+            vec![SilentPane {
+                session: "s".into(),
+                pane: "%1".into(),
+                alive_ms: 45_000,
+                captures: 1,
+                size: Some((139, 27)),
+                during: Some("suite › first test start".into()),
+            }]
+        );
+        let annotation = github_annotations(&events);
+        assert!(
+            annotation.starts_with("::warning title=Silent shell pane::%251 in s"),
+            "{annotation}"
+        );
+    }
+
+    /// A session's first `connect` is not a reconnect, however many of its
+    /// events came first (a span is written when it closes, after the events
+    /// it contained); its second is.
+    #[test]
+    fn only_a_second_connect_is_a_reconnect() {
+        let e = |name: &str, phase: &str| {
+            ev(
+                serde_json::json!({"layer": "monitor", "name": name, "phase": phase, "session": "s"}),
+            )
+        };
+        let once = vec![
+            e("pane appeared", "event"),
+            e("pane captured", "event"),
+            e("connect", "span"),
+        ];
+        assert!(
+            health_check(&once).contains("reconnects: 0"),
+            "{}",
+            health_check(&once)
+        );
+        let twice = vec![
+            e("connect", "span"),
+            e("pane appeared", "event"),
+            e("connect", "span"),
+        ];
+        assert!(
+            health_check(&twice).contains("reconnects: 1"),
+            "{}",
+            health_check(&twice)
+        );
+    }
+
+    /// One test's slice: from its marker up to the next marker.
+    #[test]
+    fn a_window_is_the_events_between_a_marker_and_the_next() {
+        let m = |label: &str| {
+            ev(serde_json::json!({"layer": "marker", "name": "mark", "label": label}))
+        };
+        let e = |n: &str| ev(serde_json::json!({"layer": "monitor", "name": n}));
+        let events = vec![
+            e("before"),
+            m("a"),
+            e("in-a"),
+            e("also-in-a"),
+            m("b"),
+            e("in-b"),
+        ];
+        let names: Vec<_> = window(&events, "a")
+            .iter()
+            .map(|x| x.get("name").unwrap().as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, vec!["mark", "in-a", "also-in-a"]);
+        assert!(window(&events, "missing").is_empty());
     }
 
     #[test]
