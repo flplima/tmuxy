@@ -46,7 +46,17 @@ function tmuxSocket() {
  * those mutations do not reliably reach `child_process`.
  */
 function tmuxEnv() {
-  const env = { ...process.env, TMUX_SOCKET: tmuxSocket(), TMUXY_STATE_DIR: stateDir() };
+  const env = {
+    ...process.env,
+    TMUX_SOCKET: tmuxSocket(),
+    TMUXY_STATE_DIR: stateDir(),
+    // The shared server neither saves nor rebuilds sessions: a suite that
+    // kills a session and makes another of the same name must get an empty
+    // one, not the last one's tabs. Snapshots are tested on a server of
+    // their own (helpers/snapshot-server.js), which clears both.
+    TMUXY_NO_SNAPSHOT: '1',
+    TMUXY_NO_RESTORE: '1',
+  };
   delete env.TMUX;
   delete env.TMUX_PANE;
   return env;

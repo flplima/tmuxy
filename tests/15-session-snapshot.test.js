@@ -222,10 +222,23 @@ describe('Scenario 32: Session snapshots', () => {
     );
 
     // 5. Saved again, the restored session IS the one that was lost: the same
-    //    windows and splits, the same tags, the same offered programs.
-    srv.cli(['session', 'save', SESSION]);
-    const after = shapeOf(latest);
-    expect(comparable(after)).toEqual(comparable(before));
+    //    windows and splits, the same tags, the same offered programs. The
+    //    rebuild runs after attach, a command at a time, so a save that does
+    //    not match yet is a rebuild still under way — the wait is for the
+    //    match, and what it reports on giving up is how far the rebuild got
+    //    and what the server said about it.
+    const wanted = JSON.stringify(comparable(before));
+    const saved = () => {
+      srv.cli(['session', 'save', SESSION]);
+      return comparable(shapeOf(latest));
+    };
+    await waitForCondition(
+      page,
+      () => JSON.stringify(saved()) === wanted,
+      90000,
+      () =>
+        `the restored session to match the one that was lost\nwanted: ${wanted}\ngot:    ${JSON.stringify(saved())}\nserver: ${srv.serverLog()}`,
+    );
 
     // 6. And what the user sees: the float is on screen over the tab it was
     //    opened from (a float shows only over its parent tab, and the session

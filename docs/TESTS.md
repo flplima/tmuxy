@@ -419,7 +419,7 @@ npm run test:e2e -- --testNamePattern="Scenario 22"
 npm run test:e2e -- --verbose
 ```
 
-When CI's E2E or latency job fails, its last step prints the tail of the server log (`/tmp/tmuxy-server.log`). A local suite-started server writes stderr to `/tmp/tmuxy-server-stderr.log`.
+When CI's E2E or latency job fails, its last step prints the tail of the server log (`/tmp/tmuxy-server.log`). A local suite-started server writes stderr to `/tmp/tmuxy-server-stderr.log`. The shared server runs with `TMUXY_NO_SNAPSHOT=1` and `TMUXY_NO_RESTORE=1` and a scratch `TMUXY_STATE_DIR` (`tmuxEnv` in `tests/helpers/tmux-socket.js`, and the CI job's `env`): it neither saves sessions nor rebuilds one from a previous run, so a suite always starts on an empty tab. Session snapshots are tested on a server of the test's own (`tests/helpers/snapshot-server.js`), whose `serverLog()` is what a failed wait there prints.
 
 ## Mutation Testing: Does the Suite Actually Bite?
 

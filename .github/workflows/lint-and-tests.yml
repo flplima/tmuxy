@@ -183,6 +183,12 @@ jobs:
       # And the suite's own port, for the same reason — matches DEFAULT_PORT in
       # tests/helpers/config.js, which is where the tests look for the server.
       TMUXY_PORT: 9100
+      # The shared server neither saves nor rebuilds sessions (see tmuxEnv in
+      # tests/helpers/tmux-socket.js): a session re-made under a name a test
+      # used before must come up empty. The snapshot suite starts a server of
+      # its own with both cleared.
+      TMUXY_NO_SNAPSHOT: '1'
+      TMUXY_NO_RESTORE: '1'
 
     steps:
       - uses: actions/checkout@v7

@@ -733,6 +733,14 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
             let sessions = state.sessions.read().await;
             sessions
                 .iter()
+                // A session still being rebuilt is half of what its snapshot
+                // says; the snapshot it is being rebuilt FROM is the one to keep.
+                .filter(|(_, conns)| {
+                    !conns
+                        .snapshot_keeper
+                        .as_ref()
+                        .is_some_and(|keeper| keeper.restoring())
+                })
                 .filter_map(|(name, conns)| {
                     conns
                         .monitor_command_tx

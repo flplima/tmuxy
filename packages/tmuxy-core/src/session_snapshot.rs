@@ -1314,6 +1314,11 @@ pub const AUTOSAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_sec
 /// change — and a split made a second before a crash is the one worth having.
 pub struct SnapshotKeeper {
     dirty: tokio::sync::watch::Sender<u64>,
+    /// Set while a restore is rebuilding the session: every step of it is a
+    /// change of shape, and a save taken between two of them would put half a
+    /// session on disk as the latest — the one a crash right then would
+    /// restore from next.
+    restoring: std::sync::atomic::AtomicBool,
 }
 
 impl Default for SnapshotKeeper {
@@ -1325,7 +1330,29 @@ impl Default for SnapshotKeeper {
 impl SnapshotKeeper {
     pub fn new() -> Self {
         let (dirty, _) = tokio::sync::watch::channel(0);
-        Self { dirty }
+        Self {
+            dirty,
+            restoring: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// A restore is starting: hold every save until `restore_finished`.
+    pub fn restore_started(&self) {
+        self.restoring
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The restore is over, however it ended; what stands now is the shape
+    /// worth keeping, so it is saved.
+    pub fn restore_finished(&self) {
+        self.restoring
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.note_change();
+    }
+
+    /// Whether a restore is in flight — a last save at shutdown asks, too.
+    pub fn restoring(&self) -> bool {
+        self.restoring.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The shape changed. Cheap enough to call from the emit path.
@@ -1349,11 +1376,16 @@ impl SnapshotKeeper {
                     Err(_) => break,
                 }
             }
+            if self.restoring() {
+                continue;
+            }
             if save_now(&session, &dir, &tx).await {
                 // Something had the terminal for less than a prompt's helper
                 // takes; by now it is either gone or the user's program.
                 tokio::time::sleep(std::time::Duration::from_secs(MIN_FOREGROUND_AGE_SECS)).await;
-                save_now(&session, &dir, &tx).await;
+                if !self.restoring() {
+                    save_now(&session, &dir, &tx).await;
+                }
             }
         }
     }
@@ -1811,6 +1843,21 @@ mod tests {
             sidebar.restore_command.as_deref(),
             Some(LEFT_SIDEBAR_WIDGET)
         );
+    }
+
+    /// A restore holds the autosave, and its end is itself a change to save.
+    #[test]
+    fn a_restore_in_flight_holds_the_autosave_and_its_end_asks_for_one() {
+        let keeper = SnapshotKeeper::new();
+        let mut rx = keeper.dirty.subscribe();
+        assert!(!keeper.restoring());
+        keeper.restore_started();
+        assert!(keeper.restoring());
+        assert!(!rx.has_changed().unwrap());
+        keeper.restore_finished();
+        assert!(!keeper.restoring());
+        assert!(rx.has_changed().unwrap(), "the restored shape is saved");
+        rx.mark_unchanged();
     }
 
     /// The restore-on-start path builds onto the window `new-session -A` made.

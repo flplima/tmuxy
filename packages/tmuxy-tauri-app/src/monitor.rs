@@ -468,6 +468,8 @@ pub async fn start_monitoring_window(
                 if let Some(snapshot) = restore.take() {
                     let tx = cmd_tx.clone();
                     let name = config.session.clone();
+                    let keeper = keeper.clone();
+                    keeper.restore_started();
                     tokio::spawn(async move {
                         let options = tmuxy_core::session_snapshot::RestoreOptions {
                             run: false,
@@ -487,6 +489,7 @@ pub async fn start_monitoring_window(
                                 "[monitor] session '{name}' restore stopped: {e}"
                             )),
                         }
+                        keeper.restore_finished();
                     });
                 }
                 // Publish the live command channel so #[tauri::command]

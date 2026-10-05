@@ -229,7 +229,7 @@ restored pane as well as typed, so the next save still carries it when the
 user has not acted on the offer. What `ps` finds is also held to an age: a
 foreground program younger than two seconds is a prompt's helper (`git
 status`, `id -Gn`) as often as a program the user just started, so it is left
-out and the keeper looks again once that age has passed. Snapshot files are
+out and the keeper looks again once that age has passed. While a restore is rebuilding a session the autosave is held, and a shutdown in that window skips its last save: half a session must never become the latest snapshot. Snapshot files are
 read with the same suspicion as anything on disk: a file that does not parse,
 or claims a newer format, is logged and ignored, and the session starts fresh
 — it can never stop the server from starting.

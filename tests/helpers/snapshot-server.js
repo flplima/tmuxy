@@ -37,6 +37,10 @@ function isolatedEnv({ socket, stateDir }) {
   const env = { ...process.env, TMUX_SOCKET: socket, TMUXY_STATE_DIR: stateDir };
   delete env.TMUX;
   delete env.TMUX_PANE;
+  // The shared suite's server runs with both off (helpers/tmux-socket.js, and
+  // the CI job's env); this server exists to do exactly those two things.
+  delete env.TMUXY_NO_SNAPSHOT;
+  delete env.TMUXY_NO_RESTORE;
   return env;
 }
 
@@ -99,6 +103,22 @@ function isolatedServer({ port, socket, session, stateDir }) {
       } catch {
         // Already gone is the state wanted.
       }
+    },
+    /**
+     * What the server said about snapshots, across every start: the only
+     * account of a restore that stopped partway, and so what a failed wait
+     * should print.
+     */
+    serverLog() {
+      if (!fs.existsSync(stateDir)) return '';
+      return fs
+        .readdirSync(stateDir)
+        .filter((name) => name.endsWith('.stderr.log'))
+        .sort()
+        .flatMap((name) => fs.readFileSync(path.join(stateDir, name), 'utf8').split('\n'))
+        .filter((line) => /snapshot|restor|WARN|ERROR|panick/i.test(line))
+        .slice(-30)
+        .join('\n');
     },
     /** Where this server keeps its snapshots: one directory per socket. */
     snapshotDir: path.join(stateDir, 'sessions', socket),

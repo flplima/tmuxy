@@ -1970,6 +1970,11 @@ pub async fn start_monitoring(
                 if let Some(snapshot) = restore.take() {
                     let tx = command_tx.clone();
                     let name = session.clone();
+                    let keeper = keeper.clone();
+                    // Held from here, not from inside the task: the first
+                    // delta of the fresh session must not race the task's
+                    // start into a save of the placeholder window.
+                    keeper.restore_started();
                     state
                         .spawn(async move {
                             let options = tmuxy_core::session_snapshot::RestoreOptions {
@@ -1986,6 +1991,7 @@ pub async fn start_monitoring(
                                 Ok(()) => info!(session = %name, "session restored from snapshot"),
                                 Err(e) => warn!(session = %name, %e, "session restore stopped"),
                             }
+                            keeper.restore_finished();
                         })
                         .await;
                 }
