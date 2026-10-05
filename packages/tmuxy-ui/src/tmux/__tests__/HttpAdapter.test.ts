@@ -477,3 +477,83 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 });
+
+describe('HttpAdapter initial state against the live stream', () => {
+  let originalES: unknown;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    originalES = (globalThis as Record<string, unknown>).EventSource;
+    (globalThis as Record<string, unknown>).EventSource = MockEventSource;
+  });
+
+  afterEach(() => {
+    (globalThis as Record<string, unknown>).EventSource = originalES;
+    vi.unstubAllGlobals();
+  });
+
+  const pane = (content: Array<Array<{ c: string }>>) => ({
+    id: 1,
+    tmux_id: '%1',
+    window_id: '@1',
+    content,
+    cursor_x: 0,
+    cursor_y: 0,
+    width: 80,
+    height: 24,
+    x: 0,
+    y: 0,
+    active: true,
+    command: 'bash',
+    title: '',
+    border_title: '',
+    in_mode: false,
+    copy_cursor_x: 0,
+    copy_cursor_y: 0,
+  });
+  const state = (content: Array<Array<{ c: string }>>) => ({
+    session_name: 's',
+    active_window_id: '@1',
+    active_pane_id: '%1',
+    panes: [pane(content)],
+    windows: [{ id: '@1', index: 1, name: 's', active: true, window_type: 'tab' }],
+    total_width: 80,
+    total_height: 24,
+    status_line: '',
+  });
+
+  it('an initial-state answer older than the stream does not blank a pane the stream filled', async () => {
+    // The E2E start-up failure: the server snapshots the session before the
+    // shell's prompt is in, the stream delivers a full state WITH the prompt
+    // while that answer is in flight, and the answer arriving last used to
+    // overwrite it. An idle shell never prints again, so the pane stayed
+    // blank for good.
+    let answer: (value: unknown) => void = () => {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      ),
+    );
+    const adapter = new HttpAdapter();
+    const connected = adapter.connect();
+    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    const es = MockEventSource.instances[0];
+    es.emit('connection-info', { data: { connection_id: 1 } });
+    await connected;
+
+    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+    const prompt = [[{ c: '$' }, { c: ' ' }]];
+    es.emit('state-update', { data: { type: 'full', state: state(prompt) } });
+    answer({ ok: true, json: async () => ({ result: state([[{ c: ' ' }]]) }) });
+
+    const result = (await initial) as ReturnType<typeof state>;
+    expect(result.panes[0].content).toEqual(prompt);
+    adapter.disconnect();
+  });
+});

@@ -1854,12 +1854,13 @@ pub async fn start_monitoring(
             // both wait out the full poll below, every round, forever.
             //
             // Nor a peer nobody is watching: its last client left and it is in
-            // the grace period before its monitor detaches. A session made
-            // through it is born to a connection that closes a second later,
-            // and that was the one shape of creation behind the E2E start-up
-            // failure (the first test of a shard, a pane that never showed a
-            // prompt); every session made the direct way came up fine. With
-            // no watched peer, the direct `-CC new-session` below is the path.
+            // the grace period before its monitor detaches, and a session made
+            // through it is born to a connection that closes a second later.
+            // With no watched peer, the direct `-CC new-session` below is the
+            // path. (A courier-made session's shell has printed before our
+            // monitor attaches, so its content arrives in the very first
+            // states — which is what exposed the client's initial-state race,
+            // `adoptInitialState` in tmuxy-ui's deltaProtocol.ts.)
             let candidates: Vec<(String, _, usize)> = {
                 let sessions = state.sessions.read().await;
                 sessions

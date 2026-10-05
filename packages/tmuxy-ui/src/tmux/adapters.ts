@@ -18,7 +18,7 @@ import {
 } from './types';
 import { HttpAdapter } from './HttpAdapter';
 import { DemoAdapter } from './demo/DemoAdapter';
-import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
+import { adoptInitialState, handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
@@ -299,9 +299,9 @@ export class TauriAdapter implements TmuxAdapter {
     // Special handling for get_initial_state: capture as currentState for delta protocol
     if (cmd === 'get_initial_state') {
       const result = await invoke<T>(cmd, args);
-      this.currentState = result as ServerState;
+      this.currentState = adoptInitialState(result as ServerState, this.currentState);
       this.lastDeltaSeq = null;
-      return result;
+      return this.currentState as T;
     }
 
     // Check if this is a send-keys command that should be batched

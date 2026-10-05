@@ -34,6 +34,23 @@ function isPaneContentEmpty(content: PaneContent): boolean {
 }
 
 /**
+ * Take a `get_initial_state` answer as the client's state.
+ *
+ * The answer is a snapshot taken when the request reached the server, and the
+ * live stream keeps running while it travels back: a full state carrying the
+ * pane's content can arrive and be applied first, and a raw overwrite then put
+ * the older, emptier snapshot back. A shell that had already printed its
+ * prompt never prints it again, so the pane stayed blank for good — the E2E
+ * start-up failure, where a session made through another session's client
+ * showed its prompt in the monitor's very first states, inside that window.
+ * The answer goes through the same merge as a full update from the stream,
+ * which keeps content the client already has over an empty pane.
+ */
+export function adoptInitialState(answer: ServerState, current: ServerState | null): ServerState {
+  return handleStateUpdate({ type: 'full', state: answer }, current) ?? answer;
+}
+
+/**
  * Detect a gap in the delta sequence. Deltas carry a monotonic `seq`; a
  * correctly-ordered stream advances it by exactly one each time. If a delta is
  * dropped or reordered the seq jumps, and applying it to stale state silently

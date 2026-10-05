@@ -16,7 +16,7 @@ import {
   StateUpdate,
   KeyBindings,
 } from './types';
-import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
+import { adoptInitialState, handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
@@ -624,9 +624,9 @@ export class HttpAdapter implements TmuxAdapter {
     // Special handling for get_initial_state: also set currentState so delta updates work
     if (cmd === 'get_initial_state') {
       const result = await this.invokeInternal<T>(cmd, args);
-      this.currentState = result as ServerState;
+      this.currentState = adoptInitialState(result as ServerState, this.currentState);
       this.lastDeltaSeq = null;
-      return result;
+      return this.currentState as T;
     }
 
     // Check if this is a send-keys command that should be batched
