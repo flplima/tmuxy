@@ -74,7 +74,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: packages/tmuxy-ui/v86-assets
-          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'bin/tmuxy-cli', 'bin/tmuxy/**') }}
+          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'bin/tmuxy-cli', 'bin/tmuxy/**', '.devcontainer/.tmuxy.defaults.conf') }}
 
       - name: Build v86 guest assets (cache miss)
         if: steps.v86-assets-cache.outputs.cache-hit != 'true'
