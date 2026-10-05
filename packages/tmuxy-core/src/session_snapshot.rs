@@ -53,6 +53,33 @@ pub struct Snapshot {
     /// Unix seconds.
     pub saved_at: u64,
     pub windows: Vec<WindowSnapshot>,
+    /// Pane-group members not on screen: parked in the stash session, which
+    /// every session on the socket shares. Only the members of this session's
+    /// groups, in pane-id order (the order a group strip lists them in).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden: Vec<HiddenMember>,
+}
+
+/// A pane-group member parked out of view. It comes back parked again, in the
+/// same group, beside the visible member that carries the group's tag.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HiddenMember {
+    pub group_id: String,
+    pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore_command: Option<String>,
+}
+
+impl HiddenMember {
+    /// What is offered at its prompt, as for any pane.
+    pub fn offered_command(&self) -> Option<String> {
+        if let Some(restore) = &self.restore_command {
+            return Some(restore.clone());
+        }
+        self.command.as_ref().map(|argv| shell_join(argv))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +165,61 @@ pub const QUERY_PANES: &str = concat!(
     "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
     "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id}'"
 );
+
+/// The stash session's panes, in the same record shape as `QUERY_PANES`.
+pub const QUERY_STASH_PANES: &str = concat!(
+    "list-panes -s -t __tmuxy_stash -F '",
+    "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
+    "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
+    "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id}'"
+);
+
+/// The helper that parks a restored group member (`bin/tmuxy/pane-group-park`).
+fn park_script() -> String {
+    crate::session::bin_dir()
+        .join("tmuxy")
+        .join("pane-group-park")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The hidden members of `snapshot`'s groups among the stash's `stash` panes.
+/// A stash pane with no group tag, or whose group has no visible pane in this
+/// session, belongs to some other session (or to nobody) and is left out.
+pub fn hidden_members(
+    snapshot: &Snapshot,
+    stash: &[PaneRecord],
+    commands: &BTreeMap<String, Vec<String>>,
+) -> Vec<HiddenMember> {
+    let visible_groups: std::collections::BTreeSet<&str> = snapshot
+        .windows
+        .iter()
+        .flat_map(|w| &w.panes)
+        .filter_map(|p| p.options.get("@tmuxy-group-id").map(String::as_str))
+        .collect();
+    let mut parked: Vec<&PaneRecord> = stash
+        .iter()
+        .filter(|p| {
+            p.group_id
+                .as_deref()
+                .is_some_and(|g| visible_groups.contains(g))
+        })
+        .collect();
+    parked.sort_by_key(|p| {
+        p.id.trim_start_matches('%')
+            .parse::<u64>()
+            .unwrap_or(u64::MAX)
+    });
+    parked
+        .into_iter()
+        .map(|p| HiddenMember {
+            group_id: p.group_id.clone().unwrap_or_default(),
+            cwd: p.cwd.clone(),
+            command: commands.get(&p.id).cloned(),
+            restore_command: p.restore_command.clone(),
+        })
+        .collect()
+}
 
 /// The two queries for `session`, ready to send.
 pub fn queries_for(session: &str) -> (String, String) {
@@ -311,6 +393,7 @@ pub fn assemble(
         session: session.to_string(),
         saved_at,
         windows: out,
+        hidden: Vec::new(),
     }
 }
 
@@ -926,6 +1009,65 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
         }
     }
 
+    // Hidden group members, now that every visible member carries its tag:
+    // each is split off its group's visible member and parked in the stash
+    // (`pane-group-park`, the half of `pane group add` that hides a pane),
+    // which prints the new pane's id for what follows. The split and the break
+    // leave the anchor's window as it was, but a layout is re-applied to be
+    // sure, since the select-layout above ran before the split.
+    let mut parked_windows = std::collections::BTreeSet::new();
+    for (n, member) in snapshot.hidden.iter().enumerate() {
+        let anchor = snapshot.windows.iter().find_map(|w| {
+            w.panes
+                .iter()
+                .find(|p| p.options.get("@tmuxy-group-id") == Some(&member.group_id))
+                .map(|p| (w, p))
+        });
+        let Some((w, p)) = anchor else { continue };
+        let key = format!("HID{n}");
+        steps.push(Step::Ask {
+            key: key.clone(),
+            argv: argv(&[
+                "run-shell",
+                &format!(
+                    "bash {} {} {} {}",
+                    shell_quote(&park_script()),
+                    shell_quote(&pane_target(s, w.index, p.index)),
+                    shell_quote(&member.group_id),
+                    shell_quote(&cwd_or_fallback(&member.cwd, options)),
+                ),
+            ]),
+        });
+        let pane = format!("#{key}#");
+        if let Some(word) = &member.restore_command {
+            steps.push(Step::Run(argv(&[
+                "set-option",
+                "-p",
+                "-t",
+                &pane,
+                RESTORE_OPTION,
+                word,
+            ])));
+        }
+        if let Some(cmd) = member.offered_command() {
+            steps.push(Step::Run(argv(&["send-keys", "-t", &pane, "-l", &cmd])));
+            if options.run {
+                steps.push(Step::Run(argv(&["send-keys", "-t", &pane, "Enter"])));
+            }
+        }
+        parked_windows.insert(w.index);
+    }
+    for w in &snapshot.windows {
+        if parked_windows.contains(&w.index) && !w.layout.is_empty() && w.panes.len() > 1 {
+            steps.push(Step::Run(argv(&[
+                "select-layout",
+                "-t",
+                &target(s, w.index),
+                &w.layout,
+            ])));
+        }
+    }
+
     // Float parents, now that every window has an id.
     for w in &snapshot.windows {
         if let Some(parent) = w.float_parent_index {
@@ -1072,11 +1214,18 @@ where
     let (qw, qp) = queries_for(session);
     let windows_out = run(&split_query(&qw))?;
     let panes_out = run(&split_query(&qp))?;
+    // No stash session (no group was ever made) is the usual case, not an error.
+    let stash = run(&split_query(QUERY_STASH_PANES))
+        .map(|out| parse_panes(&out))
+        .unwrap_or_default();
     let windows = parse_windows(&windows_out);
     let panes = parse_panes(&panes_out);
-    let found = discover_commands(&panes);
+    let all: Vec<PaneRecord> = panes.iter().chain(&stash).cloned().collect();
+    let found = discover_commands(&all);
+    let mut snapshot = assemble(session, now(), windows, panes, &found.commands);
+    snapshot.hidden = hidden_members(&snapshot, &stash, &found.commands);
     Ok(Taken {
-        snapshot: assemble(session, now(), windows, panes, &found.commands),
+        snapshot,
         unsettled: found.unsettled,
     })
 }
@@ -1250,15 +1399,22 @@ pub async fn take_via_monitor(session: &str, tx: &MonitorCommandSender) -> Resul
     let (qw, qp) = queries_for(session);
     let windows_out = via_monitor(tx, &split_query(&qw)).await?;
     let panes_out = via_monitor(tx, &split_query(&qp)).await?;
+    // No stash session (no group was ever made) is the usual case, not an error.
+    let stash = via_monitor(tx, &split_query(QUERY_STASH_PANES))
+        .await
+        .map(|out| parse_panes(&out))
+        .unwrap_or_default();
     let windows = parse_windows(&windows_out);
     let panes = parse_panes(&panes_out);
+    let all: Vec<PaneRecord> = panes.iter().chain(&stash).cloned().collect();
     // `ps` is a subprocess; off the async runtime like the other reads.
-    let found = tokio::task::spawn_blocking(move || discover_commands(&panes))
+    let found = tokio::task::spawn_blocking(move || discover_commands(&all))
         .await
         .map_err(|e| e.to_string())?;
-    let panes = parse_panes(&panes_out);
+    let mut snapshot = assemble(session, now(), windows, panes, &found.commands);
+    snapshot.hidden = hidden_members(&snapshot, &stash, &found.commands);
     Ok(Taken {
-        snapshot: assemble(session, now(), windows, panes, &found.commands),
+        snapshot,
         unsettled: found.unsettled,
     })
 }
@@ -1651,6 +1807,12 @@ mod tests {
                     }],
                 },
             ],
+            hidden: vec![HiddenMember {
+                group_id: "g1".into(),
+                cwd: "/srv".into(),
+                command: Some(vec!["htop".into()]),
+                restore_command: None,
+            }],
         }
     }
 
@@ -1858,6 +2020,78 @@ mod tests {
         assert!(!keeper.restoring());
         assert!(rx.has_changed().unwrap(), "the restored shape is saved");
         rx.mark_unchanged();
+    }
+
+    /// A hidden member is parked beside its group's visible member, after the
+    /// group tag is on it, and gets its program offered like any pane.
+    #[test]
+    fn a_hidden_group_member_is_parked_beside_its_visible_member() {
+        let lines = joined(&plan(
+            &fixture(),
+            &RestoreOptions {
+                fallback_cwd: "/home/x".into(),
+                ..Default::default()
+            },
+        ));
+        let i_tag = lines
+            .iter()
+            .position(|l| l == "run: set-option -p -t work:0.0 @tmuxy-group-id g1")
+            .unwrap();
+        let i_park = lines
+            .iter()
+            .position(|l| l.starts_with("ask: run-shell bash ") && l.contains("pane-group-park"))
+            .expect("the member is parked");
+        assert!(i_tag < i_park, "{lines:#?}");
+        // `/srv` is the member's directory; where it is gone, the fallback.
+        let dir = if Path::new("/srv").is_dir() {
+            "/srv"
+        } else {
+            "/home/x"
+        };
+        assert!(
+            lines[i_park].ends_with(&format!("pane-group-park work:0.0 g1 {dir}")),
+            "{}",
+            lines[i_park]
+        );
+        assert_eq!(lines[i_park + 1], "run: send-keys -t #HID0# -l htop");
+        // Window 0 gets its layout back after the park.
+        assert!(lines[i_park + 2..]
+            .iter()
+            .any(|l| l.starts_with("run: select-layout -t work:0 ")));
+    }
+
+    /// Only this session's groups: a stash pane of another session's group,
+    /// or the stash's own placeholder, is not this session's member.
+    #[test]
+    fn only_members_of_this_sessions_groups_are_recorded_hidden() {
+        let snap = fixture();
+        let stash = parse_panes(
+            "%9,@20,0,1,900,/dev/ttys009,/srv,,g1\n\
+             %3,@21,0,1,300,/dev/ttys003,/opt,claude --resume x,g1\n\
+             %7,@22,0,1,700,/dev/ttys007,/x,,g8\n\
+             %1,@1,0,1,100,/dev/ttys001,/,,",
+        );
+        let mut commands = BTreeMap::new();
+        commands.insert("%9".to_string(), vec!["htop".to_string()]);
+        let hidden = hidden_members(&snap, &stash, &commands);
+        assert_eq!(
+            hidden,
+            vec![
+                HiddenMember {
+                    group_id: "g1".into(),
+                    cwd: "/opt".into(),
+                    command: None,
+                    restore_command: Some("claude --resume x".into()),
+                },
+                HiddenMember {
+                    group_id: "g1".into(),
+                    cwd: "/srv".into(),
+                    command: Some(vec!["htop".into()]),
+                    restore_command: None,
+                },
+            ],
+            "pane-id order, other groups and the placeholder left out"
+        );
     }
 
     /// The restore-on-start path builds onto the window `new-session -A` made.

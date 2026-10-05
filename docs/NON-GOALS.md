@@ -87,9 +87,9 @@ the one that tries (CRIU) is Linux-only and privileged. A restored pane offers
 its program at the prompt; a program that wants to come back to where it was
 says how through `tmuxy pane restore-cmd` (`claude --resume <id>`, `nvim -S`).
 Shell variables, half-typed input and remote connections are gone with the
-process, as they are in tmux-resurrect and Zellij. A pane group comes back as
-its visible member carrying the group tag: the members parked in the stash
-session are a second session the snapshot does not describe.
+process, as they are in tmux-resurrect and Zellij. A pane group comes back whole —
+its members parked out of view return parked, in pane-id order — but the
+position of the visible member among them is not kept: it comes back first.
 
 ### 8. Simultaneous Multi-Session Views
 
