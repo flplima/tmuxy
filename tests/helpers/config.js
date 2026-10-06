@@ -37,7 +37,6 @@ const DELAYS = {
   LONG: 500,
   EXTRA_LONG: 1000,
   SYNC: 1500, // For UI/tmux sync (full round trip: browser→HTTP→server→control mode→tmux→SSE→browser)
-  PREFIX: 300, // Delay after tmux prefix key before next key
 };
 
 /**
@@ -67,7 +66,6 @@ module.exports = {
   WAIT_SCALE,
   waitBudget,
   CDP_PORT,
-  DEFAULT_PORT,
   TMUXY_PORT,
   TMUXY_URL,
   WORKSPACE_ROOT,

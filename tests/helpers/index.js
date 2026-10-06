@@ -8,7 +8,6 @@ const config = require('./config');
 const browser = require('./browser');
 const ui = require('./ui');
 const testSetup = require('./test-setup');
-const performance = require('./performance');
 const TmuxTestSession = require('./TmuxTestSession');
 const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 const consistency = require('./consistency');
@@ -32,9 +31,6 @@ module.exports = {
 
   // Test Setup
   ...testSetup,
-
-  // Performance
-  ...performance,
 
   // Classes
   TmuxTestSession,

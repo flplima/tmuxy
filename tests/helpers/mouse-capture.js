@@ -124,13 +124,6 @@ async function readMouseEvents(minCount = 1, timeout = 5000) {
 }
 
 /**
- * Calculate expected SGR coordinate from pixel position.
- */
-function expectedSgrCoord(pixel, origin, cellSize) {
-  return Math.max(0, Math.floor((pixel - origin) / cellSize)) + 1;
-}
-
-/**
  * Stop the mouse capture script by pressing 'q'.
  */
 async function stopMouseCapture(ctx) {
@@ -176,7 +169,6 @@ module.exports = {
   MOUSE_LOG,
   startMouseCapture,
   readMouseEvents,
-  expectedSgrCoord,
   stopMouseCapture,
   ensureMouseCaptureStopped,
 };

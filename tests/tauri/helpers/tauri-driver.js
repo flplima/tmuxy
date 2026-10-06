@@ -89,4 +89,4 @@ function stopTauriDriver(port = DRIVER_PORT) {
   driverProcesses.delete(port);
 }
 
-module.exports = { startTauriDriver, stopTauriDriver, driverResponds, DRIVER_PORT };
+module.exports = { startTauriDriver, stopTauriDriver, DRIVER_PORT };
