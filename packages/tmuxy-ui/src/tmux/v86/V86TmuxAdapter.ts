@@ -254,9 +254,9 @@ export class V86TmuxAdapter implements TmuxAdapter {
           return null as T;
         }
         const result = await this.engine.sendTracked(wire);
-        // Reject with the `{ error }` shape the Rust backends use so
-        // classifyAdapterError types this as a TmuxError (a real tmux
-        // rejection with stderr), not a generic TransportError.
+        // Reject with the `{ error }` shape classifyAdapterError types as a
+        // TmuxError (a real tmux rejection with stderr), not a generic
+        // TransportError.
         if (!result.ok) throw { error: result.message || `tmux rejected: ${command}` };
         return null as T;
       }

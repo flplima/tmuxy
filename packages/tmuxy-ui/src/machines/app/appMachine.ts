@@ -1710,7 +1710,7 @@ export const appMachine = setup({
             // subscribers see the new derived model immediately, including
             // this XState machine which assigns context.panes/etc. on
             // TMUX_MODEL_UPDATE), and forwards the command to the adapter.
-            // On a tmux rejection the patch is rolled back automatically.
+            // If the send fails the patch is rolled back automatically.
             // Drag-time swaps get the store's Swap prediction like any other
             // path: the drag machine's own pane shuffle is PRIVATE hit-testing
             // state (never rendered), so without the predicted patch the

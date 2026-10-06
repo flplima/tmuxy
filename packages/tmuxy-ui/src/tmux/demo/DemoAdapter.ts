@@ -108,8 +108,8 @@ export interface DemoAdapterOptions {
   commandDelayMs?: number;
   /**
    * Callback consulted before each `run_tmux_command` invocation. Returning a
-   * string causes the promise to reject with `{ error: <string> }`, mimicking
-   * tmux's stderr surfacing (see `classifyAdapterError`). Returning false /
+   * string causes the promise to reject with `{ error: <string> }`, which
+   * `classifyAdapterError` types as a TmuxError carrying that stderr. Returning false /
    * null / undefined lets the command run normally. Used by stories to assert
    * the UI rolls back optimistic state on tmux rejections.
    */
@@ -257,8 +257,7 @@ export class DemoAdapter implements TmuxAdapter {
             if (this.commandDelayMs > 0) {
               await new Promise<void>((r) => setTimeout(r, this.commandDelayMs));
             }
-            // Match the Rust backend's shape: { error: "..." } so
-            // classifyAdapterError → TmuxError flows through identically.
+            // The `{ error }` shape classifyAdapterError types as a TmuxError.
             throw { error: reason };
           }
         }

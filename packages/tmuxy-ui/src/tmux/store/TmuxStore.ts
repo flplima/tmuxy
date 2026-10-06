@@ -59,8 +59,8 @@ export interface TmuxStore {
    * Push a typed op through the optimistic dispatch pipeline. Returns the
    * Effect so the caller can fork, race, or compose. The predicted patch
    * applies synchronously when the Effect starts (listeners fire before the
-   * adapter call), then the command goes to tmux; on a TmuxError the op is
-   * rolled back from the model.
+   * adapter call), then the command goes to tmux; if the send fails the op
+   * is rolled back from the model.
    */
   readonly dispatch: (op: TmuxOp, opts?: DispatchOptions) => Effect.Effect<OpId, OpError>;
 
