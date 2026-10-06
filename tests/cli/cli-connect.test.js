@@ -28,11 +28,12 @@ describe('CLI connect subcommand', () => {
   });
 
   test('no arguments launches the add-a-server form', () => {
-    // The real form is a TUI; tests/cli/mocks/tmuxy-connect stands in for it
-    // (found on PATH ahead of the real binary), proving the dispatch reached it.
+    // The real form is a TUI in the server binary; tests/cli/mocks/tmuxy-server
+    // stands in for it (found on PATH ahead of the real binary), proving the
+    // dispatch reached its `connect` subcommand.
     const { exitCode, stdout, tmuxCalls } = runCLI(['connect']);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('mock-connect-form');
+    expect(stdout).toContain('mock-server-started connect');
     // Opening the form is purely local (servers.json); it issues no tmux calls.
     expect(tmuxCalls).toHaveLength(0);
   });

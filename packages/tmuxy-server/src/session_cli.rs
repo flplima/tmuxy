@@ -67,10 +67,6 @@ fn session_exists(name: &str) -> bool {
     tmuxy_core::session::session_exists(name).unwrap_or(false)
 }
 
-fn default_session() -> String {
-    std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string())
-}
-
 fn dir() -> PathBuf {
     snap::default_dir()
 }
@@ -83,7 +79,7 @@ fn fail(message: &str) -> ! {
 pub fn run(args: SessionArgs) {
     match args.verb {
         SessionVerb::Save { name, scrollback } => {
-            let name = name.unwrap_or_else(default_session);
+            let name = name.unwrap_or_else(tmuxy_core::session::session_name);
             if !tmuxy_core::session::is_safe_session_name(&name) {
                 fail(&format!("not a usable session name: {name:?}"));
             }

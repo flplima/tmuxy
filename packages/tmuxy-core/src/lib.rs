@@ -15,8 +15,6 @@ pub mod executor;
 pub mod layout;
 pub mod mime;
 #[cfg(feature = "native")]
-pub mod retry;
-#[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "native")]
 pub mod session;
@@ -27,26 +25,22 @@ pub mod theme;
 #[cfg(feature = "native")]
 pub mod tmux_check;
 #[cfg(feature = "native")]
-pub mod tmux_service;
-#[cfg(feature = "native")]
 pub mod trace;
+#[cfg(feature = "native")]
+pub mod transport;
 #[cfg(feature = "native")]
 pub mod worktrees;
 
 #[cfg(feature = "native")]
-pub use ctx::{Clock, Ctx, TmuxCommand};
-#[cfg(feature = "native")]
-pub use tmux_service::{build_tmux_stack, TmuxRequest, TmuxService, TMUX_CALL_TIMEOUT};
+pub use ctx::{Clock, Ctx};
 
 pub use error::{Result as TmuxResult, TmuxError};
-#[cfg(feature = "native")]
-pub use retry::{retry_with, RetryPolicy};
 
 use serde::{Deserialize, Serialize};
 
-// Re-export key binding types and functions
+// Re-export the key binding type
 #[cfg(feature = "native")]
-pub use executor::{get_prefix_bindings, get_prefix_key, get_root_bindings, KeyBinding};
+pub use executor::KeyBinding;
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";

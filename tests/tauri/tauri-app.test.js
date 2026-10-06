@@ -438,11 +438,18 @@ describe('State Sync', () => {
   test('keybindings are available via IPC', async () => {
     await setupApp();
 
-    // Fetch keybindings directly via IPC (the event may arrive before the
-    // frontend listener is set up, so we can't rely on the broadcast alone)
-    const bindings = await invokeCommand(driver, 'get_key_bindings');
-    expect(bindings).toBeDefined();
-    expect(bindings.prefix).toBeDefined();
+    // The snapshot the monitor keeps of its last `tmux-keybindings` emit (the
+    // event may arrive before the frontend listener is set up, so the
+    // broadcast alone is not enough). It is taken once the config is sourced.
+    let bindings = null;
+    const deadline = Date.now() + 15000;
+    while (!bindings && Date.now() < deadline) {
+      bindings = await invokeCommand(driver, 'get_keybindings_snapshot');
+      if (!bindings) await driver.pause(200);
+    }
+    expect(bindings).toBeTruthy();
+    expect(bindings.prefix_key).toBeTruthy();
+    expect(Array.isArray(bindings.prefix_bindings)).toBe(true);
   });
 
   // The left column is created by one command list: split-window, break-pane,

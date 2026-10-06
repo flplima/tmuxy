@@ -1,7 +1,4 @@
-use tracing::{debug, trace};
-
 use crate::error::TmuxError;
-use crate::WindowType;
 
 type Result<T> = std::result::Result<T, TmuxError>;
 
@@ -37,104 +34,6 @@ pub fn execute_tmux_command(args: &[&str]) -> Result<String> {
 /// control mode is attached). Used to mirror a copy-mode yank to the web clipboard.
 pub fn show_buffer_named(buffer_name: &str) -> Result<String> {
     execute_tmux_command(&["show-buffer", "-b", buffer_name])
-}
-
-/// Capture a range of scrollback lines from a pane.
-/// start/end are line offsets using tmux capture-pane -S/-E convention:
-/// negative = from history, 0 = first visible line, -S - means start of history.
-pub fn capture_pane_range(pane_id: &str, start: i64, end: i64) -> Result<String> {
-    execute_tmux_command(&[
-        "capture-pane",
-        "-t",
-        pane_id,
-        "-p",
-        "-e",
-        "-S",
-        &start.to_string(),
-        "-E",
-        &end.to_string(),
-    ])
-}
-
-// Tmux operations
-
-/// Resize all tmux windows in the session to specific dimensions (columns x rows).
-/// This ensures hidden windows (e.g., pane group containers) stay in sync with the viewport.
-///
-/// The two sidebar windows are the exception: they are docked *beside* the pane
-/// grid rather than behind it, so each takes its own [`sidebar_dock`] column
-/// width (keeping the viewport's rows). See the mirror of this rule in
-/// `control_mode::monitor::apply_client_size`.
-pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
-    debug!(%session_name, cols, rows, "resize_window");
-    let cols_str = cols.to_string();
-    let rows_str = rows.to_string();
-
-    // List every window with its tmuxy type and any dragged column width, so the
-    // sidebars can be told apart and sized to what the user actually set.
-    let format = format!(
-        "#{{window_id}},#{{{}}},#{{{}}},#{{{}}}",
-        crate::constants::tmux_options::WINDOW_TYPE,
-        crate::constants::tmux_options::SIDEBAR_COLS,
-        crate::constants::tmux_options::SIDEBAR_ROWS
-    );
-    let output =
-        execute_tmux_command(&["list-windows", "-t", session_name, "-F", format.as_str()])?;
-
-    // (window_id, column width for a sidebar — None means viewport-sized,
-    //  rows the dock holds — None means the viewport's)
-    let windows: Vec<(&str, Option<u32>, Option<u32>)> = output
-        .trim()
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|line| {
-            let mut fields = line.split(',');
-            let id = fields.next().unwrap_or(line);
-            let kind = fields.next().unwrap_or("");
-            let user_cols = fields.next().and_then(|c| c.parse::<u32>().ok());
-            let user_rows = fields.next().and_then(|c| c.parse::<u32>().ok());
-            let cols = WindowType::parse(kind)
-                .and_then(|t| crate::constants::sidebar_dock::cols(t, user_cols));
-            (id, cols, cols.and(user_rows))
-        })
-        .collect();
-    trace!(?windows, "resize_window window ids");
-    if windows.is_empty() {
-        return Ok(());
-    }
-
-    // Build a single compound command: resize-window -t @1 -x C -y R \; resize-window -t @2 ...
-    let mut args: Vec<&str> = Vec::new();
-    // Owns the per-sidebar size strings for the lifetime of `args`.
-    let sidebar_strs: Vec<(Option<String>, Option<String>)> = windows
-        .iter()
-        .map(|(_, cols, rows)| {
-            (
-                cols.map(|c| c.to_string()),
-                rows.map(|r| r.max(1).to_string()),
-            )
-        })
-        .collect();
-    for (i, ((window_id, _, _), (sidebar_cols_str, sidebar_rows_str))) in
-        windows.iter().zip(sidebar_strs.iter()).enumerate()
-    {
-        if i > 0 {
-            args.push(";");
-        }
-        args.push("resize-window");
-        args.push("-t");
-        args.push(window_id);
-        args.push("-x");
-        args.push(sidebar_cols_str.as_deref().unwrap_or(&cols_str));
-        args.push("-y");
-        args.push(sidebar_rows_str.as_deref().unwrap_or(&rows_str));
-    }
-
-    trace!(?args, "resize_window executing tmux");
-    let result = execute_tmux_command(&args);
-    trace!(?result, "resize_window result");
-    result?;
-    Ok(())
 }
 
 /// Single-quote a value for interpolation into a tmux command string.
@@ -303,7 +202,7 @@ pub(crate) fn split_compound(cmd: &str) -> Vec<String> {
     parts
 }
 
-/// Key binding info returned by get_prefix_bindings
+/// One binding of a key table, as `list-keys` prints it
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBinding {
     pub key: String,
@@ -315,18 +214,12 @@ pub struct KeyBinding {
     pub repeat: bool,
 }
 
-/// Get all prefix key bindings from tmux
-pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>> {
-    let output = execute_tmux_command(&["list-keys", "-T", "prefix"])?;
-    Ok(parse_bindings("prefix", &output))
-}
-
 /// Parse `tmux list-keys -T <table>` output into `KeyBinding`s.
 ///
 /// One parser for every table — the prefix and root paths used to carry
 /// separate copies, and the root copy computed the `-r` indices but then
 /// hardcoded `repeat: false`, silently losing repeat bindings.
-fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
+pub(crate) fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
     let mut bindings = Vec::new();
 
     for line in output.lines() {
@@ -406,26 +299,6 @@ fn describe_binding(command_name: &str, command: &str) -> String {
         "select-window" => "Select window".to_string(),
         _ => command.to_string(),
     }
-}
-
-/// Get the tmux prefix key
-pub fn get_prefix_key() -> Result<String> {
-    let output = execute_tmux_command(&["show-options", "-g", "prefix"])?;
-    // Output format: prefix C-a
-    if let Some(line) = output.lines().next() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            return Ok(parts[1].to_string());
-        }
-    }
-    Ok("C-b".to_string()) // Default prefix
-}
-
-/// Get all root key bindings from tmux (bind -n keybindings)
-/// These are keybindings that work without pressing the prefix key first
-pub fn get_root_bindings() -> Result<Vec<KeyBinding>> {
-    let output = execute_tmux_command(&["list-keys", "-T", "root"])?;
-    Ok(parse_bindings("root", &output))
 }
 
 #[cfg(test)]

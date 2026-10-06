@@ -97,7 +97,7 @@ impl Session {
                     out.clipboard.push((pane_id, text));
                 }
                 // StoreImages: the decoded bytes are already kept in the pane's
-                // image store (surfaced via `image_png`); placements ride the
+                // image store (surfaced via `image_url`); placements ride the
                 // snapshot. Flow-control effects are not surfaced yet.
                 _ => {}
             }

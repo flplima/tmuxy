@@ -1299,18 +1299,10 @@ cmd_connect() {
   case "${1:-}" in
     --help|-h) usage_connect; return ;;
     "")
-      # No socket given → open the interactive "add a server" form. Replaces
-      # the current process so it owns the pane (the desktop app runs this in
-      # a float); the TUI persists to servers.json and exits. Prefer the
-      # standalone binary (server-less installs); else the embedded server
-      # subcommand — same fallback shape as `tmuxy tree`.
-      if command -v tmuxy-connect &>/dev/null; then
-        exec tmuxy-connect
-      elif [ -x "$REPO_ROOT/target/debug/tmuxy-connect" ]; then
-        exec "$REPO_ROOT/target/debug/tmuxy-connect"
-      elif [ -x "$REPO_ROOT/target/release/tmuxy-connect" ]; then
-        exec "$REPO_ROOT/target/release/tmuxy-connect"
-      fi
+      # No socket given → open the interactive "add a server" form, which the
+      # server binary carries. Replaces the current process so it owns the
+      # pane (the desktop app runs this in a float); the TUI persists to
+      # servers.json and exits.
       exec "$(find_server_binary)" connect
       ;;
   esac
