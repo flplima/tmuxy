@@ -52,7 +52,7 @@ const DISCOVERY_INTERVAL_MS = 15000;
 const SEP = '\t';
 
 /** tmux window types that are tmuxy-internal chrome, hidden from the tree. */
-const HIDDEN_WINDOW_TYPES = new Set(['float', 'float-backdrop', 'sidebar-left', 'sidebar-right']);
+const HIDDEN_WINDOW_TYPES = new Set(['float', 'sidebar-left', 'sidebar-right']);
 
 /** The stash session parks hidden pane-group members; never show it in the tree. */
 const STASH_SESSION = '__tmuxy_stash';

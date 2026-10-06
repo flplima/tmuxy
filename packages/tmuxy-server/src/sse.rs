@@ -3258,7 +3258,7 @@ mod protocol_fixtures {
                 index: 2,
                 name: "added".to_string(),
                 active: false,
-                window_type: Some(WindowType::FloatBackdrop),
+                window_type: Some(WindowType::Float),
                 float_parent: Some("@2".to_string()),
                 float_width: None,
                 float_height: None,

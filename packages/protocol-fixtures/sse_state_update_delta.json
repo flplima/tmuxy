@@ -47,7 +47,7 @@
           "id": "@3",
           "index": 2,
           "name": "added",
-          "window_type": "float-backdrop",
+          "window_type": "float",
           "zoomed": false
         }
       ],

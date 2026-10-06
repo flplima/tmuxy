@@ -53,7 +53,7 @@ interface FakeWindow {
   manualName: boolean; // true if renamed manually, prevents auto-update from cwd
   layout: LayoutNode;
   layoutCycle: number; // tracks position in layout cycle
-  windowType: 'tab' | 'float' | 'float-backdrop' | 'group' | 'sidebar-left' | 'sidebar-right';
+  windowType: 'tab' | 'float' | 'group' | 'sidebar-left' | 'sidebar-right';
   groupPanes: string[] | null;
   // Float options (only meaningful when windowType === 'float'). Mirror the
   // @tmuxy-float-* tmux window options the real CLI sets via bin/tmuxy/float-create.

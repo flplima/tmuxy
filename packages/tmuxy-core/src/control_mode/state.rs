@@ -887,8 +887,8 @@ pub struct WindowState {
     /// Layout string
     pub layout: String,
 
-    /// Window type (Tab/Float/FloatBackdrop/Group) sourced from @tmuxy-window-type.
-    /// None = foreign window, ignored by the frontend.
+    /// Window type sourced from @tmuxy-window-type. `None` = untagged, which
+    /// surfaces as a tab.
     pub window_type: Option<WindowType>,
     /// `@tmuxy-sidebar-cols` — a user-dragged width for a sidebar column.
     pub sidebar_cols: Option<u32>,
@@ -956,7 +956,7 @@ impl WindowState {
             name: self.name.clone(),
             active: self.active,
             // Untagged windows in the attached session ARE tabs — tabs carry no
-            // `@tmuxy-window-type` marker. Only float/float-backdrop/sidebar are
+            // `@tmuxy-window-type` marker. Only float/sidebar windows are
             // tagged; everything else (including foreign `tmux neww` windows)
             // surfaces as a tab.
             window_type: Some(self.window_type.unwrap_or(WindowType::Tab)),

@@ -357,14 +357,13 @@ pub struct TmuxPane {
     pub pane_restore: Option<String>,
 }
 
-/// Window type discriminator. Set on windows tmuxy created or has adopted.
-/// Windows without a type are foreign and tmuxy ignores them everywhere.
+/// Window type discriminator. Floats and sidebars carry it as the
+/// `@tmuxy-window-type` window option; an untagged window is a tab.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum WindowType {
     Tab,
     Float,
-    FloatBackdrop,
     /// The left sidebar's window — a single pane running `tmuxy widget tree`,
     /// which the UI renders as the tab/pane tree. See [`SidebarRight`] for the
     /// properties both sidebars share.
@@ -385,7 +384,6 @@ impl WindowType {
         match s {
             "tab" => Some(WindowType::Tab),
             "float" => Some(WindowType::Float),
-            "float-backdrop" => Some(WindowType::FloatBackdrop),
             "sidebar-left" => Some(WindowType::SidebarLeft),
             "sidebar-right" => Some(WindowType::SidebarRight),
             _ => None,
@@ -396,7 +394,6 @@ impl WindowType {
         match self {
             WindowType::Tab => "tab",
             WindowType::Float => "float",
-            WindowType::FloatBackdrop => "float-backdrop",
             WindowType::SidebarLeft => "sidebar-left",
             WindowType::SidebarRight => "sidebar-right",
         }
@@ -419,10 +416,10 @@ pub struct TmuxWindow {
     pub index: u32,
     pub name: String,
     pub active: bool,
-    /// Window type as set via @tmuxy-window-type. None = foreign window.
+    /// Window type as set via @tmuxy-window-type; an untagged window is a tab.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_type: Option<WindowType>,
-    /// Parent window ID for a float (the launcher window) or backdrop (the float).
+    /// Parent window ID for a float (the launcher window).
     /// Sourced from @tmuxy-float-parent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_parent: Option<String>,
@@ -791,7 +788,6 @@ mod tests {
         for ty in [
             WindowType::Tab,
             WindowType::Float,
-            WindowType::FloatBackdrop,
             WindowType::SidebarLeft,
             WindowType::SidebarRight,
         ] {
@@ -804,11 +800,11 @@ mod tests {
 
     #[test]
     fn window_type_serializes_as_kebab() {
-        let ty = WindowType::FloatBackdrop;
+        let ty = WindowType::SidebarLeft;
         let json = serde_json::to_string(&ty).unwrap();
-        assert_eq!(json, "\"float-backdrop\"");
+        assert_eq!(json, "\"sidebar-left\"");
         let back: WindowType = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, WindowType::FloatBackdrop);
+        assert_eq!(back, WindowType::SidebarLeft);
     }
 
     /// A delta with nothing set is dropped, and that is the whole point — but

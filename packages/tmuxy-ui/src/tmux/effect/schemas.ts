@@ -102,13 +102,7 @@ export const ServerPane = Schema.Struct({
 });
 
 /** Window type set on @tmuxy-window-type. Null = foreign window. */
-export const WindowType = Schema.Literal(
-  'tab',
-  'float',
-  'float-backdrop',
-  'sidebar-left',
-  'sidebar-right',
-);
+export const WindowType = Schema.Literal('tab', 'float', 'sidebar-left', 'sidebar-right');
 
 /** Window metadata. */
 export const ServerWindow = Schema.Struct({

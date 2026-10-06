@@ -21,12 +21,12 @@
 /// `#{@tmuxy-window-type}`.
 pub mod tmux_options {
     /// Type discriminator, set only on non-tab windows (`float`,
-    /// `float-backdrop`, `sidebar-left`, `sidebar-right`). Tabs carry no marker
+    /// `sidebar-left`, `sidebar-right`). Tabs carry no marker
     /// — an untagged window in the attached session IS a tab. See
     /// [`crate::WindowType`].
     pub const WINDOW_TYPE: &str = "@tmuxy-window-type";
 
-    /// Window ID this float/backdrop is anchored to.
+    /// Window ID this float is anchored to.
     pub const FLOAT_PARENT: &str = "@tmuxy-float-parent";
     /// Float dimensions in terminal cells.
     pub const FLOAT_WIDTH: &str = "@tmuxy-float-width";

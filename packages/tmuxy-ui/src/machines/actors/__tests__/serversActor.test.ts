@@ -30,7 +30,6 @@ describe('parseSessions', () => {
     const windows = [
       row('main', '@0', '0', 'work', ''), // vanilla tmux window — no type
       row('main', '@1', '1', 'float', 'float'),
-      row('main', '@3', '3', 'bar', 'float-backdrop'),
       row('main', '@4', '4', 'tree', 'sidebar-left'),
       row('main', '@5', '5', 'terminal', 'sidebar-right'),
       row('__tmuxy_stash', '@9', '0', 'grp', ''), // hidden group member's window

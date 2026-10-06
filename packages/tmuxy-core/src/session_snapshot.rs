@@ -92,7 +92,7 @@ pub struct WindowSnapshot {
     pub active: bool,
     /// tmux's `#{window_layout}`, replayed through `select-layout`.
     pub layout: String,
-    /// `@tmuxy-window-type`: a float, backdrop or sidebar; `None` for a tab.
+    /// `@tmuxy-window-type`: a float or sidebar; `None` for a tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_type: Option<String>,
     /// The INDEX of the parent window — a window id would not survive the

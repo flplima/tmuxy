@@ -93,7 +93,7 @@ export interface ImagePlacement {
  * `null` means foreign — tmuxy never created or adopted this window and
  * filters it out everywhere.
  */
-export type WindowType = 'tab' | 'float' | 'float-backdrop' | 'sidebar-left' | 'sidebar-right';
+export type WindowType = 'tab' | 'float' | 'sidebar-left' | 'sidebar-right';
 
 export interface TmuxWindow {
   /** Window ID (e.g., "@0") */
