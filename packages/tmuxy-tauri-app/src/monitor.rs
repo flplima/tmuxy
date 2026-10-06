@@ -612,67 +612,30 @@ pub async fn start_monitoring_window(
 
 /// Watch for `tmuxy connect` requests and reconnect the monitor when one
 /// arrives. `tmuxy connect <socket> [session]` sets the `TMUXY_CONNECT_TO`
-/// (and optional `TMUXY_CONNECT_SESSION`) tmux global env vars on the current
-/// server; this task reads them and, when the target differs from the current
-/// server, clears them and asks the monitor to reconnect. Runs for the app's
-/// lifetime alongside [`start_monitoring`].
+/// (and optional `TMUXY_CONNECT_SESSION` / `TMUXY_CONNECT_SSH`) tmux global env
+/// vars on the current server; this task reads them and, when the target
+/// differs from the current server, clears them and asks the monitor to
+/// reconnect. Runs for the app's lifetime alongside [`start_monitoring`].
 ///
-/// Only polls while a connection is live (`cmd_tx` present) so it never spawns
-/// tmux subprocesses during startup or an in-progress reconnect. The read is
-/// via `show-environment` on the current socket — a read-only external call,
-/// safe alongside control mode on the targeted tmux 3.7a (the app already uses
-/// external executor calls for reads elsewhere).
+/// The reads and the clears ride the first window's control-mode connection,
+/// so the watch only looks while that connection is live — during startup or
+/// a reconnect there is nothing to read from, and nothing it could clear.
 pub async fn poll_connect_requests(monitor_state: MonitorState) {
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     loop {
         tick.tick().await;
-
-        // Skip unless a connection is live — nothing to reconnect from, and we
-        // avoid spawning subprocesses mid-reconnect.
-        if monitor_state
-            .cmd_tx
-            .read()
-            .map(|g| g.is_none())
-            .unwrap_or(true)
-        {
-            continue;
-        }
-
-        let Some(socket) = read_global_env("TMUXY_CONNECT_TO") else {
+        let Some(tx) = monitor_state.tx() else {
             continue;
         };
-        let socket = socket.trim().to_string();
-        if socket.is_empty() {
-            continue;
-        }
 
-        // Clear the request vars on the current server so the switch fires once.
-        let _ = tmuxy_core::executor::execute_tmux_command(&[
-            "set-environment",
-            "-g",
-            "-u",
-            "TMUXY_CONNECT_TO",
-        ]);
-        let session = read_global_env("TMUXY_CONNECT_SESSION")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+        let Some(socket) = take_global_env(&tx, "TMUXY_CONNECT_TO").await else {
+            continue;
+        };
+        let session = take_global_env(&tx, "TMUXY_CONNECT_SESSION")
+            .await
             .unwrap_or_else(get_session);
-        let _ = tmuxy_core::executor::execute_tmux_command(&[
-            "set-environment",
-            "-g",
-            "-u",
-            "TMUXY_CONNECT_SESSION",
-        ]);
         // Optional SSH tunnel for the target (absent → a local server).
-        let ssh = read_global_env("TMUXY_CONNECT_SSH")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let _ = tmuxy_core::executor::execute_tmux_command(&[
-            "set-environment",
-            "-g",
-            "-u",
-            "TMUXY_CONNECT_SSH",
-        ]);
+        let ssh = take_global_env(&tx, "TMUXY_CONNECT_SSH").await;
 
         // No-op if we're already on this exact target (socket + session + ssh).
         let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));
@@ -695,14 +658,18 @@ pub async fn poll_connect_requests(monitor_state: MonitorState) {
     }
 }
 
-/// Read a tmux global environment variable via `show-environment -g <name>`,
-/// returning its value (the part after `NAME=`), or `None` when unset.
-fn read_global_env(name: &str) -> Option<String> {
-    let out = tmuxy_core::executor::execute_tmux_command(&["show-environment", "-g", name]).ok()?;
+/// Read a tmux global environment variable and unset it, so a request fires
+/// once. `None` when it is unset or blank.
+async fn take_global_env(tx: &MonitorCommandSender, name: &str) -> Option<String> {
+    let out = tmuxy_core::transport::query(tx, &format!("show-environment -g {name}"))
+        .await
+        .ok()?;
+    let _ = tmuxy_core::transport::run(tx, &format!("set-environment -g -u {name}")).await;
     let prefix = format!("{name}=");
     out.lines()
         .find_map(|line| line.strip_prefix(&prefix))
-        .map(|v| v.to_string())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// Emit a terminal failure event to the frontend.
