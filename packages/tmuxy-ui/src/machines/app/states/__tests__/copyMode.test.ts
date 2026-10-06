@@ -10,6 +10,7 @@ import type { CopyModeState } from '../../../../tmux/types';
 import type { TmuxPane } from '../../../../domain/client';
 import type { CellLine } from '../../../../domain/wire';
 import type { PaneId } from '../../../../domain/ids';
+import { toTmuxCommand, type TmuxOp } from '../../../../domain/commands';
 
 function makeCell(c: string): { c: string } {
   return { c };
@@ -105,9 +106,9 @@ describe('copyMode state', () => {
       { panes: [pane] },
       {
         extraActors: {
-          tmux: fromCallback<{ type: string; command?: string }>(({ receive }) => {
+          tmux: fromCallback<{ type: string; op?: TmuxOp }>(({ receive }) => {
             receive((e) => {
-              if (e.type === 'SEND_COMMAND' && e.command) sent.push(e.command);
+              if (e.type === 'SEND_OP' && e.op) sent.push(toTmuxCommand(e.op));
             });
             return () => {};
           }),
@@ -176,9 +177,9 @@ describe('copyMode state', () => {
       { copyModeStates: { [pid('%1')]: makeCopyState({ mode: 'scroll' }) } },
       {
         extraActors: {
-          tmux: fromCallback<{ type: string; command?: string }>(({ receive }) => {
+          tmux: fromCallback<{ type: string; op?: TmuxOp }>(({ receive }) => {
             receive((e) => {
-              if (e.type === 'SEND_COMMAND' && e.command) sent.push(e.command);
+              if (e.type === 'SEND_OP' && e.op) sent.push(toTmuxCommand(e.op));
             });
             return () => {};
           }),
@@ -381,9 +382,9 @@ describe('copyMode state', () => {
         { copyModeStates: { [pid('%1')]: withSelection() } },
         {
           extraActors: {
-            tmux: fromCallback<{ type: string; command?: string }>(({ receive }) => {
+            tmux: fromCallback<{ type: string; op?: TmuxOp }>(({ receive }) => {
               receive((e) => {
-                if (e.command) sent.push(e.command);
+                if (e.op) sent.push(toTmuxCommand(e.op));
               });
             }),
           },

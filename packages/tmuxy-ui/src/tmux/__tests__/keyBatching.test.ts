@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  KeyBatcher,
-  escapeLiteralText,
-  literalTextCommands,
-  unescapeLiteralText,
-} from '../keyBatching';
+import { KeyBatcher, unescapeLiteralText } from '../keyBatching';
+import { quote } from '../../domain/commands';
 
 describe('KeyBatcher', async () => {
   let sent: string[];
@@ -26,7 +22,7 @@ describe('KeyBatcher', async () => {
 
   const literal = (text: string) =>
     batcher.intercept('run_tmux_command', {
-      command: `send-keys -t s0 -l ${escapeLiteralText(text)}`,
+      command: `send-keys -t s0 -l ${quote(text)}`,
     });
   const special = (keys: string) =>
     batcher.intercept('run_tmux_command', { command: `send-keys -t s0 ${keys}` });
@@ -145,7 +141,7 @@ describe('KeyBatcher', async () => {
   it('keeps sessions separate within one window', async () => {
     literal('a'); // opens the literal window (leading, session s0)
     batcher.intercept('run_tmux_command', {
-      command: `send-keys -t s1 -l ${escapeLiteralText('z')}`,
+      command: `send-keys -t s1 -l ${quote('z')}`,
     });
     await vi.advanceTimersByTimeAsync(16);
     expect(sent).toContain("send-keys -t s0 -l 'a'");
@@ -154,36 +150,10 @@ describe('KeyBatcher', async () => {
   });
 });
 
-describe('escapeLiteralText / unescapeLiteralText', async () => {
+describe('quote / unescapeLiteralText', async () => {
   it('round-trips plain and quoted text', async () => {
     for (const text of ['abc', "it's", "a'b'c", ' spaced  ', "'"]) {
-      expect(unescapeLiteralText(escapeLiteralText(text))).toBe(text);
+      expect(unescapeLiteralText(quote(text))).toBe(text);
     }
-  });
-});
-
-describe('literalTextCommands', () => {
-  it('types a multi-line text line by line, so no line of it becomes a tmux command', () => {
-    // Pane output a user selected and chose "Send keys" on.
-    const text = "echo one\nrun-shell 'touch /tmp/pwned'\r\nlast";
-    const lines = literalTextCommands('%3', text).split('\n');
-    expect(lines).toEqual([
-      "send-keys -t %3 -l 'echo one'",
-      'send-keys -t %3 Enter',
-      "send-keys -t %3 -l 'run-shell '\\''touch /tmp/pwned'\\'''",
-      'send-keys -t %3 Enter',
-      "send-keys -t %3 -l 'last'",
-    ]);
-  });
-
-  it('splits a long line into chunks and keeps blank lines as Enter', () => {
-    const lines = literalTextCommands('%1', `${'x'.repeat(1200)}\n\n`).split('\n');
-    expect(lines).toEqual([
-      `send-keys -t %1 -l '${'x'.repeat(500)}'`,
-      `send-keys -t %1 -l '${'x'.repeat(500)}'`,
-      `send-keys -t %1 -l '${'x'.repeat(200)}'`,
-      'send-keys -t %1 Enter',
-      'send-keys -t %1 Enter',
-    ]);
   });
 });

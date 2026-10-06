@@ -2,13 +2,8 @@
  * Helper functions for the app machine
  */
 
-import {
-  isModelPaneId,
-  paneNumber,
-  type GroupId,
-  type PaneId,
-  type WindowId,
-} from '../../domain/ids';
+import { groupMembers } from '../../domain/client';
+import { isModelPaneId, type GroupId, type PaneId, type WindowId } from '../../domain/ids';
 import type {
   DrawerDirection,
   FloatBackdrop,
@@ -17,93 +12,6 @@ import type {
   TmuxPane,
   TmuxWindow,
 } from '../types';
-
-/**
- * Parse a `command-prompt` command and extract -I (initial value), -p (prompt), and template.
- * Expands tmux format strings (#W, #S) from context.
- */
-export function parseCommandPrompt(
-  command: string,
-  context: {
-    windows: { id: string; name: string }[];
-    activeWindowId: WindowId | null;
-    sessionName: string;
-  },
-): { prompt: string; initialValue: string; template: string | null } {
-  let prompt = ':';
-  let initialValue = '';
-  let template: string | null = null;
-
-  const tokens: string[] = [];
-  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
-  let m;
-  while ((m = re.exec(command)) !== null) {
-    tokens.push(m[1] ?? m[2] ?? m[3]);
-  }
-
-  let i = tokens[0] === 'command-prompt' ? 1 : 0;
-  while (i < tokens.length) {
-    if (tokens[i] === '-I' && i + 1 < tokens.length) {
-      initialValue = tokens[++i];
-      i++;
-    } else if (tokens[i] === '-p' && i + 1 < tokens.length) {
-      prompt = tokens[++i];
-      i++;
-    } else if (tokens[i].startsWith('-')) {
-      const flag = tokens[i];
-      i++;
-      if (/^-[tTFN]$/.test(flag) && i < tokens.length) {
-        i++;
-      }
-    } else {
-      template = tokens[i];
-      i++;
-    }
-  }
-
-  const activeWindow = context.windows.find((w) => w.id === context.activeWindowId);
-  const windowName = activeWindow?.name ?? '';
-  const expand = (s: string) => s.replace(/#W/g, windowName).replace(/#S/g, context.sessionName);
-
-  initialValue = expand(initialValue);
-  prompt = expand(prompt);
-
-  return { prompt, initialValue, template };
-}
-
-/**
- * Parse a `display-message` command and extract the message text.
- * Returns null if -p flag is present (output mode — should go to tmux).
- */
-export function parseDisplayMessage(command: string): string | null {
-  const tokens: string[] = [];
-  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
-  let m;
-  while ((m = re.exec(command)) !== null) {
-    tokens.push(m[1] ?? m[2] ?? m[3]);
-  }
-
-  let i = tokens[0] === 'display-message' ? 1 : 0;
-  let hasOutputFlag = false;
-
-  while (i < tokens.length) {
-    if (tokens[i] === '-p') {
-      hasOutputFlag = true;
-      i++;
-    } else if (tokens[i].startsWith('-')) {
-      const flag = tokens[i];
-      i++;
-      if (/^-[tFc]$/.test(flag) && i < tokens.length) {
-        i++;
-      }
-    } else {
-      if (hasOutputFlag) return null;
-      return tokens[i];
-    }
-  }
-
-  return null;
-}
 
 /**
  * The grid's extent in cells: the far edges of the panes in the active
@@ -160,34 +68,19 @@ export function keepLivePanes<V>(
  * Group membership is intrinsic to each pane via `@tmuxy-group-id` (e.g. `g5`) —
  * the visible member (a real pane in the active session) and each hidden member
  * (a stub emitted from the stash session) all carry the same id. A group is any
- * id shared by two or more panes. Members are ordered by `@tmuxy-group-pos`
- * (set when the user reorders the group), and those without one follow by
- * pane-id number — the same rule as `group_members` in bin/tmuxy/_lib, so the
- * tab order and the shell's next/prev agree.
+ * id shared by two or more panes, its members in the group's order
+ * (`groupMembers`).
  */
 export function buildGroupsFromPanes(panes: TmuxPane[]): Record<GroupId, PaneGroup> {
-  const byGroup = new Map<GroupId, PaneId[]>();
-  const position = new Map<PaneId, number>();
-  for (const pane of panes) {
-    if (!pane.groupId) continue;
-    const list = byGroup.get(pane.groupId) ?? [];
-    list.push(pane.tmuxId);
-    byGroup.set(pane.groupId, list);
-    if (typeof pane.groupPos === 'number') position.set(pane.tmuxId, pane.groupPos);
-  }
-
-  const order = (a: PaneId, b: PaneId) =>
-    (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity) || paneNumber(a) - paneNumber(b);
+  const ids = new Set<GroupId>();
+  for (const pane of panes) if (pane.groupId) ids.add(pane.groupId);
 
   const groups: Record<GroupId, PaneGroup> = {};
-  for (const [gid, paneIds] of byGroup) {
+  for (const gid of ids) {
+    const paneIds = groupMembers(panes, gid);
     if (paneIds.length < 2) continue;
-    groups[gid] = {
-      id: gid,
-      paneIds: paneIds.slice().sort(order),
-    };
+    groups[gid] = { id: gid, paneIds };
   }
-
   return groups;
 }
 

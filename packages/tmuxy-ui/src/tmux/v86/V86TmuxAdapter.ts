@@ -33,7 +33,8 @@ import { isPaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings } from '../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
-import { escapeLiteralText, unescapeLiteralText } from '../keyBatching';
+import { unescapeLiteralText } from '../keyBatching';
+import { quote } from '../../domain/commands';
 import {
   V86Engine,
   getSharedEngine,
@@ -149,7 +150,7 @@ function toControlModeLine(line: string): string {
     const text = unescapeLiteralText(literal[2]);
     if (!text.includes('#{')) return line;
     const parts = text.split(/(?<=#)(?={)/);
-    return parts.map((part) => literal[1] + escapeLiteralText(part)).join('\n');
+    return parts.map((part) => literal[1] + quote(part)).join('\n');
   }
   if (line.includes(' -l ')) return line;
   return line.replace(/ \\; /g, ' ; ');

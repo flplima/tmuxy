@@ -22,7 +22,7 @@ import { formatAdapterError } from '../effect/AdapterError';
 import type { EffectTmuxAdapter } from '../effect/EffectTmuxAdapter';
 import type { ServerState } from '../../domain/wire';
 import { preserveSnapshotIdentity, transformServerState } from './adapters';
-import { parseCommandToOp, toTmuxCommand } from './parseCommand';
+import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 import {
   addPendingOp,
   applyServerSnapshot,
@@ -35,7 +35,7 @@ import {
 } from './model';
 import type { PredictContext } from './ops';
 import { predict } from './ops';
-import type { OpError, OpId, TmuxClientModel, TmuxOp } from './types';
+import type { OpError, OpId, TmuxClientModel } from './types';
 import { EMPTY_MODEL, OpBlockedReadOnly, OpRejectedByTmux, OpTransportError } from './types';
 
 export interface DispatchOptions {
@@ -63,16 +63,6 @@ export interface TmuxStore {
    * is rolled back from the model.
    */
   readonly dispatch: (op: TmuxOp, opts?: DispatchOptions) => Effect.Effect<OpId, OpError>;
-
-  /**
-   * Parse a raw tmux command string into an op and dispatch it. Equivalent
-   * to `dispatch(parseCommandToOp(cmd), opts)` but more convenient at call
-   * sites that only have the string form.
-   */
-  readonly dispatchCommand: (
-    command: string,
-    opts?: DispatchOptions,
-  ) => Effect.Effect<OpId, OpError>;
 
   /**
    * Apply a fresh server snapshot. Reconciles every pending op, drops
@@ -266,11 +256,6 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
         return dispatchRemote(opId, command);
       });
 
-    const dispatchCommand = (
-      command: string,
-      opts?: DispatchOptions,
-    ): Effect.Effect<OpId, OpError> => dispatch(parseCommandToOp(command), { ...opts, command });
-
     const reconcile = (state: ServerState): Effect.Effect<ReadonlyArray<RollbackEntry>> =>
       Effect.gen(function* () {
         const current = yield* Ref.get(ref);
@@ -308,7 +293,6 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
     return {
       getModel,
       dispatch,
-      dispatchCommand,
       reconcile,
       clear,
       subscribe,

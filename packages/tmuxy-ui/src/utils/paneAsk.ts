@@ -18,7 +18,6 @@
  */
 
 import type { TmuxPane } from '../domain/client';
-import type { PaneId } from '../domain/ids';
 
 /** A question waiting on a pane. */
 export interface PaneAsk {
@@ -76,19 +75,4 @@ export function decodePaneAsk(raw: string | null | undefined): PaneAsk | null {
 /** The question waiting on a pane, or null when none is. */
 export function paneAskFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): PaneAsk | null {
   return decodePaneAsk(pane?.paneAsk);
-}
-
-/**
- * The tmux command that answers a question: clear it, then record the answer.
- *
- * Both halves go in one compound command so a client cannot leave the pane
- * showing an answered question. The clear comes first for the same reason —
- * the overlay is what the user is looking at, and it should come down the
- * instant they choose, not once the keys arrive.
- */
-export function answerAskCommand(paneId: PaneId, ask: PaneAsk, answer: AskAnswer): string {
-  return (
-    `set-option -pu -t ${paneId} @tmuxy-ask \\; ` +
-    `set-option -p -t ${paneId} @tmuxy-ask-answer '${ask.token}:${answer}'`
-  );
 }

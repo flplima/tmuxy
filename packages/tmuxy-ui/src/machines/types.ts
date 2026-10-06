@@ -11,6 +11,7 @@ import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
 import type { GroupDrop, Side } from '../utils/groupDrop';
 import type { AskAnswer } from '../utils/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../domain/ids';
+import type { TmuxOp } from '../domain/commands';
 
 // Re-export domain types
 export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
@@ -747,7 +748,14 @@ export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLEl
 // Pane events
 export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: PaneId };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: PaneId; keys: string };
+/**
+ * A command that arrives as a string — a binding tmux reported, what the user
+ * typed at the prompt, a tmuxy.conf alias. The machine parses it into the op
+ * it means; everything the client originates is a `DispatchOpEvent` instead.
+ */
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
+/** An intent the client issues itself, routed and dispatched through the store. */
+export type DispatchOpEvent = { type: 'DISPATCH_OP'; op: TmuxOp };
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
 // Semantic pane events (components send intent, machine constructs commands)
@@ -998,6 +1006,17 @@ export type CopyModeLineSelectEvent = {
 // Group switch detection event (fired internally when switch detected in state update)
 
 // Command mode events
+/**
+ * Open the command prompt (a `CommandPrompt` op): `#W` / `#S` in `prompt` and
+ * `initial` name the current tab and session; `%%` in `template` takes what
+ * the user types.
+ */
+export type OpenCommandPromptEvent = {
+  type: 'OPEN_COMMAND_PROMPT';
+  prompt: string | null;
+  initial: string;
+  template: string | null;
+};
 export type CommandModeSubmitEvent = { type: 'COMMAND_MODE_SUBMIT'; value: string };
 export type CommandModeCancelEvent = { type: 'COMMAND_MODE_CANCEL' };
 export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string };
@@ -1220,6 +1239,7 @@ export type AppMachineEvent =
   | FocusPaneEvent
   | SendKeysEvent
   | SendTmuxCommandEvent
+  | DispatchOpEvent
   | CopySelectionEvent
   | EnterCopyModeEvent
   | ExitCopyModeEvent
@@ -1279,6 +1299,7 @@ export type AppMachineEvent =
   | BrowserHistoryEvent
   | BrowserOpenExternalEvent
   | BrowserPageTitleEvent
+  | OpenCommandPromptEvent
   | CommandModeSubmitEvent
   | CommandModeCancelEvent
   | ShowStatusMessageEvent

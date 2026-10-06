@@ -1,42 +1,8 @@
 import { Effect, Fiber } from 'effect';
+import { quote } from '../domain/commands';
 
 // Batching constants
 const KEY_BATCH_INTERVAL_MS = 16; // Batch keystrokes within ~1 frame
-
-/**
- * Escape text for use with tmux send-keys -l (literal mode).
- * Wraps in single quotes, escaping internal single quotes.
- */
-export function escapeLiteralText(text: string): string {
-  return "'" + text.replace(/'/g, "'\\''") + "'";
-}
-
-/** Longest literal a single `send-keys -l` carries before the text is split. */
-const LITERAL_CHUNK_SIZE = 500;
-
-/**
- * The command lines that type `text` into `target` literally, one per line.
- *
- * Control mode reads one command per line, so a newline inside a quoted
- * literal would end the `send-keys` there and run the rest of the text as tmux
- * commands of its own — `run-shell` included. Each line of text goes as its own
- * `send-keys -l` (split into chunks so no command line grows unbounded), with
- * an `Enter` between lines: what pasting the text into a terminal does.
- */
-export function literalTextCommands(target: string, text: string): string {
-  const lines = text.split(/\r?\n/);
-  const commands: string[] = [];
-  lines.forEach((line, i) => {
-    for (let j = 0; j < line.length; j += LITERAL_CHUNK_SIZE) {
-      const chunk = line.slice(j, j + LITERAL_CHUNK_SIZE);
-      commands.push(`send-keys -t ${target} -l ${escapeLiteralText(chunk)}`);
-    }
-    if (i < lines.length - 1) {
-      commands.push(`send-keys -t ${target} Enter`);
-    }
-  });
-  return commands.join('\n');
-}
 
 /**
  * Unescape literal text from tmux send-keys -l format.
@@ -197,7 +163,7 @@ export class KeyBatcher {
 
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
-      const escaped = escapeLiteralText(text);
+      const escaped = quote(text);
       const command = `send-keys -t ${session} -l ${escaped}`;
       this.sendFn('run_tmux_command', { command });
     }
@@ -248,7 +214,7 @@ export class KeyBatcher {
     let sent = false;
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
-      const escaped = escapeLiteralText(text);
+      const escaped = quote(text);
       const command = `send-keys -t ${session} -l ${escaped}`;
       this.sendFn('run_tmux_command', { command });
       sent = true;
@@ -264,7 +230,7 @@ export class KeyBatcher {
   private flushLiteralBatchForSession(session: string): void {
     const text = this.pendingLiteralText.get(session);
     if (!text || text.length === 0) return;
-    const escaped = escapeLiteralText(text);
+    const escaped = quote(text);
     const command = `send-keys -t ${session} -l ${escaped}`;
     this.sendFn('run_tmux_command', { command });
     this.pendingLiteralText.delete(session);

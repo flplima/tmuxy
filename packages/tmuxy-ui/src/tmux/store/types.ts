@@ -16,6 +16,7 @@
 import { Data } from 'effect';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import type { PaneId, WindowId } from '../../domain/ids';
+import type { TmuxOp } from '../../domain/commands';
 
 // ============================================
 // Snapshot — the data the UI consumes
@@ -59,52 +60,6 @@ export const EMPTY_SNAPSHOT: TmuxSnapshot = {
 
 /** Branded string so a raw string can't be passed where an OpId is expected. */
 export type OpId = string & { readonly __brand: 'OpId' };
-
-// ============================================
-// TmuxOp — every optimistic user intent as data
-// ============================================
-
-/**
- * Tagged union of every user intent the model knows how to predict.
- * Built from parsed commands, semantic events (SELECT_TAB, CREATE_TAB), or
- * direct component invocations. The store turns each op into a tmux command
- * via `toTmuxCommand` and applies a predicted patch via the per-op `predict`
- * function.
- *
- * `RawCommand` is the escape hatch: any string that wasn't recognized as a
- * typed op is forwarded as-is with no optimistic prediction.
- */
-export type TmuxOp =
-  | { readonly _tag: 'Split'; readonly direction: 'horizontal' | 'vertical' }
-  | { readonly _tag: 'Navigate'; readonly direction: 'L' | 'R' | 'U' | 'D' }
-  | { readonly _tag: 'SelectPane'; readonly paneId: PaneId }
-  | { readonly _tag: 'Swap'; readonly sourcePaneId: PaneId; readonly targetPaneId: PaneId }
-  | { readonly _tag: 'NewWindow' }
-  | {
-      readonly _tag: 'SelectWindow';
-      /** A window id (`@N`, what the client sends), a tmux index, or a neighbour. */
-      readonly target: WindowId | number | 'next' | 'previous';
-    }
-  /** paneId null = the active pane. */
-  | { readonly _tag: 'KillPane'; readonly paneId: PaneId | null }
-  /** windowId null = the active window. Only `@N`-form targets are predicted. */
-  | { readonly _tag: 'KillWindow'; readonly windowId: WindowId | null }
-  /** target null = the active window. */
-  | { readonly _tag: 'RenameWindow'; readonly target: WindowId | null; readonly name: string }
-  /** paneId null = the active pane. Predicts zoom-IN only (see predictZoomToggle). */
-  | { readonly _tag: 'ZoomToggle'; readonly paneId: PaneId | null }
-  /**
-   * Pane-group tab switch: the clicked (parked) group member swaps into the
-   * visible slot occupied by `visiblePaneId`. Backed by the guest
-   * pane-group-switch script (resize-window ; swap-pane); dispatched with an
-   * explicit command string, never parsed from the wire.
-   */
-  | {
-      readonly _tag: 'GroupSwitch';
-      readonly clickedPaneId: PaneId;
-      readonly visiblePaneId: PaneId;
-    }
-  | { readonly _tag: 'RawCommand'; readonly command: string };
 
 // ============================================
 // Patch — a pure transformation of TmuxSnapshot

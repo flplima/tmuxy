@@ -12,9 +12,15 @@ import { toEffectAdapter, formatAdapterError, type AdapterError } from '../../tm
 import { tracer } from '../../tmux/tracer';
 import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../tmux/readOnly';
 import type { PaneId } from '../../domain/ids';
+import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 
 export type TmuxActorEvent =
-  | { type: 'SEND_COMMAND'; command: string }
+  /**
+   * Run an op straight on the transport: no prediction, no op log. For the
+   * machine's own bookkeeping (window tags, copy-mode exits, a float's close)
+   * that nothing on screen waits for.
+   */
+  | { type: 'SEND_OP'; op: TmuxOp }
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
@@ -188,11 +194,12 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     });
 
     receive((event) => {
-      if (event.type === 'SEND_COMMAND') {
-        logCommand(event.command);
-        run(eff.invoke<void>('run_tmux_command', { command: event.command }), {
-          logPrefix: event.command,
-          quietWhenReadOnly: isInputCommand(event.command),
+      if (event.type === 'SEND_OP') {
+        const command = toTmuxCommand(event.op);
+        logCommand(command);
+        run(eff.invoke<void>('run_tmux_command', { command }), {
+          logPrefix: command,
+          quietWhenReadOnly: isInputCommand(command),
         });
       } else if (event.type === 'INVOKE') {
         logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);
@@ -334,7 +341,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
             // Clear the env var (fire-and-forget)
             run(
               eff.invoke('run_tmux_command', {
-                command: 'set-environment -g -u TMUXY_SWITCH_TO',
+                command: toTmuxCommand(TmuxOp.ClearSwitchRequest()),
               }),
               { silentFail: true, logPrefix: 'clear TMUXY_SWITCH_TO' },
             );

@@ -17,7 +17,8 @@ import { assign, enqueueActions, sendTo } from 'xstate';
 import { isPlaceholderId } from '../../../domain/ids';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import { selectVisibleWindows } from '../../selectors';
-import { reorderCommand } from '../../../utils/tabOverview';
+import { reorderOp } from '../../../utils/tabOverview';
+import { TmuxOp } from '../../../domain/commands';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -111,9 +112,9 @@ export const tabOverviewActions = {
     ({ context, event, enqueue }) => {
       if (event.type !== 'REORDER_TAB') return;
       const visible = selectVisibleWindows(context);
-      const command = reorderCommand(visible, event.windowId, event.toIndex);
-      if (!command) return;
-      enqueue(sendTo('tmux', { type: 'SEND_COMMAND' as const, command }));
+      const op = reorderOp(visible, event.windowId, event.toIndex);
+      if (!op) return;
+      enqueue(sendTo('tmux', { type: 'SEND_OP' as const, op }));
       // The cursor follows the tab the user just moved.
       enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
     },
@@ -126,8 +127,8 @@ export const tabOverviewActions = {
       if (event.type !== 'CLOSE_TAB' || isPlaceholderId(event.windowId)) return;
       enqueue(
         sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `kill-window -t ${event.windowId}`,
+          type: 'SEND_OP' as const,
+          op: TmuxOp.KillWindow({ windowId: event.windowId }),
         }),
       );
       // Keep the cursor on a slot that still exists once the tab is gone.

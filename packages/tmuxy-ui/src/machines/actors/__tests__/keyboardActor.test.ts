@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { pid, wid } from '../../../test/wire';
 import { createActor, createMachine, assign, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
+import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
 import * as mobileKeyboard from '../../../utils/mobileKeyboard';
 
 /**
@@ -43,13 +44,18 @@ function pressKey(init: KeyboardEventInit) {
   window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
 }
 
+/** What a sent event puts on the wire: a binding's string, or an op's command. */
+function wireCommand(event: { type: string; [k: string]: unknown }): string | undefined {
+  if (event.type === 'SEND_TMUX_COMMAND') return event.command as string;
+  if (event.type === 'DISPATCH_OP') return toTmuxCommand(event.op as TmuxOp);
+  return undefined;
+}
+
 function lastSendCommand(
   events: Array<{ type: string; [k: string]: unknown }>,
 ): string | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].type === 'SEND_TMUX_COMMAND') return events[i].command as string;
-  }
-  return undefined;
+  const commands = sendCommands(events);
+  return commands[commands.length - 1];
 }
 
 describe('keyboardActor — Tab / Shift-Tab', () => {
@@ -291,6 +297,7 @@ describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', ()
       { type: 'SELECT_TAB_BY_POSITION', position: 2 },
     ]);
     expect(ofType('SEND_TMUX_COMMAND')).toEqual([]);
+    expect(ofType('DISPATCH_OP')).toEqual([]);
 
     pressKey({ key: '0', ctrlKey: true });
     expect(ofType('TOGGLE_TAB_OVERVIEW')).toHaveLength(1);
@@ -438,9 +445,7 @@ describe('keyboardActor — chords stay chords', () => {
 // ---------------------------------------------------------------------------
 
 function sendCommands(events: Array<{ type: string; [k: string]: unknown }>): string[] {
-  return events
-    .filter((event) => event.type === 'SEND_TMUX_COMMAND')
-    .map((event) => event.command as string);
+  return events.map(wireCommand).filter((command): command is string => command !== undefined);
 }
 
 function startComposition(input: HTMLInputElement, texts: string[]) {

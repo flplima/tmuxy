@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { placeholderPaneId, type WindowId } from '../../../../domain/ids';
 import { pid, wid } from '../../../../test/wire';
-import { breakOutTaggedWindow, SIDEBAR_WINDOW_NAME } from '../groupsAndFloats';
+import { freeWindowIndex } from '../groupsAndFloats';
+import { TmuxOp, toTmuxCommand } from '../../../../domain/commands';
 import type { TmuxWindow } from '../../../types';
 
 const tab = (id: WindowId, index: number): TmuxWindow => ({
@@ -29,16 +30,11 @@ const tab = (id: WindowId, index: number): TmuxWindow => ({
   zoomed: false,
 });
 
-describe('breakOutTaggedWindow', () => {
+describe('chrome window creation', () => {
   it('targets a sidebar by its fixed name, never by a guessed index', () => {
-    // Stale indices on purpose: the client still thinks 3 is used and 2 is free
-    // when tmux has already renumbered. A name target does not care.
-    const windows = [tab(wid('@0'), 1), tab(wid('@9'), 3), tab(wid('@16'), 6)];
-    const cmd = breakOutTaggedWindow(windows, {
-      command: "'tmuxy widget tree'",
-      name: SIDEBAR_WINDOW_NAME.left,
-      windowType: 'sidebar-left',
-    });
+    // The client's indices may be stale (tmux has renumbered); a name target
+    // does not care.
+    const cmd = toTmuxCommand(TmuxOp.OpenSidebar({ side: 'left', splitFrom: null }));
     expect(cmd).toBe(
       [
         "split-window 'tmuxy widget tree'",
@@ -49,11 +45,8 @@ describe('breakOutTaggedWindow', () => {
     expect(cmd).not.toMatch(/-t :\d/);
   });
 
-  it('starts the dock with the default shell when no command is given', () => {
-    const cmd = breakOutTaggedWindow([tab(wid('@0'), 1)], {
-      name: SIDEBAR_WINDOW_NAME.right,
-      windowType: 'sidebar-right',
-    });
+  it('starts the dock with the default shell', () => {
+    const cmd = toTmuxCommand(TmuxOp.OpenSidebar({ side: 'right', splitFrom: null }));
     expect(cmd.startsWith('split-window \\; break-pane -d -n __sidebar-right')).toBe(true);
   });
 
@@ -61,12 +54,7 @@ describe('breakOutTaggedWindow', () => {
     // Nothing in this list switches windows first, so an untargeted split runs
     // wherever tmux's current pane happens to be — which is how the tree came
     // up as a bare pane in the first tab.
-    const cmd = breakOutTaggedWindow([tab(wid('@0'), 1), tab(wid('@9'), 3)], {
-      command: "'tmuxy widget tree'",
-      name: SIDEBAR_WINDOW_NAME.left,
-      windowType: 'sidebar-left',
-      splitFrom: pid('%31'),
-    });
+    const cmd = toTmuxCommand(TmuxOp.OpenSidebar({ side: 'left', splitFrom: pid('%31') }));
     expect(cmd.startsWith("split-window -t %31 'tmuxy widget tree'")).toBe(true);
     // The break must stay bare: its -t is a destination, not a target.
     expect(cmd).toContain('break-pane -d -n __sidebar-left');
@@ -75,22 +63,22 @@ describe('breakOutTaggedWindow', () => {
 
   it('falls back to the current pane when the id is a client-side placeholder', () => {
     // tmux has never heard of a placeholder, so naming one would fail the split.
-    const cmd = breakOutTaggedWindow([tab(wid('@0'), 1)], {
-      command: "'tmuxy widget tree'",
-      name: SIDEBAR_WINDOW_NAME.left,
-      windowType: 'sidebar-left',
-      splitFrom: placeholderPaneId('pane_1'),
-    });
+    const cmd = toTmuxCommand(
+      TmuxOp.OpenSidebar({ side: 'left', splitFrom: placeholderPaneId('pane_1') }),
+    );
     expect(cmd.startsWith("split-window 'tmuxy widget tree'")).toBe(true);
   });
 
   it('still names a free index up front for a float, which has no fixed name', () => {
     const windows = [tab(wid('@0'), 1), tab(wid('@2'), 2), tab(wid('@9'), 4)];
-    const cmd = breakOutTaggedWindow(windows, {
-      command: '"tmuxy session switch --float"',
-      name: 'session',
-      windowType: 'float',
-    });
+    const cmd = toTmuxCommand(
+      TmuxOp.OpenFloat({
+        name: 'session',
+        run: 'tmuxy session switch --float',
+        index: freeWindowIndex(windows),
+        splitFrom: null,
+      }),
+    );
     expect(cmd).toContain('break-pane -d -n session -t :3');
     expect(cmd).toContain('set-option -w -t :3 @tmuxy-window-type float');
   });

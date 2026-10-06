@@ -23,7 +23,8 @@ import { Effect } from 'effect';
 import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../parseCommand';
 import { applyServerSnapshot, modelFromSnapshot, makePendingOp } from '../model';
-import type { OpId, TmuxOp, TmuxSnapshot } from '../types';
+import type { OpId, TmuxSnapshot } from '../types';
+import type { TmuxOp } from '../../../domain/commands';
 import type { TmuxAdapter } from '../../types';
 import type {
   ServerState,
@@ -32,6 +33,7 @@ import type {
   WireWindowEncoded,
 } from '../../../domain/wire';
 import { pid, wid, wireState } from '../../../test/wire';
+import { dispatchRaw } from '../../../test/store';
 import { toEffectAdapter } from '../../effect';
 import { TmuxError } from '../../effect/AdapterError';
 import { predict } from '../ops';
@@ -164,11 +166,13 @@ describe('parseCommandToOp — prefix-pinned commands', () => {
     expect(parseCommandToOp('select-pane -t %2 \\; select-pane -L')).toEqual({
       _tag: 'Navigate',
       direction: 'L',
+      script: false,
     });
     expect(parseCommandToOp('select-pane -t %5 \\; swap-pane -s %1 -t %2')).toEqual({
       _tag: 'Swap',
       sourcePaneId: pid('%1'),
       targetPaneId: pid('%2'),
+      keepFocus: false,
     });
   });
 
@@ -196,7 +200,7 @@ describe('TmuxStore — verbatim command preservation', () => {
 
     const original = 'select-pane -t %0 \\; split-window -v -c "#{pane_current_path}"';
     fake.setNextResult({ kind: 'ok', value: undefined });
-    await Effect.runPromise(store.dispatchCommand(original));
+    await Effect.runPromise(dispatchRaw(store, original));
 
     // The adapter should have seen the EXACT original string. If we'd
     // rebuilt from the op tag, this would be `split-window -h` and the
@@ -542,7 +546,12 @@ describe('TmuxStore — typed errors', () => {
 
     fake.setNextResult({ kind: 'reject', error: { error: 'no such pane: %999', kind: 'tmux' } });
     const exit = await Effect.runPromiseExit(
-      store.dispatch({ _tag: 'Swap', sourcePaneId: pid('%999'), targetPaneId: pid('%0') }),
+      store.dispatch({
+        _tag: 'Swap',
+        sourcePaneId: pid('%999'),
+        targetPaneId: pid('%0'),
+        keepFocus: false,
+      }),
     );
     expect(exit._tag).toBe('Failure');
     expect(store.getModel().ops).toHaveLength(0);

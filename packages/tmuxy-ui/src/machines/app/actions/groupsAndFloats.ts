@@ -9,7 +9,7 @@
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';
-import { isPlaceholderId, type PaneId } from '../../../domain/ids';
+import { TmuxOp } from '../../../domain/commands';
 import type { AppMachineContext, AllAppMachineEvents, TmuxWindow } from '../../types';
 import {
   selectLeftSidebarPane,
@@ -30,7 +30,8 @@ type Enqueue = Parameters<
 
 /**
  * The lowest window index the session isn't using, scanning up from its lowest
- * one (so a `base-index 1` session never gets a stray window 0).
+ * one (so a `base-index 1` session never gets a stray window 0) — where a new
+ * float is created (see `OpenFloat`).
  *
  * `break-pane` picks this index on its own, but it doesn't tell us which window
  * it made — and `set-option -w` with no target resolves against the session's
@@ -39,76 +40,12 @@ type Enqueue = Parameters<
  * atomic command list (tagging late would let the monitor see the `%window-add`
  * before the marker exists, and render a chrome window as a tab).
  */
-function freeWindowIndex(windows: TmuxWindow[]): number {
+export function freeWindowIndex(windows: TmuxWindow[]): number {
   const used = new Set(windows.map((w) => w.index));
   let index = windows.length > 0 ? Math.min(...used) : 0;
   while (used.has(index)) index++;
   return index;
 }
-
-/**
- * Build the `split-window ; break-pane ; set-option` list that creates a
- * chrome window (a float or one of the two sidebars) running `command` and tags
- * it in one shot. `extraOptions` are further `@tmuxy-*` window options to set
- * on it.
- *
- * This is the same list `bin/tmuxy/float-create` builds for a float — the
- * sidebars are chrome windows of exactly that shape, differing only in the type
- * they are tagged with and the width the backend then sizes them to.
- *
- * A float names the new window's INDEX up front (see `freeWindowIndex`). A
- * sidebar is targeted by its NAME instead: its name is fixed and unique
- * (`__sidebar-left` / `__sidebar-right`, which the backend also recognises as
- * a defensive re-tag), so the list never depends on the client's copy of the
- * window indices. Those go stale for a beat after any window closes
- * (`renumber-windows` shifts the rest and `%window-close` carries no indices),
- * and a guessed index that tmux already uses made `break-pane` fail AFTER
- * `split-window` had run — leaving a raw `tmuxy widget tree` pane in the tab
- * and the column stuck on "starting…".
- *
- * An empty `command` leaves `split-window` to start the default shell in the
- * pane it splits, which is what makes a sidebar shell open like any freshly
- * split pane.
- *
- * `splitFrom` names the pane to split. Without it the split falls back to
- * tmux's own current pane, which is not necessarily in the tab the user is
- * looking at: nothing in this list makes tmux switch windows first, so the
- * column's shell (and the tree pane left behind if anything downstream fails)
- * would be born in whatever tab tmux happened to be on. A placeholder id is
- * not a target — tmux has never heard of it — so the caller passes null and
- * the fallback stands.
- */
-export function breakOutTaggedWindow(
-  windows: TmuxWindow[],
-  {
-    command = '',
-    name,
-    windowType,
-    extraOptions = [],
-    splitFrom = null,
-  }: {
-    command?: string;
-    name: string;
-    windowType: 'float' | 'sidebar-left' | 'sidebar-right';
-    extraOptions?: Array<[string, string]>;
-    /** Pane to split, so the new window is born beside what the user sees. */
-    splitFrom?: PaneId | null;
-  },
-): string {
-  const byName = windowType !== 'float';
-  const target = byName ? `:${name}` : `:${freeWindowIndex(windows)}`;
-  const from = splitFrom && !isPlaceholderId(splitFrom) ? ` -t ${splitFrom}` : '';
-  const parts = [
-    `split-window${from} ${command}`.trimEnd(),
-    byName ? `break-pane -d -n ${name}` : `break-pane -d -n ${name} -t ${target}`,
-    `set-option -w -t ${target} @tmuxy-window-type ${windowType}`,
-    ...extraOptions.map(([key, value]) => `set-option -w -t ${target} ${key} ${value}`),
-  ];
-  return parts.join(' \\; ');
-}
-
-/** The fixed window name of a sidebar column (see `breakOutTaggedWindow`). */
-export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-right' } as const;
 
 /** How long a sidebar may sit on "starting…" before the column reports a failure. */
 export const SIDEBAR_START_TIMEOUT_MS = 4000;
@@ -181,12 +118,12 @@ export const groupsAndFloatsActions = {
   >(({ context, enqueue }) => {
     enqueue(
       sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: breakOutTaggedWindow(context.windows, {
-          splitFrom: context.activePaneId,
-          command: '"tmuxy connect"',
+        type: 'SEND_OP' as const,
+        op: TmuxOp.OpenFloat({
           name: 'connect',
-          windowType: 'float',
+          run: 'tmuxy connect',
+          index: freeWindowIndex(context.windows),
+          splitFrom: context.activePaneId,
         }),
       }),
     );
@@ -235,8 +172,8 @@ export const groupsAndFloatsActions = {
     if (event.type !== 'CLOSE_FLOAT') return;
     enqueue(
       sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: `kill-pane -t ${event.paneId}`,
+        type: 'SEND_OP' as const,
+        op: TmuxOp.KillPane({ paneId: event.paneId }),
       }),
     );
     const { [event.paneId]: _removed, ...remainingFloats } = context.floatPanes;
@@ -272,8 +209,8 @@ export const groupsAndFloatsActions = {
     const topFloat = floats[floats.length - 1];
     enqueue(
       sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: `kill-pane -t ${topFloat.paneId}`,
+        type: 'SEND_OP' as const,
+        op: TmuxOp.KillPane({ paneId: topFloat.paneId }),
       }),
     );
     const { [topFloat.paneId]: _removed, ...remainingFloats } = context.floatPanes;
@@ -330,8 +267,8 @@ export const groupsAndFloatsActions = {
     if (sent && sent.windowId === dock.id && sent.rows === rows) return;
     enqueue(
       sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: `set-option -w -t ${dock.id} @tmuxy-sidebar-rows ${rows}`,
+        type: 'SEND_OP' as const,
+        op: TmuxOp.SetWindowTag({ windowId: dock.id, tag: 'sidebar-rows', value: String(rows) }),
       }),
     );
     enqueue(assign({ dockRowsSent: { windowId: dock.id, rows } }));
@@ -386,8 +323,12 @@ export const groupsAndFloatsActions = {
       if (pane) {
         enqueue(
           sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            command: `set-option -u -w -t ${pane.windowId} @tmuxy-sidebar-hidden`,
+            type: 'SEND_OP' as const,
+            op: TmuxOp.SetWindowTag({
+              windowId: pane.windowId,
+              tag: 'sidebar-hidden',
+              value: null,
+            }),
           }),
         );
         // Showing it again also hands it the keyboard. Routed through the focus
@@ -396,13 +337,8 @@ export const groupsAndFloatsActions = {
       } else {
         enqueue(
           sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            command: breakOutTaggedWindow(context.windows, {
-              splitFrom: context.activePaneId,
-              command: "'tmuxy widget tree'",
-              name: SIDEBAR_WINDOW_NAME.left,
-              windowType: 'sidebar-left',
-            }),
+            type: 'SEND_OP' as const,
+            op: TmuxOp.OpenSidebar({ side: 'left', splitFrom: context.activePaneId }),
           }),
         );
         // If the pane never shows up (the command failed on this server), the
@@ -420,8 +356,8 @@ export const groupsAndFloatsActions = {
     if (pane) {
       enqueue(
         sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `set-option -w -t ${pane.windowId} @tmuxy-sidebar-hidden 1`,
+          type: 'SEND_OP' as const,
+          op: TmuxOp.SetWindowTag({ windowId: pane.windowId, tag: 'sidebar-hidden', value: '1' }),
         }),
       );
     }
@@ -518,8 +454,12 @@ export const groupsAndFloatsActions = {
       if (pane) {
         enqueue(
           sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            command: `set-option -u -w -t ${pane.windowId} @tmuxy-sidebar-hidden`,
+            type: 'SEND_OP' as const,
+            op: TmuxOp.SetWindowTag({
+              windowId: pane.windowId,
+              tag: 'sidebar-hidden',
+              value: null,
+            }),
           }),
         );
         // Already running — showing it again also hands it the keyboard, so the
@@ -529,15 +469,11 @@ export const groupsAndFloatsActions = {
       } else {
         enqueue(
           sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            // No command: tmux starts the default shell in the pane's own
-            // directory. Focus follows once the pane actually exists (see
-            // appMachine's sidebar lifecycle reconciliation).
-            command: breakOutTaggedWindow(context.windows, {
-              splitFrom: context.activePaneId,
-              name: SIDEBAR_WINDOW_NAME.right,
-              windowType: 'sidebar-right',
-            }),
+            type: 'SEND_OP' as const,
+            // The dock runs the default shell, in the pane's own directory.
+            // Focus follows once the pane actually exists (see appMachine's
+            // sidebar lifecycle reconciliation).
+            op: TmuxOp.OpenSidebar({ side: 'right', splitFrom: context.activePaneId }),
           }),
         );
         enqueue(assign({ rightSidebarStarting: true }));
@@ -555,8 +491,8 @@ export const groupsAndFloatsActions = {
     if (pane) {
       enqueue(
         sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `set-option -w -t ${pane.windowId} @tmuxy-sidebar-hidden 1`,
+          type: 'SEND_OP' as const,
+          op: TmuxOp.SetWindowTag({ windowId: pane.windowId, tag: 'sidebar-hidden', value: '1' }),
         }),
       );
     }
@@ -667,11 +603,12 @@ export const groupsAndFloatsActions = {
     enqueue(assign({ sidebarColsPreview: { side: event.side, cols: event.cols } }));
     enqueue(
       sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command:
-          event.cols === null
-            ? `set-option -u -w -t ${pane.windowId} @tmuxy-sidebar-cols`
-            : `set-option -w -t ${pane.windowId} @tmuxy-sidebar-cols ${event.cols}`,
+        type: 'SEND_OP' as const,
+        op: TmuxOp.SetWindowTag({
+          windowId: pane.windowId,
+          tag: 'sidebar-cols',
+          value: event.cols === null ? null : String(event.cols),
+        }),
       }),
     );
     enqueue.raise(

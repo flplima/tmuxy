@@ -41,7 +41,7 @@ import { flashCopiedRange } from '../../utils/copyFlash';
 import { terminalTextOf } from '../../utils/nativeSelection';
 import { focusGuiWindow, newGuiWindow } from '../../utils/guiWindows';
 import { isTauri } from '../../tmux/adapters';
-import { escapeLiteralText, literalTextCommands } from '../../tmux/keyBatching';
+import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 
@@ -322,10 +322,7 @@ export function createKeyboardActor() {
     const cleanupKeyboardInput = setupMobileKeyboard((text, paneId) => {
       if (!enabled || leftSidebarFocused) return;
       const textTarget = paneId === null ? keyTarget() : (realPaneId(paneId) ?? sessionName);
-      input.parent.send({
-        type: 'SEND_TMUX_COMMAND',
-        command: literalTextCommands(textTarget, text),
-      });
+      input.parent.send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: textTarget, text }) });
     });
 
     // Prefix mode as a small self-contained unit: it owns the active flag, the
@@ -510,8 +507,7 @@ export function createKeyboardActor() {
        * just the window.
        */
       const bindingPin = (): string => {
-        const overlay = realPaneId(overlayPaneId());
-        if (overlayPaneId()) return overlay ? `select-pane -t ${overlay} \\; ` : '';
+        if (overlayPaneId()) return pinPrefix(null, realPaneId(overlayPaneId()));
         let pane = realPaneId(liveActivePaneId);
         const windowId =
           liveActiveWindowId ?? livePanes.find((p) => p.tmuxId === pane)?.windowId ?? null;
@@ -523,12 +519,11 @@ export function createKeyboardActor() {
               livePanes.find((p) => p.windowId === windowId && p.active)?.tmuxId ?? null,
             );
           }
-          const windowPin = `select-window -t ${windowId} \\; `;
-          return pane ? `${windowPin}select-pane -t ${pane} \\; ` : windowPin;
+          return pinPrefix(windowId, pane);
         }
         // Nothing known about the window: the pane pin at least aims at the
         // right pane if tmux is already on its window.
-        return pane ? `select-pane -t ${pane} \\; ` : '';
+        return pinPrefix(null, pane);
       };
 
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode
@@ -762,8 +757,8 @@ export function createKeyboardActor() {
           // Double prefix sends literal prefix key to the shell
           prefixMode.exit();
           input.parent.send({
-            type: 'SEND_TMUX_COMMAND',
-            command: `send-keys -t ${keyTarget()} ${prefixKey}`,
+            type: 'DISPATCH_OP',
+            op: TmuxOp.SendKeys({ target: keyTarget(), keys: prefixKey }),
           });
         } else {
           // Enter prefix mode
@@ -953,18 +948,15 @@ export function createKeyboardActor() {
       // composed (á, ç, @ via AltGr) has no meaningful key name: tmux accepts
       // `send-keys M-ç` but delivers ESC + ç, which the shell discards as an
       // unbound meta sequence — the character never reaches the line.
-      let command: string;
+      let op: TmuxOp;
       if (isTextKey(event)) {
-        command = `send-keys -t ${target} -l ${escapeLiteralText(event.key)}`;
+        op = TmuxOp.SendText({ target, text: event.key });
       } else if (formattedKey) {
-        command = `send-keys -t ${target} ${formattedKey}`;
+        op = TmuxOp.SendKeys({ target, keys: formattedKey });
       } else {
         return;
       }
-      input.parent.send({
-        type: 'SEND_TMUX_COMMAND',
-        command,
-      });
+      input.parent.send({ type: 'DISPATCH_OP', op });
 
       input.parent.send({
         type: 'KEY_PRESS',
@@ -1007,8 +999,8 @@ export function createKeyboardActor() {
       const composedText = event.data;
       if (!composedText) return;
       input.parent.send({
-        type: 'SEND_TMUX_COMMAND',
-        command: literalTextCommands(target, composedText),
+        type: 'DISPATCH_OP',
+        op: TmuxOp.SendText({ target, text: composedText }),
       });
     };
 
@@ -1021,8 +1013,8 @@ export function createKeyboardActor() {
       // One control-mode command per line of text, sent in a single call so
       // the lines reach the pane in order.
       input.parent.send({
-        type: 'SEND_TMUX_COMMAND',
-        command: literalTextCommands(keyTarget(), text),
+        type: 'DISPATCH_OP',
+        op: TmuxOp.SendText({ target: keyTarget(), text }),
       });
     };
 

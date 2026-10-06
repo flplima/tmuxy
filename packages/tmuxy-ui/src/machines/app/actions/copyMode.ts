@@ -28,6 +28,7 @@ import { selectRightSidebarPane } from '../../selectors';
 import { COPY_FLASH_MS } from '../../../utils/copyFlash';
 import { writeClipboard } from '../../../utils/clipboard';
 import type { PaneId } from '../../../domain/ids';
+import { TmuxOp } from '../../../domain/commands';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -142,8 +143,8 @@ function leaveAfterCopy(enqueue: Enqueue, context: Ctx, paneId: PaneId): void {
   );
   enqueue(
     sendTo('tmux', {
-      type: 'SEND_COMMAND' as const,
-      command: `send-keys -t ${paneId} -X cancel`,
+      type: 'SEND_OP' as const,
+      op: TmuxOp.CancelCopyMode({ paneId: paneId }),
     }),
   );
   enqueue.raise(
@@ -230,8 +231,8 @@ export const copyModeActions = {
       if (!context.readOnly) {
         enqueue(
           sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            command: `copy-mode -t ${event.paneId}`,
+            type: 'SEND_OP' as const,
+            op: TmuxOp.EnterCopyMode({ paneId: event.paneId }),
           }),
         );
       }
@@ -367,8 +368,8 @@ export const copyModeActions = {
 
       enqueue(
         sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `send-keys -t ${event.paneId} -X cancel`,
+          type: 'SEND_OP' as const,
+          op: TmuxOp.CancelCopyMode({ paneId: event.paneId }),
         }),
       );
     },
@@ -794,8 +795,8 @@ export const copyModeActions = {
         enqueue(assign({ copyModeStates: newStates }));
         enqueue(
           sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            command: `send-keys -t ${paneId} -X cancel`,
+            type: 'SEND_OP' as const,
+            op: TmuxOp.CancelCopyMode({ paneId: paneId }),
           }),
         );
         return;

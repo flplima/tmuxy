@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { pid, wid } from '../../test/wire';
-import { dropIndex, overviewSlots, reorderCommand, slotBoxes } from '../tabOverview';
+import { dropIndex, overviewSlots, reorderOp, slotBoxes } from '../tabOverview';
 import type { TmuxPane, TmuxWindow } from '../../machines/types';
 import { placeholderWindowId, type WindowId } from '../../domain/ids';
+import { toTmuxCommand } from '../../domain/commands';
 
 const win = (id: WindowId, index: number): TmuxWindow => ({
   id,
@@ -98,28 +99,32 @@ describe('dropIndex', () => {
   });
 });
 
-describe('reorderCommand', () => {
+describe('reorderOp', () => {
+  const moveOf = (...args: Parameters<typeof reorderOp>) => {
+    const op = reorderOp(...args);
+    return op && toTmuxCommand(op);
+  };
   const tabs = [win(wid('@0'), 1), win(wid('@1'), 2), win(wid('@2'), 3)];
 
   it('inserts before the window that will follow', () => {
-    expect(reorderCommand(tabs, wid('@2'), 0)).toBe('move-window -b -s @2 -t @0');
-    expect(reorderCommand(tabs, wid('@0'), 1)).toBe('move-window -b -s @0 -t @2');
+    expect(moveOf(tabs, wid('@2'), 0)).toBe('move-window -b -s @2 -t @0');
+    expect(moveOf(tabs, wid('@0'), 1)).toBe('move-window -b -s @0 -t @2');
   });
 
   it('appends after the last window when dropped at the end', () => {
-    expect(reorderCommand(tabs, wid('@0'), 2)).toBe('move-window -a -s @0 -t @2');
-    expect(reorderCommand(tabs, wid('@0'), 99)).toBe('move-window -a -s @0 -t @2');
+    expect(moveOf(tabs, wid('@0'), 2)).toBe('move-window -a -s @0 -t @2');
+    expect(moveOf(tabs, wid('@0'), 99)).toBe('move-window -a -s @0 -t @2');
   });
 
   it('is a no-op when the slot does not move or the window is unknown', () => {
-    expect(reorderCommand(tabs, wid('@1'), 1)).toBeNull();
-    expect(reorderCommand(tabs, wid('@7'), 0)).toBeNull();
+    expect(reorderOp(tabs, wid('@1'), 1)).toBeNull();
+    expect(reorderOp(tabs, wid('@7'), 0)).toBeNull();
   });
 
   it('never targets an optimistic placeholder tab, as source or as neighbour', () => {
     const withPlaceholder = [...tabs, win(placeholderWindowId('op_1_2'), 4)];
-    expect(reorderCommand(withPlaceholder, placeholderWindowId('op_1_2'), 0)).toBeNull();
+    expect(reorderOp(withPlaceholder, placeholderWindowId('op_1_2'), 0)).toBeNull();
     // Dropping at the end lands after the last REAL tab, not after the placeholder.
-    expect(reorderCommand(withPlaceholder, wid('@0'), 3)).toBe('move-window -a -s @0 -t @2');
+    expect(moveOf(withPlaceholder, wid('@0'), 3)).toBe('move-window -a -s @0 -t @2');
   });
 });

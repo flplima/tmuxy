@@ -977,7 +977,7 @@ export class DemoTmux {
   /**
    * Create one of the two sidebar columns: a single-pane window tagged
    * `sidebar-left` / `sidebar-right`, mirroring the `split-window ; break-pane ;
-   * set-option` list `breakOutTaggedWindow` sends to a real tmux server.
+   * set-option` list an `OpenSidebar` op sends to a real tmux server.
    *
    * The pane is sized to that column's width — the demo's stand-in for the
    * backend's `sidebar_dock::size` pass — so the tree/terminal inside it wraps

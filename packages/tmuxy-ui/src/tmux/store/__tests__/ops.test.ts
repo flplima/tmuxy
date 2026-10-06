@@ -77,16 +77,33 @@ function focusOp(now: number) {
 
 describe('parseCommandToOp — tmuxy-nav aliases', () => {
   it('maps tmuxy-nav-* to Navigate ops', () => {
-    expect(parseCommandToOp('tmuxy-nav-left')).toEqual({ _tag: 'Navigate', direction: 'L' });
-    expect(parseCommandToOp('tmuxy-nav-right')).toEqual({ _tag: 'Navigate', direction: 'R' });
-    expect(parseCommandToOp('tmuxy-nav-up')).toEqual({ _tag: 'Navigate', direction: 'U' });
-    expect(parseCommandToOp('tmuxy-nav-down')).toEqual({ _tag: 'Navigate', direction: 'D' });
+    expect(parseCommandToOp('tmuxy-nav-left')).toEqual({
+      _tag: 'Navigate',
+      direction: 'L',
+      script: true,
+    });
+    expect(parseCommandToOp('tmuxy-nav-right')).toEqual({
+      _tag: 'Navigate',
+      direction: 'R',
+      script: true,
+    });
+    expect(parseCommandToOp('tmuxy-nav-up')).toEqual({
+      _tag: 'Navigate',
+      direction: 'U',
+      script: true,
+    });
+    expect(parseCommandToOp('tmuxy-nav-down')).toEqual({
+      _tag: 'Navigate',
+      direction: 'D',
+      script: true,
+    });
   });
 
   it('maps the pinned compound form too', () => {
     expect(parseCommandToOp('select-pane -t %0 \\; tmuxy-nav-right')).toEqual({
       _tag: 'Navigate',
       direction: 'R',
+      script: true,
     });
   });
 
@@ -97,10 +114,26 @@ describe('parseCommandToOp — tmuxy-nav aliases', () => {
   it('maps the expanded run-shell form list-keys actually reports', () => {
     const expanded = (dir: string) =>
       `run-shell "bash /home/u/.config/tmuxy/bin/tmuxy/nav ${dir} #{pane_id}"`;
-    expect(parseCommandToOp(expanded('left'))).toEqual({ _tag: 'Navigate', direction: 'L' });
-    expect(parseCommandToOp(expanded('right'))).toEqual({ _tag: 'Navigate', direction: 'R' });
-    expect(parseCommandToOp(expanded('up'))).toEqual({ _tag: 'Navigate', direction: 'U' });
-    expect(parseCommandToOp(expanded('down'))).toEqual({ _tag: 'Navigate', direction: 'D' });
+    expect(parseCommandToOp(expanded('left'))).toEqual({
+      _tag: 'Navigate',
+      direction: 'L',
+      script: true,
+    });
+    expect(parseCommandToOp(expanded('right'))).toEqual({
+      _tag: 'Navigate',
+      direction: 'R',
+      script: true,
+    });
+    expect(parseCommandToOp(expanded('up'))).toEqual({
+      _tag: 'Navigate',
+      direction: 'U',
+      script: true,
+    });
+    expect(parseCommandToOp(expanded('down'))).toEqual({
+      _tag: 'Navigate',
+      direction: 'D',
+      script: true,
+    });
   });
 
   it('maps the expanded form behind the window+pane pin', () => {
@@ -109,7 +142,7 @@ describe('parseCommandToOp — tmuxy-nav aliases', () => {
         'select-window -t @2 \\; select-pane -t %0 \\; ' +
           'run-shell "bash /home/u/.config/tmuxy/bin/tmuxy/nav right #{pane_id}"',
       ),
-    ).toEqual({ _tag: 'Navigate', direction: 'R' });
+    ).toEqual({ _tag: 'Navigate', direction: 'R', script: true });
   });
 
   // Configs written before v0.0.6 carry the path relative, and the migration
@@ -118,6 +151,7 @@ describe('parseCommandToOp — tmuxy-nav aliases', () => {
     expect(parseCommandToOp('run-shell "bash bin/tmuxy/nav up"')).toEqual({
       _tag: 'Navigate',
       direction: 'U',
+      script: true,
     });
   });
 
@@ -461,11 +495,15 @@ describe('SelectWindow predicts even when the target window has no known panes',
 });
 
 describe('intentionally non-predicted commands', () => {
-  it('break-pane and layout cycling stay RawCommand (server-side layout math)', () => {
-    expect(parseCommandToOp('break-pane')._tag).toBe('RawCommand');
-    expect(parseCommandToOp('next-layout')._tag).toBe('RawCommand');
-    expect(parseCommandToOp('select-layout even-horizontal')._tag).toBe('RawCommand');
-    expect(parseCommandToOp('resize-pane -L 5')._tag).toBe('RawCommand');
+  it('break-pane and layout changes are not predicted (server-side layout math)', () => {
+    for (const command of [
+      'break-pane',
+      'next-layout',
+      'select-layout even-horizontal',
+      'resize-pane -L 5',
+    ]) {
+      expect(predict(parseCommandToOp(command), SNAPSHOT, CTX, 'op_x' as OpId)).toBeNull();
+    }
   });
 });
 

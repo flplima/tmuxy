@@ -9,8 +9,9 @@ import {
   rollbackOp,
 } from '../model';
 import { predict } from '../ops';
-import { parseCommandToOp, toTmuxCommand } from '../parseCommand';
-import type { TmuxOp, TmuxSnapshot, OpId } from '../types';
+import { parseCommandToOp } from '../parseCommand';
+import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
+import type { TmuxSnapshot, OpId } from '../types';
 import { OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from '../types';
 import type { TmuxPane, TmuxWindow } from '../../../domain/client';
 
@@ -200,7 +201,7 @@ describe('TmuxClientModel', () => {
 
   it('rollbackOp synchronously removes an op and rebuilds derived', () => {
     const m0 = modelFromSnapshot(snapshot());
-    const op: TmuxOp = { _tag: 'Navigate', direction: 'L' };
+    const op: TmuxOp = { _tag: 'Navigate', direction: 'L', script: false };
     // Add a second pane to the left so the predict succeeds
     const withLeft = recomputeDerived({
       ...m0,
@@ -236,7 +237,11 @@ describe('TmuxClientModel', () => {
   it('parseCommandToOp recognizes the common shapes', () => {
     expect(parseCommandToOp('split-window -h')).toEqual({ _tag: 'Split', direction: 'vertical' });
     expect(parseCommandToOp('splitw -v')).toEqual({ _tag: 'Split', direction: 'horizontal' });
-    expect(parseCommandToOp('select-pane -L')).toEqual({ _tag: 'Navigate', direction: 'L' });
+    expect(parseCommandToOp('select-pane -L')).toEqual({
+      _tag: 'Navigate',
+      direction: 'L',
+      script: false,
+    });
     expect(parseCommandToOp('select-pane -t %5')).toEqual({
       _tag: 'SelectPane',
       paneId: pid('%5'),
@@ -254,21 +259,12 @@ describe('TmuxClientModel', () => {
       _tag: 'Swap',
       sourcePaneId: pid('%1'),
       targetPaneId: pid('%2'),
+      keepFocus: false,
     });
     // Unknown shapes fall through to RawCommand
-    expect(parseCommandToOp('display-message hello')).toEqual({
+    expect(parseCommandToOp('display-message -p hello')).toEqual({
       _tag: 'RawCommand',
-      command: 'display-message hello',
+      command: 'display-message -p hello',
     });
-  });
-
-  it('toTmuxCommand round-trips canonical ops', () => {
-    expect(toTmuxCommand({ _tag: 'Split', direction: 'vertical' })).toBe('split-window -h');
-    expect(toTmuxCommand({ _tag: 'Navigate', direction: 'R' })).toBe('select-pane -R');
-    expect(toTmuxCommand({ _tag: 'SelectWindow', target: 'next' })).toBe('next-window');
-    expect(toTmuxCommand({ _tag: 'SelectWindow', target: 5 })).toBe('select-window -t 5');
-    expect(toTmuxCommand({ _tag: 'Swap', sourcePaneId: pid('%1'), targetPaneId: pid('%2') })).toBe(
-      'swap-pane -s %1 -t %2',
-    );
   });
 });

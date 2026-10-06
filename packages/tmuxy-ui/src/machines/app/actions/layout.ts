@@ -11,20 +11,21 @@
  *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
  *   DRAG_STATE_UPDATE.
  *
- * Inline in appMachine.ts (cross-cutting handlers that write several
- * slices' fields):
- *   - SEND_TMUX_COMMAND (the one command intercept chain; also writes
- *     commandMode/statusMessage)
+ * In the app machine's own orchestration (cross-cutting handlers that hand
+ * work to several slices):
+ *   - SEND_TMUX_COMMAND / DISPATCH_OP (the one command routing step, in
+ *     ../dispatch.ts)
  *   - TMUX_STATE_UPDATE (one-liner relay to tmuxStore for reconcile; the heavy
  *     downstream work runs in the TMUX_MODEL_UPDATE handler)
  *   - FOCUS_PANE (writes focusedFloatPaneId which is groupsAndFloats-owned)
  *   - SELECT_PANE_GROUP_TAB (dispatches a GroupSwitch op to the store)
  *   - DRAG_START (large assign that snapshots pane positions)
- *   - CREATE_TAB (raises SEND_TMUX_COMMAND — needs to live where SEND_TMUX is)
+ *   - CREATE_TAB (raises a NewWindow DISPATCH_OP)
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { PaneId } from '../../../domain/ids';
+import { TmuxOp } from '../../../domain/commands';
 
 // Fallback for clearing the optimistic resize preview if the server-confirmed
 // TMUX_STATE_UPDATE never arrives. Scheduled as a delayed self-event by id and
@@ -51,8 +52,8 @@ export const layoutActions = {
     if (event.type !== 'SEND_KEYS') return;
     enqueue(
       sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: `send-keys -t ${event.paneId} ${event.keys}`,
+        type: 'SEND_OP' as const,
+        op: TmuxOp.SendKeys({ target: event.paneId, keys: event.keys }),
       }),
     );
   }),
@@ -72,16 +73,16 @@ export const layoutActions = {
       if (!inGroup && !isFloat) {
         enqueue(
           sendTo('tmuxStore', {
-            type: 'DISPATCH_COMMAND' as const,
-            command: `kill-pane -t ${event.paneId}`,
+            type: 'DISPATCH_OP' as const,
+            op: TmuxOp.KillPane({ paneId: event.paneId }),
           }),
         );
         return;
       }
       enqueue(
         sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-close ${event.paneId}"`,
+          type: 'SEND_OP' as const,
+          op: TmuxOp.GroupClose({ paneId: event.paneId }),
         }),
       );
     },
@@ -94,14 +95,14 @@ export const layoutActions = {
       // explicitly-targeted zoom gets the ZoomToggle geometry prediction.
       enqueue(
         sendTo('tmuxStore', {
-          type: 'DISPATCH_COMMAND' as const,
-          command: `select-pane -t ${event.paneId}`,
+          type: 'DISPATCH_OP' as const,
+          op: TmuxOp.SelectPane({ paneId: event.paneId }),
         }),
       );
       enqueue(
         sendTo('tmuxStore', {
-          type: 'DISPATCH_COMMAND' as const,
-          command: `resize-pane -t ${event.paneId} -Z`,
+          type: 'DISPATCH_OP' as const,
+          op: TmuxOp.ZoomToggle({ paneId: event.paneId }),
         }),
       );
     },
@@ -112,8 +113,8 @@ export const layoutActions = {
       if (event.type !== 'WRITE_TO_PANE') return;
       enqueue(
         sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `send-keys -t ${event.paneId} -l '${event.data.replace(/'/g, "'\\''")}'`,
+          type: 'SEND_OP' as const,
+          op: TmuxOp.SendText({ target: event.paneId, text: event.data }),
         }),
       );
     },
@@ -163,8 +164,8 @@ export const layoutActions = {
       // visibly flapped on the v86 transport).
       enqueue(
         sendTo('tmuxStore', {
-          type: 'DISPATCH_COMMAND' as const,
-          command: `select-window -t ${event.windowId}`,
+          type: 'DISPATCH_OP' as const,
+          op: TmuxOp.SelectWindow({ target: event.windowId }),
         }),
       );
 

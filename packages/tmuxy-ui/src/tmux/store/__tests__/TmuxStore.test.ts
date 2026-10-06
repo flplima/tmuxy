@@ -15,6 +15,7 @@ import { parseCommandToOp } from '../parseCommand';
 import type { TmuxAdapter } from '../../types';
 import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
 import { pid, wid, wireState } from '../../../test/wire';
+import { dispatchRaw } from '../../../test/store';
 import { toEffectAdapter } from '../../effect';
 import { TmuxError } from '../../effect/AdapterError';
 import type { TmuxClientModel } from '../types';
@@ -312,7 +313,7 @@ describe('notify granularity', () => {
     it('a tab switch moves only this client, and outlives what the server reports', async () => {
       const { fake, store } = await readOnlyStore();
 
-      await Effect.runPromise(store.dispatchCommand('select-window -t @1'));
+      await Effect.runPromise(dispatchRaw(store, 'select-window -t @1'));
       expect(fake.invocations).toHaveLength(0);
       expect(store.getModel().ops).toHaveLength(0);
       expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
@@ -332,19 +333,19 @@ describe('notify granularity', () => {
     it('pane focus is kept locally, by id and by direction', async () => {
       const { fake, store } = await readOnlyStore();
 
-      await Effect.runPromise(store.dispatchCommand('select-pane -t %1'));
+      await Effect.runPromise(dispatchRaw(store, 'select-pane -t %1'));
       expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
       await Effect.runPromise(store.reconcile(twoTabs()));
       expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
 
-      await Effect.runPromise(store.dispatchCommand('select-pane -L'));
+      await Effect.runPromise(dispatchRaw(store, 'select-pane -L'));
       expect(store.getModel().derived.activePaneId).toBe(pid('%0'));
       expect(fake.invocations).toHaveLength(0);
     });
 
     it('falls back to the server when the viewed tab is closed', async () => {
       const { store } = await readOnlyStore();
-      await Effect.runPromise(store.dispatchCommand('select-window -t @1'));
+      await Effect.runPromise(dispatchRaw(store, 'select-window -t @1'));
 
       const closed = twoTabs();
       await Effect.runPromise(
@@ -361,7 +362,7 @@ describe('notify granularity', () => {
     it('refuses anything that would change the session, unpredicted and unsent', async () => {
       const { fake, store } = await readOnlyStore();
       for (const command of ['split-window -h', 'kill-pane -t %1', 'send-keys -t %0 -l x']) {
-        const exit = await Effect.runPromiseExit(store.dispatchCommand(command));
+        const exit = await Effect.runPromiseExit(dispatchRaw(store, command));
         expect(exit._tag).toBe('Failure');
       }
       expect(fake.invocations).toHaveLength(0);

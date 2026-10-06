@@ -8,6 +8,7 @@
 export const commandUiState = {
   on: {
     PREFIX_MODE_CHANGE: { actions: 'commandUi_setPrefixActive' },
+    OPEN_COMMAND_PROMPT: { actions: 'commandUi_openCommandPrompt' },
     COMMAND_MODE_SUBMIT: { actions: 'commandUi_submitCommandMode' },
     COMMAND_MODE_CANCEL: { actions: 'commandUi_cancelCommandMode' },
     SHOW_STATUS_MESSAGE: { actions: 'commandUi_showStatusMessage' },

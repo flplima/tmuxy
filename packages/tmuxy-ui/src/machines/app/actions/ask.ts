@@ -16,7 +16,8 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import { answerAskCommand, paneAskFor, type AskAnswer } from '../../../utils/paneAsk';
+import { paneAskFor, type AskAnswer } from '../../../utils/paneAsk';
+import { TmuxOp } from '../../../domain/commands';
 import { visibleFloats } from '../../selectors';
 import type { PaneId } from '../../../domain/ids';
 
@@ -58,8 +59,8 @@ export const askActions = {
       if (!ask) return;
       enqueue(
         sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: answerAskCommand(event.paneId, ask, event.answer),
+          type: 'SEND_OP' as const,
+          op: TmuxOp.AnswerAsk({ paneId: event.paneId, token: ask.token, answer: event.answer }),
         }),
       );
       enqueue.assign(({ context: ctx }) => {

@@ -10,7 +10,7 @@
  */
 
 import { Schema } from 'effect';
-import { GroupId, PaneId, WindowId } from './ids';
+import { GroupId, PaneId, WindowId, paneNumber } from './ids';
 import { PaneContent, WindowType, type ServerState } from './wire';
 
 /** A required field, read from the wire key `key`. */
@@ -120,6 +120,24 @@ export const TmuxPane = Schema.mutable(
   }),
 );
 export type TmuxPane = Schema.Schema.Type<typeof TmuxPane>;
+
+/**
+ * The members of group `groupId`, in the group's order: by `@tmuxy-group-pos`
+ * (set when the user reorders the group), then — for those without one — by
+ * pane-id number. The same rule as `group_members` in bin/tmuxy/_lib, so the
+ * client's tab order and the shell's next/prev agree.
+ */
+export function groupMembers(
+  panes: ReadonlyArray<Pick<TmuxPane, 'tmuxId' | 'groupId' | 'groupPos'>>,
+  groupId: GroupId,
+): PaneId[] {
+  const position = (p: Pick<TmuxPane, 'groupPos'>) =>
+    typeof p.groupPos === 'number' ? p.groupPos : Infinity;
+  return panes
+    .filter((p) => p.groupId === groupId)
+    .sort((a, b) => position(a) - position(b) || paneNumber(a.tmuxId) - paneNumber(b.tmuxId))
+    .map((p) => p.tmuxId);
+}
 
 /** A window as the client holds it, decoded from a wire window. */
 export const TmuxWindow = Schema.mutable(

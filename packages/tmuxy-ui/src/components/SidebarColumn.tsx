@@ -3,7 +3,7 @@
  *
  * A sidebar is a full-height, fixed-width column holding ONE REAL TMUX PANE,
  * broken out into its own tagged window exactly the way a float is (see
- * `breakOutTaggedWindow`). The left column runs `tmuxy widget tree`, the right
+ * `OpenSidebar` in domain/commands.ts). The left column runs `tmuxy widget tree`, the right
  * a shell; everything else about them — width, focus cue, the pane rendering
  * below — is the same, and lives here.
  *

@@ -11,6 +11,7 @@
 
 import type { TmuxPane, TmuxWindow } from '../machines/types';
 import { type PaneId, type WindowId, isPlaceholderId } from '../domain/ids';
+import { TmuxOp } from '../domain/commands';
 
 /** Pixels a mouse must travel before a press on a tab becomes a drag. */
 export const DRAG_THRESHOLD_PX = 6;
@@ -139,17 +140,17 @@ export function dropIndex(
 }
 
 /**
- * The tmux command that puts `windowId` at strip position `toIndex`
- * (0-based, among the visible tabs, after removing it from its old place).
- * `move-window -b` inserts before a target window, `-a` after one, and
- * `renumber-windows` keeps the strip order equal to the index order; chrome
- * windows (floats, sidebars) are never targets, so they stay where they are.
+ * The move that puts `windowId` at strip position `toIndex` (0-based, among
+ * the visible tabs, after removing it from its old place): right before the
+ * tab that will follow it, or after the last one. `renumber-windows` keeps the
+ * strip order equal to the index order; chrome windows (floats, sidebars) are
+ * never anchors, so they stay where they are.
  */
-export function reorderCommand(
+export function reorderOp(
   visibleWindows: readonly TmuxWindow[],
   windowId: WindowId,
   toIndex: number,
-): string | null {
+): TmuxOp | null {
   if (isPlaceholderId(windowId)) return null;
   const from = visibleWindows.findIndex((w) => w.id === windowId);
   if (from === -1) return null;
@@ -157,7 +158,11 @@ export function reorderCommand(
   const clamped = Math.max(0, Math.min(toIndex, others.length));
   if (clamped === from) return null;
   if (clamped >= others.length) {
-    return `move-window -a -s ${windowId} -t ${others[others.length - 1].id}`;
+    return TmuxOp.MoveWindow({
+      windowId,
+      anchorId: others[others.length - 1].id,
+      placement: 'after',
+    });
   }
-  return `move-window -b -s ${windowId} -t ${others[clamped].id}`;
+  return TmuxOp.MoveWindow({ windowId, anchorId: others[clamped].id, placement: 'before' });
 }

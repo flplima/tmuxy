@@ -6,15 +6,8 @@
  * spinning up Effect at all.
  */
 
-import type {
-  TmuxClientModel,
-  TmuxSnapshot,
-  PendingOp,
-  OpId,
-  Patch,
-  TmuxOp,
-  ViewFocus,
-} from './types';
+import type { TmuxClientModel, TmuxSnapshot, PendingOp, OpId, Patch, ViewFocus } from './types';
+import type { TmuxOp } from '../../domain/commands';
 import { EMPTY_SNAPSHOT, OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from './types';
 import { reconcile as opReconcile } from './ops';
 import { gridExtent } from '../../machines/app/helpers';

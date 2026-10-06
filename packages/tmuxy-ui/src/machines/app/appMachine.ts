@@ -12,7 +12,6 @@
  *   - resizeMachine: idle/resizing, spawns pointer listener
  */
 
-import { READ_ONLY_NOTICE } from '../../tmux/readOnly';
 import { notReadOnly } from './readOnlyGuard';
 import {
   setup,
@@ -45,6 +44,7 @@ import { gesturesGlobalEvents } from './states/gestures';
 import { gesturesActions } from './actions/gestures';
 import { tabOverviewActions } from './actions/tabOverview';
 import { layoutActions } from './actions/layout';
+import { dispatchActions } from './dispatch';
 import { askActions, pruneAskSelections } from './actions/ask';
 import { isBoxPermutation, samePanes } from './layoutChange';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
@@ -54,10 +54,6 @@ import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
   buildGroupsFromPanes,
   buildFloatPanesFromWindows,
-  parseCommandPrompt,
-  parseDisplayMessage,
-  STATUS_MESSAGE_DURATION,
-  STATUS_MESSAGE_CLEAR_ID,
   gridExtent,
   keepLivePanes,
 } from './helpers';
@@ -75,23 +71,7 @@ import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
 import type { GestureActorEvent } from '../actors/gestureActor';
 import type { ServersActorEvent } from '../actors/serversActor';
 import { type PaneId, type WindowId, isPlaceholderId } from '../../domain/ids';
-
-/**
- * Resolve relative window targets in tmux commands.
- *
- * With window-size manual, the control mode client's "current window"
- * (referenced by "." in target specs like ":.+") can drift from the user's
- * active window. This replaces the implicit "." with the explicit window ID
- * so commands target the correct window regardless of CC client state.
- */
-function resolveWindowTarget(command: string, activeWindowId: WindowId | null): string {
-  if (activeWindowId && command.includes('-t :.')) {
-    // Global: a compound command (e.g. `selectw -t :. ; swapw -t :.`) can carry
-    // more than one relative window target — resolve every one, not just the first.
-    return command.replace(/-t :\./g, `-t ${activeWindowId}.`);
-  }
-  return command;
-}
+import { TmuxOp } from '../../domain/commands';
 
 type ResizeGeom = { tmuxId: PaneId; x: number; y: number; width: number; height: number };
 
@@ -205,156 +185,6 @@ function updateActivationOrder(order: PaneId[], paneId: PaneId | null): PaneId[]
   return [paneId, ...order.filter((id) => id !== paneId)];
 }
 
-/**
- * Detect a tab-navigation command (`select-window -t N`, `next-window`,
- * `previous-window`) and resolve it to a concrete target window. Returns
- * `null` for any other command, or when the resolved target is the current
- * window (so SELECT_TAB can no-op without a wasted dispatch).
- *
- * The visual `select-window -t N` remap from Ctrl+1..9 must run *before*
- * calling this — by the time we look it up, the command should reference
- * a real tmux window index.
- */
-function resolveTabNavTarget(
-  command: string,
-  context: AppMachineContext,
-): { windowId: WindowId } | null {
-  if (!context.activeWindowId) return null;
-  const visibleWindows = context.windows.filter((w) => w.windowType === 'tab');
-  if (visibleWindows.length === 0) return null;
-
-  const trimmed = command.trim();
-
-  // By id (`@N`, what the client itself sends) or by tmux index (a binding
-  // or command typed by hand).
-  const selectMatch = trimmed.match(/^(select-window|selectw)\s+-t\s+:?=?(@?\d+)\s*$/);
-  if (selectMatch) {
-    const target = selectMatch[2];
-    const targetWindow = target.startsWith('@')
-      ? visibleWindows.find((w) => w.id === target)
-      : visibleWindows.find((w) => w.index === parseInt(target, 10));
-    if (targetWindow && targetWindow.id !== context.activeWindowId) {
-      return { windowId: targetWindow.id };
-    }
-    return null;
-  }
-
-  const currentIdx = visibleWindows.findIndex((w) => w.id === context.activeWindowId);
-  if (currentIdx === -1) return null;
-
-  if (trimmed.match(/^(next-window|nextw|next)(\s|$)/)) {
-    const target = visibleWindows[(currentIdx + 1) % visibleWindows.length];
-    if (target && target.id !== context.activeWindowId) {
-      return { windowId: target.id };
-    }
-    return null;
-  }
-
-  if (trimmed.match(/^(previous-window|prevw|prev)(\s|$)/)) {
-    const target = visibleWindows[(currentIdx - 1 + visibleWindows.length) % visibleWindows.length];
-    if (target && target.id !== context.activeWindowId) {
-      return { windowId: target.id };
-    }
-    return null;
-  }
-
-  return null;
-}
-
-/**
- * Detect a pane-group-nav command and resolve it to the target pane id we'd
- * land on if the script ran. Returns `null` for any other command, or when
- * the resolved target is already the visible pane (so the optimistic flip
- * can no-op cleanly).
- *
- * Matches the command-alias form (`tmuxy-pane-group-prev/next`,
- * `tmuxy-nav-left/right`) and the expanded `run-shell` form for both. The
- * group commands wrap around the group. Horizontal pane nav (Ctrl+h /
- * Ctrl+l) steps through the group too but stops at its ends: from the last
- * member Ctrl+l returns null here, so the key falls through to the pane on
- * the right or the sidebar, exactly as the `nav` script does.
- *
- * `pane-group-switch` is deliberately NOT matched — that's what
- * `SELECT_PANE_GROUP_TAB` itself emits and would recurse.
- */
-function resolvePaneGroupNavTarget(
-  command: string,
-  context: AppMachineContext,
-): { paneId: PaneId } | null {
-  const trimmed = command.trim();
-
-  let direction: 'prev' | 'next' | null = null;
-  let wrap = true;
-  if (trimmed.match(/^tmuxy-pane-group-prev\b/) || trimmed.includes('/pane-group-prev')) {
-    direction = 'prev';
-  } else if (trimmed.match(/^tmuxy-pane-group-next\b/) || trimmed.includes('/pane-group-next')) {
-    direction = 'next';
-  } else if (trimmed.match(/^tmuxy-nav-left\b/) || trimmed.match(/\/nav\s+left\b/)) {
-    direction = 'prev';
-    wrap = false;
-  } else if (trimmed.match(/^tmuxy-nav-right\b/) || trimmed.match(/\/nav\s+right\b/)) {
-    direction = 'next';
-    wrap = false;
-  }
-  if (!direction) return null;
-
-  // Operate on the user's perceived focus — the optimistically-set activePaneId
-  // — so back-to-back prev/next nav doesn't get stuck on a stale visible pane.
-  const focusPaneId = context.activePaneId;
-  if (!focusPaneId) return null;
-
-  const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(focusPaneId));
-  if (!group || group.paneIds.length <= 1) return null;
-
-  // Mirror the shell scripts' algorithm: index off the currently-visible pane
-  // (the one in the active window) and step ±1 — wrapping for the group
-  // commands, stopping at the ends for Ctrl+h / Ctrl+l.
-  const visibleId = group.paneIds.find((id) => {
-    const p = context.panes.find((pp) => pp.tmuxId === id);
-    return p?.windowId === context.activeWindowId;
-  });
-  if (!visibleId) return null;
-
-  const idx = group.paneIds.indexOf(visibleId);
-  const count = group.paneIds.length;
-  let targetIdx = direction === 'next' ? idx + 1 : idx - 1;
-  if (targetIdx < 0 || targetIdx >= count) {
-    if (!wrap) return null;
-    targetIdx = (targetIdx + count) % count;
-  }
-  const target = group.paneIds[targetIdx];
-  if (!target || target === visibleId) return null;
-
-  return { paneId: target };
-}
-
-/**
- * Detect a horizontal pane-nav command (Ctrl+h / Ctrl+l → `tmuxy-nav-left/right`
- * or the expanded `run-shell .../nav left|right` form). Returns the direction or
- * null. Used for the sidebar boundary: Ctrl+h from the leftmost pane focuses the
- * open sidebar; Ctrl+l from a focused sidebar returns to the panes.
- */
-function navDirection(command: string): 'left' | 'right' | null {
-  const trimmed = command.trim();
-  if (trimmed.match(/^tmuxy-nav-left\b/) || trimmed.match(/\/nav\s+left\b/)) return 'left';
-  if (trimmed.match(/^tmuxy-nav-right\b/) || trimmed.match(/\/nav\s+right\b/)) return 'right';
-  return null;
-}
-
-/**
- * Strip the pin that keyboardActor prepends to every prefix/root binding —
- * `select-window -t <id> \; select-pane -t <id> \;` for a tiled pane, or just
- * `select-pane -t <id> \;` for an overlay — so tmux's server-side current
- * window and pane align with the user's focus before a `-t`-less binding runs.
- * Returned form is what the client-side intercepts and parsers expect; the
- * original (with the pin) is what we forward to tmux so the alignment actually
- * happens for tmux-bound commands.
- */
-function stripActivePanePrefix(command: string): string {
-  const m = command.match(/^(?:select-window\s+-t\s+\S+\s+\\;\s+)?select-pane\s+-t\s+\S+\s+\\;\s+/);
-  return m ? command.slice(m[0].length) : command;
-}
-
 export const appMachine = setup({
   types: {
     context: {} as AppMachineContext,
@@ -381,6 +211,7 @@ export const appMachine = setup({
     ...tabOverviewActions,
     ...gesturesActions,
     ...layoutActions,
+    ...dispatchActions,
     ...askActions,
   },
 }).createMachine({
@@ -645,14 +476,12 @@ export const appMachine = setup({
 
     // Command mode + status message events — handled by commandUiState
 
-    // Single entry point for tab creation — re-raised as SEND_TMUX_COMMAND
-    // so the "+" button and tab menu items pick up the same optimistic
-    // prediction + reconciliation path that the prefix+c keybinding gets.
+    // Single entry point for tab creation, so the "+" button and tab menu
+    // items pick up the same optimistic prediction + reconciliation path that
+    // the prefix+c keybinding gets.
     CREATE_TAB: {
       guard: notReadOnly,
-      actions: enqueueActions(({ enqueue }) => {
-        enqueue.raise({ type: 'SEND_TMUX_COMMAND', command: 'new-window' });
-      }),
+      actions: raise({ type: 'DISPATCH_OP', op: TmuxOp.NewWindow() }),
     },
 
     // Theme events (global — work in any state)
@@ -1194,8 +1023,8 @@ export const appMachine = setup({
               }
               enqueue(
                 sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `set-option -u -t ${context.sessionName} @tmuxy-focus-request`,
+                  type: 'SEND_OP' as const,
+                  op: TmuxOp.ClearFocusRequest({ session: context.sessionName }),
                 }),
               );
             }
@@ -1414,7 +1243,7 @@ export const appMachine = setup({
                 // suppress CSS transitions on the swapped panes without
                 // any machine-side timers.
                 groupSwitchPaneIds: ev.model.ops.flatMap((pendingOp) =>
-                  pendingOp.op._tag === 'GroupSwitch'
+                  pendingOp.op._tag === 'GroupSwitch' && pendingOp.op.visiblePaneId
                     ? [pendingOp.op.clickedPaneId, pendingOp.op.visiblePaneId]
                     : [],
                 ),
@@ -1514,193 +1343,8 @@ export const appMachine = setup({
           actions: assign({ connected: false, enableAnimations: false }),
         },
 
-        // Keyboard actor events
-        SEND_TMUX_COMMAND: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            // Expand tmux format strings that won't be resolved by control mode
-            // (e.g., run-shell commands from expanded aliases in root keybindings)
-            let command = event.command;
-            if (
-              context.activePaneId &&
-              (command.includes('#{pane_id}') ||
-                command.includes('#{pane_width}') ||
-                command.includes('#{pane_height}'))
-            ) {
-              command = command.replace(/#{pane_id}/g, context.activePaneId);
-              const activePane = context.panes.find((p) => p.tmuxId === context.activePaneId);
-              if (activePane) {
-                command = command.replace(/#{pane_width}/g, String(activePane.width));
-                command = command.replace(/#{pane_height}/g, String(activePane.height));
-              }
-            }
-
-            // Resolve relative window targets (see resolveWindowTarget docs)
-            command = resolveWindowTarget(command, context.activeWindowId);
-
-            // Match intercepts against the binding tail (keyboardActor prepends
-            // `select-pane -t <id> \;` to every prefix/root binding). Keep
-            // forwarding the original `command` so tmux still sees the
-            // alignment prefix for commands that aren't intercepted.
-            let tail = stripActivePanePrefix(command);
-
-            // Intercept copy-mode — activate client-side copy mode
-            if (tail.match(/^copy-mode\b/)) {
-              const paneId = context.activePaneId;
-              if (paneId) {
-                enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
-              }
-              return;
-            }
-
-            // Intercept command-prompt — enter client-side command mode
-            if (tail.match(/^command-prompt\b/)) {
-              if (context.readOnly) {
-                enqueue.raise({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
-                return;
-              }
-              const parsed = parseCommandPrompt(tail, context);
-              enqueue(
-                assign({
-                  commandMode: {
-                    prompt: parsed.prompt,
-                    input: parsed.initialValue,
-                    template: parsed.template,
-                  },
-                }),
-              );
-              return;
-            }
-
-            // Intercept display-message (without -p) — show in status bar
-            if (tail.match(/^display-message\b/)) {
-              const msg = parseDisplayMessage(tail);
-              if (msg !== null) {
-                enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
-                enqueue.cancel(STATUS_MESSAGE_CLEAR_ID);
-                enqueue.raise(
-                  { type: 'CLEAR_STATUS_MESSAGE' },
-                  { delay: STATUS_MESSAGE_DURATION, id: STATUS_MESSAGE_CLEAR_ID },
-                );
-                return;
-              }
-            }
-
-            // Intercept select-window -t <N> from Ctrl+number keybindings:
-            // N is the visual tab position, not a tmux index (chrome windows
-            // consume indices), so resolve it to the window's ID — never its
-            // index, which is stale whenever tmux has renumbered.
-            const selectWindowMatch = tail.match(/^select-window\s+-t\s+(\d+)$/);
-            if (selectWindowMatch) {
-              const targetIndex = parseInt(selectWindowMatch[1], 10);
-              const visibleWindows = context.windows.filter((w) => w.windowType === 'tab');
-              const targetWindow = visibleWindows.find((_, i) => i + 1 === targetIndex);
-              if (targetWindow) {
-                tail = `select-window -t ${targetWindow.id}`;
-                command = tail;
-              }
-            }
-
-            // Route tab-nav commands (select-window / next-window / previous-window)
-            // through SELECT_TAB so they share the optimistic flip and
-            // lastActivePaneByWindow bookkeeping with UI clicks.
-            const tabNavTarget = resolveTabNavTarget(tail, context);
-            if (tabNavTarget) {
-              enqueue.raise({
-                type: 'SELECT_TAB',
-                windowId: tabNavTarget.windowId,
-              });
-              return;
-            }
-
-            // Sidebar boundary (while focused): nav OUT of a focused column
-            // returns to the panes; nav further outward is a no-op (there is
-            // nothing past either edge). Checked before group nav so leaving a
-            // sidebar always works, even when the underlying active pane
-            // happens to be in a group.
-            const navDir = navDirection(tail);
-            if (context.leftSidebarFocused && navDir) {
-              if (navDir === 'right') enqueue.raise({ type: 'BLUR_LEFT_SIDEBAR' });
-              return;
-            }
-            if (context.rightSidebarFocused && navDir) {
-              if (navDir === 'left') enqueue.raise({ type: 'BLUR_RIGHT_SIDEBAR' });
-              return;
-            }
-
-            // Same routing for pane-group nav (prev/next): share the
-            // optimistic swap + keyboard re-target path with TAB clicks so
-            // `<prefix> -` and friends don't lag the visible state.
-            const groupNavTarget = resolvePaneGroupNavTarget(tail, context);
-            if (groupNavTarget) {
-              enqueue.raise({
-                type: 'SELECT_PANE_GROUP_TAB',
-                paneId: groupNavTarget.paneId,
-              });
-              return;
-            }
-
-            // Sidebar boundary (entering): Ctrl+h from the leftmost pane, or
-            // Ctrl+l from the rightmost one, focuses that side's open column
-            // instead of doing a tmux `select-pane -L/-R` no-op. After group
-            // nav, so a grouped pane shows its remaining members first.
-            if (navDir === 'left' || navDir === 'right') {
-              const activePane = context.panes.find((p) => p.tmuxId === context.activePaneId);
-              if (activePane) {
-                const atLeftEdge = activePane.x === 0;
-                const atRightEdge = activePane.x + activePane.width >= context.totalWidth;
-                if (navDir === 'left' && context.leftSidebarOpen && atLeftEdge) {
-                  enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
-                  return;
-                }
-                if (navDir === 'right' && context.rightSidebarOpen && atRightEdge) {
-                  enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
-                  return;
-                }
-              }
-            }
-
-            // Suppress layout animations for the duration of a NewWindow
-            // dispatch. The post-confirm TMUX_MODEL_UPDATE re-enables
-            // animations naturally (the same `enableAnimations` settle path
-            // runs as before). Same logic for multi-step pane-group/float
-            // shell scripts: the server settles their intermediate window
-            // events into a single delta, but the resulting active-pane swap
-            // can still trigger a CSS transition we don't want. Splits are
-            // NOT suppressed: PaneLayout's enter/shift lifecycle owns the
-            // split morph, and paneKeyOverrides keeps the placeholder→real
-            // swap on one stable key/DOM node, so nothing flashes on confirm.
-            const isNew = /^(new-window|neww)\b/.test(tail);
-            const isMultiStepRunShell =
-              /^run-shell\b/.test(tail) &&
-              /pane-group-(add|close|switch|next|prev)|float-create/.test(tail);
-            if (isNew || isMultiStepRunShell) {
-              enqueue(assign({ enableAnimations: false }));
-            }
-
-            // Track layout commands to suppress transient active pane changes
-            if (/^(next-layout|previous-layout|select-layout|selectl)\b/.test(tail)) {
-              enqueue(assign({ lastLayoutCommandTime: Date.now() }));
-            }
-
-            // Dispatch through the TmuxStore — it parses the command into a
-            // typed op, applies the optimistic patch synchronously (TmuxStore
-            // subscribers see the new derived model immediately, including
-            // this XState machine which assigns context.panes/etc. on
-            // TMUX_MODEL_UPDATE), and forwards the command to the adapter.
-            // If the send fails the patch is rolled back automatically.
-            // Drag-time swaps get the store's Swap prediction like any other
-            // path: the drag machine's own pane shuffle is PRIVATE hit-testing
-            // state (never rendered), so without the predicted patch the
-            // dropped pane snapped back to its original slot until the server
-            // %layout-change landed, then slid again — two motions for one drop.
-            enqueue(
-              sendTo('tmuxStore', {
-                type: 'DISPATCH_COMMAND' as const,
-                command,
-              }),
-            );
-          }),
-        },
+        SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
+        DISPATCH_OP: { actions: 'dispatch_op' },
         KEYBINDINGS_RECEIVED: {
           actions: [
             assign({ keybindings: ({ event }) => event.keybindings }),
@@ -1869,8 +1513,8 @@ export const appMachine = setup({
               if (event.paneId !== context.activePaneId && inActiveWindow) {
                 enqueue(
                   sendTo('tmuxStore', {
-                    type: 'DISPATCH_COMMAND' as const,
-                    command: `select-pane -t ${event.paneId}`,
+                    type: 'DISPATCH_OP' as const,
+                    op: TmuxOp.SelectPane({ paneId: event.paneId }),
                   }),
                 );
               }
@@ -1972,8 +1616,8 @@ export const appMachine = setup({
             if (!group || !visiblePane || visiblePane.tmuxId === clickedPaneId) {
               enqueue(
                 sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${clickedPaneId}"`,
+                  type: 'SEND_OP' as const,
+                  op: TmuxOp.GroupSwitch({ clickedPaneId, visiblePaneId: null }),
                 }),
               );
               return;
@@ -1990,12 +1634,7 @@ export const appMachine = setup({
             enqueue(
               sendTo('tmuxStore', {
                 type: 'DISPATCH_OP' as const,
-                op: {
-                  _tag: 'GroupSwitch' as const,
-                  clickedPaneId,
-                  visiblePaneId: visiblePane.tmuxId,
-                },
-                command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${clickedPaneId}"`,
+                op: TmuxOp.GroupSwitch({ clickedPaneId, visiblePaneId: visiblePane.tmuxId }),
               }),
             );
           }),
@@ -2022,8 +1661,8 @@ export const appMachine = setup({
               enqueue(assign({ copyModeStates: newStates }));
               enqueue(
                 sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `send-keys -t ${paneId} -X cancel`,
+                  type: 'SEND_OP' as const,
+                  op: TmuxOp.CancelCopyMode({ paneId }),
                 }),
               );
               return;
@@ -2045,8 +1684,8 @@ export const appMachine = setup({
               context.focusedFloatPaneId ?? dockPane ?? realActivePane ?? context.sessionName;
             enqueue(
               sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `send-keys -t ${sigintTarget} C-c`,
+                type: 'SEND_OP' as const,
+                op: TmuxOp.SendKeys({ target: sigintTarget, keys: 'C-c' }),
               }),
             );
           }),

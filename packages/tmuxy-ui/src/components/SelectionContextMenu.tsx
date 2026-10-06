@@ -9,7 +9,7 @@
 import { useEffect } from 'react';
 import { FloatingMenu, MenuItem } from './floating/Menu';
 import { useAppSend, useReadOnly } from '../machines/AppContext';
-import { literalTextCommands } from '../tmux/keyBatching';
+import { TmuxOp } from '../domain/commands';
 import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
 import { flashCopiedRange } from '../utils/copyFlash';
 import { writeClipboard } from '../utils/clipboard';
@@ -91,8 +91,8 @@ export function SelectionContextMenu({
         <MenuItem
           onClick={() => {
             send({
-              type: 'SEND_TMUX_COMMAND',
-              command: literalTextCommands(paneId, selectedText),
+              type: 'DISPATCH_OP',
+              op: TmuxOp.SendText({ target: paneId, text: selectedText }),
             });
             exitAndClose();
           }}
