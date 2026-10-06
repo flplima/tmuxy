@@ -88,7 +88,7 @@ function scene({
     if (selector === AppContext.selectAnimationsAllowed) return true;
     if (selector === AppContext.selectCursorBlink) return true;
     if (selector === AppContext.selectSidebarFocused) return false;
-    if (typeof selector === 'function') return selector({ tabOverviewOpen: false });
+    if (typeof selector === 'function') return selector({ tabOverviewOpen: false, paneGroups: {} });
     return undefined;
   });
   mockUseAppState.mockImplementation((value: string) => value === state);

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import './SmoothCursor.css';
 import { getCursorAnchor, getCursorAnchorVersion, subscribeCursorAnchor } from './cursorAnchor';
+import { isSceneChange, parseScene, sceneKey, type Scene } from './cursorScene';
 import { useAppSelector } from '../machines/AppContext';
 
 /**
@@ -18,6 +19,12 @@ import { useAppSelector } from '../machines/AppContext';
  * every frame while anything is still moving, so it also follows the anchor
  * through CSS transitions the app runs underneath it (a pane re-tiling, a
  * sidebar sliding) without being told.
+ *
+ * Two moves do NOT glide: switching tabs, and switching which member of a
+ * pane group is showing. Both replace the whole picture under the cursor, so
+ * where the cursor was says nothing about where it goes — a glide across the
+ * screen there reads as motion that did not happen. The cursor is simply
+ * drawn at its new place (see `isSceneChange`).
  */
 
 /** Time constants of the corner easing: the leading corners and the trailing ones. */
@@ -27,6 +34,13 @@ const TRAIL_TAU_MS = 32;
 const SETTLE_PX = 0.75;
 /** How long after a commit the overlay keeps re-measuring, to follow transitions. */
 const FOLLOW_MS = 450;
+/**
+ * How long after a tab or group-member switch the cursor is drawn in place.
+ * Longer than FOLLOW_MS: the new pane's content can land a beat after the
+ * switch (its capture refills the screen), moving the cursor from a
+ * provisional spot to its prompt, and that second move belongs to the switch.
+ */
+const SCENE_SNAP_MS = 1500;
 /** A cursor that reappears within this long flies in from where the last one was. */
 const FLY_FROM_MEMORY_MS = 800;
 /** The block's glyph is painted once every corner is this close. */
@@ -135,6 +149,9 @@ function reducedMotion(): boolean {
 }
 
 interface Motion {
+  /** Until when a new destination is drawn in place instead of glided to. */
+  snapUntil: number;
+  scene: Scene | null;
   corners: Pt[] | null;
   leading: boolean[];
   target: Target | null;
@@ -158,11 +175,22 @@ export function SmoothCursor() {
     (ctx) =>
       `${ctx.tabOverviewOpen}|${ctx.sidebarMotion}|${ctx.leftSidebarOpen}|${ctx.rightSidebarOpen}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
   );
+  const scene = useAppSelector((ctx) =>
+    sceneKey({
+      window: ctx.activeWindowId,
+      pane: ctx.activePaneId,
+      group:
+        Object.values(ctx.paneGroups).find((g) => g.paneIds.includes(ctx.activePaneId ?? ''))?.id ??
+        null,
+    }),
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const blinkRef = useRef<HTMLDivElement>(null);
   const shapeRef = useRef<HTMLDivElement>(null);
   const charRef = useRef<HTMLSpanElement>(null);
   const motion = useRef<Motion>({
+    snapUntil: 0,
+    scene: null,
     corners: null,
     leading: [true, true, true, true],
     target: null,
@@ -182,6 +210,11 @@ export function SmoothCursor() {
   useLayoutEffect(() => {
     const m = motion.current;
     m.followUntil = performance.now() + FOLLOW_MS;
+    // The anchor of the new tab or member can attach a frame before or after
+    // the state that names it, and its content can settle later still.
+    const next = parseScene(scene);
+    if (isSceneChange(m.scene, next)) m.snapUntil = performance.now() + SCENE_SNAP_MS;
+    m.scene = next;
     if (m.raf || typeof requestAnimationFrame !== 'function') return;
     m.lastFrame = performance.now();
     m.raf = requestAnimationFrame(frame);
@@ -238,7 +271,8 @@ export function SmoothCursor() {
       // Appear in place unless a cursor was showing a moment ago, in which
       // case glide in from where it was (the pane-to-pane jump).
       const hidden = root.style.opacity !== '1';
-      const snap = reducedMotion() || (hidden && now - m.lostAt > FLY_FROM_MEMORY_MS);
+      const snap =
+        reducedMotion() || now < m.snapUntil || (hidden && now - m.lostAt > FLY_FROM_MEMORY_MS);
       if (snap || !m.corners) m.corners = dest.map((p) => ({ ...p }));
 
       let maxDist = 0;
@@ -273,7 +307,7 @@ export function SmoothCursor() {
 
       if (maxDist > 0 || now < m.followUntil) m.raf = requestAnimationFrame(frame);
     }
-  }, [version, layoutKey]);
+  }, [version, layoutKey, scene]);
 
   return (
     <div ref={rootRef} className="smooth-cursor" aria-hidden="true" data-testid="smooth-cursor">

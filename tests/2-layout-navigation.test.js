@@ -2023,6 +2023,91 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
   }, 180000);
 });
 
+// ====== Scenario 6i: the cursor jumps, not glides, when the picture under it changes ======
+
+describe('Scenario 6i: Cursor motion across tabs and group members', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  /**
+   * The motion a trigger produced, as the assertion wants it: how many places
+   * the overlay was seen at, and whether it ended somewhere else at all — a
+   * "jump" that never moved would pass a distinct-positions check vacuously.
+   */
+  const motion = async (trigger) => {
+    await cursorStill(ctx.page);
+    const glide = await sampleCursorGlide(ctx.page, trigger);
+    // A glide moves the overlay on many frames in a row; a jump moves it on
+    // one and holds. A switch may jump more than once (the new pane's content
+    // can land a beat later), so the count is the longest run, not the total.
+    let run = 0;
+    let longestRun = 0;
+    for (let i = 1; i < glide.frames.length; i++) {
+      run = String(glide.frames[i]) === String(glide.frames[i - 1]) ? 0 : run + 1;
+      longestRun = Math.max(longestRun, run);
+    }
+    return {
+      moved: String(glide.settled) !== String(glide.frames[0]),
+      longestRun,
+      detail: JSON.stringify(glidePositions(glide)),
+    };
+  };
+
+  /** Resolves once the overlay has not moved for a few frames, so a sample starts from rest. */
+  const cursorStill = (page) =>
+    page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const shape = document.querySelector(
+            '[data-testid="smooth-cursor"] .smooth-cursor-shape',
+          );
+          let last = null;
+          let still = 0;
+          const tick = () => {
+            const now = shape?.style.clipPath ?? '';
+            still = now === last ? still + 1 : 0;
+            last = now;
+            if (still >= 10) resolve();
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+
+  test('moving between panes glides; switching group member or tab draws the cursor in place', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Two panes side by side: moving the keyboard between them is a move
+    // within one picture, and glides.
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+    const between = await motion(() => navigatePaneKeyboard(ctx.page, 'left'));
+    expect(between.moved).toBe(true);
+    expect(between.longestRun >= 3 ? 'glided' : between.detail).toBe('glided');
+
+    // A group in the left slot whose two members hold their cursors on
+    // different rows, so a switch has somewhere else to put it.
+    await clickPaneGroupAdd(ctx.page);
+    await waitForGroupTabs(ctx.page, 2);
+    // The awaited text is in the output only, not in what is typed.
+    await runCommand(ctx.page, 'for i in 1 2 3 4 5 6; do echo row$i; done', 'row6');
+    const member = await motion(() => clickGroupTab(ctx.page, 0));
+    expect(member.moved).toBe(true);
+    expect(member.longestRun <= 2 ? 'drawn in place' : member.detail).toBe('drawn in place');
+
+    // Another tab, then back: the whole picture changes both times.
+    const firstTab = await ctx.page.evaluate(() => window.app.getSnapshot().context.activeWindowId);
+    await createWindowKeyboard(ctx.page);
+    const tab = await motion(() => ctx.page.click(`.tab-name[data-window-id="${firstTab}"]`));
+    expect(tab.moved).toBe(true);
+    expect(tab.longestRun <= 2 ? 'drawn in place' : tab.detail).toBe('drawn in place');
+  }, 120000);
+});
+
 // ==================== Scenario 11: Status Bar ====================
 
 describe('Scenario 11: Status Bar', () => {
