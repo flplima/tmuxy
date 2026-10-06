@@ -31,6 +31,8 @@ pub mod tmux_service;
 #[cfg(feature = "native")]
 pub mod trace;
 #[cfg(feature = "native")]
+pub mod transport;
+#[cfg(feature = "native")]
 pub mod worktrees;
 
 #[cfg(feature = "native")]

@@ -39,23 +39,6 @@ pub fn show_buffer_named(buffer_name: &str) -> Result<String> {
     execute_tmux_command(&["show-buffer", "-b", buffer_name])
 }
 
-/// Capture a range of scrollback lines from a pane.
-/// start/end are line offsets using tmux capture-pane -S/-E convention:
-/// negative = from history, 0 = first visible line, -S - means start of history.
-pub fn capture_pane_range(pane_id: &str, start: i64, end: i64) -> Result<String> {
-    execute_tmux_command(&[
-        "capture-pane",
-        "-t",
-        pane_id,
-        "-p",
-        "-e",
-        "-S",
-        &start.to_string(),
-        "-E",
-        &end.to_string(),
-    ])
-}
-
 // Tmux operations
 
 /// Resize all tmux windows in the session to specific dimensions (columns x rows).

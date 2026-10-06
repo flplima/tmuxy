@@ -94,6 +94,19 @@ pub struct MonitorState {
     pub detached: Arc<RwLock<bool>>,
 }
 
+impl MonitorState {
+    /// The live command channel, or `None` while the monitor is not connected.
+    pub fn tx(&self) -> Option<MonitorCommandSender> {
+        self.cmd_tx.read().ok().and_then(|g| g.clone())
+    }
+
+    /// The live command channel, or the error a command is answered with
+    /// while the monitor is not connected.
+    pub fn connected_tx(&self) -> Result<MonitorCommandSender, String> {
+        self.tx().ok_or_else(|| "monitor not connected".to_string())
+    }
+}
+
 /// Ask the running monitor to drop its current connection and reconnect to a
 /// different socket/session. Stores the target and, if a connection is live,
 /// sends a graceful `Shutdown` (detach-client) so `monitor.run()` returns and
@@ -108,7 +121,7 @@ pub async fn request_reconnect(monitor_state: &MonitorState, target: ConnectTarg
     if let Ok(mut guard) = monitor_state.detached.write() {
         *guard = false;
     }
-    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let cmd_tx = monitor_state.tx();
     if let Some(tx) = cmd_tx {
         let _ = tx.send(MonitorCommand::Shutdown).await;
     }
@@ -123,7 +136,7 @@ pub async fn request_detach(monitor_state: &MonitorState) {
     if let Ok(mut guard) = monitor_state.detached.write() {
         *guard = true;
     }
-    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let cmd_tx = monitor_state.tx();
     if let Some(tx) = cmd_tx {
         let _ = tx.send(MonitorCommand::Shutdown).await;
     }
@@ -134,7 +147,7 @@ pub async fn request_detach(monitor_state: &MonitorState) {
 /// closing kills its session this way — where there is no client to report an
 /// error to.
 pub async fn run_on(monitor_state: &MonitorState, command: &str) {
-    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let cmd_tx = monitor_state.tx();
     if let Some(tx) = cmd_tx {
         let _ = tx
             .send(MonitorCommand::RunCommand {

@@ -374,6 +374,17 @@ impl AppState {
         }
     }
 
+    /// The session's monitor command channel, or the error a client is
+    /// answered with while its monitor is not connected.
+    pub async fn monitor_tx(&self, session: &str) -> Result<MonitorCommandSender, String> {
+        self.sessions
+            .read()
+            .await
+            .get(session)
+            .and_then(|s| s.monitor_command_tx.clone())
+            .ok_or_else(|| "No monitor connection available".to_string())
+    }
+
     /// Whether `name` is a session this server will serve.
     pub fn serves_session(&self, name: &str) -> bool {
         match &self.session_pin {

@@ -2,7 +2,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tauri::{Manager, State};
 use tmuxy_core::control_mode::MonitorCommand;
-use tmuxy_core::{executor, Ctx};
+use tmuxy_core::Ctx;
 
 use crate::monitor::{KeyBindingsState, MonitorState};
 use crate::titlebar;
@@ -60,7 +60,7 @@ async fn wait_for_monitor(
 ) -> Result<tmuxy_core::control_mode::MonitorCommandSender, String> {
     let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
     loop {
-        if let Some(tx) = state.cmd_tx.read().ok().and_then(|g| g.clone()) {
+        if let Some(tx) = state.tx() {
             return Ok(tx);
         }
         if tokio::time::Instant::now() >= deadline {
@@ -92,7 +92,7 @@ pub async fn set_client_size(
 /// connected there is nothing to size yet; it replays the client size once
 /// the window list lands (see `TmuxMonitor::apply_client_size`).
 async fn resize_via_monitor(state: &MonitorState, cols: u32, rows: u32) {
-    let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let cmd_tx = state.tx();
     match cmd_tx {
         Some(tx) => {
             if let Err(e) = tx.send(MonitorCommand::ResizeWindow { cols, rows }).await {
@@ -197,70 +197,24 @@ fn route(state: &MonitorState, session: &str, command: &str) -> Result<Option<St
 /// connects there is nothing to write to; the frontend only sends once
 /// connected, so reaching this without a channel is a bug worth surfacing.
 async fn send_via_monitor(state: &MonitorState, cmd: MonitorCommand) -> Result<(), String> {
-    let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
-    let Some(tx) = cmd_tx else {
-        return Err("monitor not connected".to_string());
-    };
-    tx.send(cmd)
+    state
+        .connected_tx()?
+        .send(cmd)
         .await
         .map_err(|e| format!("Monitor channel error: {}", e))
 }
 
-/// Fetch a range of scrollback cells for copy mode.
-///
-/// Matches the SSE server's `get_scrollback_cells` command shape so the
-/// frontend can use the same FETCH_SCROLLBACK_CELLS path under Tauri.
-/// Without this command, copy mode in the Tauri build silently fails to
-/// load anything beyond the already-visible pane content.
+/// Fetch a range of scrollback cells for copy mode — the web server's
+/// `get_scrollback_cells`, through this window's monitor.
 #[tauri::command]
 pub async fn get_scrollback_cells(
-    ctx: State<'_, Arc<Ctx>>,
+    window: tauri::WebviewWindow,
     pane_id: String,
     start: i64,
     end: i64,
 ) -> Result<Value, String> {
-    let width_output = ctx
-        .tmux_call(
-            vec![
-                "display-message".into(),
-                "-t".into(),
-                pane_id.clone(),
-                "-p".into(),
-                "#{pane_width}".into(),
-            ],
-            "get_pane_width",
-        )
-        .await
-        .map_err(|e| format!("Failed to get pane width: {}", e))?;
-    let width: u32 = width_output.trim().parse().unwrap_or(80);
-
-    let history_output = ctx
-        .tmux_call(
-            vec![
-                "display-message".into(),
-                "-t".into(),
-                pane_id.clone(),
-                "-p".into(),
-                "#{history_size}".into(),
-            ],
-            "get_history_size",
-        )
-        .await
-        .map_err(|e| format!("Failed to get history size: {}", e))?;
-    let history_size: u32 = history_output.trim().parse().unwrap_or(0);
-
-    let raw = executor::capture_pane_range(&pane_id, start, end)
-        .map_err(|e| format!("Failed to capture pane range: {}", e))?;
-
-    let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
-
-    Ok(serde_json::json!({
-        "cells": cells,
-        "historySize": history_size,
-        "start": start,
-        "end": end,
-        "width": width,
-    }))
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
 }
 
 #[tauri::command]
