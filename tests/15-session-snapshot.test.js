@@ -333,9 +333,22 @@ describe('Scenario 32: Session snapshots', () => {
 
     // 8. Forgetting is deliberate and separate from killing: the running
     //    session stays unless --force, and then nothing is left to list.
+    //    The sessions on the server going in, and the server's own account,
+    //    are what a forget that finds no tmux server left needs to be read
+    //    (CI has seen the second forget find the server gone).
+    const sessionsBefore = srv.cli(['run', 'list-sessions -F "#{session_name}"']);
+    const forget = (...args) => {
+      try {
+        return srv.cli(['session', 'forget', ...args]);
+      } catch (error) {
+        throw new Error(
+          `${error.message}\nsessions before forgetting: ${sessionsBefore}\nserver: ${srv.serverLog()}`,
+        );
+      }
+    };
     expect(() => srv.cli(['session', 'forget', SESSION])).toThrow();
-    srv.cli(['session', 'forget', SESSION, '--force']);
-    srv.cli(['session', 'forget', SPARE, '--force']);
+    forget(SESSION, '--force');
+    forget(SPARE, '--force');
     expect(srv.cli(['session', 'snapshots'])).not.toContain(SESSION);
   }, 300000);
 });
