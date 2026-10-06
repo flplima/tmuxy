@@ -438,12 +438,11 @@ export type StateUpdate =
 export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
 export type ConnectionInfoListener = (
-  connectionId: number,
   defaultShell: string,
   /** The server runs `--read-only`: this client is a viewer. Absent on transports with no such mode. */
   readOnly?: boolean,
 ) => void;
-export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
+export type ReconnectionListener = (reconnecting: boolean) => void;
 /**
  * OSC 52 clipboard request from a terminal application. The frontend mirrors
  * the payload into the system clipboard via `navigator.clipboard.writeText`.
@@ -467,8 +466,6 @@ export type DetachedListener = (reason: string | null) => void;
 export interface TmuxAdapter {
   connect(): Promise<void>;
   disconnect(): void;
-  isConnected(): boolean;
-  isReconnecting(): boolean;
   invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
   onStateChange(listener: StateListener): () => void;
   onError(listener: ErrorListener): () => void;

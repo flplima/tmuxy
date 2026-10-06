@@ -166,7 +166,6 @@ export class V86TmuxAdapter implements TmuxAdapter {
   private readonly engine: V86Engine;
   private readonly shared: boolean;
   private readonly initCommands: string[];
-  private connected = false;
   /** The sink this adapter installed on the engine (null when detached). */
   private sink: EngineSink | null = null;
 
@@ -190,8 +189,7 @@ export class V86TmuxAdapter implements TmuxAdapter {
     // by the reconnect branch — which skips the initial theme + keybindings fetch
     // that only the `connecting` branch performs. The app already shows connecting
     // feedback via its own `connecting` state until connect() resolves.
-    this.connected = true;
-    this.connectionInfoListeners.forEach((l) => l(0, 'bash'));
+    this.connectionInfoListeners.forEach((l) => l('bash'));
     this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
 
     // reset() serializes on the engine's lifecycle queue: it restores the
@@ -215,7 +213,6 @@ export class V86TmuxAdapter implements TmuxAdapter {
   }
 
   disconnect(): void {
-    this.connected = false;
     // Detach OUR sink so an unmounted story never receives further state —
     // but never a successor's: this cleanup can run after the next story's
     // adapter already installed its own sink on the shared engine.
@@ -223,14 +220,6 @@ export class V86TmuxAdapter implements TmuxAdapter {
     this.sink = null;
     // A private engine is torn down; a shared engine stays alive for reuse.
     if (!this.shared) this.engine.destroy();
-  }
-
-  isConnected(): boolean {
-    return this.connected;
-  }
-
-  isReconnecting(): boolean {
-    return false;
   }
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

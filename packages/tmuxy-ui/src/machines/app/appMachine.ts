@@ -548,10 +548,7 @@ export const appMachine = setup({
     // needs an explicit queue, not a handler spread.
     TMUX_RECONNECTING: {
       target: '.reconnecting',
-      actions: assign(({ event }) => ({
-        connected: false,
-        reconnectAttempt: event.attempt,
-      })),
+      actions: assign({ connected: false }),
     },
     // Size events (handled globally, in any state)
     SET_CHAR_SIZE: {
@@ -2095,7 +2092,7 @@ export const appMachine = setup({
       on: {
         TMUX_RECONNECTED: {
           target: 'idle',
-          actions: assign({ connected: true, reconnectAttempt: 0, error: null }),
+          actions: assign({ connected: true, error: null }),
         },
         TMUX_DISCONNECTED: {
           target: 'disconnected',
@@ -2149,7 +2146,7 @@ export const appMachine = setup({
         // a recovery instead, once server state starts flowing.
         TMUX_RECONNECTED: {
           target: 'idle',
-          actions: assign({ connected: true, reconnectAttempt: 0, error: null }),
+          actions: assign({ connected: true, error: null }),
         },
         TMUX_STATE_UPDATE: {
           actions: sendTo('tmuxStore', ({ event }) => ({
@@ -2157,10 +2154,7 @@ export const appMachine = setup({
             state: event.state,
           })),
         },
-        TMUX_RECONNECTING: {
-          target: 'reconnecting',
-          actions: assign(({ event }) => ({ reconnectAttempt: event.attempt })),
-        },
+        TMUX_RECONNECTING: { target: 'reconnecting' },
       },
     },
 
@@ -2176,10 +2170,7 @@ export const appMachine = setup({
       on: {
         // Adapter may resume on its own (e.g. server restart while page open)
         // — accept the reconnection signal so we re-enter the live branch.
-        TMUX_RECONNECTING: {
-          target: 'reconnecting',
-          actions: assign(({ event }) => ({ reconnectAttempt: event.attempt })),
-        },
+        TMUX_RECONNECTING: { target: 'reconnecting' },
         TMUX_CONNECTED: {
           target: 'idle',
           actions: assign({ connected: true, fatalError: null, error: null }),

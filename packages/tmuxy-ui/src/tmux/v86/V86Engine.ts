@@ -223,10 +223,6 @@ export class V86Engine {
     return this.lastState;
   }
 
-  imageUrl(paneId: string, imageId: number): string | undefined {
-    return this.core?.image_url(paneId, imageId);
-  }
-
   /** Parse raw `capture-pane -p -e` text into cells via the core parser. */
   parseScrollback(text: string, width: number): PaneContent {
     return this.core?.parse_scrollback(text, width) ?? [];

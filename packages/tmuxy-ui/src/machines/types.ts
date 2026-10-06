@@ -320,13 +320,6 @@ export interface AppMachineContext {
    * will arrive on this monitor.
    */
   fatalError: string | null;
-  /**
-   * Adapter's current reconnect attempt count. 0 = channel is live or has
-   * never dropped. >0 = SSE/Tauri channel dropped and the adapter is
-   * retrying. Surfaced in the UI as a banner while in the `reconnecting`
-   * state and cleared on TMUX_RECONNECTED.
-   */
-  reconnectAttempt: number;
   /** Recent commands sent and errors received (debug log shown on status screen) */
   log: LogEntry[];
   sessionName: string;
@@ -679,26 +672,15 @@ export type TmuxModelUpdateEvent = {
   type: 'TMUX_MODEL_UPDATE';
   model: import('../tmux/store').TmuxClientModel;
 };
-/**
- * `tagged` is the structured AdapterError from the Effect-based adapter
- * layer (see src/tmux/effect/AdapterError.ts). `error` remains a free-form
- * display string for the existing log and status surfaces. New consumers
- * that want pattern-matching should branch on `tagged?._tag` and fall back
- * to `error` only for display.
- */
-export type TmuxErrorEvent = {
-  type: 'TMUX_ERROR';
-  error: string;
-  tagged?: import('../tmux/effect/AdapterError').AdapterError;
-};
+/** A failed command or call, as the display string the snackbar shows. */
+export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxFatalEvent = { type: 'TMUX_FATAL'; message: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
 /**
  * Adapter detected the SSE/Tauri channel dropped but is retrying. Distinct
  * from TMUX_DISCONNECTED (gave up) and TMUX_FATAL (no recovery possible).
- * `attempt` increments per retry — the UI shows it in the reconnect banner.
  */
-export type TmuxReconnectingEvent = { type: 'TMUX_RECONNECTING'; attempt: number };
+export type TmuxReconnectingEvent = { type: 'TMUX_RECONNECTING' };
 /**
  * Adapter recovered the channel after one or more failed attempts. The
  * appMachine returns to the live idle/syncing branch and the store
@@ -712,7 +694,6 @@ export type TmuxReconnectedEvent = { type: 'TMUX_RECONNECTED' };
 export type TmuxClipboardEvent = { type: 'TMUX_CLIPBOARD'; paneId: string; text: string };
 export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
-  connectionId: number;
   defaultShell: string;
   readOnly: boolean;
 };
@@ -861,7 +842,6 @@ export type ToggleTabOverviewEvent = { type: 'TOGGLE_TAB_OVERVIEW' };
 export type CloseTabOverviewEvent = { type: 'CLOSE_TAB_OVERVIEW' };
 /** Move the overview's keyboard cursor by `delta` slots (wraps). */
 export type TabOverviewMoveEvent = { type: 'TAB_OVERVIEW_MOVE'; delta: number };
-export type TabOverviewSelectEvent = { type: 'TAB_OVERVIEW_SELECT'; index: number };
 /** Open the slot at `index` (default: the cursor); the trailing slot creates a tab. */
 export type TabOverviewActivateEvent = { type: 'TAB_OVERVIEW_ACTIVATE'; index?: number };
 /** ctrl+1…9: select the Nth tab as the strip shows it (1-based position). */
@@ -1302,7 +1282,6 @@ export type AppMachineEvent =
   | GestureSettleEvent
   | CloseTabOverviewEvent
   | TabOverviewMoveEvent
-  | TabOverviewSelectEvent
   | TabOverviewActivateEvent
   | SelectTabByPositionEvent
   | ReorderTabEvent

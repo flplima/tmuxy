@@ -447,10 +447,6 @@ export function selectFatalError(context: AppMachineContext): string | null {
   return context.fatalError;
 }
 
-export function selectReconnectAttempt(context: AppMachineContext): number {
-  return context.reconnectAttempt;
-}
-
 export function selectLog(context: AppMachineContext): LogEntry[] {
   return context.log;
 }

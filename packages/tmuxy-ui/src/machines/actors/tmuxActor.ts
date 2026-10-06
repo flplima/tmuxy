@@ -26,11 +26,7 @@ export interface TmuxActorInput {
   parent: AnyActorRef;
 }
 
-/**
- * Convert a typed AdapterError into a human-readable string for logs and
- * the status-line display. The structured `tagged` field stays available
- * on the TMUX_ERROR event for consumers that want pattern matching.
- */
+/** Convert a typed AdapterError into a human-readable string for logs and the snackbar. */
 function adapterErrorToString(e: AdapterError): string {
   switch (e._tag) {
     case 'TmuxError':
@@ -49,10 +45,9 @@ function adapterErrorToString(e: AdapterError): string {
  *
  * Internally wraps the Promise-based adapter with an Effect-based facade
  * (toEffectAdapter) so failures carry the AdapterError ADT instead of
- * arbitrary string messages. Errors tunnel back to the parent machine as
- * { type: 'TMUX_ERROR', error: <display string>, tagged: <AdapterError> }
- * — consumers can switch on `tagged._tag` for typed handling and fall back
- * to `error` for logging.
+ * arbitrary string messages. The actor branches on the tag (a read-only
+ * refusal becomes a notice) and tunnels the rest back to the parent as
+ * { type: 'TMUX_ERROR', error: <display string> }.
  */
 export function createTmuxActor(adapter: TmuxAdapter) {
   return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
@@ -109,7 +104,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           return;
         }
         if (opts.logPrefix) logError(`${opts.logPrefix} -> ${display}`);
-        parent.send({ type: 'TMUX_ERROR', error: display, tagged });
+        parent.send({ type: 'TMUX_ERROR', error: display });
       });
     };
 
@@ -158,12 +153,12 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         })
       : () => {};
 
-    // SSE/Tauri channel dropped or recovered. Adapter tracks the attempt
-    // count; we surface it as a state-machine event so the UI can show a
-    // banner while the channel is down and clear it on recovery.
-    const unsubscribeReconnection = adapter.onReconnection((reconnecting, attempt) => {
+    // SSE/Tauri channel dropped or recovered, surfaced as a state-machine
+    // event so the UI can show a banner while the channel is down and clear
+    // it on recovery.
+    const unsubscribeReconnection = adapter.onReconnection((reconnecting) => {
       if (reconnecting) {
-        parent.send({ type: 'TMUX_RECONNECTING', attempt });
+        parent.send({ type: 'TMUX_RECONNECTING' });
       } else {
         parent.send({ type: 'TMUX_RECONNECTED' });
       }
@@ -183,13 +178,8 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     const unsubscribeThemeSettings = adapter.onThemeSettings(themeSettingsReceived);
 
     const unsubscribeConnectionInfo = adapter.onConnectionInfo(
-      (connectionId: number, defaultShell: string, readOnly?: boolean) => {
-        parent.send({
-          type: 'CONNECTION_INFO',
-          connectionId,
-          defaultShell,
-          readOnly: readOnly === true,
-        });
+      (defaultShell: string, readOnly?: boolean) => {
+        parent.send({ type: 'CONNECTION_INFO', defaultShell, readOnly: readOnly === true });
       },
     );
 
@@ -231,7 +221,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         run(
           // Schema-decoded: any wire-format drift surfaces as ProtocolError,
-          // distinguishable from network/tmux failures in TMUX_ERROR.tagged.
+          // distinguishable from network/tmux failures in the error text.
           eff.decodingInvoke('get_initial_state', Schemas.ServerState, {
             cols: event.cols,
             rows: event.rows,

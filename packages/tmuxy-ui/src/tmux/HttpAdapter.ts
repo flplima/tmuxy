@@ -109,7 +109,6 @@ export class HttpAdapter implements TmuxAdapter {
   // Session-name override set by switchSession. Instance-scoped (not a module
   // global) so multiple adapters — or a re-created one — don't share/leak it.
   private sessionOverride: string | null = null;
-  private reconnectAttempts = 0;
   private intentionalDisconnect = false;
 
   private stateListeners = new Set<StateListener>();
@@ -228,7 +227,6 @@ export class HttpAdapter implements TmuxAdapter {
     this.intentionalDisconnect = true;
     this.networkHints?.();
     this.networkHints = null;
-    this.reconnectAttempts = 0;
     this.reconnecting = false;
 
     this.keyBatcher.destroy();
@@ -373,8 +371,7 @@ export class HttpAdapter implements TmuxAdapter {
         this.connectionId = 0;
         if (!this.intentionalDisconnect && !this.fatal) {
           this.reconnecting = true;
-          this.reconnectAttempts++;
-          this.notifyReconnection(true, this.reconnectAttempts);
+          this.notifyReconnection(true);
         }
         resume(Effect.fail(error));
       };
@@ -384,17 +381,16 @@ export class HttpAdapter implements TmuxAdapter {
           const data = JSON.parse(event.data);
           this.connectionId = data.data?.connection_id ?? data.connection_id ?? 0;
           this.connected = true;
-          this.reconnectAttempts = 0;
 
           // Clear reconnecting state if was reconnecting
           if (this.reconnecting) {
             this.reconnecting = false;
-            this.notifyReconnection(false, 0);
+            this.notifyReconnection(false);
           }
 
           const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
           this.readOnly = Boolean(data.data?.read_only ?? data.read_only);
-          this.notifyConnectionInfo(this.connectionId, defaultShell, this.readOnly);
+          this.notifyConnectionInfo(defaultShell, this.readOnly);
 
           // Action tracing (docs/TELEMETRY.md): the server tells us whether it
           // is recording; only then do we ship our own events, and only through
@@ -607,10 +603,6 @@ export class HttpAdapter implements TmuxAdapter {
 
   isConnected(): boolean {
     return this.connected;
-  }
-
-  isReconnecting(): boolean {
-    return this.reconnecting;
   }
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -863,7 +855,6 @@ export class HttpAdapter implements TmuxAdapter {
     this.connected = false;
     this.connectionId = 0;
     this.reconnecting = false;
-    this.reconnectAttempts = 0;
     this.failConnectWaiters(new Error('switching session'));
 
     // Reconnect to new session
@@ -974,18 +965,12 @@ export class HttpAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(
-    connectionId: number,
-    defaultShell: string,
-    readOnly: boolean,
-  ): void {
-    this.connectionInfoListeners.forEach((listener) =>
-      listener(connectionId, defaultShell, readOnly),
-    );
+  private notifyConnectionInfo(defaultShell: string, readOnly: boolean): void {
+    this.connectionInfoListeners.forEach((listener) => listener(defaultShell, readOnly));
   }
 
-  private notifyReconnection(reconnecting: boolean, attempt: number): void {
-    this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
+  private notifyReconnection(reconnecting: boolean): void {
+    this.reconnectionListeners.forEach((listener) => listener(reconnecting));
   }
 
   private notifyKeyBindings(keybindings: KeyBindings): void {

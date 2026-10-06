@@ -8,7 +8,6 @@
  *     including tmux format strings (`-c "#{pane_current_path}"`).
  *   - Multiple concurrent in-flight ops compose on top of `committed` in
  *     dispatch order without colliding.
- *   - Drag-time swaps with skipPrediction don't double-shuffle pane positions.
  *   - Reconcile correctly handles real-world deltas (kill-pane, layout
  *     reshuffle, window close).
  *   - TmuxError → automatic rollback; OpRejectedByTmux ADT surfaces the
@@ -101,8 +100,6 @@ function makeFakeAdapter(): FakeAdapter {
   const adapter: TmuxAdapter = {
     connect: async () => {},
     disconnect: () => {},
-    isConnected: () => true,
-    isReconnecting: () => false,
     invoke: async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
       invocations.push(`${cmd}|${JSON.stringify(args ?? {})}`);
       if (state.nextResult.kind === 'reject') throw state.nextResult.error;
@@ -204,7 +201,7 @@ describe('TmuxStore — verbatim command preservation', () => {
     expect(fake.invocations[0]).toContain('select-pane -t %0');
   });
 
-  it('explicit applyOptimistic.command override wins over toTmuxCommand', () => {
+  it("a pending op keeps the caller's full command string", () => {
     const m = modelFromSnapshot({
       panes: [
         {
@@ -437,42 +434,7 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
 });
 
 // ============================================
-// 4. skipPrediction for drag-time swaps
-// ============================================
-
-describe('TmuxStore — skipPrediction', () => {
-  it('applies an identity patch when skipPrediction is set', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
-    await Effect.runPromise(
-      store.reconcile(
-        serverState({
-          panes: [
-            serverPane({ tmux_id: '%0', x: 0, width: 39 }),
-            serverPane({ tmux_id: '%1', x: 40, width: 40, active: true }),
-          ],
-          active_pane_id: '%1',
-        }),
-      ),
-    );
-    const before = store.getModel().derived.panes.map((p) => `${p.tmuxId}@${p.x}`);
-
-    fake.setNextResult({ kind: 'ok', value: undefined });
-    const exit = await Effect.runPromiseExit(
-      store.dispatchCommand('swap-pane -s %0 -t %1', { skipPrediction: true }),
-    );
-    expect(exit._tag).toBe('Success');
-
-    // No predicted swap applied — derived positions are unchanged.
-    const after = store.getModel().derived.panes.map((p) => `${p.tmuxId}@${p.x}`);
-    expect(after).toEqual(before);
-  });
-});
-
-// ============================================
-// 5. Kill-pane reconcile
+// 4. Kill-pane reconcile
 // ============================================
 
 describe('TmuxStore — kill-pane reconcile', () => {
@@ -532,7 +494,7 @@ describe('TmuxStore — kill-pane reconcile', () => {
 });
 
 // ============================================
-// 6. Typed error surface
+// 5. Typed error surface
 // ============================================
 
 describe('TmuxStore — typed errors', () => {
@@ -582,7 +544,7 @@ describe('TmuxStore — typed errors', () => {
 });
 
 // ============================================
-// 7. clear() drops everything (session switch)
+// 6. clear() drops everything (session switch)
 // ============================================
 
 describe('TmuxStore — clear (session switch)', () => {
@@ -618,7 +580,7 @@ describe('TmuxStore — clear (session switch)', () => {
 });
 
 // ============================================
-// 8. canonical toTmuxCommand for ops constructed in code
+// 7. canonical toTmuxCommand for ops constructed in code
 // ============================================
 
 describe('TmuxStore — toTmuxCommand fallback for in-code ops', () => {
@@ -638,7 +600,7 @@ describe('TmuxStore — toTmuxCommand fallback for in-code ops', () => {
 });
 
 // ============================================
-// 9. tmux output positions are honored (sanity)
+// 8. tmux output positions are honored (sanity)
 // ============================================
 
 describe('Op predictions — tmux-output shape', () => {

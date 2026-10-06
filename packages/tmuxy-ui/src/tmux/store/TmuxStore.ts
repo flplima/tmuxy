@@ -35,18 +35,10 @@ import {
 } from './model';
 import type { PredictContext } from './ops';
 import { predict } from './ops';
-import type { OpError, OpId, PendingOp, TmuxClientModel, TmuxOp, TmuxSnapshot } from './types';
+import type { OpError, OpId, TmuxClientModel, TmuxOp, TmuxSnapshot } from './types';
 import { EMPTY_MODEL, OpBlockedReadOnly, OpRejectedByTmux, OpTransportError } from './types';
 
 export interface DispatchOptions {
-  /** Override the predict-time context (defaults to last-known values). */
-  readonly predictContext?: PredictContext;
-  /**
-   * If true, skip the optimistic prediction entirely and just forward the
-   * command. Useful for drag-time swaps where the dragMachine already owns
-   * the optimistic state.
-   */
-  readonly skipPrediction?: boolean;
   /**
    * Override the wire-format command string sent to tmux. Use this when the
    * caller has the full original command (including format strings like
@@ -64,30 +56,11 @@ export interface TmuxStore {
   readonly getModel: () => TmuxClientModel;
 
   /**
-   * Synchronously apply the predicted patch for `op` to the model.
-   * Returns the new opId + the canonical command string. Listeners fire
-   * inside this call, so any XState bridge subscribed via `subscribe`
-   * already sees the new derived snapshot when this returns.
-   *
-   * The caller is responsible for running `dispatchRemote(opId, command)`
-   * afterwards (or composing both via `dispatch`). This split lets callers
-   * that need sync activePaneId updates (the keyboard-routing contract)
-   * grab the new derived state in the same macrostep that initiated the
-   * dispatch.
-   */
-  readonly applyOptimistic: (op: TmuxOp, opts?: DispatchOptions) => { opId: OpId; command: string };
-
-  /**
-   * Send a previously-applied op's command to tmux and reconcile the
-   * result. On TmuxError the op is rolled back from the model. Fire-and-
-   * forget via `Effect.runFork` at call sites that don't await the result.
-   */
-  readonly dispatchRemote: (opId: OpId, command: string) => Effect.Effect<OpId, OpError>;
-
-  /**
    * Push a typed op through the optimistic dispatch pipeline. Returns the
-   * Effect so the caller can fork, race, or compose. Equivalent to
-   * `applyOptimistic(op)` followed by `dispatchRemote(opId, command)`.
+   * Effect so the caller can fork, race, or compose. The predicted patch
+   * applies synchronously when the Effect starts (listeners fire before the
+   * adapter call), then the command goes to tmux; on a TmuxError the op is
+   * rolled back from the model.
    */
   readonly dispatch: (op: TmuxOp, opts?: DispatchOptions) => Effect.Effect<OpId, OpError>;
 
@@ -199,18 +172,12 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
       // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
       const command = opts?.command ?? toTmuxCommand(op);
-      const ctx = opts?.predictContext ?? Effect.runSync(Ref.get(ctxRef));
-
-      let pending: PendingOp;
-      if (opts?.skipPrediction) {
-        pending = makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
-      } else {
-        const currentModel = Effect.runSync(Ref.get(ref));
-        const result = predict(op, currentModel.derived, ctx, opId);
-        pending = result
-          ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
-          : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
-      }
+      const ctx = Effect.runSync(Ref.get(ctxRef));
+      const currentModel = Effect.runSync(Ref.get(ref));
+      const result = predict(op, currentModel.derived, ctx, opId);
+      const pending = result
+        ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
+        : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
 
       const next = Effect.runSync(
         Ref.updateAndGet(ref, (m) => addPendingOp(dropSupersededFocusOps(m, op), pending)),
@@ -340,8 +307,6 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
 
     return {
       getModel,
-      applyOptimistic,
-      dispatchRemote,
       dispatch,
       dispatchCommand,
       reconcile,

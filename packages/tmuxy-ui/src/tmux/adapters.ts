@@ -31,7 +31,6 @@ export class TauriAdapter implements TmuxAdapter {
   readonly enumeratesSessions = true;
   private connected = false;
   private reconnectingState = false;
-  private reconnectAttempt = 0;
   private unlistenFns: (() => void)[] = [];
 
   private stateListeners = new Set<StateListener>();
@@ -133,8 +132,7 @@ export class TauriAdapter implements TmuxAdapter {
         this.connected = true;
         if (wasDown) {
           this.reconnectingState = false;
-          this.reconnectAttempt = 0;
-          this.notifyReconnection(false, 0);
+          this.notifyReconnection(false);
         }
       });
       this.unlistenFns.push(unlistenState);
@@ -194,29 +192,17 @@ export class TauriAdapter implements TmuxAdapter {
       const unlistenError = await listen<string>('tmux-error', (event) => {
         this.notifyError(event.payload);
 
-        // If we were connected, we're now reconnecting
-        if (this.connected) {
-          this.connected = false;
-          this.reconnectingState = true;
-          this.reconnectAttempt++;
-          this.notifyReconnection(true, this.reconnectAttempt);
-        } else if (!this.reconnectingState) {
-          // First connection attempt failed — mark as reconnecting
-          this.reconnectingState = true;
-          this.reconnectAttempt++;
-          this.notifyReconnection(true, this.reconnectAttempt);
-        } else {
-          // Subsequent reconnection failure
-          this.reconnectAttempt++;
-          this.notifyReconnection(true, this.reconnectAttempt);
-        }
+        // A dropped connection, a failed first attempt and a failed retry
+        // all leave the adapter retrying.
+        this.connected = false;
+        this.reconnectingState = true;
+        this.notifyReconnection(true);
       });
       this.unlistenFns.push(unlistenError);
 
       this.connected = true;
 
-      // Tauri is always primary
-      this.notifyConnectionInfo(0, 'bash');
+      this.notifyConnectionInfo('bash');
 
       // Action tracing (docs/TELEMETRY.md): ask the local backend whether it is
       // recording; only then ship our events to it over IPC. A backend without
@@ -270,18 +256,9 @@ export class TauriAdapter implements TmuxAdapter {
 
     this.connected = false;
     this.reconnectingState = false;
-    this.reconnectAttempt = 0;
     this.currentState = null;
     this.lastDeltaSeq = null;
     this.streamSynced = false;
-  }
-
-  isConnected(): boolean {
-    return this.connected;
-  }
-
-  isReconnecting(): boolean {
-    return this.reconnectingState;
   }
 
   // Serial queue for mutating commands so they reach the Tauri executor in
@@ -439,12 +416,12 @@ export class TauriAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(connectionId: number, defaultShell: string) {
-    this.connectionInfoListeners.forEach((listener) => listener(connectionId, defaultShell));
+  private notifyConnectionInfo(defaultShell: string) {
+    this.connectionInfoListeners.forEach((listener) => listener(defaultShell));
   }
 
-  private notifyReconnection(reconnecting: boolean, attempt: number) {
-    this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
+  private notifyReconnection(reconnecting: boolean) {
+    this.reconnectionListeners.forEach((listener) => listener(reconnecting));
   }
 
   async switchSession(newSession: string): Promise<void> {
@@ -492,7 +469,7 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-export function isDemoUrl(): boolean {
+function isDemoUrl(): boolean {
   return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('demo');
 }
 

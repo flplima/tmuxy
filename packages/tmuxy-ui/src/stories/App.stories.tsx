@@ -727,7 +727,7 @@ export const Reconnect: Story = {
     });
     expect(doc.querySelector('.connection-overlay-reconnecting')).toBeNull();
     // Channel drops → reconnecting indicator appears.
-    app.send({ type: 'TMUX_RECONNECTING', attempt: 1 });
+    app.send({ type: 'TMUX_RECONNECTING' });
     await waitFor(
       () => expect(doc.querySelector('.connection-overlay-reconnecting')).not.toBeNull(),
       {

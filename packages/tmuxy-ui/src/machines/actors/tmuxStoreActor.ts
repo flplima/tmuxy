@@ -47,13 +47,8 @@ function traceOp(op: TmuxOp): void {
 }
 
 export type TmuxStoreActorEvent =
-  /**
-   * Forward a tmux command from SEND_TMUX_COMMAND to the store.
-   * `skipPrediction: true` is the escape hatch for code paths that already
-   * own the optimistic visual (the drag machine pre-shuffles pane positions
-   * for the duration of a drag).
-   */
-  | { type: 'DISPATCH_COMMAND'; command: string; skipPrediction?: boolean }
+  /** Forward a tmux command from SEND_TMUX_COMMAND to the store. */
+  | { type: 'DISPATCH_COMMAND'; command: string }
   /**
    * Dispatch a TYPED op with an explicit wire command. For ops the command
    * parser cannot express (GroupSwitch rides a run-shell script call) —
@@ -155,8 +150,7 @@ export function createTmuxStoreActor(store: TmuxStore) {
         // OpError because the store has already updated the model; the next
         // TMUX_MODEL_UPDATE will reflect the rolled-back state. Logged here
         // for debuggability.
-        const opts = event.skipPrediction ? { skipPrediction: true } : undefined;
-        dispatchWithErrorSurface(store.dispatchCommand(event.command, opts), event.command);
+        dispatchWithErrorSurface(store.dispatchCommand(event.command), event.command);
         return;
       }
 

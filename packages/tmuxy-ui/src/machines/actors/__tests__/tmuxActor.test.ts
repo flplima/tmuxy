@@ -11,8 +11,6 @@ function makeStubAdapter(overrides: Partial<TmuxAdapter>): TmuxAdapter {
   return {
     connect: () => Promise.resolve(),
     disconnect: noop,
-    isConnected: () => true,
-    isReconnecting: () => false,
     invoke: () => Promise.resolve(undefined as never),
     onStateChange: () => noop,
     onError: () => noop,

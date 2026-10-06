@@ -16,8 +16,6 @@ function makeStubAdapter(overrides: Partial<TmuxAdapter>): TmuxAdapter {
   return {
     connect: unimplemented,
     disconnect: unimplemented as () => void,
-    isConnected: () => false,
-    isReconnecting: () => false,
     invoke: unimplemented,
     onStateChange: () => () => {},
     onError: () => () => {},
@@ -95,14 +93,6 @@ describe('toEffectAdapter', () => {
       expect(json).toMatch(/TransportError/);
       expect(json).toMatch(/switchSession not supported/);
     }
-  });
-
-  it('disconnect forwards to underlying adapter synchronously', () => {
-    const disconnect = vi.fn();
-    const adapter = makeStubAdapter({ disconnect });
-    const eff = toEffectAdapter(adapter);
-    eff.disconnect();
-    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it('decodingInvoke returns decoded value when payload matches the schema', async () => {

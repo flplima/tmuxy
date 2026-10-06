@@ -44,7 +44,6 @@ describe('detached state', () => {
     const snapshot = actor.getSnapshot();
     expect(snapshot.value).toBe('idle');
     expect(snapshot.context.connected).toBe(true);
-    expect(snapshot.context.reconnectAttempt).toBe(0);
   });
 
   it('a cold connect also releases it', () => {
@@ -63,7 +62,7 @@ describe('detached state', () => {
     // all: a retry notice means the channel is down, not that the user is back
     // in — it belongs in `reconnecting`, which shows a spinner.
     const actor = detachedActor();
-    actor.send({ type: 'TMUX_RECONNECTING', attempt: 1 });
+    actor.send({ type: 'TMUX_RECONNECTING' });
     expect(actor.getSnapshot().value).toBe('reconnecting');
   });
 });
