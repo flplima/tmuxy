@@ -2023,6 +2023,114 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
   }, 180000);
 });
 
+// ====== Scenario 6j: right-click anywhere on a pane header opens that pane's menu ======
+
+describe('Scenario 6j: Pane header context menu', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  /**
+   * Right-click `selector` with the real right button. Playwright's own click
+   * waits for the element to be visible and stable, and names whatever covers
+   * it if something does.
+   */
+  const rightClick = (selector) =>
+    ctx.page.locator(selector).first().click({ button: 'right', timeout: 5000 });
+
+  /** The pane menu is on screen: in the DOM is not enough. */
+  const menuVisible = (after) =>
+    waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate(() => {
+          const r = document
+            .querySelector('[role="menu"][aria-label="Pane"]')
+            ?.getBoundingClientRect();
+          return !!r && r.width > 40 && r.height > 40 && r.top >= 0 && r.bottom <= innerHeight;
+        }),
+      5000,
+      async () =>
+        `the pane menu to be on screen after right-clicking ${after}\n${await ctx.page.evaluate(
+          () => {
+            const m = document.querySelector('[role="menu"][aria-label="Pane"]');
+            const r = m?.getBoundingClientRect();
+            return JSON.stringify({
+              menu: m
+                ? [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]
+                : null,
+              viewport: [innerWidth, innerHeight],
+            });
+          },
+        )}`,
+    );
+
+  const chooseItem = async (label) => {
+    await ctx.page
+      .locator('[role="menu"][aria-label="Pane"] [role="menuitem"]', { hasText: label })
+      .first()
+      .click();
+    await waitForCondition(
+      ctx.page,
+      async () => (await ctx.page.$('[role="menu"][aria-label="Pane"]')) === null,
+      5000,
+      'the pane menu to close',
+    );
+  };
+
+  const marked = (paneId) =>
+    ctx.session.runCommand(`display-message -p -t ${paneId} '#{pane_marked}'`).trim() === '1';
+
+  test('the ⋮, the MARKED badge, a hidden group member and a float header each open the menu for their pane', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+    const paneA = await ctx.page.evaluate(() => window.app.getSnapshot().context.activePaneId);
+    const header = `.pane-layout-item[data-pane-id="${paneA}"] .pane-header`;
+
+    // The ⋮ of a single pane sits outside its tab: right-clicking it is the
+    // header of that pane, and an action from the menu acts on it.
+    await rightClick(`${header} .pane-header-menu`);
+    await menuVisible(`${header} .pane-header-menu`);
+    await chooseItem('Mark Pane');
+    await waitForCondition(ctx.page, async () => marked(paneA), 5000, `${paneA} to be marked`);
+    await ctx.page.waitForSelector(`${header} [data-testid="pane-header-mark"]`, {
+      state: 'visible',
+    });
+
+    // The MARKED badge is outside the tab too.
+    await rightClick(`${header} [data-testid="pane-header-mark"]`);
+    await menuVisible(`${header} [data-testid="pane-header-mark"]`);
+    await chooseItem('Unmark Pane');
+    await waitForCondition(ctx.page, async () => !marked(paneA), 5000, `${paneA} to be unmarked`);
+
+    // A group's header: the share of the member that is NOT showing names
+    // that member, not the one on screen.
+    await clickPaneGroupAdd(ctx.page);
+    await waitForGroupTabs(ctx.page, 2);
+    const hidden = await ctx.page.evaluate(() => {
+      const tabs = [...document.querySelectorAll('.pane-tabs-group .pane-tab')];
+      return tabs.find((t) => !t.classList.contains('pane-tab-selected'))?.dataset.paneTab;
+    });
+    expect(hidden).toMatch(/^%\d+$/);
+    await rightClick(`.pane-tab[data-pane-tab="${hidden}"]`);
+    await menuVisible(`.pane-tab[data-pane-tab="${hidden}"]`);
+    await chooseItem('Mark Pane');
+    await waitForCondition(ctx.page, async () => marked(hidden), 5000, `${hidden} to be marked`);
+
+    // A float's header is the same header.
+    await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
+    await pressEnter(ctx.page);
+    await waitForFloatModal(ctx.page, 20000);
+    await rightClick('.float-container .pane-header');
+    await menuVisible('.float-container .pane-header');
+    await ctx.page.keyboard.press('Escape');
+  }, 120000);
+});
+
 // ====== Scenario 6i: the cursor jumps, not glides, when the picture under it changes ======
 
 describe('Scenario 6i: Cursor motion across tabs and group members', () => {

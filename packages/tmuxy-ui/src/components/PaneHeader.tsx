@@ -400,6 +400,11 @@ export function PaneHeader({
       onDoubleClick={handleDoubleClick}
       onMouseDown={handleHeaderMouseDown}
       onTouchStart={handleHeaderTouchStart}
+      // Anywhere on the header that is not a member's tab — the ⋮/✕ of a
+      // single pane, the MARKED badge, the space beside the tabs — is the
+      // header of the pane it shows. A tab handles its own right-click (and
+      // stops it) so a group's member is named by where the pointer is.
+      onContextMenu={(e) => handleContextMenu(e, activeTabId)}
       role="tablist"
       aria-label={`Pane tabs`}
     >
