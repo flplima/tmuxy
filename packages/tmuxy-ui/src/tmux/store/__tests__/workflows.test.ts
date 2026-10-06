@@ -155,8 +155,8 @@ describe('parseCommandToOp — prefix-pinned commands', () => {
 describe('TmuxStore — verbatim command preservation', () => {
   it('sends the caller-provided command string, not the op canonical form', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(serverState()));
+    const store = makeTmuxStore();
+    store.reconcile(serverState());
 
     const original = 'select-pane -t %0 \\; split-window -v -c "#{pane_current_path}"';
     fake.setNextResult({ kind: 'ok', value: undefined });
@@ -252,8 +252,8 @@ describe('TmuxStore — verbatim command preservation', () => {
 describe('TmuxStore — multiple in-flight ops compose', () => {
   it('two splits in flight stack predictions on top of each other', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(serverState()));
+    const store = makeTmuxStore();
+    store.reconcile(serverState());
 
     fake.setNextResult({ kind: 'ok', value: undefined });
 
@@ -408,49 +408,43 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
 describe('TmuxStore — kill-pane reconcile', () => {
   it('drops paneKeyOverrides for removed panes', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
+    const store = makeTmuxStore();
 
     // Seed: 2 panes, plus a stale overlay entry for a pane that's about to die.
-    await fake.runtime.runPromise(
-      store.reconcile(
-        serverState({
-          panes: [
-            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
-            serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
-          ],
-          active_pane_id: pid('%1'),
-        }),
-      ),
+    store.reconcile(
+      serverState({
+        panes: [
+          serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+          serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
+        ],
+        active_pane_id: pid('%1'),
+      }),
     );
 
     // Inject a paneKeyOverride manually by running a split + reconcile.
     fake.setNextResult({ kind: 'ok', value: undefined });
     await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
-    await fake.runtime.runPromise(
-      store.reconcile(
-        serverState({
-          panes: [
-            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
-            serverPane({ tmux_id: pid('%1'), x: 40, width: 20 }),
-            serverPane({ tmux_id: pid('%2'), x: 61, width: 19, active: true }),
-          ],
-          active_pane_id: pid('%2'),
-        }),
-      ),
+    store.reconcile(
+      serverState({
+        panes: [
+          serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+          serverPane({ tmux_id: pid('%1'), x: 40, width: 20 }),
+          serverPane({ tmux_id: pid('%2'), x: 61, width: 19, active: true }),
+        ],
+        active_pane_id: pid('%2'),
+      }),
     );
     expect(Object.keys(store.getModel().paneKeyOverrides)).toContain(pid('%2'));
 
     // Server reports the new pane killed.
-    await fake.runtime.runPromise(
-      store.reconcile(
-        serverState({
-          panes: [
-            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
-            serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
-          ],
-          active_pane_id: pid('%1'),
-        }),
-      ),
+    store.reconcile(
+      serverState({
+        panes: [
+          serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+          serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
+        ],
+        active_pane_id: pid('%1'),
+      }),
     );
 
     // The stale override for %2 should be pruned.
@@ -466,8 +460,8 @@ describe('TmuxStore — kill-pane reconcile', () => {
 describe('TmuxStore — typed errors', () => {
   it('TmuxError surfaces as OpRejectedByTmux carrying stderr', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(serverState()));
+    const store = makeTmuxStore();
+    store.reconcile(serverState());
 
     fake.setNextResult({
       kind: 'reject',
@@ -493,8 +487,8 @@ describe('TmuxStore — typed errors', () => {
 
   it('rejecting object-shape {error: ...} (Rust convention) also rolls back', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(serverState()));
+    const store = makeTmuxStore();
+    store.reconcile(serverState());
 
     fake.setNextResult({ kind: 'reject', error: { error: 'no such pane: %999', kind: 'tmux' } });
     const exit = await fake.runtime.runPromiseExit(
@@ -517,10 +511,10 @@ describe('TmuxStore — typed errors', () => {
 describe('TmuxStore — clear (session switch)', () => {
   it('drops committed + pending ops and notifies subscribers', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
+    const store = makeTmuxStore();
 
     // Seed the store with a session, then dispatch an in-flight op.
-    await fake.runtime.runPromise(store.reconcile(serverState()));
+    store.reconcile(serverState());
     fake.setNextResult({ kind: 'ok', value: undefined });
     await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
     expect(store.getModel().committed.panes).toHaveLength(1);
@@ -530,7 +524,7 @@ describe('TmuxStore — clear (session switch)', () => {
     const snaps: number[] = [];
     const unsub = store.subscribe((m) => snaps.push(m.committed.panes.length));
     snaps.length = 0; // ignore the immediate "current" callback fired on subscribe
-    await fake.runtime.runPromise(store.clear());
+    store.clear();
     unsub();
     // The clear should have fired exactly one notification with empty panes.
     expect(snaps).toEqual([0]);
@@ -551,8 +545,8 @@ describe('TmuxStore — clear (session switch)', () => {
 describe('TmuxStore — toTmuxCommand fallback for in-code ops', () => {
   it('uses the canonical form when no command override is supplied', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(serverState()));
+    const store = makeTmuxStore();
+    store.reconcile(serverState());
 
     fake.setNextResult({ kind: 'ok', value: undefined });
     // SELECT_TAB constructs a SelectWindow op directly with no original
@@ -745,20 +739,18 @@ describe('Op predictions — tmux-output shape', () => {
 
   it('reconcile after sessionName change still cleanly matches new ops', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
+    const store = makeTmuxStore();
     // Session A
-    await fake.runtime.runPromise(store.reconcile(serverState({ session_name: 'A' })));
+    store.reconcile(serverState({ session_name: 'A' }));
     // Clear (e.g. SWITCH_SESSION).
-    await fake.runtime.runPromise(store.clear());
+    store.clear();
     // Session B arrives — different ids reused.
-    await fake.runtime.runPromise(
-      store.reconcile(
-        serverState({
-          session_name: 'B',
-          panes: [serverPane({ tmux_id: pid('%0'), active: true })],
-          active_pane_id: pid('%0'),
-        }),
-      ),
+    store.reconcile(
+      serverState({
+        session_name: 'B',
+        panes: [serverPane({ tmux_id: pid('%0'), active: true })],
+        active_pane_id: pid('%0'),
+      }),
     );
     expect(store.getModel().committed.sessionName).toBe('B');
     expect(store.getModel().ops).toHaveLength(0);
@@ -767,17 +759,15 @@ describe('Op predictions — tmux-output shape', () => {
     fake.setNextResult({ kind: 'ok', value: undefined });
     await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
     expect(store.getModel().ops).toHaveLength(1);
-    await fake.runtime.runPromise(
-      store.reconcile(
-        serverState({
-          session_name: 'B',
-          panes: [
-            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
-            serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
-          ],
-          active_pane_id: pid('%1'),
-        }),
-      ),
+    store.reconcile(
+      serverState({
+        session_name: 'B',
+        panes: [
+          serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+          serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
+        ],
+        active_pane_id: pid('%1'),
+      }),
     );
     expect(store.getModel().ops).toHaveLength(0);
     expect(store.getModel().committed.panes).toHaveLength(2);

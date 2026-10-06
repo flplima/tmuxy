@@ -1,9 +1,10 @@
 /**
- * TmuxStore — Effect-managed `Ref<TmuxClientModel>` with typed dispatch.
+ * TmuxStore — the client model, its optimistic dispatch and reconciliation.
  *
  * Responsibilities:
- *  - Hold the model in a Ref. Subscribers are notified whenever `derived`
- *    changes shape.
+ *  - Hold the model. Subscribers are notified whenever `derived` changes
+ *    shape. Everything here is synchronous except the send to tmux, which is
+ *    why only `dispatch` is an Effect (it needs the transport).
  *  - `dispatch(op)` runs predict → apply optimistic patch → send command →
  *    on tmux error: rollback. The matching server delta clears the op via
  *    `reconcile`.
@@ -17,7 +18,7 @@
  * existing selector and hook working without modification.
  */
 
-import { Effect, Ref } from 'effect';
+import { Effect } from 'effect';
 import { formatAdapterError } from '../effect/AdapterError';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
 import type { ServerState } from '../../domain/wire';
@@ -52,7 +53,7 @@ export interface DispatchOptions {
 export type StoreListener = (model: TmuxClientModel) => void;
 
 export interface TmuxStore {
-  /** Current model snapshot. Cheap — synchronous Ref read. */
+  /** Current model snapshot. */
   readonly getModel: () => TmuxClientModel;
 
   /**
@@ -73,180 +74,157 @@ export interface TmuxStore {
    * entries the caller wants to log. This is the single entry point from
    * the SSE/Tauri state stream.
    */
-  readonly reconcile: (state: ServerState) => Effect.Effect<ReadonlyArray<RollbackEntry>>;
+  readonly reconcile: (state: ServerState) => ReadonlyArray<RollbackEntry>;
 
   /**
    * Drop everything (committed, ops, paneKeyOverrides). Used on session
    * switch when we don't yet have a new server snapshot to reset against —
    * the store starts empty and rebuilds on the next reconcile.
    */
-  readonly clear: () => Effect.Effect<void>;
+  readonly clear: () => void;
 
   /**
    * Subscribe to model changes. The listener fires after every committed
    * mutation — both server reconciliations and local dispatches. Returns
-   * an unsubscribe function. Listeners are invoked synchronously inside
-   * the mutating Effect's continuation.
+   * an unsubscribe function. Listeners are invoked synchronously by the
+   * mutation.
    */
   readonly subscribe: (listener: StoreListener) => () => void;
 
   /** Update the default PredictContext (called when defaultShell / MRU change). */
-  readonly setPredictContext: (ctx: PredictContext) => Effect.Effect<void>;
+  readonly setPredictContext: (ctx: PredictContext) => void;
 }
 
 /** The ops that only move focus — all a read-only client can act on, and only locally. */
 const VIEW_OPS: ReadonlySet<TmuxOp['_tag']> = new Set(['SelectWindow', 'SelectPane', 'Navigate']);
 
-export function makeTmuxStore(): Effect.Effect<TmuxStore> {
-  return Effect.gen(function* () {
-    const ref = yield* Ref.make<TmuxClientModel>(EMPTY_MODEL);
-    const ctxRef = yield* Ref.make<PredictContext>({
-      defaultShell: 'bash',
-      paneActivationOrder: [],
-    });
-    const listeners = new Set<StoreListener>();
+export function makeTmuxStore(): TmuxStore {
+  let model: TmuxClientModel = EMPTY_MODEL;
+  let predictContext: PredictContext = { defaultShell: 'bash', paneActivationOrder: [] };
+  const listeners = new Set<StoreListener>();
 
-    const notify = (model: TmuxClientModel): void => {
-      for (const l of listeners) {
-        try {
-          l(model);
-        } catch (err) {
-          console.error('[TmuxStore] listener threw:', err);
-        }
+  /** Replace the model and tell every subscriber. */
+  const commit = (next: TmuxClientModel): void => {
+    model = next;
+    for (const l of listeners) {
+      try {
+        l(next);
+      } catch (err) {
+        console.error('[TmuxStore] listener threw:', err);
       }
-      scheduleIdleReconcile(model);
-    };
+    }
+    scheduleIdleReconcile(next);
+  };
 
-    const getModel = () => Effect.runSync(Ref.get(ref));
+  /** Change an op's status only: derived is unaffected, so nobody is told. */
+  const setStatus = (opId: OpId, status: 'in-flight' | 'awaiting-confirm'): TmuxClientModel => {
+    model = { ...model, ops: model.ops.map((o) => (o.id === opId ? { ...o, status } : o)) };
+    return model;
+  };
 
-    // Age-based verdicts (stale sweeps, focus-linger release, supersession)
-    // are computed inside reconcile passes — which are normally driven by
-    // server snapshots. On an IDLE control stream no snapshot ever arrives,
-    // so a wrong pin (a zoomed-geometry patch after a rapid re-toggle, a
-    // superseded focus op) would wedge forever. While ops are pending,
-    // re-reconcile against the unchanged committed snapshot on a timer so
-    // time-based verdicts fire even with nothing on the wire.
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    const IDLE_RECONCILE_MS = 500;
-    const scheduleIdleReconcile = (model: TmuxClientModel): void => {
+  // Age-based verdicts (stale sweeps, focus-linger release, supersession)
+  // are computed inside reconcile passes — which are normally driven by
+  // server snapshots. On an IDLE control stream no snapshot ever arrives,
+  // so a wrong pin (a zoomed-geometry patch after a rapid re-toggle, a
+  // superseded focus op) would wedge forever. While ops are pending,
+  // re-reconcile against the unchanged committed snapshot on a timer so
+  // time-based verdicts fire even with nothing on the wire.
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const IDLE_RECONCILE_MS = 500;
+  const scheduleIdleReconcile = (current: TmuxClientModel): void => {
+    if (current.ops.length === 0) return;
+    if (idleTimer !== null) return;
+    idleTimer = setTimeout(() => {
+      idleTimer = null;
       if (model.ops.length === 0) return;
-      if (idleTimer !== null) return;
-      idleTimer = setTimeout(() => {
-        idleTimer = null;
-        const current = getModel();
-        if (current.ops.length === 0) return;
-        const result = applyServerSnapshot(current, current.committed, Date.now());
-        Effect.runSync(Ref.set(ref, result.model));
-        for (const entry of result.rolledBack) {
-          console.warn(`[TmuxStore] idle-swept ${entry.op._tag} op ${entry.opId}: ${entry.reason}`);
-        }
-        notify(result.model);
-      }, IDLE_RECONCILE_MS);
-    };
+      const result = applyServerSnapshot(model, model.committed, Date.now());
+      for (const entry of result.rolledBack) {
+        console.warn(`[TmuxStore] idle-swept ${entry.op._tag} op ${entry.opId}: ${entry.reason}`);
+      }
+      commit(result.model);
+    }, IDLE_RECONCILE_MS);
+  };
 
-    const applyOptimistic = (
-      op: TmuxOp,
-      opts?: DispatchOptions,
-    ): { opId: OpId; command: string } => {
-      const opId = generateOpId();
-      // Prefer the caller's explicit command string (preserves keyboardActor's
-      // `select-pane -t %N \;` prefix-pin and tmux format strings like
-      // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
-      // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
-      const command = opts?.command ?? toTmuxCommand(op);
-      const ctx = Effect.runSync(Ref.get(ctxRef));
-      const currentModel = Effect.runSync(Ref.get(ref));
-      const result = predict(op, currentModel.derived, ctx, opId);
-      const pending = result
-        ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
-        : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
+  const applyOptimistic = (op: TmuxOp, opts?: DispatchOptions): { opId: OpId; command: string } => {
+    const opId = generateOpId();
+    // Prefer the caller's explicit command string (preserves keyboardActor's
+    // `select-pane -t %N \;` prefix-pin and tmux format strings like
+    // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
+    // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
+    const command = opts?.command ?? toTmuxCommand(op);
+    const result = predict(op, model.derived, predictContext, opId);
+    const pending = result
+      ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
+      : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
+    commit(addPendingOp(dropSupersededFocusOps(model, op), pending));
+    return { opId, command };
+  };
 
-      const next = Effect.runSync(
-        Ref.updateAndGet(ref, (m) => addPendingOp(dropSupersededFocusOps(m, op), pending)),
-      );
-      notify(next);
-      return { opId, command };
-    };
-
-    const dispatchRemote = (
-      transport: TmuxTransport['Type'],
-      opId: OpId,
-      command: string,
-    ): Effect.Effect<OpId, OpError> =>
-      Effect.gen(function* () {
-        // Mark in-flight BEFORE the adapter call: the ack can take longer than
-        // the quick stale sweep, and a swept op would blink the optimistic UI
-        // away and remount when the confirm finally lands. Status-only change —
-        // derived is unaffected, so listeners are not notified here.
-        yield* Ref.update(ref, (m) => ({
-          ...m,
-          ops: m.ops.map((o) => (o.id === opId ? { ...o, status: 'in-flight' as const } : o)),
-        }));
-        const sendResult = yield* Effect.either(transport.invoke('run_tmux_command', { command }));
-        if (sendResult._tag === 'Left') {
-          const err = sendResult.left;
-          const { model: rolledBackModel, entry } = rollbackOp(
-            yield* Ref.get(ref),
-            opId,
-            formatAdapterError(err),
-          );
-          yield* Ref.set(ref, rolledBackModel);
-          notify(rolledBackModel);
+  const dispatchRemote = (
+    transport: TmuxTransport['Type'],
+    opId: OpId,
+    command: string,
+  ): Effect.Effect<OpId, OpError> =>
+    Effect.suspend(() => {
+      // Mark in-flight BEFORE the adapter call: the ack can take longer than
+      // the quick stale sweep, and a swept op would blink the optimistic UI
+      // away and remount when the confirm finally lands.
+      setStatus(opId, 'in-flight');
+      return transport.invoke('run_tmux_command', { command });
+    }).pipe(
+      Effect.matchEffect({
+        onFailure: (err) => {
+          const { model: rolledBack, entry } = rollbackOp(model, opId, formatAdapterError(err));
+          commit(rolledBack);
           if (entry) {
             console.warn(`[TmuxStore] rolled back op ${opId} (${entry.op._tag}): ${entry.reason}`);
           }
-          if (err._tag === 'TmuxError') {
-            return yield* Effect.fail(new OpRejectedByTmux({ opId, command, stderr: err.stderr }));
-          }
-          return yield* Effect.fail(new OpTransportError({ opId, command, cause: err }));
-        }
-        // Mark sent — reconcile() will drop it when a matching delta arrives,
-        // or the stale-timeout will sweep it.
-        const updated = yield* Ref.updateAndGet(ref, (m) => {
-          const ops = m.ops.map((o) =>
-            o.id === opId ? { ...o, status: 'awaiting-confirm' as const } : o,
+          return Effect.fail(
+            err._tag === 'TmuxError'
+              ? new OpRejectedByTmux({ opId, command, stderr: err.stderr })
+              : new OpTransportError({ opId, command, cause: err }),
           );
-          return { ...m, ops };
-        });
-        notify(updated);
-        return opId;
-      });
+        },
+        // Sent — reconcile() drops it when a matching delta arrives, or the
+        // stale-timeout sweeps it.
+        onSuccess: () =>
+          Effect.sync(() => {
+            commit(setStatus(opId, 'awaiting-confirm'));
+            return opId;
+          }),
+      }),
+    );
 
-    /**
-     * Read-only focus: where `op` would move the focus becomes this client's
-     * view. A pane in another tab takes the view to that tab; a pane in a
-     * float or a sidebar leaves it alone, since those take the keyboard
-     * without tmux's focus moving at all.
-     */
-    const moveView = (op: TmuxOp): void => {
-      const model = Effect.runSync(Ref.get(ref));
-      const ctx = Effect.runSync(Ref.get(ctxRef));
-      const predicted = predict(op, model.derived, ctx, generateOpId());
-      if (!predicted) return;
-      const target = predicted.patch(model.derived);
-      const pane = target.panes.find((p) => p.tmuxId === target.activePaneId);
-      const paneWindow = target.windows.find((w) => w.id === pane?.windowId);
-      let windowId = target.activeWindowId;
-      if (paneWindow && paneWindow.id !== windowId) {
-        if (paneWindow.windowType !== 'tab') return;
-        windowId = paneWindow.id;
-      }
-      if (!windowId) return;
-      const next = Effect.runSync(
-        Ref.updateAndGet(ref, (m) => setViewFocus(m, { windowId, paneId: target.activePaneId })),
-      );
-      notify(next);
-    };
+  /**
+   * Read-only focus: where `op` would move the focus becomes this client's
+   * view. A pane in another tab takes the view to that tab; a pane in a
+   * float or a sidebar leaves it alone, since those take the keyboard
+   * without tmux's focus moving at all.
+   */
+  const moveView = (op: TmuxOp): void => {
+    const predicted = predict(op, model.derived, predictContext, generateOpId());
+    if (!predicted) return;
+    const target = predicted.patch(model.derived);
+    const pane = target.panes.find((p) => p.tmuxId === target.activePaneId);
+    const paneWindow = target.windows.find((w) => w.id === pane?.windowId);
+    let windowId = target.activeWindowId;
+    if (paneWindow && paneWindow.id !== windowId) {
+      if (paneWindow.windowType !== 'tab') return;
+      windowId = paneWindow.id;
+    }
+    if (!windowId) return;
+    commit(setViewFocus(model, { windowId, paneId: target.activePaneId }));
+  };
+
+  return {
+    getModel: () => model,
 
     /**
      * A read-only session (asked at each dispatch: the transport only learns
      * it once connected) sends tmux nothing: a focus op moves this client's
      * own view, and every other op is refused unpredicted.
      */
-    const dispatch = (
-      op: TmuxOp,
-      opts?: DispatchOptions,
-    ): Effect.Effect<OpId, OpError, TmuxTransport> =>
+    dispatch: (op, opts) =>
       Effect.flatMap(TmuxTransport, (transport) => {
         if (transport.isReadOnly()) {
           const command = opts?.command ?? toTmuxCommand(op);
@@ -256,49 +234,35 @@ export function makeTmuxStore(): Effect.Effect<TmuxStore> {
         }
         const { opId, command } = applyOptimistic(op, opts);
         return dispatchRemote(transport, opId, command);
-      });
+      }),
 
-    const reconcile = (state: ServerState): Effect.Effect<ReadonlyArray<RollbackEntry>> =>
-      Effect.gen(function* () {
-        const current = yield* Ref.get(ref);
-        // Reuse previous objects for anything value-equal — wire snapshots are
-        // fresh object graphs, and without identity preservation every tick
-        // re-renders every pane (see preserveSnapshotIdentity).
-        const snapshot = preserveSnapshotIdentity(current.committed, transformServerState(state));
-        const result = applyServerSnapshot(current, snapshot, Date.now());
-        yield* Ref.set(ref, result.model);
-        notify(result.model);
-        return result.rolledBack;
-      });
+    reconcile: (state) => {
+      // Reuse previous objects for anything value-equal — wire snapshots are
+      // fresh object graphs, and without identity preservation every tick
+      // re-renders every pane (see preserveSnapshotIdentity).
+      const snapshot = preserveSnapshotIdentity(model.committed, transformServerState(state));
+      const result = applyServerSnapshot(model, snapshot, Date.now());
+      commit(result.model);
+      return result.rolledBack;
+    },
 
-    const clear = (): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        yield* Ref.set(ref, EMPTY_MODEL);
-        notify(EMPTY_MODEL);
-      });
+    clear: () => commit(EMPTY_MODEL),
 
-    const subscribe = (listener: StoreListener): (() => void) => {
+    subscribe: (listener) => {
       listeners.add(listener);
       // Fire once on subscribe so the bridge can sync immediately.
       try {
-        listener(Effect.runSync(Ref.get(ref)));
+        listener(model);
       } catch (err) {
         console.error('[TmuxStore] initial listener call threw:', err);
       }
       return () => {
         listeners.delete(listener);
       };
-    };
+    },
 
-    const setPredictContext = (ctx: PredictContext): Effect.Effect<void> => Ref.set(ctxRef, ctx);
-
-    return {
-      getModel,
-      dispatch,
-      reconcile,
-      clear,
-      subscribe,
-      setPredictContext,
-    };
-  });
+    setPredictContext: (ctx) => {
+      predictContext = ctx;
+    },
+  };
 }

@@ -572,7 +572,7 @@ export class HttpAdapter implements SequencedAdapter {
     const task = Effect.promise(() =>
       this.invokeInternal<T>(cmd, args, actionId).then(resolveOuter, rejectOuter),
     );
-    Effect.runSync(Queue.offer(this.commandQueue, task));
+    this.commandQueue.unsafeOffer(task);
     return outer;
   }
 
@@ -612,7 +612,7 @@ export class HttpAdapter implements SequencedAdapter {
         .then(() => {})
         .catch(() => {}),
     );
-    Effect.runSync(Queue.offer(this.commandQueue, task));
+    this.commandQueue.unsafeOffer(task);
   }
 
   /**

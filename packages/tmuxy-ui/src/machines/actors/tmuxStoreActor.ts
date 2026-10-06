@@ -1,5 +1,5 @@
 /**
- * tmuxStoreActor — Bridge between the Effect-managed TmuxStore and XState.
+ * tmuxStoreActor — Bridge between the TmuxStore and XState.
  *
  * Responsibilities:
  *  1. Subscribe to the store and forward every model change to the parent as
@@ -15,14 +15,13 @@
  *     TMUX_ERROR.
  *
  * Why a callback actor and not direct context access:
- *   The store lives in plain JS-land (Effect.Ref); the bridge actor is the
- *   single place that runs Effect programs against it. Putting all the
- *   `Effect.runFork` / `runSync` calls in one file keeps the XState code
- *   free of Effect imports and makes the actor easy to swap for a mock in
- *   integration tests.
+ *   The store lives in plain JS-land; the bridge actor is the single place
+ *   that runs its dispatch (the one Effect, which needs the transport) on the
+ *   app runtime. That keeps the XState code free of Effect and makes the
+ *   actor easy to swap for a mock in integration tests.
  */
 
-import { Effect, Exit, Cause } from 'effect';
+import { Exit, Cause } from 'effect';
 import type { PaneId } from '../../domain/ids';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../tmux/store';
@@ -138,8 +137,8 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
       }
 
       if (event.type === 'RECONCILE_SERVER') {
-        // Synchronous — Ref ops don't block, listener fires inline.
-        const rolledBack = Effect.runSync(store.reconcile(event.state));
+        // Synchronous — the listener fires inline.
+        const rolledBack = store.reconcile(event.state);
         for (const entry of rolledBack) {
           console.warn(
             `[TmuxStore] rolled back ${entry.op._tag} op ${entry.opId}: ${entry.reason}`,
@@ -162,17 +161,15 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
       }
 
       if (event.type === 'CLEAR') {
-        Effect.runSync(store.clear());
+        store.clear();
         return;
       }
 
       if (event.type === 'UPDATE_PREDICT_CONTEXT') {
-        Effect.runSync(
-          store.setPredictContext({
-            defaultShell: event.defaultShell,
-            paneActivationOrder: event.paneActivationOrder,
-          }),
-        );
+        store.setPredictContext({
+          defaultShell: event.defaultShell,
+          paneActivationOrder: event.paneActivationOrder,
+        });
         return;
       }
     });

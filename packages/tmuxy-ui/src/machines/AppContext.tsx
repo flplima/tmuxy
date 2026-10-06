@@ -42,7 +42,6 @@ import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../tmux/store';
-import { Effect } from 'effect';
 import { measureCellMetrics } from '../utils/cellMetrics';
 import type { PaneId } from '../domain/ids';
 
@@ -151,7 +150,7 @@ export function AppProvider({
   // passive mirror of the store's derived snapshot.
   const actors = useMemo(() => {
     const runtime = makeAppRuntime(transport ?? transportForEnvironment());
-    const store = Effect.runSync(makeTmuxStore());
+    const store = makeTmuxStore();
     return {
       tmuxActor: createTmuxActor(runtime),
       tmuxStoreActor: createTmuxStoreActor(store, runtime),

@@ -71,7 +71,7 @@ function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
 describe('TmuxStore (integration)', () => {
   it('subscribe fires on initial state, local dispatch, and reconcile', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
+    const store = makeTmuxStore();
 
     const snaps: TmuxClientModel[] = [];
     const unsub = store.subscribe((m) => {
@@ -81,7 +81,7 @@ describe('TmuxStore (integration)', () => {
     expect(snaps).toHaveLength(1);
 
     // Server snapshot arrives → committed updates → notify fires.
-    await fake.runtime.runPromise(store.reconcile(blankServerState()));
+    store.reconcile(blankServerState());
     expect(snaps.length).toBeGreaterThanOrEqual(2);
     expect(snaps[snaps.length - 1].committed.panes).toHaveLength(1);
 
@@ -98,8 +98,8 @@ describe('TmuxStore (integration)', () => {
 
   it('dispatch rolls back the op on TmuxError', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(blankServerState()));
+    const store = makeTmuxStore();
+    store.reconcile(blankServerState());
 
     // First, prime the model with a single pane in committed state.
     expect(store.getModel().committed.panes).toHaveLength(1);
@@ -123,8 +123,8 @@ describe('TmuxStore (integration)', () => {
 
   it('reconcile drops matched ops and surfaces rollback entries for stale ones', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(blankServerState()));
+    const store = makeTmuxStore();
+    store.reconcile(blankServerState());
 
     // Dispatch a split. The adapter says ok; the store applies + awaits.
     fake.setNextResult({ kind: 'ok', value: undefined });
@@ -138,22 +138,20 @@ describe('TmuxStore (integration)', () => {
     expect(store.getModel().ops).toHaveLength(1);
 
     // Now server confirms with a real second pane.
-    await fake.runtime.runPromise(
-      store.reconcile(
-        blankServerState({
-          panes: [
-            ...blankServerState().panes,
-            {
-              ...blankServerState().panes[0],
-              tmux_id: pid('%1'),
-              x: 41,
-              width: 39,
-              active: true,
-            },
-          ],
-          active_pane_id: pid('%1'),
-        }),
-      ),
+    store.reconcile(
+      blankServerState({
+        panes: [
+          ...blankServerState().panes,
+          {
+            ...blankServerState().panes[0],
+            tmux_id: pid('%1'),
+            x: 41,
+            width: 39,
+            active: true,
+          },
+        ],
+        active_pane_id: pid('%1'),
+      }),
     );
     const m = store.getModel();
     expect(m.ops).toHaveLength(0);
@@ -163,8 +161,8 @@ describe('TmuxStore (integration)', () => {
 
   it('TransportError surfaces as OpTransportError and rolls back', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(blankServerState()));
+    const store = makeTmuxStore();
+    store.reconcile(blankServerState());
 
     // Plain string rejection → classified as TransportError in the
     // adapter → wrapped as OpTransportError in the store.
@@ -182,8 +180,8 @@ describe('TmuxStore (integration)', () => {
   // Smoke test: TmuxError class instances are correctly classified.
   it('throws TmuxError as OpRejectedByTmux', async () => {
     const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
-    await fake.runtime.runPromise(store.reconcile(blankServerState()));
+    const store = makeTmuxStore();
+    store.reconcile(blankServerState());
 
     fake.setNextResult({
       kind: 'reject',
@@ -198,26 +196,23 @@ describe('TmuxStore (integration)', () => {
 });
 
 describe('notify granularity', () => {
-  it('one reconcile batch produces exactly one subscriber notification', async () => {
-    const fake = fakeTransport();
-    const store = await fake.runtime.runPromise(makeTmuxStore());
+  it('one reconcile batch produces exactly one subscriber notification', () => {
+    const store = makeTmuxStore();
     let notifies = 0;
     const unsubscribe = store.subscribe(() => {
       notifies++;
     });
     notifies = 0; // subscribe fires once on attach
-    fake.runtime.runSync(
-      store.reconcile(
-        wireState({
-          session_name: 'test',
-          active_window_id: wid('@0'),
-          active_pane_id: pid('%0'),
-          panes: [],
-          windows: [],
-          total_width: 80,
-          total_height: 24,
-        }),
-      ),
+    store.reconcile(
+      wireState({
+        session_name: 'test',
+        active_window_id: wid('@0'),
+        active_pane_id: pid('%0'),
+        panes: [],
+        windows: [],
+        total_width: 80,
+        total_height: 24,
+      }),
     );
     expect(notifies).toBe(1);
     unsubscribe();
@@ -259,8 +254,8 @@ describe('notify granularity', () => {
 
     async function readOnlyStore() {
       const fake = fakeTransport({ readOnly: true });
-      const store = await fake.runtime.runPromise(makeTmuxStore());
-      await fake.runtime.runPromise(store.reconcile(twoTabs()));
+      const store = makeTmuxStore();
+      store.reconcile(twoTabs());
       return { fake, store };
     }
 
@@ -278,8 +273,8 @@ describe('notify granularity', () => {
       expect(store.getModel().derived.totalHeight).toBe(40);
 
       // tmux still says @0 — and keeps saying it on every update.
-      await fake.runtime.runPromise(store.reconcile(twoTabs()));
-      await fake.runtime.runPromise(store.reconcile(twoTabs({ active_pane_id: pid('%1') })));
+      store.reconcile(twoTabs());
+      store.reconcile(twoTabs({ active_pane_id: pid('%1') }));
       expect(store.getModel().committed.activeWindowId).toBe(wid('@0'));
       expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
     });
@@ -289,7 +284,7 @@ describe('notify granularity', () => {
 
       await fake.runtime.runPromise(dispatchRaw(store, 'select-pane -t %1'));
       expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
-      await fake.runtime.runPromise(store.reconcile(twoTabs()));
+      store.reconcile(twoTabs());
       expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
 
       await fake.runtime.runPromise(dispatchRaw(store, 'select-pane -L'));
@@ -302,13 +297,11 @@ describe('notify granularity', () => {
       await fake.runtime.runPromise(dispatchRaw(store, 'select-window -t @1'));
 
       const closed = twoTabs();
-      await fake.runtime.runPromise(
-        store.reconcile({
-          ...closed,
-          panes: closed.panes.filter((p) => p.window_id !== wid('@1')),
-          windows: closed.windows.filter((w) => w.id !== wid('@1')),
-        }),
-      );
+      store.reconcile({
+        ...closed,
+        panes: closed.panes.filter((p) => p.window_id !== wid('@1')),
+        windows: closed.windows.filter((w) => w.id !== wid('@1')),
+      });
       expect(store.getModel().viewFocus).toBeNull();
       expect(store.getModel().derived.activeWindowId).toBe(wid('@0'));
     });

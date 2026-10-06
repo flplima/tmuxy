@@ -1,4 +1,3 @@
-import { Effect, Fiber } from 'effect';
 import { quote } from '../domain/commands';
 
 // Batching constants
@@ -52,28 +51,25 @@ export type SendFn = (cmd: string, args: Record<string, unknown>) => void;
  */
 export class KeyBatcher {
   private pendingKeys: Map<string, string[]> = new Map();
-  // The batch window is a fiber that sleeps one frame then runs the trailing
-  // flush; interrupting it (flushAll/destroy) cancels the pending flush and its
-  // underlying timer. A live fiber means a window is open.
-  private keyBatchFiber: Fiber.RuntimeFiber<void, never> | null = null;
+  // The batch window is a timer that runs the trailing flush after one frame;
+  // clearing it (flushAll/destroy) cancels that flush. A pending timer means a
+  // window is open.
+  private keyBatchWindow: ReturnType<typeof setTimeout> | null = null;
   private pendingLiteralText: Map<string, string> = new Map();
-  private literalBatchFiber: Fiber.RuntimeFiber<void, never> | null = null;
+  private literalBatchWindow: ReturnType<typeof setTimeout> | null = null;
   private sendFn: SendFn;
 
   constructor(sendFn: SendFn) {
     this.sendFn = sendFn;
   }
 
-  /** Open a batch window: after one frame, run `flush`. Returned as a fiber so
-   *  it can be interrupted. */
-  private openWindow(flush: () => void): Fiber.RuntimeFiber<void, never> {
-    return Effect.runFork(
-      Effect.sleep(KEY_BATCH_INTERVAL_MS).pipe(Effect.andThen(Effect.sync(flush))),
-    );
+  /** Open a batch window: after one frame, run `flush`. */
+  private openWindow(flush: () => void): ReturnType<typeof setTimeout> {
+    return setTimeout(flush, KEY_BATCH_INTERVAL_MS);
   }
 
-  private cancelWindow(fiber: Fiber.RuntimeFiber<void, never> | null): void {
-    if (fiber) Effect.runFork(Fiber.interrupt(fiber));
+  private cancelWindow(window: ReturnType<typeof setTimeout> | null): void {
+    if (window !== null) clearTimeout(window);
   }
 
   /**
@@ -97,10 +93,10 @@ export class KeyBatcher {
         this.flushKeyBatchForSession(session);
       }
 
-      if (!this.literalBatchFiber) {
+      if (!this.literalBatchWindow) {
         // Leading edge: no window open — send now, open the window.
         this.sendFn('run_tmux_command', { command });
-        this.literalBatchFiber = this.openWindow(() => this.flushLiteralBatch());
+        this.literalBatchWindow = this.openWindow(() => this.flushLiteralBatch());
       } else {
         const existing = this.pendingLiteralText.get(session) || '';
         this.pendingLiteralText.set(session, existing + rawText);
@@ -127,10 +123,10 @@ export class KeyBatcher {
         this.flushLiteralBatchForSession(session);
       }
 
-      if (!this.keyBatchFiber) {
+      if (!this.keyBatchWindow) {
         // Leading edge: no window open — send now, open the window.
         this.sendFn('run_tmux_command', { command });
-        this.keyBatchFiber = this.openWindow(() => this.flushKeyBatch());
+        this.keyBatchWindow = this.openWindow(() => this.flushKeyBatch());
       } else {
         if (!this.pendingKeys.has(session)) {
           this.pendingKeys.set(session, []);
@@ -148,10 +144,10 @@ export class KeyBatcher {
    * Flush all pending batches. Call before sending non-batched commands.
    */
   flushAll(): void {
-    this.cancelWindow(this.keyBatchFiber);
-    this.keyBatchFiber = null;
-    this.cancelWindow(this.literalBatchFiber);
-    this.literalBatchFiber = null;
+    this.cancelWindow(this.keyBatchWindow);
+    this.keyBatchWindow = null;
+    this.cancelWindow(this.literalBatchWindow);
+    this.literalBatchWindow = null;
 
     for (const [session, keys] of this.pendingKeys) {
       if (keys.length === 0) continue;
@@ -174,16 +170,16 @@ export class KeyBatcher {
    * Clear all pending batches and timers without flushing.
    */
   destroy(): void {
-    this.cancelWindow(this.keyBatchFiber);
-    this.keyBatchFiber = null;
-    this.cancelWindow(this.literalBatchFiber);
-    this.literalBatchFiber = null;
+    this.cancelWindow(this.keyBatchWindow);
+    this.keyBatchWindow = null;
+    this.cancelWindow(this.literalBatchWindow);
+    this.literalBatchWindow = null;
     this.pendingKeys.clear();
     this.pendingLiteralText.clear();
   }
 
   private flushKeyBatch(): void {
-    this.keyBatchFiber = null;
+    this.keyBatchWindow = null;
     let sent = false;
     for (const [session, keys] of this.pendingKeys) {
       if (keys.length === 0) continue;
@@ -196,7 +192,7 @@ export class KeyBatcher {
     // Trailing flush under sustained input: keep the window open so the
     // stream keeps coalescing. An empty window closes (next key is leading).
     if (sent) {
-      this.keyBatchFiber = this.openWindow(() => this.flushKeyBatch());
+      this.keyBatchWindow = this.openWindow(() => this.flushKeyBatch());
     }
   }
 
@@ -210,7 +206,7 @@ export class KeyBatcher {
   }
 
   private flushLiteralBatch(): void {
-    this.literalBatchFiber = null;
+    this.literalBatchWindow = null;
     let sent = false;
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
@@ -223,7 +219,7 @@ export class KeyBatcher {
     // Trailing flush under sustained input: keep the window open so the
     // stream keeps coalescing. An empty window closes (next key is leading).
     if (sent) {
-      this.literalBatchFiber = this.openWindow(() => this.flushLiteralBatch());
+      this.literalBatchWindow = this.openWindow(() => this.flushLiteralBatch());
     }
   }
 
