@@ -654,8 +654,6 @@ pub fn write_managed_state(
 }
 
 /// The session tmuxy targets: `TMUXY_SESSION` env or the default.
-/// One resolution point — the Tauri app used to carry two private copies
-/// plus an inline third in gui.rs.
 pub fn session_name() -> String {
     std::env::var("TMUXY_SESSION").unwrap_or_else(|_| crate::DEFAULT_SESSION_NAME.to_string())
 }

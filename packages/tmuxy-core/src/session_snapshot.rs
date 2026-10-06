@@ -551,7 +551,6 @@ pub fn shell_quote(word: &str) -> String {
 // Storage
 // =============================================================================
 
-/// Where a state dir keeps snapshots.
 /// Where a server's snapshots live: `sessions/<socket>/` under the state dir.
 /// A session is named within its tmux server, not the machine — a released
 /// build, the dev server and the E2E suite each have a `tmuxy` session on

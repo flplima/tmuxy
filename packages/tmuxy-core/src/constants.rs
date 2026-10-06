@@ -409,7 +409,7 @@ pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 /// Rows of history an OBSERVER monitor keeps per pane, so a viewer scrolling
 /// back costs no tmux round trip at all.
 ///
-/// SEC-11: a viewer's `get_scrollback` ran three in-band control-mode queries
+/// SEC-11: a viewer's `get_scrollback_cells` ran three in-band control-mode queries
 /// per request — a `list-panes`, a `display-message` and a `capture-pane` —
 /// on a connection the writer's own monitor shares. Scrolling a viewer was
 /// therefore work charged to the writer's session. An observer's aggregator

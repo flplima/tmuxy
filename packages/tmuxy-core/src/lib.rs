@@ -408,7 +408,7 @@ impl WindowType {
     }
 }
 
-/// A single tmux window (tab/float/group/foreign)
+/// A single tmux window: a tab, a float or a sidebar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxWindow {
     /// Window ID (e.g., "@0")

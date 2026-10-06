@@ -1,30 +1,23 @@
 //! Typed errors for tmuxy-core.
 //!
-//! Previously every API in this crate returned `Result<T, String>`. That makes
-//! it impossible for callers to do variant-by-variant recovery — for example
-//! `monitor::run` wants to restart only on `ProcessExited`, retry on `Timeout`,
-//! and surface `SessionNotFound` straight to the UI. With a string-typed error
-//! the only options are substring matching (brittle) or a blanket "show the
-//! message and give up" (loss of resilience).
+//! A typed error lets a caller act on the variant instead of matching on
+//! message text: the retry layer (`retry.rs`) backs off only on what
+//! [`TmuxError::is_retryable`] calls transient, and the server tells a
+//! missing session apart from everything else.
 //!
-//! `TmuxError` is `#[non_exhaustive]` so adding a variant later is not a
-//! breaking change for downstream matchers — they're forced to keep a `_`
-//! catch-all from day one.
+//! `TmuxError` is `#[non_exhaustive]`, so matchers outside the crate keep a
+//! `_` arm and a new variant breaks none of them.
 //!
 //! Each variant carries the minimum context needed to act on it:
 //!   - `ProcessExited { reason }` — control mode `%exit` was received or the
-//!     PTY EOF'd. The supervisor can decide whether to reconnect.
+//!     PTY EOF'd.
 //!   - `Timeout { operation, after }` — an operation exceeded its deadline.
-//!     The retry-policy machinery inspects `operation`.
-//!   - `SessionNotFound { name }` — `has-session` returned non-zero. The UI
-//!     should ask the user to create the session.
-//!   - `PaneNotFound { id }` — referenced pane id no longer exists. The
-//!     aggregator drops queued operations on that pane.
+//!   - `SessionNotFound { name }` — the named session does not exist.
+//!   - `PaneNotFound { id }` — a referenced pane id no longer exists.
 //!   - `Io(std::io::Error)` — anything from the OS (PTY allocation, file
-//!     reads, signal install). `#[from]` makes `?` propagation natural.
-//!   - `ControlMode(String)` — fallback for tmux-emitted error text that
-//!     doesn't fit a more specific variant. New variants should be promoted
-//!     out of this bucket as their patterns become clear.
+//!     reads). `#[from]` makes `?` propagation natural.
+//!   - `ControlMode(String)` — tmux-reported error text that fits no more
+//!     specific variant.
 
 use thiserror::Error;
 
@@ -84,10 +77,8 @@ impl TmuxError {
     }
 }
 
-/// Bridge for legacy `Result<T, String>` call sites during the migration.
-///
-/// Erases the variant by funnelling into `ControlMode`. Use sparingly — the
-/// goal is to eliminate the String error type altogether.
+/// Lets `?` lift a `String` error into the `ControlMode` variant, erasing any
+/// more specific meaning — so prefer a real variant where one fits.
 impl From<String> for TmuxError {
     fn from(s: String) -> Self {
         TmuxError::ControlMode(s)
@@ -100,12 +91,9 @@ impl From<&str> for TmuxError {
     }
 }
 
-/// Bridge in the opposite direction for the remaining `Result<_, String>`
-/// call sites (notably `tmuxy-server/src/sse.rs::handle_command`). Lets the
-/// `?` operator stringify a `TmuxError` so the SSE handler can keep its
-/// existing String-typed wire contract. a typed-progress channel would replace that contract if it is ever needed.
-/// outright; until then, this preserves the JSON error shape the frontend
-/// already understands.
+/// Lets `?` stringify a `TmuxError` where a caller speaks `Result<_, String>`
+/// — notably the server's command handlers, whose JSON error shape is a
+/// plain message string.
 impl From<TmuxError> for String {
     fn from(e: TmuxError) -> Self {
         e.to_string()

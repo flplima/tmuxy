@@ -298,13 +298,10 @@ fn needs_resize(
     }
 }
 
-/// All the per-invocation runtime state that used to live as locals in
-/// `TmuxMonitor::run`. Extracting it lets `run`'s body shrink to a ~50-line
-/// dispatch over `tokio::select!`, with each branch delegating to a small
-/// method that mutates `RunState` through a `&mut`.
-///
-/// The split is purely organisational — semantics are preserved 1:1, and the
-/// pre-existing tests cover the throttling/debounce/settling behaviour.
+/// The per-invocation runtime state of `TmuxMonitor::run`. Keeping it in one
+/// struct lets `run`'s body stay a dispatch over `tokio::select!`, with each
+/// branch delegating to a small method that mutates `RunState` through a
+/// `&mut`, and lets the throttling/debounce logic be tested without tmux.
 struct RunState {
     /// Idle threshold: heartbeats fire only after this much silence.
     idle_threshold: Duration,
@@ -452,13 +449,10 @@ pub struct TmuxMonitor {
     /// Channel for receiving commands from external code
     command_rx: mpsc::Receiver<MonitorCommand>,
 
-    /// Count of pending resize commands sent. When >0, the next PaneLayout
-    /// changes are resize-triggered (SIGWINCH may produce stale %output).
-
-    /// True once we've tagged every untagged window with @tmuxy-window-type.
-    /// Reset every connect; the first list-windows response triggers the
-    /// one-time auto-adopt of pre-existing windows.
-    window_tags_migrated: bool,
+    /// Whether this connection has logged adopting untagged windows (tagging
+    /// floats/sidebars by name, giving tabs their border row). Every batch is
+    /// still sent; this only keeps the log line to one per connect.
+    logged_adoption: bool,
 
     /// Last viewport size the client asked for, in cells.
     ///
@@ -549,7 +543,7 @@ impl TmuxMonitor {
                 },
                 config,
                 command_rx,
-                window_tags_migrated: false,
+                logged_adoption: false,
                 client_size: None,
                 resize_attempts: HashMap::new(),
                 resize_given_up: HashSet::new(),
@@ -879,9 +873,9 @@ impl TmuxMonitor {
         for effect in step.effects {
             match effect {
                 SideEffect::AdoptUntaggedWindows(cmds) => {
-                    if !self.window_tags_migrated {
+                    if !self.logged_adoption {
                         info!(count = cmds.len(), "auto-adopting untagged windows");
-                        self.window_tags_migrated = true;
+                        self.logged_adoption = true;
                     }
                     if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                         emitter.emit_error(format!("Failed to auto-adopt windows: {}", e));

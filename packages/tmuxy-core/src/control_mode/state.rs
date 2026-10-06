@@ -1202,7 +1202,7 @@ pub struct StateAggregator {
     /// Compound-command settling state. When armed (`settling_until.is_some()`),
     /// window/layout emissions are suppressed and the aggregator's `tick(now)`
     /// is responsible for firing the consolidated state emit when the deadline
-    /// expires. Logic that used to live on `monitor::RunState`.
+    /// expires.
     settling_until: Option<Instant>,
     settling_started: Option<Instant>,
     settling_awaiting_first_event: bool,
@@ -1212,17 +1212,9 @@ pub struct StateAggregator {
 pub(crate) const SETTLING_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(100);
 /// Safety ceiling — settling cannot extend past this from the arm point.
 pub(crate) const SETTLING_MAX: std::time::Duration = std::time::Duration::from_millis(500);
-/// Marker printed (via `display-message -p`) immediately BEFORE a self-issued
-/// capture-pane command, carrying the target pane id. Routing captures by
-/// marker instead of arrival order or output shape is what makes attribution
-/// exact: any other command's response (a send-keys ack has EMPTY output,
-/// indistinguishable from capturing a blank pane) can otherwise steal a
-/// pending capture and shunt one pane's content into another.
 /// Prepare capture-pane bytes for vt100: strip the trailing newline (which
 /// would push the cursor past the last row and scroll) and expand `\n` to
 /// `\r\n` (vt100 treats bare `\n` as move-down without a carriage return).
-/// One implementation — this used to be copy-pasted at every capture-feed
-/// site, plus once in `lib.rs`.
 pub fn normalize_capture_bytes(content: &[u8]) -> Vec<u8> {
     let content = content.strip_suffix(b"\n").unwrap_or(content);
     let mut out = Vec::with_capacity(content.len() + content.len() / 16);
@@ -1393,6 +1385,12 @@ pub fn accepted_clipboard_write(
     Some(text)
 }
 
+/// Marker printed (via `display-message -p`) immediately BEFORE a self-issued
+/// capture-pane command, carrying the target pane id. Routing captures by
+/// marker instead of arrival order or output shape is what makes attribution
+/// exact: any other command's response (a send-keys ack has EMPTY output,
+/// indistinguishable from capturing a blank pane) can otherwise steal a
+/// pending capture and shunt one pane's content into another.
 pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
 /// Marker printed immediately AFTER a self-issued capture-pane command.
 pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
@@ -1846,8 +1844,9 @@ impl StateAggregator {
             }
         }
 
-        // Image / clipboard side effects fire before list-pane refreshes so
-        // that consumers see the same ordering as the legacy monitor path.
+        // Image / clipboard side effects fire before list-pane refreshes, so a
+        // consumer has the images and the clipboard by the time the refreshed
+        // panes arrive.
         for (pane_id, images) in result.new_images.iter() {
             if !images.is_empty() {
                 effects.push(SideEffect::StoreImages {
