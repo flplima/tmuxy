@@ -24,7 +24,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Terminal;
 
-use tmuxy_core::servers::{add_server, Server, ServerKind, SshConfig};
+use tmuxy_core::servers::{add_server, Server};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -163,63 +163,46 @@ impl Form {
     }
 
     /// Validate and assemble a [`Server`] from the current inputs.
+    ///
+    /// The fields are spelled back into the one destination string the
+    /// session switcher takes, so `Server::from_destination` mints the id —
+    /// the same server added from either surface lands on the same key.
     fn build_server(&self) -> Result<Server, String> {
-        let socket = trimmed_or(&self.socket, "tmuxy");
-        match self.kind {
-            Kind::Local => {
-                let default_label = if socket == "tmuxy" {
-                    "localhost".to_string()
-                } else {
-                    socket.clone()
-                };
-                let id = if socket == "tmuxy" {
-                    "localhost".to_string()
-                } else {
-                    format!("local-{}", slug(&socket))
-                };
-                Ok(Server {
-                    id,
-                    label: non_empty(&self.label).unwrap_or(default_label),
-                    kind: ServerKind::Local,
-                    ssh: None,
-                    socket,
-                    session: None,
-                    extra: serde_json::Map::new(),
-                })
-            }
+        let dest = match self.kind {
+            Kind::Local => String::new(),
             Kind::Ssh => {
                 let host = self.host.trim();
                 if host.is_empty() {
                     return Err("SSH host is required".to_string());
                 }
-                let user = non_empty(&self.user);
                 let port = match self.port.trim() {
-                    "" => None,
+                    "" => String::new(),
                     p => match p.parse::<u16>() {
                         Ok(0) | Err(_) => return Err("Port must be 1–65535".to_string()),
-                        Ok(n) => Some(n),
+                        Ok(n) => format!(":{n}"),
                     },
                 };
-                let dest = match &user {
-                    Some(u) => format!("{u}@{host}"),
-                    None => host.to_string(),
+                // An IPv6 literal is bracketed so its colons are not read as
+                // the port's.
+                let host = if host.contains(':') {
+                    format!("[{host}]")
+                } else {
+                    host.to_string()
                 };
-                Ok(Server {
-                    id: format!("ssh-{}-{}", slug(&dest), slug(&socket)),
-                    label: non_empty(&self.label).unwrap_or(dest),
-                    kind: ServerKind::Ssh,
-                    ssh: Some(SshConfig {
-                        host: host.to_string(),
-                        user,
-                        port,
-                        options: non_empty(&self.options),
-                    }),
-                    socket,
-                    session: None,
-                    extra: serde_json::Map::new(),
-                })
+                let user = non_empty(&self.user)
+                    .map(|u| format!("{u}@"))
+                    .unwrap_or_default();
+                format!("{user}{host}{port}")
             }
+        };
+        let mut server = Server::from_destination(&dest, non_empty(&self.socket).as_deref())?;
+        if let Some(label) = non_empty(&self.label) {
+            server.label = label;
         }
+        if let Some(ssh) = server.ssh.as_mut() {
+            ssh.options = non_empty(&self.options);
+        }
+        Ok(server)
     }
 
     /// Attempt to save. On success returns the new server's id; on validation
@@ -250,28 +233,6 @@ fn non_empty(s: &str) -> Option<String> {
     } else {
         Some(t.to_string())
     }
-}
-
-fn trimmed_or(s: &str, fallback: &str) -> String {
-    let t = s.trim();
-    if t.is_empty() {
-        fallback.to_string()
-    } else {
-        t.to_string()
-    }
-}
-
-/// Lowercase alnum, everything else collapsed to `-`, trimmed — for ids.
-fn slug(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if c.is_ascii_alphanumeric() {
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push('-');
-        }
-    }
-    out.trim_matches('-').to_string()
 }
 
 type ConnectTerminal = Terminal<ratatui::backend::CrosstermBackend<Stdout>>;
@@ -447,6 +408,7 @@ pub fn run_connect_tui() -> io::Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tmuxy_core::servers::ServerKind;
 
     fn local_form() -> Form {
         Form::new()
@@ -459,7 +421,8 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(server.id, "localhost");
         assert_eq!(server.label, "localhost");
-        assert_eq!(server.socket, "tmuxy");
+        // A blank socket is the one this app is attached to.
+        assert_eq!(server.socket, tmuxy_core::session::tmux_socket());
         assert!(matches!(server.kind, ServerKind::Local));
     }
 
@@ -491,6 +454,37 @@ mod tests {
         assert_eq!(server.socket, "tmuxy");
         let (_, ssh) = server.connect_env();
         assert_eq!(ssh.as_deref(), Some("felipe@box"));
+    }
+
+    /// The form and the session switcher's destination box mint the same id
+    /// for the same server; the form used to slug its own.
+    #[test]
+    fn the_form_and_the_switcher_agree_on_the_id() {
+        let mut form = local_form();
+        form.kind = Kind::Ssh;
+        form.host = "box.example".to_string();
+        form.user = "me".to_string();
+        form.port = "2222".to_string();
+        form.options = "-i ~/.ssh/key".to_string();
+        let server = form.build_server().unwrap_or_else(|e| panic!("{e}"));
+        let typed =
+            Server::from_destination("me@box.example:2222", None).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(server.id, typed.id);
+        let ssh = server.ssh.unwrap_or_else(|| panic!("an SSH server"));
+        assert_eq!(ssh.port, Some(2222));
+        assert_eq!(ssh.options.as_deref(), Some("-i ~/.ssh/key"));
+    }
+
+    #[test]
+    fn an_ipv6_host_keeps_its_colons() {
+        let mut form = local_form();
+        form.kind = Kind::Ssh;
+        form.host = "fe80::1".to_string();
+        form.port = "22".to_string();
+        let server = form.build_server().unwrap_or_else(|e| panic!("{e}"));
+        let ssh = server.ssh.unwrap_or_else(|| panic!("an SSH server"));
+        assert_eq!(ssh.host, "fe80::1");
+        assert_eq!(ssh.port, Some(22));
     }
 
     #[test]
