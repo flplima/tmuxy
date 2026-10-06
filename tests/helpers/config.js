@@ -44,14 +44,14 @@ const DELAYS = {
  * on.
  *
  * Every `waitForCondition` in the suite carries a number someone measured on
- * their own laptop — 145 of them, from 1000ms to 45000ms. A number like that
+ * their own laptop, from one second to most of a minute. A number like that
  * encodes how fast one machine was on one day, so on a slower or busier one
  * the whole set is miscalibrated at once and the suite flakes for no reason
  * the test can see.
  *
  * The numbers stay, but they are now RELATIVE: one knob restates all of them
- * for a machine that is not the one they were written on, instead of 145
- * edits. Default 1, so nothing changes where they were already right.
+ * for a machine that is not the one they were written on, instead of an edit
+ * per wait. Default 1, so nothing changes where they were already right.
  *
  * Raising it cannot turn a failing test green — a condition that will never
  * hold still never holds — it only buys a slow machine the time to be right.

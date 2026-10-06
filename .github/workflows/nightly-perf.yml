@@ -1,11 +1,12 @@
 name: perf measurements
 
-# Two on-demand performance measurements, for the numbers the per-commit jobs
-# deliberately do not gate on.
+# Three performance measurements, for the numbers the per-commit jobs
+# deliberately do not gate on: two on demand, one nightly. (The file keeps its
+# nightly- name from when all of them ran on the schedule.)
 #
 # 1. `core-bench` — the criterion `core_pipeline` bench (docs/PERFORMANCE.md
 #    Axis A: parse → aggregate → delta, the exact code tmuxy-wasm runs).
-#    Nightly, compared against a stored per-platform baseline, WARN-only.
+#    On demand, compared against a stored per-platform baseline, WARN-only.
 # 2. `interaction-baseline` — a manual (workflow_dispatch) run of the Axis-C
 #    interaction harness on `ubuntu-latest` whose only product is a refreshed
 #    `perf/interaction-baseline.json` for a human to review and commit.
@@ -18,7 +19,7 @@ name: perf measurements
 #    SUMMARY, not only an artifact — see the note below about why that
 #    matters here.
 #
-# Neither job gates anything. Absolute milliseconds/nanoseconds from a shared
+# None of them gates anything. Absolute milliseconds/nanoseconds from a shared
 # GitHub runner are not a merge signal — the ratio gate in the per-commit
 # `interaction-latency` job is.
 #
