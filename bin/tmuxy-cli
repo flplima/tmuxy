@@ -351,18 +351,19 @@ Commands:
   pane        Manage panes (split, kill, select, resize, group, float)
   ask         Send keys to another pane, once the user has confirmed
   tab         Manage tabs (create, kill, select, rename, layout)
-  session     Manage sessions (switch, connect)
+  session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
   open        Show a page, file or image in a browser pane (alias of widget browser)
-  widget      Display widgets (browser, tree)
+  widget      Display widgets (browser, tree, session)
   queue, q    Inter-agent coordination queue (push/send, pop, peek, list, clear)
-  tree        Open the sidebar tree view (tabs + panes)
+  tree        Browse tabs and panes as a tree in this terminal
   run         Run any tmux command safely
   browser     Drive a real browser, drawn in the pane (verbs, --repl)
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TELEMETRY.md)
+  config      Show or change a setting (use-tmux-conf)
   gui         Open the desktop GUI application
 
 Options:
@@ -408,7 +409,7 @@ Commands:
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
-  group         Pane group operations (add, close, switch, next, prev)
+  group         Pane group operations (add, close, switch, next, prev, move, join, leave)
 
 Run 'tmuxy pane <command> --help' for details.
 EOF
@@ -1076,7 +1077,7 @@ cmd_widget() {
   shift 2>/dev/null || true
 
   case "$sub" in
-    browser|web)
+    browser)
       case "${1:-}" in
         --help|-h)
           cat <<'BEOF'
@@ -1500,11 +1501,9 @@ BEOF
         exit 0
         ;;
     esac
-    # Straight to the binary. There is no pane wrapper any more: the pane
-    # program IS `tmuxy browser --repl`, which draws its own screen, so there is
-    # nothing for a shell script to set up around it. It is told where THIS
-    # CLI is, so it can write its restore tag through `tmuxy pane restore-cmd`
-    # wherever tmuxy is installed.
+    # Straight to the binary: the pane program IS `tmuxy browser --repl`, which
+    # draws its own screen. It is told where THIS CLI is, so it can write its
+    # restore tag through `tmuxy pane restore-cmd` wherever tmuxy is installed.
     TMUXY_CLI="$SELF" exec "$(find_server_binary)" browser "$@"
     ;;
   cleanup)
