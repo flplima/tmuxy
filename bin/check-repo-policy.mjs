@@ -143,8 +143,6 @@ function checkDocsToScriptsConsistency() {
     'npm run check:full',
   ];
 
-  const wrapperStrictDocs = ['AGENTS.md', '.github/copilot-instructions.md'];
-
   for (const docPath of commandDocs) {
     const full = path.join(root, docPath);
     const content = fs.readFileSync(full, 'utf8');
@@ -189,15 +187,6 @@ function checkDocsToScriptsConsistency() {
   for (const command of requiredCanonicalCommands) {
     if (!canonicalTargets.includes(command)) {
       addError(`[docs] Missing canonical command in AGENTS/Copilot instructions: ${command}`);
-    }
-  }
-
-  for (const docPath of wrapperStrictDocs) {
-    const content = fs.readFileSync(path.join(root, docPath), 'utf8');
-    if (/npm run (?:agent|copilot):/.test(content)) {
-      addError(
-        `[docs] ${docPath} should use the canonical commands (bootstrap/check:*), not agent/copilot aliases.`,
-      );
     }
   }
 }

@@ -197,7 +197,7 @@ prepare() {
     # hard-coded port, which tmuxy-server refuses to bind. bin/dev picks the
     # `tmuxy-dev` socket itself, so no TMUX_SOCKET is set here.
     SERVER_SCRIPT="
-        bash $WORKSPACE/bin/dev-server start dev 2>/dev/null
+        bash $WORKSPACE/bin/dev-server start 2>/dev/null
     "
 }
 
@@ -287,8 +287,8 @@ cmd_run() {
 cmd_logs() {
     container_running || { echo "Container '$CONTAINER_NAME' is not running."; exit 1; }
     case "${1:-}" in
-        -f|--follow) exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash "$WORKSPACE/bin/dev-server" logs dev ;;
-        *)           exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash "$WORKSPACE/bin/dev-server" logs dev --no-follow ;;
+        -f|--follow) exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash "$WORKSPACE/bin/dev-server" logs ;;
+        *)           exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash "$WORKSPACE/bin/dev-server" logs --no-follow ;;
     esac
 }
 

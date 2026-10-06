@@ -84,7 +84,7 @@ done
 sub bin/tmuxy-cli "s|^$(cli_line "$CUR")\$|$(cli_line "$NEW")|"
 
 # cargo racing the running dev-mode binary yields transient "Permission denied".
-bash "$(dirname "$0")/../../../../bin/dev-server" stop dev >/dev/null 2>&1 || true
+bash "$(dirname "$0")/../../../../bin/dev-server" stop >/dev/null 2>&1 || true
 
 echo "regenerating Cargo.lock..."
 cargo build -p tmuxy-server
