@@ -218,6 +218,6 @@ types the selection into the pane. Either closes the view.
 
 ## Related
 
-- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — the `copyMode` parallel state and `copyModeStates` context
+- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — the `copyMode` slice and `copyModeStates` context
 - [NON-GOALS.md](NON-GOALS.md) — why client scrollback rendering is the one scrollback-like feature we implement
 - [DATA-FLOW.md](DATA-FLOW.md) — the SSE/HTTP/Tauri/v86 transports the scrollback fetch rides on

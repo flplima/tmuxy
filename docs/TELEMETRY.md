@@ -135,7 +135,7 @@ connected.
 
 Every Rust layer already emits `tracing` spans and events. A custom
 `tracing-subscriber` **Layer** that serializes each span/event to one NDJSON
-line captures all of it — the `tmux_call` span, the `#[instrument]` handlers,
+line captures all of it — the monitor's spans, the `#[instrument]` handlers,
 every `info!`/`warn!`/`error!` — with **zero new call sites**. The work is:
 
 1. Write the NDJSON `Layer` and add it to the subscriber in `init_logging()`.
@@ -182,7 +182,7 @@ One flat object per line. Content-free by construction.
 | `ts_wall`         | wall-clock time (ms), for human reading and cross-machine ordering                                                     |
 | `ts_mono`         | monotonic time (µs) from the layer's clock, for duration math within a process                                         |
 | `layer`           | `xstate` \| `effect` \| `adapter` \| `http` \| `monitor` \| `aggregator` \| `emitter` \| `tmux` \| `tauri` \| `render` |
-| `component`       | originating module/actor (e.g. `keyboardActor`, `tmux_call`, `SessionBroadcast`)                                       |
+| `component`       | originating module/actor (e.g. `keyboardActor`, `transport`, `SessionBroadcast`)                                       |
 | `name`            | event or span name (a **typed variant**, never a command string)                                                       |
 | `phase`           | `event` \| `start` \| `end` (spans emit start/end; point events use `event`)                                           |
 | `dur_us`          | span duration on `end`, when known                                                                                     |
@@ -206,7 +206,7 @@ Each seam already exists in the code; the tracer emits at it.
 | http    | `POST /commands` header, `sse.rs`                                             | `action_id` (`X-Action-Id`) → the exact request-leg join                                                                                                                                                                                                                                            |
 | server  | `send_via_control_mode`, `sse.rs`                                             | the mutating ingress by command **verb** (first token; args only at `full`)                                                                                                                                                                                                                         |
 | emitter | `emit_state`, `sse.rs`                                                        | each state emit by delta `seq` + kind, joinable to the client `apply`                                                                                                                                                                                                                               |
-| tmux    | `tmux_call` Tower span, `tmux_service.rs`                                     | async dispatch op_name + argc (**already a span**)                                                                                                                                                                                                                                                  |
+| tmux    | the in-band reads in `tmuxy-core/src/transport.rs`                            | read op name + argc                                                                                                                                                                                                                                                                                 |
 | tauri   | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none)                           |
 | tauri   | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none)                               |
 | marker  | `tmuxy trace --mark`, `trace_view.rs`                                         | a user-stamped "bug happened here" label                                                                                                                                                                                                                                                            |
@@ -379,7 +379,7 @@ every layer writes into.
   rotation). Registered by `tmuxy_server::init_logging`, installed on the server
   binary, the `tmuxy server` subcommand, and the Tauri GUI path alike. Gating and
   the `--trace` flag live in `trace::init` / `ServerArgs`. Existing spans
-  (`tmux_call`, monitor `connect`/`run`) flow in with no new call sites.
+  (monitor `connect`/`run`, the `transport.rs` reads) flow in with no new call sites.
 - **Client** — `tmuxy-ui/src/tmux/tracer.ts` mirrors `latencyTracker`'s gating,
   fed from the XState `send` tap (`AppContext.tsx`) and the adapter send/apply
   hooks, batch-shipping to `POST /trace` (web) or the `record_trace` Tauri
@@ -429,8 +429,7 @@ local.
   is the model this generalizes and the Axis-B round-trip source.
 - [DATA-FLOW.md](DATA-FLOW.md) — the full user-action path, the seams, and the
   deployment scenarios that decide where the file lives.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — `Ctx`, the `StateEmitter` trait, and the
-  Tower stack (the existing `TraceLayer` precedent).
+- [ARCHITECTURE.md](ARCHITECTURE.md) — `Ctx` and the `StateEmitter` trait.
 - [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — the XState actors and typed
   `TmuxOp` vocabulary that make content-free action tracing possible.
 - [SECURITY.md](SECURITY.md) — the threat model that defines the redaction

@@ -625,12 +625,21 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
         'echo -e "\\x1b]8;;http://ex.test/live\\x07LIVE-LINK\\x1b]8;;\\x07"',
         'LIVE-LINK',
       );
-      const liveAnchors = await ctx.page.evaluate(() =>
-        Array.from(document.querySelectorAll('.terminal-content a.terminal-hyperlink'))
-          .filter((a) => a.getAttribute('href') === 'http://ex.test/live')
-          .map((a) => a.textContent),
+      // The typed command line holds the label too, so the text being on
+      // screen says nothing about the output yet: wait for the anchor itself.
+      const liveAnchors = () =>
+        ctx.page.evaluate(() =>
+          Array.from(document.querySelectorAll('.terminal-content a.terminal-hyperlink'))
+            .filter((a) => a.getAttribute('href') === 'http://ex.test/live')
+            .map((a) => a.textContent),
+        );
+      await waitForCondition(
+        ctx.page,
+        async () => (await liveAnchors()).includes('LIVE-LINK'),
+        10000,
+        async () =>
+          `the live link to be an anchor (anchors: ${JSON.stringify(await liveAnchors())})`,
       );
-      expect(liveAnchors).toContain('LIVE-LINK');
 
       // Now the repaint: same cells, different text, no scroll and no clear.
       // ZZZZZZZZ is one cell wider than CLICKME, so every marked cell changes.

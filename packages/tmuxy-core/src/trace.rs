@@ -726,7 +726,7 @@ fn target_allowed(target: &str) -> bool {
 fn layer_for(target: &str) -> &'static str {
     if target.contains("control_mode") {
         "monitor"
-    } else if target.contains("tmux_service") {
+    } else if target.contains("transport") {
         "tmux"
     } else if target.contains("emit") {
         "emitter"

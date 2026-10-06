@@ -125,7 +125,7 @@ The monitor multiplexes control-mode events with timer-driven flushes (throttle,
 
 Frontend `adapter.invoke(cmd, args)` is decoded into a typed `ClientCommand` variant on the server (or routed straight through Tauri IPC). Mutating commands route through the monitor's control-mode connection — never through external subprocesses, because external `tmux` calls crash tmux 3.5a when a control-mode client is attached (see [TMUX.md](TMUX.md)).
 
-Read-only async tmux dispatch (e.g., scrollback fetch, theme get/set) flows through the Tower stack (`AppState::tmux_call`) so it picks up the standard timeout, retry, and tracing in one place. Sync helpers in `executor::*` remain for CLI/blocking contexts.
+Reads go the same way: scrollback, key bindings, theme settings and snapshot checks are command lists answered in-band by the monitor (`tmuxy-core/src/transport.rs`, shared by both transports). Sync helpers in `executor::*` remain only for CLI paths with no client attached.
 
 **Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`SseEvent::Error` / `tmux-error`), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path and no allowlist: nothing a client sends reaches a shell.
 
@@ -142,16 +142,15 @@ Frontend
 │         ▼                      ▼         │
 │   ClientCommand variant   Tauri command  │
 │         │                      │         │
-│   ┌─────┴──────┐               │         │
-│   ▼            ▼               ▼         │
-│  Tower      Monitor       Monitor or     │
-│  stack      command       executor       │
-│ (async      channel       (per use case) │
-│  tmux)      (mutations)                  │
-└─────────┬────────────────────────┬───────┘
-          └────────────┬───────────┘
-                       ▼
-              Monitor stdin → tmux
+│         └──────────┬───────────┘         │
+│                    ▼                     │
+│      command_router::route_command       │
+│                    │                     │
+│     monitor channel (mutations and       │
+│     in-band reads, transport.rs)         │
+└────────────────────┬─────────────────────┘
+                     ▼
+            Monitor stdin → tmux
 ```
 
 ## Delta Protocol

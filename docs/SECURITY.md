@@ -208,7 +208,7 @@ Where it is kept follows from that. Snapshots live under the state directory
 (`sessions/<socket>/`, since a `tmuxy` session on `tmuxy-dev` is not the one
 on `tmuxy`), next to the trace and the browser profiles — deliberately nowhere `/api/file` or `/api/browse` can reach — and
 no route serves them. The commands that touch them (`list_snapshots`,
-`restore_session`, `forget_session`) are **write** commands: a `--read-only`
+`restore_session`) are **write** commands: a `--read-only`
 server does not answer them, for the same reason it does not serve the file
 routes (SEC-11) — a viewer is shown one session's screen, not the directories
 and commands of every pane on the machine.

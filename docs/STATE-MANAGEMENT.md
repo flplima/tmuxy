@@ -20,7 +20,7 @@ The backend is the **authoritative** owner of tmux state. Everything below is a 
 
 ### AppState
 
-Top-level server state. Holds the per-session connection map, the execution context (`Ctx` — see below) for substitutable I/O, structured-shutdown handles (`JoinSet` + `CancellationToken`), and the shared image store. Exposes `tmux_call(args, op_name)` as the canonical async tmux entry point — every async handler routes through it rather than calling subprocesses directly.
+Top-level server state. Holds the per-session connection map, the execution context (`Ctx` — see below), structured-shutdown handles (`JoinSet` + `CancellationToken`), and the shared image store. Handlers reach tmux through the session's monitor, never a subprocess.
 
 See `tmuxy-server/src/state.rs`.
 
@@ -60,17 +60,7 @@ See `tmuxy-core/src/control_mode/state.rs` and the `SideEffect` enum's docblocks
 
 ### Ctx — execution context
 
-A small bundle of substitutable capabilities (`TmuxCommand`, `Clock`) plus a `RetryPolicy`. Production uses `Ctx::live()` (real subprocess, system clock). Tests use `test_ctx()` (mock tmux that records argvs, fake clock) — gated behind a `test-support` cargo feature so external integration tests can pull in the mocks.
-
-See `tmuxy-core/src/ctx.rs`.
-
-### Tower stack — async tmux call boundary
-
-Async hot paths that need to dispatch one-off tmux commands go through a Tower middleware stack: `TraceLayer → RetryLayer → TimeoutLayer → TmuxService`. `build_tmux_stack(ctx_tmux, timeout, policy)` is the single composition point; `AppState::tmux_call` is the consumer-side helper. Configuration (per-call timeout, retry policy) is changed in one place.
-
-Sync `executor::*` helpers continue to call subprocesses directly because they cannot await — they're used from CLI paths and from background `spawn_blocking` contexts. The Tower stack is for the async paths.
-
-See `tmuxy-core/src/tmux_service.rs`.
+The monitor's substitutable capabilities. Today that is only the `Clock` the settling and throttling deadlines are computed from; production uses `Ctx::live()` (the system clock). There is no tmux capability: every tmux command, mutation or read, goes over the monitor's control-mode connection (`tmuxy-core/src/transport.rs` holds the reads both transports share). See `tmuxy-core/src/ctx.rs`.
 
 ### StateUpdate, TmuxState, TmuxDelta
 
@@ -95,7 +85,7 @@ Three timing policies the monitor applies on top of the aggregator's effects. Al
 - **Adaptive throttling** caps state emissions during high-frequency output (rate-window hysteresis with a ~60fps ceiling) so terminal-output bursts don't drown the SSE channel. Below the threshold, emissions are immediate for low-latency typing feedback.
 - **Layout debounce** coalesces rapid layout changes (e.g., zoom-out cascades) into a single emission.
 
-Tunables live on `MonitorConfig`. The exact durations + thresholds drift as we tune for real workloads; the durable contract is "the aggregator is correct; the monitor decides cadence."
+The tunables are constants in `control_mode/monitor.rs` (only the throttle interval is a `MonitorConfig` field). The exact durations + thresholds drift as we tune for real workloads; the durable contract is "the aggregator is correct; the monitor decides cadence."
 
 ---
 
@@ -110,7 +100,7 @@ The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Fo
 - **`reconnecting`** — The adapter detected the SSE/Tauri channel dropped and is retrying. Distinct from `connecting` so the UI keeps the last frame of the panes mounted and blurs it under the `ConnectionOverlay` (spinner + "Connecting…"; see `tmuxy-ui/src/components/ConnectionOverlay.tsx`). Transitions to `idle` on `TMUX_RECONNECTED` (next live snapshot) or `disconnected` on `TMUX_DISCONNECTED` / `TMUX_FATAL`.
 - **`disconnected`** — Terminal. Backend gave up or an explicit disconnect happened. The `ConnectionOverlay` reads `fatalError` to show the one-line reason with a Retry button (a reload) and the command/error log behind a collapsed Details disclosure; the dead layout stays underneath as the blurred backdrop. No auto-recovery; an adapter-initiated `TMUX_RECONNECTING` is still accepted, so a server that comes back later can pull the UI out of this state.
 
-Reconnection flow: the adapter (`HttpAdapter` / `TauriAdapter`) tracks the retry attempt count and fires `onReconnection(true, attempt)` on every drop. `tmuxActor` forwards this as `TMUX_RECONNECTING { attempt }`; the machine assigns `context.reconnectAttempt` and transitions to `reconnecting`. When the channel recovers, the adapter fires `onReconnection(false, 0)` → `TMUX_RECONNECTED` → back to `idle`. Pending optimistic ops carry across reconnection: the store's `applyServerSnapshot` runs against the first post-recovery full state and reconciles or rolls back each op (stale ops older than `OP_STALE_TIMEOUT_MS` are dropped in that same pass).
+Reconnection flow: the adapter (`HttpAdapter` / `TauriAdapter`) fires `onReconnection(true)` on every drop. `tmuxActor` forwards this as `TMUX_RECONNECTING` and the machine transitions to `reconnecting`. When the channel recovers, the adapter fires `onReconnection(false)` → `TMUX_RECONNECTED` → back to `idle`. Pending optimistic ops carry across reconnection: the store's `applyServerSnapshot` runs against the first post-recovery full state and reconciles or rolls back each op (stale ops older than `OP_STALE_TIMEOUT_MS` are dropped in that same pass).
 
 ### Machine Context
 
@@ -122,9 +112,7 @@ The context holds all frontend state. Key fields:
 - `windows: TmuxWindow[]` — All windows
 - `activePaneId`, `activeWindowId` — Current focus
 - `totalWidth`, `totalHeight` — tmux grid dimensions
-- `statusLine` — Rendered tmux status line with ANSI codes
 - `keybindings` — Prefix key and all bindings from tmux config
-- `connectionId` — Server-assigned connection ID
 - `defaultShell` — Default shell (bash, zsh, etc.)
 
 **Client-only state:**
@@ -155,7 +143,7 @@ The machine invokes five persistent actors:
 
 **`tmuxActor`** (`tmuxy-ui/src/machines/actors/tmuxActor.ts`) — Bridge to the Rust backend. Receives `SEND_COMMAND`, `INVOKE`, `FETCH_INITIAL_STATE`, `FETCH_THEME_SETTINGS`, etc. from the parent. Sends `TMUX_CONNECTED`, `TMUX_STATE_UPDATE`, `TMUX_ERROR`, `CONNECTION_INFO`, `KEYBINDINGS_RECEIVED`, `TMUX_CLIPBOARD` to the parent.
 
-**`tmuxStoreActor`** (`tmuxy-ui/src/machines/actors/tmuxStoreActor.ts`) — Bridges the Tier-3 client model (`TmuxStore`) into XState. Receives `DISPATCH_COMMAND` (optimistic dispatch) and `RECONCILE_SERVER` (server snapshot reconciliation) from the parent; forwards every model change back as `TMUX_MODEL_UPDATE`.
+**`tmuxStoreActor`** (`tmuxy-ui/src/machines/actors/tmuxStoreActor.ts`) — Bridges the client model (`TmuxStore`) into XState. Receives `DISPATCH_COMMAND` (optimistic dispatch) and `RECONCILE_SERVER` (server snapshot reconciliation) from the parent; forwards every model change back as `TMUX_MODEL_UPDATE`.
 
 **`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode (waits for next key after prefix), the text-vs-chord classification that decides whether a keydown is sent as literal text or as a tmux key name (dead keys, macOS Option and AltGr all compose characters behind chord-looking flags — see [DATA-FLOW.md](DATA-FLOW.md)), IME composition support (a hidden input in `tmuxy-ui/src/utils/mobileKeyboard.ts` holds browser focus on every device and follows the pane, float or dock holding the keyboard so a composition can start; individual keydowns are suppressed during CJK input and the composed string is committed to the pane where the composition began), copy mode interception (all keys captured and sent as `COPY_MODE_KEY` when the active pane is in client-side copy mode), root bindings (bypass prefix), and paste chunking (large pastes split into 500-char chunks). Sends `SEND_TMUX_COMMAND`, `KEY_PRESS`, and `COPY_SELECTION` to the parent.
 
@@ -171,7 +159,7 @@ That settled size is also what the grid must be POSITIONED against for the lengt
 
 **`resizeMachine`** (`tmuxy-ui/src/machines/resize/resizeMachine.ts`) — Pane resize via divider dragging. States: `idle` and `resizing`. Tracks pixel delta, converts to character units, sends tmux `resize-pane` commands when delta >= 1 char. Throttles to avoid command spam.
 
-### Optimistic Updates — TmuxClientModel (Tier 3)
+### Optimistic Updates — TmuxClientModel
 
 Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src/tmux/store/`. The model splits server-confirmed state from in-flight predictions and replays predictions on top.
 
@@ -185,7 +173,7 @@ Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src
 A `TmuxOp` is a typed value, not a parsed command string. The store knows how to:
 
 1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`. The predict context (default shell + MRU pane activation order for the Navigate tiebreak) is mirrored from the machine on every model update via `UPDATE_PREDICT_CONTEXT`.
-2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → marks the op `in-flight` → sends the command through the adapter → on `TmuxError` rolls the patch back. Once the adapter acks, the op moves to `awaiting-confirm`.
+2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → marks the op `in-flight` → sends the command through the adapter → rolls the patch back if the send fails. Once the adapter acks, the op moves to `awaiting-confirm`.
 3. **Reconcile** — `TmuxStore.reconcile(serverState)` advances `committed`, runs each pending op's reconciler, drops matched/stale ones, recomputes `derived`.
 
 Stale sweeping is status-aware: only an op the adapter was never asked to send (`pending`) is swept quickly (`OP_STALE_TIMEOUT_MS`) — its command may be a phantom with nothing coming. An op whose adapter call is still running (`in-flight`) is exempt from the quick sweep: the ack alone can outlast it on a slow transport (v86 serial, loaded server), the call is guaranteed to settle either way, and sweeping earlier blinks the optimistic UI away exactly when the backend is slowest. Both `in-flight` and acked (`awaiting-confirm`) ops fall to the longer `OP_ACKED_STALE_TIMEOUT_MS` backstop (the confirming delta may arrive slowly — e.g. a new window's type tag on a later list-windows sync). Rollbacks of structural ops surface in the snackbar via `TMUX_ERROR`; focus-op rollbacks stay console-only.
@@ -230,7 +218,8 @@ Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
 `AppMachineContext` field to the concern that owns it (the owner names are the `states/` file names, plus `parent` for the machine itself). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
-enforces this: any `assign({...})` inside a `states/<name>.ts` or
+reads that map out of `context.ts` itself, so there is one copy, and
+enforces it: any `assign({...})` inside a `states/<name>.ts` or
 `actions/<name>.ts` file may only mutate fields owned by `<name>`.
 Cross-cutting handlers that legitimately span states opt out with a
 `// cross-cutting: <reason>` comment on the assign.
@@ -246,8 +235,9 @@ errors, structured concurrency, and schema-validated decoding. Files under
 `tmuxy-ui/src/tmux/effect/`:
 
 - **`AdapterError.ts`** — Tagged union failure type:
-  `TransportError | ProtocolError | TmuxError | Cancelled`. The Rust backend's
-  `{ error: '...' }` rejection shape is auto-classified as `TmuxError`.
+  `TransportError | ProtocolError | TmuxError | Cancelled`. A `{ error: '...' }`
+  rejection (the demo and v86 adapters') is classified as `TmuxError`; the real
+  transports' failures arrive as `TransportError`.
 - **`EffectTmuxAdapter.ts`** — `toEffectAdapter(adapter)` wraps the
   Promise-based `TmuxAdapter` interface into Effect-returning methods.
   `decodingInvoke(cmd, schema, args)` composes invoke + Schema.decodeUnknown
@@ -259,16 +249,14 @@ errors, structured concurrency, and schema-validated decoding. Files under
 
 **tmuxActor** consumes the Effect facade: every adapter call runs through
 `Effect.runPromiseExit`, and errors tunnel to the parent machine as
-`TMUX_ERROR { error: <display string>, tagged?: <AdapterError> }`.
-Consumers can `switch (event.tagged?._tag)` for typed handling or fall back
-to `event.error` for logging.
+`TMUX_ERROR { error }`, a display string.
 
 ### Errors the user sees
 
 There is one surface for errors: the snackbar (`components/Snackbar.tsx`),
 stacked in the top-right corner of the app chrome, each entry with a close
 button and an expiry. It renders the `notifications` field, owned by the
-`notifications` parallel state; anything that has an error for the user
+`notifications` slice; anything that has an error for the user
 raises `NOTIFY { text }` — the connected-state `TMUX_ERROR` handler (backend
 errors, rejected commands, optimistic rollbacks), a refused clipboard write,
 a menu action that cannot run on this transport. The same text arriving while
@@ -313,7 +301,7 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 4. **Optimistic reconciliation** — Every dispatched op stays in `TmuxClientModel.ops` until a server state update either matches it (the predicted real id appears in `committed`) or it stale-expires after `OP_STALE_TIMEOUT_MS`. Multiple in-flight ops are reconciled in dispatch order, each claiming its own real id so concurrent Split / NewWindow ops don't collide. On `TmuxError`, the store rolls the patch back immediately and surfaces `OpRejectedByTmux { stderr }` to the caller.
 
-5. **Copy mode is client-side** — the `copyMode` parallel state owns per-pane `CopyModeState` (loaded scrollback `lines`, cursor, selection, scrollTop). Scrollback is fetched on demand from tmux (`FETCH_SCROLLBACK_CELLS` → `get_scrollback_cells` → `COPY_MODE_CHUNK_LOADED`) and rendered in a natively-scrolling container; vi keybindings (via `COPY_MODE_KEY` → `handleCopyModeKey`), cursor movement, mouse selection, and scroll position are all client-owned. The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag and capturing history. See [COPY-MODE.md](COPY-MODE.md).
+5. **Copy mode is client-side** — the `copyMode` slice owns per-pane `CopyModeState` (loaded scrollback `lines`, cursor, selection, scrollTop). Scrollback is fetched on demand from tmux (`FETCH_SCROLLBACK_CELLS` → `get_scrollback_cells` → `COPY_MODE_CHUNK_LOADED`) and rendered in a natively-scrolling container; vi keybindings (via `COPY_MODE_KEY` → `handleCopyModeKey`), cursor movement, mouse selection, and scroll position are all client-owned. The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag and capturing history. See [COPY-MODE.md](COPY-MODE.md).
 
 6. **Group state** — Pane-group membership is intrinsic to the pane: every member carries the same `@tmuxy-group-id` pane option, the visible member lives in the attached session and the hidden ones are parked in the `__tmuxy_stash` session (see [TMUX.md](TMUX.md) "Window Tags"). The backend enumerates both on state sync and emits hidden members as pane stubs carrying `group_id`. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.
 
@@ -322,4 +310,4 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 - [ARCHITECTURE.md](ARCHITECTURE.md) — where each state layer sits in the system
 - [DATA-FLOW.md](DATA-FLOW.md) — the delta protocol and transports these updates travel over
 - [TMUX.md](TMUX.md) — control-mode routing and the `@tmuxy-*` tags the window state is built from
-- [COPY-MODE.md](COPY-MODE.md) — the client-owned `copyMode` parallel state
+- [COPY-MODE.md](COPY-MODE.md) — the client-owned `copyMode` slice
