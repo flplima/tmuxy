@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 
 describe('CLI info and skill commands', () => {
@@ -88,6 +90,15 @@ describe('CLI info and skill commands', () => {
       const { stdout, exitCode } = runCLI(['--version']);
       expect(exitCode).toBe(0);
       expect(stdout).toMatch(/^tmuxy \d+\.\d+\.\d+/);
+    });
+
+    test('the fallback version for an install without package.json is the current one', () => {
+      // bump-version (.agents/skills/release/scripts) rewrites this line with
+      // every release; a bump that missed it would ship a stale --version.
+      const root = path.resolve(__dirname, '../..');
+      const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+      const cli = fs.readFileSync(path.join(root, 'bin/tmuxy-cli'), 'utf8');
+      expect(cli).toContain(`TMUXY_VERSION="\${TMUXY_VERSION:-${version}}"`);
     });
 
     test('top-level help includes AI agent note', () => {

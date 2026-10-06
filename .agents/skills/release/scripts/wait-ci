@@ -2,7 +2,7 @@
 #
 # Block until a release-relevant CI run reaches a terminal state.
 #
-# Usage: wait-ci commit [<sha>]      # step 2: all 3 workflows green on a commit
+# Usage: wait-ci commit [<sha>]      # step 2: the push workflows green on a commit
 #        wait-ci tag <version>       # step 5: the tag-triggered Build App run
 #        wait-ci ... --timeout <s>   # default 2700 (45 min)
 #
