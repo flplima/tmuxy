@@ -66,6 +66,46 @@ describe('CLI pane group subcommands', () => {
     });
   });
 
+  describe('pane group move', () => {
+    test('execs run-shell with pane-group-move, the pane and its new place', () => {
+      const { tmuxCalls } = runCLI(['pane', 'group', 'move', '%4', '0']);
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args[0]).toBe('run-shell');
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group-move' '%4' '0'$/);
+    });
+
+    test('errors without a place', () => {
+      const { exitCode } = runCLI(['pane', 'group', 'move', '%4']);
+      expect(exitCode).not.toBe(0);
+    });
+  });
+
+  describe('pane group join', () => {
+    test('execs run-shell with pane-group-join, the pane, the member and the place', () => {
+      const { tmuxCalls } = runCLI(['pane', 'group', 'join', '%9', '%4', '1']);
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group-join' '%9' '%4' '1'$/);
+    });
+
+    test('errors without a group to join', () => {
+      const { exitCode } = runCLI(['pane', 'group', 'join', '%9']);
+      expect(exitCode).not.toBe(0);
+    });
+  });
+
+  describe('pane group leave', () => {
+    test('becomes a tab of its own by default', () => {
+      const { tmuxCalls } = runCLI(['pane', 'group', 'leave', '%5']);
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args[1]).toContain("pane-group-leave' '%5' '--tab'");
+    });
+
+    test('splits in beside a pane on the side named', () => {
+      const { tmuxCalls } = runCLI(['pane', 'group', 'leave', '%5', '--beside', '%2', 'down']);
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group-leave' '%5' '--beside' '%2' 'down'$/);
+    });
+  });
+
   describe('pane group unknown', () => {
     test('errors on unknown group subcommand', () => {
       const { stderr, exitCode } = runCLI(['pane', 'group', 'badcmd']);

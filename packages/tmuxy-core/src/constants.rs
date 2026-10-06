@@ -90,6 +90,17 @@ pub mod tmux_options {
     /// membership list to keep in sync.
     pub const GROUP_ID: &str = "@tmuxy-group-id";
 
+    /// Pane-scoped position of a member within its group (`0`, `1`, …), set
+    /// when the user reorders a group (`tmuxy pane group move`). Members
+    /// without one follow those with one, in pane-id order — which is the
+    /// whole order of a group nobody has rearranged.
+    pub const GROUP_POS: &str = "@tmuxy-group-pos";
+
+    /// Global revision the group scripts bump after a change tmux does not
+    /// announce; every pane inherits it, so the monitor's pane-metadata
+    /// subscription (`tmux_formats::SUBSCRIBE_PANE_TITLES_CMD`) fires.
+    pub const GROUP_REV: &str = "@tmuxy-group-rev";
+
     /// Pane-scoped state the pane declares about itself (`tmuxy pane state`).
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
@@ -297,7 +308,9 @@ pub mod tmux_formats {
         "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
         "#{selection_present},",
         "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id},",
-        "#{@tmuxy-pane-state},#{@tmuxy-ask},#{@tmuxy-pane-widget},#{@tmuxy-pane-restore}'",
+        "#{@tmuxy-group-pos},#{@tmuxy-pane-state},#{@tmuxy-ask},#{@tmuxy-pane-widget},",
+        // A shell line may hold commas; escaped, it stays one field.
+        "#{s/,/%2C/:@tmuxy-pane-restore}'",
     );
 
     /// Enumerates the HIDDEN pane-group members parked in
@@ -310,20 +323,23 @@ pub mod tmux_formats {
     /// by `-f` returns EMPTY (not an error) when the stash session doesn't exist
     /// yet — which is the common case on every refresh before any group is made,
     /// so it must not spam `%error` responses.
-    /// The control-mode subscription that reports a pane title change.
+    /// The control-mode subscription that reports pane metadata tmux does not
+    /// announce on its own.
     ///
     /// tmux sends no notification when a title changes — `select-pane -T` from
-    /// a script or `tmuxy run`, or a program's OSC 0/2 — so the title used to
-    /// wait for the idle heartbeat (15 s). A subscription is checked by tmux
-    /// about once a second and answered with `%subscription-changed`, whatever
-    /// set the title (tmux 3.2+; `%*` is every pane of every window).
-    pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = "tmuxy-pane-titles";
-    pub const SUBSCRIBE_PANE_TITLES_CMD: &str =
-        "refresh-client -B 'tmuxy-pane-titles:%*:#{pane_title}'";
+    /// a script or `tmuxy run`, or a program's OSC 0/2 — nor when a group's
+    /// membership or order changes by option alone, so these used to wait for
+    /// the idle heartbeat (15 s). A subscription is checked by tmux about once
+    /// a second and answered with `%subscription-changed`, whatever made the
+    /// change (tmux 3.2+; `%*` is every pane of every window). The group
+    /// scripts bump the global `@tmuxy-group-rev`, which every pane inherits,
+    /// so a reorder among hidden members is seen too.
+    pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = "tmuxy-pane-meta";
+    pub const SUBSCRIBE_PANE_TITLES_CMD: &str = "refresh-client -B 'tmuxy-pane-meta:%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}'";
 
     pub const LIST_STASH_PANES_CMD: &str = concat!(
         "list-panes -a -f '#{==:#{session_name},__tmuxy_stash}' -F '",
-        "stashmember,#{pane_id},#{window_id},#{@tmuxy-group-id},",
+        "stashmember,#{pane_id},#{window_id},#{@tmuxy-group-id},#{@tmuxy-group-pos},",
         "#{pane_current_command},",
         app_pane_title!(),
         "'",

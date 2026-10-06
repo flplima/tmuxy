@@ -1,0 +1,58 @@
+#!/bin/bash
+# Make a pane a member of another pane's group, out of view.
+# Args: $1=pane_id (an ungrouped pane)  $2=a member of the group, or any pane
+#       (it becomes a group with $1)  $3=index in the group's order (optional;
+#       last when omitted)
+#
+# The pane is broken out of its window into the stash session the way
+# pane-group-add parks a new member; the window it leaves re-tiles, and closes
+# if it was the window's only pane.
+
+set -euo pipefail
+source "${0%/*}/_lib"
+
+PANE="$1"
+ANCHOR="$2"
+INDEX="${3:-}"
+
+if [ "$PANE" = "$ANCHOR" ]; then
+  echo "pane-group-join: a pane cannot join itself" >&2
+  exit 1
+fi
+if [ -n "$(group_id_of_pane "$PANE")" ]; then
+  echo "pane-group-join: $PANE is in a group already; leave it first" >&2
+  exit 1
+fi
+SESSION=$(_tmux display-message -p -t "$PANE" '#{session_name}')
+if [ "$(_tmux list-panes -s -t "$SESSION" | grep -c .)" -le 1 ]; then
+  echo "pane-group-join: $PANE is the last pane of its session" >&2
+  exit 1
+fi
+
+ensure_stash_session
+
+GID=$(group_id_of_pane "$ANCHOR")
+if [ -z "$GID" ]; then
+  GID=$(new_group_id "$ANCHOR")
+  set_group_id "$ANCHOR" "$GID"
+  group_arm_pane "$ANCHOR"
+fi
+VISIBLE=$(visible_member "$GID")
+WIDTH=$(_tmux display-message -p -t "$VISIBLE" '#{pane_width}')
+HEIGHT=$(_tmux display-message -p -t "$VISIBLE" '#{pane_height}')
+
+members=()
+while read -r member; do
+  [ -n "$member" ] && members+=("$member")
+done < <(group_members "$GID")
+[ -z "$INDEX" ] || [ "$INDEX" -gt "${#members[@]}" ] && INDEX=${#members[@]}
+[ "$INDEX" -lt 0 ] && INDEX=0
+
+_tmux break-pane -d -s "$PANE" -t "${STASH_SESSION}:" \; \
+  set-option -p -t "$PANE" @tmuxy-group-id "$GID"
+group_arm_pane "$PANE"
+_tmux resize-window -t "$PANE" -x "$WIDTH" -y "$HEIGHT"
+
+ordered=("${members[@]:0:$INDEX}" "$PANE" "${members[@]:$INDEX}")
+set_group_order "${ordered[@]}"
+announce_groups

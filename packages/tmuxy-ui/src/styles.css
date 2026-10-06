@@ -1011,6 +1011,24 @@
   background-color: color-mix(in srgb, #000 22%, transparent);
 }
 
+/* A pane dragged over a header: the share it would take, or the gap it would
+   join the group at. The member being dragged is faded in its own header. */
+.pane-tab.pane-tab-drop-onto {
+  box-shadow: inset 0 -2px 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-drop-before {
+  box-shadow: inset 3px 0 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-drop-after {
+  box-shadow: inset -3px 0 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-dragging {
+  opacity: 0.45;
+}
+
 /* Each member's own buttons, pushed to the right of ITS share. */
 .pane-tab-controls {
   display: flex;

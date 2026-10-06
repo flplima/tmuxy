@@ -7,7 +7,15 @@
  */
 
 import { useRef, useEffect, useState, useCallback, memo, type ReactNode } from 'react';
-import { useAppSend, usePane, usePaneGroup, useReadOnly } from '../machines/AppContext';
+import {
+  selectDraggedPaneId,
+  selectGroupDrop,
+  useAppSelector,
+  useAppSend,
+  usePane,
+  usePaneGroup,
+  useReadOnly,
+} from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
@@ -36,6 +44,8 @@ const PaneTab = memo(function PaneTab({
   onClick,
   onContextMenu,
   controls,
+  dropMark,
+  dragging,
 }: {
   pane: TmuxPane;
   isSelectedTab: boolean;
@@ -58,13 +68,17 @@ const PaneTab = memo(function PaneTab({
    * ungrouped pane, whose buttons stay at the header's own right edge.
    */
   controls: ReactNode;
+  /** Where a pane being dragged over this header would land, against this tab. */
+  dropMark: 'onto' | 'before' | 'after' | null;
+  /** This member is the pane being dragged. */
+  dragging: boolean;
 }) {
   const icon = getTabIcon(pane, widgetName, titleOverride);
   const text = getTabLabel(pane, titleOverride);
 
   return (
     <div
-      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''} ${disabled ? 'pane-tab-disabled' : ''}`}
+      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''} ${disabled ? 'pane-tab-disabled' : ''} ${dropMark ? `pane-tab-drop-${dropMark}` : ''} ${dragging ? 'pane-tab-dragging' : ''}`}
       onClick={disabled ? undefined : onClick}
       aria-disabled={disabled}
       onContextMenu={onContextMenu}
@@ -120,6 +134,8 @@ export function PaneHeader({
   const readOnly = useReadOnly();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
+  const groupDrop = useAppSelector(selectGroupDrop);
+  const draggedPaneId = useAppSelector(selectDraggedPaneId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -229,6 +245,20 @@ export function PaneHeader({
     send({ type: 'ZOOM_PANE', paneId: tmuxId });
   };
 
+  const memberUnder = (el: HTMLElement): string =>
+    (isGroup && el.closest<HTMLElement>('.pane-tab')?.dataset.paneTab) || tmuxId;
+
+  const dropMarkFor = (index: number): 'onto' | 'before' | 'after' | null => {
+    if (!groupDrop) return null;
+    if (groupDrop.kind === 'order') {
+      if (!tabPanes.some((p) => p.tmuxId === groupDrop.paneId)) return null;
+      return index === groupDrop.index && index !== groupDrop.from ? 'onto' : null;
+    }
+    if (groupDrop.anchorPaneId !== tmuxId) return null;
+    if (index === groupDrop.index) return 'before';
+    return index === tabPanes.length - 1 && groupDrop.index === tabPanes.length ? 'after' : null;
+  };
+
   // Drag from anywhere on the header
   const handleHeaderMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -245,6 +275,9 @@ export function PaneHeader({
     }
 
     pendingDragRef.current = { x: e.clientX, y: e.clientY };
+    // A group's tab drags the member it names — to reorder it, or, for a
+    // parked one, to take it out of the group.
+    const dragId = memberUnder(target);
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -261,7 +294,7 @@ export function PaneHeader({
         const containerRect = containerEl?.getBoundingClientRect();
         send({
           type: 'DRAG_START',
-          paneId: tmuxId,
+          paneId: dragId,
           startX,
           startY,
           containerLeft: containerRect?.left ?? 0,
@@ -295,6 +328,7 @@ export function PaneHeader({
 
     // Capture DOM refs eagerly — React synthetic event is recycled after this handler returns
     const headerEl = e.currentTarget as HTMLElement;
+    const dragId = memberUnder(target);
 
     longPressTimerRef.current = setTimeout(() => {
       longPressTimerRef.current = null;
@@ -304,7 +338,7 @@ export function PaneHeader({
       const containerRect = containerEl?.getBoundingClientRect();
       send({
         type: 'DRAG_START',
-        paneId: tmuxId,
+        paneId: dragId,
         startX,
         startY,
         containerLeft: containerRect?.left ?? 0,
@@ -409,7 +443,7 @@ export function PaneHeader({
       aria-label={`Pane tabs`}
     >
       <div className={`pane-tabs${isGroup ? ' pane-tabs-group' : ''}`} ref={tabsRef}>
-        {tabPanes.map((tabPane) => {
+        {tabPanes.map((tabPane, index) => {
           const isSelectedTab = tabPane.tmuxId === activeTabId;
           const isActivePane = tabPane.active && isSelectedTab;
 
@@ -437,6 +471,8 @@ export function PaneHeader({
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
               controls={isGroup ? controlsFor(tabPane.tmuxId) : null}
+              dropMark={dropMarkFor(index)}
+              dragging={isGroup && draggedPaneId === tabPane.tmuxId}
             />
           );
         })}

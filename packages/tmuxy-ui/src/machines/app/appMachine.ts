@@ -197,6 +197,12 @@ function snapshotFromModel(model: TmuxClientModel): {
 }
 
 /** Move a pane ID to the front of the MRU list */
+/** A group member parked out of view: in a group, and not in the window on screen. */
+function isParkedMember(context: AppMachineContext, paneId: string): boolean {
+  const pane = context.panes.find((p) => p.tmuxId === paneId);
+  return !!pane?.groupId && pane.windowId !== context.activeWindowId;
+}
+
 function updateActivationOrder(order: string[], paneId: string | null): string[] {
   if (!paneId) return order;
   return [paneId, ...order.filter((id) => id !== paneId)];
@@ -955,12 +961,15 @@ export const appMachine = setup({
                 }
                 return false;
               }) ||
-              // A pane changing window (group swap) OR its group id (join/leave/
-              // degroup) must rebuild paneGroups.
+              // A pane changing window (group swap), its group id (join/leave/
+              // degroup) or its place in the group (reorder) must rebuild
+              // paneGroups.
               transformed.panes.some((p) => {
                 const prev = context.panes.find((cp) => cp.tmuxId === p.tmuxId);
                 return (
-                  p.windowId !== prev?.windowId || (p.groupId ?? null) !== (prev?.groupId ?? null)
+                  p.windowId !== prev?.windowId ||
+                  (p.groupId ?? null) !== (prev?.groupId ?? null) ||
+                  (p.groupPos ?? null) !== (prev?.groupPos ?? null)
                 );
               });
 
@@ -1759,6 +1768,9 @@ export const appMachine = setup({
                   ghostWidth: pane?.width ?? 0,
                   ghostHeight: pane?.height ?? 0,
                   tabDrop: null,
+                  groupDrop: null,
+                  memberDrag: isParkedMember(context, event.paneId),
+                  leaveSide: null,
                 },
               };
             }),
@@ -1781,6 +1793,8 @@ export const appMachine = setup({
                 panesInWindow: pane
                   ? context.panes.filter((p) => p.windowId === pane.windowId).length
                   : 0,
+                groups: context.paneGroups,
+                memberDrag: isParkedMember(context, event.paneId),
               };
             }),
           ],

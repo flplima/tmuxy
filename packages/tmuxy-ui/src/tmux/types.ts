@@ -27,6 +27,8 @@ export interface TmuxPane {
    * the visible one, the rest are hidden stubs parked in the stash session.
    */
   groupId?: string | null;
+  /** `@tmuxy-group-pos`: this member's place in its group, once reordered. */
+  groupPos?: number | null;
   inMode: boolean;
   copyCursorX: number;
   copyCursorY: number;
@@ -270,6 +272,7 @@ export interface ServerPane {
   title: string;
   border_title: string;
   group_id?: string | null;
+  group_pos?: number | null;
   in_mode: boolean;
   copy_cursor_x: number;
   copy_cursor_y: number;
@@ -363,6 +366,7 @@ export interface PaneDelta {
   title?: string;
   border_title?: string;
   group_id?: string | null;
+  group_pos?: number | null;
   in_mode?: boolean;
   copy_cursor_x?: number;
   copy_cursor_y?: number;

@@ -15,6 +15,7 @@ import type {
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 import type { TabDrop } from '../utils/tabStripDrop';
+import type { GroupDrop } from '../utils/groupDrop';
 import { clampDelta } from './resize/limits';
 import { CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../constants';
 import {
@@ -212,6 +213,11 @@ export function selectDraggedPaneId(context: AppMachineContext): string | null {
 /** Where a pane being dragged over the tab strip would land, if it is there. */
 export function selectTabDrop(context: AppMachineContext): TabDrop | null {
   return context.drag?.tabDrop ?? null;
+}
+
+/** Where in a pane group a pane being dragged over a header would go, if anywhere. */
+export function selectGroupDrop(context: AppMachineContext): GroupDrop | null {
+  return context.drag?.groupDrop ?? null;
 }
 
 export function selectDragOffsetX(context: AppMachineContext): number {

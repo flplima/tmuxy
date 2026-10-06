@@ -14,6 +14,7 @@ import type {
   Appearance,
 } from '../tmux/types';
 import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
+import type { GroupDrop, Side } from '../utils/groupDrop';
 import type { AskAnswer } from '../utils/paneAsk';
 
 // Re-export domain types
@@ -83,6 +84,18 @@ export interface DragState {
    * light up the tab under the pointer.
    */
   tabDrop: TabDrop | null;
+  /**
+   * Over a pane header: the place in a group the pane would take on release
+   * (reorder within its group, or join another pane's). The header reads it
+   * to show where.
+   */
+  groupDrop: GroupDrop | null;
+  /**
+   * A parked group member, dragged by its tab: it is not on screen, so nothing
+   * swaps; released over a pane it leaves the group beside it (`leaveSide`).
+   */
+  memberDrag: boolean;
+  leaveSide: Side | null;
 }
 
 /** Resize operation state */
@@ -576,6 +589,9 @@ export interface DragMachineContext {
   /** The window the dragged pane came from, and how many panes it had. */
   paneWindowId: string | null;
   panesInWindow: number;
+  groups: Record<string, PaneGroup>;
+  /** The pane the pointer is resting on, waiting out the swap dwell. */
+  pendingSwap: string | null;
   drag: DragState | null;
 }
 
@@ -596,8 +612,11 @@ export type DragMachineEvent =
       tabStrip: TabStripGeometry | null;
       paneWindowId: string | null;
       panesInWindow: number;
+      groups: Record<string, PaneGroup>;
+      memberDrag: boolean;
     }
   | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
+  | { type: 'SWAP_DWELL'; paneId: string }
   | { type: 'DRAG_END' }
   | KeyPressEvent;
 

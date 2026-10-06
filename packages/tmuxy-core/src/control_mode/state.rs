@@ -293,6 +293,8 @@ pub struct PaneState {
 
     /// Pane-group identity from `@tmuxy-group-id` (e.g. `g5`), or `None`.
     pub group_id: Option<String>,
+    /// `@tmuxy-group-pos`, when the group has been reordered.
+    pub group_pos: Option<u32>,
 
     /// In copy mode
     pub in_mode: bool,
@@ -404,6 +406,7 @@ impl PaneState {
             title: String::new(),
             border_title: String::new(),
             group_id: None,
+            group_pos: None,
             in_mode: false,
             copy_cursor_x: 0,
             copy_cursor_y: 0,
@@ -844,6 +847,7 @@ impl PaneState {
             title: self.title.clone(),
             border_title: self.border_title.clone(),
             group_id: self.group_id.clone(),
+            group_pos: self.group_pos,
             in_mode: self.in_mode,
             copy_cursor_x: self.copy_cursor_x,
             copy_cursor_y: self.copy_cursor_y,
@@ -1322,6 +1326,8 @@ struct StashMember {
     window_id: String,
     /// `@tmuxy-group-id` value tying it to its group.
     group_id: String,
+    /// `@tmuxy-group-pos`, when the group has been reordered.
+    group_pos: Option<u32>,
     command: String,
     title: String,
 }
@@ -1347,6 +1353,7 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
         title: member.title.clone(),
         border_title: String::new(),
         group_id: Some(member.group_id.clone()),
+        group_pos: member.group_pos,
         in_mode: false,
         copy_cursor_x: 0,
         copy_cursor_y: 0,
@@ -2746,8 +2753,8 @@ impl StateAggregator {
             if !is_stash_member_line(line) {
                 continue;
             }
-            let parts: Vec<&str> = line.trim_start().splitn(6, ',').collect();
-            if parts.len() < 6 {
+            let parts: Vec<&str> = line.trim_start().splitn(7, ',').collect();
+            if parts.len() < 7 {
                 continue;
             }
             let pane_id = parts[1].trim();
@@ -2762,13 +2769,14 @@ impl StateAggregator {
             // graphics probe lands when tmux reads the APC as a title. Without
             // this the strip labelled the member `Ga=q,f=32,s=1,…` while the
             // visible pane running the same program was labelled properly.
-            let title = parts[5].to_string();
+            let title = parts[6].to_string();
             members.insert(
                 pane_id.to_string(),
                 StashMember {
                     window_id: window_id.to_string(),
                     group_id: group_id.to_string(),
-                    command: normalize_pane_command(parts[4]),
+                    group_pos: parts[4].trim().parse().ok(),
+                    command: normalize_pane_command(parts[5]),
                     title: if is_graphics_payload(&title) {
                         String::new()
                     } else {
@@ -2908,18 +2916,18 @@ impl StateAggregator {
         // copy_cursor_y, scroll_position. Everything between command and those
         // four fields is pane_title; everything between window_id and the fixed
         // 6-field tail is border_title.
-        let num_tail_fields = 12;
+        let num_tail_fields = 13;
 
         // Tail fields (fixed, never free-text): alternate_on, mouse_any_flag,
         // pane_marked, selection_present, selection_start_x, selection_start_y,
         // history_size, group_id (`@tmuxy-group-id`, `g<digits>` or empty),
+        // group_pos (`@tmuxy-group-pos`, a number or empty),
         // pane_state (`@tmuxy-pane-state`, a bare word or empty), pane_ask
         // (`@tmuxy-ask`, base64 or empty), pane_widget (`@tmuxy-pane-widget`,
         // a widget name or empty) and pane_restore (`@tmuxy-pane-restore`, a
-        // shell line or empty — it may hold commas, which is why it is LAST:
-        // everything before it is fixed-width and counted from the end, and it
-        // takes whatever remains). The free-text title/border fields in the
-        // middle can still hold commas for the same reason.
+        // shell line or empty, its commas sent as `%2C` so it stays one
+        // field). The free-text title/border fields in the middle can still
+        // hold commas: everything here is counted from the end.
         let (
             alternate_on,
             mouse_any_flag,
@@ -2929,34 +2937,37 @@ impl StateAggregator {
             selection_start_y,
             history_size,
             group_id,
+            group_pos,
             pane_state,
             pane_ask,
             pane_widget,
             pane_restore,
-        ) = if parts.len() >= 23 {
+        ) = if parts.len() >= 24 {
             let last = parts.len() - 1;
-            let restore = parts[last].trim();
+            let restore = parts[last].trim().replace("%2C", ",");
             let widget = parts[last - 1].trim();
             let ask = parts[last - 2].trim();
             let state = parts[last - 3].trim();
-            let gid = parts[last - 4].trim();
+            let pos = parts[last - 4].trim();
+            let gid = parts[last - 5].trim();
             (
+                parts[last - 12] == "1",
                 parts[last - 11] == "1",
                 parts[last - 10] == "1",
                 parts[last - 9] == "1",
-                parts[last - 8] == "1",
-                parts[last - 7].parse::<u32>().unwrap_or(0),
+                parts[last - 8].parse::<u32>().unwrap_or(0),
+                parts[last - 7].parse::<u64>().unwrap_or(0),
                 parts[last - 6].parse::<u64>().unwrap_or(0),
-                parts[last - 5].parse::<u64>().unwrap_or(0),
                 (!gid.is_empty()).then(|| gid.to_string()),
+                pos.parse::<u32>().ok(),
                 (!state.is_empty()).then(|| state.to_string()),
                 (!ask.is_empty()).then(|| ask.to_string()),
                 (!widget.is_empty()).then(|| widget.to_string()),
-                (!restore.is_empty()).then(|| restore.to_string()),
+                (!restore.is_empty()).then_some(restore),
             )
         } else {
             (
-                false, false, false, false, 0u32, 0u64, 0u64, None, None, None, None, None,
+                false, false, false, false, 0u32, 0u64, 0u64, None, None, None, None, None, None,
             )
         };
 
@@ -3083,6 +3094,7 @@ impl StateAggregator {
         pane.selection_start_y = selection_start_y;
         pane.history_size = history_size;
         pane.group_id = group_id;
+        pane.group_pos = group_pos;
         pane.pane_state = pane_state;
         pane.pane_ask = pane_ask;
         pane.pane_widget = pane_widget;
@@ -3471,6 +3483,9 @@ impl StateAggregator {
         }
         if prev.border_title != curr.border_title {
             delta.border_title = Some(curr.border_title.clone());
+        }
+        if prev.group_pos != curr.group_pos {
+            delta.group_pos = Some(curr.group_pos);
         }
         if prev.group_id != curr.group_id {
             // `Some(None)` clears the group id (pane left a group); `Some(Some)`
@@ -4255,8 +4270,8 @@ mod tests {
         // group_id, pane_state, ask and widget (the last four tail fields) are
         // left empty here; each has its own test below.
         format!(
-            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,state,ask,widget,restore
-            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,"
+            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
+            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,,"
         )
     }
 
@@ -4320,9 +4335,9 @@ mod tests {
         // rather than zero — the anchor scan has to tolerate both around a
         // blank title.
         let mut agg = StateAggregator::new();
-        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,");
+        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,");
         agg.parse_list_panes_line(
-            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,,,,",
+            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,,,,,",
         );
 
         let untitled = agg.panes.get("%0").expect("untitled pane parsed");
@@ -4355,7 +4370,7 @@ mod tests {
         // free-text title and border in the middle can still carry commas.
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,needs-input,,,",
+            "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,needs-input,,,",
         );
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert_eq!(pane.pane_state.as_deref(), Some("needs-input"));
@@ -4382,7 +4397,7 @@ mod tests {
         // comma-split even when the question itself is full of commas.
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,eyJ0b2tlbiI6ImExIn0=,,",
+            "%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,eyJ0b2tlbiI6ImExIn0=,,",
         );
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert_eq!(pane.pane_ask.as_deref(), Some("eyJ0b2tlbiI6ImExIn0="));
@@ -4656,7 +4671,7 @@ mod tests {
     fn list_panes_reads_the_widget_authorisation_tail() {
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,bash,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,browser,",
+            "%3,0,0,0,80,24,0,0,1,bash,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,browser,",
         );
         assert_eq!(
             agg.panes
@@ -4676,11 +4691,26 @@ mod tests {
     }
 
     #[test]
+    fn list_panes_reads_the_group_position_and_a_restore_line_with_commas() {
+        let mut agg = StateAggregator::new();
+        // tail: alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
+        agg.parse_list_panes_line(
+            "%3,0,0,0,80,24,0,0,1,zsh,t,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,2,idle,,,claude --resume x%2C y",
+        );
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.group_id.as_deref(), Some("g5"));
+        assert_eq!(pane.group_pos, Some(2));
+        assert_eq!(pane.pane_state.as_deref(), Some("idle"));
+        assert_eq!(pane.pane_restore.as_deref(), Some("claude --resume x, y"));
+        assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
     fn list_panes_parses_group_id() {
         let mut agg = StateAggregator::new();
-        // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,GID,STATE,ASK,WIDGET,RESTORE
+        // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,GID,POS,STATE,ASK,WIDGET,RESTORE
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,",
+            "%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,",
         );
         assert_eq!(
             agg.panes
@@ -4693,7 +4723,7 @@ mod tests {
 
         // Empty tail → no group.
         agg.parse_list_panes_line(
-            "%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,",
+            "%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,",
         );
         assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
     }
@@ -4703,7 +4733,7 @@ mod tests {
     #[test]
     fn stash_block_does_not_create_real_panes() {
         let mut agg = StateAggregator::new();
-        agg.handle_command_response("stashmember,%7,@9,g5,vim,editing");
+        agg.handle_command_response("stashmember,%7,@9,g5,,vim,editing");
         assert!(
             agg.panes.is_empty(),
             "stash rows must not become real panes"
@@ -4755,7 +4785,7 @@ mod tests {
     #[test]
     fn a_parked_members_title_is_not_a_graphics_payload() {
         let mut agg = StateAggregator::new();
-        agg.handle_command_response("stashmember,%7,@9,g5,agy,Ga=q,f=32,s=1,v=1,i=31;AAAAAA==");
+        agg.handle_command_response("stashmember,%7,@9,g5,,agy,Ga=q,f=32,s=1,v=1,i=31;AAAAAA==");
         let member = agg.stash_members.get("%7").expect("member parsed");
         assert_eq!(member.title, "");
         // ...and the process name is still there to fall back on.
@@ -4766,7 +4796,7 @@ mod tests {
     #[test]
     fn a_parked_members_real_title_survives() {
         let mut agg = StateAggregator::new();
-        agg.handle_command_response("stashmember,%7,@9,g5,go,Go build ./...");
+        agg.handle_command_response("stashmember,%7,@9,g5,,go,Go build ./...");
         assert_eq!(
             agg.stash_members.get("%7").expect("member parsed").title,
             "Go build ./..."
@@ -4780,11 +4810,11 @@ mod tests {
         let mut agg = StateAggregator::new();
         // Visible member of g5 in window @4.
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,",
+            "%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,",
         );
         // Hidden member of g5, plus an orphan in g6 (no visible member).
         agg.handle_command_response(
-            "stashmember,%7,@9,g5,vim,hidden-title\nstashmember,%8,@9,g6,top,orphan",
+            "stashmember,%7,@9,g5,,vim,hidden-title\nstashmember,%8,@9,g6,,top,orphan",
         );
 
         let state = agg.to_tmux_state();
@@ -5483,7 +5513,7 @@ mod marked_pane_tests {
     fn list_panes_carries_the_marked_flag() {
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,,,,",
+            "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,,,,,",
         );
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert!(pane.marked);

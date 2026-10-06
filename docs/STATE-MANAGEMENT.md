@@ -40,7 +40,7 @@ See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method 
 
 ### MonitorCommand
 
-The typed envelope external code uses to drive the monitor (resize the window, run a tmux command through control mode, gracefully shut down). See the enum in `monitor.rs`; new variants get docblocks explaining *when* you'd send them, since the variant name alone isn't usually enough.
+The typed envelope external code uses to drive the monitor (resize the window, run a tmux command through control mode, gracefully shut down). See the enum in `monitor.rs`; new variants get docblocks explaining _when_ you'd send them, since the variant name alone isn't usually enough.
 
 ### ControlModeConnection
 
@@ -52,7 +52,7 @@ See `tmuxy-core/src/control_mode/connection.rs`.
 
 The heart of the system. Consumes `ControlModeEvent`s and returns typed `SideEffect`s (`AdoptUntaggedWindows`, `RefreshPanes`, `EmitState { change }`, `StoreImages`, `WriteClipboard`, etc.). Performs no I/O itself — every command send, every emit, every image store is described, not performed. The runtime (`TmuxMonitor`) is what actually executes them.
 
-This separation is what makes the aggregator testable without tokio: drive it with synthetic event sequences and assert on the returned effects. The settling mechanism (window-emission suppression during compound commands) lives here as a sticky flag the runtime arms/disarms; the time-based debounce/safety timer that decides *when* to disarm still lives in the monitor.
+This separation is what makes the aggregator testable without tokio: drive it with synthetic event sequences and assert on the returned effects. The settling mechanism (window-emission suppression during compound commands) lives here as a sticky flag the runtime arms/disarms; the time-based debounce/safety timer that decides _when_ to disarm still lives in the monitor.
 
 `step(event) -> StepResult` is the public entry point. `tick(now)` is reserved for future time-driven transitions and currently returns no effects.
 
@@ -81,6 +81,7 @@ See `tmuxy-core/src/lib.rs`. The TypeScript mirrors live in `tmuxy-ui/src/tmux/e
 ### StateEmitter trait
 
 The seam between the monitor and a specific transport. Two implementations:
+
 - `SseEmitter` (`tmuxy-server/src/sse.rs`) — broadcasts via `SessionBroadcast` to every SSE client in the session.
 - `TauriEmitter` (`packages/tmuxy-tauri-app/src/monitor.rs`) — emits Tauri events to the desktop frontend.
 
@@ -88,7 +89,7 @@ The trait keeps `TmuxMonitor` transport-agnostic; adding a third transport means
 
 ### Settling, throttling, debouncing
 
-Three timing policies the monitor applies on top of the aggregator's effects. All are about *when* to flush state, not *what* the state contains.
+Three timing policies the monitor applies on top of the aggregator's effects. All are about _when_ to flush state, not _what_ the state contains.
 
 - **Settling** suppresses intermediate window/layout emissions while a compound command (`splitw ; breakp ; set-option ...`) is mid-flight. The aggregator owns the suppression flag; the monitor owns the debounce/safety timer that decides when to disarm it.
 - **Adaptive throttling** caps state emissions during high-frequency output (rate-window hysteresis with a ~60fps ceiling) so terminal-output bursts don't drown the SSE channel. Below the threshold, emissions are immediate for low-latency typing feedback.
@@ -116,6 +117,7 @@ Reconnection flow: the adapter (`HttpAdapter` / `TauriAdapter`) tracks the retry
 The context holds all frontend state. Key fields:
 
 **From backend (synchronized via state updates):**
+
 - `panes: TmuxPane[]` — All panes from tmux (content, cursor, dimensions, metadata)
 - `windows: TmuxWindow[]` — All windows
 - `activePaneId`, `activeWindowId` — Current focus
@@ -126,6 +128,7 @@ The context holds all frontend state. Key fields:
 - `defaultShell` — Default shell (bash, zsh, etc.)
 
 **Client-only state:**
+
 - `drag: DragState | null` — Current pane drag operation
 - `resize: ResizeState | null` — Current pane resize operation
 - `paneGroups: Record<string, PaneGroup>` — Pane group tabs (hidden windows)
@@ -164,7 +167,7 @@ That settled size is also what the grid must be POSITIONED against for the lengt
 
 ### Child Machines
 
-**`dragMachine`** (`tmuxy-ui/src/machines/drag/dragMachine.ts`) — Pane drag-to-swap. States: `idle` and `dragging`. During drag, finds swap targets based on cursor position and sends real-time `swap-pane` commands. Updates the parent's `drag` context via `DRAG_STATE_UPDATE`. Carried up onto the tab strip the same drag means the pane leaves its tab: over a tab's button it joins that tab (`join-pane`), over the empty space past the last button it becomes a tab of its own (`break-pane`). The strip's boxes are measured once at drag start (`utils/tabStripDrop.ts`) because the machine owns the pointer and the strip sees no events of its own; while the pointer is up there no swap runs, and unlike a swap the move waits for the release, since passing over a tab on the way somewhere else must not rearrange two tabs.
+**`dragMachine`** (`tmuxy-ui/src/machines/drag/dragMachine.ts`) — Pane drag-to-swap. States: `idle` and `dragging`. During drag, finds swap targets based on cursor position and sends a `swap-pane` once the pointer has rested on a pane for a moment (`SWAP_DWELL_MS`), so a pane the pointer only crosses on its way somewhere else stays put. Updates the parent's `drag` context via `DRAG_STATE_UPDATE`. Carried up onto the tab strip the same drag means the pane leaves its tab: over a tab's button it joins that tab (`join-pane`), over the empty space past the last button it becomes a tab of its own (`break-pane`). The strip's boxes are measured once at drag start (`utils/tabStripDrop.ts`) because the machine owns the pointer and the strip sees no events of its own; while the pointer is up there no swap runs, and unlike a swap the move waits for the release, since passing over a tab on the way somewhere else must not rearrange two tabs. Over a pane's header the drag is about pane groups (`utils/groupDrop.ts`): a header is divided into equal shares, one per member, so where the pointer sits names a place in the order by arithmetic over the pane boxes. A member dragged along its own header moves there (`pane-group-move`), an ungrouped pane dropped on another header joins that group at the nearest gap (`pane-group-join`), and a parked member dragged out by its tab leaves the group — beside the pane it is dropped on, to the side the pointer is nearest, or as a tab on the strip (`pane-group-leave`). These wait for the release too, and the header marks where the pane would go.
 
 **`resizeMachine`** (`tmuxy-ui/src/machines/resize/resizeMachine.ts`) — Pane resize via divider dragging. States: `idle` and `resizing`. Tracks pixel delta, converts to character units, sends tmux `resize-pane` commands when delta >= 1 char. Throttles to avoid command spam.
 
@@ -172,14 +175,15 @@ That settled size is also what the grid must be POSITIONED against for the lengt
 
 Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src/tmux/store/`. The model splits server-confirmed state from in-flight predictions and replays predictions on top.
 
-| Concept              | Lives in                       | Purpose                                                                 |
-|----------------------|--------------------------------|-------------------------------------------------------------------------|
-| `committed`          | `TmuxClientModel.committed`    | Last server-confirmed snapshot (panes, windows, active*).               |
-| `ops`                | `TmuxClientModel.ops`          | Ordered log of in-flight optimistic operations.                         |
-| `derived`            | `TmuxClientModel.derived`      | `committed` with every `ops[i].patch` replayed in order. UI reads this. |
-| `paneKeyOverrides`   | `TmuxClientModel`              | Maps real pane IDs to placeholder IDs so React keys stay stable.        |
+| Concept            | Lives in                    | Purpose                                                                 |
+| ------------------ | --------------------------- | ----------------------------------------------------------------------- |
+| `committed`        | `TmuxClientModel.committed` | Last server-confirmed snapshot (panes, windows, active\*).              |
+| `ops`              | `TmuxClientModel.ops`       | Ordered log of in-flight optimistic operations.                         |
+| `derived`          | `TmuxClientModel.derived`   | `committed` with every `ops[i].patch` replayed in order. UI reads this. |
+| `paneKeyOverrides` | `TmuxClientModel`           | Maps real pane IDs to placeholder IDs so React keys stay stable.        |
 
 A `TmuxOp` is a typed value, not a parsed command string. The store knows how to:
+
 1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`. The predict context (default shell + MRU pane activation order for the Navigate tiebreak) is mirrored from the machine on every model update via `UPDATE_PREDICT_CONTEXT`.
 2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → marks the op `in-flight` → sends the command through the adapter → on `TmuxError` rolls the patch back. Once the adapter acks, the op moves to `awaiting-confirm`.
 3. **Reconcile** — `TmuxStore.reconcile(serverState)` advances `committed`, runs each pending op's reconciler, drops matched/stale ones, recomputes `derived`.
@@ -205,11 +209,11 @@ The XState `appMachine` is a thin bridge: `SEND_TMUX_COMMAND` routes to `tmuxSto
 
 Anything that changes the user's perceived "focused pane" MUST keep three pieces of state in lockstep, or keystrokes will land in the wrong pane during the brief window before tmux confirms the change:
 
-| State                          | Owner                | Why it matters                                                                 |
-|--------------------------------|----------------------|--------------------------------------------------------------------------------|
-| `context.activePaneId`         | appMachine           | Drives the UI focus indicator (PaneHeader tab highlight, pane border, etc.).   |
-| `activePaneId` (local)         | keyboardActor        | Resolved as the `-t` target for every `send-keys`, paste, and IME-commit command: a focused overlay (float, dock) wins, then the active pane, then the session name; a placeholder id at either step falls through to the session. The hidden keyboard input is re-aimed on every change. |
-| Server-side active pane        | tmux                 | Used by any prefix/root binding that omits `-t` (e.g., `split-window`).        |
+| State                   | Owner         | Why it matters                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `context.activePaneId`  | appMachine    | Drives the UI focus indicator (PaneHeader tab highlight, pane border, etc.).                                                                                                                                                                                                              |
+| `activePaneId` (local)  | keyboardActor | Resolved as the `-t` target for every `send-keys`, paste, and IME-commit command: a focused overlay (float, dock) wins, then the active pane, then the session name; a placeholder id at either step falls through to the session. The hidden keyboard input is re-aimed on every change. |
+| Server-side active pane | tmux          | Used by any prefix/root binding that omits `-t` (e.g., `split-window`).                                                                                                                                                                                                                   |
 
 Rules an action that flips focus must follow:
 

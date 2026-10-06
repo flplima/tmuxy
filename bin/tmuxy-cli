@@ -424,6 +424,9 @@ Commands:
   switch        Switch to pane in group <%id>
   next          Next pane in group
   prev          Previous pane in group
+  move          Move a member to another place in its group <%id> <index>
+  join          Make a pane a member of another pane's group <%id> <%member> [index]
+  leave         Take a member out of its group [%id] [--tab | --beside <%id> <dir>]
 EOF
 }
 
@@ -874,6 +877,36 @@ cmd_pane_group() {
       esac
       local pane_id="${1:?Usage: tmuxy pane group switch <pane_id>}"
       exec tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" run-shell "bash '$SCRIPTS_DIR/pane-group-switch' '$pane_id'"
+      ;;
+
+    move)
+      case "${1:-}" in
+        --help|-h|"") echo "Usage: tmuxy pane group move <%id> <index>   (0 is first)"; [ -n "${1:-}" ] && return; return 1 ;;
+      esac
+      local pane_id="$1" index="${2:?Usage: tmuxy pane group move <%id> <index>}"
+      exec tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" run-shell "bash '$SCRIPTS_DIR/pane-group-move' $(shquote "$pane_id") $(shquote "$index")"
+      ;;
+
+    join)
+      case "${1:-}" in
+        --help|-h|"") echo "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]"; [ -n "${1:-}" ] && return; return 1 ;;
+      esac
+      local pane_id="$1" anchor="${2:?Usage: tmuxy pane group join <%id> <%member-or-pane> [index]}" index="${3:-}"
+      exec tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" run-shell "bash '$SCRIPTS_DIR/pane-group-join' $(shquote "$pane_id") $(shquote "$anchor") $(shquote "$index")"
+      ;;
+
+    leave)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group leave [%id] [--tab | --beside <%id> <left|right|up|down>]"; return ;;
+      esac
+      local pane_id="${TMUX_PANE:-}"
+      case "${1:-}" in %*) pane_id="$1"; shift ;; esac
+      if [ -z "$pane_id" ]; then
+        echo "Error: no pane to take out of its group (pass %id or run inside a pane)" >&2
+        return 1
+      fi
+      local mode="${1:---tab}" beside="${2:-}" dir="${3:-right}"
+      exec tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" run-shell "bash '$SCRIPTS_DIR/pane-group-leave' $(shquote "$pane_id") $(shquote "$mode") $(shquote "$beside") $(shquote "$dir")"
       ;;
 
     next)

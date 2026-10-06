@@ -285,6 +285,10 @@ pub struct TmuxPane {
     /// so the frontend reconstructs group membership by grouping on this value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
+    /// `@tmuxy-group-pos`: this member's place in its group, when the group
+    /// has been reordered (see `constants::tmux_options::GROUP_POS`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_pos: Option<u32>,
     pub in_mode: bool, // true if in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
@@ -551,6 +555,9 @@ pub struct PaneDelta {
     /// `Option` = the new value (`None` clears it — the pane left its group).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<Option<String>>,
+    /// Place in the group (only if changed); nested like `group_id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_pos: Option<Option<u32>>,
     /// Pane state from `@tmuxy-pane-state` (only if changed). Nested the same
     /// way as `group_id`: the inner `None` clears it, which is what an agent
     /// unsetting the option on exit looks like.

@@ -51,6 +51,8 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.title === next.title &&
     prev.borderTitle === next.borderTitle &&
     prev.groupId === next.groupId &&
+    // A reorder writes only the members' places, so this is all that changes.
+    (prev.groupPos ?? null) === (next.groupPos ?? null) &&
     prev.inMode === next.inMode &&
     prev.copyCursorX === next.copyCursorX &&
     prev.copyCursorY === next.copyCursorY &&

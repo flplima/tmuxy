@@ -55,7 +55,7 @@ pub struct Snapshot {
     pub windows: Vec<WindowSnapshot>,
     /// Pane-group members not on screen: parked in the stash session, which
     /// every session on the socket shares. Only the members of this session's
-    /// groups, in pane-id order (the order a group strip lists them in).
+    /// groups, in the group's order (the order a group strip lists them in).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden: Vec<HiddenMember>,
 }
@@ -65,6 +65,9 @@ pub struct Snapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HiddenMember {
     pub group_id: String,
+    /// Its place in the group, when the group was reordered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<u32>,
     pub cwd: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
@@ -163,7 +166,7 @@ pub const QUERY_PANES: &str = concat!(
     "list-panes -s -t #SESSION# -F '",
     "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
     "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
-    "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id}'"
+    "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos}'"
 );
 
 /// The stash session's panes, in the same record shape as `QUERY_PANES`.
@@ -171,7 +174,7 @@ pub const QUERY_STASH_PANES: &str = concat!(
     "list-panes -s -t __tmuxy_stash -F '",
     "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
     "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
-    "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id}'"
+    "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos}'"
 );
 
 /// The helper that parks a restored group member (`bin/tmuxy/pane-group-park`).
@@ -206,14 +209,18 @@ pub fn hidden_members(
         })
         .collect();
     parked.sort_by_key(|p| {
-        p.id.trim_start_matches('%')
-            .parse::<u64>()
-            .unwrap_or(u64::MAX)
+        (
+            p.group_pos.unwrap_or(u32::MAX),
+            p.id.trim_start_matches('%')
+                .parse::<u64>()
+                .unwrap_or(u64::MAX),
+        )
     });
     parked
         .into_iter()
         .map(|p| HiddenMember {
             group_id: p.group_id.clone().unwrap_or_default(),
+            position: p.group_pos,
             cwd: p.cwd.clone(),
             command: commands.get(&p.id).cloned(),
             restore_command: p.restore_command.clone(),
@@ -258,6 +265,7 @@ pub struct PaneRecord {
     pub cwd: String,
     pub restore_command: Option<String>,
     pub group_id: Option<String>,
+    pub group_pos: Option<u32>,
 }
 
 fn opt(field: &str) -> Option<String> {
@@ -313,7 +321,7 @@ pub fn parse_panes(output: &str) -> Vec<PaneRecord> {
         .lines()
         .filter_map(|line| {
             let parts: Vec<&str> = line.split(',').collect();
-            if parts.len() != 9 || !parts[0].starts_with('%') {
+            if parts.len() != 10 || !parts[0].starts_with('%') {
                 return None;
             }
             Some(PaneRecord {
@@ -326,6 +334,7 @@ pub fn parse_panes(output: &str) -> Vec<PaneRecord> {
                 cwd: unescape(parts[6]),
                 restore_command: opt(parts[7]),
                 group_id: opt(parts[8]),
+                group_pos: parts[9].trim().parse().ok(),
             })
         })
         .collect()
@@ -351,6 +360,12 @@ pub fn assemble(
                     let mut options = BTreeMap::new();
                     if let Some(gid) = &p.group_id {
                         options.insert("@tmuxy-group-id".to_string(), gid.clone());
+                    }
+                    if let Some(pos) = p.group_pos {
+                        options.insert(
+                            crate::constants::tmux_options::GROUP_POS.to_string(),
+                            pos.to_string(),
+                        );
                     }
                     // A sidebar is tmuxy's: what runs in it is the widget
                     // the client started (or, on the right, a shell), never
@@ -1020,11 +1035,15 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             argv: argv(&[
                 "run-shell",
                 &format!(
-                    "bash {} {} {} {}",
+                    "bash {} {} {} {}{}",
                     shell_quote(&park_script()),
                     shell_quote(&pane_target(s, w.index, p.index)),
                     shell_quote(&member.group_id),
                     shell_quote(&cwd_or_fallback(&member.cwd, options)),
+                    member
+                        .position
+                        .map(|pos| format!(" {pos}"))
+                        .unwrap_or_default(),
                 ),
             ]),
         });
@@ -1323,6 +1342,7 @@ pub fn is_structural(delta: &crate::TmuxDelta) -> bool {
                     || d.active.is_some()
                     || d.command.is_some()
                     || d.group_id.is_some()
+                    || d.group_pos.is_some()
                     || d.pane_widget.is_some()
                     || d.pane_restore.is_some()
             }
@@ -1617,9 +1637,9 @@ mod tests {
 
     #[test]
     fn a_pane_record_keeps_a_comma_in_its_path_and_its_restore_command() {
-        let out = "%5,@1,0,1,4242,/dev/ttys003,/Users/x/a%2Cb,claude --resume abc%2Cdef,g2\n\
+        let out = "%5,@1,0,1,4242,/dev/ttys003,/Users/x/a%2Cb,claude --resume abc%2Cdef,g2,\n\
                    garbage line\n\
-                   %6,@1,1,0,4300,/dev/ttys004,/tmp,,";
+                   %6,@1,1,0,4300,/dev/ttys004,/tmp,,,";
         let panes = parse_panes(out);
         assert_eq!(panes.len(), 2);
         assert_eq!(panes[0].cwd, "/Users/x/a,b");
@@ -1799,6 +1819,7 @@ mod tests {
             ],
             hidden: vec![HiddenMember {
                 group_id: "g1".into(),
+                position: None,
                 cwd: "/srv".into(),
                 command: Some(vec!["htop".into()]),
                 restore_command: None,
@@ -1977,7 +1998,7 @@ mod tests {
             )
         ));
         let panes =
-            parse_panes("%5,@1,0,1,100,/dev/ttys001,/tmp,,\n%6,@2,0,1,200,/dev/ttys002,/tmp,,");
+            parse_panes("%5,@1,0,1,100,/dev/ttys001,/tmp,,,\n%6,@2,0,1,200,/dev/ttys002,/tmp,,,");
         let mut commands = BTreeMap::new();
         commands.insert("%5".to_string(), vec!["vim".to_string()]);
         commands.insert(
@@ -2050,16 +2071,52 @@ mod tests {
             .any(|l| l.starts_with("run: select-layout -t work:0 ")));
     }
 
+    /// A reordered group comes back in its order: the visible member's place
+    /// as a pane option, a parked member's as the park step's last argument.
+    #[test]
+    fn a_reordered_group_is_restored_in_its_order() {
+        let mut snap = fixture();
+        for w in &mut snap.windows {
+            for p in &mut w.panes {
+                if p.options.contains_key("@tmuxy-group-id") {
+                    p.options
+                        .insert("@tmuxy-group-pos".to_string(), "1".to_string());
+                }
+            }
+        }
+        for h in &mut snap.hidden {
+            h.position = Some(0);
+        }
+        let lines = joined(&plan(
+            &snap,
+            &RestoreOptions {
+                fallback_cwd: "/home/x".into(),
+                ..Default::default()
+            },
+        ));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l == "run: set-option -p -t work:0.0 @tmuxy-group-pos 1"),
+            "{lines:#?}"
+        );
+        let park = lines
+            .iter()
+            .find(|l| l.contains("pane-group-park"))
+            .expect("the member is parked");
+        assert!(park.ends_with(" 0"), "{park}");
+    }
+
     /// Only this session's groups: a stash pane of another session's group,
     /// or the stash's own placeholder, is not this session's member.
     #[test]
     fn only_members_of_this_sessions_groups_are_recorded_hidden() {
         let snap = fixture();
         let stash = parse_panes(
-            "%9,@20,0,1,900,/dev/ttys009,/srv,,g1\n\
-             %3,@21,0,1,300,/dev/ttys003,/opt,claude --resume x,g1\n\
-             %7,@22,0,1,700,/dev/ttys007,/x,,g8\n\
-             %1,@1,0,1,100,/dev/ttys001,/,,",
+            "%9,@20,0,1,900,/dev/ttys009,/srv,,g1,\n\
+             %3,@21,0,1,300,/dev/ttys003,/opt,claude --resume x,g1,\n\
+             %7,@22,0,1,700,/dev/ttys007,/x,,g8,\n\
+             %1,@1,0,1,100,/dev/ttys001,/,,,",
         );
         let mut commands = BTreeMap::new();
         commands.insert("%9".to_string(), vec!["htop".to_string()]);
@@ -2069,12 +2126,14 @@ mod tests {
             vec![
                 HiddenMember {
                     group_id: "g1".into(),
+                    position: None,
                     cwd: "/opt".into(),
                     command: None,
                     restore_command: Some("claude --resume x".into()),
                 },
                 HiddenMember {
                     group_id: "g1".into(),
+                    position: None,
                     cwd: "/srv".into(),
                     command: Some(vec!["htop".into()]),
                     restore_command: None,
@@ -2216,7 +2275,7 @@ mod tests {
             ]
             .join("\n"),
         );
-        let panes = parse_panes("%5,@1,0,1,1,/dev/ttys1,/a,,\n%6,@3,0,1,2,/dev/ttys2,/b,,g1\n%4,@1,1,0,3,/dev/ttys3,/c,,");
+        let panes = parse_panes("%5,@1,0,1,1,/dev/ttys1,/a,,,\n%6,@3,0,1,2,/dev/ttys2,/b,,g1,\n%4,@1,1,0,3,/dev/ttys3,/c,,,");
         let mut commands = BTreeMap::new();
         commands.insert("%5".to_string(), vec!["vim".to_string()]);
         let snap = assemble("work", 7, windows, panes, &commands);

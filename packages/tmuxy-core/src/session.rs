@@ -296,6 +296,18 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../bin/tmuxy/pane-group-park"),
     ),
     (
+        "tmuxy/pane-group-move",
+        include_str!("../../../bin/tmuxy/pane-group-move"),
+    ),
+    (
+        "tmuxy/pane-group-join",
+        include_str!("../../../bin/tmuxy/pane-group-join"),
+    ),
+    (
+        "tmuxy/pane-group-leave",
+        include_str!("../../../bin/tmuxy/pane-group-leave"),
+    ),
+    (
         "tmuxy/pane-group-close",
         include_str!("../../../bin/tmuxy/pane-group-close"),
     ),

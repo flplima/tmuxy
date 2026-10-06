@@ -3,6 +3,7 @@
 # hides a member, without swapping it into view. Used by a session restore to
 # bring back the members a snapshot found in the stash session.
 # Args: $1=visible member (any tmux target) $2=group id $3=working directory
+#       $4=its place in the group's order (optional; @tmuxy-group-pos)
 # Prints the new pane's id.
 
 set -euo pipefail
@@ -11,6 +12,7 @@ source "${0%/*}/_lib"
 ANCHOR="$1"
 GID="$2"
 CWD="$3"
+POS="${4:-}"
 
 ensure_stash_session
 
@@ -25,6 +27,7 @@ NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}' -t "$ANCHOR_ID" -c "$CWD")
 _tmux break-pane -d -s "$NEW_PANE_ID" -t "${STASH_SESSION}:" \; \
   set-option -p -t "$NEW_PANE_ID" @tmuxy-group-id "$GID"
 group_arm_pane "$NEW_PANE_ID"
+if [ -n "$POS" ]; then _tmux set-option -p -t "$NEW_PANE_ID" @tmuxy-group-pos "$POS"; fi
 _tmux resize-window -t "$NEW_PANE_ID" -x "$WIDTH" -y "$HEIGHT"
 
 echo "$NEW_PANE_ID"

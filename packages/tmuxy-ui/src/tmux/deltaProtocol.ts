@@ -315,6 +315,7 @@ function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
     ...(delta.title !== undefined && { title: delta.title }),
     ...(delta.border_title !== undefined && { border_title: delta.border_title }),
     ...(delta.group_id !== undefined && { group_id: delta.group_id }),
+    ...(delta.group_pos !== undefined && { group_pos: delta.group_pos }),
     ...(delta.in_mode !== undefined && { in_mode: delta.in_mode }),
     ...(delta.copy_cursor_x !== undefined && { copy_cursor_x: delta.copy_cursor_x }),
     ...(delta.copy_cursor_y !== undefined && { copy_cursor_y: delta.copy_cursor_y }),

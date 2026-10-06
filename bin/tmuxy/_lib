@@ -314,9 +314,46 @@ new_group_id() {
 # Output: pane ids, one per line (e.g. %4\n%6\n%7)
 group_members() {
   local gid="$1"
-  _tmux list-panes -a -F '#{pane_id} #{@tmuxy-group-id}' \
-    | awk -v g="$gid" '$2 == g { print $1 }' \
-    | sort -t'%' -k2,2n
+  # In the group's order: by @tmuxy-group-pos where a reorder set one, then by
+  # pane-id number (the whole order of a group nobody rearranged) — the same
+  # rule as buildGroupsFromPanes in the UI.
+  _tmux list-panes -a -F '#{pane_id} #{@tmuxy-group-id} #{@tmuxy-group-pos}' \
+    | awk -v g="$gid" '$2 == g {
+        pos = ($3 == "") ? 999999999 : $3
+        num = substr($1, 2)
+        print pos, num, $1
+      }' \
+    | sort -k1,1n -k2,2n \
+    | awk '{ print $3 }'
+}
+
+# Give each listed pane its place in the group, 0 onwards, in argument order.
+# Args: pane ids
+set_group_order() {
+  local i=0 pane
+  for pane in "$@"; do
+    _tmux set-option -p -t "$pane" @tmuxy-group-pos "$i"
+    i=$((i + 1))
+  done
+}
+
+# Tell the backend a group changed in a way tmux does not announce (an option
+# written, a pane moved into the stash): every pane inherits the global
+# @tmuxy-group-rev, so bumping it fires the monitor's pane-metadata
+# subscription and the panes and stash are listed again within a second.
+announce_groups() {
+  _tmux set-option -g @tmuxy-group-rev "${EPOCHSECONDS:-$(date +%s)}.$$.$RANDOM"
+}
+
+# Leave a group with one member as no group at all.
+# Args: $1=group_id
+dissolve_if_alone() {
+  local remaining
+  remaining=$(group_members "$1")
+  if [ "$(printf '%s\n' "$remaining" | grep -c .)" -le 1 ] && [ -n "$remaining" ]; then
+    clear_group_id "$remaining"
+    _tmux set-option -pu -t "$remaining" @tmuxy-group-pos 2>/dev/null || true
+  fi
 }
 
 # The visible member of a group — the one NOT parked in the stash session.

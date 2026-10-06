@@ -79,6 +79,7 @@ export const ServerPane = Schema.Struct({
   // Kept in the schema so decoding preserves it (Schema.Struct strips excess
   // properties by default). Group membership is reconstructed from this.
   group_id: Schema.optional(Schema.NullOr(Schema.String)),
+  group_pos: Schema.optional(Schema.NullOr(Schema.Number)),
   in_mode: Schema.Boolean,
   copy_cursor_x: Schema.Number,
   copy_cursor_y: Schema.Number,

@@ -181,28 +181,34 @@ export function transformServerState(payload: ServerState): {
  * Group membership is intrinsic to each pane via `@tmuxy-group-id` (e.g. `g5`) —
  * the visible member (a real pane in the active session) and each hidden member
  * (a stub emitted from the stash session) all carry the same id. A group is any
- * id shared by two or more panes; members are ordered by pane-id number so the
- * tab order is stable and matches the shell navigation helpers.
+ * id shared by two or more panes. Members are ordered by `@tmuxy-group-pos`
+ * (set when the user reorders the group), and those without one follow by
+ * pane-id number — the same rule as `group_members` in bin/tmuxy/_lib, so the
+ * tab order and the shell's next/prev agree.
  */
 export function buildGroupsFromPanes(
   panes: TmuxPane[],
 ): Record<string, { id: string; paneIds: string[] }> {
   const byGroup = new Map<string, string[]>();
+  const position = new Map<string, number>();
   for (const pane of panes) {
     if (!pane.groupId) continue;
     const list = byGroup.get(pane.groupId) ?? [];
     list.push(pane.tmuxId);
     byGroup.set(pane.groupId, list);
+    if (typeof pane.groupPos === 'number') position.set(pane.tmuxId, pane.groupPos);
   }
 
   const paneNumber = (id: string) => parseInt(id.replace(/^%/, ''), 10) || 0;
+  const order = (a: string, b: string) =>
+    (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity) || paneNumber(a) - paneNumber(b);
 
   const groups: Record<string, { id: string; paneIds: string[] }> = {};
   for (const [gid, paneIds] of byGroup) {
     if (paneIds.length < 2) continue;
     groups[gid] = {
       id: gid,
-      paneIds: paneIds.slice().sort((a, b) => paneNumber(a) - paneNumber(b)),
+      paneIds: paneIds.slice().sort(order),
     };
   }
 
