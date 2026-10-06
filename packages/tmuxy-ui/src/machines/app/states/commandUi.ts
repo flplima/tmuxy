@@ -1,7 +1,7 @@
 /**
  * commandUi state — parallel state for command mode and status messages.
  *
- * Owns context fields: commandMode, statusMessage, statusLine, prefixActive.
+ * Owns context fields: commandMode, statusMessage, prefixActive.
  * Action implementations live in ../actions/commandUi.ts.
  */
 

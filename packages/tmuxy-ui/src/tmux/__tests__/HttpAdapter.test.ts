@@ -519,7 +519,6 @@ describe('HttpAdapter initial state against the live stream', () => {
     windows: [{ id: '@1', index: 1, name: 's', active: true, window_type: 'tab' }],
     total_width: 80,
     total_height: 24,
-    status_line: '',
   });
 
   it('an initial-state answer older than the stream does not blank a pane the stream filled', async () => {

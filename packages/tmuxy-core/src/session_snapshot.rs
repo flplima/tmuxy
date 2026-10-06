@@ -2204,7 +2204,6 @@ mod tests {
             new_windows: None,
             active_window_id: None,
             active_pane_id: None,
-            status_line: None,
             focus_request: None,
             total_width: None,
             total_height: None,

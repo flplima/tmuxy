@@ -157,7 +157,6 @@ export function transformServerState(payload: ServerState): {
   windows: TmuxWindow[];
   totalWidth: number;
   totalHeight: number;
-  statusLine: string;
   focusRequest: string;
 } {
   return {
@@ -170,7 +169,6 @@ export function transformServerState(payload: ServerState): {
       .sort((a, b) => a.index - b.index),
     totalWidth: payload.total_width,
     totalHeight: payload.total_height,
-    statusLine: payload.status_line,
     focusRequest: payload.focus_request ?? '',
   };
 }

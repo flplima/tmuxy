@@ -480,8 +480,6 @@ pub struct TmuxState {
     pub windows: Vec<TmuxWindow>,
     pub total_width: u32,
     pub total_height: u32,
-    /// Rendered tmux status line with ANSI escape sequences
-    pub status_line: String,
     /// Pending one-shot focus request from a shell helper (`left` / `right` /
     /// `panes`), or `None` when nothing is queued. See
     /// [`constants::tmux_options::FOCUS_REQUEST`].
@@ -730,9 +728,6 @@ pub struct TmuxDelta {
     /// Active pane changed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_pane_id: Option<String>,
-    /// Status line changed
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status_line: Option<String>,
     /// A shell helper queued (or cleared) a focus request. `Some("")` means it
     /// was cleared — the option is gone — so the field distinguishes "no change"
     /// (absent) from "no longer pending" (empty string).
@@ -755,7 +750,6 @@ impl TmuxDelta {
             new_windows: None,
             active_window_id: None,
             active_pane_id: None,
-            status_line: None,
             focus_request: None,
             total_width: None,
             total_height: None,
@@ -769,7 +763,6 @@ impl TmuxDelta {
             && self.new_windows.is_none()
             && self.active_window_id.is_none()
             && self.active_pane_id.is_none()
-            && self.status_line.is_none()
             && self.focus_request.is_none()
             && self.total_width.is_none()
             && self.total_height.is_none()

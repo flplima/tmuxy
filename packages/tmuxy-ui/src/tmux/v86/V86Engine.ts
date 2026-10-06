@@ -111,7 +111,6 @@ const EMPTY_STATE: ServerState = {
   windows: [],
   total_width: 64,
   total_height: 20,
-  status_line: '',
 };
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

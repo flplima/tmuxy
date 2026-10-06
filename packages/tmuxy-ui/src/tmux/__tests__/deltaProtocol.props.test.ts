@@ -88,7 +88,6 @@ const arbState: fc.Arbitrary<ServerState> = fc
     windows: windows.map(window),
     total_width: 80,
     total_height: 24,
-    status_line: '',
   }));
 
 describe('applyDelta properties', () => {

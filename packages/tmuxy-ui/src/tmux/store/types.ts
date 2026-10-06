@@ -32,7 +32,6 @@ export interface TmuxSnapshot {
   readonly activeWindowId: string | null;
   readonly totalWidth: number;
   readonly totalHeight: number;
-  readonly statusLine: string;
   readonly sessionName: string;
   /**
    * A one-shot focus request queued by a shell helper (`tmuxy nav` at the edge
@@ -53,7 +52,6 @@ export const EMPTY_SNAPSHOT: TmuxSnapshot = {
   activeWindowId: null,
   totalWidth: 0,
   totalHeight: 0,
-  statusLine: '',
   sessionName: '',
   focusRequest: '',
 };

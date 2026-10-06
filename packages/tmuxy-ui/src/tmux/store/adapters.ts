@@ -136,7 +136,6 @@ export function preserveSnapshotIdentity(prev: TmuxSnapshot, next: TmuxSnapshot)
     prev.activeWindowId === next.activeWindowId &&
     prev.totalWidth === next.totalWidth &&
     prev.totalHeight === next.totalHeight &&
-    prev.statusLine === next.statusLine &&
     prev.sessionName === next.sessionName &&
     prev.focusRequest === next.focusRequest;
 

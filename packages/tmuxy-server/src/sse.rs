@@ -2275,7 +2275,6 @@ mod tests {
                             windows: Vec::new(),
                             total_width: size.0,
                             total_height: size.1,
-                            status_line: String::new(),
                             focus_request: None,
                         });
                     }
@@ -3144,7 +3143,6 @@ mod protocol_fixtures {
             ],
             total_width: 80,
             total_height: 50,
-            status_line: "[tmuxy] 0:main*".to_string(),
             focus_request: Some("left".to_string()),
         }
     }
@@ -3275,7 +3273,6 @@ mod protocol_fixtures {
             }]),
             active_window_id: Some("@2".to_string()),
             active_pane_id: Some("%4".to_string()),
-            status_line: Some("[tmuxy] 1:renamed*".to_string()),
             focus_request: Some(String::new()),
             total_width: Some(100),
             total_height: Some(60),

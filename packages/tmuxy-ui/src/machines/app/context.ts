@@ -127,7 +127,6 @@ export const FIELD_OWNERS = {
   // ---- commandUi ----
   commandMode: 'commandUi',
   statusMessage: 'commandUi',
-  statusLine: 'commandUi',
   prefixActive: 'commandUi',
 
   // ---- notifications ----
@@ -180,7 +179,6 @@ export function createInitialContext(): AppMachineContext {
     cellGap: 0,
     defaultShell: 'bash',
     readOnly: false,
-    statusLine: '',
     containerWidth: 0,
     containerHeight: 0,
     bodyWidth: 0,

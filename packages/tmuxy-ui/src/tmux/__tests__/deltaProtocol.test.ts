@@ -55,7 +55,6 @@ function makeState(overrides: Partial<ServerState> = {}): ServerState {
     windows: [{ id: '@0', index: 1, name: 'test', active: true, window_type: 'tab' }],
     total_width: 80,
     total_height: 24,
-    status_line: '',
     ...overrides,
   };
 }

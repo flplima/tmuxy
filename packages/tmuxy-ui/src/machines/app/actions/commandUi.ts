@@ -1,7 +1,7 @@
 /**
  * Action implementations for the commandUi parallel state.
  *
- * Owns commandMode, statusMessage, statusLine, prefixActive.
+ * Owns commandMode, statusMessage, prefixActive.
  * Helpers (parseCommandPrompt, parseDisplayMessage, STATUS_MESSAGE_DURATION)
  * live in ../helpers.ts and are shared with the layout state's
  * SEND_TMUX_COMMAND interception logic.

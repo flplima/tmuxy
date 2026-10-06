@@ -139,7 +139,6 @@ export const ServerState = Schema.Struct({
   windows: Schema.Array(ServerWindow),
   total_width: Schema.Number,
   total_height: Schema.Number,
-  status_line: Schema.String,
   focus_request: Schema.optional(Schema.String),
 });
 

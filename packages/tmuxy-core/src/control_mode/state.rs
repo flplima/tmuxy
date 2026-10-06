@@ -1155,25 +1155,6 @@ pub struct StateAggregator {
     /// that acts on it unsets the option, which clears this on the next poll.
     focus_request: Option<String>,
 
-    /// Cached status line (optimization: only refresh when its inputs change)
-    cached_status_line: String,
-
-    /// Whether status line needs refresh
-    status_line_dirty: bool,
-
-    /// When the status line was last actually re-read from tmux, for the
-    /// `STATUS_LINE_MAX_AGE` fallback.
-    status_line_refreshed_at: Option<Instant>,
-
-    /// Hash of everything the status line is rendered from — the session name
-    /// and each window's id/index/name/active flag. Refreshing the status line
-    /// costs five `tmux display-message` subprocesses plus a shell per `#(…)`
-    /// in `status-right`, synchronously, inside `to_state_update`; the
-    /// `list-windows` poll fires several times a second and almost never
-    /// changes any of those inputs. Comparing the fingerprint turns "we polled"
-    /// into "something the user can see actually moved".
-    status_line_fingerprint: Option<u64>,
-
     // Delta state tracking
     /// Previous state snapshot for delta computation
     prev_state: Option<crate::TmuxState>,
@@ -1231,14 +1212,6 @@ pub struct StateAggregator {
 pub(crate) const SETTLING_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(100);
 /// Safety ceiling — settling cannot extend past this from the arm point.
 pub(crate) const SETTLING_MAX: std::time::Duration = std::time::Duration::from_millis(500);
-/// How long a cached status line may go without a re-read when nothing tmux
-/// reports has changed. The fingerprint check catches every change tmuxy can
-/// see, but `status-right` can embed `#(command)` whose output moves on its
-/// own — a clock, a battery reading — and nothing announces that. Matches
-/// tmux's own `status-interval` default, so a dynamic status line updates at
-/// the cadence its author already expects.
-pub(crate) const STATUS_LINE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(15);
-
 /// Marker printed (via `display-message -p`) immediately BEFORE a self-issued
 /// capture-pane command, carrying the target pane id. Routing captures by
 /// marker instead of arrival order or output shape is what makes attribution
@@ -1544,10 +1517,6 @@ impl StateAggregator {
 
             focus_request: None,
             even_out_pending: Vec::new(),
-            cached_status_line: String::new(),
-            status_line_dirty: true, // Fetch on first state request
-            status_line_refreshed_at: None,
-            status_line_fingerprint: None,
             prev_state: None,
             delta_seq: 0,
             suppress_window_emissions: false,
@@ -1631,91 +1600,6 @@ impl StateAggregator {
         let max_deadline = self.settling_started.unwrap_or(now) + SETTLING_MAX;
         let debounced = now + SETTLING_DEBOUNCE;
         self.settling_until = Some(debounced.min(max_deadline));
-    }
-
-    /// Mark the status line for refresh, but only if something it is rendered
-    /// from actually changed.
-    ///
-    /// Every caller here is a window event, and a window event is the only
-    /// thing that can move the status line — but most window events do not
-    /// move it: the `list-windows` poll fires constantly and reports the same
-    /// windows, and tmux re-announces the current window for a `select-window`
-    /// that switched nothing (which is every pinned keyboard binding). The
-    /// refresh those would trigger costs five `tmux display-message`
-    /// subprocesses plus a shell per `#(…)` in `status-right`, run
-    /// synchronously inside `to_state_update` while the client waits.
-    ///
-    /// Going through here rather than setting the flag directly also keeps the
-    /// stored fingerprint in step, so a real change (a rename, say) refreshes
-    /// once instead of again on the next poll.
-    fn refresh_status_line_if_inputs_changed(&mut self) {
-        let fingerprint = self.status_line_inputs_fingerprint();
-        if self.status_line_fingerprint != Some(fingerprint) {
-            self.status_line_fingerprint = Some(fingerprint);
-            self.status_line_dirty = true;
-        }
-    }
-
-    /// Hash of everything tmux renders the status line from: the session name
-    /// (`status-left`), and each window's id, index, name and active flag (the
-    /// `#{W:…}` window list). `status-right` is excluded on purpose — it is a
-    /// fixed format string here, and the `#(…)` shell output inside it is
-    /// exactly the part that is too expensive to sample for a change.
-    fn status_line_inputs_fingerprint(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        // A fixed-key hasher, not `RandomState`: the value is compared against
-        // one stored earlier in this same process, but a seeded hasher would
-        // still work — what matters is that it is stable for the process and
-        // cheap. `DefaultHasher::new()` is both.
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.session_name.hash(&mut hasher);
-        let mut windows: Vec<&WindowState> = self.windows.values().collect();
-        windows.sort_by(|a, b| a.index.cmp(&b.index).then_with(|| a.id.cmp(&b.id)));
-        for window in windows {
-            window.id.hash(&mut hasher);
-            window.index.hash(&mut hasher);
-            window.name.hash(&mut hasher);
-            window.active.hash(&mut hasher);
-        }
-        hasher.finish()
-    }
-
-    /// Refresh status line if dirty or stale, otherwise use cached value.
-    /// Width is the total terminal width from pane layout, used for padding.
-    fn get_status_line(&mut self, width: usize) -> String {
-        let stale = self
-            .status_line_refreshed_at
-            .is_none_or(|at| at.elapsed() >= STATUS_LINE_MAX_AGE);
-        if self.status_line_dirty || stale {
-            // Native refreshes the status line via a `capture-pane` on the status
-            // window. On wasm there is no tmux to call — the host supplies it via
-            // `set_status_line`, so we keep the cached value here.
-            #[cfg(feature = "native")]
-            {
-                // Keep the last good line on failure rather than blanking the
-                // status bar: with the staleness fallback below, a transient
-                // error would otherwise leave the user staring at an empty bar
-                // until the next real window change.
-                if let Ok(line) = crate::executor::capture_status_line(&self.session_name, width) {
-                    self.cached_status_line = line;
-                }
-            }
-            #[cfg(not(feature = "native"))]
-            {
-                let _ = width;
-            }
-            self.status_line_dirty = false;
-            self.status_line_refreshed_at = Some(Instant::now());
-        }
-        self.cached_status_line.clone()
-    }
-
-    /// Set the status-line text directly (used by non-native hosts that fetch it
-    /// out-of-band, e.g. the wasm/v86 path).
-    pub fn set_status_line(&mut self, status: String) {
-        self.cached_status_line = status;
-        self.status_line_dirty = false;
-        self.status_line_refreshed_at = Some(Instant::now());
     }
 
     /// Register in-flight capture-pane commands and return only pane IDs that
@@ -2156,7 +2040,6 @@ impl StateAggregator {
                     self.panes.retain(|_, p| p.window_id != window_id);
                     self.pending_captures
                         .retain(|id| self.panes.contains_key(id));
-                    self.refresh_status_line_if_inputs_changed();
                     ProcessEventResult {
                         state_changed: !self.suppress_window_emissions,
                         change_type: ChangeType::Window,
@@ -2178,7 +2061,6 @@ impl StateAggregator {
                     w.index = provisional_index;
                     w
                 });
-                self.refresh_status_line_if_inputs_changed();
                 // Don't emit state yet - wait for WindowRenamed or list-windows
                 // to populate the window name. This prevents brief flashes of
                 // windows appearing with empty names (which breaks stack detection).
@@ -2192,7 +2074,6 @@ impl StateAggregator {
                 self.panes.retain(|_, p| p.window_id != window_id);
                 self.pending_captures
                     .retain(|id| self.panes.contains_key(id));
-                self.refresh_status_line_if_inputs_changed();
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
@@ -2211,7 +2092,6 @@ impl StateAggregator {
                     w
                 });
                 window.name = name;
-                self.refresh_status_line_if_inputs_changed();
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
@@ -2286,12 +2166,6 @@ impl StateAggregator {
                     window.active = *id == window_id;
                 }
                 self.active_window_id = Some(window_id.clone());
-                // tmux re-announces the current window for things that did not
-                // change it — notably the `select-window -t @N` that pins every
-                // keyboard binding to the visible tab. Only refresh the status
-                // line if that actually moved something it renders.
-                self.refresh_status_line_if_inputs_changed();
-
                 // Refresh capture for every pane in the newly active window so
                 // long-idle tabs don't show stale content after a switch. The
                 // monitor batches these into a single capture-pane round-trip.
@@ -2873,11 +2747,8 @@ impl StateAggregator {
                 .retain(|window_id, _| seen_windows.contains(window_id));
         }
 
-        // The `list-windows` poll runs constantly and almost always reports the
-        // same windows with the same names, indices and active flag.
         if is_list_windows_response {
             self.windows_synced = true;
-            self.refresh_status_line_if_inputs_changed();
         }
 
         resized_panes
@@ -3306,11 +3177,6 @@ impl StateAggregator {
             delta.active_pane_id = current.active_pane_id.clone();
         }
 
-        // Check for status line changes
-        if current.status_line != prev.status_line {
-            delta.status_line = Some(current.status_line.clone());
-        }
-
         // A queued focus request, or its clearing. The empty string is the
         // "cleared" signal — `None` on the delta means "unchanged", so the
         // absence of the option cannot be expressed by `None`.
@@ -3700,9 +3566,6 @@ impl StateAggregator {
             .or_else(|| panes.iter().find(|p| p.active))
             .map(|p| p.tmux_id.clone());
 
-        // Get status line (uses cache if not dirty)
-        let status_line = self.get_status_line(total_width as usize);
-
         TmuxState {
             session_name: self.session_name.clone(),
             active_window_id: self.active_window_id.clone(),
@@ -3711,7 +3574,6 @@ impl StateAggregator {
             windows,
             total_width,
             total_height,
-            status_line,
             focus_request: self.focus_request.clone(),
         }
     }
@@ -5011,78 +4873,6 @@ mod tests {
         assert!(agg.collect_window_tag_commands().is_empty());
     }
 
-    /// The pin every keyboard binding carries (`select-window -t @N \; …`)
-    /// makes tmux re-announce the window that is already current. That must not
-    /// refresh the status line: the refresh is five `tmux display-message`
-    /// subprocesses plus a shell, run synchronously while the user waits for
-    /// the keypress they just made.
-    #[test]
-    fn reselecting_the_active_window_leaves_the_status_line_alone() {
-        let mut agg = StateAggregator::new();
-        let mut first = WindowState::new("@0");
-        first.index = 1;
-        first.active = true;
-        agg.windows.insert("@0".to_string(), first);
-        let mut second = WindowState::new("@1");
-        second.index = 2;
-        agg.windows.insert("@1".to_string(), second);
-        agg.active_window_id = Some("@0".to_string());
-        // Settle the fingerprint the way the first status-line read would.
-        agg.refresh_status_line_if_inputs_changed();
-        agg.status_line_dirty = false;
-
-        agg.step(ControlModeEvent::SessionWindowChanged {
-            session_id: "$0".to_string(),
-            window_id: "@0".to_string(),
-        });
-        assert!(
-            !agg.status_line_dirty,
-            "re-selecting the current window must not dirty the status line"
-        );
-
-        // A real switch still does.
-        agg.step(ControlModeEvent::SessionWindowChanged {
-            session_id: "$0".to_string(),
-            window_id: "@1".to_string(),
-        });
-        assert!(
-            agg.status_line_dirty,
-            "switching to a different window must dirty the status line"
-        );
-    }
-
-    /// The `list-windows` poll runs several times a second and almost always
-    /// reports exactly what it reported last time.
-    #[test]
-    fn unchanged_list_windows_poll_leaves_the_status_line_alone() {
-        let mut agg = StateAggregator::new();
-        // list-windows row: id, index, active, then the @tmuxy-* option columns,
-        // with the window name last.
-        let poll = |name: &str| format!("@0,1,1,tab,,,,,,,,,,,,{name}");
-        // `new()` starts dirty so the first state request fetches; clear it so
-        // the assertion below is about the poll, not about construction.
-        agg.status_line_dirty = false;
-
-        agg.handle_command_response(&poll("shell"));
-        assert!(
-            agg.status_line_dirty,
-            "the first poll has nothing cached and must refresh"
-        );
-        agg.status_line_dirty = false;
-
-        agg.handle_command_response(&poll("shell"));
-        assert!(
-            !agg.status_line_dirty,
-            "an identical poll must not trigger a refresh"
-        );
-
-        agg.handle_command_response(&poll("build"));
-        assert!(
-            agg.status_line_dirty,
-            "a renamed window must trigger a refresh"
-        );
-    }
-
     #[test]
     fn window_add_assigns_provisional_index_past_the_highest() {
         // The tmuxy guest snapshot already has window id and index diverged:
@@ -5136,7 +4926,6 @@ mod tests {
             pane_id: "%0".to_string(),
             content: b"hello world\r\n".to_vec(),
         });
-        agg.set_status_line(String::new());
 
         // First update is the full snapshot.
         assert!(matches!(
@@ -5159,7 +4948,6 @@ mod tests {
             window_id: "@0".to_string(),
             name: "renamed".to_string(),
         });
-        agg.set_status_line(String::new());
         match agg.to_state_update() {
             Some(crate::StateUpdate::Delta { delta }) => {
                 assert!(
