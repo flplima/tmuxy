@@ -5,7 +5,7 @@
   "build": {
     "beforeDevCommand": "npm run dev -w tmuxy-ui",
     "beforeBuildCommand": "npm run build -w tmuxy-ui",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:9001",
     "frontendDist": "../tmuxy-ui/dist"
   },
   "app": {

@@ -52,7 +52,7 @@ module.exports = async function globalSetup() {
   // Step 2: Build Tauri binary with `tauri build --debug`
   // Must use `tauri build` (not bare `cargo build`) so the frontend dist is
   // embedded into the binary. Plain `cargo build` produces a dev binary that
-  // tries to connect to devUrl (localhost:1420) instead of serving the embedded
+  // tries to connect to devUrl (Vite, localhost:9001) instead of serving the embedded
   // assets.
   if (!fs.existsSync(TAURI_BINARY)) {
     console.warn('[tauri-e2e] Building Tauri app (tauri build --debug --no-bundle)...');
