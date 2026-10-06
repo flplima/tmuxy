@@ -79,10 +79,6 @@ pub enum ClientCommand {
     RestoreSession {
         session: String,
     },
-    /// Delete a session's snapshots. The running session, if any, is untouched.
-    ForgetSession {
-        session: String,
-    },
     SetThemeMode {
         mode: String,
     },

@@ -894,61 +894,17 @@ async fn handle_command(
             tmuxy_core::theme::set_theme_mode(&state.ctx, &mode).await?;
             Ok(serde_json::json!(null))
         }
+        ClientCommand::ListSnapshots => tmuxy_core::transport::list_snapshots_json().await,
+        // Through THIS session's client: a new session made from inside a
+        // control-mode client is how the server already creates one.
+        ClientCommand::RestoreSession { session: name } => {
+            let tx = state.monitor_tx(session).await?;
+            tmuxy_core::transport::restore_named(&name, &tx).await?;
+            Ok(serde_json::json!(null))
+        }
         // Debug menu (docs/TELEMETRY.md). The trace file lives on THIS host, so
         // a browser client can read the switch and the path but cannot open the
         // file — the in-app menu hides that item off the desktop.
-        ClientCommand::ListSnapshots => {
-            let dir = tmuxy_core::session_snapshot::default_dir();
-            let list =
-                tokio::task::spawn_blocking(move || tmuxy_core::session_snapshot::list(&dir))
-                    .await
-                    .map_err(|e| e.to_string())?;
-            Ok(serde_json::json!(list
-                .into_iter()
-                .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
-                .collect::<Vec<_>>()))
-        }
-        ClientCommand::RestoreSession { session: name } => {
-            if !tmuxy_core::session::is_safe_session_name(&name) {
-                return Err(format!("not a usable session name: {name:?}"));
-            }
-            if session_exists(&name).await {
-                return Err(format!("session {name:?} is already running"));
-            }
-            let dir = tmuxy_core::session_snapshot::default_dir();
-            let snapshot = tmuxy_core::session_snapshot::read_latest(&dir, &name)
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| format!("no snapshot for {name:?}"))?;
-            // Through THIS session's client: a new session made from inside a
-            // control-mode client is how the server already creates one.
-            let tx = {
-                let sessions = state.sessions.read().await;
-                sessions
-                    .get(session)
-                    .and_then(|s| s.monitor_command_tx.clone())
-            }
-            .ok_or_else(|| "No monitor connection available".to_string())?;
-            let options = tmuxy_core::session_snapshot::RestoreOptions {
-                run: false,
-                fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
-                onto_existing_window: false,
-                existing_window_index: None,
-            };
-            tmuxy_core::session_snapshot::restore_via_monitor(&snapshot, &options, &tx).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::ForgetSession { session: name } => {
-            if !tmuxy_core::session::is_safe_session_name(&name) {
-                return Err(format!("not a usable session name: {name:?}"));
-            }
-            let dir = tmuxy_core::session_snapshot::default_dir();
-            let removed = tokio::task::spawn_blocking(move || {
-                tmuxy_core::session_snapshot::forget(&dir, &name)
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-            Ok(serde_json::json!(removed))
-        }
         ClientCommand::GetTraceSettings => Ok(serde_json::json!({
             "enabled": tmuxy_core::trace::is_enabled(),
             "level": tmuxy_core::trace::level_name(),

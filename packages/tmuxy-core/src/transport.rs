@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
-use crate::executor::{parse_bindings, KeyBinding};
+use crate::executor::{parse_bindings, tmux_quote, KeyBinding};
+use crate::session_snapshot::{self as snapshot, RestoreOptions};
 
 /// Run a command on the monitor's connection and wait for what it printed. An
 /// `%error` from tmux is the `Err`, carrying tmux's message.
@@ -250,6 +251,57 @@ pub fn is_source_file(command: &str) -> bool {
 /// starts in the background (`run-shell -b`, hooks).
 pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
+// ============================================
+// Session snapshots
+// ============================================
+
+/// The sessions that have a snapshot to be rebuilt from, as the
+/// `[{ name, savedAt }]` both transports answer `list_snapshots` with.
+pub async fn list_snapshots_json() -> Result<serde_json::Value, String> {
+    let dir = snapshot::default_dir();
+    let list = tokio::task::spawn_blocking(move || snapshot::list(&dir))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!(list
+        .into_iter()
+        .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
+        .collect::<Vec<_>>()))
+}
+
+/// Rebuild a session from its latest snapshot through the caller's
+/// control-mode client — a session made from inside a control-mode client is
+/// how both transports already create one. Refused when the session is
+/// already running.
+pub async fn restore_named(name: &str, tx: &MonitorCommandSender) -> Result<(), String> {
+    if !crate::session::is_safe_session_name(name) {
+        return Err(format!("not a usable session name: {name:?}"));
+    }
+    if session_running(tx, name).await {
+        return Err(format!("session {name:?} is already running"));
+    }
+    let dir = snapshot::default_dir();
+    let saved = snapshot::read_latest(&dir, name)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no snapshot for {name:?}"))?;
+    let options = RestoreOptions {
+        run: false,
+        fallback_cwd: snapshot::fallback_cwd(),
+        onto_existing_window: false,
+        existing_window_index: None,
+    };
+    snapshot::restore_via_monitor(&saved, &options, tx).await
+}
+
+/// Whether a session of exactly this name exists, asked over control mode.
+async fn session_running(tx: &MonitorCommandSender, name: &str) -> bool {
+    query(
+        tx,
+        &format!("has-session -t {}", tmux_quote(&format!("={name}"))),
+    )
+    .await
+    .is_ok()
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -342,6 +394,22 @@ mod tests {
         assert!(is_source_file("  source ~/.tmux.conf"));
         assert!(!is_source_file("sourcery"));
         assert!(!is_source_file("send-keys source-file"));
+    }
+
+    #[tokio::test]
+    async fn a_running_session_is_not_restored_over() {
+        // `has-session` answers without an error: the session exists.
+        let (tx, asked) = answering(Ok(String::new()));
+        let refused = restore_named("work", &tx).await.unwrap_err();
+        assert!(refused.contains("already running"), "{refused}");
+        assert_eq!(asked.lock().unwrap()[0], "has-session -t '=work'");
+    }
+
+    #[tokio::test]
+    async fn an_unusable_session_name_reaches_no_tmux() {
+        let (tx, asked) = answering(Ok(String::new()));
+        assert!(restore_named("a\nkill-server", &tx).await.is_err());
+        assert!(asked.lock().unwrap().is_empty());
     }
 
     fn picture(len: usize) -> StoredImage {
