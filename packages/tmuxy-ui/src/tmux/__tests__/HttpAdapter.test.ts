@@ -556,4 +556,76 @@ describe('HttpAdapter initial state against the live stream', () => {
     expect(result.panes[0].content).toEqual(prompt);
     adapter.disconnect();
   });
+
+  /** A connected adapter whose next `fetch` waits until `answer` is called. */
+  const withPendingAnswer = async () => {
+    let answer: (value: unknown) => void = () => {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      ),
+    );
+    const adapter = new HttpAdapter();
+    const connected = adapter.connect();
+    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    const es = MockEventSource.instances[0];
+    es.emit('connection-info', { data: { connection_id: 1 } });
+    await connected;
+    return {
+      adapter,
+      es,
+      answer: (result: unknown) => answer({ ok: true, json: async () => ({ result }) }),
+    };
+  };
+
+  const withTab = (base: ReturnType<typeof state>, id: string) => ({
+    ...base,
+    windows: [...base.windows, { id, index: 2, name: 's', active: false, window_type: 'tab' }],
+  });
+
+  it('an initial-state answer older than the stream does not take back a window the stream added', async () => {
+    // The session-restore failure: the answer is taken while the restore is
+    // still making windows, the stream delivers them, and to the server
+    // nothing changes after that — no delta would ever bring them back.
+    const { adapter, es, answer } = await withPendingAnswer();
+    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+    const prompt = [[{ c: '$' }]];
+    es.emit('state-update', { data: { type: 'full', state: withTab(state(prompt), '@2') } });
+    answer(state(prompt));
+
+    const result = (await initial) as ReturnType<typeof state>;
+    expect(result.windows.map((w) => w.id)).toEqual(['@1', '@2']);
+    adapter.disconnect();
+  });
+
+  it('after a gap in the stream, the answer is the state to start again from', async () => {
+    const { adapter, es, answer } = await withPendingAnswer();
+    const prompt = [[{ c: '$' }]];
+    // The client's first answer, which also gives the resync its size.
+    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    answer(state(prompt));
+    await initial;
+    es.emit('state-update', { data: { type: 'full', state: state(prompt) } });
+    es.emit('state-update', { data: { type: 'delta', delta: { seq: 1 } } });
+    // seq 3 after 1: a delta was lost, and the adapter asks for a full state.
+    es.emit('state-update', { data: { type: 'delta', delta: { seq: 3 } } });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    answer(withTab(state(prompt), '@5'));
+
+    await vi.waitFor(() =>
+      expect(
+        (adapter as unknown as { currentState: ReturnType<typeof state> }).currentState.windows.map(
+          (w) => w.id,
+        ),
+      ).toEqual(['@1', '@5']),
+    );
+    adapter.disconnect();
+  });
 });

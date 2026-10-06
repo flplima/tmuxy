@@ -37,17 +37,40 @@ function isPaneContentEmpty(content: PaneContent): boolean {
  * Take a `get_initial_state` answer as the client's state.
  *
  * The answer is a snapshot taken when the request reached the server, and the
- * live stream keeps running while it travels back: a full state carrying the
- * pane's content can arrive and be applied first, and a raw overwrite then put
- * the older, emptier snapshot back. A shell that had already printed its
- * prompt never prints it again, so the pane stayed blank for good — the E2E
- * start-up failure, where a session made through another session's client
- * showed its prompt in the monitor's very first states, inside that window.
- * The answer goes through the same merge as a full update from the stream,
- * which keeps content the client already has over an empty pane.
+ * live stream keeps running while it travels back. The stream is a sequence —
+ * a full state, then deltas against the server's previous emission — so once
+ * it has delivered a full state (`streamSynced`), it alone is the server's
+ * state, and an answer from outside the sequence is at best as new and often
+ * older. Put back, it undid whatever the stream had delivered since: a shell
+ * prompt already printed (it is never printed again, so the pane stayed blank
+ * for good), or the windows a session restore had just made — the stream
+ * never sends those again, since to the server nothing changed. So a synced
+ * stream keeps its state, and the answer only fills a pane the stream has
+ * delivered no content for yet (it carries a capture the stream may not).
+ *
+ * Before the stream's first full state, or after a sequence gap, the answer
+ * IS the state to start from, merged the way a full update from the stream
+ * would be.
  */
-export function adoptInitialState(answer: ServerState, current: ServerState | null): ServerState {
-  return handleStateUpdate({ type: 'full', state: answer }, current) ?? answer;
+export function adoptInitialState(
+  answer: ServerState,
+  current: ServerState | null,
+  streamSynced: boolean,
+): ServerState {
+  if (!current || !streamSynced) {
+    return handleStateUpdate({ type: 'full', state: answer }, current) ?? answer;
+  }
+  const answered = new Map(answer.panes.map((p) => [p.tmux_id, p]));
+  let filled = false;
+  const panes = current.panes.map((pane) => {
+    const from = answered.get(pane.tmux_id);
+    if (!from || !isPaneContentEmpty(pane.content) || isPaneContentEmpty(from.content)) {
+      return pane;
+    }
+    filled = true;
+    return { ...pane, content: from.content, cursor_x: from.cursor_x, cursor_y: from.cursor_y };
+  });
+  return filled ? { ...current, panes } : current;
 }
 
 /**

@@ -52,6 +52,11 @@ export class TauriAdapter implements TmuxAdapter {
   // instead of diverging. The Tauri event channel has no ring-buffer replay,
   // so this is the only recovery path on that transport.
   private lastDeltaSeq: number | null = null;
+  /**
+   * The stream has delivered a full state and no sequence gap since, so it is
+   * the client's state (see `adoptInitialState`).
+   */
+  private streamSynced = false;
   /** Delta seq of the most recent applied update, for the trace `apply` event. */
   private lastAppliedSeq: number | null = null;
   private lastCols = 0;
@@ -99,6 +104,7 @@ export class TauriAdapter implements TmuxAdapter {
         if (update.type === 'delta') {
           if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
             this.lastDeltaSeq = null;
+            this.streamSynced = false;
             void this.resyncFullState();
             return;
           }
@@ -107,6 +113,7 @@ export class TauriAdapter implements TmuxAdapter {
         } else {
           this.lastDeltaSeq = null;
           this.lastAppliedSeq = null;
+          this.streamSynced = true;
         }
 
         const newState = handleStateUpdate(update, this.currentState);
@@ -266,6 +273,7 @@ export class TauriAdapter implements TmuxAdapter {
     this.reconnectAttempt = 0;
     this.currentState = null;
     this.lastDeltaSeq = null;
+    this.streamSynced = false;
   }
 
   isConnected(): boolean {
@@ -299,8 +307,11 @@ export class TauriAdapter implements TmuxAdapter {
     // Special handling for get_initial_state: capture as currentState for delta protocol
     if (cmd === 'get_initial_state') {
       const result = await invoke<T>(cmd, args);
-      this.currentState = adoptInitialState(result as ServerState, this.currentState);
-      this.lastDeltaSeq = null;
+      const synced = this.streamSynced;
+      this.currentState = adoptInitialState(result as ServerState, this.currentState, synced);
+      // A synced stream carries on from its own sequence; an adopted answer
+      // starts one.
+      if (!synced) this.lastDeltaSeq = null;
       return this.currentState as T;
     }
 

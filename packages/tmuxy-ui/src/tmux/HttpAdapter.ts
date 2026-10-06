@@ -133,6 +133,11 @@ export class HttpAdapter implements TmuxAdapter {
   // Last applied delta seq (null right after a full snapshot). Used to detect a
   // dropped/misordered delta and refetch a full state before it diverges.
   private lastDeltaSeq: number | null = null;
+  /**
+   * The stream has delivered a full state and no sequence gap since, so it is
+   * the client's state (see `adoptInitialState`).
+   */
+  private streamSynced = false;
   /** Delta seq of the most recent applied update, for the trace `apply` event
    * (joins to the server's `emit state` seq). Null for full snapshots. */
   private lastAppliedSeq: number | null = null;
@@ -329,6 +334,9 @@ export class HttpAdapter implements TmuxAdapter {
   private openConnection(eventsUrl: string): Effect.Effect<never, Error> {
     return Effect.async<never, Error>((resume) => {
       const es = new EventSource(eventsUrl);
+      // A new connection starts a new sequence; until its full state lands,
+      // an initial-state answer is the state to start from.
+      this.streamSynced = false;
       this.eventSource = es;
 
       // A link that dies silently — a sleeping laptop, a Wi-Fi roam, a proxy
@@ -414,6 +422,7 @@ export class HttpAdapter implements TmuxAdapter {
           if (update.type === 'delta') {
             if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
               this.lastDeltaSeq = null;
+              this.streamSynced = false;
               this.resyncFullState();
               return;
             }
@@ -422,6 +431,7 @@ export class HttpAdapter implements TmuxAdapter {
           } else {
             // A full snapshot is a fresh sync point.
             this.lastDeltaSeq = null;
+            this.streamSynced = true;
             this.lastAppliedSeq = null;
           }
 
@@ -624,8 +634,11 @@ export class HttpAdapter implements TmuxAdapter {
     // Special handling for get_initial_state: also set currentState so delta updates work
     if (cmd === 'get_initial_state') {
       const result = await this.invokeInternal<T>(cmd, args);
-      this.currentState = adoptInitialState(result as ServerState, this.currentState);
-      this.lastDeltaSeq = null;
+      const synced = this.streamSynced;
+      this.currentState = adoptInitialState(result as ServerState, this.currentState, synced);
+      // A synced stream carries on from its own sequence; an adopted answer
+      // starts one.
+      if (!synced) this.lastDeltaSeq = null;
       return this.currentState as T;
     }
 
@@ -829,6 +842,7 @@ export class HttpAdapter implements TmuxAdapter {
     this.sessionOverride = newSession;
     this.currentState = null;
     this.lastDeltaSeq = null;
+    this.streamSynced = false;
 
     // Switching sessions is a fresh start — clear a prior fatal so the switch
     // isn't permanently rejected by connect()'s fatal guard (recovering from a
