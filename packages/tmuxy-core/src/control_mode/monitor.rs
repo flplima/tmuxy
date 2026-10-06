@@ -188,9 +188,6 @@ pub struct MonitorConfig {
     /// Session name to connect to
     pub session: String,
 
-    /// Interval for periodic state sync (e.g., list-panes for cursor position)
-    pub sync_interval: Duration,
-
     /// Whether to create the session if it doesn't exist
     pub create_session: bool,
 
@@ -203,13 +200,6 @@ pub struct MonitorConfig {
     /// Used when high-frequency output is detected.
     /// Recommended: 16ms (60fps) for smooth updates during bulk output.
     pub throttle_interval: Duration,
-
-    /// Number of events in rate window that triggers throttle mode.
-    /// Below this threshold, events emit immediately for low latency.
-    pub throttle_threshold: u32,
-
-    /// Window for counting events to detect high-frequency output.
-    pub rate_window: Duration,
 
     /// Working directory for the tmux control mode process.
     /// run-shell commands resolve relative paths from this directory.
@@ -232,18 +222,25 @@ impl Default for MonitorConfig {
     fn default() -> Self {
         Self {
             session: String::new(),
-            sync_interval: Duration::from_millis(500),
             create_session: false,
             group_target: None,
             throttle_interval: Duration::from_millis(32), // ~30fps during high throughput
-            throttle_threshold: 20,                       // >20 events/100ms triggers throttle
-            rate_window: Duration::from_millis(100),
             first_window: None,
             working_dir: None,
             observer: false,
         }
     }
 }
+
+/// Interval for the periodic state sync (list-panes for cursor position).
+const SYNC_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Events within one [`RATE_WINDOW`] above which output is throttled. Below
+/// it, events emit immediately for low latency.
+const THROTTLE_THRESHOLD: u32 = 20;
+
+/// Window for counting events to detect high-frequency output.
+const RATE_WINDOW: Duration = Duration::from_millis(100);
 
 /// Handle for sending commands to a running TmuxMonitor
 pub type MonitorCommandSender = mpsc::Sender<MonitorCommand>;
@@ -354,7 +351,7 @@ impl RunState {
             copy_mode_sync_interval: Duration::from_millis(50),
             heartbeat_interval: Duration::from_secs(15),
             last_event_at: now_async,
-            next_sync_at: now_async + config.sync_interval + Duration::from_secs(1),
+            next_sync_at: now_async + SYNC_INTERVAL + Duration::from_secs(1),
 
             last_output_emit: now_std - config.throttle_interval,
             pending_output_emit: false,
@@ -417,19 +414,19 @@ impl RunState {
 
     /// Slide the rate-tracking window and toggle high/low throughput mode based
     /// on the hysteresis threshold.
-    fn update_rate(&mut self, config: &MonitorConfig, now: Instant) {
-        if now.duration_since(self.rate_window_start) > config.rate_window {
-            let exit_threshold = config.throttle_threshold / 2;
+    fn update_rate(&mut self, now: Instant) {
+        if now.duration_since(self.rate_window_start) > RATE_WINDOW {
+            let exit_threshold = THROTTLE_THRESHOLD / 2;
             if self.in_throttle_mode && self.rate_event_count <= exit_threshold {
                 self.in_throttle_mode = false;
-            } else if !self.in_throttle_mode && self.rate_event_count > config.throttle_threshold {
+            } else if !self.in_throttle_mode && self.rate_event_count > THROTTLE_THRESHOLD {
                 self.in_throttle_mode = true;
             }
             self.rate_window_start = now;
             self.rate_event_count = 1;
         } else {
             self.rate_event_count += 1;
-            if !self.in_throttle_mode && self.rate_event_count > config.throttle_threshold {
+            if !self.in_throttle_mode && self.rate_event_count > THROTTLE_THRESHOLD {
                 self.in_throttle_mode = true;
             }
         }
@@ -1134,7 +1131,7 @@ impl TmuxMonitor {
         }
 
         if is_output_event && rs.throttle_enabled {
-            rs.update_rate(&self.config, now);
+            rs.update_rate(now);
             if rs.in_throttle_mode {
                 rs.pending_output_emit = true;
                 if now.saturating_duration_since(rs.last_output_emit)
@@ -1745,7 +1742,6 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = MonitorConfig::default();
-        assert_eq!(config.sync_interval, Duration::from_millis(500));
         assert!(!config.create_session);
     }
 
@@ -1804,8 +1800,6 @@ mod tests {
     fn run_state_with_now(now: Instant) -> (MonitorConfig, RunState) {
         let cfg = MonitorConfig {
             throttle_interval: Duration::from_millis(32),
-            throttle_threshold: 20,
-            rate_window: Duration::from_millis(100),
             ..MonitorConfig::default()
         };
         let rs = RunState::new(&cfg, now);
@@ -1864,13 +1858,13 @@ mod tests {
     #[test]
     fn update_rate_enters_throttle_above_threshold() {
         let now = Instant::now();
-        let (cfg, mut rs) = run_state_with_now(now);
+        let (_, mut rs) = run_state_with_now(now);
         assert!(!rs.in_throttle_mode);
         // Push the counter past `throttle_threshold` within the same window.
         // The first call resets `rate_window_start` to `now`, so subsequent
         // calls accumulate. We loop one past the threshold to cross it.
-        for _ in 0..=cfg.throttle_threshold {
-            rs.update_rate(&cfg, now);
+        for _ in 0..=THROTTLE_THRESHOLD {
+            rs.update_rate(now);
         }
         assert!(
             rs.in_throttle_mode,
@@ -1881,14 +1875,14 @@ mod tests {
     #[test]
     fn update_rate_exits_throttle_when_rate_drops() {
         let now = Instant::now();
-        let (cfg, mut rs) = run_state_with_now(now);
+        let (_, mut rs) = run_state_with_now(now);
         rs.in_throttle_mode = true;
         rs.rate_event_count = 0;
         rs.rate_window_start = now;
         // Advance the clock past the rate window so update_rate evaluates
         // the hysteresis on the previous window's count (zero) and exits.
-        let after_window = now + cfg.rate_window + Duration::from_millis(10);
-        rs.update_rate(&cfg, after_window);
+        let after_window = now + RATE_WINDOW + Duration::from_millis(10);
+        rs.update_rate(after_window);
         assert!(
             !rs.in_throttle_mode,
             "a fully-quiet rate window should exit throttle mode"

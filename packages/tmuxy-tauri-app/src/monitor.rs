@@ -330,17 +330,13 @@ pub async fn start_monitoring_window(
     // `mut` so a `tmuxy connect` reconnect can retarget the session in place.
     let mut config = MonitorConfig {
         session,
-        sync_interval: Duration::from_millis(500),
         create_session: true,
         group_target,
         // Adaptive throttling: emit immediately for low-frequency events (typing),
         // throttle at 16ms (~60fps) when high-frequency output detected
         throttle_interval: Duration::from_millis(16),
-        throttle_threshold: 20,
-        rate_window: Duration::from_millis(100),
         working_dir,
-        observer: false,
-        first_window: None,
+        ..Default::default()
     };
 
     // Reconnect with exponential backoff, bounded by MAX_CONSECUTIVE_FAILURES.

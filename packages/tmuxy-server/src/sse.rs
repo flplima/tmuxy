@@ -1625,15 +1625,10 @@ async fn session_exists(session: &str) -> bool {
 fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
     MonitorConfig {
         session: session.to_string(),
-        sync_interval: Duration::from_millis(500),
         create_session: !state.read_only,
-        group_target: None,
-        throttle_interval: Duration::from_millis(32),
-        throttle_threshold: 20,
-        rate_window: Duration::from_millis(100),
         working_dir: Some(crate::state::find_workspace_root()),
         observer: state.read_only,
-        first_window: None,
+        ..Default::default()
     }
 }
 
