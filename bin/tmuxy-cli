@@ -929,12 +929,12 @@ cmd_tab() {
       done
       if $json; then
         # Include @tmuxy-window-type ($6) so we can drop tmuxy's hidden windows
-        # (floats, groups, the sidebar). Keep "tab" and untagged/foreign ("")
+        # (floats and the sidebars). Keep "tab" and untagged/foreign ("")
         # windows so this still works in a plain (non-tmuxy) session.
         # Tab-separated: window_name is user-controlled free text (tmuxy tab
         # rename), so a comma in it would shift every following field.
         _tmux list-windows -F "$LIST_WINDOWS_JSON_FMT" | \
-          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} $6!="float" && $6!="float-backdrop" && $6!="group" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} $6!="float" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
         _tmux list-windows
       fi

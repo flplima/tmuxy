@@ -81,7 +81,6 @@ const serverState = (over: Partial<ServerState> = {}): ServerState => ({
   windows: [serverWindow()],
   total_width: 80,
   total_height: 24,
-  status_line: '',
   ...over,
 });
 
@@ -255,7 +254,6 @@ describe('TmuxStore — verbatim command preservation', () => {
       activeWindowId: '@0',
       totalWidth: 80,
       totalHeight: 24,
-      statusLine: '',
       focusRequest: '',
       sessionName: 'tmuxy',
     });
@@ -365,7 +363,6 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
       activeWindowId: '@0',
       totalWidth: 80,
       totalHeight: 24,
-      statusLine: '',
       focusRequest: '',
       sessionName: 'tmuxy',
     };
@@ -698,7 +695,6 @@ describe('Op predictions — tmux-output shape', () => {
       activeWindowId: '@0',
       totalWidth: 80,
       totalHeight: 24,
-      statusLine: '',
       focusRequest: '',
       sessionName: 'tmuxy',
     });
@@ -756,7 +752,6 @@ describe('Op predictions — tmux-output shape', () => {
       activeWindowId: '@5',
       totalWidth: 80,
       totalHeight: 24,
-      statusLine: '',
       focusRequest: '',
       sessionName: 'tmuxy',
     });
@@ -794,7 +789,6 @@ describe('Op predictions — tmux-output shape', () => {
       activeWindowId: '@5',
       totalWidth: 160,
       totalHeight: 48,
-      statusLine: '',
       focusRequest: '',
       sessionName: 'tmuxy',
     });

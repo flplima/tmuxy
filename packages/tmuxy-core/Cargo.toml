@@ -7,7 +7,7 @@ license.workspace = true
 description = "Core tmux interaction library for tmuxy"
 
 # The control-mode parser + state aggregator (parser/state/osc/images/octal +
-# the Tmux*/Delta types) are sans-IO and compile to wasm32. The async/pty/nix
+# the Tmux*/Delta types) are sans-IO and compile to wasm32. The async/pty
 # transport (monitor/connection/executor/session/tmux_service/ctx) lives behind
 # the default `native` feature so the pure core can build with
 # --no-default-features for the WASM (tmuxy-wasm) crate.
@@ -35,8 +35,6 @@ backon = { version = "1", features = ["tokio-sleep"], optional = true }
 async-trait = { version = "0.1", optional = true }
 tower = { version = "0.5", features = ["util", "timeout"], optional = true }
 dirs = { version = "6.0", optional = true }
-nix = { version = "0.29", features = ["term", "process", "signal", "fs"], optional = true }
-libc = { version = "0.2", optional = true }
 pty-process = { version = "0.5", features = ["async"], optional = true }
 
 # wasm-compatible Instant (performance.now()) for the settling debounce timer.
@@ -49,18 +47,13 @@ criterion = "0.5"
 
 [features]
 default = ["native"]
-# Enables the async/pty/nix transport (monitor, connection, executor, session,
+# Enables the async/pty transport (monitor, connection, executor, session,
 # tmux_service, ctx). Off for the wasm build.
-native = ["dep:tokio", "dep:backon", "dep:async-trait", "dep:tower", "dep:dirs", "dep:nix", "dep:libc", "dep:pty-process", "dep:tracing-subscriber"]
+native = ["dep:tokio", "dep:backon", "dep:async-trait", "dep:tower", "dep:dirs", "dep:pty-process", "dep:tracing-subscriber"]
 test-support = []
 
 [lints]
 workspace = true
-
-[[bin]]
-name = "tmux-capture"
-path = "src/bin/tmux_capture.rs"
-required-features = ["native"]
 
 # Axis-A core-pipeline benchmark (criterion). See benches/core_pipeline.rs and
 # docs/PERFORMANCE.md.

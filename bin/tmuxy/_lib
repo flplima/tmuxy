@@ -2,7 +2,7 @@
 # Shared helpers for tmuxy shell scripts.
 #
 # Window typing is sourced from the @tmuxy-window-type window option, with
-# values: float | float-backdrop | sidebar-left | sidebar-right. A window
+# values: float | sidebar-left | sidebar-right. A window
 # without @tmuxy-window-type is a tab.
 #
 # Pane groups are identified by a per-pane @tmuxy-group-id option (e.g. g5) set
@@ -183,7 +183,7 @@ _lock_release() {
 
 # Get the window type set on a window via @tmuxy-window-type.
 # Args: $1=window_id (e.g., @5)
-# Output: float|float-backdrop|sidebar-left|sidebar-right  (empty for a tab)
+# Output: float|sidebar-left|sidebar-right  (empty for a tab)
 window_type() {
   _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
 }

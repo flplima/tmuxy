@@ -162,9 +162,6 @@ export function applyDelta(state: ServerState, delta: ServerDelta): ServerState 
   if (delta.active_pane_id !== undefined) {
     newState.active_pane_id = delta.active_pane_id;
   }
-  if (delta.status_line !== undefined) {
-    newState.status_line = delta.status_line;
-  }
   if (delta.focus_request !== undefined) {
     newState.focus_request = delta.focus_request;
   }

@@ -418,35 +418,6 @@ class TmuxTestSession {
         };
       });
   }
-
-  /**
-   * Capture session content using the Rust binary
-   * Note: This runs externally but doesn't use control mode, so it's safe
-   */
-  captureSnapshot() {
-    const captureScript = path.join(WORKSPACE_ROOT, 'target/release/tmux-capture');
-    const captureScriptDebug = path.join(WORKSPACE_ROOT, 'target/debug/tmux-capture');
-
-    let binaryPath = captureScript;
-    if (!fs.existsSync(binaryPath)) {
-      binaryPath = captureScriptDebug;
-      if (!fs.existsSync(binaryPath)) {
-        throw new Error(
-          'tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture',
-        );
-      }
-    }
-
-    const result = execSync(`${binaryPath} ${this.name} 200`, {
-      cwd: WORKSPACE_ROOT,
-      encoding: 'utf-8',
-    }).trim();
-
-    if (fs.existsSync(result)) {
-      return fs.readFileSync(result, 'utf-8');
-    }
-    throw new Error(`Snapshot file not found: ${result}`);
-  }
 }
 
 module.exports = TmuxTestSession;

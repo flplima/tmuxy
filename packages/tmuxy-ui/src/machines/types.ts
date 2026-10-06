@@ -361,8 +361,6 @@ export interface AppMachineContext {
    * its own tab and pane focus, and tmux is never told anything.
    */
   readOnly: boolean;
-  /** Tmux status line with ANSI escape codes */
-  statusLine: string;
   /** Container dimensions for centering calculations */
   containerWidth: number;
   containerHeight: number;

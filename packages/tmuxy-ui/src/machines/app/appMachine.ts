@@ -175,7 +175,6 @@ function snapshotFromModel(model: TmuxClientModel): {
   activeWindowId: string | null;
   totalWidth: number;
   totalHeight: number;
-  statusLine: string;
   sessionName: string;
   focusRequest: string;
 } {
@@ -190,7 +189,6 @@ function snapshotFromModel(model: TmuxClientModel): {
     activeWindowId: d.activeWindowId,
     totalWidth: d.totalWidth,
     totalHeight: d.totalHeight,
-    statusLine: d.statusLine,
     sessionName: d.sessionName,
     focusRequest: d.focusRequest,
   };
@@ -2204,7 +2202,6 @@ export const appMachine = setup({
               windows: transformed.windows,
               activePaneId: transformed.activePaneId,
               activeWindowId: transformed.activeWindowId,
-              statusLine: transformed.statusLine,
               totalWidth: transformed.totalWidth,
               totalHeight: transformed.totalHeight,
             };

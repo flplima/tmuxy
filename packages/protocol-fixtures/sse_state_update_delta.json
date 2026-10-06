@@ -47,7 +47,7 @@
           "id": "@3",
           "index": 2,
           "name": "added",
-          "window_type": "float-backdrop",
+          "window_type": "float",
           "zoomed": false
         }
       ],
@@ -110,7 +110,6 @@
         "%3": null
       },
       "seq": 42,
-      "status_line": "[tmuxy] 1:renamed*",
       "total_height": 60,
       "total_width": 100,
       "windows": {

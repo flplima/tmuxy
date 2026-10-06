@@ -143,7 +143,7 @@ async function extractUIState(page) {
 // ==================== Tmux State Extraction ====================
 
 /** Window types that are chrome, not tabs. A tab carries no type marker. */
-const CHROME_WINDOW_TYPES = ['float', 'float-backdrop', 'sidebar-left', 'sidebar-right'];
+const CHROME_WINDOW_TYPES = ['float', 'sidebar-left', 'sidebar-right'];
 
 /**
  * Pane groups as tmux records them: every pane tagged with the same

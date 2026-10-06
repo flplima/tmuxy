@@ -93,7 +93,7 @@ export interface ImagePlacement {
  * `null` means foreign — tmuxy never created or adopted this window and
  * filters it out everywhere.
  */
-export type WindowType = 'tab' | 'float' | 'float-backdrop' | 'sidebar-left' | 'sidebar-right';
+export type WindowType = 'tab' | 'float' | 'sidebar-left' | 'sidebar-right';
 
 export interface TmuxWindow {
   /** Window ID (e.g., "@0") */
@@ -336,7 +336,6 @@ export interface ServerState {
   windows: ServerWindow[];
   total_width: number;
   total_height: number;
-  status_line: string;
   /**
    * A one-shot request from a shell helper for this client to move keyboard
    * focus somewhere no tmux command could reach: `left`/`right` for a sidebar
@@ -420,7 +419,6 @@ export interface ServerDelta {
   new_windows?: ServerWindow[];
   active_window_id?: string;
   active_pane_id?: string;
-  status_line?: string;
   /** See `ServerState.focus_request`. An empty string means "cleared". */
   focus_request?: string;
   total_width?: number;

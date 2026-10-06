@@ -53,7 +53,7 @@ interface FakeWindow {
   manualName: boolean; // true if renamed manually, prevents auto-update from cwd
   layout: LayoutNode;
   layoutCycle: number; // tracks position in layout cycle
-  windowType: 'tab' | 'float' | 'float-backdrop' | 'group' | 'sidebar-left' | 'sidebar-right';
+  windowType: 'tab' | 'float' | 'group' | 'sidebar-left' | 'sidebar-right';
   groupPanes: string[] | null;
   // Float options (only meaningful when windowType === 'float'). Mirror the
   // @tmuxy-float-* tmux window options the real CLI sets via bin/tmuxy/float-create.
@@ -306,7 +306,6 @@ export class DemoTmux {
       windows,
       total_width: this.totalWidth,
       total_height: this.totalHeight,
-      status_line: this.buildStatusLine(),
     };
   }
 
@@ -1639,16 +1638,5 @@ export class DemoTmux {
     const cwd = pane.shell.cwd;
     const name = cwd === '/' ? '/' : (cwd.split('/').pop() ?? 'bash');
     window.name = name;
-  }
-
-  private buildStatusLine(): string {
-    // The .tmux-status-bar container already provides the themed background
-    // via --tmux-status-bg. Only set fg color here to avoid ANSI bg mismatch.
-    const style = '\x1b[30m'; // black fg (text color on green bar)
-    const reset = '\x1b[0m';
-    const leftText = ` [${this.sessionName}] `;
-    const rightText = ` demo@tmuxy `;
-    const padding = Math.max(0, this.totalWidth - leftText.length - rightText.length);
-    return `${style}${leftText}${' '.repeat(padding)}${rightText}${reset}`;
   }
 }

@@ -85,7 +85,6 @@ const FIELD_OWNERS = {
   // ---- commandUi ----
   commandMode: 'commandUi',
   statusMessage: 'commandUi',
-  statusLine: 'commandUi',
   prefixActive: 'commandUi',
 
   // ---- notifications ----

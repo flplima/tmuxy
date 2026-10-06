@@ -63,7 +63,6 @@ function blankServerState(over: Partial<ServerState> = {}): ServerState {
     ],
     total_width: 80,
     total_height: 24,
-    status_line: '',
     ...over,
   };
 }
@@ -259,7 +258,6 @@ describe('notify granularity', () => {
         windows: [],
         total_width: 80,
         total_height: 24,
-        status_line: '',
       }),
     );
     expect(notifies).toBe(1);

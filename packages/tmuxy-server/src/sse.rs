@@ -1625,15 +1625,10 @@ async fn session_exists(session: &str) -> bool {
 fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
     MonitorConfig {
         session: session.to_string(),
-        sync_interval: Duration::from_millis(500),
         create_session: !state.read_only,
-        group_target: None,
-        throttle_interval: Duration::from_millis(32),
-        throttle_threshold: 20,
-        rate_window: Duration::from_millis(100),
         working_dir: Some(crate::state::find_workspace_root()),
         observer: state.read_only,
-        first_window: None,
+        ..Default::default()
     }
 }
 
@@ -2275,7 +2270,6 @@ mod tests {
                             windows: Vec::new(),
                             total_width: size.0,
                             total_height: size.1,
-                            status_line: String::new(),
                             focus_request: None,
                         });
                     }
@@ -3144,7 +3138,6 @@ mod protocol_fixtures {
             ],
             total_width: 80,
             total_height: 50,
-            status_line: "[tmuxy] 0:main*".to_string(),
             focus_request: Some("left".to_string()),
         }
     }
@@ -3260,7 +3253,7 @@ mod protocol_fixtures {
                 index: 2,
                 name: "added".to_string(),
                 active: false,
-                window_type: Some(WindowType::FloatBackdrop),
+                window_type: Some(WindowType::Float),
                 float_parent: Some("@2".to_string()),
                 float_width: None,
                 float_height: None,
@@ -3275,7 +3268,6 @@ mod protocol_fixtures {
             }]),
             active_window_id: Some("@2".to_string()),
             active_pane_id: Some("%4".to_string()),
-            status_line: Some("[tmuxy] 1:renamed*".to_string()),
             focus_request: Some(String::new()),
             total_width: Some(100),
             total_height: Some(60),

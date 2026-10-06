@@ -201,8 +201,7 @@ const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../../.devcontainer/.tmux
 
 /// User-editable config template — written ONLY when `tmuxy.conf` does not
 /// already exist. Sources `tmuxy.defaults.conf` first, then leaves space
-/// for the user's customizations, then sources `tmuxy.state.conf` for
-/// app-managed values (theme, opacity overrides set via the UI).
+/// for the user's customizations.
 const DEFAULT_USER_CONF: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
 
 /// Bundled theme CSS files, embedded at compile time. Mirrored to
@@ -438,21 +437,6 @@ pub fn get_config_path() -> Option<PathBuf> {
     None
 }
 
-/// Ensure the shipped defaults and user config exist at
-/// ~/.config/tmuxy/. Three files participate:
-///
-///   - `tmuxy.defaults.conf` — shipped baseline. **Overwritten every
-///     launch** so improvements (new bindings, new options) land without
-///     any user merge work. The user's `tmuxy.conf` sources this first.
-///   - `tmuxy.conf` — user-editable. Created from the shipped template
-///     only if it doesn't already exist. Sources defaults, leaves space
-///     for overrides, then sources state.
-///   - `tmuxy.state.conf` — app-managed state (theme, etc.). Not created
-///     here; written by [`write_managed_state`] when the UI changes it.
-///     The user conf sources this last with `-q` so a missing file is OK.
-///
-/// Also migrates configs written by older tmuxy releases (≤0.0.4) that
-/// referenced helper scripts via the relative path `bin/tmuxy/…`.
 /// The shipped user conf sources its siblings by the default
 /// `~/.config/tmuxy` path; when `XDG_CONFIG_HOME` relocates the config dir,
 /// point those lines at the real location instead.
@@ -533,6 +517,19 @@ fn write_user_conf_bridge(dir: &Path) {
     write_app_owned_conf(&path, &contents);
 }
 
+/// Ensure the shipped defaults and user config exist at
+/// ~/.config/tmuxy/. Three files participate:
+///
+///   - `tmuxy.defaults.conf` — shipped baseline. **Overwritten every
+///     launch** so improvements (new bindings, new options) land without
+///     any user merge work. The user's `tmuxy.conf` sources this first.
+///   - `tmuxy.conf` — user-editable. Created from the shipped template
+///     only if it doesn't already exist. Sources defaults and leaves space
+///     for overrides.
+///   - `tmuxy.state.json` — app-managed state (theme, etc.). Not created
+///     here; written by [`write_managed_state`] when the UI changes it, and
+///     re-applied to tmux by the control-mode monitor on every connect
+///     (see [`managed_state_commands`]).
 pub fn ensure_config() -> PathBuf {
     let dir = config_dir();
     let user_path = dir.join("tmuxy.conf");
@@ -543,30 +540,7 @@ pub fn ensure_config() -> PathBuf {
         return user_path;
     }
 
-    // Always refresh the defaults file — it's app-owned, not user-owned.
-    // Skip the rewrite if it's a symlink so the dev-container workflow
-    // (symlink to the repo's checked-in defaults) keeps working.
-    let defaults_is_symlink = std::fs::symlink_metadata(&defaults_path)
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false);
-    if !defaults_is_symlink {
-        let needs_defaults_write = match std::fs::read_to_string(&defaults_path) {
-            Ok(existing) => existing != DEFAULT_DEFAULTS_CONF,
-            Err(_) => true,
-        };
-        if needs_defaults_write {
-            if let Err(e) = std::fs::write(&defaults_path, DEFAULT_DEFAULTS_CONF) {
-                warn!(
-                    file = ?defaults_path.file_name().unwrap_or_default(),
-                    error = %e,
-                    "could not write defaults file"
-                );
-            } else {
-                info!(path = ?defaults_path, "refreshed tmuxy.defaults.conf");
-            }
-        }
-    }
-
+    write_app_owned_conf(&defaults_path, DEFAULT_DEFAULTS_CONF);
     write_app_owned_conf(&dir.join("tmuxy.essentials.conf"), DEFAULT_ESSENTIALS_CONF);
     write_user_conf_bridge(&dir);
 
@@ -577,28 +551,6 @@ pub fn ensure_config() -> PathBuf {
         } else {
             info!(path = ?user_path, "created tmuxy.conf");
         }
-        return user_path;
-    }
-
-    // Migrate stale relative bin paths in pre-existing user configs. Skip
-    // when the path is a symlink (devcontainer workflow) so we don't write
-    // through to the repo-checked-in file.
-    let user_is_symlink = std::fs::symlink_metadata(&user_path)
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false);
-    if !user_is_symlink {
-        if let Ok(existing) = std::fs::read_to_string(&user_path) {
-            let migrated = migrate_bin_paths(&existing);
-            let migrated = repair_doubled_bin_paths(&migrated);
-            let migrated = migrate_tab_bindings(&migrated);
-            if migrated != existing {
-                if let Err(e) = std::fs::write(&user_path, &migrated) {
-                    warn!(path = ?user_path, error = %e, "could not migrate config");
-                } else {
-                    info!(path = ?user_path, "migrated tmuxy.conf");
-                }
-            }
-        }
     }
 
     user_path
@@ -606,15 +558,9 @@ pub fn ensure_config() -> PathBuf {
 
 /// App-managed state persisted to `~/.config/tmuxy/tmuxy.state.json`.
 ///
-/// Read on startup by [`apply_managed_state`] which translates each set field
-/// into a `set-option -g` against tmux, so a theme picked through the UI
-/// survives a tmux server restart (fully quitting the app, last session
-/// closing, etc.).
-///
-/// Unknown JSON keys are tolerated and preserved on write — this is the
-/// forwards-compatibility hatch when older binaries read state files written
-/// by newer ones. Add new fields freely; just don't rename existing ones
-/// without a migration.
+/// The control-mode monitor re-applies it on every connect (see
+/// [`managed_state_commands`]), so a theme picked through the UI survives a
+/// tmux server restart (fully quitting the app, last session closing, etc.).
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ManagedState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -631,10 +577,25 @@ pub struct ManagedState {
     /// into the config chain, so it has to be known before that chain is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_tmux_conf: Option<bool>,
-    /// Preserve unknown keys across roundtrips so a newer build's state file
-    /// isn't truncated when read+written by an older one.
-    #[serde(flatten)]
-    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The `set-option -g` commands that put every set field of `state` back into
+/// tmux, so the running server's `show-options -gqv @tmuxy-theme` (etc.)
+/// returns the persisted choice. The monitor sends them through the
+/// control-mode connection right after sourcing the config, which is what
+/// lets a UI choice win over a hand-set value in `tmuxy.conf`.
+pub fn managed_state_commands(state: &ManagedState) -> Vec<String> {
+    let blink = state.cursor_blink.map(|on| if on { "on" } else { "off" });
+    [
+        (tmux_options::THEME, state.theme.as_deref()),
+        (tmux_options::THEME_MODE, state.theme_mode.as_deref()),
+        (tmux_options::CURSOR_BLINK, blink),
+    ]
+    .into_iter()
+    .filter_map(|(option, value)| {
+        value.map(|v| format!("set-option -g {option} {}", crate::executor::tmux_quote(v)))
+    })
+    .collect()
 }
 
 /// Path to the JSON state file inside the user's config dir. Does not check
@@ -692,13 +653,7 @@ pub fn write_managed_state(
     Ok(path)
 }
 
-/// Push every set field in the JSON state file into tmux as a global option,
-/// so the running server's `show-options -gqv @tmuxy-theme` (etc.) returns
-/// the persisted value. Called once during session init — failure on any
-/// individual `set-option` is logged but doesn't abort startup.
 /// The session tmuxy targets: `TMUXY_SESSION` env or the default.
-/// One resolution point — the Tauri app used to carry two private copies
-/// plus an inline third in gui.rs.
 pub fn session_name() -> String {
     std::env::var("TMUXY_SESSION").unwrap_or_else(|_| crate::DEFAULT_SESSION_NAME.to_string())
 }
@@ -773,115 +728,6 @@ mod name_tests {
     }
 }
 
-pub fn apply_managed_state(session_name: &str) {
-    let state = read_managed_state();
-    let blink = state.cursor_blink.map(|on| if on { "on" } else { "off" });
-    let pairs: [(Option<&str>, &str); 3] = [
-        (state.theme.as_deref(), tmux_options::THEME),
-        (state.theme_mode.as_deref(), tmux_options::THEME_MODE),
-        (blink, tmux_options::CURSOR_BLINK),
-    ];
-    for (value, option) in pairs {
-        let Some(v) = value else { continue };
-        if let Err(e) = crate::executor::execute_tmux_command(&[
-            "set-option",
-            "-t",
-            session_name,
-            "-g",
-            option,
-            v,
-        ]) {
-            warn!(%option, value = %v, error = %e, "failed to apply managed state option");
-        }
-    }
-}
-
-/// Repair `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/…` doubled
-/// paths produced by the non-idempotent v0.0.5→v0.0.6 migration. Collapses
-/// any number of repeated `$HOME/.config/tmuxy/` prefixes down to one.
-fn repair_doubled_bin_paths(config: &str) -> String {
-    let doubled = "$HOME/.config/tmuxy/$HOME/.config/tmuxy/";
-    let single = "$HOME/.config/tmuxy/";
-    let mut result = config.to_string();
-    while result.contains(doubled) {
-        result = result.replace(doubled, single);
-    }
-    result
-}
-
-/// Append the Ctrl+Tab / Ctrl+Shift+Tab root bindings to an existing user
-/// config if they're missing. New default configs already include them; this
-/// is for users upgrading from a release that predated those bindings.
-fn migrate_tab_bindings(config: &str) -> String {
-    let has_ctab = config.contains("bind -n C-Tab ");
-    let has_cstab = config.contains("bind -n C-S-Tab ");
-    if has_ctab && has_cstab {
-        return config.to_string();
-    }
-    let mut result = config.to_string();
-    if !result.ends_with('\n') {
-        result.push('\n');
-    }
-    result.push_str("\n# Tab navigation (Ctrl+Tab / Ctrl+Shift+Tab) — added by tmuxy upgrade\n");
-    if !has_ctab {
-        result.push_str("bind -n C-Tab next-window\n");
-    }
-    if !has_cstab {
-        result.push_str("bind -n C-S-Tab previous-window\n");
-    }
-    result
-}
-
-/// Rewrite legacy relative `bin/tmuxy/…` paths to the materialized absolute
-/// path. Conservative — only touches occurrences inside `run-shell` strings
-/// for our known helpers, so a user who hand-rolled a `bin/` reference for
-/// their own scripts isn't affected.
-///
-/// Idempotent: if the config already contains the fresh path prefix, the
-/// migration is skipped entirely. Without this guard the substring `replace`
-/// would recursively rewrite the already-migrated path on every launch —
-/// e.g. v0.0.5→v0.0.6 upgrades produced
-/// `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav`, which silently
-/// broke Ctrl+hjkl pane navigation and pane-group actions on macOS.
-fn migrate_bin_paths(config: &str) -> String {
-    if config.contains("$HOME/.config/tmuxy/bin/tmuxy/") {
-        return config.to_string();
-    }
-    let mut result = config.to_string();
-    let helpers = [
-        "pane-group-add",
-        "pane-group-prev",
-        "pane-group-next",
-        "pane-group-close",
-        "pane-group-switch",
-        "session-connect",
-        "session-switch",
-        "float-create",
-        "queue-push",
-        "queue-pop",
-        "queue-peek",
-        "queue-list",
-        "queue-clear",
-        "nav",
-    ];
-    for name in helpers {
-        let stale = format!("bin/tmuxy/{}", name);
-        let fresh = format!("$HOME/.config/tmuxy/bin/tmuxy/{}", name);
-        // Only rewrite when the surrounding context is `run-shell …` — the
-        // simple substring check is sufficient because tmux configs don't
-        // legitimately contain `bin/tmuxy/<helper>` outside that context.
-        result = result.replace(&stale, &fresh);
-    }
-    result
-}
-
-/// Theme files that were once bundled but have since been removed. On launch
-/// we delete these from the user's themes dir so the Theme menu (which lists
-/// the contents of the directory) doesn't keep showing orphaned options.
-/// A user who customized one of these files loses their copy — by design;
-/// themes are managed, not user-data.
-const RETIRED_THEMES: &[&str] = &["gruvbox-material.css"];
-
 /// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and is
 /// populated with the bundled theme CSS files. Existing files are NOT
 /// overwritten so the user's edits survive across upgrades. Returns the
@@ -899,15 +745,6 @@ pub fn ensure_themes() -> PathBuf {
         if !path.exists() {
             if let Err(e) = std::fs::write(&path, content) {
                 warn!(?path, error = %e, "could not write bundled theme");
-            }
-        }
-    }
-
-    for name in RETIRED_THEMES {
-        let path = themes_dir.join(name);
-        if path.exists() {
-            if let Err(e) = std::fs::remove_file(&path) {
-                warn!(?path, error = %e, "could not remove retired theme");
             }
         }
     }
@@ -1122,117 +959,16 @@ pub fn session_exists(session_name: &str) -> Result<bool> {
     Ok(output.status.success())
 }
 
-pub fn create_session(session_name: &str) -> Result<()> {
-    let config_path = get_config_path();
-
-    let mut args = vec!["new-session", "-d", "-s", session_name];
-
-    // Use custom config if it exists — but never `-f` a whole tmuxy config at
-    // the user's OWN tmux server. `-f` is what the SERVER is configured from,
-    // so on the first session created there it would replace their config
-    // wholesale. See source_config, which applies the essentials instead.
-    let config_str = if on_users_own_server() {
-        None
-    } else {
-        config_path
-            .as_ref()
-            .map(|p| p.to_string_lossy().to_string())
-    };
-    if let Some(ref cs) = config_str {
-        args.insert(0, "-f");
-        args.insert(1, cs);
-    }
-
-    let args_ref: Vec<&str> = args.iter().map(|s| &**s).collect();
-    crate::debug_log::log_cmd("create-session", tmux_path(), &args_ref);
-    let output = tmux_command()
-        .args(&args)
-        .output()
-        .map_err(|e| format!("Failed to create session: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    crate::debug_log::log_cmd_result("create-session", output.status.code(), &stdout, &stderr);
-
-    if !output.status.success() {
-        return Err(TmuxError::other(format!(
-            "tmux new-session failed (exit {}): {}",
-            output.status.code().unwrap_or(-1),
-            stderr.trim()
-        )));
-    }
-
-    // The freshly-created window needs no marker — tabs carry none, and an
-    // untagged window in the session surfaces as a tab.
-    Ok(())
-}
-
 /// The socket name tmux itself uses when nobody says otherwise — the server a
 /// person's own `tmux` command talks to.
 ///
-/// tmuxy stays off it by default (see `DEFAULT_TMUX_SOCKET`), and treats it
-/// differently when a user deliberately attaches to it: see [`source_config`].
+/// tmuxy stays off it by default (see `DEFAULT_TMUX_SOCKET`).
 pub const USERS_OWN_SOCKET: &str = "default";
 
 /// Whether the socket in play is the user's OWN tmux server rather than one of
 /// tmuxy's.
 pub fn on_users_own_server() -> bool {
     tmux_socket() == USERS_OWN_SOCKET
-}
-
-/// Source the tmuxy config file (server-global — tmux `source-file` is not
-/// session-scoped, which is why this takes no session parameter).
-///
-/// On the user's OWN tmux server this sources `tmuxy.essentials.conf` alone,
-/// not the whole config. The full config is tmuxy's taste as much as its
-/// requirements — it rebinds the prefix to C-a, replaces the status line and
-/// adds root bindings — and `source-file` is server-global, so adopting
-/// somebody's existing server used to rewrite the prefix for every ordinary
-/// terminal client attached to it. Somebody's day job is on that server. The
-/// essentials are the command-aliases and the handful of options tmuxy stops
-/// working without, which is the least that can be applied and still function.
-pub fn source_config() -> Result<()> {
-    let config_path = if on_users_own_server() {
-        let essentials = config_dir().join("tmuxy.essentials.conf");
-        if !essentials.exists() {
-            return Ok(());
-        }
-        essentials
-    } else {
-        let Some(path) = get_config_path() else {
-            return Ok(()); // No config to source
-        };
-        path
-    };
-
-    let config_str = config_path.to_string_lossy().to_string();
-    tmux_command()
-        .args(["source-file", &config_str])
-        .output()
-        .map_err(|e| format!("Failed to source config: {}", e))?;
-
-    Ok(())
-}
-
-pub fn create_or_attach(session_name: &str) -> Result<()> {
-    if !session_exists(session_name)? {
-        create_session(session_name)?;
-        // On the user's own server the session was created WITHOUT `-f`, so the
-        // command-aliases tmuxy resolves every binding through are not there
-        // yet. Apply the essentials the same way an existing session gets them.
-        if on_users_own_server() {
-            let _ = source_config();
-        }
-    } else {
-        // Source config for existing session
-        let _ = source_config();
-    }
-    // Re-apply persisted app state (theme, etc.). Runs whether the session
-    // was just created or already existed — in both cases tmux's globals
-    // may have been reset (fresh server) or carry stale values from a prior
-    // tmuxy build. Failure is logged inside the helper, not returned.
-    apply_managed_state(session_name);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1262,77 +998,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrate_bin_paths_rewrites_stale_relative_paths() {
-        let input =
-            r#"set -s command-alias[110] 'tmuxy-nav-left=run-shell "bash bin/tmuxy/nav left"'"#;
-        let out = migrate_bin_paths(input);
-        assert!(out.contains("$HOME/.config/tmuxy/bin/tmuxy/nav"));
-        assert!(!out.contains("\"bash bin/tmuxy/nav"));
-    }
-
-    #[test]
-    fn migrate_bin_paths_is_idempotent() {
-        // Regression: v0.0.5 wrote configs with the fresh path already in place.
-        // v0.0.6's substring `replace` found `bin/tmuxy/nav` inside the fresh
-        // path and produced `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav`,
-        // breaking Ctrl+hjkl on every upgrade.
-        let input = r#"run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav left""#;
-        let out = migrate_bin_paths(input);
-        assert_eq!(out, input);
-        assert!(!out.contains("$HOME/.config/tmuxy/$HOME"));
-    }
-
-    #[test]
-    fn repair_doubled_bin_paths_collapses_repeated_prefixes() {
-        let doubled = "run-shell \"bash $HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav\"";
-        let out = repair_doubled_bin_paths(doubled);
-        assert_eq!(out, "run-shell \"bash $HOME/.config/tmuxy/bin/tmuxy/nav\"");
-    }
-
-    #[test]
-    fn repair_doubled_bin_paths_handles_triple_mangling() {
-        let triple = "$HOME/.config/tmuxy/$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav";
-        let out = repair_doubled_bin_paths(triple);
-        assert_eq!(out, "$HOME/.config/tmuxy/bin/tmuxy/nav");
-    }
-
-    #[test]
-    fn migrate_tab_bindings_appends_when_missing() {
-        let input = "set -g prefix C-a\n";
-        let out = migrate_tab_bindings(input);
-        assert!(out.contains("bind -n C-Tab next-window"));
-        assert!(out.contains("bind -n C-S-Tab previous-window"));
-    }
-
-    #[test]
-    fn migrate_tab_bindings_is_idempotent() {
-        let input =
-            "set -g prefix C-a\nbind -n C-Tab next-window\nbind -n C-S-Tab previous-window\n";
-        let out = migrate_tab_bindings(input);
-        assert_eq!(out, input);
-    }
-
-    #[test]
-    fn parse_option_from_config_reads_set_g_lines() {
-        let cfg = "# comment\nset -g @tmuxy-opacity 0.8\nset -g @tmuxy-blur on\n";
-        // Re-implementing here so we don't reach into the gui crate; the parser
-        // logic in tauri-app/src/gui.rs is exercised independently in its own
-        // build, but having the regression here lives next to migrate_bin_paths.
-        let opacity_line = cfg
-            .lines()
-            .find(|l| l.contains("@tmuxy-opacity"))
-            .expect("opacity line");
-        assert!(opacity_line.ends_with("0.8"));
-    }
-
-    #[test]
     fn managed_state_serde_roundtrips() {
         let state = ManagedState {
             theme: Some("dracula".into()),
             theme_mode: Some("dark".into()),
             cursor_blink: Some(false),
             use_tmux_conf: Some(true),
-            extra: serde_json::Map::new(),
         };
         let json = serde_json::to_string(&state).unwrap();
         let parsed: ManagedState = serde_json::from_str(&json).unwrap();
@@ -1351,23 +1022,30 @@ mod tests {
     }
 
     #[test]
-    fn managed_state_preserves_unknown_keys_across_roundtrip() {
-        // Newer-tmuxy fields should survive an old-tmuxy read+write so we don't
-        // truncate state when an old binary touches a new file.
-        let input = r#"{"theme":"gruvbox","future_field":"keep me","nested":{"a":1}}"#;
-        let parsed: ManagedState = serde_json::from_str(input).unwrap();
-        let out = serde_json::to_string(&parsed).unwrap();
-        assert!(out.contains("\"future_field\":\"keep me\""));
-        assert!(out.contains("\"nested\""));
-        assert!(out.contains("\"theme\":\"gruvbox\""));
-    }
-
-    #[test]
     fn managed_state_skips_unset_fields_on_serialize() {
         let state = ManagedState::default();
         let json = serde_json::to_string(&state).unwrap();
         // Empty struct must not write nulls — older readers might choke on them.
         assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn managed_state_commands_set_only_the_chosen_options() {
+        assert!(managed_state_commands(&ManagedState::default()).is_empty());
+
+        let state = ManagedState {
+            theme: Some("tokyo night".into()),
+            theme_mode: None,
+            cursor_blink: Some(false),
+            use_tmux_conf: Some(true),
+        };
+        assert_eq!(
+            managed_state_commands(&state),
+            vec![
+                "set-option -g @tmuxy-theme 'tokyo night'".to_string(),
+                "set-option -g @tmuxy-cursor-blink 'off'".to_string(),
+            ]
+        );
     }
 
     #[test]

@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::constants::tmux_options;
+
 /// The snapshot format. Bump when a saved file would no longer mean what a
 /// reader expects; a reader refuses newer versions and starts fresh.
 pub const SNAPSHOT_VERSION: u32 = 1;
@@ -30,7 +32,7 @@ pub const KEEP_AT_LEAST: usize = 5;
 pub const KEEP_FOR_SECS: u64 = 30 * 24 * 60 * 60;
 
 /// The pane option a program sets to say how to bring itself back.
-pub const RESTORE_OPTION: &str = crate::constants::tmux_options::PANE_RESTORE;
+pub const RESTORE_OPTION: &str = tmux_options::PANE_RESTORE;
 /// A foreground program younger than this is not yet one the user is "in":
 /// a prompt's helper (`git status`, `id -Gn`) holds the terminal for a few
 /// milliseconds, and a save that lands in that window would offer it back
@@ -92,7 +94,7 @@ pub struct WindowSnapshot {
     pub active: bool,
     /// tmux's `#{window_layout}`, replayed through `select-layout`.
     pub layout: String,
-    /// `@tmuxy-window-type`: a float, backdrop or sidebar; `None` for a tab.
+    /// `@tmuxy-window-type`: a float or sidebar; `None` for a tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_type: Option<String>,
     /// The INDEX of the parent window — a window id would not survive the
@@ -162,19 +164,32 @@ pub const QUERY_WINDOWS: &str = concat!(
     "#{s/,/%2C/:window_layout},#{s/,/%2C/:window_name}'"
 );
 
+/// The `-F` format of a pane record, shared by [`QUERY_PANES`] and
+/// [`QUERY_STASH_PANES`] so the two can never parse differently. A macro
+/// because `concat!` only accepts literals.
+macro_rules! pane_record_format {
+    () => {
+        concat!(
+            "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
+            "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
+            "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos}"
+        )
+    };
+}
+
 pub const QUERY_PANES: &str = concat!(
     "list-panes -s -t #SESSION# -F '",
-    "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
-    "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
-    "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos}'"
+    pane_record_format!(),
+    "'"
 );
 
 /// The stash session's panes, in the same record shape as `QUERY_PANES`.
 pub const QUERY_STASH_PANES: &str = concat!(
-    "list-panes -s -t __tmuxy_stash -F '",
-    "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
-    "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
-    "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos}'"
+    "list-panes -s -t ",
+    crate::constants::stash_session!(),
+    " -F '",
+    pane_record_format!(),
+    "'"
 );
 
 /// The helper that parks a restored group member (`bin/tmuxy/pane-group-park`).
@@ -198,7 +213,7 @@ pub fn hidden_members(
         .windows
         .iter()
         .flat_map(|w| &w.panes)
-        .filter_map(|p| p.options.get("@tmuxy-group-id").map(String::as_str))
+        .filter_map(|p| p.options.get(tmux_options::GROUP_ID).map(String::as_str))
         .collect();
     let mut parked: Vec<&PaneRecord> = stash
         .iter()
@@ -276,15 +291,15 @@ fn opt(field: &str) -> Option<String> {
 /// The window options restored verbatim, in the order `QUERY_WINDOWS` prints
 /// them after the type and parent.
 const WINDOW_OPTION_NAMES: [&str; 9] = [
-    "@tmuxy-float-width",
-    "@tmuxy-float-height",
-    "@tmuxy-float-drawer",
-    "@tmuxy-float-bg",
-    "@tmuxy-float-noheader",
-    "@tmuxy-sidebar-cols",
-    "@tmuxy-sidebar-hidden",
-    "@tmuxy-sidebar-rows",
-    "@tmuxy-collapsible",
+    tmux_options::FLOAT_WIDTH,
+    tmux_options::FLOAT_HEIGHT,
+    tmux_options::FLOAT_DRAWER,
+    tmux_options::FLOAT_BG,
+    tmux_options::FLOAT_NOHEADER,
+    tmux_options::SIDEBAR_COLS,
+    tmux_options::SIDEBAR_HIDDEN,
+    tmux_options::SIDEBAR_ROWS,
+    tmux_options::COLLAPSIBLE,
 ];
 
 pub fn parse_windows(output: &str) -> Vec<WindowRecord> {
@@ -359,13 +374,10 @@ pub fn assemble(
                 .map(|p| {
                     let mut options = BTreeMap::new();
                     if let Some(gid) = &p.group_id {
-                        options.insert("@tmuxy-group-id".to_string(), gid.clone());
+                        options.insert(tmux_options::GROUP_ID.to_string(), gid.clone());
                     }
                     if let Some(pos) = p.group_pos {
-                        options.insert(
-                            crate::constants::tmux_options::GROUP_POS.to_string(),
-                            pos.to_string(),
-                        );
+                        options.insert(tmux_options::GROUP_POS.to_string(), pos.to_string());
                     }
                     // A sidebar is tmuxy's: what runs in it is the widget
                     // the client started (or, on the right, a shell), never
@@ -515,11 +527,6 @@ pub fn foreground(ps_output: &str, shell_pid: u32) -> Option<Foreground> {
     best.map(|(_, found)| found)
 }
 
-/// The foreground program's argv alone — what `discover_commands` records.
-pub fn foreground_argv(ps_output: &str, shell_pid: u32) -> Option<Vec<String>> {
-    foreground(ps_output, shell_pid).map(|f| f.argv)
-}
-
 /// A shell line for argv, quoted so it round-trips through a prompt.
 pub fn shell_join(argv: &[String]) -> String {
     argv.iter()
@@ -544,7 +551,6 @@ pub fn shell_quote(word: &str) -> String {
 // Storage
 // =============================================================================
 
-/// Where a state dir keeps snapshots.
 /// Where a server's snapshots live: `sessions/<socket>/` under the state dir.
 /// A session is named within its tmux server, not the machine — a released
 /// build, the dev server and the E2E suite each have a `tmuxy` session on
@@ -986,7 +992,7 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
                 "-w",
                 "-t",
                 &target(s, w.index),
-                "@tmuxy-window-type",
+                tmux_options::WINDOW_TYPE,
                 kind,
             ])));
         }
@@ -1025,7 +1031,7 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
         let anchor = snapshot.windows.iter().find_map(|w| {
             w.panes
                 .iter()
-                .find(|p| p.options.get("@tmuxy-group-id") == Some(&member.group_id))
+                .find(|p| p.options.get(tmux_options::GROUP_ID) == Some(&member.group_id))
                 .map(|p| (w, p))
         });
         let Some((w, p)) = anchor else { continue };
@@ -1096,7 +1102,7 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
                 "-w",
                 "-t",
                 &target(s, w.index),
-                "@tmuxy-float-parent",
+                tmux_options::FLOAT_PARENT,
                 &format!("#{key}#"),
             ])));
         }
@@ -1596,6 +1602,23 @@ pub fn restorable(dir: &Path, session: &str) -> Option<Snapshot> {
 mod tests {
     use super::*;
 
+    /// `parse_windows` names the option columns by position, so the query
+    /// must print them in exactly `WINDOW_OPTION_NAMES` order, after the type
+    /// and the parent.
+    #[test]
+    fn query_windows_prints_the_options_in_name_order() {
+        let mut expected = vec![
+            format!("#{{{}}}", tmux_options::WINDOW_TYPE),
+            format!("#{{{}}}", tmux_options::FLOAT_PARENT),
+        ];
+        expected.extend(WINDOW_OPTION_NAMES.iter().map(|n| format!("#{{{n}}}")));
+        let fields: Vec<&str> = QUERY_WINDOWS
+            .split(['\'', ','])
+            .filter(|f| f.starts_with("#{@"))
+            .collect();
+        assert_eq!(fields, expected);
+    }
+
     fn window_line(
         id: &str,
         index: u32,
@@ -1677,7 +1700,7 @@ mod tests {
   5100  5100  5100    12:30 vim notes.md\n\
   5101  5100  5100    00:02 /bin/sh -c spell\n";
         assert_eq!(
-            foreground_argv(ps, 4242),
+            foreground(ps, 4242).map(|f| f.argv),
             Some(vec!["vim".to_string(), "notes.md".to_string()])
         );
     }
@@ -1686,20 +1709,20 @@ mod tests {
     fn an_idle_shell_has_nothing_to_offer() {
         // The shell is the foreground group itself.
         let ps = "  4242  4242  4242 01:02:03 -zsh\n";
-        assert_eq!(foreground_argv(ps, 4242), None);
+        assert!(foreground(ps, 4242).is_none());
         // A background job does not count: its group is not the foreground one.
         let ps = "  4242  4242  4242 01:02:03 -zsh\n  5000  5000  4242 00:10 sleep 100\n";
-        assert_eq!(foreground_argv(ps, 4242), None);
+        assert!(foreground(ps, 4242).is_none());
         // A process on its way out is nobody's program.
         let ps = "  4242  4242  5300 01:02:03 -zsh\n  5300  5300  5300 00:00 (id)\n";
-        assert_eq!(foreground_argv(ps, 4242), None);
+        assert!(foreground(ps, 4242).is_none());
     }
 
     /// `sudo vim` makes sudo the leader; the user typed sudo, so that is right.
     #[test]
     fn a_wrapper_is_recorded_as_typed() {
         let ps = "  4242  4242  5200 01:02:03 -zsh\n  5200  5200  5200 05:00 sudo vim /etc/hosts\n  5201  5200  5200 05:00 vim /etc/hosts\n";
-        assert_eq!(foreground_argv(ps, 4242).unwrap()[0], "sudo");
+        assert_eq!(foreground(ps, 4242).unwrap().argv[0], "sudo");
     }
 
     /// A prompt's helper holds the terminal for milliseconds; the program the
@@ -2204,7 +2227,6 @@ mod tests {
             new_windows: None,
             active_window_id: None,
             active_pane_id: None,
-            status_line: None,
             focus_request: None,
             total_width: None,
             total_height: None,

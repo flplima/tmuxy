@@ -65,7 +65,6 @@ const snapshot = (over: Partial<TmuxSnapshot> = {}): TmuxSnapshot => ({
   activeWindowId: '@0',
   totalWidth: 80,
   totalHeight: 24,
-  statusLine: '',
   focusRequest: '',
   sessionName: 'tmuxy',
   ...over,

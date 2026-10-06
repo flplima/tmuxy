@@ -1,16 +1,10 @@
-//! Shared constants for tmuxy-core.
+//! Shared constants for tmuxy-core: the `@tmuxy-*` option names, the tmux
+//! format strings the monitor sends, and the control-mode event prefixes.
+//! Keeping them in one place makes the wire vocabulary obvious at a glance and
+//! ensures a typo can't diverge a sender from its reader.
 //!
-//! Centralises the magic strings that previously appeared scattered across
-//! `monitor.rs`, `state.rs`, `parser.rs`, and `executor.rs`. Splitting them out
-//! makes the wire vocabulary obvious at a glance and ensures a typo can't
-//! diverge a sender from its reader.
-//!
-//! The high-level types live in this module — the lower-level enums for window
-//! kinds (already typed) live in `lib.rs::WindowType`. The string forms of
-//! `WindowType` continue to be canonical via `WindowType::as_str` /
-//! `WindowType::parse`; this module just re-exports the kebab spellings for
-//! consumers (e.g. the tmux options module) that need the literal value
-//! independent of the enum.
+//! The string forms of window kinds are canonical in `WindowType::as_str` /
+//! `WindowType::parse` (`lib.rs`), not here.
 
 /// User-option keys tmuxy sets on tmux windows and the global session.
 /// All of these are `@tmuxy-*` so they can't collide with vanilla tmux options
@@ -21,12 +15,12 @@
 /// `#{@tmuxy-window-type}`.
 pub mod tmux_options {
     /// Type discriminator, set only on non-tab windows (`float`,
-    /// `float-backdrop`, `sidebar-left`, `sidebar-right`). Tabs carry no marker
+    /// `sidebar-left`, `sidebar-right`). Tabs carry no marker
     /// — an untagged window in the attached session IS a tab. See
     /// [`crate::WindowType`].
     pub const WINDOW_TYPE: &str = "@tmuxy-window-type";
 
-    /// Window ID this float/backdrop is anchored to.
+    /// Window ID this float is anchored to.
     pub const FLOAT_PARENT: &str = "@tmuxy-float-parent";
     /// Float dimensions in terminal cells.
     pub const FLOAT_WIDTH: &str = "@tmuxy-float-width";
@@ -116,7 +110,8 @@ pub mod tmux_options {
     /// user answered in and read back by the waiting `tmuxy ask`. The value is
     /// `<token>:yes` or `<token>:no` — the token pins the answer to the
     /// question that was on screen, so a stale answer to a question already
-    /// withdrawn is ignored rather than acted on.
+    /// withdrawn is ignored rather than acted on. Rust never touches it; it is
+    /// here for the CLI/core lockstep test in `tmuxy-server/tests/version_skew.rs`.
     pub const ASK_ANSWER: &str = "@tmuxy-ask-answer";
 
     /// Pane-scoped authorisation for a widget, written by `tmuxy-widget` on the
@@ -210,13 +205,22 @@ pub mod sidebar_dock {
     }
 }
 
+// A macro as well as `STASH_SESSION` so format strings can splice the name in
+// with `concat!`, which only accepts literals.
+macro_rules! stash_session {
+    () => {
+        "__tmuxy_stash"
+    };
+}
+pub(crate) use stash_session;
+
 /// The dedicated tmux session tmuxy parks HIDDEN panes in (non-active pane-group
 /// members). It is never attached, never shown in any session enumeration, and
 /// created lazily by the pane-group shell helpers. Keeping hidden panes here —
 /// rather than as extra windows in the attached session — means a native
 /// `tmux attach` (or any non-tmuxy client) sees only the user's real tabs, and
 /// the attached session's window list maps 1:1 to the tmuxy tab strip.
-pub const STASH_SESSION: &str = "__tmuxy_stash";
+pub const STASH_SESSION: &str = stash_session!();
 
 /// Compile-time format strings the monitor passes to `list-windows -F` and
 /// `list-panes -F`. Both forms appear verbatim in multiple places; sharing the
@@ -313,16 +317,14 @@ pub mod tmux_formats {
         "#{s/,/%2C/:@tmuxy-pane-restore}'",
     );
 
-    /// Enumerates the HIDDEN pane-group members parked in
-    /// [`super::STASH_SESSION`]. Each row is prefixed with the literal
-    /// `stashmember,` sentinel so the response parser routes it to the
-    /// stash-member handler instead of the active-session pane/window parsers —
-    /// the fields carry only what a group tab strip needs (id, its stash window,
-    /// group id, command, title). `pane_title` is last so its own commas stay in
-    /// the trailing field. A server-wide `-a` scan filtered to the stash session
-    /// by `-f` returns EMPTY (not an error) when the stash session doesn't exist
-    /// yet — which is the common case on every refresh before any group is made,
-    /// so it must not spam `%error` responses.
+    // A macro as well as the const below so the subscription command can
+    // splice the name in with `concat!`, which only accepts literals.
+    macro_rules! pane_title_subscription_name {
+        () => {
+            "tmuxy-pane-meta"
+        };
+    }
+
     /// The control-mode subscription that reports pane metadata tmux does not
     /// announce on its own.
     ///
@@ -334,11 +336,28 @@ pub mod tmux_formats {
     /// change (tmux 3.2+; `%*` is every pane of every window). The group
     /// scripts bump the global `@tmuxy-group-rev`, which every pane inherits,
     /// so a reorder among hidden members is seen too.
-    pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = "tmuxy-pane-meta";
-    pub const SUBSCRIBE_PANE_TITLES_CMD: &str = "refresh-client -B 'tmuxy-pane-meta:%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}'";
+    pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = pane_title_subscription_name!();
+    /// See [`PANE_TITLE_SUBSCRIPTION_NAME`].
+    pub const SUBSCRIBE_PANE_TITLES_CMD: &str = concat!(
+        "refresh-client -B '",
+        pane_title_subscription_name!(),
+        ":%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}'"
+    );
 
+    /// Enumerates the HIDDEN pane-group members parked in
+    /// [`super::STASH_SESSION`]. Each row is prefixed with the literal
+    /// `stashmember,` sentinel so the response parser routes it to the
+    /// stash-member handler instead of the active-session pane/window parsers —
+    /// the fields carry only what a group tab strip needs (id, its stash window,
+    /// group id, command, title). `pane_title` is last so its own commas stay in
+    /// the trailing field. A server-wide `-a` scan filtered to the stash session
+    /// by `-f` returns EMPTY (not an error) when the stash session doesn't exist
+    /// yet — which is the common case on every refresh before any group is made,
+    /// so it must not spam `%error` responses.
     pub const LIST_STASH_PANES_CMD: &str = concat!(
-        "list-panes -a -f '#{==:#{session_name},__tmuxy_stash}' -F '",
+        "list-panes -a -f '#{==:#{session_name},",
+        super::stash_session!(),
+        "}' -F '",
         "stashmember,#{pane_id},#{window_id},#{@tmuxy-group-id},#{@tmuxy-group-pos},",
         "#{pane_current_command},",
         app_pane_title!(),
@@ -390,7 +409,7 @@ pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 /// Rows of history an OBSERVER monitor keeps per pane, so a viewer scrolling
 /// back costs no tmux round trip at all.
 ///
-/// SEC-11: a viewer's `get_scrollback` ran three in-band control-mode queries
+/// SEC-11: a viewer's `get_scrollback_cells` ran three in-band control-mode queries
 /// per request — a `list-panes`, a `display-message` and a `capture-pane` —
 /// on a connection the writer's own monitor shares. Scrolling a viewer was
 /// therefore work charged to the writer's session. An observer's aggregator
@@ -402,6 +421,19 @@ pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 /// seeing less history than tmux holds, which is the documented trade.
 pub const VIEWER_SCROLLBACK_ROWS: usize = 2000;
 
+/// Shells, by the basename of argv[0] (or tmux's `pane_current_command`).
+const SHELLS: [&str; 12] = [
+    "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh",
+];
+
+/// Whether a command names a shell. A login shell announces itself with a
+/// leading `-` (`-zsh`), which is stripped before the comparison.
+pub fn is_shell_name(command: &str) -> bool {
+    let base = command.trim_start_matches('-');
+    let base = base.rsplit('/').next().unwrap_or(base);
+    SHELLS.contains(&base)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,10 +441,10 @@ mod tests {
     /// The module's stated purpose is "a typo can't diverge a sender from its
     /// reader" — but `concat!` can't interpolate consts, so the format
     /// strings repeat the option names as literals. This test is the
-    /// lockstep guard: every `@tmuxy-*` option must appear verbatim in the
-    /// list-windows format the parser consumes.
+    /// lockstep guard: every window-scoped `@tmuxy-*` option must appear
+    /// verbatim in the list-windows format the parser consumes.
     #[test]
-    fn list_windows_cmd_embeds_every_float_option() {
+    fn list_windows_cmd_embeds_every_window_option() {
         for option in [
             tmux_options::WINDOW_TYPE,
             tmux_options::FLOAT_PARENT,
@@ -421,6 +453,11 @@ mod tests {
             tmux_options::FLOAT_DRAWER,
             tmux_options::FLOAT_BG,
             tmux_options::FLOAT_NOHEADER,
+            tmux_options::FOCUS_REQUEST,
+            tmux_options::SIDEBAR_COLS,
+            tmux_options::SIDEBAR_HIDDEN,
+            tmux_options::SIDEBAR_ROWS,
+            tmux_options::COLLAPSIBLE,
         ] {
             assert!(
                 tmux_formats::LIST_WINDOWS_CMD.contains(&format!("#{{{option}}}")),
@@ -502,17 +539,22 @@ mod tests {
             "LIST_STASH_PANES_CMD must target the stash session by name"
         );
     }
-}
 
-/// Shells, by the basename of argv[0] (or tmux's `pane_current_command`).
-const SHELLS: [&str; 12] = [
-    "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh",
-];
-
-/// Whether a command names a shell. A login shell announces itself with a
-/// leading `-` (`-zsh`), which is stripped before the comparison.
-pub fn is_shell_name(command: &str) -> bool {
-    let base = command.trim_start_matches('-');
-    let base = base.rsplit('/').next().unwrap_or(base);
-    SHELLS.contains(&base)
+    /// The pane-metadata subscription watches exactly the pane options the
+    /// group scripts change without tmux announcing it.
+    #[test]
+    fn pane_meta_subscription_watches_the_group_options() {
+        let cmd = tmux_formats::SUBSCRIBE_PANE_TITLES_CMD;
+        assert!(cmd.contains(&format!("'{}:", tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME)));
+        for opt in [
+            tmux_options::GROUP_ID,
+            tmux_options::GROUP_POS,
+            tmux_options::GROUP_REV,
+        ] {
+            assert!(
+                cmd.contains(&format!("#{{{opt}}}")),
+                "SUBSCRIBE_PANE_TITLES_CMD is missing #{{{opt}}}"
+            );
+        }
+    }
 }

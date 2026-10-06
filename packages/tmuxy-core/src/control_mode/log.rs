@@ -1,8 +1,10 @@
 //! Streaming log sink for surfacing connection-time progress.
 //!
-//! Connection setup runs several external `tmux` invocations (has-session,
-//! list-sessions, new-session, then a PTY spawn of `tmux -CC attach-session`).
-//! When something fails on a user's machine, knowing *which* step failed
+//! Connection setup can run external `tmux` invocations before control mode
+//! is up: a `has-session` preflight when the session must already exist (and
+//! a `list-sessions` to name the ones that do when it does not), then a PTY
+//! spawn of `tmux -CC` — `new-session -A` when the session may be created,
+//! `attach-session` otherwise. When something fails on a user's machine, knowing *which* step failed
 //! and what its output was is far more useful than a single consolidated
 //! error string. The sink is threaded through connection.rs and monitor.rs
 //! so each step can be reported as it happens.

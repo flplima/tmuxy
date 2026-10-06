@@ -24,13 +24,13 @@ describe('CLI tab subcommands', () => {
       expect(parsed).toEqual(LIST_WINDOWS_JSON);
     });
 
-    test('--json excludes hidden windows (float/group/sidebar)', () => {
+    test('--json excludes hidden windows (float/sidebar)', () => {
       const { stdout, exitCode } = runCLI(['tab', 'list', '--json'], {
         env: { MOCK_TMUX_LIST_WINDOWS: LIST_WINDOWS_WITH_HIDDEN_OUTPUT },
       });
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
-      // Only the two real tabs survive; the float, group, and sidebar windows
+      // Only the two real tabs survive; the float and sidebar windows
       // are filtered out so the tree view never lists tmuxy's own chrome.
       expect(parsed).toEqual(LIST_WINDOWS_JSON);
     });
