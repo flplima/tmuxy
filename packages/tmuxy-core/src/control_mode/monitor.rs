@@ -255,9 +255,9 @@ pub type MonitorCommandSender = mpsc::Sender<MonitorCommand>;
 const LONG_SLEEP: Duration = Duration::from_secs(3600);
 
 /// How long a `RunCommandWithReply` waits for its closing marker before it
-/// fails. The same deadline the subprocess path gave a call, so a caller
-/// moving from one to the other sees no change in worst-case latency.
-const REPLY_TIMEOUT: Duration = crate::tmux_service::TMUX_CALL_TIMEOUT;
+/// fails: long enough for any tmux round trip on the supported targets, short
+/// enough that a wedged command does not hold up the client that asked.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How many times running a window may be asked for the SAME size before the
 /// monitor stops asking. Sizing is judged by what tmux reports, so a window

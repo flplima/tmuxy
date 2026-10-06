@@ -15,8 +15,6 @@ pub mod executor;
 pub mod layout;
 pub mod mime;
 #[cfg(feature = "native")]
-pub mod retry;
-#[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "native")]
 pub mod session;
@@ -27,8 +25,6 @@ pub mod theme;
 #[cfg(feature = "native")]
 pub mod tmux_check;
 #[cfg(feature = "native")]
-pub mod tmux_service;
-#[cfg(feature = "native")]
 pub mod trace;
 #[cfg(feature = "native")]
 pub mod transport;
@@ -36,13 +32,9 @@ pub mod transport;
 pub mod worktrees;
 
 #[cfg(feature = "native")]
-pub use ctx::{Clock, Ctx, TmuxCommand};
-#[cfg(feature = "native")]
-pub use tmux_service::{build_tmux_stack, TmuxRequest, TmuxService, TMUX_CALL_TIMEOUT};
+pub use ctx::{Clock, Ctx};
 
 pub use error::{Result as TmuxResult, TmuxError};
-#[cfg(feature = "native")]
-pub use retry::{retry_with, RetryPolicy};
 
 use serde::{Deserialize, Serialize};
 

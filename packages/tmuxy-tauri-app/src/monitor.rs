@@ -389,9 +389,7 @@ pub async fn start_monitoring_window(
     // at the top of the loop.
     let mut parked = false;
 
-    // Build once and clone the Arc per reconnect attempt — the live ctx is
-    // cheap to share and lets the Tauri app participate in the same Ctx
-    // substitution that tests use elsewhere.
+    // Built once; every reconnect attempt shares it.
     let ctx = tmuxy_core::Ctx::live();
 
     loop {

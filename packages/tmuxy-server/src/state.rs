@@ -14,7 +14,7 @@ use tmuxy_core::mime::{
     content_type_for_path, read_served_file, ServeRefusal, FILE_SANDBOX_CSP, MAX_SERVED_FILE_BYTES,
 };
 use tmuxy_core::transport::ImageStore;
-use tmuxy_core::{Ctx, RetryPolicy};
+use tmuxy_core::Ctx;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -245,9 +245,7 @@ pub struct AppState {
     /// `tokio::select!` against `shutdown.cancelled()` so it exits its
     /// long-running loop promptly.
     pub shutdown: CancellationToken,
-    /// Execution context (`tmux`/`clock`/`fs` capabilities behind trait objects).
-    /// Threaded into `TmuxMonitor` and reused for ad-hoc tmux dispatch via the
-    /// Tower stack. Production uses `Ctx::live()`; tests substitute a mock ctx.
+    /// Execution context threaded into every `TmuxMonitor` this server starts.
     pub ctx: Arc<Ctx>,
     /// `--read-only`: every client of this server is a viewer. Only the
     /// commands `ClientCommand::is_read` names are served, and no client's
@@ -290,30 +288,24 @@ impl Drop for StreamSlot {
 
 impl Default for AppState {
     fn default() -> Self {
-        Self::with_ctx(Ctx::live())
-    }
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Construct with an explicit context. Used by tests that want to swap in
-    /// `MockTmux`/`FakeClock` while keeping the same server wiring otherwise.
-    pub fn with_ctx(ctx: Arc<Ctx>) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
             image_store: RwLock::new(ImageStore::default()),
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
-            ctx,
+            ctx: Ctx::live(),
             read_only: false,
             session_pin: None,
             live_streams: AtomicU64::new(0),
             viewer_theme_settings: tokio::sync::OnceCell::new(),
         }
+    }
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Serve every client of this state as a viewer (`--read-only`).
@@ -398,27 +390,6 @@ impl AppState {
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         self.join_set.lock().await.spawn(fut);
-    }
-
-    /// Thin wrapper around `Ctx::tmux_call`. Kept for handler ergonomics —
-    /// SSE handlers grab `AppState` from axum and would otherwise need to
-    /// thread `state.ctx` explicitly into every call site.
-    pub async fn tmux_call(
-        &self,
-        args: Vec<String>,
-        op_name: &str,
-    ) -> Result<String, tmuxy_core::TmuxError> {
-        self.ctx.tmux_call(args, op_name).await
-    }
-
-    /// Thin wrapper around `Ctx::tmux_call_with_policy`.
-    pub async fn tmux_call_with_policy(
-        &self,
-        args: Vec<String>,
-        op_name: &str,
-        policy: RetryPolicy,
-    ) -> Result<String, tmuxy_core::TmuxError> {
-        self.ctx.tmux_call_with_policy(args, op_name, policy).await
     }
 }
 

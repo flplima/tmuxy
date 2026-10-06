@@ -41,5 +41,3 @@ chromiumoxide = "0.9"
 nix = { version = "0.29", features = ["signal", "process"] }
 libc = "0.2"
 
-[dev-dependencies]
-tmuxy-core = { path = "../tmuxy-core", features = ["test-support"] }
