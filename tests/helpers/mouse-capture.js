@@ -22,7 +22,7 @@ const MOUSE_LOG = '/tmp/mouse-events.log';
 function describePaneCommands(ctx) {
   try {
     return ctx.session
-      .runCommandSync(`list-panes -t ${ctx.session.name} -F "#{pane_id}=#{pane_current_command}"`)
+      .runCommand(`list-panes -t ${ctx.session.name} -F "#{pane_id}=#{pane_current_command}"`)
       .split('\n')
       .join(' ');
   } catch (err) {

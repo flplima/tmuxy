@@ -15,8 +15,9 @@ const { tmuxCmd, tmuxEnv } = require('./tmux-socket');
 
 /**
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).
- * Routes through `tmux run-shell` to avoid crashing tmux 3.5a control mode.
- * Use for all mutating commands (send-keys, split-window, kill-session, etc.).
+ * The command runs inside the server via `tmux run-shell`: the same command
+ * sent from an external client while control mode is attached crashes tmux
+ * 3.5a. Use for every mutating command (send-keys, split-window, kill-session…).
  *
  * @param {string} command - Full tmux command (e.g. 'send-keys -t mysession -l "echo hi"')
  * @returns {string} Trimmed stdout
