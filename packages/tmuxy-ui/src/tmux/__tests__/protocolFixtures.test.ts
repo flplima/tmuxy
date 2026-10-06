@@ -19,6 +19,7 @@ import { Schema } from 'effect';
 
 import {
   ClipboardEvent,
+  CommandFailure,
   ConnectionInfo,
   DetachedEvent,
   KeyBindings,
@@ -191,13 +192,15 @@ describe('Rust → TypeScript protocol fixtures', () => {
     }
   });
 
-  it('reads the /commands error envelope', () => {
-    const bodies = fixture('command_errors.json') as { result?: unknown; error?: string }[];
+  it('decodes every /commands error body the server sends, kind included', () => {
+    const bodies = fixture('command_errors.json') as Record<string, unknown>[];
+    const kinds = new Set<string>();
     for (const body of bodies) {
-      // The adapter branches on `error` being present; `result` is omitted
-      // entirely, not sent as null.
-      expect(body.error).toBeTypeOf('string');
+      // `result` is omitted entirely, not sent as null.
       expect('result' in body).toBe(false);
+      const decoded = Schema.decodeUnknownSync(CommandFailure)(body);
+      kinds.add(decoded.kind);
     }
+    expect([...kinds].sort()).toEqual(['forbidden', 'invalid', 'tmux', 'unavailable']);
   });
 });
