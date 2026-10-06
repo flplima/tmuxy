@@ -5,11 +5,13 @@
  * and tmux CLI, then compares them to find mismatches. Read-only — no
  * interactions, no mutations.
  *
- * Reusable module: import extractUIState, extractTmuxState, compareSnapshots.
+ * The one place tmux-side and UI-side state is extracted: the snapshot suite
+ * compares the two in full (compareSnapshots), and consistency.js checks a
+ * structural subset of the same extraction after every E2E test.
  */
 
-const { tmuxQuery } = require('./cli');
-const { tmuxCmd, tmuxEnv } = require('./tmux-socket');
+const { execSync } = require('child_process');
+const { tmuxCmd, tmuxEnv, tmuxExec } = require('./tmux-socket');
 
 // ==================== UI State Extraction ====================
 
@@ -17,7 +19,7 @@ const { tmuxCmd, tmuxEnv } = require('./tmux-socket');
  * Extract the full visible state from the browser via XState context + DOM.
  *
  * Single page.evaluate() call extracts:
- * - Windows (excluding group/float)
+ * - Tab windows (float and sidebar chrome excluded)
  * - Panes in active window (positions, dimensions, cursor, command, title)
  * - Pane content from pane.content (TerminalCell[][])
  * - Pane groups from ctx.paneGroups
@@ -33,7 +35,7 @@ async function extractUIState(page) {
     if (!snap?.context) return null;
     const ctx = snap.context;
 
-    // Windows (excluding group/float)
+    // Tab windows
     const windows = (ctx.windows || [])
       .filter((w) => w.windowType === 'tab')
       .map((w) => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
@@ -140,73 +142,96 @@ async function extractUIState(page) {
 
 // ==================== Tmux State Extraction ====================
 
+/** Window types that are chrome, not tabs. A tab carries no type marker. */
+const CHROME_WINDOW_TYPES = ['float', 'float-backdrop', 'sidebar-left', 'sidebar-right'];
+
 /**
- * Extract the full visible state from tmux via CLI queries.
+ * Pane groups as tmux records them: every pane tagged with the same
+ * `@tmuxy-group-id`, wherever it lives (the visible member in the session, the
+ * rest parked in the stash session). Members are ordered like `group_members`
+ * in bin/tmuxy/_lib and `buildGroupsFromPanes` in the UI: by `@tmuxy-group-pos`
+ * where a reorder set one, then by pane number. Only groups with a member in
+ * `sessionName` and at least two members count, as in the UI.
  *
- * Read-only tmux queries (safe with control mode):
- * 1. list-windows — all windows, separated into visible/group/float
+ * @returns {{paneGroups: Object, groupActiveTabs: Object, groupTabNames: Object}}
+ */
+function extractTmuxGroups(sessionName, activeWindowId) {
+  const raw = tmuxExec(
+    `list-panes -a -F "#{pane_id}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{session_name}|#{window_id}|#{pane_current_command}"`,
+  );
+  const byGroup = new Map();
+  for (const line of raw.split('\n').filter(Boolean)) {
+    const [paneId, groupId, pos, session, windowId, command] = line.split('|');
+    if (!groupId) continue;
+    const members = byGroup.get(groupId) || [];
+    members.push({
+      paneId,
+      pos: pos === '' ? Infinity : parseInt(pos, 10),
+      num: parseInt(paneId.slice(1), 10),
+      session,
+      windowId,
+      command,
+    });
+    byGroup.set(groupId, members);
+  }
+
+  const paneGroups = {};
+  const groupActiveTabs = {};
+  const groupTabNames = {};
+  for (const [groupId, members] of byGroup) {
+    if (members.length < 2 || !members.some((m) => m.session === sessionName)) continue;
+    members.sort((a, b) => a.pos - b.pos || a.num - b.num);
+    paneGroups[groupId] = { paneIds: members.map((m) => m.paneId) };
+    const activeTab = members.find(
+      (m) => m.session === sessionName && m.windowId === activeWindowId,
+    );
+    groupActiveTabs[groupId] = activeTab ? activeTab.paneId : null;
+    for (const m of members) groupTabNames[m.paneId] = m.command;
+  }
+  return { paneGroups, groupActiveTabs, groupTabNames };
+}
+
+/**
+ * Extract the full visible state from tmux via read-only queries (safe with
+ * control mode attached):
+ * 1. list-windows — tabs and float windows of the session
  * 2. list-panes — active window panes with positions
- * 3. capture-pane — per visible pane content
- * 4. list-panes -s — pane-to-window map (for group active tab)
+ * 3. capture-pane — per visible pane content (skipped with `content: false`)
+ * 4. list-panes -s — pane-to-window map (float panes, focus behind a float)
+ * 5. list-panes -a — pane group membership
  *
  * @param {string} sessionName - tmux session name
+ * @param {Object} [options]
+ * @param {boolean} [options.content=true] - Capture each visible pane's text
  * @returns {Object|null}
  */
-function extractTmuxState(sessionName) {
+function extractTmuxState(sessionName, { content = true } = {}) {
   try {
-    // 1. List all windows, including @tmuxy-window-type and group panes.
-    const winRaw = tmuxQuery(
-      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}"`,
-    );
-    const allWindows = winRaw
+    const allWindows = tmuxExec(
+      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}"`,
+    )
       .split('\n')
       .filter(Boolean)
       .map((line) => {
-        const [id, index, name, active, windowType, groupPanesRaw] = line.split('|');
-        const groupPanes = groupPanesRaw ? groupPanesRaw.split(/\s+/).filter(Boolean) : null;
+        const [id, index, name, active, windowType] = line.split('|');
         return {
           id,
           index: parseInt(index, 10),
           name,
           active: active === '1',
           windowType: windowType || null,
-          groupPanes,
         };
       });
 
-    // Separate windows by their @tmuxy-window-type. Tabs carry no marker, so an
-    // untagged window is a tab; only float/float-backdrop/sidebar-* chrome is
-    // excluded from the tab list.
-    const windows = [];
-    const groupWindows = [];
-    const floatWindows = [];
-    for (const w of allWindows) {
-      if (w.windowType === 'float') {
-        floatWindows.push(w);
-      } else if (
-        w.windowType === 'float-backdrop' ||
-        w.windowType === 'sidebar-left' ||
-        w.windowType === 'sidebar-right'
-      ) {
-        // chrome windows — not tabs, not floats-with-panes
-      } else {
-        windows.push(w);
-      }
-    }
+    const windows = allWindows.filter((w) => !CHROME_WINDOW_TYPES.includes(w.windowType));
+    const floatWindows = allWindows.filter((w) => w.windowType === 'float');
 
-    // Find active window
     const activeWindow = allWindows.find((w) => w.active);
     const activeWindowId = activeWindow?.id || null;
 
-    // Check if the active window is a group or float window
-    const activeWindowIsGroupOrFloat =
-      activeWindow && (activeWindow.windowType === 'group' || activeWindow.windowType === 'float');
-
-    // 2. List panes in active window
-    const paneRaw = tmuxQuery(
+    const panes = tmuxExec(
       `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}|#{cursor_x}|#{cursor_y}|#{pane_active}|#{pane_current_command}|#{pane_title}"`,
-    );
-    const panes = paneRaw
+    )
       .split('\n')
       .filter(Boolean)
       .map((line) => {
@@ -225,92 +250,46 @@ function extractTmuxState(sessionName) {
         };
       });
 
-    // Active pane ID: when the active window is a group/float window, the
-    // pane_active flag points to the group/float's active pane, not the
-    // user-focused pane. In that case, query visible (non-group, non-float)
-    // windows for their per-window active panes instead.
+    const sessionPanes = tmuxExec(
+      `list-panes -s -t ${sessionName} -F "#{pane_id}|#{window_id}|#{pane_active}"`,
+    )
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [paneId, windowId, active] = line.split('|');
+        return { paneId, windowId, active: active === '1' };
+      });
+
+    // When a float window is active, its pane_active flag points at the float's
+    // own pane, not the pane the user focused in a tab. Take the active pane of
+    // the tab windows instead.
     let activePaneId;
-    if (activeWindowIsGroupOrFloat) {
-      // Query all panes across all windows to find active panes in visible windows
-      const visibleWindowIds = new Set(windows.map((w) => w.id));
-      const allPanesForActive = tmuxQuery(
-        `list-panes -s -t ${sessionName} -F "#{pane_id}|#{window_id}|#{pane_active}"`,
-      );
-      const visibleActivePanes = allPanesForActive
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => {
-          const [pid, wid, act] = line.split('|');
-          return { pid, wid, active: act === '1' };
-        })
-        .filter((p) => visibleWindowIds.has(p.wid) && p.active);
-      // Each visible window has one active pane; pick the first one found
-      activePaneId = visibleActivePanes.length > 0 ? visibleActivePanes[0].pid : null;
+    if (activeWindow?.windowType === 'float') {
+      const tabIds = new Set(windows.map((w) => w.id));
+      activePaneId = sessionPanes.find((p) => tabIds.has(p.windowId) && p.active)?.paneId || null;
     } else {
       activePaneId = panes.find((p) => p.active)?.tmuxId || null;
     }
 
-    // 3. Capture pane content per visible pane
-    // Don't use tmuxQuery() here — it trims leading whitespace which strips
-    // leading blank lines from the capture, causing line-number misalignment
-    // when comparing against the UI's VT100 content.
-    const { execSync } = require('child_process');
+    // capture-pane straight through execSync, not tmuxExec: tmuxExec trims, and
+    // trimming strips the leading blank lines of the capture, which misaligns
+    // line numbers against the UI's VT100 content.
     const paneContent = {};
-    for (const pane of panes) {
-      // tmuxCmd() rather than a hand-built `-L`: it resolves the same socket
-      // every other helper uses, and picks `-S` when that socket is a path.
-      const raw = execSync(`${tmuxCmd()} capture-pane -t ${pane.tmuxId} -p`, {
-        encoding: 'utf-8',
-        timeout: 30000,
-        env: tmuxEnv(),
-      });
-      // Strip only the trailing newline that capture-pane always appends
-      const content = raw.replace(/\n$/, '');
-      paneContent[pane.tmuxId] = content.split('\n');
-    }
-
-    // 4. List all panes across all windows (for group active tab detection)
-    const allPanesRaw = tmuxQuery(
-      `list-panes -s -t ${sessionName} -F "#{pane_id}|#{window_id}|#{pane_current_command}"`,
-    );
-    const paneWindowMap = {};
-    const paneCommandMap = {};
-    for (const line of allPanesRaw.split('\n').filter(Boolean)) {
-      const [paneId, windowId, command] = line.split('|');
-      paneWindowMap[paneId] = windowId;
-      paneCommandMap[paneId] = command;
-    }
-
-    // 5. Group membership comes from @tmuxy-group-panes on each group window.
-    // Deduplicate by pane set: when a group tab is active, the same group
-    // appears in two windows (the hidden group window and the active window).
-    const paneGroups = {};
-    const groupActiveTabs = {};
-    const seenPaneSets = new Set();
-    for (const gw of groupWindows) {
-      const paneIds = gw.groupPanes || [];
-      if (paneIds.length < 2) continue;
-      const paneSetKey = [...paneIds].sort().join(',');
-      if (seenPaneSets.has(paneSetKey)) continue;
-      seenPaneSets.add(paneSetKey);
-      paneGroups[gw.id] = { paneIds };
-
-      // Active tab = the pane in this group whose window is the active window
-      const activeTab = paneIds.find((pid) => paneWindowMap[pid] === activeWindowId);
-      groupActiveTabs[gw.id] = activeTab || null;
-    }
-
-    // Group tab names: use the command of each pane in the group
-    const groupTabNames = {};
-    for (const [, group] of Object.entries(paneGroups)) {
-      for (const paneId of group.paneIds) {
-        groupTabNames[paneId] = paneCommandMap[paneId] || '';
+    if (content) {
+      for (const pane of panes) {
+        const raw = execSync(`${tmuxCmd()} capture-pane -t ${pane.tmuxId} -p`, {
+          encoding: 'utf-8',
+          timeout: 30000,
+          env: tmuxEnv(),
+        });
+        // Strip only the trailing newline that capture-pane always appends
+        paneContent[pane.tmuxId] = raw.replace(/\n$/, '').split('\n');
       }
     }
 
-    // 6. Float pane ids: each float window contains exactly one pane.
+    // Each float window holds exactly one pane.
     const floatPaneIds = floatWindows
-      .map((fw) => Object.keys(paneWindowMap).find((pid) => paneWindowMap[pid] === fw.id))
+      .map((fw) => sessionPanes.find((p) => p.windowId === fw.id)?.paneId)
       .filter(Boolean)
       .sort();
 
@@ -323,12 +302,10 @@ function extractTmuxState(sessionName) {
       windows,
       panes,
       paneContent,
-      paneGroups,
-      groupActiveTabs,
-      groupTabNames,
+      ...extractTmuxGroups(sessionName, activeWindowId),
       floatPaneIds,
     };
-  } catch (e) {
+  } catch {
     return null;
   }
 }
