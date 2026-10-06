@@ -2,8 +2,8 @@
  * Test helpers for the optimistic store.
  */
 
-import type { TmuxStore } from '../tmux/store';
-import { parseCommandToOp } from '../tmux/store/parseCommand';
+import type { TmuxStore } from '../infra/store/TmuxStore';
+import { parseCommandToOp } from '../domain/store/parseCommand';
 
 /**
  * Dispatch a command string the way the app does for a binding: parsed into

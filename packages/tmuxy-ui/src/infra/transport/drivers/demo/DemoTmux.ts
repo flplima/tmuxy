@@ -1,0 +1,1637 @@
+import type {
+  PaneContent,
+  ServerStateEncoded,
+  WireImagePlacement,
+  WirePaneEncoded,
+  WireWindowEncoded,
+} from '../../../../domain/wire';
+import { LifoShell } from './LifoShell';
+import { LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../../../../machines/constants';
+
+// ============================================
+// Layout Tree
+// ============================================
+
+interface LayoutLeaf {
+  type: 'leaf';
+  paneId: string;
+}
+
+interface LayoutSplit {
+  type: 'split';
+  direction: 'horizontal' | 'vertical';
+  ratio: number; // 0..1, fraction allocated to first child
+  children: [LayoutNode, LayoutNode];
+}
+
+type LayoutNode = LayoutLeaf | LayoutSplit;
+
+// ============================================
+// Internal Types
+// ============================================
+
+interface FakePane {
+  id: string;
+  numericId: number;
+  windowId: string;
+  shell: LifoShell;
+  command: string;
+  /**
+   * App-set pane title (OSC 0/2). Empty until something sets one, mirroring
+   * what real tmux reports through `APP_PANE_TITLE` — the pane header then
+   * falls back to `command`.
+   */
+  title: string;
+  /** Image placements injected into this pane (storybook / test-only path). */
+  images?: WireImagePlacement[];
+}
+
+interface FakeWindow {
+  id: string;
+  index: number;
+  name: string;
+  manualName: boolean; // true if renamed manually, prevents auto-update from cwd
+  layout: LayoutNode;
+  layoutCycle: number; // tracks position in layout cycle
+  windowType: 'tab' | 'float' | 'group' | 'sidebar-left' | 'sidebar-right';
+  groupPanes: string[] | null;
+  // Float options (only meaningful when windowType === 'float'). Mirror the
+  // @tmuxy-float-* tmux window options the real CLI sets via bin/tmuxy/float-create.
+  /** Dragged width of a sidebar column, in cells (@tmuxy-sidebar-cols). */
+  sidebarCols?: number | null;
+  /** The user closed this sidebar column (@tmuxy-sidebar-hidden). */
+  sidebarHidden?: boolean;
+  /** Only the active pane's first-level row is expanded (@tmuxy-collapsible). */
+  collapsible?: boolean;
+  /** The tab a float was opened over (@tmuxy-float-parent). */
+  floatParent?: string | null;
+  floatDrawer?: 'left' | 'right' | 'top' | 'bottom' | null;
+  floatBg?: 'dim' | 'blur' | 'none' | null;
+  floatNoheader?: boolean;
+  floatWidth?: number | null;
+  floatHeight?: number | null;
+}
+
+export interface CreateFloatOptions {
+  drawer?: 'left' | 'right' | 'top' | 'bottom';
+  bg?: 'dim' | 'blur' | 'none';
+  hideHeader?: boolean;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Index for hidden windows (groups, floats). Far above any real tab index so
+ * hidden chrome never collides with — or reorders — the user's tabs.
+ */
+const GROUP_WINDOW_INDEX_BASE = 1000;
+
+/** Default float size in cells, mirroring bin/tmuxy/float-create. */
+const FLOAT_DEFAULT_COLS = 60;
+const FLOAT_DEFAULT_ROWS = 15;
+
+// ============================================
+// DemoTmux Engine
+// ============================================
+
+export class DemoTmux {
+  private panes = new Map<string, FakePane>();
+  /**
+   * `@tmuxy-pane-state` per pane, as a real server would hold it: set by
+   * whatever runs in the pane (`tmuxy pane state working`) and read back out
+   * on every list-panes. Absent means the option was never set.
+   */
+  private paneStates = new Map<string, string>();
+  /**
+   * `@tmuxy-ask` per pane: the base64 question `tmuxy ask` hangs on the pane
+   * it wants keys sent to. Held exactly like `@tmuxy-pane-state` — set by a
+   * command, read back on every list-panes — so a story drives the overlay
+   * through the real option rather than through a prop.
+   */
+  private paneAsks = new Map<string, string>();
+  /**
+   * `@tmuxy-pane-widget` for panes the demo turned into widgets. A widget is
+   * rendered only when this names it, the same as on a real server, where
+   * `tmuxy-widget` writes the option before printing its marker.
+   */
+  private paneWidgets = new Map<string, string>();
+  private windows: FakeWindow[] = [];
+  private activeWindowId = '@0';
+  private activePaneId = '%0';
+  /** tmux's marked pane (`select-pane -m`), or null. */
+  private markedPaneId: string | null = null;
+  private nextPaneNum = 0;
+  private nextWindowNum = 0;
+  private totalWidth = 80;
+  private totalHeight = 24;
+  private sessionName = 'demo';
+  private copyModePanes = new Set<string>();
+  private onAsyncUpdate?: () => void;
+
+  // Zoom state
+  private zoomedPaneId: string | null = null;
+  private savedLayout: LayoutNode | null = null;
+
+  setOnAsyncUpdate(cb: () => void): void {
+    this.onAsyncUpdate = cb;
+  }
+
+  private makeShell(paneId: string, width: number, height: number): LifoShell {
+    const shell = new LifoShell(width, height);
+    shell.setTmux(this, paneId);
+    shell.onUpdate = () => this.onAsyncUpdate?.();
+    return shell;
+  }
+
+  /** Initialize with one window and one pane. Writes welcome banner. */
+  init(width: number, height: number): void {
+    this.totalWidth = width || 80;
+    this.totalHeight = height || 24;
+
+    const paneId = this.allocPaneId();
+    const windowId = this.allocWindowId();
+
+    // Subtract 1 row for header (pane-border-status top occupies row 0)
+    const shell = this.makeShell(paneId, this.totalWidth, Math.max(this.totalHeight - 1, 1));
+    shell.writeBanner();
+    shell.writePrompt();
+
+    const pane: FakePane = {
+      id: paneId,
+      numericId: parseInt(paneId.slice(1)),
+      windowId,
+      shell,
+      command: 'bash',
+      title: '',
+    };
+    this.panes.set(paneId, pane);
+
+    const window: FakeWindow = {
+      id: windowId,
+      index: 0,
+      name: 'bash',
+      manualName: false,
+      layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
+      windowType: 'tab',
+      groupPanes: null,
+    };
+    this.windows.push(window);
+
+    this.activeWindowId = windowId;
+    this.activePaneId = paneId;
+  }
+
+  setSize(cols: number, rows: number): void {
+    this.totalWidth = cols;
+    this.totalHeight = rows;
+    for (const win of this.windows) {
+      // Floats keep their own size, like real tmux (a float is a hidden
+      // window). Applying the surface layout to them resized a float created
+      // at floatWidth x floatHeight to the full surface on the next
+      // set_client_size, so it snapped to fullscreen on any viewport change.
+      if (win.windowType === 'group' || win.windowType === 'float') continue;
+      this.applyLayout(win);
+    }
+  }
+
+  getState(): ServerStateEncoded {
+    // Compute pane positions from every window's layout: like the server, the
+    // state carries the panes of EVERY window (the Tab Overview draws the
+    // other tabs' screens from them; PaneLayout shows only the active one's).
+    // Zoom applies to the active window alone.
+    const posMap = new Map<
+      string,
+      { paneId: string; x: number; y: number; width: number; height: number }
+    >();
+    for (const w of this.windows) {
+      // Only tabs tile the surface; a float, sidebar or group window's panes
+      // keep their shell's own grid.
+      if (w.windowType !== 'tab' || !w.layout) continue;
+      const layout =
+        this.zoomedPaneId && w.id === this.activeWindowId
+          ? ({ type: 'leaf', paneId: this.zoomedPaneId } as LayoutNode)
+          : w.layout;
+      for (const p of this.computePositions(layout, 0, 0, this.totalWidth, this.totalHeight)) {
+        posMap.set(p.paneId, p);
+      }
+    }
+
+    // Map each group member to its group id (the group window's id stands in
+    // for @tmuxy-group-id). Members carry this on the wire; the group windows
+    // themselves are not emitted (they model the hidden stash).
+    const groupIdByPane = new Map<string, string>();
+    for (const w of this.windows) {
+      if (w.windowType !== 'group' || !w.groupPanes) continue;
+      for (const pid of w.groupPanes) groupIdByPane.set(pid, w.id);
+    }
+
+    const panes: WirePaneEncoded[] = [];
+    for (const [, pane] of this.panes) {
+      const pos = posMap.get(pane.id);
+      // In zoom mode, only show the zoomed pane from the active window
+      if (
+        this.zoomedPaneId &&
+        pane.windowId === this.activeWindowId &&
+        pane.id !== this.zoomedPaneId
+      )
+        continue;
+      panes.push({
+        id: pane.numericId,
+        tmux_id: pane.id,
+        window_id: pane.windowId,
+        content: pane.shell.getContent(),
+        cursor_x: pane.shell.getCursorX(),
+        cursor_y: pane.shell.getCursorY(),
+        // Panes outside the active window's layout (floats, group members,
+        // the sidebar) have no computed position — report their shell's own
+        // grid rather than the whole surface, which disagreed with both the
+        // shell content and the float_width/float_height metadata.
+        width: pos?.width ?? pane.shell.getWidth(),
+        // computePositions already returns content-only height (header row excluded).
+        height: pos?.height ?? pane.shell.getHeight(),
+        x: pos?.x ?? 0,
+        y: pos?.y ?? 0,
+        active: pane.id === this.activePaneId,
+        command: pane.command,
+        title: pane.title,
+        border_title: '',
+        group_id: groupIdByPane.get(pane.id) ?? null,
+        in_mode: this.copyModePanes.has(pane.id),
+        marked: pane.id === this.markedPaneId,
+        copy_cursor_x: 0,
+        copy_cursor_y: 0,
+        history_size: pane.shell.getHistorySize(),
+        cursor_shape: 0,
+        cursor_hidden: false,
+        pane_state: this.paneStates.get(pane.id) ?? null,
+        pane_ask: this.paneAsks.get(pane.id) ?? null,
+        pane_widget: this.paneWidgets.get(pane.id) ?? null,
+        images: pane.images,
+      });
+    }
+
+    const windows: WireWindowEncoded[] = this.windows
+      // Group windows model the hidden stash: their member panes are emitted
+      // (carrying group_id) but the windows themselves are never tabs.
+      .filter((w) => w.windowType !== 'group')
+      .map((w) => ({
+        id: w.id,
+        index: w.index,
+        name: w.name,
+        active: w.id === this.activeWindowId,
+        window_type: w.windowType === 'group' ? null : w.windowType,
+        float_parent: w.floatParent ?? null,
+        float_width: w.floatWidth ?? null,
+        float_height: w.floatHeight ?? null,
+        float_drawer: w.floatDrawer ?? null,
+        float_bg: w.floatBg ?? null,
+        float_noheader: w.floatNoheader ?? false,
+        sidebar_cols: w.sidebarCols ?? null,
+        sidebar_hidden: w.sidebarHidden ?? false,
+        collapsible: w.collapsible ?? false,
+        // Zoom applies to the active window alone (switching tabs clears it).
+        zoomed: this.zoomedPaneId !== null && w.id === this.activeWindowId,
+        active_pane_id:
+          w.id === this.activeWindowId
+            ? this.activePaneId
+            : ([...this.panes.values()].find((p) => p.windowId === w.id)?.id ?? null),
+      }));
+
+    return {
+      session_name: this.sessionName,
+      active_window_id: this.activeWindowId,
+      active_pane_id: this.activePaneId,
+      panes,
+      windows,
+      total_width: this.totalWidth,
+      total_height: this.totalHeight,
+    };
+  }
+
+  /** Send a tmux key name to the active pane's shell */
+  sendKey(key: string): void {
+    const pane = this.panes.get(this.activePaneId);
+    if (!pane) return;
+    pane.shell.processKey(key);
+    // Update window name from shell cwd
+    this.updateWindowName();
+  }
+
+  /** Send literal text to the active pane's shell */
+  sendLiteral(text: string): void {
+    const pane = this.panes.get(this.activePaneId);
+    if (!pane) return;
+    pane.shell.processLiteral(text);
+  }
+
+  /** Send keys to a specific pane */
+  sendKeyToPane(paneId: string, key: string): void {
+    const pane = this.panes.get(paneId);
+    if (!pane) return;
+    pane.shell.processKey(key);
+  }
+
+  splitPane(direction: 'horizontal' | 'vertical'): string | null {
+    // Unzoom first if zoomed
+    if (this.zoomedPaneId) this.toggleZoom();
+
+    const window = this.getActiveWindow();
+    if (!window) return null;
+
+    const paneId = this.allocPaneId();
+    const parentWidth = this.totalWidth;
+    const parentHeight = this.totalHeight;
+
+    // Compute current active pane content dimensions (subtract header for y=0 panes)
+    const positions = this.computePositions(window.layout, 0, 0, parentWidth, parentHeight);
+    const activePos = positions.find((p) => p.paneId === this.activePaneId);
+    const w = activePos?.width ?? parentWidth;
+    const h = activePos?.height ?? parentHeight;
+
+    const newW = direction === 'vertical' ? Math.floor(w / 2) : w;
+    const newH = direction === 'horizontal' ? Math.floor(h / 2) : h;
+
+    const shell = this.makeShell(paneId, newW, newH);
+    shell.writePrompt();
+
+    const pane: FakePane = {
+      id: paneId,
+      numericId: parseInt(paneId.slice(1)),
+      windowId: window.id,
+      shell,
+      command: 'bash',
+      title: '',
+    };
+    this.panes.set(paneId, pane);
+
+    // Split the active pane's leaf in the layout tree
+    window.layout = this.splitLeaf(window.layout, this.activePaneId, paneId, direction);
+
+    // Resize existing pane
+    const existingPane = this.panes.get(this.activePaneId);
+    if (existingPane) {
+      const existW = direction === 'vertical' ? w - newW - 1 : w;
+      const existH = direction === 'horizontal' ? h - newH - 1 : h;
+      existingPane.shell.resize(Math.max(existW, 1), Math.max(existH, 1));
+    }
+
+    this.activePaneId = paneId;
+    this.applyLayout(window);
+    return paneId;
+  }
+
+  enterCopyMode(paneId: string): void {
+    this.copyModePanes.add(paneId);
+  }
+
+  exitCopyMode(paneId: string): void {
+    this.copyModePanes.delete(paneId);
+  }
+
+  killPane(paneId?: string): boolean {
+    const targetId = paneId ?? this.activePaneId;
+    const pane = this.panes.get(targetId);
+    if (!pane) return false;
+
+    // Unzoom if zoomed pane is killed
+    if (this.zoomedPaneId === targetId) this.toggleZoom();
+
+    const window = this.windows.find((w) => w.id === pane.windowId);
+    if (!window) return false;
+
+    // If it's the last pane in the window, kill the window
+    const windowPanes = [...this.panes.values()].filter((p) => p.windowId === window.id);
+    if (windowPanes.length <= 1) {
+      return this.killWindow(window.id);
+    }
+
+    // Remove from layout
+    window.layout = this.removeLeaf(window.layout, targetId)!;
+    this.panes.delete(targetId);
+
+    // If active pane was killed, select first remaining pane in window
+    if (this.activePaneId === targetId) {
+      const remaining = [...this.panes.values()].find((p) => p.windowId === window.id);
+      if (remaining) this.activePaneId = remaining.id;
+    }
+
+    this.applyLayout(window);
+    return true;
+  }
+
+  newWindow(): string {
+    const windowId = this.allocWindowId();
+    const paneId = this.allocPaneId();
+
+    // Subtract 1 row for header (pane-border-status top occupies row 0)
+    const shell = this.makeShell(paneId, this.totalWidth, Math.max(this.totalHeight - 1, 1));
+    shell.writePrompt();
+
+    const pane: FakePane = {
+      id: paneId,
+      numericId: parseInt(paneId.slice(1)),
+      windowId,
+      shell,
+      command: 'bash',
+      title: '',
+    };
+    this.panes.set(paneId, pane);
+
+    // Find next available index
+    const usedIndices = new Set(this.windows.map((w) => w.index));
+    let index = 0;
+    while (usedIndices.has(index)) index++;
+
+    const window: FakeWindow = {
+      id: windowId,
+      index,
+      name: 'bash',
+      manualName: false,
+      layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
+      windowType: 'tab',
+      groupPanes: null,
+    };
+    this.windows.push(window);
+
+    this.activeWindowId = windowId;
+    this.activePaneId = paneId;
+    return windowId;
+  }
+
+  /**
+   * Reorder the tab strip: put `windowId` before (`after` = false) or after
+   * `targetId` among the tab windows, renumbering their indices the way
+   * `renumber-windows on` does. Chrome windows keep their own indices.
+   */
+  moveWindow(windowId: string, targetId: string, after: boolean): boolean {
+    const tabs = this.windows
+      .filter((w) => w.windowType === 'tab')
+      .sort((a, b) => a.index - b.index);
+    const source = tabs.find((w) => w.id === windowId);
+    const target = tabs.find((w) => w.id === targetId);
+    if (!source || !target || source === target) return false;
+    const rest = tabs.filter((w) => w !== source);
+    const at = rest.indexOf(target) + (after ? 1 : 0);
+    rest.splice(at, 0, source);
+    const indices = tabs.map((w) => w.index);
+    rest.forEach((w, i) => {
+      w.index = indices[i];
+    });
+    return true;
+  }
+
+  selectWindow(windowId: string): boolean {
+    const window = this.windows.find((w) => w.id === windowId);
+    if (!window) {
+      // Try by index
+      const idx = parseInt(windowId);
+      const byIndex = this.windows.find((w) => w.index === idx);
+      if (!byIndex) return false;
+      this.activeWindowId = byIndex.id;
+    } else {
+      this.activeWindowId = windowId;
+    }
+    // Clear zoom when switching windows
+    this.zoomedPaneId = null;
+    this.savedLayout = null;
+    // Select first pane in window
+    const firstPane = [...this.panes.values()].find((p) => p.windowId === this.activeWindowId);
+    if (firstPane) this.activePaneId = firstPane.id;
+    return true;
+  }
+
+  nextWindow(): boolean {
+    const visibleWindows = this.windows.filter((w) => w.windowType === 'tab');
+    const currentIdx = visibleWindows.findIndex((w) => w.id === this.activeWindowId);
+    if (currentIdx === -1) return false;
+    const nextIdx = (currentIdx + 1) % visibleWindows.length;
+    return this.selectWindow(visibleWindows[nextIdx].id);
+  }
+
+  previousWindow(): boolean {
+    const visibleWindows = this.windows.filter((w) => w.windowType === 'tab');
+    const currentIdx = visibleWindows.findIndex((w) => w.id === this.activeWindowId);
+    if (currentIdx === -1) return false;
+    const prevIdx = (currentIdx - 1 + visibleWindows.length) % visibleWindows.length;
+    return this.selectWindow(visibleWindows[prevIdx].id);
+  }
+
+  killWindow(windowId?: string): boolean {
+    const targetId = windowId ?? this.activeWindowId;
+    const idx = this.windows.findIndex((w) => w.id === targetId);
+    if (idx === -1) return false;
+
+    // Remove all panes in this window
+    for (const [id, pane] of this.panes) {
+      if (pane.windowId === targetId) this.panes.delete(id);
+    }
+
+    this.windows.splice(idx, 1);
+
+    // Clear zoom if the zoomed window was killed
+    if (this.activeWindowId === targetId) {
+      this.zoomedPaneId = null;
+      this.savedLayout = null;
+    }
+
+    // If no windows left, create a new one
+    if (this.windows.length === 0) {
+      this.newWindow();
+      return true;
+    }
+
+    // If active window was killed, select next
+    if (this.activeWindowId === targetId) {
+      const newIdx = Math.min(idx, this.windows.length - 1);
+      this.selectWindow(this.windows[newIdx].id);
+    }
+
+    return true;
+  }
+
+  /** Mark a pane (`select-pane -m`) or clear the mark (`select-pane -M`, null). */
+  markPane(paneId: string | null): void {
+    this.markedPaneId = paneId && this.panes.has(paneId) ? paneId : null;
+  }
+
+  /**
+   * Set `@tmuxy-pane-state` on a pane — what `tmuxy pane state <value>` does
+   * on a real server. An empty value unsets the option, which is how a process
+   * stops declaring anything (an agent's hook on exit, say).
+   */
+  setPaneState(paneId: string, value: string): void {
+    if (!this.panes.has(paneId)) return;
+    if (value) this.paneStates.set(paneId, value);
+    else this.paneStates.delete(paneId);
+  }
+
+  /**
+   * Set `@tmuxy-ask` on a pane — what `tmuxy ask` does before it blocks. An
+   * empty value unsets it, which is what answering the question does.
+   */
+  setPaneAsk(paneId: string, value: string): void {
+    if (!this.panes.has(paneId)) return;
+    if (value) this.paneAsks.set(paneId, value);
+    else this.paneAsks.delete(paneId);
+  }
+
+  selectPane(paneId: string): boolean {
+    if (!this.panes.has(paneId)) return false;
+    const pane = this.panes.get(paneId)!;
+    // Ensure we're on the right window
+    if (pane.windowId !== this.activeWindowId) {
+      this.activeWindowId = pane.windowId;
+    }
+    this.activePaneId = paneId;
+    return true;
+  }
+
+  selectPaneByDirection(direction: string): boolean {
+    const window = this.getActiveWindow();
+    if (!window) return false;
+
+    const layout = this.zoomedPaneId
+      ? ({ type: 'leaf', paneId: this.zoomedPaneId } as LayoutNode)
+      : window.layout;
+    const positions = this.computePositions(layout, 0, 0, this.totalWidth, this.totalHeight);
+    const current = positions.find((p) => p.paneId === this.activePaneId);
+    if (!current) return false;
+
+    // tmux-style navigation: candidate must share an edge overlap in the
+    // perpendicular axis and be adjacent in the primary axis. Among valid
+    // candidates, pick the one whose center is closest in the primary axis,
+    // breaking ties by perpendicular center distance.
+    let best: { paneId: string; primaryDist: number; crossDist: number } | null = null;
+    for (const pos of positions) {
+      if (pos.paneId === this.activePaneId) continue;
+
+      let adjacent = false;
+      let overlaps = false;
+      let primaryDist = 0;
+      let crossDist = 0;
+
+      const cx = current.x + current.width / 2;
+      const cy = current.y + current.height / 2;
+      const px = pos.x + pos.width / 2;
+      const py = pos.y + pos.height / 2;
+
+      switch (direction) {
+        case 'Up':
+          adjacent = pos.y + pos.height <= current.y;
+          overlaps = pos.x < current.x + current.width && pos.x + pos.width > current.x;
+          primaryDist = current.y - (pos.y + pos.height);
+          crossDist = Math.abs(px - cx);
+          break;
+        case 'Down':
+          adjacent = pos.y >= current.y + current.height;
+          overlaps = pos.x < current.x + current.width && pos.x + pos.width > current.x;
+          primaryDist = pos.y - (current.y + current.height);
+          crossDist = Math.abs(px - cx);
+          break;
+        case 'Left':
+          adjacent = pos.x + pos.width <= current.x;
+          overlaps = pos.y < current.y + current.height && pos.y + pos.height > current.y;
+          primaryDist = current.x - (pos.x + pos.width);
+          crossDist = Math.abs(py - cy);
+          break;
+        case 'Right':
+          adjacent = pos.x >= current.x + current.width;
+          overlaps = pos.y < current.y + current.height && pos.y + pos.height > current.y;
+          primaryDist = pos.x - (current.x + current.width);
+          crossDist = Math.abs(py - cy);
+          break;
+      }
+
+      if (adjacent && overlaps) {
+        if (
+          !best ||
+          primaryDist < best.primaryDist ||
+          (primaryDist === best.primaryDist && crossDist < best.crossDist)
+        ) {
+          best = { paneId: pos.paneId, primaryDist, crossDist };
+        }
+      }
+    }
+
+    if (best) {
+      this.activePaneId = best.paneId;
+      return true;
+    }
+    return false;
+  }
+
+  resizePane(paneId: string, direction: string, adjustment: number): boolean {
+    const pane = this.panes.get(paneId);
+    if (!pane) return false;
+    const window = this.windows.find((w) => w.id === pane.windowId);
+    if (!window) return false;
+
+    // Adjust ratio in the nearest split ancestor, converting cell-based
+    // adjustment to a ratio delta using the available space at that split level.
+    this.adjustRatio(
+      window.layout,
+      paneId,
+      direction,
+      adjustment,
+      this.totalWidth,
+      this.totalHeight,
+    );
+    this.applyLayout(window);
+    return true;
+  }
+
+  getScrollbackCells(paneId: string, start?: number, end?: number): PaneContent {
+    const pane = this.panes.get(paneId);
+    if (!pane) return [];
+    const historySize = pane.shell.getHistorySize();
+    const height = pane.shell.getContent().length;
+    const totalLines = historySize + height;
+    // Convert tmux-relative offsets to absolute indices
+    // Tmux uses negative offsets for history (e.g., -200 to 0 = last 200 history lines + visible)
+    const absStart = start !== undefined ? historySize + start : 0;
+    const absEnd = end !== undefined ? historySize + end : totalLines;
+    return pane.shell.getScrollbackContent(absStart, absEnd);
+  }
+
+  /** Cycle to the next layout (even-horizontal → even-vertical → tiled → ...) */
+  nextLayout(): void {
+    if (this.zoomedPaneId) return; // Can't change layout while zoomed
+    const window = this.getActiveWindow();
+    if (!window) return;
+
+    const paneIds = this.collectLeafIds(window.layout);
+    if (paneIds.length <= 1) return;
+
+    const layoutNames = this.layoutNames;
+    window.layoutCycle = (window.layoutCycle + 1) % layoutNames.length;
+    window.layout = this.buildNamedLayout(layoutNames[window.layoutCycle], paneIds);
+    this.applyLayout(window);
+  }
+
+  /** Apply a named layout (even-horizontal, even-vertical, main-horizontal, main-vertical, tiled) */
+  selectLayout(name: string): void {
+    if (this.zoomedPaneId) return;
+    const window = this.getActiveWindow();
+    if (!window) return;
+
+    const paneIds = this.collectLeafIds(window.layout);
+    if (paneIds.length <= 1) return;
+
+    const idx = this.layoutNames.indexOf(name);
+    if (idx === -1) return;
+
+    window.layoutCycle = idx;
+    window.layout = this.buildNamedLayout(name, paneIds);
+    this.applyLayout(window);
+  }
+
+  private readonly layoutNames = [
+    'even-horizontal',
+    'even-vertical',
+    'main-horizontal',
+    'main-vertical',
+    'tiled',
+  ];
+
+  private buildNamedLayout(name: string, paneIds: string[]): LayoutNode {
+    switch (name) {
+      case 'even-horizontal':
+        return this.buildEvenHorizontal(paneIds);
+      case 'even-vertical':
+        return this.buildEvenVertical(paneIds);
+      case 'main-horizontal':
+        return this.buildMainHorizontal(paneIds);
+      case 'main-vertical':
+        return this.buildMainVertical(paneIds);
+      case 'tiled':
+        return this.buildTiled(paneIds);
+      default:
+        return this.buildTiled(paneIds);
+    }
+  }
+
+  // ============================================
+  // Swap
+  // ============================================
+
+  swapPanes(srcId: string, dstId: string): boolean {
+    const srcPane = this.panes.get(srcId);
+    const dstPane = this.panes.get(dstId);
+    if (!srcPane || !dstPane) return false;
+
+    // Must be in the same window
+    if (srcPane.windowId !== dstPane.windowId) return false;
+
+    const window = this.windows.find((w) => w.id === srcPane.windowId);
+    if (!window) return false;
+
+    // Swap pane IDs in the layout tree
+    window.layout = this.swapLeafIds(window.layout, srcId, dstId);
+    this.applyLayout(window);
+    return true;
+  }
+
+  /** Name a pane (tmux `select-pane -T <title>`), the way an app's OSC 0/2 would. */
+  setPaneTitle(paneId: string, title: string): boolean {
+    const pane = this.panes.get(paneId);
+    if (!pane) return false;
+    pane.title = title;
+    return true;
+  }
+
+  /**
+   * Move a pane into another window (tmux `join-pane -s <pane> -t <window>`).
+   * Splits the target window's active/first pane with the source pane; if the
+   * source window is left empty it is closed. Backs the sidebar tree's
+   * drag-a-pane-between-tabs gesture.
+   */
+  joinPane(srcId: string, targetWindowId: string): boolean {
+    const src = this.panes.get(srcId);
+    if (!src) return false;
+    const srcWindow = this.windows.find((w) => w.id === src.windowId);
+    const targetWindow = this.windows.find((w) => w.id === targetWindowId);
+    if (!srcWindow || !targetWindow || srcWindow.id === targetWindow.id) return false;
+
+    if (this.zoomedPaneId) this.toggleZoom();
+
+    // Split point in the target window: its active pane if that lives here, else
+    // the window's first pane.
+    const targetPanes = [...this.panes.values()].filter((p) => p.windowId === targetWindowId);
+    if (targetPanes.length === 0) return false;
+    const splitAt = targetPanes.find((p) => p.id === this.activePaneId)?.id ?? targetPanes[0].id;
+
+    // Detach src from its window; close the window if src was its last pane.
+    const srcPaneCount = [...this.panes.values()].filter((p) => p.windowId === srcWindow.id).length;
+    if (srcPaneCount <= 1) {
+      this.windows = this.windows.filter((w) => w.id !== srcWindow.id);
+    } else {
+      srcWindow.layout = this.removeLeaf(srcWindow.layout, srcId)!;
+      this.applyLayout(srcWindow);
+    }
+
+    // Attach src into the target window and focus it.
+    targetWindow.layout = this.splitLeaf(targetWindow.layout, splitAt, srcId, 'horizontal');
+    src.windowId = targetWindowId;
+    this.activePaneId = srcId;
+    this.activeWindowId = targetWindowId;
+    this.applyLayout(targetWindow);
+    return true;
+  }
+
+  private swapLeafIds(node: LayoutNode, idA: string, idB: string): LayoutNode {
+    if (node.type === 'leaf') {
+      if (node.paneId === idA) return { type: 'leaf', paneId: idB };
+      if (node.paneId === idB) return { type: 'leaf', paneId: idA };
+      return node;
+    }
+    return {
+      ...node,
+      children: [
+        this.swapLeafIds(node.children[0], idA, idB),
+        this.swapLeafIds(node.children[1], idA, idB),
+      ],
+    };
+  }
+
+  // ============================================
+  // Zoom
+  // ============================================
+
+  toggleZoom(paneId?: string): boolean {
+    const targetId = paneId ?? this.activePaneId;
+    const window = this.getActiveWindow();
+    if (!window) return false;
+
+    if (this.zoomedPaneId) {
+      // Unzoom: restore saved layout
+      if (this.savedLayout) {
+        window.layout = this.savedLayout;
+        this.savedLayout = null;
+      }
+      this.zoomedPaneId = null;
+      this.applyLayout(window);
+    } else {
+      // Zoom: only makes sense with multiple panes
+      const paneIds = this.collectLeafIds(window.layout);
+      if (paneIds.length <= 1) return false;
+      if (!paneIds.includes(targetId)) return false;
+
+      this.savedLayout = window.layout;
+      this.zoomedPaneId = targetId;
+      this.activePaneId = targetId;
+      // Resize the zoomed pane to full size
+      const pane = this.panes.get(targetId);
+      if (pane) {
+        pane.shell.resize(this.totalWidth, this.totalHeight - 1);
+      }
+    }
+    return true;
+  }
+
+  isZoomed(): boolean {
+    return this.zoomedPaneId !== null;
+  }
+
+  // ============================================
+  // Break Pane
+  // ============================================
+
+  breakPane(paneId?: string): string | null {
+    if (this.zoomedPaneId) this.toggleZoom();
+
+    const targetId = paneId ?? this.activePaneId;
+    const pane = this.panes.get(targetId);
+    if (!pane) return null;
+
+    const srcWindow = this.windows.find((w) => w.id === pane.windowId);
+    if (!srcWindow) return null;
+
+    // Can't break if it's the only pane
+    const windowPanes = [...this.panes.values()].filter((p) => p.windowId === srcWindow.id);
+    if (windowPanes.length <= 1) return null;
+
+    // Remove from source layout
+    srcWindow.layout = this.removeLeaf(srcWindow.layout, targetId)!;
+
+    // If active pane was broken out, select another in source window
+    if (this.activePaneId === targetId) {
+      const remaining = [...this.panes.values()].find((p) => p.windowId === srcWindow.id);
+      if (remaining) this.activePaneId = remaining.id;
+    }
+    this.applyLayout(srcWindow);
+
+    // Create new window for this pane
+    const windowId = this.allocWindowId();
+    const usedIndices = new Set(this.windows.map((w) => w.index));
+    let index = 0;
+    while (usedIndices.has(index)) index++;
+
+    const newWindow: FakeWindow = {
+      id: windowId,
+      index,
+      name: srcWindow.name,
+      manualName: false,
+      layout: { type: 'leaf', paneId: targetId },
+      layoutCycle: 0,
+      windowType: 'tab',
+      groupPanes: null,
+    };
+    this.windows.push(newWindow);
+
+    // Move pane to new window
+    pane.windowId = windowId;
+    pane.shell.resize(this.totalWidth, this.totalHeight - 1);
+
+    // Switch to new window
+    this.activeWindowId = windowId;
+    this.activePaneId = targetId;
+    return windowId;
+  }
+
+  // ============================================
+  // Capture
+  // ============================================
+
+  capturePane(paneId?: string): string {
+    const targetId = paneId ?? this.activePaneId;
+    const pane = this.panes.get(targetId);
+    if (!pane) return '';
+
+    const content = pane.shell.getContent();
+    return content
+      .map((line) =>
+        line
+          .map((cell) => cell.c)
+          .join('')
+          .trimEnd(),
+      )
+      .join('\n')
+      .trimEnd();
+  }
+
+  // ============================================
+  // Float Panes
+  // ============================================
+
+  /**
+   * Attach an image placement to a pane. Storybook stories and tests use
+   * this to simulate the result of the Rust backend parsing an OSC 1337 /
+   * Kitty / Sixel sequence — the placement flows through WirePaneEncoded.images
+   * → the app machine → Terminal.tsx exactly like a real one.
+   *
+   * The frontend renders `<img src="/api/images/<paneNum>/<imageId>">`; in
+   * Storybook we override that URL via `window.__tmuxyImageSrc` so the
+   * image bytes can be a data URL the story registered.
+   */
+  attachImage(paneId: string, placement: WireImagePlacement): boolean {
+    const pane = this.panes.get(paneId);
+    if (!pane) return false;
+    pane.images = pane.images ?? [];
+    pane.images.push(placement);
+    this.onAsyncUpdate?.();
+    return true;
+  }
+
+  /**
+   * Create one of the two sidebar columns: a single-pane window tagged
+   * `sidebar-left` / `sidebar-right`, mirroring the `split-window ; break-pane ;
+   * set-option` list an `OpenSidebar` op sends to a real tmux server.
+   *
+   * The pane is sized to that column's width — the demo's stand-in for the
+   * backend's `sidebar_dock::size` pass — so the tree/terminal inside it wraps
+   * where the UI draws it, as on a real server.
+   */
+  createSidebar(side: 'left' | 'right', widget?: string): string | null {
+    const existing = this.windows.find((w) => w.windowType === `sidebar-${side}`);
+    if (existing) return null;
+
+    const paneId = this.allocPaneId();
+    const windowId = this.allocWindowId();
+    const cols = side === 'left' ? LEFT_SIDEBAR_COLS : RIGHT_SIDEBAR_COLS;
+
+    const shell = this.makeShell(paneId, cols, this.totalHeight);
+    shell.writePrompt();
+
+    this.panes.set(paneId, {
+      id: paneId,
+      numericId: parseInt(paneId.slice(1)),
+      windowId,
+      shell,
+      command: 'bash',
+      title: '',
+    });
+
+    const usedIndices = new Set(this.windows.map((w) => w.index));
+    let index = GROUP_WINDOW_INDEX_BASE;
+    while (usedIndices.has(index)) index++;
+
+    this.windows.push({
+      id: windowId,
+      index,
+      name: side === 'left' ? 'tree' : 'terminal',
+      manualName: true,
+      layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
+      windowType: `sidebar-${side}`,
+      groupPanes: null,
+      floatDrawer: null,
+      floatBg: null,
+      floatNoheader: false,
+      floatWidth: null,
+      floatHeight: null,
+    });
+
+    if (widget) this.writeWidget(paneId, widget, []);
+    // Don't switch active window — a sidebar docks beside the tab, it isn't one.
+    return paneId;
+  }
+
+  /**
+   * Set a sidebar column's dragged width, and resize its pane to match — the
+   * demo's stand-in for the backend's client-size pass, which is what makes the
+   * content inside rewrap as the column moves.
+   */
+  setSidebarCols(windowId: string, cols: number | null): void {
+    const window = this.windows.find((w) => w.id === windowId);
+    if (!window) return;
+    window.sidebarCols = cols;
+    const width =
+      cols ?? (window.windowType === 'sidebar-left' ? LEFT_SIDEBAR_COLS : RIGHT_SIDEBAR_COLS);
+    for (const pane of this.panes.values()) {
+      if (pane.windowId === windowId) pane.shell.resize(width, this.totalHeight);
+    }
+  }
+
+  /** Hide or show a sidebar column (the demo's `@tmuxy-sidebar-hidden`). */
+  setSidebarHidden(windowId: string, hidden: boolean): void {
+    const window = this.windows.find((w) => w.id === windowId);
+    if (!window) return;
+    window.sidebarHidden = hidden;
+  }
+
+  createFloat(options: CreateFloatOptions = {}): string | null {
+    const paneId = this.allocPaneId();
+    const windowId = this.allocWindowId();
+    const numericId = parseInt(paneId.slice(1));
+
+    // Width and height are in tmux columns/rows. The defaults mirror
+    // bin/tmuxy/float-create: 60x15 cells, the height capped to the window it
+    // floats over.
+    const floatW = options.width ?? Math.min(FLOAT_DEFAULT_COLS, this.totalWidth);
+    const floatH = options.height ?? Math.min(FLOAT_DEFAULT_ROWS, this.totalHeight);
+
+    const shell = this.makeShell(paneId, floatW, floatH);
+    shell.writePrompt();
+
+    const pane: FakePane = {
+      id: paneId,
+      numericId,
+      windowId,
+      shell,
+      command: 'bash',
+      title: '',
+    };
+    this.panes.set(paneId, pane);
+
+    const usedIndices = new Set(this.windows.map((w) => w.index));
+    let index = GROUP_WINDOW_INDEX_BASE;
+    while (usedIndices.has(index)) index++;
+
+    const window: FakeWindow = {
+      id: windowId,
+      index,
+      name: 'float',
+      manualName: true,
+      layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
+      windowType: 'float',
+      groupPanes: null,
+      // A float belongs to the tab it was opened over, exactly as
+      // bin/tmuxy/float-create tags it, so the UI can keep it on that tab.
+      floatParent: this.activeWindowId,
+      floatDrawer: options.drawer ?? null,
+      floatBg: options.bg ?? null,
+      floatNoheader: options.hideHeader ?? false,
+      floatWidth: options.width ?? null,
+      floatHeight: options.height ?? null,
+    };
+    this.windows.push(window);
+
+    // Don't switch active window — floats are overlays
+    return paneId;
+  }
+
+  // ============================================
+  // Pane Groups
+  // ============================================
+
+  /** Add the active pane to a group, creating a new sibling pane in the group */
+  groupAdd(paneId?: string): string | null {
+    const targetId = paneId ?? this.activePaneId;
+    const pane = this.panes.get(targetId);
+    if (!pane) return null;
+
+    // Create a new pane to add to the group
+    const newPaneId = this.allocPaneId();
+    const newNumericId = parseInt(newPaneId.slice(1));
+
+    // Get the target pane's dimensions
+    const window = this.windows.find((w) => w.id === pane.windowId);
+    if (!window) return null;
+    const positions = this.computePositions(window.layout, 0, 0, this.totalWidth, this.totalHeight);
+    const pos = positions.find((p) => p.paneId === targetId);
+    const w = pos?.width ?? this.totalWidth;
+    const h = pos?.height ?? this.totalHeight;
+
+    const shell = this.makeShell(newPaneId, w, h);
+    shell.writePrompt();
+
+    // Find existing group for this pane
+    const existingGroup = this.findGroupForPane(targetId);
+    const groupPaneIds = existingGroup
+      ? [...(existingGroup.groupPanes ?? []), newPaneId]
+      : [targetId, newPaneId];
+
+    // Resolve the group window the new pane belongs to. Only allocate a window
+    // id in the create branch: allocating it unconditionally left the new pane
+    // pointing at a window that was never created, corrected only as a side
+    // effect of swapGroupPanes — so if that early-returned the pane was
+    // permanently invisible.
+    let groupWindow: FakeWindow;
+    if (existingGroup) {
+      existingGroup.groupPanes = groupPaneIds;
+      groupWindow = existingGroup;
+    } else {
+      const usedIndices = new Set(this.windows.map((w2) => w2.index));
+      let index = GROUP_WINDOW_INDEX_BASE;
+      while (usedIndices.has(index)) index++;
+
+      groupWindow = {
+        id: this.allocWindowId(),
+        index,
+        name: 'group',
+        manualName: true,
+        layout: { type: 'leaf', paneId: newPaneId },
+        layoutCycle: 0,
+        windowType: 'group',
+        groupPanes: groupPaneIds,
+      };
+      this.windows.push(groupWindow);
+    }
+
+    const newPane: FakePane = {
+      id: newPaneId,
+      numericId: newNumericId,
+      windowId: groupWindow.id,
+      shell,
+      command: 'bash',
+      title: '',
+    };
+    this.panes.set(newPaneId, newPane);
+
+    // Swap the new pane into view (replace target in the active layout)
+    this.swapGroupPanes(targetId, newPaneId, window, groupWindow);
+
+    return newPaneId;
+  }
+
+  /** Close a pane from its group */
+  groupClose(paneId?: string): boolean {
+    const targetId = paneId ?? this.activePaneId;
+    const pane = this.panes.get(targetId);
+    if (!pane) return false;
+
+    const groupWindow = this.findGroupForPane(targetId);
+    if (!groupWindow) return false;
+
+    const groupPaneIds = groupWindow.groupPanes;
+    if (!groupPaneIds || groupPaneIds.length < 2) return false;
+
+    // If the target is visible (in active window), swap another in first
+    const activeWindow = this.getActiveWindow();
+    if (activeWindow && this.containsPane(activeWindow.layout, targetId)) {
+      const nextPaneId = groupPaneIds.find((id) => id !== targetId);
+      if (nextPaneId) {
+        this.swapGroupPanes(targetId, nextPaneId, activeWindow, groupWindow);
+      }
+    }
+
+    // Remove the pane
+    this.panes.delete(targetId);
+
+    // Update group membership; dissolve if only one pane left.
+    const remainingIds = groupPaneIds.filter((id) => id !== targetId);
+    if (remainingIds.length < 2) {
+      this.killWindow(groupWindow.id);
+    } else {
+      groupWindow.groupPanes = remainingIds;
+    }
+
+    return true;
+  }
+
+  /** Switch to a specific pane in a group */
+  groupSwitch(targetPaneId: string): boolean {
+    const pane = this.panes.get(targetPaneId);
+    if (!pane) return false;
+
+    const groupWindow = this.findGroupForPane(targetPaneId);
+    if (!groupWindow) return false;
+
+    const activeWindow = this.getActiveWindow();
+    if (!activeWindow) return false;
+
+    // Find which pane from the group is currently visible
+    const groupPaneIds = groupWindow.groupPanes;
+    if (!groupPaneIds) return false;
+
+    const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
+    if (!visibleId || visibleId === targetPaneId) return false;
+
+    this.swapGroupPanes(visibleId, targetPaneId, activeWindow, groupWindow);
+    return true;
+  }
+
+  /** Navigate to next pane in group */
+  groupNext(paneId?: string): boolean {
+    const targetId = paneId ?? this.activePaneId;
+    const groupWindow = this.findGroupForPane(targetId);
+    if (!groupWindow) return false;
+
+    const groupPaneIds = groupWindow.groupPanes;
+    if (!groupPaneIds || groupPaneIds.length < 2) return false;
+
+    const idx = groupPaneIds.indexOf(targetId);
+    if (idx === -1) return false;
+
+    const nextIdx = (idx + 1) % groupPaneIds.length;
+    return this.groupSwitch(groupPaneIds[nextIdx]);
+  }
+
+  // ============================================
+  // Unified Navigation (mirrors nav.sh)
+  // ============================================
+
+  /**
+   * Navigate left/right: the neighbouring group member first, without
+   * wrapping, then the neighbouring split (mirrors bin/tmuxy/nav). From the
+   * last member of a group, right moves on to the pane on the right.
+   */
+  navHorizontal(direction: 'left' | 'right'): void {
+    const activeWindow = this.getActiveWindow();
+    if (!activeWindow) return;
+
+    const groupPaneIds = this.findGroupForPane(this.activePaneId)?.groupPanes;
+    if (groupPaneIds && groupPaneIds.length > 1) {
+      const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
+      if (visibleId) {
+        const next = groupPaneIds.indexOf(visibleId) + (direction === 'right' ? 1 : -1);
+        if (next >= 0 && next < groupPaneIds.length) {
+          this.groupSwitch(groupPaneIds[next]);
+          return;
+        }
+      }
+    }
+
+    this.selectPaneByDirection(direction === 'right' ? 'Right' : 'Left');
+  }
+
+  /** Navigate up/down: vertical pane splits only (no group or tab fallback) */
+  navVertical(direction: 'up' | 'down'): void {
+    const tmuxDir = direction === 'down' ? 'Down' : 'Up';
+    this.selectPaneByDirection(tmuxDir);
+  }
+
+  /** Navigate to previous pane in group */
+  groupPrev(paneId?: string): boolean {
+    const targetId = paneId ?? this.activePaneId;
+    const groupWindow = this.findGroupForPane(targetId);
+    if (!groupWindow) return false;
+
+    const groupPaneIds = groupWindow.groupPanes;
+    if (!groupPaneIds || groupPaneIds.length < 2) return false;
+
+    const idx = groupPaneIds.indexOf(targetId);
+    if (idx === -1) return false;
+
+    const prevIdx = (idx - 1 + groupPaneIds.length) % groupPaneIds.length;
+    return this.groupSwitch(groupPaneIds[prevIdx]);
+  }
+
+  /** Find the group window containing a pane */
+  private findGroupForPane(paneId: string): FakeWindow | undefined {
+    return this.windows.find(
+      (w) => w.windowType === 'group' && (w.groupPanes ?? []).includes(paneId),
+    );
+  }
+
+  /** Swap a visible pane with a hidden group pane */
+  private swapGroupPanes(
+    visibleId: string,
+    hiddenId: string,
+    activeWindow: FakeWindow,
+    groupWindow: FakeWindow,
+  ): void {
+    const visiblePane = this.panes.get(visibleId);
+    const hiddenPane = this.panes.get(hiddenId);
+    if (!visiblePane || !hiddenPane) return;
+
+    // Swap in layout: replace visible with hidden in active window
+    activeWindow.layout = this.replaceLeafId(activeWindow.layout, visibleId, hiddenId);
+
+    // Move hidden pane to active window
+    hiddenPane.windowId = activeWindow.id;
+
+    // Move visible pane to group window
+    visiblePane.windowId = groupWindow.id;
+    groupWindow.layout = { type: 'leaf', paneId: visibleId };
+
+    // Update active pane
+    this.activePaneId = hiddenId;
+
+    this.applyLayout(activeWindow);
+  }
+
+  /** Replace a pane ID in the layout tree */
+  private replaceLeafId(node: LayoutNode, oldId: string, newId: string): LayoutNode {
+    if (node.type === 'leaf') {
+      return node.paneId === oldId ? { type: 'leaf', paneId: newId } : node;
+    }
+    return {
+      ...node,
+      children: [
+        this.replaceLeafId(node.children[0], oldId, newId),
+        this.replaceLeafId(node.children[1], oldId, newId),
+      ],
+    };
+  }
+
+  // ============================================
+  // Internal Helpers
+  // ============================================
+
+  private collectLeafIds(node: LayoutNode): string[] {
+    if (node.type === 'leaf') return [node.paneId];
+    return [...this.collectLeafIds(node.children[0]), ...this.collectLeafIds(node.children[1])];
+  }
+
+  /** All panes side by side (vertical splits) */
+  private buildEvenHorizontal(paneIds: string[]): LayoutNode {
+    return this.buildBalancedTree(paneIds, 'vertical');
+  }
+
+  /** All panes stacked (horizontal splits) */
+  private buildEvenVertical(paneIds: string[]): LayoutNode {
+    return this.buildBalancedTree(paneIds, 'horizontal');
+  }
+
+  /** One big pane on top, rest equally distributed below */
+  private buildMainHorizontal(paneIds: string[]): LayoutNode {
+    if (paneIds.length <= 1) return { type: 'leaf', paneId: paneIds[0] };
+    const main: LayoutNode = { type: 'leaf', paneId: paneIds[0] };
+    const rest = this.buildBalancedTree(paneIds.slice(1), 'vertical');
+    return { type: 'split', direction: 'horizontal', ratio: 0.6, children: [main, rest] };
+  }
+
+  /** One big pane on left, rest equally distributed to the right */
+  private buildMainVertical(paneIds: string[]): LayoutNode {
+    if (paneIds.length <= 1) return { type: 'leaf', paneId: paneIds[0] };
+    const main: LayoutNode = { type: 'leaf', paneId: paneIds[0] };
+    const rest = this.buildBalancedTree(paneIds.slice(1), 'horizontal');
+    return { type: 'split', direction: 'vertical', ratio: 0.6, children: [main, rest] };
+  }
+
+  /** Grid layout: rows × cols */
+  private buildTiled(paneIds: string[]): LayoutNode {
+    const count = paneIds.length;
+    const cols = Math.ceil(Math.sqrt(count));
+    const rows = Math.ceil(count / cols);
+
+    // Build rows, each row is a horizontal chain of panes
+    const rowNodes: LayoutNode[] = [];
+    for (let r = 0; r < rows; r++) {
+      const rowPanes = paneIds.slice(r * cols, Math.min((r + 1) * cols, count));
+      rowNodes.push(this.buildBalancedTree(rowPanes, 'vertical'));
+    }
+    return this.buildBalancedTree(rowNodes, 'horizontal');
+  }
+
+  private buildBalancedTree(
+    items: (string | LayoutNode)[],
+    direction: 'horizontal' | 'vertical',
+  ): LayoutNode {
+    if (items.length === 1) {
+      const item = items[0];
+      return typeof item === 'string' ? { type: 'leaf', paneId: item } : item;
+    }
+    const mid = Math.ceil(items.length / 2);
+    const left = this.buildBalancedTree(items.slice(0, mid), direction);
+    const right = this.buildBalancedTree(items.slice(mid), direction);
+    return {
+      type: 'split',
+      direction,
+      ratio: mid / items.length,
+      children: [left, right],
+    };
+  }
+
+  /** Replace a pane's content with a widget marker + content lines */
+  writeWidget(paneId: string, widgetName: string, lines: string[]): void {
+    const pane = this.panes.get(paneId);
+    if (!pane) return;
+    pane.shell.writeWidgetContent(widgetName, lines);
+    this.paneWidgets.set(paneId, widgetName);
+    pane.title = widgetName;
+    pane.command = widgetName;
+  }
+
+  renameWindow(windowId: string, name: string): boolean {
+    const window = this.windows.find((w) => w.id === windowId);
+    if (!window) return false;
+    window.name = name;
+    window.manualName = true;
+    return true;
+  }
+
+  // ============================================
+  // Layout Helpers
+  // ============================================
+
+  private allocPaneId(): string {
+    return `%${this.nextPaneNum++}`;
+  }
+
+  private allocWindowId(): string {
+    return `@${this.nextWindowNum++}`;
+  }
+
+  private getActiveWindow(): FakeWindow | undefined {
+    return this.windows.find((w) => w.id === this.activeWindowId);
+  }
+
+  private splitLeaf(
+    node: LayoutNode,
+    targetPaneId: string,
+    newPaneId: string,
+    direction: 'horizontal' | 'vertical',
+  ): LayoutNode {
+    if (node.type === 'leaf') {
+      if (node.paneId === targetPaneId) {
+        return {
+          type: 'split',
+          direction,
+          ratio: 0.5,
+          children: [
+            { type: 'leaf', paneId: targetPaneId },
+            { type: 'leaf', paneId: newPaneId },
+          ],
+        };
+      }
+      return node;
+    }
+    return {
+      ...node,
+      children: [
+        this.splitLeaf(node.children[0], targetPaneId, newPaneId, direction),
+        this.splitLeaf(node.children[1], targetPaneId, newPaneId, direction),
+      ],
+    };
+  }
+
+  private removeLeaf(node: LayoutNode, paneId: string): LayoutNode | null {
+    if (node.type === 'leaf') {
+      return node.paneId === paneId ? null : node;
+    }
+    const left = this.removeLeaf(node.children[0], paneId);
+    const right = this.removeLeaf(node.children[1], paneId);
+    if (!left) return right;
+    if (!right) return left;
+    return { ...node, children: [left, right] };
+  }
+
+  private computePositions(
+    node: LayoutNode,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): Array<{ paneId: string; x: number; y: number; width: number; height: number }> {
+    if (node.type === 'leaf') {
+      if (y === 0) {
+        // Top of grid: header occupies row 0, content starts at row 1.
+        // Report y=1, height=height-1 (content rows only) — matches real tmux.
+        return [{ paneId: node.paneId, x, y: 1, width, height: Math.max(height - 1, 1) }];
+      }
+      // Below a separator: header sits in separator row at y-1 (no adjustment needed).
+      return [{ paneId: node.paneId, x, y, width, height }];
+    }
+
+    if (node.direction === 'vertical') {
+      const leftW = Math.floor(width * node.ratio);
+      const rightW = width - leftW - 1; // -1 for separator
+      return [
+        ...this.computePositions(node.children[0], x, y, leftW, height),
+        ...this.computePositions(node.children[1], x + leftW + 1, y, Math.max(rightW, 1), height),
+      ];
+    } else {
+      const topH = Math.floor(height * node.ratio);
+      const bottomH = height - topH - 1; // -1 for separator
+      return [
+        ...this.computePositions(node.children[0], x, y, width, topH),
+        ...this.computePositions(node.children[1], x, y + topH + 1, width, Math.max(bottomH, 1)),
+      ];
+    }
+  }
+
+  private applyLayout(window: FakeWindow): void {
+    const positions = this.computePositions(window.layout, 0, 0, this.totalWidth, this.totalHeight);
+    for (const pos of positions) {
+      const pane = this.panes.get(pos.paneId);
+      if (pane) {
+        pane.shell.resize(Math.max(pos.width, 1), Math.max(pos.height, 1));
+      }
+    }
+  }
+
+  private adjustRatio(
+    node: LayoutNode,
+    paneId: string,
+    direction: string,
+    adjustment: number,
+    availWidth: number,
+    availHeight: number,
+  ): boolean {
+    if (node.type === 'leaf') return false;
+
+    // Check if either child contains the pane
+    const leftContains = this.containsPane(node.children[0], paneId);
+    const rightContains = this.containsPane(node.children[1], paneId);
+
+    if (leftContains && rightContains) return false; // shouldn't happen
+
+    if (leftContains || rightContains) {
+      // Check if the split direction matches the resize direction
+      const isVerticalResize = direction === 'Left' || direction === 'Right';
+      const isHorizontalResize = direction === 'Up' || direction === 'Down';
+
+      if (
+        (node.direction === 'vertical' && isVerticalResize) ||
+        (node.direction === 'horizontal' && isHorizontalResize)
+      ) {
+        // Convert cell-based adjustment to ratio delta using available space
+        const available = node.direction === 'vertical' ? availWidth : availHeight;
+        const delta = adjustment / Math.max(available, 1);
+        const grow =
+          (leftContains && (direction === 'Right' || direction === 'Down')) ||
+          (rightContains && (direction === 'Left' || direction === 'Up'));
+        node.ratio = Math.max(0.1, Math.min(0.9, node.ratio + (grow ? delta : -delta)));
+        return true;
+      }
+
+      // Recurse into the child that contains the pane, propagating available space
+      if (node.direction === 'vertical') {
+        const leftW = Math.floor(availWidth * node.ratio);
+        const rightW = availWidth - leftW - 1;
+        if (leftContains)
+          return this.adjustRatio(
+            node.children[0],
+            paneId,
+            direction,
+            adjustment,
+            leftW,
+            availHeight,
+          );
+        return this.adjustRatio(
+          node.children[1],
+          paneId,
+          direction,
+          adjustment,
+          rightW,
+          availHeight,
+        );
+      } else {
+        const topH = Math.floor(availHeight * node.ratio);
+        const bottomH = availHeight - topH - 1;
+        if (leftContains)
+          return this.adjustRatio(
+            node.children[0],
+            paneId,
+            direction,
+            adjustment,
+            availWidth,
+            topH,
+          );
+        return this.adjustRatio(
+          node.children[1],
+          paneId,
+          direction,
+          adjustment,
+          availWidth,
+          bottomH,
+        );
+      }
+    }
+
+    return false;
+  }
+
+  private containsPane(node: LayoutNode, paneId: string): boolean {
+    if (node.type === 'leaf') return node.paneId === paneId;
+    return (
+      this.containsPane(node.children[0], paneId) || this.containsPane(node.children[1], paneId)
+    );
+  }
+
+  private updateWindowName(): void {
+    const pane = this.panes.get(this.activePaneId);
+    if (!pane) return;
+    const window = this.windows.find((w) => w.id === pane.windowId);
+    if (!window || window.manualName) return;
+    // Set window name to last path component of cwd
+    const cwd = pane.shell.cwd;
+    const name = cwd === '/' ? '/' : (cwd.split('/').pop() ?? 'bash');
+    window.name = name;
+  }
+}

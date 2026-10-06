@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Chunk, Effect, Exit, Stream } from 'effect';
 import { TmuxTransport, type TmuxTransportService } from '../TmuxTransport';
 import { TransportEvent } from '../events';
-import type { TmuxAdapter } from '../../../tmux/types';
+import type { TmuxAdapter } from '../driver';
 import { fakeTransport } from '../../../test/transport';
 
 const call = <A, E>(f: (t: TmuxTransportService) => Effect.Effect<A, E>) =>

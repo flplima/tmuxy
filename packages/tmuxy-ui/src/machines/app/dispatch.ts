@@ -15,7 +15,7 @@
 import { assign, enqueueActions, sendTo } from 'xstate';
 import { isLayoutChange, isMultiStep, TmuxOp, type TmuxOpOf } from '../../domain/commands';
 import type { PaneId, WindowId } from '../../domain/ids';
-import { parseCommandToOp, stripPin } from '../../tmux/store/parseCommand';
+import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
 import type { AllAppMachineEvents, AppMachineContext } from '../types';
 
 type Ctx = AppMachineContext;

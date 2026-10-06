@@ -24,11 +24,11 @@
 import { Exit, Cause } from 'effect';
 import type { PaneId } from '../../domain/ids';
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { TmuxStore } from '../../tmux/store';
+import type { TmuxStore } from '../../infra/store/TmuxStore';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 import type { ServerState } from '../../domain/wire';
-import { tracer } from '../../tmux/tracer';
-import { isInputCommand, READ_ONLY_NOTICE } from '../../tmux/readOnly';
+import { tracer } from '../../infra/tracer';
+import { isInputCommand, READ_ONLY_NOTICE } from '../../domain/readOnly';
 import type { AppRuntime } from '../../infra/runtime';
 
 /** Extract only content-free id/direction fields from a typed op for the trace.

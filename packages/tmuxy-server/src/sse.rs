@@ -2693,7 +2693,7 @@ mod tests {
 }
 
 /// Canonical wire-shape fixtures, written by Rust and read back by the
-/// TypeScript decoders (`packages/tmuxy-ui/src/tmux/__tests__/`).
+/// TypeScript decoders (`packages/tmuxy-ui/src/infra/transport/__tests__/`).
 ///
 /// There is no ts-rs/specta/typeshare in this workspace: the Effect schemas
 /// and `deltaProtocol.ts` mirror these Rust types by hand, and a field that

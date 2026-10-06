@@ -16,7 +16,7 @@ import { Cursor } from './Cursor';
 import { useAppSelector, selectCharSize } from '../machines/AppContext';
 import { renderLineToDOM } from './terminalRendering';
 import { isRowLoaded, isWrappedRow } from '../utils/copyMode';
-import type { CopyModeState } from '../tmux/types';
+import type { CopyModeState } from '../domain/copyMode';
 import type { CellLine, CellColor, CellStyle } from '../domain/wire';
 
 interface ScrollbackTerminalProps {

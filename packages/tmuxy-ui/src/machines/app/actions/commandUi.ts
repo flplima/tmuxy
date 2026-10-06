@@ -10,7 +10,7 @@
 import { assign, cancel, enqueueActions, raise } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
-import { READ_ONLY_NOTICE } from '../../../tmux/readOnly';
+import { READ_ONLY_NOTICE } from '../../../domain/readOnly';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;

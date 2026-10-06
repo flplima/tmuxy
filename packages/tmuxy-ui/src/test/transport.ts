@@ -9,7 +9,7 @@ import { EventHub } from '../infra/eventHub';
 import { makeAppRuntime, type AppRuntime } from '../infra/runtime';
 import { TmuxTransport, makeTransport } from '../infra/transport/TmuxTransport';
 import type { TransportEvent } from '../infra/transport/events';
-import type { TmuxAdapter } from '../tmux/types';
+import type { TmuxAdapter } from '../infra/transport/driver';
 
 type NextResult = { kind: 'ok'; value: unknown } | { kind: 'reject'; error: unknown };
 

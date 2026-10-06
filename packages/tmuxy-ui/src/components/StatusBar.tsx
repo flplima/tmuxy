@@ -31,7 +31,7 @@ import {
   reportTitlebarHeight,
   startWindowDrag,
   titlebarDoubleClick,
-} from '../tmux/desktopWindow';
+} from '../infra/desktopWindow';
 import { LogProfiler } from '../utils/renderLog';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';

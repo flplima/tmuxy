@@ -14,7 +14,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { latencyTracker, type LatencySnapshot } from '../tmux/latencyTracker';
+import { latencyTracker, type LatencySnapshot } from '../infra/latencyTracker';
 
 let rafPending = false;
 const hudListeners = new Set<() => void>();

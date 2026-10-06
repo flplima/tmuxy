@@ -12,7 +12,7 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import type { CopyModeState, ScrollbackMode } from '../../../tmux/types';
+import type { CopyModeState, ScrollbackMode } from '../../../domain/copyMode';
 import type { TmuxPane } from '../../../domain/client';
 import type { CellLine } from '../../../domain/wire';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';

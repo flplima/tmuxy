@@ -4,7 +4,7 @@
  * All type definitions for state machines and their events.
  */
 
-import type { CopyModeState } from '../tmux/types';
+import type { CopyModeState } from '../domain/copyMode';
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { ServerState, KeyBindings, KeyBinding, Appearance } from '../domain/wire';
 import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
@@ -663,7 +663,7 @@ export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerSta
  */
 export type TmuxModelUpdateEvent = {
   type: 'TMUX_MODEL_UPDATE';
-  model: import('../tmux/store').TmuxClientModel;
+  model: import('../domain/store/types').TmuxClientModel;
 };
 /** A failed command or call, as the display string the snackbar shows. */
 export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
@@ -1345,4 +1345,4 @@ export type AppMachineEvent =
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
 
 // Optimistic operation tracking (PendingOp / TmuxOp / TmuxClientModel)
-// lives in `src/tmux/store/`.
+// lives in `src/domain/store/`.

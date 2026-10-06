@@ -4,7 +4,7 @@ import { renderHook } from '@testing-library/react';
 import { createRef } from 'react';
 import { usePaneMouse } from '../usePaneMouse';
 import type { AppMachineEvent } from '../../machines/types';
-import type { ScrollbackMode } from '../../tmux/types';
+import type { ScrollbackMode } from '../../domain/copyMode';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 
 /** What a sent event puts on the wire. */

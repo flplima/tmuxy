@@ -12,8 +12,8 @@ import { EventHub } from '../../eventHub';
 import { makeSequencedTransport } from '../stateFeed';
 import { TmuxTransport } from '../TmuxTransport';
 import type { DriverEvent } from '../events';
-import { StateSequencer } from '../../../tmux/stateStream';
-import type { SequencedAdapter } from '../../../tmux/types';
+import { StateSequencer } from '../stateSequencer';
+import type { SequencedAdapter } from '../driver';
 import { fullUpdate, ROWS, typicalDelta } from '../../../test/benchFixtures';
 
 const N = 2000;

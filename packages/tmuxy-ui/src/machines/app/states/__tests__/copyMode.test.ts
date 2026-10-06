@@ -6,7 +6,7 @@ import { copyModeActions, copyModeExitTimes } from '../../actions/copyMode';
 import { COPY_FLASH_MS } from '../../../../utils/copyFlash';
 const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
-import type { CopyModeState } from '../../../../tmux/types';
+import type { CopyModeState } from '../../../../domain/copyMode';
 import type { TmuxPane } from '../../../../domain/client';
 import type { CellLine } from '../../../../domain/wire';
 import type { PaneId } from '../../../../domain/ids';

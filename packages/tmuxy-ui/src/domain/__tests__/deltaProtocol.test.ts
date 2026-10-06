@@ -1,0 +1,175 @@
+import { describe, test, expect } from 'vitest';
+import { handleStateUpdate, applyDelta, isDeltaSeqGap } from '../deltaProtocol';
+import type {
+  ServerDelta,
+  ServerState,
+  ServerStateEncoded,
+  StateUpdate,
+  WirePaneEncoded,
+} from '../wire';
+import { wireDelta, wireState } from '../../test/wire';
+
+describe('isDeltaSeqGap', () => {
+  const delta = (seq: number): ServerDelta => wireDelta({ seq });
+
+  test('no gap right after a full state (null prevSeq)', () => {
+    expect(isDeltaSeqGap(null, delta(7))).toBe(false);
+  });
+
+  test('no gap when seq advances by exactly one', () => {
+    expect(isDeltaSeqGap(5, delta(6))).toBe(false);
+  });
+
+  test('gap when a delta is dropped', () => {
+    expect(isDeltaSeqGap(5, delta(7))).toBe(true);
+  });
+
+  test('gap when seq goes backwards or repeats', () => {
+    expect(isDeltaSeqGap(5, delta(5))).toBe(true);
+    expect(isDeltaSeqGap(5, delta(4))).toBe(true);
+  });
+});
+
+function makePane(overrides: Partial<WirePaneEncoded> = {}): WirePaneEncoded {
+  return {
+    id: 0,
+    tmux_id: '%0',
+    window_id: '@0',
+    content: [],
+    cursor_x: 0,
+    cursor_y: 0,
+    width: 80,
+    height: 24,
+    x: 0,
+    y: 0,
+    active: true,
+    command: 'zsh',
+    title: '',
+    border_title: '',
+    in_mode: false,
+    copy_cursor_x: 0,
+    copy_cursor_y: 0,
+    ...overrides,
+  };
+}
+
+function makeState(overrides: Partial<ServerStateEncoded> = {}): ServerState {
+  return wireState({
+    session_name: 'test',
+    active_window_id: '@0',
+    active_pane_id: '%0',
+    panes: [makePane()],
+    windows: [{ id: '@0', index: 1, name: 'test', active: true, window_type: 'tab' }],
+    total_width: 80,
+    total_height: 24,
+    ...overrides,
+  });
+}
+
+const nonEmptyContent = [[{ c: 'h' }, { c: 'e' }, { c: 'l' }, { c: 'l' }, { c: 'o' }]];
+const emptyContent = [[{ c: ' ' }, { c: ' ' }], []];
+
+describe('handleStateUpdate - content preservation', () => {
+  test('full update with empty content preserves existing non-empty content', () => {
+    const existing = makeState({
+      panes: [makePane({ content: nonEmptyContent })],
+    });
+    const update: StateUpdate = {
+      type: 'full',
+      state: makeState({ panes: [makePane({ content: emptyContent })] }),
+    };
+
+    const result = handleStateUpdate(update, existing);
+    expect(result).not.toBeNull();
+    expect(result!.panes[0].content).toEqual(nonEmptyContent);
+  });
+
+  test('full update with non-empty content replaces existing content', () => {
+    const existing = makeState({
+      panes: [makePane({ content: nonEmptyContent })],
+    });
+    const newContent = [[{ c: 'w' }, { c: 'o' }, { c: 'r' }, { c: 'l' }, { c: 'd' }]];
+    const update: StateUpdate = {
+      type: 'full',
+      state: makeState({ panes: [makePane({ content: newContent })] }),
+    };
+
+    const result = handleStateUpdate(update, existing);
+    expect(result).not.toBeNull();
+    expect(result!.panes[0].content).toEqual(newContent);
+  });
+
+  test('full update without existing state uses new state as-is', () => {
+    const update: StateUpdate = {
+      type: 'full',
+      state: makeState({ panes: [makePane({ content: emptyContent })] }),
+    };
+
+    const result = handleStateUpdate(update, null);
+    expect(result).not.toBeNull();
+    expect(result!.panes[0].content).toEqual(emptyContent);
+  });
+});
+
+describe('applyDelta - content preservation', () => {
+  test('a delta that empties every row clears the pane (what `clear` sends)', () => {
+    // The erase arrives as its own %output before the prompt is redrawn, so
+    // the delta legitimately blanks the whole pane; holding on to the old rows
+    // here left them under the new prompt.
+    const state = makeState({
+      panes: [makePane({ content: nonEmptyContent })],
+    });
+    const blanked = Object.fromEntries(nonEmptyContent.map((_, i) => [i, [{ c: ' ' }]]));
+    const result = applyDelta(
+      state,
+      wireDelta({
+        seq: 1,
+        panes: {
+          '%0': { content: blanked },
+        },
+      }),
+    );
+
+    expect(result.panes[0].content).toEqual(nonEmptyContent.map(() => [{ c: ' ' }]));
+  });
+
+  test('delta with non-empty content updates normally', () => {
+    const state = makeState({
+      panes: [makePane({ content: nonEmptyContent })],
+    });
+    const newLine = [{ c: 'n' }, { c: 'e' }, { c: 'w' }];
+    const result = applyDelta(
+      state,
+      wireDelta({
+        seq: 1,
+        panes: {
+          '%0': { content: { 0: newLine } },
+        },
+      }),
+    );
+
+    expect(result.panes[0].content[0]).toEqual(newLine);
+  });
+});
+
+describe('applyDelta — window order', () => {
+  test('an index-only window delta renumbers the window (a reorder moves its neighbours too)', () => {
+    const state = makeState({
+      windows: [
+        { id: '@0', index: 1, name: 'a', active: true, window_type: 'tab' },
+        { id: '@1', index: 2, name: 'b', active: false, window_type: 'tab' },
+      ],
+    });
+    const delta = wireDelta({
+      seq: 1,
+      windows: { '@1': { index: 1, active_pane_id: '%9' }, '@0': { index: 2 } },
+    });
+    const next = applyDelta(state, delta);
+    expect(next.windows.map((w) => [w.id, w.index])).toEqual([
+      ['@0', 2],
+      ['@1', 1],
+    ]);
+    // A window's own active pane travels in the same delta.
+    expect(next.windows.find((w) => w.id === '@1')?.active_pane_id).toBe('%9');
+  });
+});

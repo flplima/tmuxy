@@ -10,7 +10,7 @@
  *
  * Strings that genuinely arrive as strings — the bindings tmux reports
  * (`list-keys`), what the user types at the command prompt, tmuxy.conf
- * aliases — are recognised by `tmux/store/parseCommand.ts`, and whatever it
+ * aliases — are recognised by `domain/store/parseCommand.ts`, and whatever it
  * cannot name stays a `RawCommand`, sent verbatim.
  */
 

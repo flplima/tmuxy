@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { extractSelectedText, firstUnloadedGap, isWrappedRow } from '../copyMode';
-import type { CopyModeState } from '../../tmux/types';
+import type { CopyModeState } from '../../domain/copyMode';
 import type { CellLine } from '../../domain/wire';
 
 function makeLine(text: string): CellLine {

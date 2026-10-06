@@ -12,12 +12,12 @@
 
 import { Chunk, Effect, FiberSet, Option, PubSub, Queue, type Scope, Stream } from 'effect';
 import type { ServerState } from '../../domain/wire';
-import { classifyAdapterError, formatAdapterError } from '../../tmux/effect/AdapterError';
-import type { AdapterError } from '../../tmux/effect/AdapterError';
-import { latencyTracker } from '../../tmux/latencyTracker';
-import type { StateSequencer } from '../../tmux/stateStream';
-import { tracer } from '../../tmux/tracer';
-import type { SequencedAdapter } from '../../tmux/types';
+import { classifyAdapterError, formatAdapterError } from './AdapterError';
+import type { AdapterError } from './AdapterError';
+import { latencyTracker } from '../latencyTracker';
+import type { StateSequencer } from './stateSequencer';
+import { tracer } from '../tracer';
+import type { SequencedAdapter } from './driver';
 import { type DriverEvent, TransportEvent } from './events';
 import {
   forwardDriverEvents,

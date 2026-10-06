@@ -2,7 +2,7 @@
  * copyMode - Text extraction utilities for client-side copy mode
  */
 
-import type { CopyModeState } from '../tmux/types';
+import type { CopyModeState } from '../domain/copyMode';
 import type { CellLine } from '../domain/wire';
 
 /**

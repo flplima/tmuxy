@@ -4,10 +4,10 @@
  */
 
 import { Effect, Layer } from 'effect';
-import { HttpAdapter } from '../../tmux/HttpAdapter';
-import { TauriAdapter } from '../../tmux/adapters';
-import { DemoAdapter } from '../../tmux/demo/DemoAdapter';
-import type { V86TmuxAdapter } from '../../tmux/v86/V86TmuxAdapter';
+import { HttpAdapter } from './drivers/HttpAdapter';
+import { TauriAdapter } from './drivers/TauriAdapter';
+import { DemoAdapter } from './drivers/demo/DemoAdapter';
+import type { V86TmuxAdapter } from './drivers/v86/V86TmuxAdapter';
 import { isTauri } from '../../utils/platform';
 import { TmuxTransport, makeTransport } from './TmuxTransport';
 import { makeSequencedTransport } from './stateFeed';

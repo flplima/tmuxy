@@ -6,7 +6,7 @@
  * lastLayoutCommandTime, drag, resize,
  * resizeActive, suppressLayoutTransition.
  *
- * Optimistic operations are owned by the TmuxStore (`src/tmux/store/`).
+ * Optimistic operations are owned by the TmuxStore (`src/infra/store/TmuxStore.ts`, its model in `src/domain/store/`).
  * The TMUX_MODEL_UPDATE handler mirrors the store's `derived` snapshot into
  * context, so this state stays a passive view of the model.
  *

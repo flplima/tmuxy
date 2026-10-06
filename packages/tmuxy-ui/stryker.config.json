@@ -29,7 +29,7 @@
   "vitest": {
     "configFile": "vite.config.ts"
   },
-  "mutate": ["src/tmux/deltaProtocol.ts"],
+  "mutate": ["src/domain/deltaProtocol.ts"],
   "reporters": ["clear-text", "progress", "json"],
   "jsonReporter": {
     "fileName": "../../mutants.out/stryker-deltaProtocol.json"

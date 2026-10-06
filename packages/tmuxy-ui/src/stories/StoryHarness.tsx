@@ -17,7 +17,7 @@ import {
   type RenderTabline,
 } from '../lib';
 import { V86TransportLive } from '../infra/transport/layers';
-import { V86TmuxAdapter } from '../tmux/v86/V86TmuxAdapter';
+import { V86TmuxAdapter } from '../infra/transport/drivers/v86/V86TmuxAdapter';
 import {
   CHAR_HEIGHT,
   CONTAINER_PADDING_BOTTOM,
@@ -26,7 +26,7 @@ import {
   TMUX_STATUS_BAR_HEIGHT,
 } from '../constants';
 import { measureCellMetrics } from '../utils/cellMetrics';
-import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../tmux/v86/V86Engine';
+import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../infra/transport/drivers/v86/V86Engine';
 
 export interface AppHarnessProps {
   /** Tmux commands run after the initial state loads (splits, new-window, etc) */

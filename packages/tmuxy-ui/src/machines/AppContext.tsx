@@ -33,7 +33,7 @@ import type { Layer } from 'effect';
 import type { TmuxTransport } from '../infra/transport/TmuxTransport';
 import { transportForEnvironment } from '../infra/transport/layers';
 import { makeAppRuntime } from '../infra/runtime';
-import { tracer } from '../tmux/tracer';
+import { tracer } from '../infra/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createLinkModifierActor } from './actors/linkModifierActor';
@@ -41,7 +41,7 @@ import { createGestureActor } from './actors/gestureActor';
 import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
-import { makeTmuxStore } from '../tmux/store';
+import { makeTmuxStore } from '../infra/store/TmuxStore';
 import { measureCellMetrics } from '../utils/cellMetrics';
 import type { PaneId } from '../domain/ids';
 

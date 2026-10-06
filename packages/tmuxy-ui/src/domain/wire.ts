@@ -11,7 +11,7 @@
  * fails a test.
  *
  * Every payload is decoded once, where it enters the client (see
- * `tmux/wireDecode.ts`). Ids are the branded schemas of `domain/ids.ts`, so
+ * `infra/transport/wireDecode.ts`). Ids are the branded schemas of `domain/ids.ts`, so
  * from the boundary on a pane id cannot be confused with a window id.
  *
  * Pane content is the hot path — a full state carries every cell of every

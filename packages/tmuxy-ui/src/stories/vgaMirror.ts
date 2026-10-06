@@ -27,7 +27,7 @@
  * the separator column on each side).
  */
 
-import { getSharedEngine, type V86Engine } from '../tmux/v86/V86Engine';
+import { getSharedEngine, type V86Engine } from '../infra/transport/drivers/v86/V86Engine';
 
 const TTY = '/dev/tty1';
 // The tty is opened READ-WRITE as stdin (`<>`): the client hands that fd to the

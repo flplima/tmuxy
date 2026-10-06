@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createTmuxActor } from '../tmuxActor';
-import type { TmuxAdapter } from '../../../tmux/types';
+import type { TmuxAdapter } from '../../../infra/transport/driver';
 import type { AppRuntime } from '../../../infra/runtime';
 import { fakeTransport } from '../../../test/transport';
 

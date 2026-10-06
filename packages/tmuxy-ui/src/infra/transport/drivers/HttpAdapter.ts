@@ -1,0 +1,714 @@
+import type { SequencedAdapter } from '../driver';
+import { EventHub } from '../../eventHub';
+import { TransportEvent, type DriverEvent } from '../events';
+import {
+  ClipboardEvent,
+  CommandFailure,
+  ConnectionInfo,
+  DetachedEvent,
+  KeyBindings,
+  LogEvent,
+  MessageFrame,
+  ThemeSettings,
+} from '../../../domain/wire';
+import { StateSequencer } from '../stateSequencer';
+import { decodeEvent } from '../wireDecode';
+import { KeyBatcher } from '../keyBatching';
+import { latencyTracker } from '../../latencyTracker';
+import { tracer } from '../../tracer';
+import { isReadCommand, READ_ONLY_REASON } from '../../../domain/readOnly';
+import { Cancelled } from '../AdapterError';
+import { Effect, Fiber, Queue, Schedule, Schema } from 'effect';
+
+/**
+ * Reconnection backoff: retry forever, exponential from 1s, capped at 30s.
+ *
+ * `Schedule.either` recurs while EITHER input recurs and takes the SHORTER of
+ * the two delays — so the exponential (1s, 2s, 4s, …) is clamped by the
+ * constant 30s spacing, and the constant's infinite recurrence keeps the loop
+ * retrying indefinitely until the connection is re-established or the fiber is
+ * interrupted. Modelling reconnection as an Effect Schedule (rather than a
+ * hand-rolled setTimeout + flag machine) means "keep retrying with backoff"
+ * is the schedule's definition — an establish-failure and a mid-session drop
+ * are the same program failure, so neither can silently end the retry loop.
+ */
+const RECONNECT_SCHEDULE = Schedule.exponential('1 seconds').pipe(
+  Schedule.either(Schedule.spaced('30 seconds')),
+);
+
+/** A connection that had been established ended — as opposed to one that never opened. */
+class ConnectionDropped extends Error {}
+
+/** A beat before reopening a dropped stream, so a server that accepts and drops cannot spin us. */
+const REOPEN_AFTER_DROP_MS = 250;
+
+/** Quiet for this long on a stream the server pings every second means it is gone. */
+const STREAM_SILENCE_MS = 5000;
+
+/** Every event the server sends; any of them shows the stream is alive. */
+const STREAM_EVENTS = [
+  'ping',
+  'connection-info',
+  'state-update',
+  'keybindings',
+  'theme-settings',
+  'tmux-error',
+  'clipboard',
+  'log',
+  'detached',
+  'fatal',
+] as const;
+
+const isCommandFailure = Schema.is(CommandFailure);
+
+/** The `data` of an SSE frame (`{ event, data }` JSON); undefined when the frame is not JSON. */
+function parseFrame(type: string, event: MessageEvent): unknown {
+  try {
+    return (JSON.parse(event.data) as { data?: unknown }).data;
+  } catch (e) {
+    console.error(`Failed to parse ${type} frame:`, e);
+    return undefined;
+  }
+}
+
+/** A connect() caller waiting for the channel to (re)reach the connected state. */
+interface ConnectWaiter {
+  resolve: () => void;
+  reject: (reason: unknown) => void;
+}
+
+/**
+ * Get the session name from URL query parameters.
+ * Falls back to 'tmuxy' if not specified.
+ */
+function getSessionFromUrl(): string {
+  if (typeof window === 'undefined') return 'tmuxy';
+  const params = new URLSearchParams(window.location.search);
+  return params.get('session') || 'tmuxy';
+}
+
+/**
+ * HTTP Adapter using SSE for server->client push and POST for client->server commands.
+ */
+export class HttpAdapter implements SequencedAdapter {
+  /** The server runs `--read-only`; known from the `connection-info` greeting. */
+  readOnly = false;
+  /** Enumerating sessions is a `query_tmux`, which a read-only server refuses. */
+  get enumeratesSessions(): boolean {
+    return !this.readOnly;
+  }
+  private eventSource: EventSource | null = null;
+  // The supervised reconnect fiber. One Effect.retry loop owns opening the
+  // EventSource and reopening it with backoff, so there is never a rival
+  // stream to orphan and no hand-maintained timer to forget to reschedule.
+  // Null when no channel is running.
+  private channelFiber: Fiber.RuntimeFiber<void, never> | null = null;
+  // connect() callers waiting for the channel to next reach the connected
+  // state. Resolved on connection-info, rejected on fatal / disconnect /
+  // session switch — so a connect() issued during a reconnect window waits
+  // for the real reconnection instead of resolving against a dead stream.
+  private connectWaiters: ConnectWaiter[] = [];
+  private readonly reconnectSchedule: Schedule.Schedule<unknown>;
+  private connectionId: number = 0;
+  private connected = false;
+  /** Per-connection counter for minting trace action ids (docs/TELEMETRY.md). */
+  private traceActionSeq = 0;
+  private reconnecting = false;
+  // Session-name override set by switchSession. Instance-scoped (not a module
+  // global) so multiple adapters — or a re-created one — don't share/leak it.
+  private sessionOverride: string | null = null;
+  private intentionalDisconnect = false;
+
+  readonly events = new EventHub<DriverEvent>();
+  private fatal = false;
+  /** Removes the `online` / `visibilitychange` listeners; null while none are installed. */
+  private networkHints: (() => void) | null = null;
+  /** The in-flight question to a server whose event stream would not open. */
+  private refusalProbe: AbortController | null = null;
+
+  /** The client's copy of the state the stream stage sequences; a new connection or session restarts it. */
+  readonly sequencer = new StateSequencer();
+
+  // Keyboard batching
+  private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
+
+  // Serialized command queue: keystroke and mutating-command POSTs must leave
+  // the browser strictly in issue order — concurrent POSTs can arrive reordered,
+  // transposing characters or landing a split in the previous tab. Producers
+  // offer a task Effect; one consumer fiber (started in the constructor) drains
+  // them FIFO, one at a time. Unbounded: the producers are user keystrokes.
+  private readonly commandQueue = Effect.runSync(Queue.unbounded<Effect.Effect<void>>());
+
+  /**
+   * @param opts.reconnectSchedule override the backoff policy — tests inject a
+   *   zero-delay schedule so reconnection is synchronous instead of real-time.
+   */
+  constructor(opts: { reconnectSchedule?: Schedule.Schedule<unknown> } = {}) {
+    this.reconnectSchedule = opts.reconnectSchedule ?? RECONNECT_SCHEDULE;
+    // Drain the command queue for the adapter's lifetime: take one task, run it
+    // to completion, repeat. Awaiting each task before the next take is what
+    // keeps the POSTs serial.
+    Effect.runFork(
+      Queue.take(this.commandQueue).pipe(
+        Effect.flatMap((task) => task.pipe(Effect.ignore)),
+        Effect.forever,
+      ),
+    );
+  }
+
+  /** Effective session name: the switchSession override, else the URL param. */
+  private getEffectiveSession(): string {
+    return this.sessionOverride || getSessionFromUrl();
+  }
+
+  connect(): Promise<void> {
+    if (this.connected && this.eventSource) return Promise.resolve();
+    if (this.fatal)
+      return Promise.reject(new Error('tmux backend is in fatal state; refresh required'));
+
+    this.intentionalDisconnect = false;
+
+    // One supervised fiber owns the stream and its reconnect loop. A second
+    // caller (e.g. an auto-connect from invoke() during a reconnect window)
+    // does NOT open a rival EventSource — it just waits for the same connected
+    // transition, so a stream can never be orphaned.
+    if (!this.channelFiber) this.startChannel();
+    this.watchForTheNetwork();
+
+    return new Promise<void>((resolve, reject) => {
+      this.connectWaiters.push({ resolve, reject });
+    });
+  }
+
+  /** The browser's own hints that a retry is worth making now rather than at the next backoff tick. */
+  private watchForTheNetwork(): void {
+    if (this.networkHints || typeof window === 'undefined') return;
+    const retry = (): void => this.reconnectNow();
+    const retryWhenVisible = (): void => {
+      if (document.visibilityState === 'visible') this.reconnectNow();
+    };
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', retryWhenVisible);
+    this.networkHints = () => {
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', retryWhenVisible);
+    };
+  }
+
+  disconnect(): void {
+    this.intentionalDisconnect = true;
+    this.networkHints?.();
+    this.networkHints = null;
+    this.reconnecting = false;
+
+    this.keyBatcher.destroy();
+
+    // Interrupt the reconnect fiber; its scoped finalizer closes the stream.
+    if (this.channelFiber) {
+      Effect.runFork(Fiber.interrupt(this.channelFiber));
+      this.channelFiber = null;
+    }
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+
+    this.connected = false;
+    this.connectionId = 0;
+    // Nobody is going to connect now — release anyone still awaiting connect().
+    this.failConnectWaiters(new Error('disconnected'));
+  }
+
+  /**
+   * Fork the supervised reconnect loop. `openConnection` fails whenever the
+   * stream ends (establish failure OR mid-session drop — the same to the loop),
+   * and `Effect.retry` reopens it on the backoff schedule until connected or
+   * the fiber is interrupted. A fatal event flips `this.fatal`, which the retry
+   * `while` predicate reads to STOP retrying and surface the terminal error to
+   * any waiting connect() callers. There is no reschedule call to forget, so
+   * the establish-failure dead-loop the old imperative path had is impossible.
+   */
+  private startChannel(): void {
+    // Resolve the events URL here, on the caller's stack, rather than inside the
+    // fiber: `window` is only reliably bound synchronously. The URL is fixed for
+    // the channel's lifetime (a session change tears the channel down and starts
+    // a new one), so reconnect attempts reuse it.
+    const session = this.getEffectiveSession();
+    const protocol = window.location.protocol;
+    const host = window.location.host || 'localhost:3853';
+    const eventsUrl = `${protocol}//${host}/events?session=${encodeURIComponent(session)}`;
+
+    // The backoff belongs to ONE outage. A connection that was established and
+    // then dropped leaves the retry (`while` turns false for it) and the loop
+    // comes round to a fresh schedule — one `Effect.retry` for the channel's
+    // whole life only ever climbs, so after a handful of sleep/wake cycles
+    // every reconnect waited out the 30s cap however briefly the link was down.
+    const oneOutage = this.openConnection(eventsUrl).pipe(
+      Effect.retry({
+        schedule: this.reconnectSchedule,
+        while: (cause) => !this.fatal && !(cause instanceof ConnectionDropped),
+      }),
+      Effect.catchIf(
+        (cause) => cause instanceof ConnectionDropped && !this.fatal,
+        () => Effect.sleep(`${REOPEN_AFTER_DROP_MS} millis`),
+      ),
+    );
+    const program = oneOutage.pipe(
+      Effect.forever,
+      // The loop only ends un-interrupted when retrying stops (fatal). Settle
+      // any outstanding connect() callers with that terminal error.
+      Effect.catchAll((cause) =>
+        Effect.sync(() =>
+          this.failConnectWaiters(cause instanceof Error ? cause : new Error(String(cause))),
+        ),
+      ),
+    );
+    const fiber = Effect.runFork(program);
+    this.channelFiber = fiber;
+    // Only while it is still the current one: `reconnectNow` replaces the
+    // fiber, and the old one ending must not clear its successor's slot.
+    fiber.addObserver(() => {
+      if (this.channelFiber === fiber) this.channelFiber = null;
+    });
+  }
+
+  /**
+   * Stop waiting out the backoff and try again now. Called when there is a
+   * reason to think the network is back — the browser says so (`online`), the
+   * tab came to the front, the user pressed Retry — because none of those reach
+   * a fiber asleep for up to 30s. A no-op while connected, fatal or stopped.
+   */
+  reconnectNow(): void {
+    if (this.connected || this.fatal || this.intentionalDisconnect || !this.channelFiber) return;
+    Effect.runFork(Fiber.interrupt(this.channelFiber));
+    this.startChannel();
+  }
+
+  /**
+   * Open a single EventSource. The returned effect stays suspended for the
+   * LIFETIME of that connection — its handlers fire side effects (events,
+   * resolve waiters) while connected — and only completes, as a failure, when
+   * the connection ends. Retrying it therefore reconnects. Its scoped finalizer
+   * closes the stream on interruption (disconnect / session switch).
+   */
+  private openConnection(eventsUrl: string): Effect.Effect<never, Error> {
+    return Effect.async<never, Error>((resume) => {
+      const es = new EventSource(eventsUrl);
+      // A new connection starts a new sequence; until its full state lands,
+      // an initial-state answer is the state to start from.
+      this.sequencer.reopen();
+      this.eventSource = es;
+
+      // A link that dies silently — a sleeping laptop, a Wi-Fi roam, a proxy
+      // that holds the socket open — raises no error for minutes. The server
+      // pings an otherwise idle stream every second, so a connected stream
+      // that has been quiet for several is gone. Armed only once a ping has
+      // been seen: an older server sends comments, which never reach a page.
+      let lastHeard = Date.now();
+      let pinged = false;
+      for (const type of STREAM_EVENTS) {
+        es.addEventListener(type, () => {
+          lastHeard = Date.now();
+          if (type === 'ping') pinged = true;
+        });
+      }
+      const watchdog = setInterval(() => {
+        if (!pinged || !this.connected) return;
+        if (Date.now() - lastHeard > STREAM_SILENCE_MS) {
+          endConnection(new ConnectionDropped('SSE stream went silent'));
+        }
+      }, 1000);
+
+      // End this connection exactly once: close the stream, mark disconnected,
+      // announce reconnection (unless intentional/fatal), then fail the effect
+      // so the retry schedule takes over.
+      let ended = false;
+      const endConnection = (error: Error): void => {
+        if (ended) return;
+        ended = true;
+        clearInterval(watchdog);
+        es.close();
+        if (this.eventSource === es) this.eventSource = null;
+        this.connected = false;
+        this.connectionId = 0;
+        if (!this.intentionalDisconnect && !this.fatal) {
+          this.reconnecting = true;
+          this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
+        }
+        resume(Effect.fail(error));
+      };
+
+      // Every frame is `{ event, data }` JSON; `data` is decoded against its
+      // schema and the handler only ever sees a payload that matched.
+      const on = <A, I>(
+        type: (typeof STREAM_EVENTS)[number],
+        schema: Schema.Schema<A, I>,
+        handle: (data: A) => void,
+      ): void => {
+        const decode = decodeEvent(schema, type);
+        es.addEventListener(type, (event: MessageEvent) => {
+          const data = decode(parseFrame(type, event));
+          if (data !== null) handle(data);
+        });
+      };
+
+      on('connection-info', ConnectionInfo, (data) => {
+        this.connectionId = data.connection_id;
+        this.connected = true;
+
+        // Clear reconnecting state if was reconnecting
+        if (this.reconnecting) {
+          this.reconnecting = false;
+          this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
+        }
+
+        this.readOnly = data.read_only === true;
+        this.events.emit(
+          TransportEvent.ConnectionInfo({
+            defaultShell: data.default_shell ?? 'bash',
+            readOnly: this.readOnly,
+          }),
+        );
+
+        // Action tracing (docs/TELEMETRY.md): the server tells us whether it
+        // is recording; only then do we ship our own events, and only through
+        // the same-origin /trace sink. The server independently rejects when
+        // off, so this is a hint, not the gate.
+        tracer.setServerEnabled(data.trace_enabled === true && !this.readOnly);
+        tracer.setSink((events) => this.shipTrace(events));
+
+        this.resolveConnectWaiters();
+      });
+
+      // Decoded and sequenced by the stream stage (`stateFeed.ts`).
+      es.addEventListener('state-update', (event: MessageEvent) => {
+        this.events.emit({ _tag: 'StateReceived', payload: parseFrame('state-update', event) });
+      });
+
+      on('keybindings', KeyBindings, (keybindings) =>
+        this.events.emit(TransportEvent.KeyBindings({ keybindings })),
+      );
+
+      on('theme-settings', ThemeSettings, (settings) =>
+        this.events.emit(TransportEvent.ThemeSettings({ settings })),
+      );
+
+      // Backend errors for the user (a rejected command, a failed sync). The
+      // wire name is `tmux-error`, not `error`: a server event named `error`
+      // also fires `es.onerror`, and every reported error would have bounced
+      // the connection.
+      on('tmux-error', MessageFrame, (data) =>
+        this.events.emit(TransportEvent.Error({ message: data.message || 'Unknown error' })),
+      );
+
+      // OSC 52 clipboard write requests from terminal applications.
+      // Mirrored into the system clipboard via navigator.clipboard.writeText.
+      on('clipboard', ClipboardEvent, (data) =>
+        this.events.emit(TransportEvent.Clipboard({ paneId: data.pane_id, text: data.text })),
+      );
+
+      on('log', LogEvent, (data) =>
+        this.events.emit(TransportEvent.Log({ kind: data.kind, message: data.message })),
+      );
+
+      // The connection ended with tmux's own reason. Deliberately does NOT set
+      // `this.fatal`: that flag stops the retry loop for good, and a detach is
+      // something the user steps back from by reconnecting.
+      on('detached', DetachedEvent, (data) =>
+        this.events.emit(TransportEvent.Detached({ reason: data.reason ?? null })),
+      );
+
+      // Backend gave up reconnecting — terminal state, no more events. Flip the
+      // flag the retry `while` predicate checks so the loop stops instead of
+      // reconnecting into a dead backend, then end the connection.
+      on('fatal', MessageFrame, (data) => {
+        const message = data.message || 'tmux unavailable';
+        this.fatal = true;
+        this.events.emit(TransportEvent.Fatal({ message }));
+        endConnection(new Error(message));
+      });
+
+      es.onerror = () => {
+        // A stream that never opened may have been REFUSED rather than missed:
+        // EventSource reports both as the same bare error, so ask the server.
+        if (!this.connected) void this.explainRefusal(eventsUrl);
+        // Establish failure and mid-session drop are the same to the retry
+        // loop — end the connection and let the schedule pick the next attempt.
+        endConnection(
+          this.connected
+            ? new ConnectionDropped('SSE connection lost')
+            : new Error('Failed to connect to SSE'),
+        );
+      };
+
+      // Interrupt (disconnect / switchSession): close the stream we opened.
+      return Effect.sync(() => {
+        if (ended) return;
+        ended = true;
+        clearInterval(watchdog);
+        es.close();
+        if (this.eventSource === es) this.eventSource = null;
+      });
+    });
+  }
+
+  /**
+   * Find out why the event stream would not open. `EventSource` hides the
+   * response, so a server that refuses every request looks exactly like one
+   * that is not there yet, and the app would sit on "Connecting…" forever,
+   * retrying something that cannot succeed. A 403 is an answer, not an outage
+   * — the request guard's verdict on this page's Host or origin, with the
+   * reason in the body (a server behind a proxy started without
+   * `--allowed-host` is the usual one). That ends the retrying and is shown.
+   * Anything else — no answer, a 5xx, a stream that does open — keeps it going.
+   */
+  private async explainRefusal(eventsUrl: string): Promise<void> {
+    if (this.refusalProbe || this.fatal) return;
+    const probe = new AbortController();
+    this.refusalProbe = probe;
+    try {
+      const response = await fetch(eventsUrl, {
+        headers: { Accept: 'text/event-stream' },
+        signal: probe.signal,
+      });
+      if (response.status !== 403 || this.connected) return;
+      const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
+      const message = `The server refused this page${reason ? `: ${reason}` : ''}`;
+      // The attempt that asked has already ended; this stops the next one.
+      this.fatal = true;
+      this.events.emit(TransportEvent.Fatal({ message }));
+    } catch {
+      // Unreachable, or aborted below: an outage, which the retry loop owns.
+    } finally {
+      // A stream that did open is held by the server until aborted.
+      probe.abort();
+      this.refusalProbe = null;
+    }
+  }
+
+  /** Resolve everyone awaiting connect() — a connection-info arrived. */
+  private resolveConnectWaiters(): void {
+    const waiters = this.connectWaiters;
+    this.connectWaiters = [];
+    for (const w of waiters) w.resolve();
+  }
+
+  /** Reject everyone awaiting connect() (fatal / disconnect / session switch). */
+  private failConnectWaiters(reason: unknown): void {
+    const waiters = this.connectWaiters;
+    this.connectWaiters = [];
+    for (const w of waiters) w.reject(reason);
+  }
+
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    if (this.readOnly) {
+      if (!isReadCommand(cmd)) throw new Cancelled({ reason: READ_ONLY_REASON });
+      // A viewer never reports its viewport: the session is sized to its
+      // smallest client, and that would shrink it under whoever writes.
+      if (cmd === 'get_initial_state') args = {};
+    }
+
+    // Answered raw: the stream stage decodes and adopts it.
+    if (cmd === 'get_initial_state') return this.invokeInternal(cmd, args);
+
+    // Check if this is a send-keys command that should be batched
+    if (this.keyBatcher.intercept(cmd, args)) {
+      return Promise.resolve(undefined as T);
+    }
+
+    // Non-send-keys command: flush all pending batches first to preserve ordering
+    this.keyBatcher.flushAll();
+
+    // run_tmux_command is a mutating call that MUST reach the monitor's
+    // command channel in issue order. axum spawns each POST as its own task,
+    // so two concurrent invokes can call `tx.send()` in the reverse order
+    // they were issued from the frontend — and a `split-window -h` that
+    // raced past a `select-window -t @B` would split the previous tab. Chain
+    // through `sendQueue` so HTTP POSTs leave the browser one at a time.
+    if (cmd === 'run_tmux_command') {
+      latencyTracker.markInput();
+      const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
+      tracer.event({ layer: 'adapter', name: 'send', kind: 'command', action_id: actionId });
+      return this.enqueueSerialInvoke<T>(cmd, args, actionId);
+    }
+
+    return this.invokeInternal(cmd, args);
+  }
+
+  /**
+   * Read from tmux (see TmuxAdapter.query). Not chained onto the mutation
+   * serial queue: the server answers it in-band on the same connection the
+   * mutations use, so tmux itself keeps the order.
+   */
+  query(command: string): Promise<string> {
+    if (this.readOnly) return Promise.reject(new Cancelled({ reason: READ_ONLY_REASON }));
+    return this.invokeInternal<string>('query_tmux', { command });
+  }
+
+  /**
+   * Chain an invoke onto the serial sendQueue so it runs only after every
+   * earlier mutating command has completed its POST. Errors are caught on
+   * the queue chain so a single failure doesn't deadlock subsequent commands,
+   * but they're re-thrown on the returned promise so the caller still sees
+   * them.
+   */
+  private enqueueSerialInvoke<T>(
+    cmd: string,
+    args?: Record<string, unknown>,
+    actionId?: string,
+  ): Promise<T> {
+    let resolveOuter!: (value: T | PromiseLike<T>) => void;
+    let rejectOuter!: (reason: unknown) => void;
+    const outer = new Promise<T>((res, rej) => {
+      resolveOuter = res;
+      rejectOuter = rej;
+    });
+    // The task settles the outer promise itself, so its Effect never fails —
+    // one task's error can't stall the queue for the next command.
+    const task = Effect.promise(() =>
+      this.invokeInternal<T>(cmd, args, actionId).then(resolveOuter, rejectOuter),
+    );
+    this.commandQueue.unsafeOffer(task);
+    return outer;
+  }
+
+  /**
+   * Send a command in order (serialized, but caller doesn't await)
+   */
+  private sendCommandFireAndForget(cmd: string, args: Record<string, unknown>): void {
+    if (this.readOnly) return;
+    if (!this.connected) {
+      console.warn('[HttpAdapter] Not connected, cannot send command');
+      return;
+    }
+
+    // Keystrokes are the latency-critical input path — mark the round-trip so
+    // the next applied state update closes it (Axis-B, see latencyTracker).
+    latencyTracker.markInput();
+    const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
+    tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
+
+    const session = this.getEffectiveSession();
+    const protocol = window.location.protocol;
+    const host = window.location.host || 'localhost:3853';
+    const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
+    const connId = String(this.connectionId);
+
+    // Offer onto the serial queue so requests go one at a time.
+    const task = Effect.promise(() =>
+      fetch(commandsUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Connection-Id': connId,
+          ...(actionId ? { 'X-Action-Id': actionId } : {}),
+        },
+        body: JSON.stringify({ cmd, args }),
+      })
+        .then(() => {})
+        .catch(() => {}),
+    );
+    this.commandQueue.unsafeOffer(task);
+  }
+
+  /**
+   * Internal invoke implementation
+   */
+  private async invokeInternal<T>(
+    cmd: string,
+    args?: Record<string, unknown>,
+    actionId?: string,
+  ): Promise<T> {
+    if (!this.connected) {
+      await this.connect();
+    }
+
+    const session = this.getEffectiveSession();
+    const protocol = window.location.protocol;
+    const host = window.location.host || 'localhost:3853';
+    const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
+
+    const response = await fetch(commandsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Connection-Id': String(this.connectionId),
+        // Correlate the request leg in the trace (docs/TELEMETRY.md).
+        ...(actionId ? { 'X-Action-Id': actionId } : {}),
+      },
+      body: JSON.stringify({ cmd, args: args || {} }),
+    });
+
+    if (!response.ok) {
+      // The server's refusal is a `{ error, kind }` body, thrown as is so the
+      // Effect facade tags it by kind (see AdapterError). Any other body — a
+      // reverse-proxy 502 page, a 401 auth challenge — surfaces as the HTTP
+      // status, not a JSON SyntaxError from parsing HTML.
+      const body: unknown = await response.json().catch(() => null);
+      throw isCommandFailure(body) ? body : new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.result as T;
+  }
+
+  async switchSession(newSession: string): Promise<void> {
+    this.sessionOverride = newSession;
+    this.sequencer.reset();
+
+    // Switching sessions is a fresh start — clear a prior fatal so the switch
+    // isn't permanently rejected by connect()'s fatal guard (recovering from a
+    // dead session by switching to a live one must be possible without reload).
+    this.fatal = false;
+
+    // Tear down the current channel fiber (its finalizer closes the stream) so
+    // connect() below starts a fresh loop for the new session. Reject anyone
+    // still awaiting the old session's connect().
+    if (this.channelFiber) {
+      Effect.runFork(Fiber.interrupt(this.channelFiber));
+      this.channelFiber = null;
+    }
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+    this.connected = false;
+    this.connectionId = 0;
+    this.reconnecting = false;
+    this.failConnectWaiters(new Error('switching session'));
+
+    // Reconnect to new session
+    await this.connect();
+  }
+
+  /** Mint a per-connection action id (e.g. `a-3-17`) so the trace can correlate
+   * a command's request leg from client send to server receive. */
+  private nextActionId(): string {
+    this.traceActionSeq += 1;
+    return `a-${this.connectionId}-${this.traceActionSeq}`;
+  }
+
+  /** Ship a batch of trace events to the same-origin /trace ingest endpoint.
+   * Fire-and-forget: a failed ship drops the batch, never affecting the app. */
+  private shipTrace(events: Record<string, unknown>[]): void {
+    try {
+      const protocol = window.location.protocol;
+      const host = window.location.host || 'localhost:3853';
+      fetch(`${protocol}//${host}/trace`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Connection-Id': String(this.connectionId),
+        },
+        body: JSON.stringify(events),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      // window/fetch unavailable (SSR/test) — drop silently.
+    }
+  }
+}

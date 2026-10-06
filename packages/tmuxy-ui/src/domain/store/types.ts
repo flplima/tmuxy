@@ -1,0 +1,248 @@
+/**
+ * TmuxClientModel — the client-side authoritative view of the tmux world.
+ *
+ * The model is the source of truth for what the UI renders. It has two
+ * layers: `committed` (last server-confirmed snapshot) and `ops` (an ordered
+ * log of optimistic operations applied on top). `derived` is the materialized
+ * view selectors read from — `committed` with all `ops` replayed.
+ *
+ * Why split this out of XState context: XState is a finite-state machine over
+ * UI modes; the tmux world is a *data model* with concurrent in-flight
+ * mutations, server-side reconciliation, rollback, and replay semantics. Those
+ * are not states — they are values, and they belong in a typed reducer that
+ * can be unit-tested without a machine harness.
+ */
+
+import { Data } from 'effect';
+import type { TmuxPane, TmuxWindow } from '../client';
+import type { PaneId, WindowId } from '../ids';
+import type { TmuxOp } from '../commands';
+
+// ============================================
+// Snapshot — the data the UI consumes
+// ============================================
+
+/**
+ * The committed/derived shape. Mirrors the subset of AppMachineContext that
+ * comes from the tmux backend. UI-only fields (drag, resize, copy mode,
+ * float positions) stay in XState.
+ */
+export interface TmuxSnapshot {
+  readonly panes: ReadonlyArray<TmuxPane>;
+  readonly windows: ReadonlyArray<TmuxWindow>;
+  readonly activePaneId: PaneId | null;
+  readonly activeWindowId: WindowId | null;
+  readonly totalWidth: number;
+  readonly totalHeight: number;
+  readonly sessionName: string;
+  /**
+   * A one-shot focus request queued by a shell helper (`tmuxy nav` at the edge
+   * of the grid): `left` / `right` / `panes`, or `''` when nothing is pending.
+   *
+   * Unlike everything else here this is a SIGNAL, not state — the client that
+   * acts on it unsets the tmux option behind it. It rides the snapshot because
+   * that is the wire message it arrives on, and no optimistic op ever predicts
+   * it.
+   */
+  readonly focusRequest: string;
+}
+
+export const EMPTY_SNAPSHOT: TmuxSnapshot = {
+  panes: [],
+  windows: [],
+  activePaneId: null,
+  activeWindowId: null,
+  totalWidth: 0,
+  totalHeight: 0,
+  sessionName: '',
+  focusRequest: '',
+};
+
+/** Branded string so a raw string can't be passed where an OpId is expected. */
+export type OpId = string & { readonly __brand: 'OpId' };
+
+// ============================================
+// Patch — a pure transformation of TmuxSnapshot
+// ============================================
+
+/**
+ * A patch is a pure function `snapshot → snapshot`. Storing patches (not just
+ * structural diffs) lets the store replay every pending op on top of a fresh
+ * server snapshot to produce `derived` — no special-case merge logic.
+ */
+export type Patch = (s: TmuxSnapshot) => TmuxSnapshot;
+
+// ============================================
+// PendingOp — an op in flight
+// ============================================
+
+export type OpStatus =
+  /** Patch applied locally, command not yet handed to the adapter. */
+  | 'pending'
+  /**
+   * The adapter call is in flight: the command was written to the transport
+   * and its acknowledgement hasn't arrived yet. The ack alone can take longer
+   * than OP_STALE_TIMEOUT_MS on a slow transport (v86 serial, loaded server),
+   * so in-flight ops are exempt from the quick sweep — the call is guaranteed
+   * to settle (resolve → awaiting-confirm, reject → rollback), and the acked
+   * timeout still applies as a backstop. Sweeping earlier makes the optimistic
+   * UI blink away and remount exactly when the backend is slowest.
+   */
+  | 'in-flight'
+  /** Command was sent successfully; waiting for the matching server delta. */
+  | 'awaiting-confirm'
+  /** Tmux rejected the command. The patch will be rolled back on the next tick. */
+  | 'failed';
+
+export interface PendingOp {
+  readonly id: OpId;
+  readonly op: TmuxOp;
+  /** The command string that was sent to tmux (after toTmuxCommand). */
+  readonly command: string;
+  /** The optimistic patch applied to the snapshot. IDENTITY_PATCH for raw ops. */
+  readonly patch: Patch;
+  readonly createdAt: number;
+  readonly status: OpStatus;
+  /**
+   * Bookkeeping data captured at dispatch time that the op's reconciler needs
+   * later. Examples: for Split, the placeholder pane ID + prior pane IDs;
+   * for NewWindow, the prior window IDs; for SelectTab, the target window ID.
+   *
+   * Kept here (not in the snapshot) because it's purely about *the op*, not
+   * about the tmux world.
+   */
+  readonly meta: Readonly<Record<string, unknown>>;
+}
+
+// ============================================
+// TmuxClientModel — the whole picture
+// ============================================
+
+export interface TmuxClientModel {
+  /** The last server-confirmed snapshot. Updated only by `reconcile`. */
+  readonly committed: TmuxSnapshot;
+  /** Ordered log of in-flight optimistic operations. Newest last. */
+  readonly ops: ReadonlyArray<PendingOp>;
+  /**
+   * `committed` with every pending op's patch applied in order. Memoized —
+   * recomputed whenever `committed` or `ops` changes. This is what selectors
+   * read.
+   */
+  readonly derived: TmuxSnapshot;
+  /**
+   * Maps real pane tmuxId → placeholder ID it morphed from. Populated when a
+   * Split op's predicted placeholder is replaced by a real server pane —
+   * PaneLayout uses this as the React key so the pane element survives the
+   * id swap without unmount/remount flicker.
+   */
+  readonly paneKeyOverrides: Readonly<Record<PaneId, PaneId>>;
+  /**
+   * The tab and pane a read-only client is looking at, when it has chosen its
+   * own. Unlike an op it predicts nothing and waits for nothing: tmux is never
+   * told, so it is laid over `derived` for as long as the tab exists while the
+   * server goes on reporting whatever the writing client has active.
+   */
+  readonly viewFocus: ViewFocus | null;
+}
+
+export interface ViewFocus {
+  readonly windowId: WindowId;
+  readonly paneId: PaneId | null;
+}
+
+export const EMPTY_MODEL: TmuxClientModel = {
+  committed: EMPTY_SNAPSHOT,
+  ops: [],
+  derived: EMPTY_SNAPSHOT,
+  paneKeyOverrides: {},
+  viewFocus: null,
+};
+
+// ============================================
+// Op errors (Effect-tagged)
+// ============================================
+
+/**
+ * Failure modes when dispatching an op. Separate from AdapterError because
+ * the store layer adds its own concerns (op-already-failed, op-cancelled,
+ * predict-rejected).
+ */
+export class OpRejectedByTmux extends Data.TaggedError('OpRejectedByTmux')<{
+  readonly opId: OpId;
+  readonly command: string;
+  readonly stderr: string;
+}> {}
+
+export class OpTransportError extends Data.TaggedError('OpTransportError')<{
+  readonly opId: OpId;
+  readonly command: string;
+  readonly cause: unknown;
+}> {}
+
+/** The session is read-only and the op would have changed it. Nothing was predicted or sent. */
+export class OpBlockedReadOnly extends Data.TaggedError('OpBlockedReadOnly')<{
+  readonly command: string;
+}> {}
+
+export type OpError = OpRejectedByTmux | OpTransportError | OpBlockedReadOnly;
+
+// ============================================
+// Op result for the reconciler
+// ============================================
+
+/**
+ * What an op's reconciler reports after seeing a fresh server snapshot:
+ *  - 'matched': the server state already reflects what we predicted → drop
+ *    the op from the log.
+ *  - 'pending': no new info yet → keep the op, keep its patch in derived.
+ *  - 'failed': server state contradicts what we predicted → drop the op,
+ *    log a rollback warning (the next `derived` recompute will reflect the
+ *    server's reality).
+ */
+export type ReconcileVerdict =
+  /** The real pane a Split, or the real window a NewWindow, turned out to be. */
+  | {
+      readonly _tag: 'matched';
+      readonly realPaneId?: PaneId;
+      readonly realWindowId?: WindowId;
+    }
+  | { readonly _tag: 'pending' }
+  | { readonly _tag: 'failed'; readonly reason: string };
+
+/**
+ * Stale-op timeout for UNACKED ops (`pending`): the command may have been
+ * lost in transport — give up quickly so the UI can't wedge on a phantom
+ * prediction.
+ */
+export const OP_STALE_TIMEOUT_MS = 2000;
+
+/**
+ * Stale-op timeout for ACKED ops (`awaiting-confirm`): tmux confirmed the
+ * command executed, so the matching delta IS coming — but possibly slowly
+ * (e.g. a new window's `@tmuxy-window-type` tag arrives on a later
+ * list-windows sync, seconds behind on the v86 serial transport). Sweeping
+ * an acked op early makes the confirmed UI blink away and back.
+ */
+export const OP_ACKED_STALE_TIMEOUT_MS = 10000;
+
+/**
+ * Focus ops (SelectPane / Navigate) stay in the log for this long even after
+ * the server confirms them. Stale snapshots computed before the focus change
+ * (an in-flight periodic list-panes sync, an update batched earlier in a
+ * burst) can arrive AFTER the confirmation — with the op already dropped they
+ * would flap the active highlight A → B → A. While the op lingers, its patch
+ * keeps pinning the focus over such stragglers. Sized to outlast the v86
+ * engine's 3s re-sync cadence; superseded/unconfirmed focus ops fall to the
+ * acked-stale sweep.
+ */
+export const FOCUS_CONFIRM_LINGER_MS = 4000;
+
+/**
+ * How long an in-flight focus op holds its pin when the server reports focus
+ * on some THIRD pane (neither our target nor the pane that was active when we
+ * predicted). Below this age the server may simply not have processed our
+ * command yet (rapid multi-click); past it, the change is a genuine
+ * supersession (another client, a nav alias resolving differently) and the
+ * server must win — holding longer would freeze the UI on a stale focus.
+ */
+export const FOCUS_SUPERSEDE_GRACE_MS = 800;

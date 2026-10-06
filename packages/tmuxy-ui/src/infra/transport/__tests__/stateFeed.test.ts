@@ -11,8 +11,8 @@ import { EventHub } from '../../eventHub';
 import { makeSequencedTransport } from '../stateFeed';
 import { TmuxTransport, type TmuxTransportService } from '../TmuxTransport';
 import { type DriverEvent, TransportEvent } from '../events';
-import { StateSequencer } from '../../../tmux/stateStream';
-import type { SequencedAdapter } from '../../../tmux/types';
+import { StateSequencer } from '../stateSequencer';
+import type { SequencedAdapter } from '../driver';
 
 const state = (activePane = '%1', windows = ['@1']) => ({
   session_name: 'tmuxy',

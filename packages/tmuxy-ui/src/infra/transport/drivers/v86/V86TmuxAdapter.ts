@@ -1,0 +1,319 @@
+/**
+ * A fully client-side `TmuxAdapter` backed by REAL tmux.
+ *
+ * Real tmux 3.7a runs inside a v86 x86 emulator (restored from a pre-booted state
+ * snapshot); its `tmux -CC` control-mode stream is parsed by the tmuxy-core Rust
+ * engine compiled to WASM — the SAME code the native server runs. No lifo.sh, no
+ * DemoTmux simulation, no client-side VT emulator.
+ *
+ *   TmuxyApp --invoke(run_tmux_command)--> serial0_send --> real tmux -CC
+ *     --serial--> tmuxy-wasm (parse + aggregate) --> ServerState --> onStateChange
+ *
+ * The v86/wasm/serial machinery lives in `V86Engine`. This class is the
+ * `TmuxAdapter` facade over it. With `shared: true` many adapters (one per story)
+ * reuse a single booted engine — each story restores the pinned snapshot for a
+ * clean start (~1s) instead of cold-booting (~5s). Default (`shared` unset) owns
+ * a private engine and tears it down on disconnect.
+ *
+ * Assets are served (Storybook staticDirs / demo public): /v86, /v86-img (kernel,
+ * BIOS, tmux-state.bin snapshot), /wasm (tmuxy_wasm). Browser-only.
+ */
+import type { TmuxAdapter } from '../../driver';
+import { EventHub } from '../../../eventHub';
+import { TransportEvent } from '../../events';
+import { isPaneId } from '../../../../domain/ids';
+import type { CommandFailure, KeyBindings } from '../../../../domain/wire';
+import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
+import { saveThemeToStorage, loadThemeFromStorage } from '../../../../utils/themeManager';
+import { unescapeLiteralText } from '../../keyBatching';
+import { quote } from '../../../../domain/commands';
+import {
+  V86Engine,
+  getSharedEngine,
+  V86_DEFAULT_COLS,
+  V86_DEFAULT_ROWS,
+  type EngineSink,
+} from './V86Engine';
+
+// The default tmuxy keybindings (C-a prefix), intercepted client-side by the
+// keyboardActor and dispatched as run_tmux_command — same as the real app.
+const DEFAULT_KEYBINDINGS: KeyBindings = {
+  prefix_key: 'C-a',
+  prefix_bindings: [
+    { key: '-', command: 'split-window -v', description: 'Split horizontally' },
+    { key: '|', command: 'split-window -h', description: 'Split vertically' },
+    { key: '\\', command: 'split-window -h', description: 'Split vertically' },
+    { key: '"', command: 'split-window -v', description: 'Split horizontally' },
+    { key: '%', command: 'split-window -h', description: 'Split vertically' },
+    { key: 'c', command: 'new-window', description: 'New window' },
+    { key: 'n', command: 'next-window', description: 'Next window' },
+    { key: 'p', command: 'previous-window', description: 'Previous window' },
+    { key: 'x', command: 'kill-pane', description: 'Kill pane' },
+    { key: '&', command: 'kill-window', description: 'Kill window' },
+    { key: 'o', command: 'select-pane -t :.+', description: 'Next pane' },
+    { key: 'z', command: 'resize-pane -Z', description: 'Zoom pane' },
+    { key: 'Up', command: 'select-pane -U', description: 'Pane above' },
+    { key: 'Down', command: 'select-pane -D', description: 'Pane below' },
+    { key: 'Left', command: 'select-pane -L', description: 'Pane left' },
+    { key: 'Right', command: 'select-pane -R', description: 'Pane right' },
+    { key: 'H', command: 'resize-pane -L 5', description: 'Resize left', repeat: true },
+    { key: 'J', command: 'resize-pane -D 5', description: 'Resize down', repeat: true },
+    { key: 'K', command: 'resize-pane -U 5', description: 'Resize up', repeat: true },
+    { key: 'L', command: 'resize-pane -R 5', description: 'Resize right', repeat: true },
+    { key: 'S', command: 'setw synchronize-panes', description: 'Sync panes' },
+    { key: '=', command: 'tmuxy-pane-group-add', description: 'Add pane to group' },
+    { key: '[', command: 'copy-mode', description: 'Enter copy mode' },
+    { key: 'Space', command: 'next-layout', description: 'Next layout' },
+    { key: '>', command: 'swap-pane -D', description: 'Swap pane down' },
+    { key: '<', command: 'swap-pane -U', description: 'Swap pane up' },
+    { key: '0', command: 'select-window -t :=0', description: 'Window 0' },
+    { key: '1', command: 'select-window -t :=1', description: 'Window 1' },
+    { key: '2', command: 'select-window -t :=2', description: 'Window 2' },
+  ],
+  root_bindings: [
+    // Ctrl+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
+    // `tmuxy-nav-*` command-aliases (defined at attach by the engine's
+    // GUEST_SETUP — the snapshot itself lacks them). Intercepted client-side so
+    // the key isn't sent to the pane as literal text. Same bindings as the real
+    // app config (.devcontainer/.tmuxy.defaults.conf) — keep the two in step.
+    { key: 'C-h', command: 'tmuxy-nav-left', description: 'Navigate left' },
+    { key: 'C-j', command: 'tmuxy-nav-down', description: 'Navigate down' },
+    { key: 'C-k', command: 'tmuxy-nav-up', description: 'Navigate up' },
+    { key: 'C-l', command: 'tmuxy-nav-right', description: 'Navigate right' },
+    { key: 'C-Left', command: 'tmuxy-nav-left', description: 'Navigate left' },
+    { key: 'C-Right', command: 'tmuxy-nav-right', description: 'Navigate right' },
+    { key: 'C-Up', command: 'tmuxy-nav-up', description: 'Navigate up' },
+    { key: 'C-Down', command: 'tmuxy-nav-down', description: 'Navigate down' },
+    { key: 'C-Tab', command: 'next-window', description: 'Next window' },
+    { key: 'C-S-Tab', command: 'previous-window', description: 'Previous window' },
+    { key: 'S-Left', command: 'previous-window', description: 'Previous window' },
+    { key: 'S-Right', command: 'next-window', description: 'Next window' },
+    { key: 'C-0', command: 'select-window -t 0', description: 'Window 0' },
+    { key: 'C-1', command: 'select-window -t 1', description: 'Window 1' },
+    { key: 'C-2', command: 'select-window -t 2', description: 'Window 2' },
+    { key: 'C-3', command: 'select-window -t 3', description: 'Window 3' },
+    { key: 'C-4', command: 'select-window -t 4', description: 'Window 4' },
+    { key: 'C-5', command: 'select-window -t 5', description: 'Window 5' },
+    { key: 'C-6', command: 'select-window -t 6', description: 'Window 6' },
+    { key: 'C-7', command: 'select-window -t 7', description: 'Window 7' },
+    { key: 'C-8', command: 'select-window -t 8', description: 'Window 8' },
+    { key: 'C-9', command: 'select-window -t 9', description: 'Window 9' },
+  ],
+};
+
+/** Theme names bundled with tmuxy (mirrors the server's `get_themes_list`). */
+const BUNDLED_THEMES: { name: string; displayName: string }[] = [
+  { name: 'default', displayName: 'Default' },
+  { name: 'cold-harbor', displayName: 'Cold Harbor' },
+  { name: 'dracula', displayName: 'Dracula' },
+  { name: 'fallout', displayName: 'Fallout' },
+  { name: 'gruvbox', displayName: 'Gruvbox' },
+  { name: 'nord', displayName: 'Nord' },
+  { name: 'solarized', displayName: 'Solarized' },
+  { name: 'tokyonight', displayName: 'Tokyo Night' },
+];
+
+/**
+ * Translate a frontend command for the raw control-mode stdin transport.
+ *
+ * The keyboardActor joins compound commands with a SHELL-escaped separator
+ * ` \; ` (e.g. `select-pane -t %0 \; split-window -v`) — correct when a command
+ * passes through a shell/`run-shell` context, as on the native server. But tmux's
+ * control-mode parser reads stdin directly, where `\;` is a literal argument, not
+ * a separator, so the whole command errors (and, for a split, the optimistic
+ * placeholder pane never reconciles — the UI appears frozen). Control mode wants
+ * a bare ` ; ` separator. We only rewrite the separator token, and never inside a
+ * `send-keys -l` literal (which may legitimately contain `\;`).
+ */
+function toControlModeCommand(command: string): string {
+  // Multi-line strings (e.g. a paste's per-line command batch) are one control
+  // command per line — rewrite each independently.
+  return command.split('\n').map(toControlModeLine).join('\n');
+}
+
+function toControlModeLine(line: string): string {
+  const literal = line.match(/^(send-keys -t \S+ -l )(.+)$/);
+  if (literal) {
+    // tmux 3.7a format-expands send-keys arguments, and no amount of `#`
+    // doubling protects a valid `#{variable}` (`##{pane_id}` still yields
+    // `#%0`). The only reliable transport-level fix: split the literal at every
+    // `#`/`{` boundary so the two characters never share a format context —
+    // each chunk is its own send-keys and the pane reassembles them verbatim.
+    const text = unescapeLiteralText(literal[2]);
+    if (!text.includes('#{')) return line;
+    const parts = text.split(/(?<=#)(?={)/);
+    return parts.map((part) => literal[1] + quote(part)).join('\n');
+  }
+  if (line.includes(' -l ')) return line;
+  return line.replace(/ \\; /g, ' ; ');
+}
+
+export interface V86TmuxAdapterOptions {
+  /** tmux commands run once after attach (splits, new-window, …). */
+  initCommands?: string[];
+  /** Reuse a single process-wide v86 engine across adapters (opt-in). Each
+   *  connect restores the pinned snapshot for a clean start instead of a cold
+   *  boot. Leave unset for a private, torn-down-on-disconnect engine. */
+  shared?: boolean;
+}
+
+export class V86TmuxAdapter implements TmuxAdapter {
+  private readonly engine: V86Engine;
+  private readonly shared: boolean;
+  private readonly initCommands: string[];
+  /** The sink this adapter installed on the engine (null when detached). */
+  private sink: EngineSink | null = null;
+
+  readonly events = new EventHub<TransportEvent>();
+
+  constructor(options?: V86TmuxAdapterOptions) {
+    this.initCommands = options?.initCommands ?? [];
+    this.shared = options?.shared ?? false;
+    this.engine = this.shared ? getSharedEngine() : new V86Engine();
+  }
+
+  async connect(): Promise<void> {
+    // NB: do NOT emit a reconnection signal here. That drives the app machine
+    // into its `reconnecting` state, so the subsequent TMUX_CONNECTED is handled
+    // by the reconnect branch — which skips the initial theme + keybindings fetch
+    // that only the `connecting` branch performs. The app already shows connecting
+    // feedback via its own `connecting` state until connect() resolves.
+    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', readOnly: false }));
+    this.events.emit(TransportEvent.KeyBindings({ keybindings: DEFAULT_KEYBINDINGS }));
+
+    // reset() serializes on the engine's lifecycle queue: it restores the
+    // pinned snapshot when the engine is already booted, cold-boots otherwise,
+    // and queues behind any transition still in flight (a story switch can
+    // call connect() before the previous story's boot/reset finished).
+    await this.engine.reset(this.initCommands);
+
+    // Install our sink only AFTER the reset settled. Installing it before
+    // would let the still-attached PREVIOUS story's core stream its final
+    // states into this adapter's fresh machine (a dead active-window id the
+    // new state never contains — the app then renders zero panes forever).
+    // The engine tracks lastState independently of the sink, so the machine's
+    // get_initial_state still returns the post-reset state.
+    this.sink = {
+      onState: (raw) => {
+        // A sandbox engine emits a full state every time, so one that fails
+        // its decode is simply dropped; the next one replaces it.
+        const state = decodeStateForListener(raw);
+        if (state) this.events.emit(TransportEvent.State({ state, seq: null }));
+      },
+      onClipboard: (paneId, text) => {
+        const source = isPaneId(paneId) ? paneId : null;
+        this.events.emit(TransportEvent.Clipboard({ paneId: source, text }));
+      },
+      onFatal: (message) => this.events.emit(TransportEvent.Fatal({ message })),
+    };
+    this.engine.setSink(this.sink);
+  }
+
+  disconnect(): void {
+    // Detach OUR sink so an unmounted story never receives further state —
+    // but never a successor's: this cleanup can run after the next story's
+    // adapter already installed its own sink on the shared engine.
+    if (this.sink) this.engine.clearSink(this.sink);
+    this.sink = null;
+    // A private engine is torn down; a shared engine stays alive for reuse.
+    if (!this.shared) this.engine.destroy();
+  }
+
+  async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    switch (cmd) {
+      case 'get_initial_state':
+        return decodeServerStateOrThrow(this.engine.getLastState()) as T;
+      case 'set_client_size': {
+        const cols = (args?.cols as number) || V86_DEFAULT_COLS;
+        const rows = (args?.rows as number) || V86_DEFAULT_ROWS;
+        this.engine.send(`refresh-client -C ${cols}x${rows}`);
+        return null as T;
+      }
+      case 'run_tmux_command': {
+        const command = args?.command as string | undefined;
+        if (!command) return null as T;
+        const wire = toControlModeCommand(command);
+        // Hot paths (key input, resizes, paste batches) stay fire-and-forget;
+        // everything else is tracked so failures reject like the server adapter
+        // (surfacing TMUX_ERROR and rolling back optimistic ops). A compound is
+        // hot only if EVERY ` ; `-joined segment is — the keyboardActor pins
+        // `select-pane -t %N ; <binding>` to every binding, and classifying by
+        // prefix alone made a rejected split fire-and-forget: the rejection
+        // never surfaced, nothing rolled the placeholder back, and (with no
+        // further state emission) the optimistic pane wedged forever.
+        const isHot =
+          !wire.includes('\n') &&
+          wire
+            .split(' ; ')
+            .every((seg) => /^(send-keys|refresh-client|select-pane|select-window)\b/.test(seg));
+        if (wire.includes('\n') || isHot) {
+          this.engine.send(wire);
+          return null as T;
+        }
+        const result = await this.engine.sendTracked(wire);
+        // Reject the way the real transports do when tmux refuses a command,
+        // so it is typed a TmuxError (with tmux's message), not a generic
+        // TransportError.
+        if (!result.ok) {
+          throw {
+            error: result.message || `tmux rejected: ${command}`,
+            kind: 'tmux',
+          } satisfies CommandFailure;
+        }
+        return null as T;
+      }
+      case 'set_theme': {
+        const name = (args?.name as string) || loadThemeFromStorage()?.theme || 'default';
+        const mode = (args?.mode as string) === 'light' ? 'light' : 'dark';
+        saveThemeToStorage(name, mode);
+        this.engine.send(`set -g @tmuxy-theme ${name}`);
+        return null as T;
+      }
+      case 'set_theme_mode': {
+        const mode = (args?.mode as string) === 'light' ? 'light' : 'dark';
+        saveThemeToStorage(loadThemeFromStorage()?.theme || 'default', mode);
+        return null as T;
+      }
+      case 'set_cursor_blink': {
+        this.engine.send(`set -g @tmuxy-cursor-blink ${args?.enabled ? 'on' : 'off'}`);
+        return null as T;
+      }
+      case 'get_scrollback_cells': {
+        const paneId = args?.paneId as string;
+        const start = (args?.start as number | undefined) ?? -100;
+        const end = (args?.end as number | undefined) ?? -1;
+        const state = this.engine.getLastState();
+        const pane = state.panes.find((p) => p.tmux_id === paneId);
+        const width = pane?.width ?? 80;
+        const historySize = pane?.history_size ?? 0;
+        const text = await this.engine.captureScrollback(paneId, start, end);
+        const cells = this.engine.parseScrollback(text, width);
+        return { cells, historySize, start, end, width } as T;
+      }
+      case 'get_theme_settings':
+        return (loadThemeFromStorage() || { theme: 'default', mode: 'dark' }) as T;
+      case 'get_themes_list':
+        return BUNDLED_THEMES as T;
+      default:
+        // ping / theme / keybindings-snapshot / … — no-op for the v86 adapter.
+        return null as T;
+    }
+  }
+
+  async switchSession(sessionName: string): Promise<void> {
+    // Switch the attached control client to another session (real tmux
+    // switch-client), then re-sync so the new session's windows/panes populate.
+    // Tracked: a failed switch (unknown session) must NOT leave the app in the
+    // cleared-optimistic-state limbo — resync the CURRENT session so its state
+    // flows back in (the machine re-adopts panes and sessionName from the
+    // updates) and reject so the failure surfaces as TMUX_ERROR.
+    const result = await this.engine.sendTracked(`switch-client -t ${sessionName}`);
+    this.engine.resync();
+    if (!result.ok) {
+      throw {
+        error: result.message || `switch-client failed: ${sessionName}`,
+        kind: 'tmux',
+      } satisfies CommandFailure;
+    }
+  }
+}

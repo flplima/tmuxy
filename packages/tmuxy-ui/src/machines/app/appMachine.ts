@@ -49,7 +49,7 @@ import { askActions, pruneAskSelections } from './actions/ask';
 import { isBoxPermutation, samePanes } from './layoutChange';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { selectLeftSidebarPane, selectRightSidebarPane, visibleFloats } from '../selectors';
-import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
+import type { TmuxClientModel, TmuxSnapshot } from '../../domain/store/types';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
   buildGroupsFromPanes,
@@ -59,7 +59,7 @@ import {
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
-import type { CopyModeState } from '../../tmux/types';
+import type { CopyModeState } from '../../domain/copyMode';
 import type { CellLine } from '../../domain/wire';
 
 import { dragMachine } from '../drag/dragMachine';

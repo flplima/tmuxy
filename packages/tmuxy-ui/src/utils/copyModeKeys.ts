@@ -4,7 +4,7 @@
  * Returns updated state and an optional action ('yank' | 'exit' | null).
  */
 
-import type { CopyModeState } from '../tmux/types';
+import type { CopyModeState } from '../domain/copyMode';
 import type { CellLine } from '../domain/wire';
 
 export type CopyModeAction = 'yank' | 'exit' | null;

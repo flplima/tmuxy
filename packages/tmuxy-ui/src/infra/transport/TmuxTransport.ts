@@ -13,13 +13,13 @@
  */
 
 import { Context, Effect, PubSub, Schema, type Scope, Stream } from 'effect';
-import type { TmuxAdapter } from '../../tmux/types';
+import type { TmuxAdapter } from './driver';
 import {
   type AdapterError,
   ProtocolError,
   TransportError,
   classifyAdapterError,
-} from '../../tmux/effect/AdapterError';
+} from './AdapterError';
 import type { DriverEvent, TransportEvent } from './events';
 
 export interface TmuxTransportService {

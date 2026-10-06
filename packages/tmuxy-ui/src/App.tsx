@@ -37,7 +37,7 @@ import {
   useReadOnly,
 } from './machines/AppContext';
 import { cellMetricsStyle } from './utils/cellMetrics';
-import { latencyTracker } from './tmux/latencyTracker';
+import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/SmoothCursor';
 import { Snackbar } from './components/Snackbar';

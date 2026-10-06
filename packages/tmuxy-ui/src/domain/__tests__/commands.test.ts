@@ -16,7 +16,7 @@ import {
   TmuxOp,
   toTmuxCommand,
 } from '../commands';
-import { parseCommandToOp } from '../../tmux/store/parseCommand';
+import { parseCommandToOp } from '../store/parseCommand';
 import { pid, wid } from '../../test/wire';
 
 const S = '$HOME/.config/tmuxy/bin/tmuxy';
