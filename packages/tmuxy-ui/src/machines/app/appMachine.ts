@@ -227,7 +227,7 @@ export const appMachine = setup({
     },
     {
       // The client model: bridges TmuxStore (Effect Ref) into XState.
-      // SEND_TMUX_COMMAND relays here for optimistic dispatch; TMUX_STATE_UPDATE
+      // Every routed op (DISPATCH_OP) lands here for optimistic dispatch; TMUX_STATE_UPDATE
       // relays here for reconcile. The actor forwards model changes back as
       // TMUX_MODEL_UPDATE so XState context stays in sync without any
       // optimistic-prediction code living in the machine itself.
@@ -365,7 +365,7 @@ export const appMachine = setup({
     // Global so the transition fires from any live state.
     // NOTE: `reconnecting` does NOT share idle's handlers — it declares its
     // own small `on` block (server state in, reconnect/disconnect out). Input
-    // events (SEND_TMUX_COMMAND, KEY_PRESS, FOCUS_PANE, drag/resize) are
+    // events (DISPATCH_OP, SEND_TMUX_COMMAND, KEY_PRESS, FOCUS_PANE, drag/resize) are
     // therefore dropped while the banner is up, which matches the transport
     // being down: there is nothing to send them over. The keyboard actor
     // stays enabled, so keystrokes are swallowed rather than reaching the

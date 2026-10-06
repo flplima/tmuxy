@@ -6,6 +6,8 @@ import { MenuItem, MenuDivider } from '../floating/Menu';
 import type { KeyBindings } from '../../machines/types';
 import type { WidgetMenuItem } from '../widgets';
 import { KeyLabel } from './KeyLabel';
+import { MENU_OPS } from './menuActions';
+import { TmuxOp } from '../../domain/commands';
 
 interface PaneMenuItemsProps {
   keybindings: KeyBindings | null;
@@ -64,40 +66,40 @@ export function PaneMenuItems({
       )}
       <MenuItem onClick={() => onAction('pane-split-below')}>
         Split Pane Below
-        <KeyLabel keybindings={keybindings} command="split-window -v" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-split-below']} />
       </MenuItem>
       <MenuItem onClick={() => onAction('pane-split-right')}>
         Split Pane Right
-        <KeyLabel keybindings={keybindings} command="split-window -h" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-split-right']} />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => onAction('pane-next')} disabled={isSinglePane}>
         Next Pane
-        <KeyLabel keybindings={keybindings} command="select-pane -t :.+" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-next']} />
       </MenuItem>
       <MenuItem onClick={() => onAction('pane-previous')} disabled={isSinglePane}>
         Previous Pane
-        <KeyLabel keybindings={keybindings} command="last-pane" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-previous']} />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => onAction('pane-swap-prev')} disabled={isSinglePane}>
         Swap with Previous
-        <KeyLabel keybindings={keybindings} command="swap-pane -U" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-swap-prev']} />
       </MenuItem>
       <MenuItem onClick={() => onAction('pane-swap-next')} disabled={isSinglePane}>
         Swap with Next
-        <KeyLabel keybindings={keybindings} command="swap-pane -D" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-swap-next']} />
       </MenuItem>
       <MenuDivider />
       {isMarked ? (
         <MenuItem onClick={() => onAction('pane-unmark')}>
           Unmark Pane
-          <KeyLabel keybindings={keybindings} command="select-pane -M" />
+          <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-unmark']} />
         </MenuItem>
       ) : (
         <MenuItem onClick={() => onAction('pane-mark')}>
           Mark Pane
-          <KeyLabel keybindings={keybindings} command="select-pane -m" />
+          <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-mark']} />
         </MenuItem>
       )}
       <MenuItem onClick={() => onAction('pane-swap-marked')} disabled={!hasMarked || isMarked}>
@@ -109,28 +111,28 @@ export function PaneMenuItems({
       <MenuDivider />
       <MenuItem onClick={() => onAction('pane-move-new-tab')}>
         Move to New Tab
-        <KeyLabel keybindings={keybindings} command="break-pane" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-move-new-tab']} />
       </MenuItem>
       <MenuItem onClick={() => onAction('pane-add-to-group')}>Add Pane to Group</MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => onAction('pane-copy-mode')}>
         Copy Mode
-        <KeyLabel keybindings={keybindings} command="copy-mode" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-copy-mode']} />
       </MenuItem>
       <MenuItem onClick={() => onAction('pane-paste')}>
         Paste
-        <KeyLabel keybindings={keybindings} command="paste-buffer" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-paste']} />
       </MenuItem>
       <MenuItem onClick={() => onAction('pane-clear')}>Clear Screen</MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => onAction('view-zoom')}>
         Zoom Pane
-        <KeyLabel keybindings={keybindings} command="resize-pane -Z" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['view-zoom']} />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => onAction('pane-close')}>
         Close Pane
-        <KeyLabel keybindings={keybindings} command="kill-pane" />
+        <KeyLabel keybindings={keybindings} op={TmuxOp.KillPane({ paneId: null })} />
       </MenuItem>
     </>
   );

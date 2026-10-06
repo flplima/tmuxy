@@ -1,6 +1,7 @@
 /**
  * The app's command entry, part of the app machine's own orchestration (it
- * hands work to several slices): the two ways a command enters the app — `DISPATCH_OP` (an op the client itself issues) and `SEND_TMUX_COMMAND` (a
+ * hands work to several slices). A command enters the app one of two ways:
+ * `DISPATCH_OP` (an op the client itself issues) or `SEND_TMUX_COMMAND` (a
  * string — a binding, what the user typed at the prompt — parsed into the op
  * it means). Both end in `routeOp`, the one routing step.
  *

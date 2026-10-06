@@ -178,7 +178,7 @@ export function AppProvider({
     const originalSend = actorRef.send.bind(actorRef);
     (actorRef as { send: (event: unknown) => void }).send = (event: unknown) => {
       // Action tracing: record only the event *type* (a variant name like
-      // SEND_TMUX_COMMAND), never its payload — the payload can carry keystrokes.
+      // DISPATCH_OP), never its payload — the payload can carry keystrokes.
       // The derived model-update firehose is coalesced to a periodic count so it
       // doesn't drown the trace.
       const type = (event as { type?: string })?.type;

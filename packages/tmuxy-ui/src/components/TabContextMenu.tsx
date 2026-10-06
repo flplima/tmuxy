@@ -16,7 +16,8 @@ import {
   selectKeyBindings,
   selectWindows,
 } from '../machines/AppContext';
-import { executeMenuAction } from './menus/menuActions';
+import { executeMenuAction, MENU_OPS } from './menus/menuActions';
+import { TmuxOp } from '../domain/commands';
 import { KeyLabel } from './menus/KeyLabel';
 import type { WindowId } from '../domain/ids';
 
@@ -56,7 +57,7 @@ export function TabContextMenu({
   };
 
   const handleCloseSpecificTab = () => {
-    send({ type: 'SEND_TMUX_COMMAND', command: `kill-window -t ${windowId}` });
+    send({ type: 'DISPATCH_OP', op: TmuxOp.KillWindow({ windowId }) });
     onClose();
   };
 
@@ -66,10 +67,12 @@ export function TabContextMenu({
   const handleToggleCollapsible = () => {
     if (!target) return;
     send({
-      type: 'SEND_TMUX_COMMAND',
-      command: collapsible
-        ? `set-option -u -w -t ${target.id} @tmuxy-collapsible`
-        : `set-option -w -t ${target.id} @tmuxy-collapsible 1`,
+      type: 'DISPATCH_OP',
+      op: TmuxOp.SetWindowTag({
+        windowId: target.id,
+        tag: 'collapsible',
+        value: collapsible ? null : '1',
+      }),
     });
     onClose();
   };
@@ -97,38 +100,38 @@ export function TabContextMenu({
     >
       <MenuItem onClick={() => handleAction('tab-new')}>
         New Tab
-        <KeyLabel keybindings={keybindings} command="new-window" />
+        <KeyLabel keybindings={keybindings} op={TmuxOp.NewWindow()} />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
         Next Tab
-        <KeyLabel keybindings={keybindings} command="next-window" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-next']} />
       </MenuItem>
       <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
         Previous Tab
-        <KeyLabel keybindings={keybindings} command="previous-window" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-previous']} />
       </MenuItem>
       <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
         Last Tab
-        <KeyLabel keybindings={keybindings} command="last-window" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-last']} />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={handleToggleCollapsible}>
         Toggle stacked Panes
-        <KeyLabel keybindings={keybindings} command="tmuxy-stack-toggle" />
+        <KeyLabel
+          keybindings={keybindings}
+          op={TmuxOp.RawCommand({ command: 'tmuxy-stack-toggle' })}
+        />
       </MenuItem>
 
       <MenuItem onClick={handleRenameSpecificTab}>
         Rename Tab
-        <KeyLabel
-          keybindings={keybindings}
-          command={'command-prompt -I "#W" "rename-window -- \'%%\'"'}
-        />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-rename']} />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={handleCloseSpecificTab}>
         Close Tab
-        <KeyLabel keybindings={keybindings} command="kill-window" />
+        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-close']} />
       </MenuItem>
     </FloatingMenu>
   );

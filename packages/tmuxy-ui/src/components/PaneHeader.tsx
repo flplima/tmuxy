@@ -7,6 +7,7 @@
  */
 
 import { useRef, useEffect, useState, useCallback, memo, type ReactNode } from 'react';
+import { TmuxOp } from '../domain/commands';
 import {
   selectDraggedPaneId,
   selectGroupDrop,
@@ -468,8 +469,8 @@ export function PaneHeader({
                 setRenamingPaneId(null);
                 if (name) {
                   send({
-                    type: 'SEND_TMUX_COMMAND',
-                    command: `select-pane -t ${tabPane.tmuxId} -T ${JSON.stringify(name)}`,
+                    type: 'DISPATCH_OP',
+                    op: TmuxOp.SetPaneTitle({ paneId: tabPane.tmuxId, title: name }),
                   });
                 }
               }}

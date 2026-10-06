@@ -38,6 +38,7 @@
  */
 
 import { memo, useMemo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { TmuxOp } from '../domain/commands';
 import {
   useAppSend,
   useAppSelector,
@@ -473,8 +474,8 @@ export const WindowTabs = memo(function WindowTabs() {
                   onCommit={(name) => {
                     setRenamingId(null);
                     send({
-                      type: 'SEND_TMUX_COMMAND',
-                      command: `rename-window -t ${window.id} -- ${JSON.stringify(name)}`,
+                      type: 'DISPATCH_OP',
+                      op: TmuxOp.RenameWindow({ target: window.id, name }),
                     });
                   }}
                   onCancel={() => setRenamingId(null)}

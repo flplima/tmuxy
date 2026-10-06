@@ -44,6 +44,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { TmuxOp } from '../domain/commands';
 import {
   useAppSend,
   useAppSelector,
@@ -269,7 +270,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // moves the source there (the source window closes if it was its last pane).
   const movePaneToTab = useCallback(
     (paneId: PaneId, targetWindowId: WindowId) => {
-      send({ type: 'SEND_TMUX_COMMAND', command: `join-pane -s ${paneId} -t ${targetWindowId}` });
+      send({ type: 'DISPATCH_OP', op: TmuxOp.JoinPane({ paneId, windowId: targetWindowId }) });
       send({ type: 'SELECT_TAB', windowId: targetWindowId });
     },
     [send],
@@ -499,8 +500,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                   onCommit={(name) => {
                     setRenamingWindowId(null);
                     send({
-                      type: 'SEND_TMUX_COMMAND',
-                      command: `rename-window -t ${row.window.id} -- ${JSON.stringify(name)}`,
+                      type: 'DISPATCH_OP',
+                      op: TmuxOp.RenameWindow({ target: row.window.id, name }),
                     });
                   }}
                   onCancel={() => setRenamingWindowId(null)}

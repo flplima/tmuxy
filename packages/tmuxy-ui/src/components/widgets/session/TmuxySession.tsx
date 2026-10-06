@@ -23,6 +23,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TmuxOp } from '../../../domain/commands';
 import {
   useAppSend,
   useAppSelector,
@@ -120,7 +121,7 @@ export const TmuxySession = memo(function TmuxySession() {
         setError('Switch to another session before killing this one.');
         return;
       }
-      send({ type: 'SEND_TMUX_COMMAND', command: `kill-session -t ${JSON.stringify(row.name)}` });
+      send({ type: 'DISPATCH_OP', op: TmuxOp.KillSession({ name: row.name }) });
       setError(null);
     },
     [send],
@@ -245,8 +246,8 @@ export const TmuxySession = memo(function TmuxySession() {
       setRenaming(false);
       if (selected?.kind !== 'session') return;
       send({
-        type: 'SEND_TMUX_COMMAND',
-        command: `rename-session -t ${JSON.stringify(selected.name)} -- ${JSON.stringify(name)}`,
+        type: 'DISPATCH_OP',
+        op: TmuxOp.RenameSession({ session: selected.name, name }),
       });
     },
     [send, selected],

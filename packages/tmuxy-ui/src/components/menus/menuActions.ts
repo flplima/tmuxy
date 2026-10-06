@@ -1,17 +1,64 @@
 /**
  * menuActions - Central dispatch for menu item actions
  *
- * Maps action IDs to send() calls on the app machine.
+ * Maps action IDs to send() calls on the app machine. An action that is a
+ * tmux intent is an op (`MENU_OPS`), which is also what its menu item's
+ * keybinding hint is looked up by — the item and its hint cannot disagree.
  */
 
 import { restartApp } from '../../utils/restartApp';
 import type { AppMachineEvent } from '../../machines/types';
 import { type PaneId, isPlaceholderId } from '../../domain/ids';
+import { renameSessionPrompt, renameWindowPrompt, TmuxOp } from '../../domain/commands';
 
 const GITHUB_URL = 'https://github.com/flplima/tmuxy';
 const GITHUB_BUG_REPORT_URL = 'https://github.com/flplima/tmuxy/issues/new?template=bug.yml';
 
 type Send = (event: AppMachineEvent) => void;
+
+/**
+ * The menu actions that are one op each. Mark/unmark act on the pane the menu
+ * was opened for (the caller focuses it first); swap/join take tmux's default
+ * source, which is the marked pane whenever one exists.
+ */
+export const MENU_OPS = {
+  'pane-split-below': TmuxOp.Split({ direction: 'horizontal' }),
+  'pane-split-right': TmuxOp.Split({ direction: 'vertical' }),
+  'pane-next': TmuxOp.CyclePane({ windowId: null }),
+  'pane-previous': TmuxOp.LastPane(),
+  'pane-swap-prev': TmuxOp.SwapAdjacent({ direction: 'U' }),
+  'pane-swap-next': TmuxOp.SwapAdjacent({ direction: 'D' }),
+  'pane-mark': TmuxOp.MarkPane({ marked: true }),
+  'pane-unmark': TmuxOp.MarkPane({ marked: false }),
+  'pane-swap-marked': TmuxOp.SwapMarked(),
+  'pane-join-marked': TmuxOp.JoinMarked(),
+  'pane-move-new-tab': TmuxOp.BreakPane({ paneId: null }),
+  'pane-add-to-group': TmuxOp.GroupAdd({ pane: null }),
+  'pane-copy-mode': TmuxOp.EnterCopyMode({ paneId: null }),
+  'pane-paste': TmuxOp.PasteBuffer(),
+  'pane-clear': TmuxOp.ClearPane(),
+  'tab-next': TmuxOp.SelectWindow({ target: 'next' }),
+  'tab-previous': TmuxOp.SelectWindow({ target: 'previous' }),
+  'tab-last': TmuxOp.LastWindow(),
+  'tab-rename': renameWindowPrompt(),
+  'tab-close': TmuxOp.KillWindow({ windowId: null }),
+  'session-rename': renameSessionPrompt(),
+  'session-kill': TmuxOp.KillSession({ name: null }),
+  // tmuxy's own config, NOT ~/.tmux.conf — sourcing the user's vanilla tmux
+  // config would drag their default-server bindings/options into the
+  // isolated tmuxy socket.
+  'session-reload-config': TmuxOp.SourceConfig(),
+  'view-zoom': TmuxOp.ZoomToggle({ paneId: null }),
+  'view-layout-even-horizontal': TmuxOp.SelectLayout({ layout: 'even-horizontal' }),
+  'view-layout-even-vertical': TmuxOp.SelectLayout({ layout: 'even-vertical' }),
+  'view-layout-main-horizontal': TmuxOp.SelectLayout({ layout: 'main-horizontal' }),
+  'view-layout-main-vertical': TmuxOp.SelectLayout({ layout: 'main-vertical' }),
+  'view-layout-tiled': TmuxOp.SelectLayout({ layout: 'tiled' }),
+} as const satisfies Record<string, TmuxOp>;
+
+export type MenuOpId = keyof typeof MENU_OPS;
+
+const isMenuOp = (actionId: string): actionId is MenuOpId => actionId in MENU_OPS;
 
 /**
  * Resolve the pane a menu "Close Pane" should target when the menu isn't
@@ -36,60 +83,11 @@ export function activeCloseTarget(
  * teardown (see activeCloseTarget).
  */
 export function executeMenuAction(send: Send, actionId: string, closeTargetPaneId?: PaneId): void {
+  if (isMenuOp(actionId)) {
+    send({ type: 'DISPATCH_OP', op: MENU_OPS[actionId] });
+    return;
+  }
   switch (actionId) {
-    // Pane actions
-    case 'pane-split-below':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -v' });
-      break;
-    case 'pane-split-right':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
-      break;
-    case 'pane-next':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t :.+' });
-      break;
-    case 'pane-previous':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'last-pane' });
-      break;
-    case 'pane-swap-prev':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -U' });
-      break;
-    case 'pane-swap-next':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -D' });
-      break;
-    // The marked pane (tmux `select-pane -m`). Marking acts on the pane the
-    // menu was opened for (the caller focuses it first); swap/join take tmux's
-    // default source, which is the marked pane whenever one exists.
-    case 'pane-mark':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -m' });
-      break;
-    case 'pane-unmark':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -M' });
-      break;
-    case 'pane-swap-marked':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane' });
-      break;
-    case 'pane-join-marked':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'join-pane' });
-      break;
-    case 'pane-move-new-tab':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'break-pane' });
-      break;
-    case 'pane-add-to-group':
-      send({
-        type: 'SEND_TMUX_COMMAND',
-        command:
-          'run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}"',
-      });
-      break;
-    case 'pane-copy-mode':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'copy-mode' });
-      break;
-    case 'pane-paste':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'paste-buffer' });
-      break;
-    case 'pane-clear':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'send-keys -R \\; clear-history' });
-      break;
     case 'pane-close':
       // Group members and floats need the group-aware close script: closing a
       // group member has to swap a sibling into view (or tidy the stash window)
@@ -99,7 +97,7 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       if (closeTargetPaneId) {
         send({ type: 'CLOSE_PANE', paneId: closeTargetPaneId });
       } else {
-        send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
+        send({ type: 'DISPATCH_OP', op: TmuxOp.KillPane({ paneId: null }) });
       }
       break;
 
@@ -113,24 +111,6 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
     case 'restart-app':
       restartApp();
       break;
-    case 'tab-next':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'next-window' });
-      break;
-    case 'tab-previous':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'previous-window' });
-      break;
-    case 'tab-last':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'last-window' });
-      break;
-    case 'tab-rename':
-      send({
-        type: 'SEND_TMUX_COMMAND',
-        command: 'command-prompt -I "#W" "rename-window -- \'%%\'"',
-      });
-      break;
-    case 'tab-close':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'kill-window' });
-      break;
 
     // Session actions
     case 'session-new': {
@@ -143,51 +123,16 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       // switch-client, and XState delivers both events to the tmux actor in
       // order. The name mirrors the picker's `tmuxy_<n>` convention.
       const newSession = `tmuxy_${Date.now()}`;
-      send({ type: 'SEND_TMUX_COMMAND', command: `new-session -d -s ${newSession}` });
+      send({ type: 'DISPATCH_OP', op: TmuxOp.NewSession({ name: newSession }) });
       send({ type: 'SWITCH_SESSION', sessionName: newSession });
       break;
     }
-    case 'session-rename':
-      send({
-        type: 'SEND_TMUX_COMMAND',
-        command: 'command-prompt -I "#S" "rename-session -- \'%%\'"',
-      });
-      break;
     case 'session-detach':
       // Goes through DETACH_CLIENT, not a raw `detach-client`: the backend has
       // to know the detach was deliberate or its monitor treats the ended
       // connection as a flap and reattaches, dropping the user straight back
       // into the session they just left.
       send({ type: 'DETACH_CLIENT' });
-      break;
-    case 'session-kill':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'kill-session' });
-      break;
-    case 'session-reload-config':
-      // tmuxy's own config, NOT ~/.tmux.conf — sourcing the user's vanilla
-      // tmux config would drag their default-server bindings/options into
-      // the isolated tmuxy socket.
-      send({ type: 'SEND_TMUX_COMMAND', command: 'source-file ~/.config/tmuxy/tmuxy.conf' });
-      break;
-
-    // View actions
-    case 'view-zoom':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'resize-pane -Z' });
-      break;
-    case 'view-layout-even-horizontal':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout even-horizontal' });
-      break;
-    case 'view-layout-even-vertical':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout even-vertical' });
-      break;
-    case 'view-layout-main-horizontal':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout main-horizontal' });
-      break;
-    case 'view-layout-main-vertical':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout main-vertical' });
-      break;
-    case 'view-layout-tiled':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout tiled' });
       break;
 
     // Help actions

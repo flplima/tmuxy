@@ -44,7 +44,8 @@ import type { TraceLevel } from '../../machines/types';
 import { isTauri } from '../../tmux/adapters';
 import { restartApp } from '../../utils/restartApp';
 import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
-import { activeCloseTarget, executeMenuAction } from './menuActions';
+import { activeCloseTarget, executeMenuAction, MENU_OPS } from './menuActions';
+import { TmuxOp } from '../../domain/commands';
 import { PaneMenuItems } from './PaneMenuItems';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
 import type { WidgetMenuItem } from '../widgets';
@@ -129,7 +130,7 @@ export function AppMenu() {
             {!readOnly && (
               <MenuItem onClick={() => handleAction('tab-new')}>
                 New Tab
-                <KeyLabel keybindings={keybindings} command="new-window" />
+                <KeyLabel keybindings={keybindings} op={TmuxOp.NewWindow()} />
               </MenuItem>
             )}
             <MenuItem onClick={() => handleAction('tab-overview')}>
@@ -138,29 +139,26 @@ export function AppMenu() {
             </MenuItem>
             <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
               Next Tab
-              <KeyLabel keybindings={keybindings} command="next-window" />
+              <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-next']} />
             </MenuItem>
             <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
               Previous Tab
-              <KeyLabel keybindings={keybindings} command="previous-window" />
+              <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-previous']} />
             </MenuItem>
             <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
               Last Tab
-              <KeyLabel keybindings={keybindings} command="last-window" />
+              <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-last']} />
             </MenuItem>
             {!readOnly && (
               <>
                 <MenuItem onClick={() => handleAction('tab-rename')}>
                   Rename Tab
-                  <KeyLabel
-                    keybindings={keybindings}
-                    command={'command-prompt -I "#W" "rename-window -- \'%%\'"'}
-                  />
+                  <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-rename']} />
                 </MenuItem>
                 <MenuDivider />
                 <MenuItem onClick={() => handleAction('tab-close')}>
                   Close Tab
-                  <KeyLabel keybindings={keybindings} command="kill-window" />
+                  <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-close']} />
                 </MenuItem>
               </>
             )}
@@ -173,14 +171,14 @@ export function AppMenu() {
               </MenuItem>
               <MenuItem onClick={() => handleAction('session-rename')} disabled={isDemo}>
                 Rename Session
-                <KeyLabel
-                  keybindings={keybindings}
-                  command={'command-prompt -I "#S" "rename-session -- \'%%\'"'}
-                />
+                <KeyLabel keybindings={keybindings} op={MENU_OPS['session-rename']} />
               </MenuItem>
               <MenuItem onClick={() => handleAction('session-detach')} disabled={isDemo}>
                 Detach Session
-                <KeyLabel keybindings={keybindings} command="detach-client" />
+                <KeyLabel
+                  keybindings={keybindings}
+                  op={TmuxOp.RawCommand({ command: 'detach-client' })}
+                />
               </MenuItem>
               <MenuItem onClick={() => handleAction('session-kill')} disabled={isDemo}>
                 Kill Session
@@ -216,7 +214,7 @@ export function AppMenu() {
               <>
                 <MenuItem onClick={() => handleAction('view-zoom')}>
                   Zoom Pane
-                  <KeyLabel keybindings={keybindings} command="resize-pane -Z" />
+                  <KeyLabel keybindings={keybindings} op={MENU_OPS['view-zoom']} />
                 </MenuItem>
                 <MenuItem onClick={() => handleAction('view-layout-even-horizontal')}>
                   Even Horizontal

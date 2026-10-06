@@ -12,10 +12,21 @@
 import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import type { ScrollbackMode } from '../tmux/types';
-import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from './scrollUtils';
+import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
+import { TmuxOp } from '../domain/commands';
 import { haptics } from '../utils/haptics';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
 import type { PaneId } from '../domain/ids';
+
+/** A mouse report at a 0-based cell, as the 1-based SGR coordinates (never row 0). */
+function mouseOp(
+  paneId: PaneId,
+  button: number,
+  cell: { x: number; y: number },
+  release: boolean,
+): TmuxOp {
+  return TmuxOp.SendMouse({ paneId, button, x: cell.x + 1, y: Math.max(1, cell.y + 1), release });
+}
 
 interface UsePaneMouseOptions {
   paneId: PaneId;
@@ -240,10 +251,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         mouseButtonRef.current = e.button;
 
         // Send SGR mouse press event
-        send({
-          type: 'SEND_TMUX_COMMAND',
-          command: sgrMouseCommand(paneId, e.button, cell.x + 1, Math.max(1, cell.y + 1)),
-        });
+        send({ type: 'DISPATCH_OP', op: mouseOp(paneId, e.button, cell, false) });
         return;
       }
 
@@ -284,16 +292,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         const cell = pixelToCell(e);
 
         // Send SGR mouse release event (lowercase 'm')
-        send({
-          type: 'SEND_TMUX_COMMAND',
-          command: sgrMouseCommand(
-            paneId,
-            mouseButtonRef.current,
-            cell.x + 1,
-            Math.max(1, cell.y + 1),
-            true,
-          ),
-        });
+        send({ type: 'DISPATCH_OP', op: mouseOp(paneId, mouseButtonRef.current, cell, true) });
         mouseButtonRef.current = null;
         return;
       }
@@ -329,10 +328,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       if (mouseAnyFlag) {
         const cell = pixelToCell(e);
         const dragButton = mouseButtonRef.current + 32;
-        send({
-          type: 'SEND_TMUX_COMMAND',
-          command: sgrMouseCommand(paneId, dragButton, cell.x + 1, Math.max(1, cell.y + 1)),
-        });
+        send({ type: 'DISPATCH_OP', op: mouseOp(paneId, dragButton, cell, false) });
         return;
       }
 

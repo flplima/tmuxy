@@ -5,6 +5,10 @@ import { createRef } from 'react';
 import { usePaneMouse } from '../usePaneMouse';
 import type { AppMachineEvent } from '../../machines/types';
 import type { ScrollbackMode } from '../../tmux/types';
+import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
+
+/** What a sent event puts on the wire. */
+const wire = (e: unknown) => toTmuxCommand((e as { op: TmuxOp }).op);
 
 interface SetupOptions {
   alternateOn?: boolean;
@@ -61,9 +65,7 @@ describe('usePaneMouse.handleWheel', () => {
     const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
     expect(enterCopy).toBeUndefined();
     // Should have sent Up arrow keys instead
-    const sendKeys = events.filter(
-      (e) => e.type === 'SEND_TMUX_COMMAND' && (e as { command: string }).command.includes('Up'),
-    );
+    const sendKeys = events.filter((e) => e.type === 'DISPATCH_OP' && wire(e).includes('Up'));
     expect(sendKeys.length).toBeGreaterThan(0);
   });
 
@@ -75,9 +77,7 @@ describe('usePaneMouse.handleWheel', () => {
     // Should have sent SGR wheel-up events: button 64, injected as raw hex
     // keys ("1b 5b 3c 36 34" = ESC [ < 6 4).
     const sgrEvents = events.filter(
-      (e) =>
-        e.type === 'SEND_TMUX_COMMAND' &&
-        /send-keys -t \S+ -H 1b 5b 3c 36 34/.test((e as { command: string }).command),
+      (e) => e.type === 'DISPATCH_OP' && /send-keys -t \S+ -H 1b 5b 3c 36 34/.test(wire(e)),
     );
     expect(sgrEvents.length).toBeGreaterThan(0);
   });

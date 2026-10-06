@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { pid } from '../../test/wire';
-import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from '../scrollUtils';
+import { sendScrollLines, takeWholeRows, scrollByRows } from '../scrollUtils';
+import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
+
+/** What a sent event puts on the wire. */
+const wire = (e: unknown) => toTmuxCommand((e as { op: TmuxOp }).op);
 import type { AppMachineEvent } from '../../machines/types';
 
 function captureSends() {
@@ -107,8 +111,8 @@ describe('sendScrollLines', () => {
       mouseAnyFlag: false,
     });
     expect(events).toHaveLength(3);
-    expect(events.every((e) => e.type === 'SEND_TMUX_COMMAND')).toBe(true);
-    expect(events.map((e) => (e as { command: string }).command)).toEqual([
+    expect(events.every((e) => e.type === 'DISPATCH_OP')).toBe(true);
+    expect(events.map(wire)).toEqual([
       'send-keys -t %1 Up',
       'send-keys -t %1 Up',
       'send-keys -t %1 Up',
@@ -124,10 +128,7 @@ describe('sendScrollLines', () => {
       alternateOn: true,
       mouseAnyFlag: false,
     });
-    expect(events.map((e) => (e as { command: string }).command)).toEqual([
-      'send-keys -t %1 Down',
-      'send-keys -t %1 Down',
-    ]);
+    expect(events.map(wire)).toEqual(['send-keys -t %1 Down', 'send-keys -t %1 Down']);
   });
 
   it('sends SGR wheel-up events when mouse tracking is enabled', () => {
@@ -142,9 +143,9 @@ describe('sendScrollLines', () => {
       cellY: 7,
     });
     expect(events).toHaveLength(1);
-    const cmd = (events[0] as { command: string }).command;
+    const cmd = wire(events[0]);
     // Button 64 = wheel up, coords 1-based (5, 8), injected as raw hex keys
-    expect(cmd).toBe(sgrMouseCommand(pid('%1'), 64, 5, 8));
+    expect(cmd).toBe('send-keys -t %1 -H 1b 5b 3c 36 34 3b 35 3b 38 4d');
   });
 
   it('sends SGR wheel-down events when mouse tracking is enabled', () => {
@@ -159,9 +160,9 @@ describe('sendScrollLines', () => {
       cellY: 0,
     });
     expect(events).toHaveLength(1);
-    const cmd = (events[0] as { command: string }).command;
+    const cmd = wire(events[0]);
     // Button 65 = wheel down, coords 1-based (1, 1)
-    expect(cmd).toBe(sgrMouseCommand(pid('%1'), 65, 1, 1));
+    expect(cmd).toBe('send-keys -t %1 -H 1b 5b 3c 36 35 3b 31 3b 31 4d');
   });
 
   it('prefers SGR mouse events when BOTH alternate-screen and mouse tracking are active', () => {
@@ -181,9 +182,9 @@ describe('sendScrollLines', () => {
     expect(events).toHaveLength(2);
     // All commands should be SGR wheel events, NOT synthetic arrow keys
     for (const ev of events) {
-      const cmd = (ev as { command: string }).command;
+      const cmd = wire(ev);
       expect(cmd).not.toMatch(/send-keys -t \S+ (Up|Down)/);
-      expect(cmd).toBe(sgrMouseCommand(pid('%1'), 64, 1, 1));
+      expect(cmd).toBe('send-keys -t %1 -H 1b 5b 3c 36 34 3b 31 3b 31 4d');
     }
   });
 });

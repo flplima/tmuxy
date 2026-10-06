@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { placeholderPaneId } from '../../../domain/ids';
 import { pid } from '../../../test/wire';
-import { activeCloseTarget, executeMenuAction } from '../menuActions';
+import { activeCloseTarget, executeMenuAction, MENU_OPS } from '../menuActions';
+import { TmuxOp } from '../../../domain/commands';
 import type { AppMachineEvent } from '../../../machines/types';
 
 describe('activeCloseTarget', () => {
@@ -33,7 +34,18 @@ describe('executeMenuAction pane-close routing', () => {
   it('falls back to raw kill-pane when no target pane is known', () => {
     const send = vi.fn();
     executeMenuAction(send, 'pane-close');
-    expect(send).toHaveBeenCalledWith({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
+    expect(send).toHaveBeenCalledWith({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.KillPane({ paneId: null }),
+    });
+  });
+
+  it('sends the op of every op-backed item, the same one its keybinding hint names', () => {
+    for (const [actionId, op] of Object.entries(MENU_OPS)) {
+      const send = vi.fn();
+      executeMenuAction(send, actionId);
+      expect(send).toHaveBeenCalledWith({ type: 'DISPATCH_OP', op });
+    }
   });
 
   it('opens github URL for help-github', () => {

@@ -13,6 +13,7 @@
 
 import type { AppMachineEvent } from '../machines/types';
 import type { PaneId } from '../domain/ids';
+import { TmuxOp } from '../domain/commands';
 
 /**
  * Split a pixel delta into whole rows, carrying what is left over.
@@ -46,29 +47,6 @@ export function scrollByRows(el: HTMLElement, rows: number, charHeight: number):
   if (rows === 0 || charHeight <= 0) return;
   const currentRow = Math.round(el.scrollTop / charHeight);
   el.scrollTop = Math.max(0, currentRow + rows) * charHeight;
-}
-
-/**
- * Build the control-mode command that injects an SGR mouse report into a
- * mouse-tracking pane. `send-keys -H` (raw hex bytes) is the one reliable
- * transport: tmux ≥ 3.7 parses pane input arriving via load-buffer/
- * paste-buffer for mouse sequences and consumes them — the report never
- * reaches the application — and `send-keys -l` literals are format-expanded
- * (see docs/TMUX.md). Hex key bytes bypass both.
- *
- * Coordinates are 1-indexed SGR cell positions; `release` selects the
- * lowercase `m` terminator.
- */
-export function sgrMouseCommand(
-  paneId: PaneId,
-  button: number,
-  cellX: number,
-  cellY: number,
-  release = false,
-): string {
-  const seq = `\x1b[<${button};${cellX};${cellY}${release ? 'm' : 'M'}`;
-  const hex = Array.from(seq, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
-  return `send-keys -t ${paneId} -H ${hex}`;
 }
 
 interface ScrollCommandOptions {
@@ -106,14 +84,14 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
     const button = isScrollUp ? 64 : 65;
     for (let i = 0; i < absLines; i++) {
       send({
-        type: 'SEND_TMUX_COMMAND',
-        command: sgrMouseCommand(paneId, button, cellX + 1, cellY + 1),
+        type: 'DISPATCH_OP',
+        op: TmuxOp.SendMouse({ paneId, button, x: cellX + 1, y: cellY + 1, release: false }),
       });
     }
   } else {
     const key = isScrollUp ? 'Up' : 'Down';
     for (let i = 0; i < absLines; i++) {
-      send({ type: 'SEND_TMUX_COMMAND', command: `send-keys -t ${paneId} ${key}` });
+      send({ type: 'DISPATCH_OP', op: TmuxOp.SendKeys({ target: paneId, keys: key }) });
     }
   }
 
