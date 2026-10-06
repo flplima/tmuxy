@@ -5,7 +5,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../test/wire';
-import { tabStripDrop, tabDropCommand, type TabStripGeometry } from '../tabStripDrop';
+import { tabStripDrop, tabDropOp, type TabStripGeometry } from '../tabStripDrop';
+import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 
 const geometry: TabStripGeometry = {
   strip: { left: 0, top: 0, right: 800, bottom: 30 },
@@ -40,7 +41,11 @@ describe('tabStripDrop', () => {
   });
 });
 
-describe('tabDropCommand', () => {
+describe('tabDropOp', () => {
+  const tabDropCommand = (...args: Parameters<typeof tabDropOp>) => {
+    const op: TmuxOp | null = tabDropOp(...args);
+    return op && toTmuxCommand(op);
+  };
   it('joins the pane into the tab it was dropped on', () => {
     expect(tabDropCommand({ kind: 'tab', windowId: wid('@1') }, pid('%3'), wid('@0'), 2)).toBe(
       'join-pane -s %3 -t @1',

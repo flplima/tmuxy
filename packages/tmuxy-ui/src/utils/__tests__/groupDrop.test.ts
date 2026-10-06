@@ -3,13 +3,14 @@ import type { PaneId } from '../../domain/ids';
 import { gid, pid, wid } from '../../test/wire';
 import {
   groupDropAt,
-  groupDropCommand,
+  groupDropOp,
   headerBands,
-  leaveCommand,
+  leaveOp,
   sideOf,
   type HeaderBand,
 } from '../groupDrop';
 import type { TmuxPane } from '../../domain/client';
+import { SCRIPTS_DIR as SCRIPTS, toTmuxCommand, type TmuxOp } from '../../domain/commands';
 
 // A header 300px wide at the top of the container, shared by three members.
 const band = (members: PaneId[], paneId = members[0]): HeaderBand => ({
@@ -68,26 +69,29 @@ describe('a pane dragged over a header', () => {
 });
 
 describe('the command a release runs', () => {
+  const wire = (op: TmuxOp | null) => op && toTmuxCommand(op);
   it('moves, joins, or does nothing when the member is already there', () => {
     expect(
-      groupDropCommand({ kind: 'order', paneId: pid('%1'), from: 0, index: 2 }, pid('%1')),
-    ).toContain('pane-group-move %1 2');
+      wire(groupDropOp({ kind: 'order', paneId: pid('%1'), from: 0, index: 2 }, pid('%1'))),
+    ).toBe(`run-shell "${SCRIPTS}/pane-group-move %1 2"`);
     expect(
-      groupDropCommand({ kind: 'order', paneId: pid('%1'), from: 1, index: 1 }, pid('%1')),
+      wire(groupDropOp({ kind: 'order', paneId: pid('%1'), from: 1, index: 1 }, pid('%1'))),
     ).toBeNull();
-    expect(
-      groupDropCommand({ kind: 'join', anchorPaneId: pid('%1'), index: 0 }, pid('%9')),
-    ).toContain('pane-group-join %9 %1 0');
+    expect(wire(groupDropOp({ kind: 'join', anchorPaneId: pid('%1'), index: 0 }, pid('%9')))).toBe(
+      `run-shell "${SCRIPTS}/pane-group-join %9 %1 0"`,
+    );
   });
 
   it('a parked member leaves beside a pane, into a tab, or as a tab of its own', () => {
-    expect(leaveCommand(pid('%5'), { kind: 'beside', paneId: pid('%2'), side: 'up' })).toContain(
-      'pane-group-leave %5 --beside %2 up',
+    expect(wire(leaveOp(pid('%5'), { kind: 'beside', paneId: pid('%2'), side: 'up' }))).toBe(
+      `run-shell "${SCRIPTS}/pane-group-leave %5 --beside %2 up"`,
     );
-    expect(leaveCommand(pid('%5'), { kind: 'tab', windowId: wid('@3') })).toContain(
-      '--beside @3 right',
+    expect(wire(leaveOp(pid('%5'), { kind: 'tab', windowId: wid('@3') }))).toBe(
+      `run-shell "${SCRIPTS}/pane-group-leave %5 --beside @3 right"`,
     );
-    expect(leaveCommand(pid('%5'), { kind: 'new' })).toContain('pane-group-leave %5 --tab');
+    expect(wire(leaveOp(pid('%5'), { kind: 'new' }))).toBe(
+      `run-shell "${SCRIPTS}/pane-group-leave %5 --tab"`,
+    );
   });
 
   it('picks the side of a pane by the pointer, relative to its shape', () => {

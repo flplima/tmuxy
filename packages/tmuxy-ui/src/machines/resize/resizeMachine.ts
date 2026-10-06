@@ -16,9 +16,34 @@ import type {
   ResizeMachineEvent,
   ResizeState,
   KeyPressEvent,
+  ResizeHandle,
 } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { resizeLimits, clampDelta } from './limits';
+import { TmuxOp, type ResizeStep } from '../../domain/commands';
+import type { PaneId } from '../../domain/ids';
+
+/**
+ * The resize a divider drag of `cols` × `rows` cells asks of `paneId`: an east
+ * or west handle moves its column edge, a south or north one its row edge, in
+ * the direction the edge travels.
+ */
+function resizeSteps(
+  paneId: PaneId,
+  handle: ResizeHandle,
+  cols: number,
+  rows: number,
+): ResizeStep[] {
+  if ((handle === 'e' || handle === 'w') && cols !== 0) {
+    const grows = handle === 'e' ? cols > 0 : cols < 0;
+    return [{ paneId, direction: grows ? 'R' : 'L', cells: Math.abs(cols) }];
+  }
+  if ((handle === 's' || handle === 'n') && rows !== 0) {
+    const grows = handle === 's' ? rows > 0 : rows < 0;
+    return [{ paneId, direction: grows ? 'D' : 'U', cells: Math.abs(rows) }];
+  }
+  return [];
+}
 
 /** Minimum ms between resize command batches during a drag (see ResizeState.lastSentAt). */
 export const RESIZE_SEND_INTERVAL_MS = 80;
@@ -172,34 +197,10 @@ export const resizeMachine = setup({
               const incrementalCols = deltaCols - lastSentDelta.cols;
               const incrementalRows = deltaRows - lastSentDelta.rows;
 
-              const commands: string[] = [];
-
-              if (handle === 'e' || handle === 'w') {
-                if (incrementalCols !== 0) {
-                  const dir = (handle === 'e' ? incrementalCols > 0 : incrementalCols < 0)
-                    ? 'R'
-                    : 'L';
-                  const amount = Math.abs(incrementalCols);
-                  commands.push(`resize-pane -t ${paneId} -${dir} ${amount}`);
-                }
-              }
-
-              if (handle === 's' || handle === 'n') {
-                if (incrementalRows !== 0) {
-                  const dir = (handle === 's' ? incrementalRows > 0 : incrementalRows < 0)
-                    ? 'D'
-                    : 'U';
-                  const amount = Math.abs(incrementalRows);
-                  commands.push(`resize-pane -t ${paneId} -${dir} ${amount}`);
-                }
-              }
-
-              if (commands.length > 0) {
+              const steps = resizeSteps(paneId, handle, incrementalCols, incrementalRows);
+              if (steps.length > 0) {
                 enqueue(
-                  sendParent({
-                    type: 'SEND_TMUX_COMMAND' as const,
-                    command: commands.join(' \\; '),
-                  }),
+                  sendParent({ type: 'DISPATCH_OP' as const, op: TmuxOp.ResizePanes({ steps }) }),
                 );
                 newLastSentDelta = { cols: deltaCols, rows: deltaRows };
                 newLastSentAt = now;
@@ -229,30 +230,10 @@ export const resizeMachine = setup({
               const remainingCols = delta.cols - lastSentDelta.cols;
               const remainingRows = delta.rows - lastSentDelta.rows;
 
-              const commands: string[] = [];
-
-              if (handle === 'e' || handle === 'w') {
-                if (remainingCols !== 0) {
-                  const dir = (handle === 'e' ? remainingCols > 0 : remainingCols < 0) ? 'R' : 'L';
-                  const amount = Math.abs(remainingCols);
-                  commands.push(`resize-pane -t ${paneId} -${dir} ${amount}`);
-                }
-              }
-
-              if (handle === 's' || handle === 'n') {
-                if (remainingRows !== 0) {
-                  const dir = (handle === 's' ? remainingRows > 0 : remainingRows < 0) ? 'D' : 'U';
-                  const amount = Math.abs(remainingRows);
-                  commands.push(`resize-pane -t ${paneId} -${dir} ${amount}`);
-                }
-              }
-
-              if (commands.length > 0) {
+              const steps = resizeSteps(paneId, handle, remainingCols, remainingRows);
+              if (steps.length > 0) {
                 enqueue(
-                  sendParent({
-                    type: 'SEND_TMUX_COMMAND' as const,
-                    command: commands.join(' \\; '),
-                  }),
+                  sendParent({ type: 'DISPATCH_OP' as const, op: TmuxOp.ResizePanes({ steps }) }),
                 );
               }
             }),

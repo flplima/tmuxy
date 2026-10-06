@@ -27,17 +27,18 @@ import { setup, assign, sendParent, enqueueActions, fromCallback, raise, cancel 
 import type { DragMachineContext, DragMachineEvent, DragState, KeyPressEvent } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { findSwapTarget } from './helpers';
-import { tabStripDrop, tabDropCommand, sameTabDrop } from '../../utils/tabStripDrop';
+import { tabStripDrop, tabDropOp, sameTabDrop } from '../../utils/tabStripDrop';
 import {
   groupDropAt,
-  groupDropCommand,
+  groupDropOp,
   groupOf,
   headerBands,
-  leaveCommand,
+  leaveOp,
   sameGroupDrop,
   sideOf,
 } from '../../utils/groupDrop';
 import { paneInsetX } from '../../constants';
+import { TmuxOp } from '../../domain/commands';
 import { haptics } from '../../utils/haptics';
 
 /** How long the pointer rests on a pane before the dragged pane swaps with it. */
@@ -388,8 +389,12 @@ export const dragMachine = setup({
             });
             enqueue(
               sendParent({
-                type: 'SEND_TMUX_COMMAND' as const,
-                command: `swap-pane -d -s ${drag.draggedPaneId} -t ${targetPane.tmuxId}`,
+                type: 'DISPATCH_OP' as const,
+                op: TmuxOp.Swap({
+                  sourcePaneId: drag.draggedPaneId,
+                  targetPaneId: targetPane.tmuxId,
+                  keepFocus: true,
+                }),
               }),
             );
             enqueue('hapticSwap');
@@ -417,28 +422,26 @@ export const dragMachine = setup({
             // Swaps already happened on hover; a move to another tab or a
             // group change is what the release itself decides.
             const drag = context.drag;
-            let command: string | null = null;
+            let op: TmuxOp | null = null;
             if (drag?.groupDrop) {
-              command = groupDropCommand(drag.groupDrop, drag.draggedPaneId);
+              op = groupDropOp(drag.groupDrop, drag.draggedPaneId);
             } else if (drag?.memberDrag && drag.tabDrop) {
-              command = leaveCommand(drag.draggedPaneId, drag.tabDrop);
+              op = leaveOp(drag.draggedPaneId, drag.tabDrop);
             } else if (drag?.memberDrag && drag.targetPaneId && drag.leaveSide) {
-              command = leaveCommand(drag.draggedPaneId, {
+              op = leaveOp(drag.draggedPaneId, {
                 kind: 'beside',
                 paneId: drag.targetPaneId,
                 side: drag.leaveSide,
               });
             } else if (drag?.tabDrop) {
-              command = tabDropCommand(
+              op = tabDropOp(
                 drag.tabDrop,
                 drag.draggedPaneId,
                 context.paneWindowId,
                 context.panesInWindow,
               );
             }
-            if (command) {
-              enqueue(sendParent({ type: 'SEND_TMUX_COMMAND' as const, command }));
-            }
+            if (op) enqueue(sendParent({ type: 'DISPATCH_OP' as const, op }));
             enqueue(cancel(SWAP_DWELL_ID));
             enqueue(assign({ drag: null }));
             enqueue('notifyStateUpdate');

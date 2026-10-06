@@ -1,4 +1,5 @@
 import { isModelWindowId, type PaneId, type WindowId } from '../domain/ids';
+import { TmuxOp } from '../domain/commands';
 /**
  * Dropping a dragged pane on the tab strip.
  *
@@ -78,20 +79,20 @@ export function sameTabDrop(a: TabDrop | null, b: TabDrop | null): boolean {
 }
 
 /**
- * The tmux command a drop runs, or null when the drop would do nothing: onto
- * the pane's own tab, or into a new tab when the pane is already alone in one
- * (tmux refuses to break the only pane out of a window).
+ * The op a drop runs, or null when the drop would do nothing: onto the pane's
+ * own tab, or into a new tab when the pane is already alone in one (tmux
+ * refuses to break the only pane out of a window).
  */
-export function tabDropCommand(
+export function tabDropOp(
   drop: TabDrop,
   paneId: PaneId,
   paneWindowId: WindowId | null,
   panesInWindow: number,
-): string | null {
+): TmuxOp | null {
   if (drop.kind === 'tab') {
     if (drop.windowId === paneWindowId) return null;
-    return `join-pane -s ${paneId} -t ${drop.windowId}`;
+    return TmuxOp.JoinPane({ paneId, windowId: drop.windowId });
   }
   if (panesInWindow <= 1) return null;
-  return `break-pane -s ${paneId}`;
+  return TmuxOp.BreakPane({ paneId });
 }

@@ -8,10 +8,10 @@ import type { CopyModeState } from '../tmux/types';
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { ServerState, KeyBindings, KeyBinding, Appearance } from '../domain/wire';
 import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
-import type { GroupDrop, Side } from '../utils/groupDrop';
+import type { GroupDrop } from '../utils/groupDrop';
 import type { AskAnswer } from '../utils/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../domain/ids';
-import type { TmuxOp } from '../domain/commands';
+import type { Side, TmuxOp } from '../domain/commands';
 
 // Re-export domain types
 export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
@@ -636,12 +636,12 @@ export type ResizeMachineEvent =
 
 /** Events sent from drag machine to parent */
 export type DragParentEvent =
-  | { type: 'SEND_TMUX_COMMAND'; command: string }
+  | DispatchOpEvent
   | { type: 'DRAG_STATE_UPDATE'; drag: DragState | null };
 
 /** Events sent from resize machine to parent */
 export type ResizeParentEvent =
-  | { type: 'SEND_TMUX_COMMAND'; command: string }
+  | DispatchOpEvent
   | { type: 'RESIZE_STATE_UPDATE'; resize: ResizeState | null }
   | { type: 'RESIZE_COMPLETED' };
 

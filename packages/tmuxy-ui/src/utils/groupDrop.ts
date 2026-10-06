@@ -21,8 +21,7 @@ import type { PaneGroup } from '../machines/types';
 import { paneInsetX } from '../constants';
 import type { TabDrop } from './tabStripDrop';
 import type { GroupId, PaneId } from '../domain/ids';
-
-const SCRIPTS = '$HOME/.config/tmuxy/bin/tmuxy';
+import { TmuxOp, type Side } from '../domain/commands';
 
 /** A pane header's box, container-relative, with the members sharing it. */
 export interface HeaderBand {
@@ -38,8 +37,6 @@ export interface HeaderBand {
 export type GroupDrop =
   | { kind: 'order'; paneId: PaneId; from: number; index: number }
   | { kind: 'join'; anchorPaneId: PaneId; index: number };
-
-export type Side = 'left' | 'right' | 'up' | 'down';
 
 /** The member list of the group a pane is in, or null when it is in none. */
 export function groupOf(groups: Record<GroupId, PaneGroup>, paneId: PaneId): PaneId[] | null {
@@ -109,13 +106,17 @@ export function sameGroupDrop(a: GroupDrop | null, b: GroupDrop | null): boolean
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** The tmux command a group drop runs; null when the member is already there. */
-export function groupDropCommand(drop: GroupDrop, draggedId: string): string | null {
+/** The op a group drop runs; null when the member is already there. */
+export function groupDropOp(drop: GroupDrop, draggedId: PaneId): TmuxOp | null {
   if (drop.kind === 'order') {
     if (drop.index === drop.from) return null;
-    return `run-shell "${SCRIPTS}/pane-group-move ${drop.paneId} ${drop.index}"`;
+    return TmuxOp.GroupMove({ paneId: drop.paneId, index: drop.index });
   }
-  return `run-shell "${SCRIPTS}/pane-group-join ${draggedId} ${drop.anchorPaneId} ${drop.index}"`;
+  return TmuxOp.GroupJoin({
+    paneId: draggedId,
+    anchorPaneId: drop.anchorPaneId,
+    index: drop.index,
+  });
 }
 
 /**
@@ -136,12 +137,21 @@ export function sideOf(
 /** Where a parked member dragged out of its group is released. */
 export type LeaveDrop = { kind: 'beside'; paneId: PaneId; side: Side } | TabDrop;
 
-/** The command that takes a member out of its group to `drop`. */
-export function leaveCommand(paneId: PaneId, drop: LeaveDrop): string {
-  const script = `${SCRIPTS}/pane-group-leave ${paneId}`;
-  if (drop.kind === 'beside') return `run-shell "${script} --beside ${drop.paneId} ${drop.side}"`;
+/** The op that takes a member out of its group to `drop`. */
+export function leaveOp(paneId: PaneId, drop: LeaveDrop): TmuxOp {
+  if (drop.kind === 'beside') {
+    return TmuxOp.GroupLeave({
+      paneId,
+      to: { kind: 'beside', target: drop.paneId, side: drop.side },
+    });
+  }
   // Over a tab: beside that window's active pane, which join-pane picks for a
   // window target.
-  if (drop.kind === 'tab') return `run-shell "${script} --beside ${drop.windowId} right"`;
-  return `run-shell "${script} --tab"`;
+  if (drop.kind === 'tab') {
+    return TmuxOp.GroupLeave({
+      paneId,
+      to: { kind: 'beside', target: drop.windowId, side: 'right' },
+    });
+  }
+  return TmuxOp.GroupLeave({ paneId, to: { kind: 'tab' } });
 }
