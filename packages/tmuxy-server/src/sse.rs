@@ -159,14 +159,9 @@ impl StateEmitter for SseEmitter {
         // off the monitor loop, whose own connection answers them.
         let state = Arc::clone(&self.app_state);
         let session = self.session.clone();
-        let broadcast = self.broadcast.clone();
-        let ctx = self.app_state.ctx.clone();
         tokio::spawn(async move {
             refresh_keybindings(&state, &session).await;
-            let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
-            if let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) {
-                broadcast.broadcast(msg);
-            }
+            broadcast_theme_settings(&state, &session).await;
         });
     }
 
@@ -772,7 +767,7 @@ async fn serve_viewer(
             }
         }
         // Read from tmux once per server, not once per request.
-        ClientCommand::GetThemeSettings => Ok(theme_settings_for(state).await),
+        ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
         // A static list compiled in; no tmux, no host.
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
         // A viewer is shown one session's screen, not the working directory of
@@ -859,13 +854,15 @@ async fn handle_command(
             let tx = state.monitor_tx(session).await?;
             tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
         }
-        ClientCommand::GetThemeSettings => Ok(theme_settings_for(state).await),
+        ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
         ClientCommand::SetTheme { name, mode } => {
-            tmuxy_core::theme::set_theme(&state.ctx, &name, mode.as_deref()).await?;
+            let tx = state.monitor_tx(session).await?;
+            tmuxy_core::theme::set_theme(&tx, &name, mode.as_deref()).await?;
             Ok(serde_json::json!(null))
         }
         ClientCommand::SetCursorBlink { enabled } => {
-            tmuxy_core::theme::set_cursor_blink(&state.ctx, enabled).await?;
+            let tx = state.monitor_tx(session).await?;
+            tmuxy_core::theme::set_cursor_blink(&tx, enabled).await?;
             Ok(serde_json::json!(null))
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
@@ -891,7 +888,8 @@ async fn handle_command(
                 .map_err(|e| format!("failed to serialize worktrees: {e}"))
         }
         ClientCommand::SetThemeMode { mode } => {
-            tmuxy_core::theme::set_theme_mode(&state.ctx, &mode).await?;
+            let tx = state.monitor_tx(session).await?;
+            tmuxy_core::theme::set_theme_mode(&tx, &mode).await?;
             Ok(serde_json::json!(null))
         }
         ClientCommand::ListSnapshots => tmuxy_core::transport::list_snapshots_json().await,
@@ -944,22 +942,37 @@ async fn refresh_keybindings(state: &Arc<AppState>, session: &str) {
     }
 }
 
-/// The theme name, mode and appearance to answer a client with: read once and
-/// kept on a viewer's server (`AppState::viewer_theme_settings`), read afresh
-/// on a writable one, whose own `source-file` can change it.
-async fn theme_settings_for(state: &Arc<AppState>) -> serde_json::Value {
+/// The theme name, mode and appearance to answer a client with, read over the
+/// session's monitor: once and kept on a viewer's server
+/// (`AppState::viewer_theme_settings`), whose monitor is attached before any
+/// viewer is served; afresh on a writable one, whose own `source-file` can
+/// change it, waiting for a monitor that is still connecting.
+async fn theme_settings_for(
+    state: &Arc<AppState>,
+    session: &str,
+) -> Result<serde_json::Value, String> {
     if state.read_only {
         return state
             .viewer_theme_settings
-            .get_or_init(|| tmuxy_core::theme::get_theme_settings(&state.ctx))
+            .get_or_try_init(|| async {
+                let tx = state.monitor_tx(session).await?;
+                tmuxy_core::theme::get_theme_settings(&tx).await
+            })
             .await
-            .clone();
+            .cloned();
     }
-    tmuxy_core::theme::get_theme_settings(&state.ctx).await
+    let tx = wait_for_monitor(state, session).await?;
+    tmuxy_core::theme::get_theme_settings(&tx).await
 }
 
 async fn broadcast_theme_settings(state: &Arc<AppState>, session: &str) {
-    let settings = theme_settings_for(state).await;
+    let settings = match theme_settings_for(state, session).await {
+        Ok(settings) => settings,
+        Err(e) => {
+            warn!(%session, error = %e, "could not read theme settings");
+            return;
+        }
+    };
     let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) else {
         return;
     };
@@ -2211,22 +2224,23 @@ mod tests {
         assert!(conns.monitor_command_tx.is_some());
     }
 
-    /// SEC-11/SEC-16. The greeting's bindings used to cost three `tmux`
-    /// subprocesses per connecting client. They are read once per monitor
-    /// connection, over the monitor, and every later greeting is served the
-    /// copy the session keeps.
-    #[tokio::test]
-    async fn a_session_keeps_the_bindings_it_last_broadcast() {
-        let state = Arc::new(AppState::new());
+    /// A session whose monitor answers every query with `output`, counting
+    /// the queries it is asked.
+    async fn session_answering_queries(
+        state: &Arc<AppState>,
+        session: &str,
+        output: &str,
+    ) -> Arc<std::sync::atomic::AtomicUsize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(8);
         let queries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counted = Arc::clone(&queries);
+        let output = output.to_string();
         tokio::spawn(async move {
             while let Some(cmd) = rx.recv().await {
                 if let MonitorCommand::RunCommandWithReply { reply, .. } = cmd {
                     counted.fetch_add(1, Ordering::SeqCst);
                     let _ = reply.send(tmuxy_core::control_mode::CommandReply {
-                        output: "C-space\nbind-key -T prefix c new-window\n".to_string(),
+                        output: output.clone(),
                         error: None,
                     });
                 }
@@ -2234,8 +2248,25 @@ mod tests {
         });
         let mut conns = SessionConnections::new();
         conns.monitor_command_tx = Some(tx);
-        let mut stream = conns.broadcast.subscribe();
-        state.sessions.write().await.insert("s".to_string(), conns);
+        state
+            .sessions
+            .write()
+            .await
+            .insert(session.to_string(), conns);
+        queries
+    }
+
+    /// SEC-11/SEC-16. The greeting's bindings used to cost three `tmux`
+    /// subprocesses per connecting client. They are read once per monitor
+    /// connection, over the monitor, and every later greeting is served the
+    /// copy the session keeps.
+    #[tokio::test]
+    async fn a_session_keeps_the_bindings_it_last_broadcast() {
+        let state = Arc::new(AppState::new());
+        let queries =
+            session_answering_queries(&state, "s", "C-space\nbind-key -T prefix c new-window\n")
+                .await;
+        let mut stream = state.sessions.read().await["s"].broadcast.subscribe();
 
         refresh_keybindings(&state, "s").await;
 
@@ -2255,13 +2286,7 @@ mod tests {
     /// writes down how a viewer should be served it.
     #[tokio::test]
     async fn a_viewer_is_served_the_reads_and_refused_everything_else() {
-        let tmux = Arc::new(tmuxy_core::ctx::MockTmux::new());
-        let ctx = Arc::new(tmuxy_core::ctx::Ctx {
-            tmux,
-            clock: Arc::new(tmuxy_core::ctx::FakeClock::new(std::time::Instant::now())),
-            retry_policy: tmuxy_core::retry::RetryPolicy::none(),
-        });
-        let viewer = Arc::new(AppState::with_ctx(ctx).with_read_only(true));
+        let viewer = Arc::new(AppState::new().with_read_only(true));
 
         let parse = |v: serde_json::Value| -> ClientCommand {
             serde_json::from_value(v).expect("should parse")
@@ -2304,30 +2329,28 @@ mod tests {
         }
     }
 
-    /// SEC-11. `GetThemeSettings` read four tmux options per request, and a
-    /// viewer's client asks on every reconnect. A viewer's server sources no
-    /// config, so nothing it serves can change: it reads once and answers
-    /// every later request from that value, at zero tmux round trips.
+    /// SEC-11. `GetThemeSettings` read fourteen tmux options per request, and
+    /// a viewer's client asks on every reconnect. A viewer's server sources no
+    /// config, so nothing it serves can change: it reads once, over its
+    /// monitor, and answers every later request from that value.
     #[tokio::test]
     async fn a_viewers_server_reads_its_theme_settings_once() {
-        let tmux = Arc::new(tmuxy_core::ctx::MockTmux::new());
-        let ctx = Arc::new(tmuxy_core::ctx::Ctx {
-            tmux: tmux.clone(),
-            clock: Arc::new(tmuxy_core::ctx::FakeClock::new(std::time::Instant::now())),
-            retry_policy: tmuxy_core::retry::RetryPolicy::none(),
-        });
-        let viewer = Arc::new(AppState::with_ctx(ctx).with_read_only(true));
+        let viewer = Arc::new(
+            AppState::new()
+                .with_read_only(true)
+                .with_session_pin(Some("shared".into())),
+        );
+        let queries = session_answering_queries(&viewer, "shared", "nord\nlight\n").await;
 
-        let first = theme_settings_for(&viewer).await;
-        let after_first = tmux.calls().len();
-        assert!(after_first > 0, "the first read must reach tmux");
+        let first = theme_settings_for(&viewer, "shared").await.unwrap();
+        let second = theme_settings_for(&viewer, "shared").await.unwrap();
 
-        let second = theme_settings_for(&viewer).await;
         assert_eq!(
-            tmux.calls().len(),
-            after_first,
+            queries.load(Ordering::SeqCst),
+            1,
             "a viewer's second request must cost no tmux call"
         );
+        assert_eq!(first["theme"], "nord");
         assert_eq!(first, second);
     }
 

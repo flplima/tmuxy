@@ -734,23 +734,32 @@ fn emit_detached(app: &AppHandle, label: &str) {
 
 /// Push everything a sourced config can change: the key bindings
 /// (`tmux-keybindings`) and the theme + appearance settings
-/// (`tmux-theme-settings`), read through the monitor. Mirrors the web server's
-/// `keybindings` and `theme-settings` broadcasts. Called once the monitor has
-/// sourced the config, and again after a client's `source-file`.
+/// (`tmux-theme-settings`), read through the monitor, and the native blur the
+/// appearance asks for. Mirrors the web server's `keybindings` and
+/// `theme-settings` broadcasts. Called once the monitor has sourced the
+/// config, and again after a client's `source-file`.
 pub async fn emit_config_settings(app: &AppHandle, monitor: &MonitorState) {
     let Some(tx) = monitor.tx() else {
         return;
     };
     emit_keybindings(app, &tx).await;
-    emit_theme_settings(app).await;
+    emit_theme_settings(app, &tx).await;
 }
 
-/// Push the theme + appearance settings (`tmux-theme-settings`) so the
-/// frontend re-applies them — after the config is sourced, the tmux options
-/// may carry new opacities or a new theme.
-async fn emit_theme_settings(app: &AppHandle) {
-    let ctx = app.state::<Arc<tmuxy_core::Ctx>>();
-    let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
+/// Push the theme + appearance settings so the frontend re-applies them, and
+/// put every window's blur where `@tmuxy-blur` now says.
+async fn emit_theme_settings(app: &AppHandle, tx: &MonitorCommandSender) {
+    let settings = match tmuxy_core::theme::get_theme_settings(tx).await {
+        Ok(settings) => settings,
+        Err(e) => {
+            tmuxy_core::debug_log::log(&format!("[monitor] theme settings unread: {e}"));
+            return;
+        }
+    };
+    let blur = settings["appearance"]["blur"].as_bool().unwrap_or(true);
+    for window in app.webview_windows().values() {
+        crate::gui::apply_blur(window, blur);
+    }
     let _ = app.emit("tmux-theme-settings", settings);
 }
 

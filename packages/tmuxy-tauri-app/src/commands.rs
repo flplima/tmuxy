@@ -1,8 +1,6 @@
 use serde_json::Value;
-use std::sync::Arc;
 use tauri::{Manager, State};
 use tmuxy_core::control_mode::MonitorCommand;
-use tmuxy_core::Ctx;
 
 use crate::monitor::{KeyBindingsState, MonitorState};
 use crate::titlebar;
@@ -125,9 +123,6 @@ pub async fn run_tmux_command(
     if is_source_file {
         tokio::time::sleep(tmuxy_core::transport::SOURCE_FILE_SETTLE).await;
         crate::monitor::emit_config_settings(&app, &state).await;
-        for window in app.webview_windows().values() {
-            crate::gui::apply_blur(window);
-        }
     }
     Ok(())
 }
@@ -211,28 +206,34 @@ pub async fn get_scrollback_cells(
     tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
 }
 
+/// The theme name, mode and appearance, read over this window's monitor —
+/// waiting for one that is still connecting, since the webview asks at start.
 #[tauri::command]
-pub async fn get_theme_settings(ctx: State<'_, Arc<Ctx>>) -> Result<Value, String> {
-    Ok(tmuxy_core::theme::get_theme_settings(&ctx).await)
+pub async fn get_theme_settings(window: tauri::WebviewWindow) -> Result<Value, String> {
+    let tx = wait_for_monitor(&windows::monitor_for(&window)?).await?;
+    tmuxy_core::theme::get_theme_settings(&tx).await
 }
 
 #[tauri::command]
 pub async fn set_theme(
-    ctx: State<'_, Arc<Ctx>>,
+    window: tauri::WebviewWindow,
     name: String,
     mode: Option<String>,
 ) -> Result<(), String> {
-    tmuxy_core::theme::set_theme(&ctx, &name, mode.as_deref()).await
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    tmuxy_core::theme::set_theme(&tx, &name, mode.as_deref()).await
 }
 
 #[tauri::command]
-pub async fn set_cursor_blink(ctx: State<'_, Arc<Ctx>>, enabled: bool) -> Result<(), String> {
-    tmuxy_core::theme::set_cursor_blink(&ctx, enabled).await
+pub async fn set_cursor_blink(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    tmuxy_core::theme::set_cursor_blink(&tx, enabled).await
 }
 
 #[tauri::command]
-pub async fn set_theme_mode(ctx: State<'_, Arc<Ctx>>, mode: String) -> Result<(), String> {
-    tmuxy_core::theme::set_theme_mode(&ctx, &mode).await
+pub async fn set_theme_mode(window: tauri::WebviewWindow, mode: String) -> Result<(), String> {
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    tmuxy_core::theme::set_theme_mode(&tx, &mode).await
 }
 
 #[tauri::command]
