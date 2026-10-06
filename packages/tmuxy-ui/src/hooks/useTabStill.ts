@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { TmuxPane } from '../machines/types';
 
 /** How often a tab picture re-reads the panes behind it. */
-export const TAB_STILL_REFRESH_MS = 1000;
+const TAB_STILL_REFRESH_MS = 1000;
 
 export function useTabStill(
   panes: readonly TmuxPane[],

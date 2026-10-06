@@ -17,7 +17,7 @@ import type { CellColor } from '../tmux/types';
  * CSS variables for the standard 16 ANSI colors.
  * These match the --term-* variables defined in each theme CSS file.
  */
-export const STANDARD_16_VARS = [
+const STANDARD_16_VARS = [
   'var(--term-black)',
   'var(--term-red)',
   'var(--term-green)',
@@ -53,7 +53,7 @@ export function cellColorToCss(color: CellColor): string {
  * `cellColorToCss` handles 0..15 via the theme CSS-var path before reaching
  * here.
  */
-export function getAnsi256Color(index: number): string {
+function getAnsi256Color(index: number): string {
   // 216 color cube (6x6x6)
   if (index < 232) {
     const i = index - 16;

@@ -20,7 +20,7 @@
  * the pane by the CLI.
  */
 
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { useAppSend } from '../../../machines/AppContext';
 import { isOpenableUrl } from '../../../utils/openUrl';
 import { Tooltip } from '../../Tooltip';
@@ -46,9 +46,6 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
     shownUrl.current = url;
     if (document.activeElement !== inputRef.current) setDraft(url);
   }
-  useEffect(() => {
-    if (document.activeElement !== inputRef.current) setDraft(url);
-  }, [url]);
 
   const canOpenExternally = isOpenableUrl(url);
 

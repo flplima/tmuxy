@@ -200,7 +200,3 @@ export function glyphFit(s: string, host: HTMLElement = document.body): number |
   }
   return fitScale(ratio);
 }
-
-export function resetGlyphFitCache(): void {
-  invalidate();
-}

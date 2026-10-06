@@ -8,7 +8,7 @@
 
 import type { AppMachineContext } from '../machines/types';
 
-export function appStateSummary(ctx: AppMachineContext): Record<string, unknown> {
+function appStateSummary(ctx: AppMachineContext): Record<string, unknown> {
   return {
     sessionName: ctx.sessionName,
     activeWindowId: ctx.activeWindowId,

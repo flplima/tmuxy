@@ -11,10 +11,10 @@
  */
 
 import { isTauri } from './adapters';
+import { isMacPlatform } from '../utils/platform';
 import { tracer } from './tracer';
 
-export const isMacTauri =
-  isTauri() && typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+export const isMacTauri = isTauri() && isMacPlatform();
 
 /** Per-page-load prefix so ids stay unique across app restarts in one trace file. */
 const actionPrefix = `titlebar-${Date.now().toString(36)}`;

@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react';
+import { isMacPlatform } from '../../utils/platform';
 import { MenuItem, SubMenu, MenuDivider } from '../floating/Menu';
 import {
   focusGuiWindow,
@@ -26,8 +27,7 @@ import {
 
 /** `cmd` on a Mac, `ctrl+shift` everywhere else — the shortcuts in `keyboardActor`. */
 function shortcut(key: string): string {
-  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
-  return isMac ? `cmd+${key}` : `ctrl+shift+${key}`;
+  return isMacPlatform() ? `cmd+${key}` : `ctrl+shift+${key}`;
 }
 
 export function WindowMenu() {

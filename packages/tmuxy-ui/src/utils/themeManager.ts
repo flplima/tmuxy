@@ -27,7 +27,7 @@ const LS_THEME_KEY = 'tmuxy-theme-name';
 const LS_MODE_KEY = 'tmuxy-theme-mode';
 
 /** Load a theme CSS file by name. Creates or replaces the <link> element. */
-export function loadTheme(name: string): void {
+function loadTheme(name: string): void {
   let link = document.getElementById(THEME_LINK_ID) as HTMLLinkElement | null;
   const href = `/themes/${name}.css`;
 

@@ -63,8 +63,6 @@ interface TooltipProps {
   label: ReactNode;
   /** Preferred side. Flips when the viewport has no room for it. */
   placement?: 'top' | 'bottom';
-  /** Milliseconds of hover before it opens. Focus opens it at once. */
-  delay?: number;
   children: ReactElement<TriggerProps>;
 }
 
@@ -76,7 +74,7 @@ function chain<E>(theirs: ((e: E) => void) | undefined, ours: (e: E) => void) {
   };
 }
 
-export function Tooltip({ label, placement = 'bottom', delay, children }: TooltipProps) {
+export function Tooltip({ label, placement = 'bottom', children }: TooltipProps) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
@@ -138,7 +136,7 @@ export function Tooltip({ label, placement = 'bottom', delay, children }: Toolti
       if (e.pointerType !== 'mouse') return;
       const el = e.currentTarget;
       window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => openFrom(el), delay ?? TOOLTIP_DELAY_MS);
+      timerRef.current = window.setTimeout(() => openFrom(el), TOOLTIP_DELAY_MS);
     }),
     onPointerLeave: chain(children.props.onPointerLeave, close),
     onPointerDown: chain(children.props.onPointerDown, close),
