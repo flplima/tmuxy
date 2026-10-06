@@ -1551,7 +1551,14 @@ describe('Scenario 5b: Pane group order and membership by drag', () => {
       10000,
       async () => `the header to read ${reordered} (${await orderReport()})`,
     );
-    expect(option(members[2], '@tmuxy-group-pos')).toBe('0');
+    // The header shows the new order at once (the client predicts it); tmux
+    // has it when the move has run.
+    await waitForCondition(
+      page,
+      async () => option(members[2], '@tmuxy-group-pos') === '0',
+      10000,
+      async () => `tmux to put ${members[2]} first (${await orderReport()})`,
+    );
     expect(await page.$('.pane-tab-drop-onto')).toBeNull();
 
     // 2. The pane below, dropped on the left edge of the group's header, joins
