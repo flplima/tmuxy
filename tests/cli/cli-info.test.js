@@ -78,6 +78,17 @@ describe('CLI info and skill commands', () => {
       expect(stdout).toContain('tmuxy pane split');
     });
 
+    test('the repo skill file is the guide the CLI prints, verbatim', () => {
+      // `tmuxy skill` is the source: an installed CLI has no repo to read the
+      // skill file from. Regenerate with `bin/tmuxy-cli skill > .agents/skills/tmuxy/SKILL.md`.
+      const { stdout } = runCLI(['skill']);
+      const skill = fs.readFileSync(
+        path.resolve(__dirname, '../../.agents/skills/tmuxy/SKILL.md'),
+        'utf8',
+      );
+      expect(skill).toBe(stdout);
+    });
+
     test('skill --help prints usage', () => {
       const { stdout, exitCode } = runCLI(['skill', '--help']);
       expect(exitCode).toBe(0);
