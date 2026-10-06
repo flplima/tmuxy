@@ -205,10 +205,11 @@ function checkDocsToScriptsConsistency() {
 /**
  * A ratchet on blind waits in the test suite.
  *
- * `delay(n)` sleeps for a number someone measured on their own laptop. A CI
- * runner is slower, so the wait that was generous here is short there, and the
- * test fails for a reason it cannot report — the whole class of flake that
- * "it passed locally" cannot rule out. `waitForCondition` has no such failure
+ * A sleep — `delay(n)`, or a raw `await new Promise((r) => setTimeout(r, n))` —
+ * waits for a number someone measured on their own laptop. A CI runner is
+ * slower, so the wait that was generous here is short there, and the test
+ * fails for a reason it cannot report — the whole class of flake that "it
+ * passed locally" cannot rule out. `waitForCondition` has no such failure
  * mode: a condition that holds is observed the moment it holds, and one that
  * never holds fails with a description.
  *
@@ -217,24 +218,104 @@ function checkDocsToScriptsConsistency() {
  * number in the same commit. It is not a budget to spend; a new test that
  * needs a wait uses `waitForCondition`, which this check does not count.
  *
- * `delay()` remains legitimate in two places and is not counted: inside
- * `waitForCondition`'s own poll loop, and as a sub-100ms beat between the parts
- * of one input gesture (keyboard.down → press → up), where there is no
+ * A sleep is legitimate, and not counted, in two places: as the interval of a
+ * poll loop (inside a `while`/`do` loop, or a counted `for` loop that `break`s
+ * or `return`s on the condition), and as a sub-100ms beat between the parts of
+ * one input gesture (keyboard.down → press → up), where there is no
  * observable state between the halves to wait on.
  */
 const BLIND_WAIT_CEILING = {
   // Shared machinery. A blind wait here is multiplied by every test that calls
   // the helper, so this is the number that matters most.
-  'tests/helpers': 49,
+  'tests/helpers': 21,
   // Test bodies. Each one affects a single test.
-  tests: 202,
+  tests: 177,
 };
 
+/** The source with comments and string/template literals blanked out, offsets kept. */
+function codeOnly(content) {
+  let out = '';
+  let i = 0;
+  while (i < content.length) {
+    const c = content[i];
+    const next = content[i + 1];
+    let end = i + 1;
+    if (c === '/' && next === '/') {
+      end = content.indexOf('\n', i);
+      if (end === -1) end = content.length;
+    } else if (c === '/' && next === '*') {
+      end = content.indexOf('*/', i + 2);
+      end = end === -1 ? content.length : end + 2;
+    } else if (c === "'" || c === '"' || c === '`') {
+      end = i + 1;
+      while (end < content.length && content[end] !== c) end += content[end] === '\\' ? 2 : 1;
+      end += 1;
+    } else {
+      out += c;
+      i += 1;
+      continue;
+    }
+    // Keep the quotes so a blanked string still reads as an argument.
+    const span = content.slice(i, end);
+    out +=
+      c === '/' ? span.replace(/[^\n]/g, ' ') : c + span.slice(1, -1).replace(/[^\n]/g, ' ') + c;
+    i = end;
+  }
+  return out;
+}
+
+/** Ranges [open, close] of every loop body that polls a condition. */
+function pollLoopBodies(code) {
+  const closeOf = new Map();
+  const stack = [];
+  for (let i = 0; i < code.length; i++) {
+    if (code[i] === '{') stack.push(i);
+    else if (code[i] === '}' && stack.length) closeOf.set(stack.pop(), i);
+  }
+
+  const bodies = [];
+  for (const [open, close] of closeOf) {
+    const before = code.slice(0, open).trimEnd();
+    if (/\bdo$/.test(before)) {
+      bodies.push([open, close]);
+      continue;
+    }
+    if (!before.endsWith(')')) continue;
+    let depth = 0;
+    let paren = before.length - 1;
+    for (; paren >= 0; paren--) {
+      if (before[paren] === ')') depth++;
+      else if (before[paren] === '(' && --depth === 0) break;
+    }
+    const keyword = before
+      .slice(0, paren)
+      .trimEnd()
+      .match(/\b(while|for)$/)?.[1];
+    if (keyword === 'while') {
+      bodies.push([open, close]);
+    } else if (keyword === 'for') {
+      const header = before.slice(paren);
+      const body = code.slice(open, close);
+      if (!/\b(of|in)\b/.test(header) && /\b(break|return)\b/.test(body))
+        bodies.push([open, close]);
+    }
+  }
+  return bodies;
+}
+
 function countBlindWaits(content) {
-  // `await delay(...)` and bare `delay(...)` calls, but not the identifier
-  // appearing in a comment, an import, or a property name.
-  const matches = content.match(/(?<![\w.])delay\s*\(/g) ?? [];
-  return matches.length;
+  const code = codeOnly(content);
+  const polls = pollLoopBodies(code);
+  const sleeps =
+    /(?<![\w.])(?<!function\s+)delay\s*\(\s*([^),]*)|await\s+new\s+Promise\s*\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*setTimeout\s*\(\s*\2\s*,\s*([^),]*)/g;
+  let count = 0;
+  for (const match of code.matchAll(sleeps)) {
+    const duration = (match[1] ?? match[3]).trim();
+    if (/^\d+$/.test(duration) && Number(duration) < 100) continue;
+    if (polls.some(([open, close]) => match.index > open && match.index < close)) continue;
+    count++;
+  }
+  return count;
 }
 
 function checkBlindWaitRatchet() {
@@ -242,10 +323,7 @@ function checkBlindWaitRatchet() {
   const helperDir = path.join(root, 'tests/helpers');
 
   for (const file of listFiles(path.join(root, 'tests'), new Set(['.js']))) {
-    const relative = rel(file);
-    // The definition and the poll loop live here; counting them would pin a
-    // number that has nothing to do with blind waiting.
-    if (relative === 'tests/helpers/browser.js') continue;
+    if (file.includes(`${path.sep}node_modules${path.sep}`)) continue;
     const bucket = file.startsWith(helperDir) ? 'tests/helpers' : 'tests';
     counts[bucket] += countBlindWaits(fs.readFileSync(file, 'utf8'));
   }
@@ -254,13 +332,13 @@ function checkBlindWaitRatchet() {
     const count = counts[bucket];
     if (count > ceiling) {
       addError(
-        `[tests] ${count} blind delay() calls in ${bucket}/ exceeds the ceiling of ${ceiling}. ` +
+        `[tests] ${count} blind waits in ${bucket}/ exceeds the ceiling of ${ceiling}. ` +
           'Use waitForCondition(page, fn, budget, description) instead — see ' +
           'BLIND_WAIT_CEILING in bin/check-repo-policy.mjs.',
       );
     } else if (count < ceiling) {
       addError(
-        `[tests] ${count} blind delay() calls in ${bucket}/ is below the ceiling of ${ceiling}. ` +
+        `[tests] ${count} blind waits in ${bucket}/ is below the ceiling of ${ceiling}. ` +
           `Lower BLIND_WAIT_CEILING['${bucket}'] to ${count} in bin/check-repo-policy.mjs so the ` +
           'ratchet holds the ground this commit just gained.',
       );
