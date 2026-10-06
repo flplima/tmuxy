@@ -1448,11 +1448,11 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
         if (pre.getAttribute('data-copied') === 'true') window.__sawCopied = true;
       }).observe(pre, { attributes: true, attributeFilter: ['data-copied'] });
     });
-    // Copy mode's block cursor is the theme's accent — green on the default theme.
+    // Copy mode's block cursor is the theme's accent, whatever the theme.
     const cursor = await ctx.page.evaluate(() => {
       const shape = document.querySelector('.smooth-cursor.is-copy .smooth-cursor-shape');
       const probe = document.createElement('span');
-      probe.style.backgroundColor = 'var(--term-green)';
+      probe.style.backgroundColor = 'var(--theme-accent)';
       document.body.appendChild(probe);
       const result = {
         bg: shape ? getComputedStyle(shape).backgroundColor : null,
