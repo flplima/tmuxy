@@ -391,13 +391,6 @@ async function main() {
   const context = CDP
     ? (browser.contexts()[0] ?? (await browser.newContext()))
     : await browser.newContext({ viewport: { width: 1400, height: 900 } });
-  await context.addInitScript(() => {
-    try {
-      localStorage.setItem('tmuxy-risk-notice-ack', '1');
-    } catch {
-      /* no storage, no notice */
-    }
-  });
   const page = await context.newPage();
   if (CDP) await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });

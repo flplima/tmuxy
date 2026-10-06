@@ -134,16 +134,6 @@ async function smokeTest() {
     await terminal.waitForExist({ timeout: APP_READY_TIMEOUT });
     console.warn('Terminal element found');
 
-    // The first-run notice is modal and takes the keyboard, so a smoke test
-    // that types has to answer it first. Acknowledged for this profile and
-    // dismissed for the window already open.
-    await driver.execute(() => {
-      window.localStorage.setItem('tmuxy-risk-notice-ack', '1');
-      if (window.app?.getSnapshot().context.riskNoticeOpen) {
-        window.app.send({ type: 'DISMISS_RISK_NOTICE', remember: true });
-      }
-    });
-
     // Wait for shell prompt
     const promptStart = Date.now();
     while (Date.now() - promptStart < APP_READY_TIMEOUT) {

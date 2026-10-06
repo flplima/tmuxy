@@ -376,7 +376,7 @@ not run in CI.
 The desktop app wraps the same React UI with native IPC instead of HTTP/SSE, so desktop tests cover the seam, not the UI again.
 
 - **Tauri E2E** (`tests/tauri/tauri-app.test.js`): Jest → WebdriverIO → `tauri-driver` on port 4444 → WebKitWebDriver → a debug build at `target/debug/tmuxy`. The global setup builds the frontend and the binary, starts Xvfb on `:99` and the driver; each test launches a fresh app with its own session. Covers app lifecycle, IPC commands through `invoke()`, events through `listen()`, and state sync. Linux only (WebKitGTK and Xvfb).
-- **Smoke tests** (`tests/smoke/`, run by `build-app.yml` after the release build and by `desktop` on PRs): `smoke-test.js` launches the app on Linux (`tauri-driver` + Xvfb) and macOS (`tauri-webdriver` against a debug build with `--features webdriver`), answers the first-run notice, types a command, sees the output, and reads `~/tmuxy-debug.log` to require no `FATAL` and at most two control-mode connects. `macos-sparse-path-test.js` launches the release binary under launchd's sparse `PATH` and requires a stable connection.
+- **Smoke tests** (`tests/smoke/`, run by `build-app.yml` after the release build and by `desktop` on PRs): `smoke-test.js` launches the app on Linux (`tauri-driver` + Xvfb) and macOS (`tauri-webdriver` against a debug build with `--features webdriver`), types a command, sees the output, and reads `~/tmuxy-debug.log` to require no `FATAL` and at most two control-mode connects. `macos-sparse-path-test.js` launches the release binary under launchd's sparse `PATH` and requires a stable connection.
 - Visual behavior assertions follow the same guidelines as E2E (verify visible, not just in DOM).
 
 ## What Not to Test

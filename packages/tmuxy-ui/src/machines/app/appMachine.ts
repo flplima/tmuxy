@@ -635,10 +635,7 @@ export const appMachine = setup({
     APP_FOCUS: {
       actions: [
         assign({ appFocused: true }),
-        sendTo('keyboard', ({ context }) => ({
-          type: 'UPDATE_ENABLED' as const,
-          enabled: !context.riskNoticeOpen,
-        })),
+        sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: true }),
       ],
     },
     APP_BLUR: {
@@ -652,13 +649,10 @@ export const appMachine = setup({
 
     // Connection info events
     CONNECTION_INFO: {
-      actions: enqueueActions(({ event, context, enqueue }) => {
-        enqueue(assign({ defaultShell: event.defaultShell, readOnly: event.readOnly }));
-        // A viewer can do none of what the first-run notice warns about.
-        if (event.readOnly && context.riskNoticeOpen) {
-          enqueue.raise({ type: 'DISMISS_RISK_NOTICE', remember: false });
-        }
-      }),
+      actions: assign(({ event }) => ({
+        defaultShell: event.defaultShell,
+        readOnly: event.readOnly,
+      })),
     },
 
     // Command mode + status message events — handled by commandUiState

@@ -53,7 +53,6 @@ async function getBrowser() {
       const context = await sharedBrowser.newContext({
         viewport: { width: 1280, height: 720 },
       });
-      await acknowledgeRiskNotice(context);
       const page = await context.newPage();
       page._context = context;
       await throttleCpu(page);
@@ -111,22 +110,6 @@ async function throttleCpu(page) {
   } catch (error) {
     console.warn(`TMUXY_E2E_CPU_THROTTLE=${rate} ignored: ${error.message}`);
   }
-}
-
-/**
- * Every page of `context` starts as one whose user has already dismissed the
- * first-run notice with "don't show this again" — it is modal and takes the
- * keyboard, so a suite that is not about it must not meet it. The test of the
- * notice itself opens a context of its own, without this.
- */
-async function acknowledgeRiskNotice(context) {
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.setItem('tmuxy-risk-notice-ack', '1');
-    } catch {
-      // A page with no storage (about:blank) has no notice either.
-    }
-  });
 }
 
 /**
@@ -444,7 +427,6 @@ async function waitForCondition(page, fn, timeout = 10000, description = 'condit
 }
 
 module.exports = {
-  acknowledgeRiskNotice,
   disconnectBrowser,
   delay,
   getBrowser,

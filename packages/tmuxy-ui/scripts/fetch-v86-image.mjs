@@ -19,8 +19,14 @@ const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'v86-assets');
 // bios: committed in the v86 repo (the npm package omits them).
 const ASSETS = [
   { name: 'buildroot-bzimage.bin', url: 'https://i.copy.sh/buildroot-bzimage.bin' },
-  { name: 'seabios.bin', url: 'https://raw.githubusercontent.com/copy/v86/master/bios/seabios.bin' },
-  { name: 'vgabios.bin', url: 'https://raw.githubusercontent.com/copy/v86/master/bios/vgabios.bin' },
+  {
+    name: 'seabios.bin',
+    url: 'https://raw.githubusercontent.com/copy/v86/master/bios/seabios.bin',
+  },
+  {
+    name: 'vgabios.bin',
+    url: 'https://raw.githubusercontent.com/copy/v86/master/bios/vgabios.bin',
+  },
 ];
 
 async function exists(p) {

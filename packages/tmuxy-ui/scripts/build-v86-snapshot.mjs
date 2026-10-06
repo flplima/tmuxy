@@ -69,9 +69,16 @@ async function buildBundle({ fetchBinaries }) {
     // so stray legacy entries (e.g. an unreadable root ./tmuxy wrapper) can't
     // fail the extraction. Everything repo-derived is overlaid fresh below.
     execFileSync('tar', [
-      '-xf', BUNDLE_TAR, '-C', WORK,
-      './tmux', './bash', './ld-musl-i386.so.1',
-      './libncursesw.so.6', './libevent_core-2.1.so.7', './libreadline.so.8',
+      '-xf',
+      BUNDLE_TAR,
+      '-C',
+      WORK,
+      './tmux',
+      './bash',
+      './ld-musl-i386.so.1',
+      './libncursesw.so.6',
+      './libevent_core-2.1.so.7',
+      './libreadline.so.8',
       './terminfo',
     ]);
   } else {
@@ -116,10 +123,26 @@ async function buildBundle({ fetchBinaries }) {
   console.log('… cross-compiling tmuxy-tree (i686-musl)');
   execFileSync(
     'cargo',
-    ['build', '-p', 'tmuxy-tree', '--bin', 'tmuxy-tree', '--target', 'i686-unknown-linux-musl', '--release'],
-    { cwd: REPO, env: { ...process.env, RUSTFLAGS: '-C linker=rust-lld -C target-feature=+crt-static' }, stdio: 'pipe' },
+    [
+      'build',
+      '-p',
+      'tmuxy-tree',
+      '--bin',
+      'tmuxy-tree',
+      '--target',
+      'i686-unknown-linux-musl',
+      '--release',
+    ],
+    {
+      cwd: REPO,
+      env: { ...process.env, RUSTFLAGS: '-C linker=rust-lld -C target-feature=+crt-static' },
+      stdio: 'pipe',
+    },
   );
-  await cp(join(REPO, 'target', 'i686-unknown-linux-musl', 'release', 'tmuxy-tree'), join(WORK, 'tmuxy-tree'));
+  await cp(
+    join(REPO, 'target', 'i686-unknown-linux-musl', 'release', 'tmuxy-tree'),
+    join(WORK, 'tmuxy-tree'),
+  );
   await chmod(join(WORK, 'tmuxy-tree'), 0o755);
 
   // Fresh repo scripts: the CLI dispatcher + helper scripts.
@@ -140,7 +163,7 @@ async function buildBundle({ fetchBinaries }) {
       '# Guest user config — defaults shipped by tmuxy, edit freely.',
       'source-file ~/.config/tmuxy/tmuxy.defaults.conf',
       '# Non-login interactive bash: skips the buildroot /etc/profile boot',
-      "# banner + its PS1 override, and reads ~/.bashrc (standard prompt).",
+      '# banner + its PS1 override, and reads ~/.bashrc (standard prompt).',
       'set -g default-command /bin/bash',
       '',
     ].join('\n'),
@@ -216,7 +239,9 @@ async function buildSnapshot() {
           resolve(undefined);
         } else if (Date.now() - t0 > timeoutMs) {
           clearInterval(iv);
-          reject(new Error(`timeout waiting for ${marker}\n--- serial tail ---\n${serial.slice(-800)}`));
+          reject(
+            new Error(`timeout waiting for ${marker}\n--- serial tail ---\n${serial.slice(-800)}`),
+          );
         }
       }, 200);
     });

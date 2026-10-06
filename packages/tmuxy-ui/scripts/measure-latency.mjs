@@ -36,13 +36,6 @@ async function main() {
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-  await context.addInitScript(() => {
-    try {
-      localStorage.setItem('tmuxy-risk-notice-ack', '1');
-    } catch {
-      /* no storage, no notice */
-    }
-  });
   const page = await context.newPage();
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });

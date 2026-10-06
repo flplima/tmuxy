@@ -100,7 +100,6 @@ const FIELD_OWNERS = {
   enableAnimations: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
-  riskNoticeOpen: 'uiPrefs',
   tabOverviewCols: 'uiPrefs',
   gestureFlags: 'uiPrefs',
   gesture: 'gestures',

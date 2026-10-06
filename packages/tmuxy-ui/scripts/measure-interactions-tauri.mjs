@@ -191,16 +191,8 @@ async function main() {
       connectionRetryCount: 3,
     });
 
-    // The first-run notice is modal and takes the keyboard. There is no init
-    // script for a WebKit webview, so it is dismissed once the page exists.
     const log = await driver.$('[role="log"]');
     await log.waitForExist({ timeout: 30000 });
-    await driver.execute(() => {
-      window.localStorage.setItem('tmuxy-risk-notice-ack', '1');
-      if (window.app?.getSnapshot().context.riskNoticeOpen) {
-        window.app.send({ type: 'DISMISS_RISK_NOTICE', remember: true });
-      }
-    });
 
     const adapter = wdioAdapter(driver);
     await waitForReady(adapter);

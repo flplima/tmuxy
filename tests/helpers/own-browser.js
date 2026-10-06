@@ -25,7 +25,6 @@ const {
   verifyRoundTrip,
   focusPage,
   waitForSessionReady,
-  acknowledgeRiskNotice,
   delay,
 } = require('./browser');
 const TmuxTestSession = require('./TmuxTestSession');
@@ -95,7 +94,6 @@ function createOwnBrowserContext({
     ctx.session = new TmuxTestSession();
     ctx.session.create();
     ctx.context = await ctx.browser.newContext(contextOptions);
-    await acknowledgeRiskNotice(ctx.context);
     ctx.page = await ctx.context.newPage();
   };
 
