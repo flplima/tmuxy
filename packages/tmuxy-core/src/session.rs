@@ -201,8 +201,7 @@ const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../../.devcontainer/.tmux
 
 /// User-editable config template — written ONLY when `tmuxy.conf` does not
 /// already exist. Sources `tmuxy.defaults.conf` first, then leaves space
-/// for the user's customizations, then sources `tmuxy.state.conf` for
-/// app-managed values (theme, opacity overrides set via the UI).
+/// for the user's customizations.
 const DEFAULT_USER_CONF: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
 
 /// Bundled theme CSS files, embedded at compile time. Mirrored to
@@ -438,21 +437,6 @@ pub fn get_config_path() -> Option<PathBuf> {
     None
 }
 
-/// Ensure the shipped defaults and user config exist at
-/// ~/.config/tmuxy/. Three files participate:
-///
-///   - `tmuxy.defaults.conf` — shipped baseline. **Overwritten every
-///     launch** so improvements (new bindings, new options) land without
-///     any user merge work. The user's `tmuxy.conf` sources this first.
-///   - `tmuxy.conf` — user-editable. Created from the shipped template
-///     only if it doesn't already exist. Sources defaults, leaves space
-///     for overrides, then sources state.
-///   - `tmuxy.state.conf` — app-managed state (theme, etc.). Not created
-///     here; written by [`write_managed_state`] when the UI changes it.
-///     The user conf sources this last with `-q` so a missing file is OK.
-///
-/// Also migrates configs written by older tmuxy releases (≤0.0.4) that
-/// referenced helper scripts via the relative path `bin/tmuxy/…`.
 /// The shipped user conf sources its siblings by the default
 /// `~/.config/tmuxy` path; when `XDG_CONFIG_HOME` relocates the config dir,
 /// point those lines at the real location instead.
@@ -533,6 +517,17 @@ fn write_user_conf_bridge(dir: &Path) {
     write_app_owned_conf(&path, &contents);
 }
 
+/// Ensure the shipped defaults and user config exist at
+/// ~/.config/tmuxy/. Three files participate:
+///
+///   - `tmuxy.defaults.conf` — shipped baseline. **Overwritten every
+///     launch** so improvements (new bindings, new options) land without
+///     any user merge work. The user's `tmuxy.conf` sources this first.
+///   - `tmuxy.conf` — user-editable. Created from the shipped template
+///     only if it doesn't already exist. Sources defaults and leaves space
+///     for overrides.
+///   - `tmuxy.state.json` — app-managed state (theme, etc.). Not created
+///     here; written by [`write_managed_state`] when the UI changes it.
 pub fn ensure_config() -> PathBuf {
     let dir = config_dir();
     let user_path = dir.join("tmuxy.conf");
@@ -543,30 +538,7 @@ pub fn ensure_config() -> PathBuf {
         return user_path;
     }
 
-    // Always refresh the defaults file — it's app-owned, not user-owned.
-    // Skip the rewrite if it's a symlink so the dev-container workflow
-    // (symlink to the repo's checked-in defaults) keeps working.
-    let defaults_is_symlink = std::fs::symlink_metadata(&defaults_path)
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false);
-    if !defaults_is_symlink {
-        let needs_defaults_write = match std::fs::read_to_string(&defaults_path) {
-            Ok(existing) => existing != DEFAULT_DEFAULTS_CONF,
-            Err(_) => true,
-        };
-        if needs_defaults_write {
-            if let Err(e) = std::fs::write(&defaults_path, DEFAULT_DEFAULTS_CONF) {
-                warn!(
-                    file = ?defaults_path.file_name().unwrap_or_default(),
-                    error = %e,
-                    "could not write defaults file"
-                );
-            } else {
-                info!(path = ?defaults_path, "refreshed tmuxy.defaults.conf");
-            }
-        }
-    }
-
+    write_app_owned_conf(&defaults_path, DEFAULT_DEFAULTS_CONF);
     write_app_owned_conf(&dir.join("tmuxy.essentials.conf"), DEFAULT_ESSENTIALS_CONF);
     write_user_conf_bridge(&dir);
 
@@ -576,28 +548,6 @@ pub fn ensure_config() -> PathBuf {
             warn!(path = ?user_path, error = %e, "could not write default user config");
         } else {
             info!(path = ?user_path, "created tmuxy.conf");
-        }
-        return user_path;
-    }
-
-    // Migrate stale relative bin paths in pre-existing user configs. Skip
-    // when the path is a symlink (devcontainer workflow) so we don't write
-    // through to the repo-checked-in file.
-    let user_is_symlink = std::fs::symlink_metadata(&user_path)
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false);
-    if !user_is_symlink {
-        if let Ok(existing) = std::fs::read_to_string(&user_path) {
-            let migrated = migrate_bin_paths(&existing);
-            let migrated = repair_doubled_bin_paths(&migrated);
-            let migrated = migrate_tab_bindings(&migrated);
-            if migrated != existing {
-                if let Err(e) = std::fs::write(&user_path, &migrated) {
-                    warn!(path = ?user_path, error = %e, "could not migrate config");
-                } else {
-                    info!(path = ?user_path, "migrated tmuxy.conf");
-                }
-            }
         }
     }
 
@@ -610,11 +560,6 @@ pub fn ensure_config() -> PathBuf {
 /// into a `set-option -g` against tmux, so a theme picked through the UI
 /// survives a tmux server restart (fully quitting the app, last session
 /// closing, etc.).
-///
-/// Unknown JSON keys are tolerated and preserved on write — this is the
-/// forwards-compatibility hatch when older binaries read state files written
-/// by newer ones. Add new fields freely; just don't rename existing ones
-/// without a migration.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ManagedState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -631,10 +576,6 @@ pub struct ManagedState {
     /// into the config chain, so it has to be known before that chain is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_tmux_conf: Option<bool>,
-    /// Preserve unknown keys across roundtrips so a newer build's state file
-    /// isn't truncated when read+written by an older one.
-    #[serde(flatten)]
-    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Path to the JSON state file inside the user's config dir. Does not check
@@ -796,92 +737,6 @@ pub fn apply_managed_state(session_name: &str) {
     }
 }
 
-/// Repair `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/…` doubled
-/// paths produced by the non-idempotent v0.0.5→v0.0.6 migration. Collapses
-/// any number of repeated `$HOME/.config/tmuxy/` prefixes down to one.
-fn repair_doubled_bin_paths(config: &str) -> String {
-    let doubled = "$HOME/.config/tmuxy/$HOME/.config/tmuxy/";
-    let single = "$HOME/.config/tmuxy/";
-    let mut result = config.to_string();
-    while result.contains(doubled) {
-        result = result.replace(doubled, single);
-    }
-    result
-}
-
-/// Append the Ctrl+Tab / Ctrl+Shift+Tab root bindings to an existing user
-/// config if they're missing. New default configs already include them; this
-/// is for users upgrading from a release that predated those bindings.
-fn migrate_tab_bindings(config: &str) -> String {
-    let has_ctab = config.contains("bind -n C-Tab ");
-    let has_cstab = config.contains("bind -n C-S-Tab ");
-    if has_ctab && has_cstab {
-        return config.to_string();
-    }
-    let mut result = config.to_string();
-    if !result.ends_with('\n') {
-        result.push('\n');
-    }
-    result.push_str("\n# Tab navigation (Ctrl+Tab / Ctrl+Shift+Tab) — added by tmuxy upgrade\n");
-    if !has_ctab {
-        result.push_str("bind -n C-Tab next-window\n");
-    }
-    if !has_cstab {
-        result.push_str("bind -n C-S-Tab previous-window\n");
-    }
-    result
-}
-
-/// Rewrite legacy relative `bin/tmuxy/…` paths to the materialized absolute
-/// path. Conservative — only touches occurrences inside `run-shell` strings
-/// for our known helpers, so a user who hand-rolled a `bin/` reference for
-/// their own scripts isn't affected.
-///
-/// Idempotent: if the config already contains the fresh path prefix, the
-/// migration is skipped entirely. Without this guard the substring `replace`
-/// would recursively rewrite the already-migrated path on every launch —
-/// e.g. v0.0.5→v0.0.6 upgrades produced
-/// `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav`, which silently
-/// broke Ctrl+hjkl pane navigation and pane-group actions on macOS.
-fn migrate_bin_paths(config: &str) -> String {
-    if config.contains("$HOME/.config/tmuxy/bin/tmuxy/") {
-        return config.to_string();
-    }
-    let mut result = config.to_string();
-    let helpers = [
-        "pane-group-add",
-        "pane-group-prev",
-        "pane-group-next",
-        "pane-group-close",
-        "pane-group-switch",
-        "session-connect",
-        "session-switch",
-        "float-create",
-        "queue-push",
-        "queue-pop",
-        "queue-peek",
-        "queue-list",
-        "queue-clear",
-        "nav",
-    ];
-    for name in helpers {
-        let stale = format!("bin/tmuxy/{}", name);
-        let fresh = format!("$HOME/.config/tmuxy/bin/tmuxy/{}", name);
-        // Only rewrite when the surrounding context is `run-shell …` — the
-        // simple substring check is sufficient because tmux configs don't
-        // legitimately contain `bin/tmuxy/<helper>` outside that context.
-        result = result.replace(&stale, &fresh);
-    }
-    result
-}
-
-/// Theme files that were once bundled but have since been removed. On launch
-/// we delete these from the user's themes dir so the Theme menu (which lists
-/// the contents of the directory) doesn't keep showing orphaned options.
-/// A user who customized one of these files loses their copy — by design;
-/// themes are managed, not user-data.
-const RETIRED_THEMES: &[&str] = &["gruvbox-material.css"];
-
 /// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and is
 /// populated with the bundled theme CSS files. Existing files are NOT
 /// overwritten so the user's edits survive across upgrades. Returns the
@@ -899,15 +754,6 @@ pub fn ensure_themes() -> PathBuf {
         if !path.exists() {
             if let Err(e) = std::fs::write(&path, content) {
                 warn!(?path, error = %e, "could not write bundled theme");
-            }
-        }
-    }
-
-    for name in RETIRED_THEMES {
-        let path = themes_dir.join(name);
-        if path.exists() {
-            if let Err(e) = std::fs::remove_file(&path) {
-                warn!(?path, error = %e, "could not remove retired theme");
             }
         }
     }
@@ -1262,77 +1108,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrate_bin_paths_rewrites_stale_relative_paths() {
-        let input =
-            r#"set -s command-alias[110] 'tmuxy-nav-left=run-shell "bash bin/tmuxy/nav left"'"#;
-        let out = migrate_bin_paths(input);
-        assert!(out.contains("$HOME/.config/tmuxy/bin/tmuxy/nav"));
-        assert!(!out.contains("\"bash bin/tmuxy/nav"));
-    }
-
-    #[test]
-    fn migrate_bin_paths_is_idempotent() {
-        // Regression: v0.0.5 wrote configs with the fresh path already in place.
-        // v0.0.6's substring `replace` found `bin/tmuxy/nav` inside the fresh
-        // path and produced `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav`,
-        // breaking Ctrl+hjkl on every upgrade.
-        let input = r#"run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav left""#;
-        let out = migrate_bin_paths(input);
-        assert_eq!(out, input);
-        assert!(!out.contains("$HOME/.config/tmuxy/$HOME"));
-    }
-
-    #[test]
-    fn repair_doubled_bin_paths_collapses_repeated_prefixes() {
-        let doubled = "run-shell \"bash $HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav\"";
-        let out = repair_doubled_bin_paths(doubled);
-        assert_eq!(out, "run-shell \"bash $HOME/.config/tmuxy/bin/tmuxy/nav\"");
-    }
-
-    #[test]
-    fn repair_doubled_bin_paths_handles_triple_mangling() {
-        let triple = "$HOME/.config/tmuxy/$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav";
-        let out = repair_doubled_bin_paths(triple);
-        assert_eq!(out, "$HOME/.config/tmuxy/bin/tmuxy/nav");
-    }
-
-    #[test]
-    fn migrate_tab_bindings_appends_when_missing() {
-        let input = "set -g prefix C-a\n";
-        let out = migrate_tab_bindings(input);
-        assert!(out.contains("bind -n C-Tab next-window"));
-        assert!(out.contains("bind -n C-S-Tab previous-window"));
-    }
-
-    #[test]
-    fn migrate_tab_bindings_is_idempotent() {
-        let input =
-            "set -g prefix C-a\nbind -n C-Tab next-window\nbind -n C-S-Tab previous-window\n";
-        let out = migrate_tab_bindings(input);
-        assert_eq!(out, input);
-    }
-
-    #[test]
-    fn parse_option_from_config_reads_set_g_lines() {
-        let cfg = "# comment\nset -g @tmuxy-opacity 0.8\nset -g @tmuxy-blur on\n";
-        // Re-implementing here so we don't reach into the gui crate; the parser
-        // logic in tauri-app/src/gui.rs is exercised independently in its own
-        // build, but having the regression here lives next to migrate_bin_paths.
-        let opacity_line = cfg
-            .lines()
-            .find(|l| l.contains("@tmuxy-opacity"))
-            .expect("opacity line");
-        assert!(opacity_line.ends_with("0.8"));
-    }
-
-    #[test]
     fn managed_state_serde_roundtrips() {
         let state = ManagedState {
             theme: Some("dracula".into()),
             theme_mode: Some("dark".into()),
             cursor_blink: Some(false),
             use_tmux_conf: Some(true),
-            extra: serde_json::Map::new(),
         };
         let json = serde_json::to_string(&state).unwrap();
         let parsed: ManagedState = serde_json::from_str(&json).unwrap();
@@ -1348,18 +1129,6 @@ mod tests {
         assert_eq!(old.cursor_blink, None);
         assert_eq!(old.use_tmux_conf, None);
         assert!(!old.use_tmux_conf.unwrap_or(false));
-    }
-
-    #[test]
-    fn managed_state_preserves_unknown_keys_across_roundtrip() {
-        // Newer-tmuxy fields should survive an old-tmuxy read+write so we don't
-        // truncate state when an old binary touches a new file.
-        let input = r#"{"theme":"gruvbox","future_field":"keep me","nested":{"a":1}}"#;
-        let parsed: ManagedState = serde_json::from_str(input).unwrap();
-        let out = serde_json::to_string(&parsed).unwrap();
-        assert!(out.contains("\"future_field\":\"keep me\""));
-        assert!(out.contains("\"nested\""));
-        assert!(out.contains("\"theme\":\"gruvbox\""));
     }
 
     #[test]
