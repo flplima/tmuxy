@@ -35,3 +35,15 @@ export type TransportEvent = Data.TaggedEnum<{
 }>;
 
 export const TransportEvent = Data.taggedEnum<TransportEvent>();
+
+/**
+ * A `state-update` payload as it came off the wire, before the stream stage
+ * decodes and sequences it into a `State` (`stateFeed.ts`).
+ */
+export interface StateReceived {
+  readonly _tag: 'StateReceived';
+  readonly payload: unknown;
+}
+
+/** What a driver whose stream needs sequencing (HTTP, Tauri) emits. */
+export type DriverEvent = TransportEvent | StateReceived;

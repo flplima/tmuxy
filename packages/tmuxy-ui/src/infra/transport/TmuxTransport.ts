@@ -3,11 +3,13 @@
  * typed failures, and everything the backend pushes as one ordered stream.
  *
  * Each backend is a driver (`TmuxAdapter`) — an SSE stream and POSTs, Tauri
- * IPC, the demo engine, a v86 guest — and `makeTransport` lifts one into this
+ * IPC, the demo engine, a v86 guest — and `serviceOver` lifts one into this
  * service exactly once: every call becomes an Effect failing with an
  * `AdapterError` classified from the backend's `{ error, kind }`, and the
- * driver's event hub is published on a `PubSub` for whoever subscribes. The
- * Layers that pick a driver are in `layers.ts`.
+ * driver's events are published on a `PubSub` for whoever subscribes —
+ * as they come (`makeTransport`), or through the stream stage that sequences
+ * a delta stream (`makeSequencedTransport` in `stateFeed.ts`). The Layers
+ * that pick a driver are in `layers.ts`.
  */
 
 import { Context, Effect, PubSub, Schema, type Scope, Stream } from 'effect';
@@ -18,7 +20,7 @@ import {
   TransportError,
   classifyAdapterError,
 } from '../../tmux/effect/AdapterError';
-import type { TransportEvent } from './events';
+import type { DriverEvent, TransportEvent } from './events';
 
 export interface TmuxTransportService {
   /** Open the connection; resolves once the backend has greeted this client. */
@@ -63,57 +65,77 @@ export class TmuxTransport extends Context.Tag('tmuxy/TmuxTransport')<
   TmuxTransportService
 >() {}
 
-/** The service over `driver`, publishing the driver's events until the scope closes. */
+/** A PubSub for the service's events, shut down with the scope. */
+export const openEventPubSub = Effect.acquireRelease(
+  PubSub.unbounded<TransportEvent>(),
+  PubSub.shutdown,
+);
+
+/** Forward a driver's hub into `offer` until the scope closes. */
+export const forwardDriverEvents = <E extends DriverEvent>(
+  driver: TmuxAdapter<E>,
+  offer: (event: E) => void,
+): Effect.Effect<void, never, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() => driver.events.subscribe(offer)),
+    (unsubscribe) => Effect.sync(unsubscribe),
+  );
+
+/** The service's calls over `driver`, its events read from `pubsub`. */
+export function serviceOver(
+  driver: Omit<TmuxAdapter, 'events'>,
+  pubsub: PubSub.PubSub<TransportEvent>,
+): TmuxTransportService {
+  const attempt = <A>(command: string, run: () => Promise<A>): Effect.Effect<A, AdapterError> =>
+    Effect.tryPromise({ try: run, catch: (cause) => classifyAdapterError(cause, { command }) });
+  const unsupported = (what: string, context: string) =>
+    Effect.fail(new TransportError({ cause: `${what} not supported by this adapter`, context }));
+
+  return {
+    connect: attempt('connect', () => driver.connect()),
+    disconnect: Effect.sync(() => driver.disconnect()),
+    invoke: <T>(cmd: string, args?: Record<string, unknown>) =>
+      attempt(cmd, () => driver.invoke<T>(cmd, args)),
+    decodingInvoke: <A, I>(
+      cmd: string,
+      schema: Schema.Schema<A, I>,
+      args?: Record<string, unknown>,
+    ) => {
+      const decode = Schema.decodeUnknown(schema, { errors: 'all' });
+      return attempt(cmd, () => driver.invoke<unknown>(cmd, args)).pipe(
+        Effect.flatMap((raw) =>
+          decode(raw).pipe(
+            Effect.mapError(
+              (parseError) => new ProtocolError({ reason: `${cmd}: ${parseError.message}`, raw }),
+            ),
+          ),
+        ),
+      );
+    },
+    query: (command: string) =>
+      driver.query ? attempt(command, () => driver.query!(command)) : unsupported('query', command),
+    switchSession: (sessionName: string) =>
+      driver.switchSession
+        ? attempt('switchSession', () => driver.switchSession!(sessionName))
+        : unsupported('switchSession', 'switchSession'),
+    reconnectNow: Effect.sync(() => driver.reconnectNow?.()),
+    isReadOnly: () => driver.readOnly === true,
+    enumeratesSessions: () => driver.enumeratesSessions === true,
+    subscribe: Stream.fromPubSub(pubsub, { scoped: true }),
+  };
+}
+
+/**
+ * The service over a driver whose events need no stage (the demo and v86
+ * sandboxes, which emit whole decoded states): published as they come.
+ */
 export const makeTransport = (
   driver: TmuxAdapter,
 ): Effect.Effect<TmuxTransportService, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const pubsub = yield* Effect.acquireRelease(
-      PubSub.unbounded<TransportEvent>(),
-      PubSub.shutdown,
-    );
-    const unsubscribe = driver.events.subscribe((event) => {
+    const pubsub = yield* openEventPubSub;
+    yield* forwardDriverEvents(driver, (event) => {
       pubsub.unsafeOffer(event);
     });
-    yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-
-    const attempt = <A>(command: string, run: () => Promise<A>): Effect.Effect<A, AdapterError> =>
-      Effect.tryPromise({ try: run, catch: (cause) => classifyAdapterError(cause, { command }) });
-    const unsupported = (what: string, context: string) =>
-      Effect.fail(new TransportError({ cause: `${what} not supported by this adapter`, context }));
-
-    return {
-      connect: attempt('connect', () => driver.connect()),
-      disconnect: Effect.sync(() => driver.disconnect()),
-      invoke: <T>(cmd: string, args?: Record<string, unknown>) =>
-        attempt(cmd, () => driver.invoke<T>(cmd, args)),
-      decodingInvoke: <A, I>(
-        cmd: string,
-        schema: Schema.Schema<A, I>,
-        args?: Record<string, unknown>,
-      ) => {
-        const decode = Schema.decodeUnknown(schema, { errors: 'all' });
-        return attempt(cmd, () => driver.invoke<unknown>(cmd, args)).pipe(
-          Effect.flatMap((raw) =>
-            decode(raw).pipe(
-              Effect.mapError(
-                (parseError) => new ProtocolError({ reason: `${cmd}: ${parseError.message}`, raw }),
-              ),
-            ),
-          ),
-        );
-      },
-      query: (command: string) =>
-        driver.query
-          ? attempt(command, () => driver.query!(command))
-          : unsupported('query', command),
-      switchSession: (sessionName: string) =>
-        driver.switchSession
-          ? attempt('switchSession', () => driver.switchSession!(sessionName))
-          : unsupported('switchSession', 'switchSession'),
-      reconnectNow: Effect.sync(() => driver.reconnectNow?.()),
-      isReadOnly: () => driver.readOnly === true,
-      enumeratesSessions: () => driver.enumeratesSessions === true,
-      subscribe: Stream.fromPubSub(pubsub, { scoped: true }),
-    };
+    return serviceOver(driver, pubsub);
   });

@@ -14,8 +14,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { Cause, Effect, Exit, Option, Schedule } from 'effect';
-import { makeTransport } from '../../infra/transport/TmuxTransport';
+import { Cause, Effect, Exit, ManagedRuntime, Option, Schedule, Stream } from 'effect';
+import { HttpTransportLive } from '../../infra/transport/layers';
+import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/TmuxTransport';
+import { makeSequencedTransport } from '../../infra/transport/stateFeed';
 import { HttpAdapter } from '../HttpAdapter';
 import type { ServerState } from '../../domain/wire';
 
@@ -308,7 +310,9 @@ describe('HttpAdapter connect() lifecycle', () => {
     );
     const exit = await Effect.runPromiseExit(
       Effect.scoped(
-        Effect.flatMap(makeTransport(adapter), (t) => t.query('display -p -t %9 "#{pane_id}"')),
+        Effect.flatMap(makeSequencedTransport(adapter, { latestPerFrame: false }), (t) =>
+          t.query('display -p -t %9 "#{pane_id}"'),
+        ),
       ),
     );
     expect(Exit.isFailure(exit)).toBe(true);
@@ -530,7 +534,7 @@ describe('HttpAdapter connect() lifecycle', () => {
   });
 });
 
-describe('HttpAdapter initial state against the live stream', () => {
+describe('the HTTP transport: initial state against the live stream', () => {
   let originalES: unknown;
 
   beforeEach(() => {
@@ -543,6 +547,33 @@ describe('HttpAdapter initial state against the live stream', () => {
     (globalThis as Record<string, unknown>).EventSource = originalES;
     vi.unstubAllGlobals();
   });
+
+  /**
+   * The web transport as the app runs it (HttpTransportLive), with the most
+   * recent state it published.
+   */
+  const openTransport = () => {
+    const runtime = ManagedRuntime.make(HttpTransportLive);
+    let last: ServerState | null = null;
+    runtime.runFork(
+      Effect.scoped(
+        Effect.flatMap(
+          Effect.flatMap(TmuxTransport, (t) => t.subscribe),
+          Stream.runForEach((e) =>
+            Effect.sync(() => {
+              if (e._tag === 'State') last = e.state;
+            }),
+          ),
+        ),
+      ),
+    );
+    return {
+      call: <A, E>(f: (t: TmuxTransportService) => Effect.Effect<A, E>) =>
+        runtime.runPromise(Effect.flatMap(TmuxTransport, f)),
+      lastState: () => last,
+      close: () => runtime.dispose(),
+    };
+  };
 
   const pane = (content: Array<Array<{ c: string }>>) => ({
     id: 1,
@@ -589,14 +620,14 @@ describe('HttpAdapter initial state against the live stream', () => {
           }),
       ),
     );
-    const adapter = new HttpAdapter();
-    const connected = adapter.connect();
+    const transport = openTransport();
+    const connected = transport.call((t) => t.connect);
     await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
     const es = MockEventSource.instances[0];
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
 
-    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
     const prompt = [[{ c: '$' }, { c: ' ' }]];
@@ -605,10 +636,10 @@ describe('HttpAdapter initial state against the live stream', () => {
 
     const result = (await initial) as ReturnType<typeof state>;
     expect(result.panes[0].content).toEqual(prompt);
-    adapter.disconnect();
+    await transport.close();
   });
 
-  /** A connected adapter whose next `fetch` waits until `answer` is called. */
+  /** A connected transport whose next `fetch` waits until `answer` is called. */
   const withPendingAnswer = async () => {
     let answer: (value: unknown) => void = () => {};
     vi.stubGlobal(
@@ -620,14 +651,14 @@ describe('HttpAdapter initial state against the live stream', () => {
           }),
       ),
     );
-    const adapter = new HttpAdapter();
-    const connected = adapter.connect();
+    const transport = openTransport();
+    const connected = transport.call((t) => t.connect);
     await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
     const es = MockEventSource.instances[0];
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
     return {
-      adapter,
+      transport,
       es,
       answer: (result: unknown) => answer({ ok: true, json: async () => ({ result }) }),
     };
@@ -642,8 +673,8 @@ describe('HttpAdapter initial state against the live stream', () => {
     // The session-restore failure: the answer is taken while the restore is
     // still making windows, the stream delivers them, and to the server
     // nothing changes after that — no delta would ever bring them back.
-    const { adapter, es, answer } = await withPendingAnswer();
-    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    const { transport, es, answer } = await withPendingAnswer();
+    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
     const prompt = [[{ c: '$' }]];
@@ -652,24 +683,14 @@ describe('HttpAdapter initial state against the live stream', () => {
 
     const result = (await initial) as ReturnType<typeof state>;
     expect(result.windows.map((w) => w.id)).toEqual(['@1', '@2']);
-    adapter.disconnect();
+    await transport.close();
   });
 
-  /** The adapter's most recent state notification. */
-  const lastState = (adapter: HttpAdapter) => {
-    const seen: { state: ServerState | null } = { state: null };
-    adapter.events.subscribe((e) => {
-      if (e._tag === 'State') seen.state = e.state;
-    });
-    return seen;
-  };
-
   it('after a gap in the stream, the answer is the state to start again from', async () => {
-    const { adapter, es, answer } = await withPendingAnswer();
-    const seen = lastState(adapter);
+    const { transport, es, answer } = await withPendingAnswer();
     const prompt = [[{ c: '$' }]];
     // The client's first answer, which also gives the resync its size.
-    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     answer(state(prompt));
     await initial;
@@ -680,16 +701,17 @@ describe('HttpAdapter initial state against the live stream', () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     answer(withTab(state(prompt), '@5'));
 
-    await vi.waitFor(() => expect(seen.state?.windows.map((w) => w.id)).toEqual(['@1', '@5']));
-    adapter.disconnect();
+    await vi.waitFor(() =>
+      expect(transport.lastState()?.windows.map((w) => w.id)).toEqual(['@1', '@5']),
+    );
+    await transport.close();
   });
 
   it('a state update that does not decode is a gap: the adapter refetches a full state', async () => {
-    const { adapter, es, answer } = await withPendingAnswer();
-    const seen = lastState(adapter);
+    const { transport, es, answer } = await withPendingAnswer();
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const prompt = [[{ c: '$' }]];
-    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     answer(state(prompt));
     await initial;
@@ -702,9 +724,11 @@ describe('HttpAdapter initial state against the live stream', () => {
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('state-update'), expect.anything());
     answer(withTab(state(prompt), '@7'));
 
-    await vi.waitFor(() => expect(seen.state?.windows.map((w) => w.id)).toEqual(['@1', '@7']));
-    expect(seen.state?.active_pane_id).not.toBe('not-a-pane');
+    await vi.waitFor(() =>
+      expect(transport.lastState()?.windows.map((w) => w.id)).toEqual(['@1', '@7']),
+    );
+    expect(transport.lastState()?.active_pane_id).not.toBe('not-a-pane');
     errors.mockRestore();
-    adapter.disconnect();
+    await transport.close();
   });
 });

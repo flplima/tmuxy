@@ -1,29 +1,34 @@
 /**
- * One transport's view of the server state stream, shared by the HTTP and
- * Tauri adapters so both sequence it the same way.
+ * One transport's view of the server state stream: the state the stream
+ * stage (`infra/transport/stateFeed.ts`) sequences for the HTTP and Tauri
+ * transports, so both treat it the same way.
  *
  * The stream is a full state followed by deltas, each against the previous
  * emission and numbered by `seq`. Every payload is decoded here, at the
  * boundary; a payload that fails its decode is a `ProtocolError`, logged and
  * handled exactly like a dropped delta — the stream is no longer trusted and
- * the adapter refetches a full state (`resync`), never applies a guess.
+ * the transport refetches a full state (`Resync`), never applies a guess.
  */
 
 import { Either } from 'effect';
 import type { ServerState } from '../domain/wire';
+import type { TransportEvent } from '../infra/transport/events';
 import { adoptInitialState, handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { decodeServerStateOrThrow, decodeStateUpdate, logProtocolError } from './wireDecode';
 
-/** What a `state-update` payload means for the adapter. */
-export type StreamStep =
-  /** A new state to hand to listeners; `seq` is the delta's (null for a full state). */
-  | { readonly _tag: 'apply'; readonly state: ServerState; readonly seq: number | null }
+/** What a `state-update` payload means for the transport. */
+export type SequenceStep =
+  /** The new state, as the event that publishes it; `seq` is the delta's (null for a full state). */
+  | Extract<TransportEvent, { _tag: 'State' }>
   /** The stream lost its sequence (a gap or an undecodable payload): refetch a full state. */
-  | { readonly _tag: 'resync' }
+  | { readonly _tag: 'Resync' }
   /** Nothing to apply (a delta before any full state). */
-  | { readonly _tag: 'ignore' };
+  | { readonly _tag: 'Ignore' };
 
-export class StateStream {
+const RESYNC: SequenceStep = { _tag: 'Resync' };
+const IGNORE: SequenceStep = { _tag: 'Ignore' };
+
+export class StateSequencer {
   private state: ServerState | null = null;
   /** Last applied delta seq; null right after a full state. */
   private lastDeltaSeq: number | null = null;
@@ -34,7 +39,7 @@ export class StateStream {
   private synced = false;
 
   /** A raw `state-update` payload arrived. */
-  receive(raw: unknown): StreamStep {
+  receive(raw: unknown): SequenceStep {
     const decoded = decodeStateUpdate(raw);
     if (Either.isLeft(decoded)) {
       logProtocolError(decoded.left);
@@ -52,9 +57,9 @@ export class StateStream {
       this.synced = true;
     }
     const next = handleStateUpdate(update, this.state);
-    if (!next) return { _tag: 'ignore' };
+    if (!next) return IGNORE;
     this.state = next;
-    return { _tag: 'apply', state: next, seq };
+    return { _tag: 'State', state: next, seq };
   }
 
   /**
@@ -84,9 +89,9 @@ export class StateStream {
     this.synced = false;
   }
 
-  private lose(): StreamStep {
+  private lose(): SequenceStep {
     this.lastDeltaSeq = null;
     this.synced = false;
-    return { _tag: 'resync' };
+    return RESYNC;
   }
 }

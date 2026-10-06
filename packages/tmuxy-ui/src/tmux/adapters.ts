@@ -1,6 +1,6 @@
-import type { TmuxAdapter } from './types';
+import type { SequencedAdapter } from './types';
 import { EventHub } from '../infra/eventHub';
-import { TransportEvent } from '../infra/transport/events';
+import { TransportEvent, type DriverEvent } from '../infra/transport/events';
 import {
   ClipboardEvent,
   DetachedEvent,
@@ -8,10 +8,9 @@ import {
   LogEvent,
   MessageFrame,
   ThemeSettings,
-  type ServerState,
 } from '../domain/wire';
 import { Schema } from 'effect';
-import { StateStream } from './stateStream';
+import { StateSequencer } from './stateStream';
 import { decodeEvent } from './wireDecode';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
@@ -21,27 +20,20 @@ import { tracer } from './tracer';
 // Tauri Adapter
 // ============================================
 
-export class TauriAdapter implements TmuxAdapter {
+export class TauriAdapter implements SequencedAdapter {
   readonly enumeratesSessions = true;
   private connected = false;
   private reconnectingState = false;
   private unlistenFns: (() => void)[] = [];
 
-  readonly events = new EventHub<TransportEvent>();
+  readonly events = new EventHub<DriverEvent>();
 
   /**
-   * The state stream: decoding, delta sequencing and the client's copy of the
-   * state. With the cached client size below, a dropped/misordered or
-   * undecodable delta triggers a get_initial_state refetch instead of
-   * diverging. The Tauri event channel has no ring-buffer replay, so this is
-   * the only recovery path on that transport.
+   * The client's copy of the state the stream stage sequences. The Tauri event
+   * channel has no ring-buffer replay, so the stage's get_initial_state
+   * refetch on a gap is the only recovery path on this transport.
    */
-  private readonly stream = new StateStream();
-  /** Delta seq of the most recent applied update, for the trace `apply` event. */
-  private lastAppliedSeq: number | null = null;
-  private lastCols = 0;
-  private lastRows = 0;
-  private resyncing = false;
+  readonly sequencer = new StateSequencer();
 
   // Keyboard batching
   private keyBatcher: KeyBatcher | null = null;
@@ -90,17 +82,9 @@ export class TauriAdapter implements TmuxAdapter {
         this.unlistenFns.push(unlisten);
       };
 
-      // State updates (full or delta), decoded and sequenced by the stream.
+      // State updates (full or delta), decoded and sequenced by the stream stage.
       const unlistenState = await listen<unknown>('tmux-state-update', (event) => {
-        const step = this.stream.receive(event.payload);
-        if (step._tag === 'resync') {
-          void this.resyncFullState();
-          return;
-        }
-        if (step._tag === 'apply') {
-          this.lastAppliedSeq = step.seq;
-          this.notifyStateChange(step.state);
-        }
+        this.events.emit({ _tag: 'StateReceived', payload: event.payload });
 
         // A successful state update means we're connected — and is the ONLY
         // signal that a deliberate detach has ended. The detach path leaves
@@ -216,7 +200,7 @@ export class TauriAdapter implements TmuxAdapter {
 
     this.connected = false;
     this.reconnectingState = false;
-    this.stream.reset();
+    this.sequencer.reset();
   }
 
   // Serial queue for mutating commands so they reach the Tauri executor in
@@ -229,20 +213,8 @@ export class TauriAdapter implements TmuxAdapter {
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     const { invoke } = await import('@tauri-apps/api/core');
 
-    // Cache the client size so a seq-gap resync can refetch get_initial_state.
-    if (
-      (cmd === 'set_client_size' || cmd === 'get_initial_state') &&
-      typeof args?.cols === 'number' &&
-      typeof args?.rows === 'number'
-    ) {
-      this.lastCols = args.cols;
-      this.lastRows = args.rows;
-    }
-
-    // The answer is decoded and adopted by the stream, so deltas apply to it.
-    if (cmd === 'get_initial_state') {
-      return this.stream.adopt(await invoke<unknown>(cmd, args)) as T;
-    }
+    // Answered raw: the stream stage decodes and adopts it.
+    if (cmd === 'get_initial_state') return invoke<T>(cmd, args);
 
     // Check if this is a send-keys command that should be batched
     if (this.keyBatcher?.intercept(cmd, args)) {
@@ -294,35 +266,8 @@ export class TauriAdapter implements TmuxAdapter {
     return `a-t-${this.traceActionSeq}`;
   }
 
-  private notifyStateChange(state: ServerState) {
-    // Closes the oldest outstanding input's round trip and feeds update-rate /
-    // stall metrics (Axis-B, see latencyTracker).
-    latencyTracker.recordUpdate();
-    tracer.event({ layer: 'adapter', name: 'apply', seq: this.lastAppliedSeq ?? undefined });
-    this.events.emit(TransportEvent.State({ state, seq: this.lastAppliedSeq }));
-  }
-
   async switchSession(newSession: string): Promise<void> {
     // For Tauri, use switch-client to change the tmux session
     await this.invoke<void>('run_tmux_command', { command: `switch-client -t ${newSession}` });
-  }
-
-  /** Refetch a full snapshot after a delta seq gap (see HttpAdapter). */
-  private async resyncFullState(): Promise<void> {
-    if (this.resyncing) return;
-    if (this.lastCols === 0 || this.lastRows === 0) return;
-    this.resyncing = true;
-    try {
-      const state = await this.invoke<ServerState>('get_initial_state', {
-        cols: this.lastCols,
-        rows: this.lastRows,
-      });
-      // invoke() already adopted the answer into the stream.
-      this.notifyStateChange(state);
-    } catch (e) {
-      console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e);
-    } finally {
-      this.resyncing = false;
-    }
   }
 }

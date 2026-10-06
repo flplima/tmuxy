@@ -1,6 +1,6 @@
-import type { TmuxAdapter } from './types';
+import type { SequencedAdapter } from './types';
 import { EventHub } from '../infra/eventHub';
-import { TransportEvent } from '../infra/transport/events';
+import { TransportEvent, type DriverEvent } from '../infra/transport/events';
 import {
   ClipboardEvent,
   CommandFailure,
@@ -10,9 +10,8 @@ import {
   LogEvent,
   MessageFrame,
   ThemeSettings,
-  type ServerState,
 } from '../domain/wire';
-import { StateStream } from './stateStream';
+import { StateSequencer } from './stateStream';
 import { decodeEvent } from './wireDecode';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
@@ -91,7 +90,7 @@ function getSessionFromUrl(): string {
 /**
  * HTTP Adapter using SSE for server->client push and POST for client->server commands.
  */
-export class HttpAdapter implements TmuxAdapter {
+export class HttpAdapter implements SequencedAdapter {
   /** The server runs `--read-only`; known from the `connection-info` greeting. */
   readOnly = false;
   /** Enumerating sessions is a `query_tmux`, which a read-only server refuses. */
@@ -120,34 +119,15 @@ export class HttpAdapter implements TmuxAdapter {
   private sessionOverride: string | null = null;
   private intentionalDisconnect = false;
 
-  readonly events = new EventHub<TransportEvent>();
+  readonly events = new EventHub<DriverEvent>();
   private fatal = false;
   /** Removes the `online` / `visibilitychange` listeners; null while none are installed. */
   private networkHints: (() => void) | null = null;
   /** The in-flight question to a server whose event stream would not open. */
   private refusalProbe: AbortController | null = null;
 
-  /** The state stream: decoding, delta sequencing and the client's copy of the state. */
-  private readonly stream = new StateStream();
-  /** Delta seq of the most recent applied update, for the trace `apply` event
-   * (joins to the server's `emit state` seq). Null for full snapshots. */
-  private lastAppliedSeq: number | null = null;
-  // Last client size seen via set_client_size/get_initial_state — needed to
-  // refetch a full snapshot on a seq gap (get_initial_state takes cols/rows).
-  private lastCols = 0;
-  private lastRows = 0;
-  // Single-flight guard for the delta-seq-gap resync: a live fiber means one is
-  // in progress. A fiber (vs. a boolean) can't desync — its finalizer always
-  // clears the slot — and it can be interrupted on disconnect.
-  private resyncFiber: Fiber.RuntimeFiber<void, never> | null = null;
-
-  // rAF batching: coalesce SSE updates within a single display frame.
-  // This prevents "painting" artifacts during full-screen redraws (neovim, etc.)
-  // where multiple intermediate states arrive within one frame interval.
-  // pendingState holds the latest; rafFiber is the single in-flight frame — a
-  // fiber (not a boolean) so its finalizer cancels the rAF on interrupt.
-  private pendingState: ServerState | null = null;
-  private rafFiber: Fiber.RuntimeFiber<void, never> | null = null;
+  /** The client's copy of the state the stream stage sequences; a new connection or session restarts it. */
+  readonly sequencer = new StateSequencer();
 
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
@@ -222,21 +202,11 @@ export class HttpAdapter implements TmuxAdapter {
     this.reconnecting = false;
 
     this.keyBatcher.destroy();
-    this.pendingState = null;
-    if (this.rafFiber) {
-      Effect.runFork(Fiber.interrupt(this.rafFiber));
-      this.rafFiber = null;
-    }
 
     // Interrupt the reconnect fiber; its scoped finalizer closes the stream.
     if (this.channelFiber) {
       Effect.runFork(Fiber.interrupt(this.channelFiber));
       this.channelFiber = null;
-    }
-    // Drop any in-flight delta-seq-gap resync too.
-    if (this.resyncFiber) {
-      Effect.runFork(Fiber.interrupt(this.resyncFiber));
-      this.resyncFiber = null;
     }
     if (this.eventSource) {
       this.eventSource.close();
@@ -326,7 +296,7 @@ export class HttpAdapter implements TmuxAdapter {
       const es = new EventSource(eventsUrl);
       // A new connection starts a new sequence; until its full state lands,
       // an initial-state answer is the state to start from.
-      this.stream.reopen();
+      this.sequencer.reopen();
       this.eventSource = es;
 
       // A link that dies silently — a sleeping laptop, a Wi-Fi roam, a proxy
@@ -410,17 +380,9 @@ export class HttpAdapter implements TmuxAdapter {
         this.resolveConnectWaiters();
       });
 
+      // Decoded and sequenced by the stream stage (`stateFeed.ts`).
       es.addEventListener('state-update', (event: MessageEvent) => {
-        // Decoded and sequenced by the stream. A dropped or misordered delta
-        // — or one that does not decode — would otherwise apply to stale
-        // state and silently diverge; the stream says to refetch instead.
-        const step = this.stream.receive(parseFrame('state-update', event));
-        if (step._tag === 'resync') {
-          this.resyncFullState();
-        } else if (step._tag === 'apply') {
-          this.lastAppliedSeq = step.seq;
-          this.scheduleStateNotify(step.state);
-        }
+        this.events.emit({ _tag: 'StateReceived', payload: parseFrame('state-update', event) });
       });
 
       on('keybindings', KeyBindings, (keybindings) =>
@@ -550,20 +512,8 @@ export class HttpAdapter implements TmuxAdapter {
       if (cmd === 'get_initial_state') args = {};
     }
 
-    // Cache the client size so a seq-gap resync can refetch get_initial_state.
-    if (
-      (cmd === 'set_client_size' || cmd === 'get_initial_state') &&
-      typeof args?.cols === 'number' &&
-      typeof args?.rows === 'number'
-    ) {
-      this.lastCols = args.cols;
-      this.lastRows = args.rows;
-    }
-
-    // The answer is decoded and adopted by the stream, so deltas apply to it.
-    if (cmd === 'get_initial_state') {
-      return this.stream.adopt(await this.invokeInternal<unknown>(cmd, args)) as T;
-    }
+    // Answered raw: the stream stage decodes and adopts it.
+    if (cmd === 'get_initial_state') return this.invokeInternal(cmd, args);
 
     // Check if this is a send-keys command that should be batched
     if (this.keyBatcher.intercept(cmd, args)) {
@@ -708,7 +658,7 @@ export class HttpAdapter implements TmuxAdapter {
 
   async switchSession(newSession: string): Promise<void> {
     this.sessionOverride = newSession;
-    this.stream.reset();
+    this.sequencer.reset();
 
     // Switching sessions is a fresh start — clear a prior fatal so the switch
     // isn't permanently rejected by connect()'s fatal guard (recovering from a
@@ -733,79 +683,6 @@ export class HttpAdapter implements TmuxAdapter {
 
     // Reconnect to new session
     await this.connect();
-  }
-
-  /**
-   * Coalesce SSE updates within a single display frame via requestAnimationFrame.
-   * During full-screen redraws (neovim, etc.), the backend emits multiple partial
-   * states within one 16.67ms display frame. rAF batching ensures only the final
-   * (most complete) state is rendered, eliminating the visible "painting" effect.
-   */
-  /**
-   * Refetch a full state snapshot after a delta seq gap. Uses the last client
-   * size seen via set_client_size/get_initial_state; if none has been seen yet,
-   * skips (the server's periodic full snapshot recovers). Guarded so overlapping
-   * gaps trigger a single refetch.
-   */
-  private resyncFullState(): void {
-    if (this.resyncFiber) return; // single-flight: a resync is already running
-    if (!this.readOnly && (this.lastCols === 0 || this.lastRows === 0)) return;
-    const program = Effect.tryPromise({
-      try: () =>
-        this.invoke<ServerState>('get_initial_state', {
-          cols: this.lastCols,
-          rows: this.lastRows,
-        }),
-      catch: (e) => e,
-    }).pipe(
-      // invoke() already adopted the answer into the stream.
-      Effect.flatMap((state) => Effect.sync(() => this.scheduleStateNotify(state))),
-      Effect.catchAll((e) =>
-        Effect.sync(() =>
-          console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e),
-        ),
-      ),
-      // Clear the slot on success, failure, or interruption so the next gap can
-      // trigger a fresh resync.
-      Effect.ensuring(
-        Effect.sync(() => {
-          this.resyncFiber = null;
-        }),
-      ),
-    );
-    this.resyncFiber = Effect.runFork(program);
-  }
-
-  private scheduleStateNotify(state: ServerState): void {
-    this.pendingState = state;
-    if (this.rafFiber) return; // a frame is already scheduled; latest wins
-    const program = Effect.async<void>((resume) => {
-      const id = requestAnimationFrame(() => resume(Effect.void));
-      // Interrupting the fiber (disconnect) cancels the pending frame.
-      return Effect.sync(() => cancelAnimationFrame(id));
-    }).pipe(
-      Effect.flatMap(() =>
-        Effect.sync(() => {
-          const s = this.pendingState;
-          this.pendingState = null;
-          if (s) this.notifyStateChange(s);
-        }),
-      ),
-      Effect.ensuring(
-        Effect.sync(() => {
-          this.rafFiber = null;
-        }),
-      ),
-    );
-    this.rafFiber = Effect.runFork(program);
-  }
-
-  private notifyStateChange(state: ServerState): void {
-    // Paint-bound apply (rAF-batched): closes the oldest outstanding input's
-    // round trip and feeds the update-rate / stall metrics (Axis-B).
-    latencyTracker.recordUpdate();
-    tracer.event({ layer: 'adapter', name: 'apply', seq: this.lastAppliedSeq ?? undefined });
-    this.events.emit(TransportEvent.State({ state, seq: this.lastAppliedSeq }));
   }
 
   /** Mint a per-connection action id (e.g. `a-3-17`) so the trace can correlate

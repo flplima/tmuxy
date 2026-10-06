@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { StateStream } from '../stateStream';
+import { StateSequencer } from '../stateStream';
 import { ProtocolError } from '../effect/AdapterError';
 
 const state = (activePane = '%1') => ({
@@ -18,7 +18,7 @@ const delta = (seq: number, extra: Record<string, unknown> = {}) => ({
   delta: { seq, ...extra },
 });
 
-describe('StateStream', () => {
+describe('StateSequencer', () => {
   let errors: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     errors = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -26,40 +26,40 @@ describe('StateStream', () => {
   afterEach(() => errors.mockRestore());
 
   it('applies a full state, then deltas in sequence', () => {
-    const stream = new StateStream();
-    expect(stream.receive(full())).toMatchObject({ _tag: 'apply', seq: null });
+    const stream = new StateSequencer();
+    expect(stream.receive(full())).toMatchObject({ _tag: 'State', seq: null });
     const step = stream.receive(delta(1, { active_pane_id: '%2' }));
-    expect(step).toMatchObject({ _tag: 'apply', seq: 1 });
-    expect(step._tag === 'apply' && step.state.active_pane_id).toBe('%2');
+    expect(step).toMatchObject({ _tag: 'State', seq: 1 });
+    expect(step._tag === 'State' && step.state.active_pane_id).toBe('%2');
   });
 
   it('asks for a resync on a sequence gap and applies nothing', () => {
-    const stream = new StateStream();
+    const stream = new StateSequencer();
     stream.receive(full());
     stream.receive(delta(1));
-    expect(stream.receive(delta(3))).toEqual({ _tag: 'resync' });
+    expect(stream.receive(delta(3))).toEqual({ _tag: 'Resync' });
   });
 
   it('treats a payload that does not decode like a gap, and logs it', () => {
-    const stream = new StateStream();
+    const stream = new StateSequencer();
     stream.receive(full());
     expect(stream.receive(delta(1, { active_pane_id: '@not-a-pane' }))).toEqual({
-      _tag: 'resync',
+      _tag: 'Resync',
     });
-    expect(stream.receive({ type: 'full' })).toEqual({ _tag: 'resync' });
-    expect(stream.receive(undefined)).toEqual({ _tag: 'resync' });
+    expect(stream.receive({ type: 'full' })).toEqual({ _tag: 'Resync' });
+    expect(stream.receive(undefined)).toEqual({ _tag: 'Resync' });
     expect(errors).toHaveBeenCalledTimes(3);
     // The next full state is a fresh start.
-    expect(stream.receive(full('%5'))).toMatchObject({ _tag: 'apply' });
+    expect(stream.receive(full('%5'))).toMatchObject({ _tag: 'State' });
   });
 
   it('ignores a delta before any full state', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(new StateStream().receive(delta(1))).toEqual({ _tag: 'ignore' });
+    expect(new StateSequencer().receive(delta(1))).toEqual({ _tag: 'Ignore' });
   });
 
   it('rejects an initial-state answer that does not decode with a ProtocolError', () => {
-    const stream = new StateStream();
+    const stream = new StateSequencer();
     expect(() => stream.adopt({ panes: [] })).toThrow(ProtocolError);
     expect(stream.adopt(state('%3')).active_pane_id).toBe('%3');
   });

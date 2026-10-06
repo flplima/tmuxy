@@ -1,6 +1,7 @@
 import type { CellLine } from '../domain/wire';
 import type { EventHub } from '../infra/eventHub';
-import type { TransportEvent } from '../infra/transport/events';
+import type { DriverEvent, TransportEvent } from '../infra/transport/events';
+import type { StateSequencer } from './stateStream';
 
 // ============================================
 // Client-Side Copy Mode Types
@@ -84,9 +85,9 @@ export interface CopyModeState {
  * `infra/transport` talks to one — the `TmuxTransport` service lifts it into
  * Effects with typed errors and publishes its events as a stream.
  */
-export interface TmuxAdapter {
+export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
   /** Every event the backend pushes, in arrival order. */
-  readonly events: EventHub<TransportEvent>;
+  readonly events: EventHub<E>;
   connect(): Promise<void>;
   disconnect(): void;
   invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
@@ -120,4 +121,13 @@ export interface TmuxAdapter {
    * v86), which never enumerate sessions.
    */
   query?(command: string): Promise<string>;
+}
+
+/**
+ * A driver whose backend streams a full state then deltas (HTTP, Tauri): it
+ * emits each payload raw and keeps the sequencer the stream stage applies
+ * them with, telling it when a connection opens or the session changes.
+ */
+export interface SequencedAdapter extends TmuxAdapter<DriverEvent> {
+  readonly sequencer: StateSequencer;
 }

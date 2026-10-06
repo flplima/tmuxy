@@ -10,17 +10,18 @@ import { DemoAdapter } from '../../tmux/demo/DemoAdapter';
 import type { V86TmuxAdapter } from '../../tmux/v86/V86TmuxAdapter';
 import { isTauri } from '../../utils/platform';
 import { TmuxTransport, makeTransport } from './TmuxTransport';
+import { makeSequencedTransport } from './stateFeed';
 
-/** The web build: SSE for what the server pushes, POST for commands. */
+/** The web build: SSE for what the server pushes, POST for commands; states painted once per frame. */
 export const HttpTransportLive = Layer.scoped(
   TmuxTransport,
-  Effect.suspend(() => makeTransport(new HttpAdapter())),
+  Effect.suspend(() => makeSequencedTransport(new HttpAdapter(), { latestPerFrame: true })),
 );
 
 /** The desktop build: Tauri events and commands. */
 export const TauriTransportLive = Layer.scoped(
   TmuxTransport,
-  Effect.suspend(() => makeTransport(new TauriAdapter())),
+  Effect.suspend(() => makeSequencedTransport(new TauriAdapter(), { latestPerFrame: false })),
 );
 
 /** The in-browser demo engine; a story passes its own to drive the demo's test hooks. */
