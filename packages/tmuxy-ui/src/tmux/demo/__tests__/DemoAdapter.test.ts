@@ -49,12 +49,14 @@ describe('DemoAdapter test-mode hooks', () => {
     ).resolves.toBeNull();
   });
 
-  it('emitClipboard fans out to onClipboard listeners', async () => {
+  it('emitClipboard reaches event subscribers', async () => {
     const adapter = new DemoAdapter();
     await adapter.connect();
 
     const seen: Array<[string | null, string]> = [];
-    const unsub = adapter.onClipboard!((paneId, text) => seen.push([paneId, text]));
+    const unsub = adapter.events.subscribe((event) => {
+      if (event._tag === 'Clipboard') seen.push([event.paneId, event.text]);
+    });
 
     adapter.emitClipboard(pid('%3'), 'pasted via OSC 52');
     expect(seen).toEqual([[pid('%3'), 'pasted via OSC 52']]);

@@ -19,13 +19,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { Effect } from 'effect';
 import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../parseCommand';
 import { applyServerSnapshot, modelFromSnapshot, makePendingOp } from '../model';
 import type { OpId, TmuxSnapshot } from '../types';
 import type { TmuxOp } from '../../../domain/commands';
-import type { TmuxAdapter } from '../../types';
 import type {
   ServerState,
   ServerStateEncoded,
@@ -34,7 +32,7 @@ import type {
 } from '../../../domain/wire';
 import { pid, wid, wireState } from '../../../test/wire';
 import { dispatchRaw } from '../../../test/store';
-import { toEffectAdapter } from '../../effect';
+import { fakeTransport, type FakeTransport } from '../../../test/transport';
 import { TmuxError } from '../../effect/AdapterError';
 import { predict } from '../ops';
 
@@ -93,45 +91,9 @@ const serverState = (over: Partial<ServerStateEncoded> = {}): ServerState =>
     ...over,
   });
 
-interface FakeAdapter {
-  adapter: TmuxAdapter;
-  invocations: string[];
-  setNextResult: (r: { kind: 'ok'; value: unknown } | { kind: 'reject'; error: unknown }) => void;
-}
-
-function makeFakeAdapter(): FakeAdapter {
-  const invocations: string[] = [];
-  const state = {
-    nextResult: { kind: 'ok' as const, value: undefined as unknown } as
-      | { kind: 'ok'; value: unknown }
-      | { kind: 'reject'; error: unknown },
-  };
-  const adapter: TmuxAdapter = {
-    connect: async () => {},
-    disconnect: () => {},
-    invoke: async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
-      invocations.push(`${cmd}|${JSON.stringify(args ?? {})}`);
-      if (state.nextResult.kind === 'reject') throw state.nextResult.error;
-      return state.nextResult.value as T;
-    },
-    onStateChange: () => () => {},
-    onError: () => () => {},
-    onLog: () => () => {},
-    onFatal: () => () => {},
-    onConnectionInfo: () => () => {},
-    onReconnection: () => () => {},
-    onKeyBindings: () => () => {},
-    onThemeSettings: () => () => {},
-    onClipboard: () => () => {},
-  };
-  return {
-    adapter,
-    invocations,
-    setNextResult: (r) => {
-      state.nextResult = r;
-    },
-  };
-}
+/** What reached tmux, each as `cmd|args-json`. */
+const sent = (fake: FakeTransport) =>
+  fake.invocations.map((i) => `${i.cmd}|${JSON.stringify(i.args ?? {})}`);
 
 // ============================================
 // 1. Prefix-pinned commands
@@ -192,15 +154,13 @@ describe('parseCommandToOp — prefix-pinned commands', () => {
 
 describe('TmuxStore — verbatim command preservation', () => {
   it('sends the caller-provided command string, not the op canonical form', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
-    await Effect.runPromise(store.reconcile(serverState()));
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
+    await fake.runtime.runPromise(store.reconcile(serverState()));
 
     const original = 'select-pane -t %0 \\; split-window -v -c "#{pane_current_path}"';
     fake.setNextResult({ kind: 'ok', value: undefined });
-    await Effect.runPromise(dispatchRaw(store, original));
+    await fake.runtime.runPromise(dispatchRaw(store, original));
 
     // The adapter should have seen the EXACT original string. If we'd
     // rebuilt from the op tag, this would be `split-window -h` and the
@@ -208,9 +168,9 @@ describe('TmuxStore — verbatim command preservation', () => {
     // The invocations array stringifies args via JSON, so the `\;` becomes
     // `\\;` — assert the meaningful tokens instead.
     expect(fake.invocations).toHaveLength(1);
-    expect(fake.invocations[0]).toContain('split-window -v');
-    expect(fake.invocations[0]).toContain('#{pane_current_path}');
-    expect(fake.invocations[0]).toContain('select-pane -t %0');
+    expect(sent(fake)[0]).toContain('split-window -v');
+    expect(sent(fake)[0]).toContain('#{pane_current_path}');
+    expect(sent(fake)[0]).toContain('select-pane -t %0');
   });
 
   it("a pending op keeps the caller's full command string", () => {
@@ -291,16 +251,14 @@ describe('TmuxStore — verbatim command preservation', () => {
 
 describe('TmuxStore — multiple in-flight ops compose', () => {
   it('two splits in flight stack predictions on top of each other', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
-    await Effect.runPromise(store.reconcile(serverState()));
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
+    await fake.runtime.runPromise(store.reconcile(serverState()));
 
     fake.setNextResult({ kind: 'ok', value: undefined });
 
     // First split: 1 pane → 2 panes (placeholder added).
-    const r1 = await Effect.runPromiseExit(
+    const r1 = await fake.runtime.runPromiseExit(
       store.dispatch({ _tag: 'Split', direction: 'vertical' }),
     );
     expect(r1._tag).toBe('Success');
@@ -311,7 +269,7 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
     // CURRENT derived (which already has 2 panes including the placeholder).
     // The active pane in derived is the first placeholder, so the new
     // split's prediction is computed relative to it.
-    const r2 = await Effect.runPromiseExit(
+    const r2 = await fake.runtime.runPromiseExit(
       store.dispatch({ _tag: 'Split', direction: 'vertical' }),
     );
     expect(r2._tag).toBe('Success');
@@ -449,13 +407,11 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
 
 describe('TmuxStore — kill-pane reconcile', () => {
   it('drops paneKeyOverrides for removed panes', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
 
     // Seed: 2 panes, plus a stale overlay entry for a pane that's about to die.
-    await Effect.runPromise(
+    await fake.runtime.runPromise(
       store.reconcile(
         serverState({
           panes: [
@@ -469,8 +425,8 @@ describe('TmuxStore — kill-pane reconcile', () => {
 
     // Inject a paneKeyOverride manually by running a split + reconcile.
     fake.setNextResult({ kind: 'ok', value: undefined });
-    await Effect.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
-    await Effect.runPromise(
+    await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
+    await fake.runtime.runPromise(
       store.reconcile(
         serverState({
           panes: [
@@ -485,7 +441,7 @@ describe('TmuxStore — kill-pane reconcile', () => {
     expect(Object.keys(store.getModel().paneKeyOverrides)).toContain(pid('%2'));
 
     // Server reports the new pane killed.
-    await Effect.runPromise(
+    await fake.runtime.runPromise(
       store.reconcile(
         serverState({
           panes: [
@@ -509,11 +465,9 @@ describe('TmuxStore — kill-pane reconcile', () => {
 
 describe('TmuxStore — typed errors', () => {
   it('TmuxError surfaces as OpRejectedByTmux carrying stderr', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
-    await Effect.runPromise(store.reconcile(serverState()));
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
+    await fake.runtime.runPromise(store.reconcile(serverState()));
 
     fake.setNextResult({
       kind: 'reject',
@@ -522,7 +476,7 @@ describe('TmuxStore — typed errors', () => {
         stderr: "can't split pane: insufficient space",
       }),
     });
-    const exit = await Effect.runPromiseExit(
+    const exit = await fake.runtime.runPromiseExit(
       store.dispatch({ _tag: 'Split', direction: 'vertical' }),
     );
     expect(exit._tag).toBe('Failure');
@@ -538,14 +492,12 @@ describe('TmuxStore — typed errors', () => {
   });
 
   it('rejecting object-shape {error: ...} (Rust convention) also rolls back', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
-    await Effect.runPromise(store.reconcile(serverState()));
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
+    await fake.runtime.runPromise(store.reconcile(serverState()));
 
     fake.setNextResult({ kind: 'reject', error: { error: 'no such pane: %999', kind: 'tmux' } });
-    const exit = await Effect.runPromiseExit(
+    const exit = await fake.runtime.runPromiseExit(
       store.dispatch({
         _tag: 'Swap',
         sourcePaneId: pid('%999'),
@@ -564,15 +516,13 @@ describe('TmuxStore — typed errors', () => {
 
 describe('TmuxStore — clear (session switch)', () => {
   it('drops committed + pending ops and notifies subscribers', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
 
     // Seed the store with a session, then dispatch an in-flight op.
-    await Effect.runPromise(store.reconcile(serverState()));
+    await fake.runtime.runPromise(store.reconcile(serverState()));
     fake.setNextResult({ kind: 'ok', value: undefined });
-    await Effect.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
+    await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
     expect(store.getModel().committed.panes).toHaveLength(1);
     expect(store.getModel().ops).toHaveLength(1);
 
@@ -580,7 +530,7 @@ describe('TmuxStore — clear (session switch)', () => {
     const snaps: number[] = [];
     const unsub = store.subscribe((m) => snaps.push(m.committed.panes.length));
     snaps.length = 0; // ignore the immediate "current" callback fired on subscribe
-    await Effect.runPromise(store.clear());
+    await fake.runtime.runPromise(store.clear());
     unsub();
     // The clear should have fired exactly one notification with empty panes.
     expect(snaps).toEqual([0]);
@@ -600,17 +550,15 @@ describe('TmuxStore — clear (session switch)', () => {
 
 describe('TmuxStore — toTmuxCommand fallback for in-code ops', () => {
   it('uses the canonical form when no command override is supplied', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
-    await Effect.runPromise(store.reconcile(serverState()));
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
+    await fake.runtime.runPromise(store.reconcile(serverState()));
 
     fake.setNextResult({ kind: 'ok', value: undefined });
     // SELECT_TAB constructs a SelectWindow op directly with no original
     // command string — the store should send `select-window -t N`.
-    await Effect.runPromise(store.dispatch({ _tag: 'SelectWindow', target: 3 }));
-    expect(fake.invocations[0]).toContain('select-window -t 3');
+    await fake.runtime.runPromise(store.dispatch({ _tag: 'SelectWindow', target: 3 }));
+    expect(sent(fake)[0]).toContain('select-window -t 3');
   });
 });
 
@@ -796,16 +744,14 @@ describe('Op predictions — tmux-output shape', () => {
   });
 
   it('reconcile after sessionName change still cleanly matches new ops', async () => {
-    const fake = makeFakeAdapter();
-    const store = await Effect.runPromise(
-      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
-    );
+    const fake = fakeTransport();
+    const store = await fake.runtime.runPromise(makeTmuxStore());
     // Session A
-    await Effect.runPromise(store.reconcile(serverState({ session_name: 'A' })));
+    await fake.runtime.runPromise(store.reconcile(serverState({ session_name: 'A' })));
     // Clear (e.g. SWITCH_SESSION).
-    await Effect.runPromise(store.clear());
+    await fake.runtime.runPromise(store.clear());
     // Session B arrives — different ids reused.
-    await Effect.runPromise(
+    await fake.runtime.runPromise(
       store.reconcile(
         serverState({
           session_name: 'B',
@@ -819,9 +765,9 @@ describe('Op predictions — tmux-output shape', () => {
 
     // A fresh dispatch in session B reconciles normally.
     fake.setNextResult({ kind: 'ok', value: undefined });
-    await Effect.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
+    await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
     expect(store.getModel().ops).toHaveLength(1);
-    await Effect.runPromise(
+    await fake.runtime.runPromise(
       store.reconcile(
         serverState({
           session_name: 'B',

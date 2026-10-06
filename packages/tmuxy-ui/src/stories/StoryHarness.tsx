@@ -8,7 +8,15 @@
  */
 
 import { useMemo, useEffect, type ReactNode } from 'react';
-import { TmuxyProvider, TmuxyApp, DemoAdapter, type AppConfig, type RenderTabline } from '../lib';
+import {
+  TmuxyProvider,
+  TmuxyApp,
+  DemoAdapter,
+  DemoTransportLive,
+  type AppConfig,
+  type RenderTabline,
+} from '../lib';
+import { V86TransportLive } from '../infra/transport/layers';
 import { V86TmuxAdapter } from '../tmux/v86/V86TmuxAdapter';
 import {
   CHAR_HEIGHT,
@@ -68,6 +76,7 @@ export function AppHarness({
     () => new DemoAdapter({ initCommands, commandDelayMs, failCommand }),
     [initCommands, commandDelayMs, failCommand],
   );
+  const transport = useMemo(() => DemoTransportLive(adapter), [adapter]);
   useEffect(() => {
     if (onAdapterReady) onAdapterReady(adapter);
   }, [adapter, onAdapterReady]);
@@ -82,7 +91,7 @@ export function AppHarness({
         background: 'var(--bg-base, #0f0f12)',
       }}
     >
-      <TmuxyProvider adapter={adapter} config={config}>
+      <TmuxyProvider transport={transport} config={config}>
         <TmuxyApp renderTabline={renderTabline} />
       </TmuxyProvider>
     </div>
@@ -139,8 +148,8 @@ export function V86AppHarness({
    *  between stories) instead of cold-booting a private engine per story. */
   shared?: boolean;
 }) {
-  const adapter = useMemo(
-    () => new V86TmuxAdapter({ initCommands, shared }),
+  const transport = useMemo(
+    () => V86TransportLive(new V86TmuxAdapter({ initCommands, shared })),
     [initCommands, shared],
   );
   // Measured once per mount: the font is loaded by then, and a story never
@@ -160,7 +169,7 @@ export function V86AppHarness({
         background: 'var(--bg-base, #000)',
       }}
     >
-      <TmuxyProvider adapter={adapter}>
+      <TmuxyProvider transport={transport}>
         <TmuxyApp />
       </TmuxyProvider>
     </div>
@@ -185,7 +194,10 @@ export function ProviderHarness({
   height?: number | string;
   width?: number | string;
 }) {
-  const adapter = useMemo(() => new DemoAdapter({ initCommands }), [initCommands]);
+  const transport = useMemo(
+    () => DemoTransportLive(new DemoAdapter({ initCommands })),
+    [initCommands],
+  );
   return (
     <div
       style={{
@@ -197,7 +209,7 @@ export function ProviderHarness({
         background: 'var(--bg-base, #0f0f12)',
       }}
     >
-      <TmuxyProvider adapter={adapter} config={config}>
+      <TmuxyProvider transport={transport} config={config}>
         {children}
       </TmuxyProvider>
     </div>

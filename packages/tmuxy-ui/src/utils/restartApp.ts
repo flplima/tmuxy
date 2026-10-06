@@ -4,7 +4,7 @@
  * thing is a full reload.
  */
 
-import { isTauri } from '../tmux/adapters';
+import { isTauri } from './platform';
 
 export function restartApp(): void {
   if (isTauri()) {

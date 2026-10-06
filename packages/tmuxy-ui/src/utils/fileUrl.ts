@@ -14,8 +14,7 @@
  * standing up a backend.
  */
 
-import { isTauri } from '../tmux/adapters';
-import { tauriSchemeUrl } from './platform';
+import { isTauri, tauriSchemeUrl } from './platform';
 
 /** Percent-encode a path for use as URL path segments, keeping the separators. */
 function encodePath(path: string): string {

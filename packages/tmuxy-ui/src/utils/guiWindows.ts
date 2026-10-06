@@ -8,7 +8,7 @@
  * browser tab — the web build's one window is the browser's business.
  */
 
-import { isTauri } from '../tmux/adapters';
+import { isTauri } from './platform';
 
 /** One row of the Window menu. */
 export interface GuiWindowInfo {

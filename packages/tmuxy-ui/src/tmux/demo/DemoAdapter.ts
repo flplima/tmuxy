@@ -1,14 +1,6 @@
-import type {
-  TmuxAdapter,
-  StateListener,
-  ErrorListener,
-  ConnectionInfoListener,
-  ReconnectionListener,
-  KeyBindingsListener,
-  LogListener,
-  FatalListener,
-  ClipboardListener,
-} from '../types';
+import type { TmuxAdapter } from '../types';
+import { EventHub } from '../../infra/eventHub';
+import { TransportEvent } from '../../infra/transport/events';
 import type { PaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings } from '../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
@@ -142,12 +134,7 @@ export class DemoAdapter implements TmuxAdapter {
     locked: false,
   };
 
-  private stateListeners = new Set<StateListener>();
-  private errorListeners = new Set<ErrorListener>();
-  private connectionInfoListeners = new Set<ConnectionInfoListener>();
-  private reconnectionListeners = new Set<ReconnectionListener>();
-  private keyBindingsListeners = new Set<KeyBindingsListener>();
-  private clipboardListeners = new Set<ClipboardListener>();
+  readonly events = new EventHub<TransportEvent>();
   private commandDelayMs: number;
   private failCommand: DemoAdapterOptions['failCommand'];
 
@@ -168,7 +155,7 @@ export class DemoAdapter implements TmuxAdapter {
    * live tmux process.
    */
   public emitClipboard(paneId: PaneId, text: string): void {
-    this.clipboardListeners.forEach((l) => l(paneId, text));
+    this.events.emit(TransportEvent.Clipboard({ paneId, text }));
   }
 
   /**
@@ -184,11 +171,8 @@ export class DemoAdapter implements TmuxAdapter {
   async connect(): Promise<void> {
     this.tmux.init(80, 24);
 
-    // Notify connection info
-    this.connectionInfoListeners.forEach((l) => l('bash'));
-
-    // Emit keybindings
-    this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
+    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', readOnly: false }));
+    this.events.emit(TransportEvent.KeyBindings({ keybindings: DEFAULT_KEYBINDINGS }));
   }
 
   disconnect(): void {}
@@ -337,52 +321,9 @@ export class DemoAdapter implements TmuxAdapter {
     }
   }
 
-  onStateChange(listener: StateListener): () => void {
-    this.stateListeners.add(listener);
-    return () => this.stateListeners.delete(listener);
-  }
-
-  onError(listener: ErrorListener): () => void {
-    this.errorListeners.add(listener);
-    return () => this.errorListeners.delete(listener);
-  }
-
-  onConnectionInfo(listener: ConnectionInfoListener): () => void {
-    this.connectionInfoListeners.add(listener);
-    return () => this.connectionInfoListeners.delete(listener);
-  }
-
-  onReconnection(listener: ReconnectionListener): () => void {
-    this.reconnectionListeners.add(listener);
-    return () => this.reconnectionListeners.delete(listener);
-  }
-
-  onKeyBindings(listener: KeyBindingsListener): () => void {
-    this.keyBindingsListeners.add(listener);
-    return () => this.keyBindingsListeners.delete(listener);
-  }
-
-  /** Nothing sources a config behind the browser's back here, so no pushes. */
-  onThemeSettings(): () => void {
-    return () => {};
-  }
-
-  onLog(_listener: LogListener): () => void {
-    return () => {};
-  }
-
-  onFatal(_listener: FatalListener): () => void {
-    return () => {};
-  }
-
-  onClipboard(listener: ClipboardListener): () => void {
-    this.clipboardListeners.add(listener);
-    return () => this.clipboardListeners.delete(listener);
-  }
-
   private emitState(): void {
     const state = decodeStateForListener(this.tmux.getState());
-    if (state) this.stateListeners.forEach((l) => l(state));
+    if (state) this.events.emit(TransportEvent.State({ state, seq: null }));
   }
 
   private handleTmuxCommand(commandStr: string): void {

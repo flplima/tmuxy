@@ -1,16 +1,6 @@
-import {
-  TmuxAdapter,
-  StateListener,
-  ErrorListener,
-  ConnectionInfoListener,
-  ReconnectionListener,
-  KeyBindingsListener,
-  ThemeSettingsListener,
-  LogListener,
-  FatalListener,
-  DetachedListener,
-  ClipboardListener,
-} from './types';
+import type { TmuxAdapter } from './types';
+import { EventHub } from '../infra/eventHub';
+import { TransportEvent } from '../infra/transport/events';
 import {
   ClipboardEvent,
   DetachedEvent,
@@ -18,18 +8,14 @@ import {
   LogEvent,
   MessageFrame,
   ThemeSettings,
-  type LogEntryKind,
   type ServerState,
 } from '../domain/wire';
 import { Schema } from 'effect';
-import { HttpAdapter } from './HttpAdapter';
-import { DemoAdapter } from './demo/DemoAdapter';
 import { StateStream } from './stateStream';
 import { decodeEvent } from './wireDecode';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
-import type { PaneId } from '../domain/ids';
 
 // ============================================
 // Tauri Adapter
@@ -41,16 +27,7 @@ export class TauriAdapter implements TmuxAdapter {
   private reconnectingState = false;
   private unlistenFns: (() => void)[] = [];
 
-  private stateListeners = new Set<StateListener>();
-  private errorListeners = new Set<ErrorListener>();
-  private connectionInfoListeners = new Set<ConnectionInfoListener>();
-  private reconnectionListeners = new Set<ReconnectionListener>();
-  private keyBindingsListeners = new Set<KeyBindingsListener>();
-  private themeSettingsListeners = new Set<ThemeSettingsListener>();
-  private logListeners = new Set<LogListener>();
-  private fatalListeners = new Set<FatalListener>();
-  private detachedListeners = new Set<DetachedListener>();
-  private clipboardListeners = new Set<ClipboardListener>();
+  readonly events = new EventHub<TransportEvent>();
 
   /**
    * The state stream: decoding, delta sequencing and the client's copy of the
@@ -136,36 +113,38 @@ export class TauriAdapter implements TmuxAdapter {
         this.connected = true;
         if (wasDown) {
           this.reconnectingState = false;
-          this.notifyReconnection(false);
+          this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
         }
       });
       this.unlistenFns.push(unlistenState);
 
       await on('tmux-keybindings', KeyBindings, (keybindings) =>
-        this.notifyKeyBindings(keybindings),
+        this.events.emit(TransportEvent.KeyBindings({ keybindings })),
       );
 
       // Theme + appearance, re-pushed after the config is sourced
       await on('tmux-theme-settings', ThemeSettings, (settings) =>
-        this.notifyThemeSettings(settings),
+        this.events.emit(TransportEvent.ThemeSettings({ settings })),
       );
 
       // Streaming connection-time progress (each command + output)
-      await on('tmux-log', LogEvent, (payload) => this.notifyLog(payload.kind, payload.message));
+      await on('tmux-log', LogEvent, (payload) =>
+        this.events.emit(TransportEvent.Log({ kind: payload.kind, message: payload.message })),
+      );
 
       // OSC 52 clipboard write requests from terminal applications, forwarded
       // by monitor.rs. Mirrored into the system clipboard by the tmux actor.
       // Without this the desktop app silently drops every terminal clipboard
       // write (HttpAdapter has the same listener).
       await on('tmux-clipboard', ClipboardEvent, (payload) =>
-        this.notifyClipboard(payload.pane_id, payload.text),
+        this.events.emit(TransportEvent.Clipboard({ paneId: payload.pane_id, text: payload.text })),
       );
 
       // Backend gave up reconnecting — terminal state, no further events.
       await on('tmux-fatal', MessageFrame, (payload) => {
         this.connected = false;
         this.reconnectingState = false;
-        this.notifyFatal(payload.message);
+        this.events.emit(TransportEvent.Fatal({ message: payload.message }));
       });
 
       // The connection ended with tmux's own reason. A deliberate detach is
@@ -174,23 +153,23 @@ export class TauriAdapter implements TmuxAdapter {
       await on('tmux-detached', DetachedEvent, (payload) => {
         this.connected = false;
         this.reconnectingState = false;
-        this.notifyDetached(payload.reason ?? null);
+        this.events.emit(TransportEvent.Detached({ reason: payload.reason ?? null }));
       });
 
       // Errors (emitted by monitor.rs on connection failure), a bare message.
       await on('tmux-error', Schema.String, (message) => {
-        this.notifyError(message);
+        this.events.emit(TransportEvent.Error({ message }));
 
         // A dropped connection, a failed first attempt and a failed retry
         // all leave the adapter retrying.
         this.connected = false;
         this.reconnectingState = true;
-        this.notifyReconnection(true);
+        this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
       });
 
       this.connected = true;
 
-      this.notifyConnectionInfo('bash');
+      this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', readOnly: false }));
 
       // Action tracing (docs/TELEMETRY.md): ask the local backend whether it is
       // recording; only then ship our events to it over IPC.
@@ -216,10 +195,10 @@ export class TauriAdapter implements TmuxAdapter {
         'get_keybindings_snapshot',
       )(await invoke<unknown>('get_keybindings_snapshot'));
       if (snapshot) {
-        this.notifyKeyBindings(snapshot);
+        this.events.emit(TransportEvent.KeyBindings({ keybindings: snapshot }));
       }
     } catch (e) {
-      this.notifyError('Failed to connect to Tauri');
+      this.events.emit(TransportEvent.Error({ message: 'Failed to connect to Tauri' }));
       throw e;
     }
   }
@@ -297,56 +276,6 @@ export class TauriAdapter implements TmuxAdapter {
     return invoke(cmd, args);
   }
 
-  onStateChange(listener: StateListener): () => void {
-    this.stateListeners.add(listener);
-    return () => this.stateListeners.delete(listener);
-  }
-
-  onError(listener: ErrorListener): () => void {
-    this.errorListeners.add(listener);
-    return () => this.errorListeners.delete(listener);
-  }
-
-  onConnectionInfo(listener: ConnectionInfoListener): () => void {
-    this.connectionInfoListeners.add(listener);
-    return () => this.connectionInfoListeners.delete(listener);
-  }
-
-  onReconnection(listener: ReconnectionListener): () => void {
-    this.reconnectionListeners.add(listener);
-    return () => this.reconnectionListeners.delete(listener);
-  }
-
-  onKeyBindings(listener: KeyBindingsListener): () => void {
-    this.keyBindingsListeners.add(listener);
-    return () => this.keyBindingsListeners.delete(listener);
-  }
-
-  onThemeSettings(listener: ThemeSettingsListener): () => void {
-    this.themeSettingsListeners.add(listener);
-    return () => this.themeSettingsListeners.delete(listener);
-  }
-
-  onLog(listener: LogListener): () => void {
-    this.logListeners.add(listener);
-    return () => this.logListeners.delete(listener);
-  }
-
-  onFatal(listener: FatalListener): () => void {
-    this.fatalListeners.add(listener);
-    return () => this.fatalListeners.delete(listener);
-  }
-
-  onDetached(listener: DetachedListener): () => void {
-    this.detachedListeners.add(listener);
-    return () => this.detachedListeners.delete(listener);
-  }
-
-  onClipboard(listener: ClipboardListener): () => void {
-    this.clipboardListeners.add(listener);
-    return () => this.clipboardListeners.delete(listener);
-  }
-
   /**
    * Read from tmux (see TmuxAdapter.query) — straight to the Tauri command
    * rather than onto `sendQueue`: it is answered in-band on the monitor's
@@ -370,48 +299,12 @@ export class TauriAdapter implements TmuxAdapter {
     // stall metrics (Axis-B, see latencyTracker).
     latencyTracker.recordUpdate();
     tracer.event({ layer: 'adapter', name: 'apply', seq: this.lastAppliedSeq ?? undefined });
-    this.stateListeners.forEach((listener) => listener(state));
-  }
-
-  private notifyLog(kind: LogEntryKind, message: string) {
-    this.logListeners.forEach((listener) => listener(kind, message));
-  }
-
-  private notifyFatal(message: string) {
-    this.fatalListeners.forEach((listener) => listener(message));
-  }
-
-  private notifyDetached(reason: string | null) {
-    this.detachedListeners.forEach((listener) => listener(reason));
-  }
-
-  private notifyError(error: string) {
-    this.errorListeners.forEach((listener) => listener(error));
-  }
-
-  private notifyConnectionInfo(defaultShell: string) {
-    this.connectionInfoListeners.forEach((listener) => listener(defaultShell));
-  }
-
-  private notifyReconnection(reconnecting: boolean) {
-    this.reconnectionListeners.forEach((listener) => listener(reconnecting));
+    this.events.emit(TransportEvent.State({ state, seq: this.lastAppliedSeq }));
   }
 
   async switchSession(newSession: string): Promise<void> {
     // For Tauri, use switch-client to change the tmux session
     await this.invoke<void>('run_tmux_command', { command: `switch-client -t ${newSession}` });
-  }
-
-  private notifyKeyBindings(keybindings: KeyBindings) {
-    this.keyBindingsListeners.forEach((listener) => listener(keybindings));
-  }
-
-  private notifyThemeSettings(settings: ThemeSettings) {
-    this.themeSettingsListeners.forEach((listener) => listener(settings));
-  }
-
-  private notifyClipboard(paneId: PaneId | null, text: string) {
-    this.clipboardListeners.forEach((listener) => listener(paneId, text));
   }
 
   /** Refetch a full snapshot after a delta seq gap (see HttpAdapter). */
@@ -432,26 +325,4 @@ export class TauriAdapter implements TmuxAdapter {
       this.resyncing = false;
     }
   }
-}
-
-// ============================================
-// Factory
-// ============================================
-
-export function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-}
-
-function isDemoUrl(): boolean {
-  return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('demo');
-}
-
-export function createAdapter(): TmuxAdapter {
-  if (isTauri()) {
-    return new TauriAdapter();
-  }
-  if (isDemoUrl()) {
-    return new DemoAdapter();
-  }
-  return new HttpAdapter();
 }

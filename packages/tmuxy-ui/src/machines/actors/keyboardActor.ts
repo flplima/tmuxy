@@ -40,7 +40,7 @@ import {
 import { flashCopiedRange } from '../../utils/copyFlash';
 import { terminalTextOf } from '../../utils/nativeSelection';
 import { focusGuiWindow, newGuiWindow } from '../../utils/guiWindows';
-import { isTauri } from '../../tmux/adapters';
+import { isTauri } from '../../utils/platform';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';

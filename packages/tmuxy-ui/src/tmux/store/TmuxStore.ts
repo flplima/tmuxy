@@ -19,7 +19,7 @@
 
 import { Effect, Ref } from 'effect';
 import { formatAdapterError } from '../effect/AdapterError';
-import type { EffectTmuxAdapter } from '../effect/EffectTmuxAdapter';
+import { TmuxTransport } from '../../infra/transport/TmuxTransport';
 import type { ServerState } from '../../domain/wire';
 import { preserveSnapshotIdentity, transformServerState } from './adapters';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
@@ -62,7 +62,10 @@ export interface TmuxStore {
    * adapter call), then the command goes to tmux; if the send fails the op
    * is rolled back from the model.
    */
-  readonly dispatch: (op: TmuxOp, opts?: DispatchOptions) => Effect.Effect<OpId, OpError>;
+  readonly dispatch: (
+    op: TmuxOp,
+    opts?: DispatchOptions,
+  ) => Effect.Effect<OpId, OpError, TmuxTransport>;
 
   /**
    * Apply a fresh server snapshot. Reconciles every pending op, drops
@@ -91,21 +94,10 @@ export interface TmuxStore {
   readonly setPredictContext: (ctx: PredictContext) => Effect.Effect<void>;
 }
 
-/** Per-store config the appMachine wires in. */
-export interface TmuxStoreConfig {
-  readonly adapter: EffectTmuxAdapter;
-  /**
-   * Whether the session is read-only, asked at each dispatch (the adapter only
-   * learns it once connected). A read-only store sends tmux nothing: a focus
-   * op moves this client's own view, and every other op is refused unpredicted.
-   */
-  readonly isReadOnly?: () => boolean;
-}
-
 /** The ops that only move focus — all a read-only client can act on, and only locally. */
 const VIEW_OPS: ReadonlySet<TmuxOp['_tag']> = new Set(['SelectWindow', 'SelectPane', 'Navigate']);
 
-export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore> {
+export function makeTmuxStore(): Effect.Effect<TmuxStore> {
   return Effect.gen(function* () {
     const ref = yield* Ref.make<TmuxClientModel>(EMPTY_MODEL);
     const ctxRef = yield* Ref.make<PredictContext>({
@@ -176,7 +168,11 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       return { opId, command };
     };
 
-    const dispatchRemote = (opId: OpId, command: string): Effect.Effect<OpId, OpError> =>
+    const dispatchRemote = (
+      transport: TmuxTransport['Type'],
+      opId: OpId,
+      command: string,
+    ): Effect.Effect<OpId, OpError> =>
       Effect.gen(function* () {
         // Mark in-flight BEFORE the adapter call: the ack can take longer than
         // the quick stale sweep, and a swept op would blink the optimistic UI
@@ -186,9 +182,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
           ...m,
           ops: m.ops.map((o) => (o.id === opId ? { ...o, status: 'in-flight' as const } : o)),
         }));
-        const sendResult = yield* Effect.either(
-          config.adapter.invoke<unknown>('run_tmux_command', { command }),
-        );
+        const sendResult = yield* Effect.either(transport.invoke('run_tmux_command', { command }));
         if (sendResult._tag === 'Left') {
           const err = sendResult.left;
           const { model: rolledBackModel, entry } = rollbackOp(
@@ -244,16 +238,24 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       notify(next);
     };
 
-    const dispatch = (op: TmuxOp, opts?: DispatchOptions): Effect.Effect<OpId, OpError> =>
-      Effect.suspend(() => {
-        if (config.isReadOnly?.()) {
+    /**
+     * A read-only session (asked at each dispatch: the transport only learns
+     * it once connected) sends tmux nothing: a focus op moves this client's
+     * own view, and every other op is refused unpredicted.
+     */
+    const dispatch = (
+      op: TmuxOp,
+      opts?: DispatchOptions,
+    ): Effect.Effect<OpId, OpError, TmuxTransport> =>
+      Effect.flatMap(TmuxTransport, (transport) => {
+        if (transport.isReadOnly()) {
           const command = opts?.command ?? toTmuxCommand(op);
           if (!VIEW_OPS.has(op._tag)) return Effect.fail(new OpBlockedReadOnly({ command }));
           moveView(op);
           return Effect.succeed(generateOpId());
         }
         const { opId, command } = applyOptimistic(op, opts);
-        return dispatchRemote(opId, command);
+        return dispatchRemote(transport, opId, command);
       });
 
     const reconcile = (state: ServerState): Effect.Effect<ReadonlyArray<RollbackEntry>> =>

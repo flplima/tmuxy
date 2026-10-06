@@ -30,6 +30,7 @@ import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 import type { ServerState } from '../../domain/wire';
 import { tracer } from '../../tmux/tracer';
 import { isInputCommand, READ_ONLY_NOTICE } from '../../tmux/readOnly';
+import type { AppRuntime } from '../../infra/runtime';
 
 /** Extract only content-free id/direction fields from a typed op for the trace.
  * Deliberately excludes `RenameWindow.name` and any free text. */
@@ -87,9 +88,10 @@ const STRUCTURAL_OPS = new Set([
 
 /**
  * Build the bridge actor. The store is captured in a closure; tests can
- * supply a fresh store per test for isolation.
+ * supply a fresh store per test for isolation. Dispatches run on the app
+ * runtime, which provides the transport they send through.
  */
-export function createTmuxStoreActor(store: TmuxStore) {
+export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
   return fromCallback<TmuxStoreActorEvent, TmuxStoreActorInput>(({ input, receive }) => {
     const { parent } = input;
 
@@ -101,7 +103,7 @@ export function createTmuxStoreActor(store: TmuxStore) {
       program: ReturnType<TmuxStore['dispatch']>,
       command: string,
     ): void => {
-      void Effect.runPromiseExit(program).then((exit) => {
+      void runtime.runPromiseExit(program).then((exit) => {
         if (Exit.isFailure(exit)) {
           const failure = Cause.failureOption(exit.cause);
           if (failure._tag === 'Some') {

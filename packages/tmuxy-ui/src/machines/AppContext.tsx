@@ -29,8 +29,10 @@ import {
   getActivePaneInGroup,
 } from './selectors';
 import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
-import type { TmuxAdapter } from '../tmux/types';
-import { createAdapter } from '../tmux/adapters';
+import type { Layer } from 'effect';
+import type { TmuxTransport } from '../infra/transport/TmuxTransport';
+import { transportForEnvironment } from '../infra/transport/layers';
+import { makeAppRuntime } from '../infra/runtime';
 import { tracer } from '../tmux/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
@@ -40,7 +42,6 @@ import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../tmux/store';
-import { toEffectAdapter } from '../tmux/effect';
 import { Effect } from 'effect';
 import { measureCellMetrics } from '../utils/cellMetrics';
 import type { PaneId } from '../domain/ids';
@@ -135,33 +136,30 @@ const AppContext = createContext<AppMachineActor | null>(null);
 
 export function AppProvider({
   children,
-  adapter: externalAdapter,
+  transport,
   config,
 }: {
   children: ReactNode;
-  adapter?: TmuxAdapter;
+  /** The backend to run against; the environment's (web, desktop, `?demo`) when omitted. */
+  transport?: Layer.Layer<TmuxTransport>;
   config?: AppConfig;
 }) {
-  // Create adapter, store, and actors once. The TmuxStore is the client
-  // model — owns optimistic patches and reconciliation; the
-  // tmuxStoreActor bridges it into XState so the appMachine context stays
-  // a passive mirror of the store's derived snapshot.
+  // Create the runtime, store, and actors once. The runtime is built from the
+  // transport Layer and every actor runs its effects on it. The TmuxStore is
+  // the client model — owns optimistic patches and reconciliation; the
+  // tmuxStoreActor bridges it into XState so the appMachine context stays a
+  // passive mirror of the store's derived snapshot.
   const actors = useMemo(() => {
-    const adapter = externalAdapter ?? createAdapter();
-    const store = Effect.runSync(
-      makeTmuxStore({
-        adapter: toEffectAdapter(adapter),
-        isReadOnly: () => adapter.readOnly === true,
-      }),
-    );
+    const runtime = makeAppRuntime(transport ?? transportForEnvironment());
+    const store = Effect.runSync(makeTmuxStore());
     return {
-      tmuxActor: createTmuxActor(adapter),
-      tmuxStoreActor: createTmuxStoreActor(store),
+      tmuxActor: createTmuxActor(runtime),
+      tmuxStoreActor: createTmuxStoreActor(store, runtime),
       keyboardActor: createKeyboardActor(),
       linkModifierActor: createLinkModifierActor(),
       gestureActor: createGestureActor(),
       sizeActor: createSizeActor(measureCellMetrics),
-      serversActor: createServersActor(adapter),
+      serversActor: createServersActor(runtime),
     };
   }, []);
 

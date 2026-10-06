@@ -1,11 +1,6 @@
-import type {
-  CellLine,
-  KeyBindings,
-  LogEntryKind,
-  ServerState,
-  ThemeSettings,
-} from '../domain/wire';
-import type { PaneId } from '../domain/ids';
+import type { CellLine } from '../domain/wire';
+import type { EventHub } from '../infra/eventHub';
+import type { TransportEvent } from '../infra/transport/events';
 
 // ============================================
 // Client-Side Copy Mode Types
@@ -83,53 +78,18 @@ export interface CopyModeState {
 // Adapter Types
 // ============================================
 
-export type StateListener = (state: ServerState) => void;
-export type ErrorListener = (error: string) => void;
-export type ConnectionInfoListener = (
-  defaultShell: string,
-  /** The server runs `--read-only`: this client is a viewer. Absent on transports with no such mode. */
-  readOnly?: boolean,
-) => void;
-export type ReconnectionListener = (reconnecting: boolean) => void;
 /**
- * OSC 52 clipboard request from a terminal application. The frontend mirrors
- * the payload into the system clipboard via `navigator.clipboard.writeText`.
+ * A transport driver: the Promise-shaped machinery one backend needs (an SSE
+ * stream and POSTs, Tauri IPC, an in-browser engine). Nothing outside
+ * `infra/transport` talks to one — the `TmuxTransport` service lifts it into
+ * Effects with typed errors and publishes its events as a stream.
  */
-export type ClipboardListener = (paneId: PaneId | null, text: string) => void;
-
-export type LogListener = (kind: LogEntryKind, message: string) => void;
-
-/** Terminal failure: backend has exhausted retries and stopped. */
-export type FatalListener = (message: string) => void;
-/**
- * The connection ended, carrying tmux's own `%exit` reason (`detached` when
- * the user detached deliberately). Separate from {@link FatalListener}: a
- * detach is not a failure and must not be retried.
- */
-export type DetachedListener = (reason: string | null) => void;
-
 export interface TmuxAdapter {
+  /** Every event the backend pushes, in arrival order. */
+  readonly events: EventHub<TransportEvent>;
   connect(): Promise<void>;
   disconnect(): void;
   invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
-  onStateChange(listener: StateListener): () => void;
-  onError(listener: ErrorListener): () => void;
-  onConnectionInfo(listener: ConnectionInfoListener): () => void;
-  onReconnection(listener: ReconnectionListener): () => void;
-  onKeyBindings(listener: KeyBindingsListener): () => void;
-  /** Theme + appearance pushed by the backend after the config is (re)sourced. */
-  onThemeSettings(listener: ThemeSettingsListener): () => void;
-  /** Streaming connection-time log (each tmux command + its output). */
-  onLog(listener: LogListener): () => void;
-  /** Terminal failure — backend gave up reconnecting. No further events expected. */
-  onFatal(listener: FatalListener): () => void;
-  /** Subscribe to connection-ended notices; see {@link DetachedListener}. */
-  onDetached?(listener: DetachedListener): () => void;
-  /**
-   * OSC 52 clipboard write request from a terminal application. Returns an
-   * unsubscribe function.
-   */
-  onClipboard(listener: ClipboardListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
   /**
    * Retry a dropped connection now instead of at the next backoff tick. For
@@ -143,12 +103,12 @@ export interface TmuxAdapter {
    * in-browser sandboxes (demo, v86), where the sidebar's sessions poll would
    * be pointless churn. Gates the `serversActor` poll.
    */
-  enumeratesSessions?: boolean;
+  readonly enumeratesSessions?: boolean;
   /**
    * The backend serves this client as a viewer (`tmuxy server --read-only`):
    * it answers reads and refuses everything else. Known once connected.
    */
-  readOnly?: boolean;
+  readonly readOnly?: boolean;
   /**
    * Run a tmux command and resolve with what it printed (`query_tmux`).
    *
@@ -161,7 +121,3 @@ export interface TmuxAdapter {
    */
   query?(command: string): Promise<string>;
 }
-
-export type KeyBindingsListener = (keybindings: KeyBindings) => void;
-
-export type ThemeSettingsListener = (settings: ThemeSettings) => void;

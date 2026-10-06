@@ -32,7 +32,7 @@ import {
   useReadOnly,
   selectSessions,
 } from '../machines/AppContext';
-import { isTauri } from '../tmux/adapters';
+import { isTauri } from '../utils/platform';
 
 interface SessionMenuProps {
   /**

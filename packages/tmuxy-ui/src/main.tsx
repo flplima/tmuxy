@@ -3,7 +3,7 @@ import App from './App';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { AppProvider } from './machines/AppContext';
 import { applyTheme, loadThemeFromStorage } from './utils/themeManager';
-import { isTauri } from './tmux/adapters';
+import { isTauri } from './utils/platform';
 import './fonts/nerd-font.css';
 import './standalone.css';
 import './components/widgets/init';

@@ -9,7 +9,7 @@
  * print any text.
  */
 
-import { isTauri } from '../tmux/adapters';
+import { isTauri } from './platform';
 
 const OPENABLE = /^(https?:\/\/|mailto:)/i;
 

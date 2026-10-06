@@ -1,16 +1,6 @@
-import {
-  TmuxAdapter,
-  StateListener,
-  ErrorListener,
-  ConnectionInfoListener,
-  ReconnectionListener,
-  KeyBindingsListener,
-  ThemeSettingsListener,
-  LogListener,
-  FatalListener,
-  DetachedListener,
-  ClipboardListener,
-} from './types';
+import type { TmuxAdapter } from './types';
+import { EventHub } from '../infra/eventHub';
+import { TransportEvent } from '../infra/transport/events';
 import {
   ClipboardEvent,
   CommandFailure,
@@ -20,7 +10,6 @@ import {
   LogEvent,
   MessageFrame,
   ThemeSettings,
-  type LogEntryKind,
   type ServerState,
 } from '../domain/wire';
 import { StateStream } from './stateStream';
@@ -31,7 +20,6 @@ import { tracer } from './tracer';
 import { isReadCommand, READ_ONLY_REASON } from './readOnly';
 import { Cancelled } from './effect/AdapterError';
 import { Effect, Fiber, Queue, Schedule, Schema } from 'effect';
-import type { PaneId } from '../domain/ids';
 
 /**
  * Reconnection backoff: retry forever, exponential from 1s, capped at 30s.
@@ -132,16 +120,7 @@ export class HttpAdapter implements TmuxAdapter {
   private sessionOverride: string | null = null;
   private intentionalDisconnect = false;
 
-  private stateListeners = new Set<StateListener>();
-  private errorListeners = new Set<ErrorListener>();
-  private connectionInfoListeners = new Set<ConnectionInfoListener>();
-  private reconnectionListeners = new Set<ReconnectionListener>();
-  private keyBindingsListeners = new Set<KeyBindingsListener>();
-  private themeSettingsListeners = new Set<ThemeSettingsListener>();
-  private logListeners = new Set<LogListener>();
-  private fatalListeners = new Set<FatalListener>();
-  private detachedListeners = new Set<DetachedListener>();
-  private clipboardListeners = new Set<ClipboardListener>();
+  readonly events = new EventHub<TransportEvent>();
   private fatal = false;
   /** Removes the `online` / `visibilitychange` listeners; null while none are installed. */
   private networkHints: (() => void) | null = null;
@@ -337,7 +316,7 @@ export class HttpAdapter implements TmuxAdapter {
 
   /**
    * Open a single EventSource. The returned effect stays suspended for the
-   * LIFETIME of that connection — its handlers fire side effects (notify*,
+   * LIFETIME of that connection — its handlers fire side effects (events,
    * resolve waiters) while connected — and only completes, as a failure, when
    * the connection ends. Retrying it therefore reconnects. Its scoped finalizer
    * closes the stream on interruption (disconnect / session switch).
@@ -384,7 +363,7 @@ export class HttpAdapter implements TmuxAdapter {
         this.connectionId = 0;
         if (!this.intentionalDisconnect && !this.fatal) {
           this.reconnecting = true;
-          this.notifyReconnection(true);
+          this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
         }
         resume(Effect.fail(error));
       };
@@ -410,11 +389,16 @@ export class HttpAdapter implements TmuxAdapter {
         // Clear reconnecting state if was reconnecting
         if (this.reconnecting) {
           this.reconnecting = false;
-          this.notifyReconnection(false);
+          this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
         }
 
         this.readOnly = data.read_only === true;
-        this.notifyConnectionInfo(data.default_shell ?? 'bash', this.readOnly);
+        this.events.emit(
+          TransportEvent.ConnectionInfo({
+            defaultShell: data.default_shell ?? 'bash',
+            readOnly: this.readOnly,
+          }),
+        );
 
         // Action tracing (docs/TELEMETRY.md): the server tells us whether it
         // is recording; only then do we ship our own events, and only through
@@ -439,26 +423,38 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      on('keybindings', KeyBindings, (keybindings) => this.notifyKeyBindings(keybindings));
+      on('keybindings', KeyBindings, (keybindings) =>
+        this.events.emit(TransportEvent.KeyBindings({ keybindings })),
+      );
 
-      on('theme-settings', ThemeSettings, (settings) => this.notifyThemeSettings(settings));
+      on('theme-settings', ThemeSettings, (settings) =>
+        this.events.emit(TransportEvent.ThemeSettings({ settings })),
+      );
 
       // Backend errors for the user (a rejected command, a failed sync). The
       // wire name is `tmux-error`, not `error`: a server event named `error`
       // also fires `es.onerror`, and every reported error would have bounced
       // the connection.
-      on('tmux-error', MessageFrame, (data) => this.notifyError(data.message || 'Unknown error'));
+      on('tmux-error', MessageFrame, (data) =>
+        this.events.emit(TransportEvent.Error({ message: data.message || 'Unknown error' })),
+      );
 
       // OSC 52 clipboard write requests from terminal applications.
       // Mirrored into the system clipboard via navigator.clipboard.writeText.
-      on('clipboard', ClipboardEvent, (data) => this.notifyClipboard(data.pane_id, data.text));
+      on('clipboard', ClipboardEvent, (data) =>
+        this.events.emit(TransportEvent.Clipboard({ paneId: data.pane_id, text: data.text })),
+      );
 
-      on('log', LogEvent, (data) => this.notifyLog(data.kind, data.message));
+      on('log', LogEvent, (data) =>
+        this.events.emit(TransportEvent.Log({ kind: data.kind, message: data.message })),
+      );
 
       // The connection ended with tmux's own reason. Deliberately does NOT set
       // `this.fatal`: that flag stops the retry loop for good, and a detach is
       // something the user steps back from by reconnecting.
-      on('detached', DetachedEvent, (data) => this.notifyDetached(data.reason ?? null));
+      on('detached', DetachedEvent, (data) =>
+        this.events.emit(TransportEvent.Detached({ reason: data.reason ?? null })),
+      );
 
       // Backend gave up reconnecting — terminal state, no more events. Flip the
       // flag the retry `while` predicate checks so the loop stops instead of
@@ -466,7 +462,7 @@ export class HttpAdapter implements TmuxAdapter {
       on('fatal', MessageFrame, (data) => {
         const message = data.message || 'tmux unavailable';
         this.fatal = true;
-        this.notifyFatal(message);
+        this.events.emit(TransportEvent.Fatal({ message }));
         endConnection(new Error(message));
       });
 
@@ -518,7 +514,7 @@ export class HttpAdapter implements TmuxAdapter {
       const message = `The server refused this page${reason ? `: ${reason}` : ''}`;
       // The attempt that asked has already ended; this stops the next one.
       this.fatal = true;
-      this.notifyFatal(message);
+      this.events.emit(TransportEvent.Fatal({ message }));
     } catch {
       // Unreachable, or aborted below: an outage, which the retry loop owns.
     } finally {
@@ -710,56 +706,6 @@ export class HttpAdapter implements TmuxAdapter {
     return data.result as T;
   }
 
-  onStateChange(listener: StateListener): () => void {
-    this.stateListeners.add(listener);
-    return () => this.stateListeners.delete(listener);
-  }
-
-  onError(listener: ErrorListener): () => void {
-    this.errorListeners.add(listener);
-    return () => this.errorListeners.delete(listener);
-  }
-
-  onConnectionInfo(listener: ConnectionInfoListener): () => void {
-    this.connectionInfoListeners.add(listener);
-    return () => this.connectionInfoListeners.delete(listener);
-  }
-
-  onReconnection(listener: ReconnectionListener): () => void {
-    this.reconnectionListeners.add(listener);
-    return () => this.reconnectionListeners.delete(listener);
-  }
-
-  onKeyBindings(listener: KeyBindingsListener): () => void {
-    this.keyBindingsListeners.add(listener);
-    return () => this.keyBindingsListeners.delete(listener);
-  }
-
-  onThemeSettings(listener: ThemeSettingsListener): () => void {
-    this.themeSettingsListeners.add(listener);
-    return () => this.themeSettingsListeners.delete(listener);
-  }
-
-  onLog(listener: LogListener): () => void {
-    this.logListeners.add(listener);
-    return () => this.logListeners.delete(listener);
-  }
-
-  onFatal(listener: FatalListener): () => void {
-    this.fatalListeners.add(listener);
-    return () => this.fatalListeners.delete(listener);
-  }
-
-  onDetached(listener: DetachedListener): () => void {
-    this.detachedListeners.add(listener);
-    return () => this.detachedListeners.delete(listener);
-  }
-
-  onClipboard(listener: ClipboardListener): () => void {
-    this.clipboardListeners.add(listener);
-    return () => this.clipboardListeners.delete(listener);
-  }
-
   async switchSession(newSession: string): Promise<void> {
     this.sessionOverride = newSession;
     this.stream.reset();
@@ -859,7 +805,7 @@ export class HttpAdapter implements TmuxAdapter {
     // round trip and feeds the update-rate / stall metrics (Axis-B).
     latencyTracker.recordUpdate();
     tracer.event({ layer: 'adapter', name: 'apply', seq: this.lastAppliedSeq ?? undefined });
-    this.stateListeners.forEach((listener) => listener(state));
+    this.events.emit(TransportEvent.State({ state, seq: this.lastAppliedSeq }));
   }
 
   /** Mint a per-connection action id (e.g. `a-3-17`) so the trace can correlate
@@ -887,41 +833,5 @@ export class HttpAdapter implements TmuxAdapter {
     } catch {
       // window/fetch unavailable (SSR/test) — drop silently.
     }
-  }
-
-  private notifyError(error: string): void {
-    this.errorListeners.forEach((listener) => listener(error));
-  }
-
-  private notifyConnectionInfo(defaultShell: string, readOnly: boolean): void {
-    this.connectionInfoListeners.forEach((listener) => listener(defaultShell, readOnly));
-  }
-
-  private notifyReconnection(reconnecting: boolean): void {
-    this.reconnectionListeners.forEach((listener) => listener(reconnecting));
-  }
-
-  private notifyKeyBindings(keybindings: KeyBindings): void {
-    this.keyBindingsListeners.forEach((listener) => listener(keybindings));
-  }
-
-  private notifyThemeSettings(settings: ThemeSettings): void {
-    this.themeSettingsListeners.forEach((listener) => listener(settings));
-  }
-
-  private notifyLog(kind: LogEntryKind, message: string): void {
-    this.logListeners.forEach((listener) => listener(kind, message));
-  }
-
-  private notifyFatal(message: string): void {
-    this.fatalListeners.forEach((listener) => listener(message));
-  }
-
-  private notifyDetached(reason: string | null): void {
-    this.detachedListeners.forEach((listener) => listener(reason));
-  }
-
-  private notifyClipboard(paneId: PaneId | null, text: string): void {
-    this.clipboardListeners.forEach((listener) => listener(paneId, text));
   }
 }

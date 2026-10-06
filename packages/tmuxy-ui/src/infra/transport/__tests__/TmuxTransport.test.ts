@@ -1,42 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Effect, Exit } from 'effect';
-import { toEffectAdapter } from '../EffectTmuxAdapter';
-// AdapterError types are imported indirectly via the wrapper; tests
-// inspect serialized cause JSON for _tag matching.
-import type { TmuxAdapter } from '../../types';
+import { Chunk, Effect, Exit, Stream } from 'effect';
+import { TmuxTransport, type TmuxTransportService } from '../TmuxTransport';
+import { TransportEvent } from '../events';
+import type { TmuxAdapter } from '../../../tmux/types';
+import { fakeTransport } from '../../../test/transport';
 
-/**
- * Build a minimal TmuxAdapter stub. Only the methods exercised by each
- * test need to be defined; the others throw if accidentally called.
- */
-function makeStubAdapter(overrides: Partial<TmuxAdapter>): TmuxAdapter {
-  const unimplemented = () => {
-    throw new Error('not implemented in stub');
-  };
-  return {
-    connect: unimplemented,
-    disconnect: unimplemented as () => void,
-    invoke: unimplemented,
-    onStateChange: () => () => {},
-    onError: () => () => {},
-    onConnectionInfo: () => () => {},
-    onReconnection: () => () => {},
-    onKeyBindings: () => () => {},
-    onThemeSettings: () => () => {},
-    onLog: () => () => {},
-    onFatal: () => () => {},
-    onClipboard: () => () => {},
-    ...overrides,
-  };
-}
+const call = <A, E>(f: (t: TmuxTransportService) => Effect.Effect<A, E>) =>
+  Effect.flatMap(TmuxTransport, f);
 
-describe('toEffectAdapter', () => {
+describe('TmuxTransport over a driver', () => {
   it('invoke success returns the resolved value', async () => {
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       invoke: (async () => 42) as TmuxAdapter['invoke'],
     });
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.invoke<number>('get_initial_state'));
+    const exit = await adapter.runtime.runPromiseExit(
+      call((t) => t.invoke<number>('get_initial_state')),
+    );
     expect(Exit.isSuccess(exit)).toBe(true);
     if (Exit.isSuccess(exit)) {
       expect(exit.value).toBe(42);
@@ -44,13 +23,14 @@ describe('toEffectAdapter', () => {
   });
 
   it('invoke promise rejection classifies as TmuxError when the backend says tmux refused it', async () => {
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       invoke: (async () => {
         throw { error: 'no such pane: %999', kind: 'tmux' };
       }) as TmuxAdapter['invoke'],
     });
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.invoke<void>('kill-pane -t %999'));
+    const exit = await adapter.runtime.runPromiseExit(
+      call((t) => t.invoke<void>('kill-pane -t %999')),
+    );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const json = JSON.stringify(exit.cause);
@@ -60,13 +40,12 @@ describe('toEffectAdapter', () => {
   });
 
   it('invoke promise rejection with Error instance classifies as TransportError', async () => {
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       invoke: (async () => {
         throw new Error('socket hang up');
       }) as TmuxAdapter['invoke'],
     });
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.invoke<void>('connect'));
+    const exit = await adapter.runtime.runPromiseExit(call((t) => t.invoke<void>('connect')));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const json = JSON.stringify(exit.cause);
@@ -75,19 +54,16 @@ describe('toEffectAdapter', () => {
   });
 
   it('connect success completes', async () => {
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       connect: vi.fn(async () => {}),
     });
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.connect());
+    const exit = await adapter.runtime.runPromiseExit(call((t) => t.connect));
     expect(Exit.isSuccess(exit)).toBe(true);
   });
 
   it('switchSession falls back to TransportError when adapter lacks the method', async () => {
-    const adapter = makeStubAdapter({});
-    delete (adapter as Partial<TmuxAdapter>).switchSession;
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.switchSession('demo'));
+    const adapter = fakeTransport();
+    const exit = await adapter.runtime.runPromiseExit(call((t) => t.switchSession('demo')));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const json = JSON.stringify(exit.cause);
@@ -98,12 +74,13 @@ describe('toEffectAdapter', () => {
 
   it('decodingInvoke returns decoded value when payload matches the schema', async () => {
     const { Schema } = await import('effect');
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       invoke: (async () => ({ count: 3, label: 'ok' })) as TmuxAdapter['invoke'],
     });
     const schema = Schema.Struct({ count: Schema.Number, label: Schema.String });
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.decodingInvoke('some_cmd', schema));
+    const exit = await adapter.runtime.runPromiseExit(
+      call((t) => t.decodingInvoke('some_cmd', schema)),
+    );
     expect(Exit.isSuccess(exit)).toBe(true);
     if (Exit.isSuccess(exit)) {
       expect(exit.value).toEqual({ count: 3, label: 'ok' });
@@ -112,12 +89,13 @@ describe('toEffectAdapter', () => {
 
   it('decodingInvoke surfaces ProtocolError (not TmuxError) when payload fails to decode', async () => {
     const { Schema } = await import('effect');
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       invoke: (async () => ({ count: 'three' })) as TmuxAdapter['invoke'],
     });
     const schema = Schema.Struct({ count: Schema.Number });
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.decodingInvoke('some_cmd', schema));
+    const exit = await adapter.runtime.runPromiseExit(
+      call((t) => t.decodingInvoke('some_cmd', schema)),
+    );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const json = JSON.stringify(exit.cause);
@@ -129,14 +107,15 @@ describe('toEffectAdapter', () => {
 
   it('decodingInvoke surfaces TmuxError (not ProtocolError) when the underlying invoke rejects', async () => {
     const { Schema } = await import('effect');
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       invoke: (async () => {
         throw { error: 'no such command', kind: 'tmux' };
       }) as TmuxAdapter['invoke'],
     });
     const schema = Schema.Struct({ count: Schema.Number });
-    const eff = toEffectAdapter(adapter);
-    const exit = await Effect.runPromiseExit(eff.decodingInvoke('bogus_cmd', schema));
+    const exit = await adapter.runtime.runPromiseExit(
+      call((t) => t.decodingInvoke('bogus_cmd', schema)),
+    );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const json = JSON.stringify(exit.cause);
@@ -146,15 +125,14 @@ describe('toEffectAdapter', () => {
   });
 
   it('typed errors enable exhaustive pattern matching on _tag', async () => {
-    const adapter = makeStubAdapter({
+    const adapter = fakeTransport({
       invoke: (async () => {
         throw { error: 'pane does not exist', kind: 'tmux' };
       }) as TmuxAdapter['invoke'],
     });
-    const eff = toEffectAdapter(adapter);
 
     // The whole point of typing errors: handle them by tag.
-    const program = eff.invoke<void>('kill-pane').pipe(
+    const program = call((t) => t.invoke<void>('kill-pane')).pipe(
       Effect.catchTags({
         TmuxError: (e) => Effect.succeed(`tmux said: ${e.stderr}`),
         TransportError: () => Effect.succeed('network down'),
@@ -163,7 +141,22 @@ describe('toEffectAdapter', () => {
       }),
     );
 
-    const result = await Effect.runPromise(program);
+    const result = await adapter.run(program);
     expect(result).toBe('tmux said: pane does not exist');
+  });
+
+  it('publishes what the driver pushes, in order, to a subscriber taken before it is pushed', async () => {
+    const transport = fakeTransport();
+    const seen = await transport.run(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const events = yield* (yield* TmuxTransport).subscribe;
+          transport.emit(TransportEvent.ConnectionInfo({ defaultShell: 'zsh', readOnly: false }));
+          transport.emit(TransportEvent.Error({ message: 'boom' }));
+          return yield* Stream.runCollect(Stream.take(events, 2));
+        }),
+      ),
+    );
+    expect(Chunk.toArray(seen).map((e) => e._tag)).toEqual(['ConnectionInfo', 'Error']);
   });
 });

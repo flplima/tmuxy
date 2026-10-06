@@ -2,36 +2,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createTmuxActor } from '../tmuxActor';
 import type { TmuxAdapter } from '../../../tmux/types';
-
-/**
- * Build a minimal TmuxAdapter stub. Tests override individual methods.
- */
-function makeStubAdapter(overrides: Partial<TmuxAdapter>): TmuxAdapter {
-  const noop = () => {};
-  return {
-    connect: () => Promise.resolve(),
-    disconnect: noop,
-    invoke: () => Promise.resolve(undefined as never),
-    onStateChange: () => noop,
-    onError: () => noop,
-    onConnectionInfo: () => noop,
-    onReconnection: () => noop,
-    onKeyBindings: () => noop,
-    onThemeSettings: () => noop,
-    onLog: () => noop,
-    onFatal: () => noop,
-    onClipboard: () => noop,
-    ...overrides,
-  };
-}
+import type { AppRuntime } from '../../../infra/runtime';
+import { fakeTransport } from '../../../test/transport';
 
 /**
  * Spawn a tmuxActor as a child of a tiny parent machine and return both.
  * Captures every event the actor sends to the parent in `events`.
  */
-function spawnTmuxActor(adapter: TmuxAdapter) {
+function spawnTmuxActor(runtime: AppRuntime) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
-  const tmuxActor = createTmuxActor(adapter);
+  const tmuxActor = createTmuxActor(runtime);
   const parent = createMachine({
     types: {} as { events: { type: string; [k: string]: unknown } },
     invoke: {
@@ -80,8 +60,8 @@ describe('tmuxActor — cancellable scrollback', () => {
       }
       return undefined;
     });
-    const adapter = makeStubAdapter({ invoke: invoke as TmuxAdapter['invoke'] });
-    const { actor, events } = spawnTmuxActor(adapter);
+    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { actor, events } = spawnTmuxActor(runtime);
     actor
       .getSnapshot()
       .children.tmux!.send({ type: 'FETCH_SCROLLBACK_CELLS', paneId: '%1', start: 0, end: 10 });
@@ -120,8 +100,8 @@ describe('tmuxActor — cancellable scrollback', () => {
       };
     });
 
-    const adapter = makeStubAdapter({ invoke: invoke as TmuxAdapter['invoke'] });
-    const { actor, events } = spawnTmuxActor(adapter);
+    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { actor, events } = spawnTmuxActor(runtime);
 
     actor.getSnapshot().children.tmux!.send({
       type: 'FETCH_SCROLLBACK_CELLS',
@@ -174,8 +154,8 @@ describe('tmuxActor — cancellable scrollback', () => {
         width: 80,
       };
     });
-    const adapter = makeStubAdapter({ invoke: invoke as TmuxAdapter['invoke'] });
-    const { actor, events } = spawnTmuxActor(adapter);
+    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { actor, events } = spawnTmuxActor(runtime);
 
     actor
       .getSnapshot()
@@ -198,8 +178,8 @@ describe('tmuxActor — cancellable scrollback', () => {
       }
       return undefined;
     });
-    const adapter = makeStubAdapter({ invoke: invoke as TmuxAdapter['invoke'] });
-    const { actor, events } = spawnTmuxActor(adapter);
+    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { actor, events } = spawnTmuxActor(runtime);
     actor
       .getSnapshot()
       .children.tmux!.send({ type: 'FETCH_SCROLLBACK_CELLS', paneId: '%1', start: 0, end: 10 });

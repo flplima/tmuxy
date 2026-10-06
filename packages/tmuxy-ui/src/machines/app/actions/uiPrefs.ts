@@ -25,7 +25,7 @@ import {
   decreaseFontSize,
   DEFAULT_FONT_SIZE,
 } from '../../../utils/fontSizeManager';
-import { isTauri } from '../../../tmux/adapters';
+import { isTauri } from '../../../utils/platform';
 import { applyAppearance } from '../../../utils/appearanceManager';
 
 type Ctx = AppMachineContext;

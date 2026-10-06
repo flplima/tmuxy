@@ -135,7 +135,7 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
       expect(document.querySelector('.floating-menu')).toBeNull();
     });
 
-    // What `isTauri()` reads (tmux/adapters.ts). The harness builds its own
+    // What `isTauri()` reads (utils/platform.ts). The harness builds its own
     // demo adapter, so flipping this after mount changes only what the menu
     // decides to draw.
     const tauriWindow = window as unknown as Record<string, unknown>;

@@ -41,7 +41,7 @@ import {
   selectCursorBlink,
 } from '../../machines/AppContext';
 import type { TraceLevel } from '../../machines/types';
-import { isTauri } from '../../tmux/adapters';
+import { isTauri } from '../../utils/platform';
 import { restartApp } from '../../utils/restartApp';
 import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
 import { activeCloseTarget, executeMenuAction, MENU_OPS } from './menuActions';

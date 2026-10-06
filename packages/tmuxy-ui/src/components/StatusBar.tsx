@@ -25,7 +25,7 @@ import {
 } from '../machines/AppContext';
 import { getTabText } from './paneTabDisplay';
 import { CONTAINER_PADDING_X } from '../constants';
-import { isTauri } from '../tmux/adapters';
+import { isTauri } from '../utils/platform';
 import {
   isMacTauri,
   reportTitlebarHeight,

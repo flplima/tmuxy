@@ -25,7 +25,7 @@ import {
 } from '../machines/AppContext';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { SessionMenu } from './SessionMenu';
-import { isTauri } from '../tmux/adapters';
+import { isTauri } from '../utils/platform';
 import type { KeyBindings } from '../machines/types';
 
 const PREFIX_HINTS = [

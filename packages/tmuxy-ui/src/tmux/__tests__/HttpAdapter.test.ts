@@ -15,7 +15,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Cause, Effect, Exit, Option, Schedule } from 'effect';
-import { toEffectAdapter } from '../effect';
+import { makeTransport } from '../../infra/transport/TmuxTransport';
 import { HttpAdapter } from '../HttpAdapter';
 import type { ServerState } from '../../domain/wire';
 
@@ -230,7 +230,9 @@ describe('HttpAdapter connect() lifecycle', () => {
     // EventSource.onerror, and every reported error would bounce the connection.
     const adapter = new HttpAdapter();
     const seen: string[] = [];
-    adapter.onError((message) => seen.push(message));
+    adapter.events.subscribe((e) => {
+      if (e._tag === 'Error') seen.push(e.message);
+    });
     const p = adapter.connect();
     const es = await stream(0);
     es.emit('connection-info', { data: { connection_id: 1 } });
@@ -305,7 +307,9 @@ describe('HttpAdapter connect() lifecycle', () => {
       }),
     );
     const exit = await Effect.runPromiseExit(
-      toEffectAdapter(adapter).query('display -p -t %9 "#{pane_id}"'),
+      Effect.scoped(
+        Effect.flatMap(makeTransport(adapter), (t) => t.query('display -p -t %9 "#{pane_id}"')),
+      ),
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
@@ -403,7 +407,9 @@ describe('HttpAdapter connect() lifecycle', () => {
     );
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
     const fatals: string[] = [];
-    adapter.onFatal((message) => fatals.push(message));
+    adapter.events.subscribe((e) => {
+      if (e._tag === 'Fatal') fatals.push(e.message);
+    });
     adapter.connect().catch(() => {});
 
     (await stream(0)).onerror?.(new Event('error'));
@@ -428,7 +434,9 @@ describe('HttpAdapter connect() lifecycle', () => {
     );
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
     const fatals: string[] = [];
-    adapter.onFatal((message) => fatals.push(message));
+    adapter.events.subscribe((e) => {
+      if (e._tag === 'Fatal') fatals.push(e.message);
+    });
     const connecting = adapter.connect();
 
     (await stream(0)).onerror?.(new Event('error'));
@@ -442,7 +450,9 @@ describe('HttpAdapter connect() lifecycle', () => {
   it('a read-only server is sent reads only, and never a viewport', async () => {
     const adapter = new HttpAdapter();
     const infos: Array<boolean | undefined> = [];
-    adapter.onConnectionInfo((_shell, readOnly) => infos.push(readOnly));
+    adapter.events.subscribe((e) => {
+      if (e._tag === 'ConnectionInfo') infos.push(e.readOnly);
+    });
     const c = adapter.connect();
     (await stream(0)).emit('connection-info', { data: { connection_id: 1, read_only: true } });
     await c;
@@ -648,8 +658,8 @@ describe('HttpAdapter initial state against the live stream', () => {
   /** The adapter's most recent state notification. */
   const lastState = (adapter: HttpAdapter) => {
     const seen: { state: ServerState | null } = { state: null };
-    adapter.onStateChange((s) => {
-      seen.state = s;
+    adapter.events.subscribe((e) => {
+      if (e._tag === 'State') seen.state = e.state;
     });
     return seen;
   };

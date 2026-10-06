@@ -18,17 +18,9 @@
  * Assets are served (Storybook staticDirs / demo public): /v86, /v86-img (kernel,
  * BIOS, tmux-state.bin snapshot), /wasm (tmuxy_wasm). Browser-only.
  */
-import type {
-  TmuxAdapter,
-  StateListener,
-  ErrorListener,
-  ConnectionInfoListener,
-  ReconnectionListener,
-  KeyBindingsListener,
-  LogListener,
-  FatalListener,
-  ClipboardListener,
-} from '../types';
+import type { TmuxAdapter } from '../types';
+import { EventHub } from '../../infra/eventHub';
+import { TransportEvent } from '../../infra/transport/events';
 import { isPaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings } from '../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
@@ -172,13 +164,7 @@ export class V86TmuxAdapter implements TmuxAdapter {
   /** The sink this adapter installed on the engine (null when detached). */
   private sink: EngineSink | null = null;
 
-  private stateListeners = new Set<StateListener>();
-  private connectionInfoListeners = new Set<ConnectionInfoListener>();
-  private keyBindingsListeners = new Set<KeyBindingsListener>();
-  private errorListeners = new Set<ErrorListener>();
-  private clipboardListeners = new Set<ClipboardListener>();
-  private reconnectionListeners = new Set<ReconnectionListener>();
-  private fatalListeners = new Set<FatalListener>();
+  readonly events = new EventHub<TransportEvent>();
 
   constructor(options?: V86TmuxAdapterOptions) {
     this.initCommands = options?.initCommands ?? [];
@@ -192,8 +178,8 @@ export class V86TmuxAdapter implements TmuxAdapter {
     // by the reconnect branch — which skips the initial theme + keybindings fetch
     // that only the `connecting` branch performs. The app already shows connecting
     // feedback via its own `connecting` state until connect() resolves.
-    this.connectionInfoListeners.forEach((l) => l('bash'));
-    this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
+    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', readOnly: false }));
+    this.events.emit(TransportEvent.KeyBindings({ keybindings: DEFAULT_KEYBINDINGS }));
 
     // reset() serializes on the engine's lifecycle queue: it restores the
     // pinned snapshot when the engine is already booted, cold-boots otherwise,
@@ -212,13 +198,13 @@ export class V86TmuxAdapter implements TmuxAdapter {
         // A sandbox engine emits a full state every time, so one that fails
         // its decode is simply dropped; the next one replaces it.
         const state = decodeStateForListener(raw);
-        if (state) this.stateListeners.forEach((l) => l(state));
+        if (state) this.events.emit(TransportEvent.State({ state, seq: null }));
       },
       onClipboard: (paneId, text) => {
         const source = isPaneId(paneId) ? paneId : null;
-        this.clipboardListeners.forEach((l) => l(source, text));
+        this.events.emit(TransportEvent.Clipboard({ paneId: source, text }));
       },
-      onFatal: (message) => this.fatalListeners.forEach((l) => l(message)),
+      onFatal: (message) => this.events.emit(TransportEvent.Fatal({ message })),
     };
     this.engine.setSink(this.sink);
   }
@@ -312,43 +298,6 @@ export class V86TmuxAdapter implements TmuxAdapter {
         // ping / theme / keybindings-snapshot / … — no-op for the v86 adapter.
         return null as T;
     }
-  }
-
-  onStateChange(listener: StateListener): () => void {
-    this.stateListeners.add(listener);
-    return () => this.stateListeners.delete(listener);
-  }
-  onConnectionInfo(listener: ConnectionInfoListener): () => void {
-    this.connectionInfoListeners.add(listener);
-    return () => this.connectionInfoListeners.delete(listener);
-  }
-  onKeyBindings(listener: KeyBindingsListener): () => void {
-    this.keyBindingsListeners.add(listener);
-    return () => this.keyBindingsListeners.delete(listener);
-  }
-
-  /** Nothing sources a config behind the browser's back here, so no pushes. */
-  onThemeSettings(): () => void {
-    return () => {};
-  }
-  onError(listener: ErrorListener): () => void {
-    this.errorListeners.add(listener);
-    return () => this.errorListeners.delete(listener);
-  }
-  onReconnection(listener: ReconnectionListener): () => void {
-    this.reconnectionListeners.add(listener);
-    return () => this.reconnectionListeners.delete(listener);
-  }
-  onLog(_listener: LogListener): () => void {
-    return () => {};
-  }
-  onFatal(listener: FatalListener): () => void {
-    this.fatalListeners.add(listener);
-    return () => this.fatalListeners.delete(listener);
-  }
-  onClipboard(listener: ClipboardListener): () => void {
-    this.clipboardListeners.add(listener);
-    return () => this.clipboardListeners.delete(listener);
   }
 
   async switchSession(sessionName: string): Promise<void> {

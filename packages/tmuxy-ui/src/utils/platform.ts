@@ -18,3 +18,8 @@ export function tauriSchemeUrl(scheme: string, path: string): string {
     : `${scheme}://localhost`;
   return `${base}${path}`;
 }
+
+/** Running inside the desktop app's WebView (Tauri injects its internals). */
+export function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
