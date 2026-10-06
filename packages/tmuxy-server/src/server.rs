@@ -165,7 +165,6 @@ fn resolve_listen(
     })
 }
 
-/// `--allowed-host` values plus the comma-separated `TMUXY_ALLOWED_HOSTS`.
 /// The session a server is pinned to, if any.
 ///
 /// Only a `--read-only` server is pinned: it is the one whose client cannot
@@ -192,6 +191,7 @@ fn resolve_session_pin(flag: Option<String>, read_only: bool) -> Result<Option<S
     Ok(Some(name))
 }
 
+/// `--allowed-host` values plus the comma-separated `TMUXY_ALLOWED_HOSTS`.
 fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
     let env = std::env::var("TMUXY_ALLOWED_HOSTS").unwrap_or_default();
     flag.into_iter()

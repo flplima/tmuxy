@@ -42,18 +42,6 @@ impl Default for KeyBindingsState {
     }
 }
 
-/// Live handle to the running control-mode monitor.
-///
-/// `cmd_tx` is the channel for issuing tmux mutations through the existing
-/// CC connection. Spawning external `tmux <cmd>` while CC is attached crashes
-/// tmux 3.5a — see AGENTS.md and `docs/TMUX.md`. The SSE server avoids this
-/// by routing every mutation through `MonitorCommand::RunCommand`; the Tauri
-/// app now does the same.
-///
-/// `last_client_size` is the most recent viewport size the frontend reported.
-/// `run_tmux_command` uses it when rewriting `new-window` so the broken-out
-/// window matches the visible viewport instead of inheriting the half-width
-/// post-`splitw` size or the 200x50 control-mode PTY default.
 /// Decoded image bytes keyed by `(pane id, placement id)`.
 pub type ImageStore = Arc<RwLock<tmuxy_core::transport::ImageStore>>;
 
@@ -73,6 +61,18 @@ pub fn lookup_image(
     images.read().ok()?.get(&format!("%{pane}"), id).cloned()
 }
 
+/// Live handle to the running control-mode monitor.
+///
+/// `cmd_tx` is the channel every tmux command and read goes through, on the
+/// existing CC connection. Spawning external `tmux <cmd>` while CC is
+/// attached can crash tmux 3.5a — see AGENTS.md and `docs/TMUX.md` — so the
+/// desktop, like the web server, has no other way to reach tmux once
+/// connected.
+///
+/// `last_client_size` is the most recent viewport size the frontend reported.
+/// `run_tmux_command` uses it when rewriting `new-window` so the broken-out
+/// window matches the visible viewport instead of inheriting the half-width
+/// post-`splitw` size or the 200x50 control-mode PTY default.
 #[derive(Clone, Default)]
 pub struct MonitorState {
     pub cmd_tx: Arc<RwLock<Option<MonitorCommandSender>>>,
@@ -268,11 +268,6 @@ impl StateEmitter for TauriEmitter {
         }
     }
 
-    /// Forward an OSC 52 clipboard request to the frontend so it can write the
-    /// payload via the WebView's navigator.clipboard. We could also use the
-    /// tauri-plugin-clipboard-manager directly here, but doing it in the WebView
-    /// keeps focus/transient activation context attached to the renderer, which
-    /// is what some platforms require for clipboard access.
     fn store_images(
         &self,
         pane_id: &str,
@@ -285,6 +280,11 @@ impl StateEmitter for TauriEmitter {
         }
     }
 
+    /// Forward an OSC 52 clipboard request to the frontend so it can write the
+    /// payload via the WebView's navigator.clipboard. We could also use the
+    /// tauri-plugin-clipboard-manager directly here, but doing it in the WebView
+    /// keeps focus/transient activation context attached to the renderer, which
+    /// is what some platforms require for clipboard access.
     fn write_clipboard(&self, pane_id: &str, text: String) {
         if !tmuxy_core::transport::clipboard_write_allowed(&text) {
             tracing::debug!(%pane_id, bytes = text.len(), "clipboard write over the cap, dropped");
@@ -523,9 +523,9 @@ pub async fn start_monitoring_window(
                 if let Some(task) = autosave {
                     task.abort();
                 }
-                // Connection is gone — drop the stale sender so the next
-                // mutation falls back to the external path instead of
-                // sending into a dead channel.
+                // Connection is gone — drop the stale sender so a command
+                // is answered "monitor not connected" instead of being sent
+                // into a dead channel.
                 if let Ok(mut guard) = monitor_state.cmd_tx.write() {
                     *guard = None;
                 }

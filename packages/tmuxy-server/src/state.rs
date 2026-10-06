@@ -248,7 +248,7 @@ pub struct AppState {
     /// Execution context threaded into every `TmuxMonitor` this server starts.
     pub ctx: Arc<Ctx>,
     /// `--read-only`: every client of this server is a viewer. Only the
-    /// commands `ClientCommand::is_read` names are served, and no client's
+    /// commands `sse::serve_viewer` names are served, and no client's
     /// viewport is ever recorded, so a viewer cannot resize the session.
     pub read_only: bool,
     /// The one session this server is allowed to show, if it is pinned.

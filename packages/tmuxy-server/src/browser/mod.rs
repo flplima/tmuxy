@@ -1,4 +1,4 @@
-//! The server-side browser engine behind `tmuxy browser`.
+//! The browser engine behind `tmuxy browser`, driven by a program in a pane.
 //!
 //! The browser widget frames pages in the VIEWER's browser (see
 //! `tmuxy-ui/src/components/widgets/browser/`). That is the right thing for a
@@ -15,10 +15,10 @@
 //! So the two coexist rather than compete, and the widget stays the default.
 //!
 //! The engine is the user's own Chromium-family browser, driven over the
-//! DevTools Protocol (`discover`). tmuxy ships none: see that module for why,
-//! and `docs/SECURITY.md` ("A Server-Side Browser Changes Whose Network This
-//! Is") for what changes once a page is fetched by the server instead of by
-//! the viewer.
+//! DevTools Protocol (`discover`) and launched as whoever typed the command.
+//! tmuxy ships none: see that module for why, and `docs/SECURITY.md` ("A Real
+//! Browser Driven From a Pane Changes Whose Network This Is") for what changes
+//! once a page is fetched from the pane's machine instead of by the viewer.
 
 use std::path::PathBuf;
 

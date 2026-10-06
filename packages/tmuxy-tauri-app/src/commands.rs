@@ -143,18 +143,7 @@ pub async fn query_tmux(window: tauri::WebviewWindow, command: String) -> Result
 /// Run a command through the monitor and wait for what it printed. An
 /// `%error` from tmux is the Err, carrying tmux's message.
 async fn query_via_monitor(state: &MonitorState, command: &str) -> Result<String, String> {
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    send_via_monitor(
-        state,
-        MonitorCommand::RunCommandWithReply {
-            command: command.to_string(),
-            reply,
-        },
-    )
-    .await?;
-    rx.await
-        .map_err(|_| "monitor went away before answering".to_string())?
-        .into_result()
+    tmuxy_core::transport::query(&state.connected_tx()?, command).await
 }
 
 /// The shared policy (`tmuxy_core::command_router`): `None` for a blocked
@@ -178,13 +167,14 @@ fn route(state: &MonitorState, session: &str, command: &str) -> Result<Option<St
     }
 }
 
-/// Write to the monitor's command channel. Every tmux command the app runs
-/// after connecting goes through here — there is no subprocess path: an
-/// external `tmux` while the control-mode client is attached can crash tmux
-/// 3.5a, and a client-less command has no current session to act on, which
-/// is how a pinned split used to land on the wrong tab. Before the monitor
-/// connects there is nothing to write to; the frontend only sends once
-/// connected, so reaching this without a channel is a bug worth surfacing.
+/// Write to the monitor's command channel. Once connected, the desktop
+/// reaches tmux only over this channel — here, and through
+/// `tmuxy_core::transport` for its reads: an external `tmux` while the
+/// control-mode client is attached can crash tmux 3.5a, and a client-less
+/// command has no current session to act on, which is how a pinned split used
+/// to land on the wrong tab. Before the monitor connects there is nothing to
+/// write to; the frontend only sends once connected, so reaching this without
+/// a channel is a bug worth surfacing.
 async fn send_via_monitor(state: &MonitorState, cmd: MonitorCommand) -> Result<(), String> {
     state
         .connected_tx()?

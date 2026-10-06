@@ -112,10 +112,6 @@ pub(crate) fn apply_blur(window: &tauri::WebviewWindow, blur: bool) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn apply_blur(_window: &tauri::WebviewWindow, _blur: bool) {}
 
-/// Build the native macOS application menu bar.
-///
-/// Mirrors the web hamburger menu (Pane, Tab, Session, View, Help) plus
-/// standard macOS menus (tmuxy app menu, Edit, Window).
 /// Handles for the Debug menu's trace controls, kept so a click can re-render
 /// the whole group: the switch enables/disables everything below it, and
 /// picking a level has to uncheck its siblings (a native menu has no radio
@@ -146,6 +142,10 @@ fn sync_trace_menu(app: &tauri::AppHandle) {
     }
 }
 
+/// Build the native macOS application menu bar.
+///
+/// Mirrors the web hamburger menu (Pane, Tab, Session, View, Help) plus
+/// standard macOS menus (tmuxy app menu, Edit, Window).
 fn build_app_menu<M: Manager<tauri::Wry>>(
     app: &M,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
@@ -1379,9 +1379,7 @@ pub fn run() {
             // Core commands
             commands::get_initial_state,
             commands::set_client_size,
-            // Pane/window operations exercised by the Tauri webdriver test
-            // (the production UI drives these through run_tmux_command).
-            // General
+            // Every tmux command and read the frontend makes
             commands::run_tmux_command,
             commands::query_tmux,
             commands::get_keybindings_snapshot,
