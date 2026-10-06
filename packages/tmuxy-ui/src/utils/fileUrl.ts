@@ -15,6 +15,7 @@
  */
 
 import { isTauri } from '../tmux/adapters';
+import { tauriSchemeUrl } from './platform';
 
 /** Percent-encode a path for use as URL path segments, keeping the separators. */
 function encodePath(path: string): string {
@@ -33,14 +34,7 @@ export function fileUrl(absPath: string): string {
       const resolved = override(absPath);
       if (resolved) return resolved;
     }
-    if (isTauri()) {
-      // Windows serves custom schemes over http://<scheme>.localhost; the
-      // platforms tmuxy ships a desktop build for use the scheme directly.
-      const base = navigator.userAgent.includes('Windows')
-        ? 'http://tmuxyfile.localhost'
-        : 'tmuxyfile://localhost';
-      return `${base}${encodePath(absPath)}`;
-    }
+    if (isTauri()) return tauriSchemeUrl('tmuxyfile', encodePath(absPath));
   }
   return `/api/browse${encodePath(absPath)}`;
 }

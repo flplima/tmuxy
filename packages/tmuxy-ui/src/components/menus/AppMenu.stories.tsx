@@ -45,7 +45,7 @@ export const TabSubmenuKeybindings: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
     await userEvent.click(menu.getByRole('menuitem', { name: 'Tab' }));
 
-    // Keybinding labels come from the adapter's get_key_bindings snapshot
+    // Keybinding labels come from the bindings the adapter pushes on connect
     // (prefix C-a, `c` = new-window), not from hardcoded strings.
     const newTab = await waitFor(() => menu.getByRole('menuitem', { name: /new tab/i }));
     const keyLabel = newTab.querySelector('.menu-keybinding');

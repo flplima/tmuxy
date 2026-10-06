@@ -3,21 +3,23 @@
  * itself — the pane menu in particular, which hangs off the header and has
  * only a pane id to go on.
  *
- * Detection is the same marker scan `Pane` does to decide what to render, so
- * the menu and the pane can never disagree about what a pane is showing.
+ * Detection is the same `detectWidget` scan `usePaneWidgetInfo` runs for the
+ * pane body, so the menu and the pane agree about what a pane is showing. It
+ * skips that hook's latch over transiently empty content: a menu reads the
+ * pane once, while it is open.
  */
 
 import { useAppActor, usePane } from '../../machines/AppContext';
 import { detectWidget, getWidget, type WidgetDefinition, type WidgetMenuItem } from './index';
 
-export interface PaneWidget {
+interface PaneWidget {
   name: string;
   definition: WidgetDefinition;
   /** The widget's content lines, below the marker. */
   lines: string[];
 }
 
-export function usePaneWidget(paneId: string | null | undefined): PaneWidget | null {
+function usePaneWidget(paneId: string | null | undefined): PaneWidget | null {
   const pane = usePane(paneId ?? '');
   if (!pane) return null;
   const info = detectWidget(pane.content, pane.paneWidget);

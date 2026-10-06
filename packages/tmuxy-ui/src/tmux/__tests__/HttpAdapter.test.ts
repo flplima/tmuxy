@@ -411,7 +411,7 @@ describe('HttpAdapter connect() lifecycle', () => {
   it('a read-only server is sent reads only, and never a viewport', async () => {
     const adapter = new HttpAdapter();
     const infos: Array<boolean | undefined> = [];
-    adapter.onConnectionInfo((_id, _shell, readOnly) => infos.push(readOnly));
+    adapter.onConnectionInfo((_shell, readOnly) => infos.push(readOnly));
     const c = adapter.connect();
     (await stream(0)).emit('connection-info', { data: { connection_id: 1, read_only: true } });
     await c;

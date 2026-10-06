@@ -1,108 +1,35 @@
 /**
  * tmuxy/state-field-ownership
  *
- * Enforces the parallel-state ownership invariant: a file under
+ * Enforces the state-slice ownership invariant: a file under
  * `src/machines/app/states/<name>.ts` or `src/machines/app/actions/<name>.ts`
  * may only `assign(...)` fields whose FIELD_OWNERS entry is `<name>`.
  *
- * The mapping MUST mirror src/machines/app/context.ts FIELD_OWNERS.
- * The `satisfies` clause there catches missing keys on the TS side;
- * this constant catches the same on the lint side. When you add or move
- * a field, update both.
+ * The map is read from src/machines/app/context.ts, its one source of truth
+ * (whose `satisfies` clause keeps it covering every context field).
  */
 
-const FIELD_OWNERS = {
-  // ---- parent ----
-  connected: 'parent',
-  error: 'parent',
-  fatalError: 'parent',
-  log: 'parent',
-  sessionName: 'parent',
-  connectionId: 'parent',
-  defaultShell: 'parent',
-  readOnly: 'parent',
-  keybindings: 'parent',
-  appFocused: 'parent',
-  totalWidth: 'parent',
-  totalHeight: 'parent',
-  targetCols: 'parent',
-  targetRows: 'parent',
-  charWidth: 'parent',
-  charHeight: 'parent',
-  containerWidth: 'parent',
-  containerHeight: 'parent',
-  bodyWidth: 'parent',
-  lastUpdateTime: 'parent',
+import { readFileSync } from 'node:fs';
 
-  // ---- layout ----
-  panes: 'layout',
-  windows: 'layout',
-  activeWindowId: 'layout',
-  activePaneId: 'layout',
-  paneActivationOrder: 'layout',
-  lastActivePaneByWindow: 'layout',
-  paneKeyOverrides: 'layout',
-  pendingSelectTabAt: 'layout',
-  pendingUpdate: 'layout',
-  lastLayoutCommandTime: 'layout',
-  drag: 'layout',
-  resize: 'layout',
-  resizeActive: 'layout',
-  suppressLayoutTransition: 'layout',
-  lastUpdateAnimated: 'layout',
+const CONTEXT_PATH = new URL('../src/machines/app/context.ts', import.meta.url);
 
-  // ---- ask ----
-  askSelections: 'ask',
+function loadFieldOwners() {
+  const source = readFileSync(CONTEXT_PATH, 'utf8');
+  const block = source.match(/export const FIELD_OWNERS = \{([\s\S]*?)\} as const satisfies/);
+  if (!block) {
+    throw new Error(`tmuxy/state-field-ownership: no FIELD_OWNERS block in ${CONTEXT_PATH}`);
+  }
+  const owners = {};
+  for (const [, field, owner] of block[1].matchAll(/^\s*(\w+): '(\w+)',$/gm)) {
+    owners[field] = owner;
+  }
+  if (Object.keys(owners).length === 0) {
+    throw new Error(`tmuxy/state-field-ownership: FIELD_OWNERS in ${CONTEXT_PATH} parsed empty`);
+  }
+  return owners;
+}
 
-  // ---- copyMode ----
-  copyModeStates: 'copyMode',
-
-  // ---- browser ----
-  browserStates: 'browser',
-
-  // ---- groupsAndFloats ----
-  paneGroups: 'groupsAndFloats',
-  floatPanes: 'groupsAndFloats',
-  focusedFloatPaneId: 'groupsAndFloats',
-  groupSwitchDimOverrides: 'groupsAndFloats',
-  leftSidebarOpen: 'groupsAndFloats',
-  leftSidebarFocused: 'groupsAndFloats',
-  rightSidebarOpen: 'groupsAndFloats',
-  rightSidebarFocused: 'groupsAndFloats',
-  leftSidebarStartFailed: 'groupsAndFloats',
-  rightSidebarStartFailed: 'groupsAndFloats',
-  leftSidebarStarting: 'groupsAndFloats',
-  rightSidebarStarting: 'groupsAndFloats',
-  sidebarColsPreview: 'groupsAndFloats',
-  dockRowsSent: 'groupsAndFloats',
-  sidebarMotion: 'groupsAndFloats',
-  leftSidebarClosing: 'groupsAndFloats',
-  rightSidebarClosing: 'groupsAndFloats',
-  collapsedTabIds: 'groupsAndFloats',
-  tabOverviewOpen: 'tabOverview',
-  tabOverviewSelected: 'tabOverview',
-
-  // ---- commandUi ----
-  commandMode: 'commandUi',
-  statusMessage: 'commandUi',
-  prefixActive: 'commandUi',
-
-  // ---- notifications ----
-  notifications: 'notifications',
-
-  // ---- uiPrefs ----
-  themeName: 'uiPrefs',
-  themeMode: 'uiPrefs',
-  availableThemes: 'uiPrefs',
-  traceSettings: 'uiPrefs',
-  baseFontSize: 'uiPrefs',
-  enableAnimations: 'uiPrefs',
-  animationsAllowed: 'uiPrefs',
-  cursorBlink: 'uiPrefs',
-  tabOverviewCols: 'uiPrefs',
-  gestureFlags: 'uiPrefs',
-  gesture: 'gestures',
-};
+const FIELD_OWNERS = loadFieldOwners();
 
 const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\.ts$/;
 
@@ -164,16 +91,16 @@ export default {
     type: 'problem',
     docs: {
       description:
-        'Enforce parallel-state field ownership: state files may only assign to fields they own.',
+        'Enforce state-slice field ownership: state files may only assign to fields they own.',
     },
     schema: [],
     messages: {
       foreignField:
-        'Field "{{field}}" is owned by parallel state "{{owner}}", but this file owns "{{current}}". Move this assign to states/{{owner}}.ts (or actions/{{owner}}.ts) or send an event to that state.',
+        'Field "{{field}}" is owned by state slice "{{owner}}", but this file owns "{{current}}". Move this assign to states/{{owner}}.ts (or actions/{{owner}}.ts) or send an event to that state.',
       parentField:
         'Field "{{field}}" is parent-owned (lifecycle/connection/dimensions). State files cannot mutate parent fields directly; emit an event the parent listens to instead.',
       unknownField:
-        'Field "{{field}}" is not in FIELD_OWNERS. Either it is a typo or the registry in eslint-rules/state-field-ownership.mjs (and context.ts) is out of date.',
+        'Field "{{field}}" is not in FIELD_OWNERS. Either it is a typo or the registry in src/machines/app/context.ts is out of date.',
     },
   },
   create(context) {
@@ -188,11 +115,9 @@ export default {
         if (node.arguments.length === 0) return;
         const keys = findAssignPayloadKeys(node.arguments[0]);
 
-        // Escape hatch: comment `cross-cutting:` somewhere on the line of
-        // the `assign(...)` call lets a handler legitimately write fields
-        // owned by another state. Required for genuinely-cross-cutting
-        // handlers (e.g. FOCUS_PANE clearing focusedFloatPaneId, optimistic
-        // group swaps writing both panes and groupSwitchDimOverrides).
+        // Escape hatch: a `cross-cutting:` comment before or inside the
+        // `assign(...)` call lets a handler legitimately write a field owned
+        // by another slice.
         const sourceCode = context.sourceCode ?? context.getSourceCode?.();
         const comments = sourceCode?.getCommentsInside?.(node) ?? [];
         const beforeComments = sourceCode?.getCommentsBefore?.(node) ?? [];

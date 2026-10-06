@@ -4,15 +4,15 @@
  * Shared constants used across state machines.
  */
 
+import { CHAR_HEIGHT } from '../constants';
+
 /** Default character width for grid calculations (px) */
 export const DEFAULT_CHAR_WIDTH = 9.6;
 
-/** Default character height for grid calculations (px). Must match
- * CHAR_HEIGHT in `constants/layout.ts` and `--line-height-terminal` in
- * `styles.css`, or PaneLayout's pixel math diverges from the rendered
- * row height (the layout calculates with this value while the CSS
- * renders rows at the stylesheet's height). */
-export const DEFAULT_CHAR_HEIGHT = 24;
+/** Default character height for grid calculations (px). CHAR_HEIGHT must
+ * match `--line-height-terminal` in `styles.css`, or PaneLayout's pixel math
+ * diverges from the rendered row height. */
+export const DEFAULT_CHAR_HEIGHT = CHAR_HEIGHT;
 
 /** Default terminal columns */
 export const DEFAULT_COLS = 80;

@@ -310,7 +310,6 @@ export interface BrowserPaneState {
   pageTitle?: { url: string; title: string };
 }
 
-/** Pending state update stored during pane exit animation */
 export interface AppMachineContext {
   connected: boolean;
   error: string | null;
@@ -320,13 +319,6 @@ export interface AppMachineContext {
    * will arrive on this monitor.
    */
   fatalError: string | null;
-  /**
-   * Adapter's current reconnect attempt count. 0 = channel is live or has
-   * never dropped. >0 = SSE/Tauri channel dropped and the adapter is
-   * retrying. Surfaced in the UI as a banner while in the `reconnecting`
-   * state and cleared on TMUX_RECONNECTED.
-   */
-  reconnectAttempt: number;
   /** Recent commands sent and errors received (debug log shown on status screen) */
   log: LogEntry[];
   sessionName: string;
@@ -435,16 +427,16 @@ export interface AppMachineContext {
    */
   bodyWidth: number;
   /**
-   * The Tab Overview (ctrl+0): every tab as a slot over the pane area, the
-   * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
-   * cursor over the slots in strip order, the last index being the "+" slot.
-   */
-  /**
    * Tabs the user has collapsed in the sidebar tree, by window id. Tabs are
    * expanded by default, so this holds only the exceptions — a tab that goes
    * away takes its entry with it.
    */
   collapsedTabIds: string[];
+  /**
+   * The Tab Overview (ctrl+0): every tab as a slot over the pane area, the
+   * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
+   * cursor over the slots in strip order, the last index being the "+" slot.
+   */
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
   /** Whether browser-side animations are enabled */
@@ -677,26 +669,15 @@ export type TmuxModelUpdateEvent = {
   type: 'TMUX_MODEL_UPDATE';
   model: import('../tmux/store').TmuxClientModel;
 };
-/**
- * `tagged` is the structured AdapterError from the Effect-based adapter
- * layer (see src/tmux/effect/AdapterError.ts). `error` remains a free-form
- * display string for the existing log and status surfaces. New consumers
- * that want pattern-matching should branch on `tagged?._tag` and fall back
- * to `error` only for display.
- */
-export type TmuxErrorEvent = {
-  type: 'TMUX_ERROR';
-  error: string;
-  tagged?: import('../tmux/effect/AdapterError').AdapterError;
-};
+/** A failed command or call, as the display string the snackbar shows. */
+export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxFatalEvent = { type: 'TMUX_FATAL'; message: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
 /**
  * Adapter detected the SSE/Tauri channel dropped but is retrying. Distinct
  * from TMUX_DISCONNECTED (gave up) and TMUX_FATAL (no recovery possible).
- * `attempt` increments per retry — the UI shows it in the reconnect banner.
  */
-export type TmuxReconnectingEvent = { type: 'TMUX_RECONNECTING'; attempt: number };
+export type TmuxReconnectingEvent = { type: 'TMUX_RECONNECTING' };
 /**
  * Adapter recovered the channel after one or more failed attempts. The
  * appMachine returns to the live idle/syncing branch and the store
@@ -710,7 +691,6 @@ export type TmuxReconnectedEvent = { type: 'TMUX_RECONNECTED' };
 export type TmuxClipboardEvent = { type: 'TMUX_CLIPBOARD'; paneId: string; text: string };
 export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
-  connectionId: number;
   defaultShell: string;
   readOnly: boolean;
 };
@@ -767,11 +747,9 @@ export type SetTargetSizeEvent = {
 };
 export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number; height: number };
 export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };
-export type StopObserveContainerEvent = { type: 'STOP_OBSERVE_CONTAINER' };
 
 // Pane events
 export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
-export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
@@ -861,7 +839,6 @@ export type ToggleTabOverviewEvent = { type: 'TOGGLE_TAB_OVERVIEW' };
 export type CloseTabOverviewEvent = { type: 'CLOSE_TAB_OVERVIEW' };
 /** Move the overview's keyboard cursor by `delta` slots (wraps). */
 export type TabOverviewMoveEvent = { type: 'TAB_OVERVIEW_MOVE'; delta: number };
-export type TabOverviewSelectEvent = { type: 'TAB_OVERVIEW_SELECT'; index: number };
 /** Open the slot at `index` (default: the cursor); the trailing slot creates a tab. */
 export type TabOverviewActivateEvent = { type: 'TAB_OVERVIEW_ACTIVATE'; index?: number };
 /** ctrl+1…9: select the Nth tab as the strip shows it (1-based position). */
@@ -885,14 +862,6 @@ export type BrowserZoomEvent = {
 };
 export type BrowserReloadEvent = { type: 'BROWSER_RELOAD'; paneId: string; source: string };
 export type BrowserCopyUrlEvent = { type: 'BROWSER_COPY_URL'; url: string };
-/**
- * Lay a server-side session's page out for a pane of this many CSS pixels.
- *
- * Sent by `SessionView` on mount and whenever the pane's measured size settles.
- * A machine event rather than a direct adapter call so the widget keeps the
- * same one-way path as everything else: components render, the machine talks to
- * the server (see tmuxy-ui/CLAUDE.md).
- */
 /** Point the pane somewhere new — the address bar's Enter. */
 export type BrowserNavigateEvent = {
   type: 'BROWSER_NAVIGATE';
@@ -1252,9 +1221,7 @@ export type AppMachineEvent =
   | SetTargetSizeEvent
   | SetContainerSizeEvent
   | ObserveContainerEvent
-  | StopObserveContainerEvent
   | FocusPaneEvent
-  | SendCommandEvent
   | SendKeysEvent
   | SendTmuxCommandEvent
   | CopySelectionEvent
@@ -1304,7 +1271,6 @@ export type AppMachineEvent =
   | GestureSettleEvent
   | CloseTabOverviewEvent
   | TabOverviewMoveEvent
-  | TabOverviewSelectEvent
   | TabOverviewActivateEvent
   | SelectTabByPositionEvent
   | ReorderTabEvent
@@ -1361,6 +1327,5 @@ export type AppMachineEvent =
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
 
-// Optimistic operation tracking lives in `src/tmux/store/` now (Tier 3).
-// The PendingOp / TmuxOp / TmuxClientModel types replace the per-op
-// prediction structs that used to live here.
+// Optimistic operation tracking (PendingOp / TmuxOp / TmuxClientModel)
+// lives in `src/tmux/store/`.

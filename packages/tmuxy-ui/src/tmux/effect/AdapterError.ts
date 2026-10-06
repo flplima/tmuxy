@@ -6,11 +6,18 @@
  * Adding a new failure mode forces every consumer's switch to be updated
  * (via TypeScript exhaustiveness), preventing the silent-failure bug class.
  *
- * Mapping from the old string-error world:
- *   "Failed to connect to Tauri"              → TransportError
- *   adapter.invoke() promise rejection         → TransportError | TmuxError
- *   JSON.parse / delta-protocol parse failure  → ProtocolError
- *   manual disconnect / session-switch abort   → Cancelled
+ * Where each failure comes from:
+ *   a failed connect, an HTTP/IPC failure      → TransportError
+ *   a command the demo/v86 tmux rejected        → TmuxError
+ *   a payload that fails its schema decode      → ProtocolError
+ *   a write a read-only session never sends     → Cancelled
+ *
+ * The HTTP and Tauri transports never reject with a TmuxError: a mutation is
+ * acknowledged once it is written to control mode, and tmux's own rejection
+ * arrives later on the event stream (`tmux-error`), not as the invoke's
+ * answer. Their rejections — a missing monitor, a blocked command, an HTTP
+ * error status — are transport failures, and a failed read's tmux message
+ * is not told apart from those on the wire.
  */
 
 import { Data } from 'effect';
@@ -36,11 +43,25 @@ export class Cancelled extends Data.TaggedError('Cancelled')<{
 
 export type AdapterError = TransportError | ProtocolError | TmuxError | Cancelled;
 
+/** An AdapterError as the one human-readable line logs and the snackbar show. */
+export function formatAdapterError(e: AdapterError): string {
+  switch (e._tag) {
+    case 'TmuxError':
+      return `${e.command}: ${e.stderr}`;
+    case 'TransportError':
+      return e.context ? `${e.context}: ${String(e.cause)}` : String(e.cause);
+    case 'ProtocolError':
+      return `protocol error: ${e.reason}`;
+    case 'Cancelled':
+      return e.reason ? `cancelled: ${e.reason}` : 'cancelled';
+  }
+}
+
 /**
  * Best-effort coercion of a Promise rejection into a typed AdapterError.
  *
- * The Tauri/HTTP/Demo adapters reject with various shapes (Error subclasses,
- * plain strings, structured `{ error: '...' }` objects from the Rust backend).
+ * The adapters reject with various shapes (Error instances, plain strings
+ * from Tauri IPC, `{ error: '...' }` objects from the demo and v86 tmux).
  * This helper picks the most accurate _tag based on shape; when in doubt it
  * falls back to TransportError, never throws.
  */
@@ -51,9 +72,8 @@ export function classifyAdapterError(cause: unknown, context?: { command?: strin
   if (cause instanceof TmuxError) return cause;
   if (cause instanceof Cancelled) return cause;
 
-  // Rust backend convention: tmux command failures come back as
+  // The demo and v86 adapters reject a command their tmux refused as
   //   { error: 'no such pane: %999' }
-  // (see packages/tmuxy-server/src/sse.rs command response shape).
   if (
     typeof cause === 'object' &&
     cause !== null &&

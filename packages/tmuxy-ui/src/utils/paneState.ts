@@ -107,8 +107,3 @@ export function aggregatePaneState(states: readonly PaneStateName[]): PaneStateN
   }
   return best;
 }
-
-/** Whether a state is worth drawing at all — `idle` is the quiet default. */
-export function isNoteworthy(state: PaneStateName): boolean {
-  return state !== 'idle';
-}

@@ -18,7 +18,7 @@
  */
 
 import { Effect, Ref } from 'effect';
-import type { AdapterError } from '../effect/AdapterError';
+import { formatAdapterError } from '../effect/AdapterError';
 import type { EffectTmuxAdapter } from '../effect/EffectTmuxAdapter';
 import type { ServerState } from '../types';
 import { preserveSnapshotIdentity, transformServerState } from './adapters';
@@ -35,18 +35,10 @@ import {
 } from './model';
 import type { PredictContext } from './ops';
 import { predict } from './ops';
-import type { OpError, OpId, PendingOp, TmuxClientModel, TmuxOp, TmuxSnapshot } from './types';
+import type { OpError, OpId, TmuxClientModel, TmuxOp } from './types';
 import { EMPTY_MODEL, OpBlockedReadOnly, OpRejectedByTmux, OpTransportError } from './types';
 
 export interface DispatchOptions {
-  /** Override the predict-time context (defaults to last-known values). */
-  readonly predictContext?: PredictContext;
-  /**
-   * If true, skip the optimistic prediction entirely and just forward the
-   * command. Useful for drag-time swaps where the dragMachine already owns
-   * the optimistic state.
-   */
-  readonly skipPrediction?: boolean;
   /**
    * Override the wire-format command string sent to tmux. Use this when the
    * caller has the full original command (including format strings like
@@ -64,30 +56,11 @@ export interface TmuxStore {
   readonly getModel: () => TmuxClientModel;
 
   /**
-   * Synchronously apply the predicted patch for `op` to the model.
-   * Returns the new opId + the canonical command string. Listeners fire
-   * inside this call, so any XState bridge subscribed via `subscribe`
-   * already sees the new derived snapshot when this returns.
-   *
-   * The caller is responsible for running `dispatchRemote(opId, command)`
-   * afterwards (or composing both via `dispatch`). This split lets callers
-   * that need sync activePaneId updates (the keyboard-routing contract)
-   * grab the new derived state in the same macrostep that initiated the
-   * dispatch.
-   */
-  readonly applyOptimistic: (op: TmuxOp, opts?: DispatchOptions) => { opId: OpId; command: string };
-
-  /**
-   * Send a previously-applied op's command to tmux and reconcile the
-   * result. On TmuxError the op is rolled back from the model. Fire-and-
-   * forget via `Effect.runFork` at call sites that don't await the result.
-   */
-  readonly dispatchRemote: (opId: OpId, command: string) => Effect.Effect<OpId, OpError>;
-
-  /**
    * Push a typed op through the optimistic dispatch pipeline. Returns the
-   * Effect so the caller can fork, race, or compose. Equivalent to
-   * `applyOptimistic(op)` followed by `dispatchRemote(opId, command)`.
+   * Effect so the caller can fork, race, or compose. The predicted patch
+   * applies synchronously when the Effect starts (listeners fire before the
+   * adapter call), then the command goes to tmux; if the send fails the op
+   * is rolled back from the model.
    */
   readonly dispatch: (op: TmuxOp, opts?: DispatchOptions) => Effect.Effect<OpId, OpError>;
 
@@ -199,18 +172,12 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
       // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
       const command = opts?.command ?? toTmuxCommand(op);
-      const ctx = opts?.predictContext ?? Effect.runSync(Ref.get(ctxRef));
-
-      let pending: PendingOp;
-      if (opts?.skipPrediction) {
-        pending = makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
-      } else {
-        const currentModel = Effect.runSync(Ref.get(ref));
-        const result = predict(op, currentModel.derived, ctx, opId);
-        pending = result
-          ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
-          : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
-      }
+      const ctx = Effect.runSync(Ref.get(ctxRef));
+      const currentModel = Effect.runSync(Ref.get(ref));
+      const result = predict(op, currentModel.derived, ctx, opId);
+      const pending = result
+        ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
+        : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
 
       const next = Effect.runSync(
         Ref.updateAndGet(ref, (m) => addPendingOp(dropSupersededFocusOps(m, op), pending)),
@@ -237,7 +204,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
           const { model: rolledBackModel, entry } = rollbackOp(
             yield* Ref.get(ref),
             opId,
-            describeAdapterError(err),
+            formatAdapterError(err),
           );
           yield* Ref.set(ref, rolledBackModel);
           notify(rolledBackModel);
@@ -310,7 +277,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
         // Reuse previous objects for anything value-equal — wire snapshots are
         // fresh object graphs, and without identity preservation every tick
         // re-renders every pane (see preserveSnapshotIdentity).
-        const snapshot = preserveSnapshotIdentity(current.committed, serverStateToSnapshot(state));
+        const snapshot = preserveSnapshotIdentity(current.committed, transformServerState(state));
         const result = applyServerSnapshot(current, snapshot, Date.now());
         yield* Ref.set(ref, result.model);
         notify(result.model);
@@ -340,8 +307,6 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
 
     return {
       getModel,
-      applyOptimistic,
-      dispatchRemote,
       dispatch,
       dispatchCommand,
       reconcile,
@@ -350,21 +315,4 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       setPredictContext,
     };
   });
-}
-
-function serverStateToSnapshot(state: ServerState): TmuxSnapshot {
-  return transformServerState(state);
-}
-
-function describeAdapterError(err: AdapterError): string {
-  switch (err._tag) {
-    case 'TmuxError':
-      return `tmux rejected: ${err.stderr}`;
-    case 'TransportError':
-      return `transport: ${String(err.cause)}`;
-    case 'ProtocolError':
-      return `protocol: ${err.reason}`;
-    case 'Cancelled':
-      return 'cancelled';
-  }
 }

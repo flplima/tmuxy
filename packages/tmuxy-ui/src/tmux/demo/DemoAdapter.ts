@@ -108,8 +108,8 @@ export interface DemoAdapterOptions {
   commandDelayMs?: number;
   /**
    * Callback consulted before each `run_tmux_command` invocation. Returning a
-   * string causes the promise to reject with `{ error: <string> }`, mimicking
-   * tmux's stderr surfacing (see `classifyAdapterError`). Returning false /
+   * string causes the promise to reject with `{ error: <string> }`, which
+   * `classifyAdapterError` types as a TmuxError carrying that stderr. Returning false /
    * null / undefined lets the command run normally. Used by stories to assert
    * the UI rolls back optimistic state on tmux rejections.
    */
@@ -117,7 +117,6 @@ export interface DemoAdapterOptions {
 }
 
 export class DemoAdapter implements TmuxAdapter {
-  private connected = false;
   private tmux: DemoTmux;
   private initCommands: string[];
   /** Copy of initCommands saved to re-run if set_client_size fires with different dims */
@@ -181,26 +180,15 @@ export class DemoAdapter implements TmuxAdapter {
 
   async connect(): Promise<void> {
     this.tmux.init(80, 24);
-    this.connected = true;
 
     // Notify connection info
-    this.connectionInfoListeners.forEach((l) => l(0, 'bash'));
+    this.connectionInfoListeners.forEach((l) => l('bash'));
 
     // Emit keybindings
     this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
   }
 
-  disconnect(): void {
-    this.connected = false;
-  }
-
-  isConnected(): boolean {
-    return this.connected;
-  }
-
-  isReconnecting(): boolean {
-    return false;
-  }
+  disconnect(): void {}
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     switch (cmd) {
@@ -269,8 +257,7 @@ export class DemoAdapter implements TmuxAdapter {
             if (this.commandDelayMs > 0) {
               await new Promise<void>((r) => setTimeout(r, this.commandDelayMs));
             }
-            // Match the Rust backend's shape: { error: "..." } so
-            // classifyAdapterError → TmuxError flows through identically.
+            // The `{ error }` shape classifyAdapterError types as a TmuxError.
             throw { error: reason };
           }
         }
@@ -280,9 +267,6 @@ export class DemoAdapter implements TmuxAdapter {
         this.handleTmuxCommand(command);
         return null as T;
       }
-
-      case 'get_key_bindings':
-        return DEFAULT_KEYBINDINGS as T;
 
       case 'ping':
         return null as T;

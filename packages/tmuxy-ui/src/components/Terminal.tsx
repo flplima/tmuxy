@@ -12,6 +12,7 @@ import { cellsToCss } from './terminalShared';
 import { cursorShapeToMode } from '../utils/cursorShape';
 import { isWrappedRow } from '../utils/copyMode';
 import { isTauri } from '../tmux/adapters';
+import { tauriSchemeUrl } from '../utils/platform';
 import type { CursorMode } from './Cursor';
 import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
 
@@ -40,14 +41,7 @@ function resolveImageSrc(paneId: string, imageId: number): string {
       const resolved = override(paneId, imageId);
       if (resolved) return resolved;
     }
-    if (isTauri()) {
-      // Windows serves custom schemes over http://<scheme>.localhost; the
-      // platforms tmuxy ships a desktop build for use the scheme directly.
-      const base = navigator.userAgent.includes('Windows')
-        ? 'http://tmuxyimg.localhost'
-        : 'tmuxyimg://localhost';
-      return `${base}/${numericPaneId}/${imageId}`;
-    }
+    if (isTauri()) return tauriSchemeUrl('tmuxyimg', `/${numericPaneId}/${imageId}`);
   }
   return `/api/images/${numericPaneId}/${imageId}`;
 }

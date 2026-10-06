@@ -4,12 +4,9 @@
 
 :root.theme-dark {
   --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
-  --font-size-sm: 12px;
   --font-size-md: 14px;
   --font-size-base: 15px;
   --font-size-lg: 16px;
-  --font-size-xl: 18px;
-  --font-size-2xl: 20px;
 
   --cold-fg: #4db8ff;
   --cold-fg-dim: #2a7ab5;
@@ -52,7 +49,6 @@
   --text-muted: var(--cold-fg-dim);
   --text-dimmed: #1e6090;
   --text-subtle: var(--cold-fg-faint);
-  --text-faint: #0e3050;
   --text-dark: var(--cold-bg);
 
   --border-medium: #1a3050;
@@ -62,14 +58,9 @@
   --pane-header-text-inactive: var(--cold-fg-dim);
 
   --accent-green: var(--cold-fg);
-  --accent-green-bright: #70ccff;
   --accent-green-bg: #0c1e30;
-  --accent-green-border: #1a3a55;
-  --accent-green-hover: #122e45;
 
-  --accent-blue: #0c1e30;
   --accent-blue-light: rgba(77, 184, 255, 0.8);
-  --accent-blue-glow: rgba(77, 184, 255, 0.6);
   --accent-blue-bg: rgba(77, 184, 255, 0.1);
   --accent-blue-bg-hover: rgba(77, 184, 255, 0.2);
   --accent-blue-bg-active: rgba(77, 184, 255, 0.35);
@@ -80,9 +71,6 @@
 
   --error-color: var(--cold-fg);
   --error-light: #70ccff;
-  --error-text: var(--cold-fg);
-  --error-bg: rgba(77, 184, 255, 0.15);
-  --error-border: rgba(77, 184, 255, 0.3);
 
   --cursor-bg: var(--cold-fg);
   --cursor-text: var(--cold-bg);
@@ -97,12 +85,9 @@
 
 :root.theme-light {
   --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
-  --font-size-sm: 12px;
   --font-size-md: 14px;
   --font-size-base: 15px;
   --font-size-lg: 16px;
-  --font-size-xl: 18px;
-  --font-size-2xl: 20px;
 
   --cold-light-fg: #1a3550;
   --cold-light-fg-dim: #4a6a85;
@@ -145,7 +130,6 @@
   --text-muted: var(--cold-light-fg-dim);
   --text-dimmed: #6a8a9e;
   --text-subtle: var(--cold-light-fg-faint);
-  --text-faint: #a0b8c8;
   --text-dark: var(--cold-light-bg);
 
   --border-medium: #a5b8b8;
@@ -155,14 +139,9 @@
   --pane-header-text-inactive: var(--cold-light-fg-dim);
 
   --accent-green: var(--cold-light-fg);
-  --accent-green-bright: #0e2030;
   --accent-green-bg: #b8ccd0;
-  --accent-green-border: #8aaabe;
-  --accent-green-hover: #aec0c8;
 
-  --accent-blue: #b8ccd0;
   --accent-blue-light: rgba(26, 53, 80, 0.7);
-  --accent-blue-glow: rgba(26, 53, 80, 0.4);
   --accent-blue-bg: rgba(26, 53, 80, 0.08);
   --accent-blue-bg-hover: rgba(26, 53, 80, 0.15);
   --accent-blue-bg-active: rgba(26, 53, 80, 0.25);
@@ -173,9 +152,6 @@
 
   --error-color: var(--cold-light-fg);
   --error-light: #0e2030;
-  --error-text: var(--cold-light-fg);
-  --error-bg: rgba(26, 53, 80, 0.12);
-  --error-border: rgba(26, 53, 80, 0.25);
 
   --cursor-bg: var(--cold-light-fg);
   --cursor-text: var(--cold-light-bg);

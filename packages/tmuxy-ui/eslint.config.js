@@ -43,11 +43,5 @@ export default tseslint.config(
       'vitest/no-disabled-tests': 'error',
     },
   },
-  {
-    files: ['src/utils/richContentParser.ts', 'src/utils/debug.ts'],
-    rules: {
-      'no-control-regex': 'off',
-    },
-  },
   prettier,
 );

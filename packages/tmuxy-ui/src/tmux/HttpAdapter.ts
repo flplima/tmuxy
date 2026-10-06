@@ -109,7 +109,6 @@ export class HttpAdapter implements TmuxAdapter {
   // Session-name override set by switchSession. Instance-scoped (not a module
   // global) so multiple adapters — or a re-created one — don't share/leak it.
   private sessionOverride: string | null = null;
-  private reconnectAttempts = 0;
   private intentionalDisconnect = false;
 
   private stateListeners = new Set<StateListener>();
@@ -228,7 +227,6 @@ export class HttpAdapter implements TmuxAdapter {
     this.intentionalDisconnect = true;
     this.networkHints?.();
     this.networkHints = null;
-    this.reconnectAttempts = 0;
     this.reconnecting = false;
 
     this.keyBatcher.destroy();
@@ -373,35 +371,31 @@ export class HttpAdapter implements TmuxAdapter {
         this.connectionId = 0;
         if (!this.intentionalDisconnect && !this.fatal) {
           this.reconnecting = true;
-          this.reconnectAttempts++;
-          this.notifyReconnection(true, this.reconnectAttempts);
+          this.notifyReconnection(true);
         }
         resume(Effect.fail(error));
       };
 
       es.addEventListener('connection-info', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          this.connectionId = data.data?.connection_id ?? data.connection_id ?? 0;
+          const { data } = JSON.parse(event.data);
+          this.connectionId = data.connection_id;
           this.connected = true;
-          this.reconnectAttempts = 0;
 
           // Clear reconnecting state if was reconnecting
           if (this.reconnecting) {
             this.reconnecting = false;
-            this.notifyReconnection(false, 0);
+            this.notifyReconnection(false);
           }
 
-          const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
-          this.readOnly = Boolean(data.data?.read_only ?? data.read_only);
-          this.notifyConnectionInfo(this.connectionId, defaultShell, this.readOnly);
+          this.readOnly = Boolean(data.read_only);
+          this.notifyConnectionInfo(data.default_shell ?? 'bash', this.readOnly);
 
           // Action tracing (docs/TELEMETRY.md): the server tells us whether it
           // is recording; only then do we ship our own events, and only through
           // the same-origin /trace sink. The server independently rejects when
           // off, so this is a hint, not the gate.
-          const traceEnabled = data.data?.trace_enabled ?? data.trace_enabled ?? false;
-          tracer.setServerEnabled(!!traceEnabled && !this.readOnly);
+          tracer.setServerEnabled(!!data.trace_enabled && !this.readOnly);
           tracer.setSink((events) => this.shipTrace(events));
 
           this.resolveConnectWaiters();
@@ -412,9 +406,7 @@ export class HttpAdapter implements TmuxAdapter {
 
       es.addEventListener('state-update', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          // Handle nested structure from server
-          const update: StateUpdate = data.data || data;
+          const update: StateUpdate = JSON.parse(event.data).data;
 
           // Delta seq-gap detection: a dropped or misordered delta would
           // otherwise apply to stale state and silently diverge. On a gap,
@@ -447,8 +439,7 @@ export class HttpAdapter implements TmuxAdapter {
 
       es.addEventListener('keybindings', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          const keybindings: KeyBindings = data.data || data;
+          const keybindings: KeyBindings = JSON.parse(event.data).data;
           this.notifyKeyBindings(keybindings);
         } catch (e) {
           console.error('Failed to parse keybindings:', e);
@@ -457,8 +448,7 @@ export class HttpAdapter implements TmuxAdapter {
 
       es.addEventListener('theme-settings', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          const settings: ThemeSettings = data.data || data;
+          const settings: ThemeSettings = JSON.parse(event.data).data;
           this.notifyThemeSettings(settings);
         } catch (e) {
           console.error('Failed to parse theme settings:', e);
@@ -471,9 +461,8 @@ export class HttpAdapter implements TmuxAdapter {
       // the connection.
       es.addEventListener('tmux-error', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          const message = data.data?.message || data.message || 'Unknown error';
-          this.notifyError(message);
+          const { data } = JSON.parse(event.data);
+          this.notifyError(data.message || 'Unknown error');
         } catch (e) {
           console.error('Failed to parse tmux-error event:', e);
         }
@@ -483,8 +472,7 @@ export class HttpAdapter implements TmuxAdapter {
       // Mirrored into the system clipboard via navigator.clipboard.writeText.
       es.addEventListener('clipboard', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          const payload = data.data || data;
+          const payload = JSON.parse(event.data).data;
           const paneId = String(payload.pane_id ?? '');
           const text = String(payload.text ?? '');
           this.notifyClipboard(paneId, text);
@@ -495,8 +483,7 @@ export class HttpAdapter implements TmuxAdapter {
 
       es.addEventListener('log', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          const payload = data.data || data;
+          const payload = JSON.parse(event.data).data;
           const kind = (payload.kind as LogEntryKind) || 'info';
           const message = String(payload.message ?? '');
           this.notifyLog(kind, message);
@@ -505,26 +492,25 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      // Backend gave up reconnecting — terminal state, no more events. Flip the
-      // flag the retry `while` predicate checks so the loop stops instead of
-      // reconnecting into a dead backend, then end the connection.
       // The connection ended with tmux's own reason. Deliberately does NOT set
       // `this.fatal`: that flag stops the retry loop for good, and a detach is
       // something the user steps back from by reconnecting.
       es.addEventListener('detached', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          const reason = (data.data?.reason ?? data.reason ?? null) as string | null;
-          this.notifyDetached(reason);
+          const { data } = JSON.parse(event.data);
+          this.notifyDetached((data.reason ?? null) as string | null);
         } catch (e) {
           console.error('Failed to parse detached event:', e);
         }
       });
 
+      // Backend gave up reconnecting — terminal state, no more events. Flip the
+      // flag the retry `while` predicate checks so the loop stops instead of
+      // reconnecting into a dead backend, then end the connection.
       es.addEventListener('fatal', (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
-          const message = String((data.data?.message ?? data.message) || 'tmux unavailable');
+          const { data } = JSON.parse(event.data);
+          const message = String(data.message || 'tmux unavailable');
           this.fatal = true;
           this.notifyFatal(message);
           endConnection(new Error(message));
@@ -607,10 +593,6 @@ export class HttpAdapter implements TmuxAdapter {
 
   isConnected(): boolean {
     return this.connected;
-  }
-
-  isReconnecting(): boolean {
-    return this.reconnecting;
   }
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -863,7 +845,6 @@ export class HttpAdapter implements TmuxAdapter {
     this.connected = false;
     this.connectionId = 0;
     this.reconnecting = false;
-    this.reconnectAttempts = 0;
     this.failConnectWaiters(new Error('switching session'));
 
     // Reconnect to new session
@@ -974,18 +955,12 @@ export class HttpAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(
-    connectionId: number,
-    defaultShell: string,
-    readOnly: boolean,
-  ): void {
-    this.connectionInfoListeners.forEach((listener) =>
-      listener(connectionId, defaultShell, readOnly),
-    );
+  private notifyConnectionInfo(defaultShell: string, readOnly: boolean): void {
+    this.connectionInfoListeners.forEach((listener) => listener(defaultShell, readOnly));
   }
 
-  private notifyReconnection(reconnecting: boolean, attempt: number): void {
-    this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
+  private notifyReconnection(reconnecting: boolean): void {
+    this.reconnectionListeners.forEach((listener) => listener(reconnecting));
   }
 
   private notifyKeyBindings(keybindings: KeyBindings): void {

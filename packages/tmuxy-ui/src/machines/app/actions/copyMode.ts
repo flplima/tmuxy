@@ -1,14 +1,13 @@
 /**
- * Action implementations for the copyMode parallel state.
+ * Action implementations for the copyMode state slice.
  *
  * Owns context field: copyModeStates (per-pane CopyModeState records).
  *
- * `copyModeExitTimes` and `COPY_MODE_REENTRY_COOLDOWN` are exported because
- * the parent machine's TMUX_STATE_UPDATE reconciliation (still in
- * appMachine.ts pending the layout-state migration) reads them to suppress
- * re-entering copy mode for a pane that the client just exited — tmux takes
- * time to process the `send-keys -X cancel` so a stale snapshot can still
- * report `in_mode: true`.
+ * `copyModeExitTimes` and `reconcilePaneMode` are exported because the
+ * parent machine's TMUX_MODEL_UPDATE handler in appMachine.ts uses them to
+ * suppress re-entering copy mode for a pane that the client just exited —
+ * tmux takes time to process the `send-keys -X cancel` so a stale snapshot
+ * can still report `in_mode: true`.
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';

@@ -38,7 +38,7 @@ export const PINCH_OUT_COMMIT = 1.2;
 /** A pinch in past this unzooms / opens the "all tabs" view when the fingers lift. */
 export const PINCH_IN_COMMIT = 0.85;
 /** The grid follows a pinch in down to this scale. */
-export const PINCH_MIN_SCALE = 0.4;
+const PINCH_MIN_SCALE = 0.4;
 /** The pinch-out scale at which a growing pane (or grid) has reached full size. */
 const PINCH_OUT_FULL = 1.6;
 
@@ -119,7 +119,7 @@ export function pinchOutProgress(scale: number): number {
 }
 
 /** The scale a pinch in draws the grid at. */
-export function pinchInScale(scale: number): number {
+function pinchInScale(scale: number): number {
   return Math.max(PINCH_MIN_SCALE, Math.min(1, scale));
 }
 

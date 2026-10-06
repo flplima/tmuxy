@@ -55,7 +55,7 @@ export function TabContextMenu({
   };
 
   const handleCloseSpecificTab = () => {
-    send({ type: 'SEND_COMMAND', command: `kill-window -t ${windowId}` });
+    send({ type: 'SEND_TMUX_COMMAND', command: `kill-window -t ${windowId}` });
     onClose();
   };
 
@@ -65,7 +65,7 @@ export function TabContextMenu({
   const handleToggleCollapsible = () => {
     if (!target) return;
     send({
-      type: 'SEND_COMMAND',
+      type: 'SEND_TMUX_COMMAND',
       command: collapsible
         ? `set-option -u -w -t ${target.id} @tmuxy-collapsible`
         : `set-option -w -t ${target.id} @tmuxy-collapsible 1`,

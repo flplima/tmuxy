@@ -13,12 +13,7 @@ export default defineConfig({
       port: 9001,
       clientPort: 9001,
     },
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
   },
-  envPrefix: ['VITE_', 'TAURI_'],
   test: {
     globals: true,
     environment: 'jsdom',

@@ -90,15 +90,6 @@ function resolveWindowTarget(command: string, activeWindowId: string | null): st
   return command;
 }
 
-/**
- * Materialize a mutable snapshot view from the TmuxClientModel.
- *
- * The derived arrays are passed through by REFERENCE — no cloning. The
- * store already preserves identity for unchanged panes/windows/arrays, so
- * spreading here would hand every subscriber a fresh identity on every
- * tick. This function only widens the store's readonly TmuxSnapshot types
- * to the mutable shapes the machine context declares.
- */
 type ResizeGeom = { tmuxId: string; x: number; y: number; width: number; height: number };
 
 /**
@@ -168,6 +159,11 @@ function resizePreviewSettled(
   return true;
 }
 
+/**
+ * The store's derived snapshot, widened from its readonly types to the
+ * mutable shapes the machine context declares, as a local object a model
+ * update can adjust before it is assigned.
+ */
 function snapshotFromModel(model: TmuxClientModel): {
   panes: TmuxSnapshot['panes'][number][];
   windows: TmuxSnapshot['windows'][number][];
@@ -398,7 +394,7 @@ export const appMachine = setup({
       input: ({ self }) => ({ parent: self }),
     },
     {
-      // The Tier-3 client model: bridges TmuxStore (Effect Ref) into XState.
+      // The client model: bridges TmuxStore (Effect Ref) into XState.
       // SEND_TMUX_COMMAND relays here for optimistic dispatch; TMUX_STATE_UPDATE
       // relays here for reconcile. The actor forwards model changes back as
       // TMUX_MODEL_UPDATE so XState context stays in sync without any
@@ -445,9 +441,8 @@ export const appMachine = setup({
     },
   ],
   on: {
-    // Per-state event handlers (parallel-state migration: Option D′).
     // Each `<name>State.on` slice owns events whose context-field writes
-    // are restricted to that state per FIELD_OWNERS in ./context.ts.
+    // are restricted to that slice per FIELD_OWNERS in ./context.ts.
     ...uiPrefsState.on,
     ...commandUiState.on,
     ...notificationsState.on,
@@ -546,10 +541,7 @@ export const appMachine = setup({
     // needs an explicit queue, not a handler spread.
     TMUX_RECONNECTING: {
       target: '.reconnecting',
-      actions: assign(({ event }) => ({
-        connected: false,
-        reconnectAttempt: event.attempt,
-      })),
+      actions: assign({ connected: false }),
     },
     // Size events (handled globally, in any state)
     SET_CHAR_SIZE: {
@@ -623,9 +615,6 @@ export const appMachine = setup({
         type: 'OBSERVE_CONTAINER' as const,
         element: event.element,
       })),
-    },
-    STOP_OBSERVE_CONTAINER: {
-      actions: sendTo('size', { type: 'STOP_OBSERVE' as const }),
     },
     // SET_ANIMATION_ROOT — handled by uiPrefsState (see spread at end of on:)
 
@@ -1714,7 +1703,7 @@ export const appMachine = setup({
             // subscribers see the new derived model immediately, including
             // this XState machine which assigns context.panes/etc. on
             // TMUX_MODEL_UPDATE), and forwards the command to the adapter.
-            // On a tmux rejection the patch is rolled back automatically.
+            // If the send fails the patch is rolled back automatically.
             // Drag-time swaps get the store's Swap prediction like any other
             // path: the drag machine's own pane shuffle is PRIVATE hit-testing
             // state (never rendered), so without the predicted patch the
@@ -1902,89 +1891,6 @@ export const appMachine = setup({
                 );
               }
             }
-          }),
-        },
-        SEND_COMMAND: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            const command = resolveWindowTarget(event.command, context.activeWindowId);
-            // Match intercepts against the tail after the prefix-pin so
-            // bindings like `<prefix> [` (rewritten to
-            // `select-pane -t %X \; copy-mode`) still hit the client-side
-            // copy-mode path. Forwarding to tmux keeps the original.
-            const tail = stripActivePanePrefix(command);
-
-            // Intercept copy-mode — activate client-side copy mode
-            if (tail.match(/^copy-mode\b/)) {
-              const paneId = context.activePaneId;
-              if (paneId) {
-                enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
-              }
-              return;
-            }
-
-            // Intercept command-prompt — enter client-side command mode
-            if (tail.match(/^command-prompt\b/)) {
-              if (context.readOnly) {
-                enqueue.raise({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
-                return;
-              }
-              const parsed = parseCommandPrompt(tail, context);
-              enqueue(
-                assign({
-                  commandMode: {
-                    prompt: parsed.prompt,
-                    input: parsed.initialValue,
-                    template: parsed.template,
-                  },
-                }),
-              );
-              return;
-            }
-
-            // Intercept display-message (without -p) — show in status bar
-            if (tail.match(/^display-message\b/)) {
-              const msg = parseDisplayMessage(tail);
-              if (msg !== null) {
-                enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
-                enqueue.cancel(STATUS_MESSAGE_CLEAR_ID);
-                enqueue.raise(
-                  { type: 'CLEAR_STATUS_MESSAGE' },
-                  { delay: STATUS_MESSAGE_DURATION, id: STATUS_MESSAGE_CLEAR_ID },
-                );
-                return;
-              }
-            }
-
-            // Route tab-nav commands through SELECT_TAB. UI menu items fire
-            // `next-window`/`previous-window`/`last-window`/`select-window` via
-            // SEND_COMMAND; we want the same optimistic flip + pane bookkeeping
-            // as window-tab clicks get.
-            const tabNavTarget = resolveTabNavTarget(tail, context);
-            if (tabNavTarget) {
-              enqueue.raise({
-                type: 'SELECT_TAB',
-                windowId: tabNavTarget.windowId,
-              });
-              return;
-            }
-
-            // Same treatment for pane-group nav (prev/next) — share the
-            // optimistic swap + keyboard re-target path that tab clicks get.
-            const groupNavTarget = resolvePaneGroupNavTarget(tail, context);
-            if (groupNavTarget) {
-              enqueue.raise({
-                type: 'SELECT_PANE_GROUP_TAB',
-                paneId: groupNavTarget.paneId,
-              });
-              return;
-            }
-
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command,
-              }),
-            );
           }),
         },
         // SEND_KEYS, CLOSE_PANE — handled by layoutState
@@ -2179,7 +2085,7 @@ export const appMachine = setup({
       on: {
         TMUX_RECONNECTED: {
           target: 'idle',
-          actions: assign({ connected: true, reconnectAttempt: 0, error: null }),
+          actions: assign({ connected: true, error: null }),
         },
         TMUX_DISCONNECTED: {
           target: 'disconnected',
@@ -2232,7 +2138,7 @@ export const appMachine = setup({
         // a recovery instead, once server state starts flowing.
         TMUX_RECONNECTED: {
           target: 'idle',
-          actions: assign({ connected: true, reconnectAttempt: 0, error: null }),
+          actions: assign({ connected: true, error: null }),
         },
         TMUX_STATE_UPDATE: {
           actions: sendTo('tmuxStore', ({ event }) => ({
@@ -2240,10 +2146,7 @@ export const appMachine = setup({
             state: event.state,
           })),
         },
-        TMUX_RECONNECTING: {
-          target: 'reconnecting',
-          actions: assign(({ event }) => ({ reconnectAttempt: event.attempt })),
-        },
+        TMUX_RECONNECTING: { target: 'reconnecting' },
       },
     },
 
@@ -2259,10 +2162,7 @@ export const appMachine = setup({
       on: {
         // Adapter may resume on its own (e.g. server restart while page open)
         // — accept the reconnection signal so we re-enter the live branch.
-        TMUX_RECONNECTING: {
-          target: 'reconnecting',
-          actions: assign(({ event }) => ({ reconnectAttempt: event.attempt })),
-        },
+        TMUX_RECONNECTING: { target: 'reconnecting' },
         TMUX_CONNECTED: {
           target: 'idle',
           actions: assign({ connected: true, fatalError: null, error: null }),

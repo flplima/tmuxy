@@ -3,7 +3,6 @@ import {
   PANE_STATES,
   PANE_STATE_TIER,
   aggregatePaneState,
-  isNoteworthy,
   normalizePaneState,
   paneStateFor,
   type PaneStateName,
@@ -85,13 +84,5 @@ describe('aggregatePaneState', () => {
     const tiers = PANE_STATES.map((s) => PANE_STATE_TIER[s]);
     expect(tiers).toEqual([...tiers].sort((a, b) => a - b));
     expect(new Set(tiers).size).toBe(PANE_STATES.length);
-  });
-});
-
-describe('isNoteworthy', () => {
-  it('draws everything except the quiet default', () => {
-    expect(isNoteworthy('idle')).toBe(false);
-    expect(isNoteworthy('working')).toBe(true);
-    expect(isNoteworthy('needs-input')).toBe(true);
   });
 });

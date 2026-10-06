@@ -8,7 +8,7 @@ import { ResizeGlitchRecorder } from './resizeGlitch';
 import { LayoutMutationRecorder } from './animationObservers';
 import { ContentMutationRecorder } from './contentMutation';
 import { withTmuxView } from './tmuxView';
-import { isApplePlatform } from '../machines/actors/linkModifierActor';
+import { isMacPlatform } from '../utils/platform';
 
 /**
  * Full-application stories driven by REAL tmux.
@@ -727,7 +727,7 @@ export const Reconnect: Story = {
     });
     expect(doc.querySelector('.connection-overlay-reconnecting')).toBeNull();
     // Channel drops → reconnecting indicator appears.
-    app.send({ type: 'TMUX_RECONNECTING', attempt: 1 });
+    app.send({ type: 'TMUX_RECONNECTING' });
     await waitFor(
       () => expect(doc.querySelector('.connection-overlay-reconnecting')).not.toBeNull(),
       {
@@ -2641,7 +2641,7 @@ export const AutolinkNeedsLinkModifier: Story = {
     expect(underlined()).toBe(false);
     expect(hitTarget()).not.toBe(link);
 
-    const modifier = isApplePlatform() ? 'Meta' : 'Control';
+    const modifier = isMacPlatform() ? 'Meta' : 'Control';
     await user.keyboard(`{${modifier}>}`);
     await waitFor(() => {
       expect(underlined()).toBe(true);

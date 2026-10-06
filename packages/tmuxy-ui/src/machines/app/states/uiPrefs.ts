@@ -1,5 +1,5 @@
 /**
- * uiPrefs state — parallel state for theme, font size, animations, and the
+ * uiPrefs state — the `on` slice for theme, font size, animations, and the
  * local action-trace switch (docs/TELEMETRY.md).
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
@@ -8,10 +8,8 @@
  *
  * Action implementations live in ../actions/uiPrefs.ts.
  *
- * All events here are intentionally global (work in any top-level state).
- * The current appMachine still has flat top-level on:; for now we spread
- * uiPrefsState.on into the machine's root on:. When the full parallel
- * conversion lands, this state's on: will become its dedicated region's on:.
+ * All events here are global (work in any top-level state): uiPrefsState.on
+ * is spread into the machine's root on:.
  */
 
 import { notReadOnly } from '../readOnlyGuard';

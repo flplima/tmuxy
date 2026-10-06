@@ -4,9 +4,8 @@
  * Shared constants for pane layout calculations and UI spacing.
  * Mosaic layout: panes tile edge-to-edge with no spacing.
  *
- * Key invariant for vertical axis:
- *   PANE_HEADER_HEIGHT = CHAR_HEIGHT
- *   so each pane's header consumes exactly 1 character row.
+ * Key invariant for the vertical axis: a pane's header is exactly
+ * CHAR_HEIGHT tall, so it consumes exactly one character row.
  */
 
 export const CHAR_HEIGHT = 24;
@@ -17,12 +16,6 @@ export const CHAR_HEIGHT = 24;
 // margin is the padding plus half the leftover of a cell.
 export const CONTAINER_PADDING_X = 12;
 export const CONTAINER_PADDING_BOTTOM = 4;
-
-// Pane header height = exactly 1 char height so header consumes exactly 1 terminal row
-export const PANE_HEADER_HEIGHT = CHAR_HEIGHT;
-
-// Vertical inset: 0 since header = char height
-export const PANE_INSET_Y = 0;
 
 // Horizontal inset: half charWidth to cover tmux divider column gap
 export function paneInsetX(charWidth: number): number {

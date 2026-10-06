@@ -1,19 +1,20 @@
 /**
- * Action implementations for the layout parallel state.
+ * Action implementations for the layout state slice.
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
  * paneActivationOrder, lastActivePaneByWindow,
  * paneKeyOverrides, lastLayoutCommandTime,
  * drag, resize, resizeActive, suppressLayoutTransition.
  *
- * MIGRATED HERE (the cleanly-layout-owned events):
+ * Handled here:
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
  *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
  *   DRAG_STATE_UPDATE.
  *
- * STILL IN appMachine.ts (cross-cutting orchestrators that touch multiple
- * states' fields and don't extract cleanly without restructuring):
- *   - SEND_TMUX_COMMAND (optimistic intercept, also writes commandMode/statusMessage)
+ * Inline in appMachine.ts (cross-cutting handlers that write several
+ * slices' fields):
+ *   - SEND_TMUX_COMMAND (the one command intercept chain; also writes
+ *     commandMode/statusMessage)
  *   - TMUX_STATE_UPDATE (one-liner relay to tmuxStore for reconcile; the heavy
  *     downstream work runs in the TMUX_MODEL_UPDATE handler)
  *   - FOCUS_PANE (writes focusedFloatPaneId which is groupsAndFloats-owned)

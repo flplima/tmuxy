@@ -18,7 +18,7 @@
 
 import type { TmuxPane } from '../tmux/types';
 import type { PaneGroup } from '../machines/types';
-import { PANE_INSET_Y, paneInsetX } from '../constants';
+import { paneInsetX } from '../constants';
 import type { TabDrop } from './tabStripDrop';
 
 const SCRIPTS = '$HOME/.config/tmuxy/bin/tmuxy';
@@ -60,13 +60,13 @@ export function headerBands(
   const insetX = paneInsetX(charWidth);
   return panes.map((pane) => {
     const left = centerOffsetX + pane.x * charWidth - insetX;
-    const top = centerOffsetY + Math.max(0, pane.y - 1) * charHeight - PANE_INSET_Y;
+    const top = centerOffsetY + Math.max(0, pane.y - 1) * charHeight;
     return {
       paneId: pane.tmuxId,
       left,
       top,
       right: left + pane.width * charWidth + 2 * insetX,
-      bottom: top + charHeight + PANE_INSET_Y,
+      bottom: top + charHeight,
       members: groupOf(groups, pane.tmuxId) ?? [pane.tmuxId],
     };
   });

@@ -106,7 +106,7 @@ describe('sendScrollLines', () => {
       mouseAnyFlag: false,
     });
     expect(events).toHaveLength(3);
-    expect(events.every((e) => e.type === 'SEND_COMMAND')).toBe(true);
+    expect(events.every((e) => e.type === 'SEND_TMUX_COMMAND')).toBe(true);
     expect(events.map((e) => (e as { command: string }).command)).toEqual([
       'send-keys -t %1 Up',
       'send-keys -t %1 Up',

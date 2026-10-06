@@ -240,7 +240,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
 
         // Send SGR mouse press event
         send({
-          type: 'SEND_COMMAND',
+          type: 'SEND_TMUX_COMMAND',
           command: sgrMouseCommand(paneId, e.button, cell.x + 1, Math.max(1, cell.y + 1)),
         });
         return;
@@ -284,7 +284,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
 
         // Send SGR mouse release event (lowercase 'm')
         send({
-          type: 'SEND_COMMAND',
+          type: 'SEND_TMUX_COMMAND',
           command: sgrMouseCommand(
             paneId,
             mouseButtonRef.current,
@@ -329,7 +329,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         const cell = pixelToCell(e);
         const dragButton = mouseButtonRef.current + 32;
         send({
-          type: 'SEND_COMMAND',
+          type: 'SEND_TMUX_COMMAND',
           command: sgrMouseCommand(paneId, dragButton, cell.x + 1, Math.max(1, cell.y + 1)),
         });
         return;

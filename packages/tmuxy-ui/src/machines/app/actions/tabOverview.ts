@@ -65,14 +65,6 @@ export const tabOverviewActions = {
     },
   ),
 
-  tabOverview_select: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, event, enqueue }) => {
-      if (event.type !== 'TAB_OVERVIEW_SELECT') return;
-      const count = slotCount(context);
-      enqueue(assign({ tabOverviewSelected: Math.max(0, Math.min(event.index, count - 1)) }));
-    },
-  ),
-
   /**
    * Open the slot under the cursor (or the one given): a tab becomes current,
    * the "+" slot creates a tab. Either way the overview closes — the zoom-in

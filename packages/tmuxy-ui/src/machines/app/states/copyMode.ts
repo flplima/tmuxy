@@ -1,5 +1,5 @@
 /**
- * copyMode state — parallel state for client-side copy mode.
+ * copyMode state — the `on` slice for client-side copy mode.
  *
  * Owns context field: copyModeStates.
  *

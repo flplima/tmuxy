@@ -31,7 +31,6 @@ export class TauriAdapter implements TmuxAdapter {
   readonly enumeratesSessions = true;
   private connected = false;
   private reconnectingState = false;
-  private reconnectAttempt = 0;
   private unlistenFns: (() => void)[] = [];
 
   private stateListeners = new Set<StateListener>();
@@ -133,8 +132,7 @@ export class TauriAdapter implements TmuxAdapter {
         this.connected = true;
         if (wasDown) {
           this.reconnectingState = false;
-          this.reconnectAttempt = 0;
-          this.notifyReconnection(false, 0);
+          this.notifyReconnection(false);
         }
       });
       this.unlistenFns.push(unlistenState);
@@ -194,62 +192,40 @@ export class TauriAdapter implements TmuxAdapter {
       const unlistenError = await listen<string>('tmux-error', (event) => {
         this.notifyError(event.payload);
 
-        // If we were connected, we're now reconnecting
-        if (this.connected) {
-          this.connected = false;
-          this.reconnectingState = true;
-          this.reconnectAttempt++;
-          this.notifyReconnection(true, this.reconnectAttempt);
-        } else if (!this.reconnectingState) {
-          // First connection attempt failed — mark as reconnecting
-          this.reconnectingState = true;
-          this.reconnectAttempt++;
-          this.notifyReconnection(true, this.reconnectAttempt);
-        } else {
-          // Subsequent reconnection failure
-          this.reconnectAttempt++;
-          this.notifyReconnection(true, this.reconnectAttempt);
-        }
+        // A dropped connection, a failed first attempt and a failed retry
+        // all leave the adapter retrying.
+        this.connected = false;
+        this.reconnectingState = true;
+        this.notifyReconnection(true);
       });
       this.unlistenFns.push(unlistenError);
 
       this.connected = true;
 
-      // Tauri is always primary
-      this.notifyConnectionInfo(0, 'bash');
+      this.notifyConnectionInfo('bash');
 
       // Action tracing (docs/TELEMETRY.md): ask the local backend whether it is
-      // recording; only then ship our events to it over IPC. A backend without
-      // the trace commands (older build) leaves tracing off.
-      try {
-        const traceEnabled = await invoke<boolean>('trace_enabled');
-        tracer.setServerEnabled(!!traceEnabled);
-        tracer.setSink((events) => {
-          void import('@tauri-apps/api/core').then(({ invoke: inv }) =>
-            inv('record_trace', { events }).catch(() => {}),
-          );
-        });
-        // The native Debug menu can flip the switch behind the frontend's
-        // back; gui.rs calls this after a toggle so the client tracer starts
-        // or stops shipping in the same beat as the backend.
-        (window as { tmuxyTraceSync?: (on: boolean) => void }).tmuxyTraceSync = (on) =>
-          tracer.setServerEnabled(on);
-      } catch {
-        // no trace commands on this backend — leave tracing disabled
-      }
+      // recording; only then ship our events to it over IPC.
+      tracer.setServerEnabled(!!(await invoke<boolean>('trace_enabled')));
+      tracer.setSink((events) => {
+        void import('@tauri-apps/api/core').then(({ invoke: inv }) =>
+          inv('record_trace', { events }).catch(() => {}),
+        );
+      });
+      // The native Debug menu can flip the switch behind the frontend's
+      // back; gui.rs calls this after a toggle so the client tracer starts
+      // or stops shipping in the same beat as the backend.
+      (window as { tmuxyTraceSync?: (on: boolean) => void }).tmuxyTraceSync = (on) =>
+        tracer.setServerEnabled(on);
 
       // Backfill keybindings: the backend's first `tmux-keybindings` event
       // can fire before this listener is attached (especially on a fresh
       // launch where the WebView is still booting). Without this fetch the
       // prefix indicator stays hidden and prefix/root bindings are empty,
       // so prefix-key and Ctrl+hjkl silently no-op.
-      try {
-        const snapshot = await invoke<KeyBindings | null>('get_keybindings_snapshot');
-        if (snapshot) {
-          this.notifyKeyBindings(snapshot);
-        }
-      } catch {
-        // Older app builds won't have the command — fall through silently.
+      const snapshot = await invoke<KeyBindings | null>('get_keybindings_snapshot');
+      if (snapshot) {
+        this.notifyKeyBindings(snapshot);
       }
     } catch (e) {
       this.notifyError('Failed to connect to Tauri');
@@ -270,24 +246,15 @@ export class TauriAdapter implements TmuxAdapter {
 
     this.connected = false;
     this.reconnectingState = false;
-    this.reconnectAttempt = 0;
     this.currentState = null;
     this.lastDeltaSeq = null;
     this.streamSynced = false;
   }
 
-  isConnected(): boolean {
-    return this.connected;
-  }
-
-  isReconnecting(): boolean {
-    return this.reconnectingState;
-  }
-
   // Serial queue for mutating commands so they reach the Tauri executor in
   // issue order. Same rationale as HttpAdapter: tauri::invoke spawns each
-  // command as its own task and tmux's external subprocess calls have no
-  // cross-command ordering guarantee. A `split-window -h` racing past a
+  // command as its own task, so two commands have no ordering guarantee on
+  // their way to the monitor. A `split-window -h` racing past a
   // `select-window -t @B` would split the previous tab.
   private sendQueue: Promise<void> = Promise.resolve();
 
@@ -439,12 +406,12 @@ export class TauriAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(connectionId: number, defaultShell: string) {
-    this.connectionInfoListeners.forEach((listener) => listener(connectionId, defaultShell));
+  private notifyConnectionInfo(defaultShell: string) {
+    this.connectionInfoListeners.forEach((listener) => listener(defaultShell));
   }
 
-  private notifyReconnection(reconnecting: boolean, attempt: number) {
-    this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
+  private notifyReconnection(reconnecting: boolean) {
+    this.reconnectionListeners.forEach((listener) => listener(reconnecting));
   }
 
   async switchSession(newSession: string): Promise<void> {
@@ -492,7 +459,7 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-export function isDemoUrl(): boolean {
+function isDemoUrl(): boolean {
   return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('demo');
 }
 

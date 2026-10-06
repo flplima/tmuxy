@@ -1,23 +1,22 @@
 /**
- * layout state — parallel state for panes, windows, and focus.
+ * layout state — the `on` slice for panes, windows, and focus.
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
  * paneActivationOrder, lastActivePaneByWindow, paneKeyOverrides,
  * lastLayoutCommandTime, drag, resize,
  * resizeActive, suppressLayoutTransition.
  *
- * Optimistic operations no longer live here — they're owned by the
- * Tier-3 TmuxStore (`src/tmux/store/`). The TMUX_MODEL_UPDATE handler
- * mirrors the store's `derived` snapshot into context, so this state
- * stays a passive view of the model.
+ * Optimistic operations are owned by the TmuxStore (`src/tmux/store/`).
+ * The TMUX_MODEL_UPDATE handler mirrors the store's `derived` snapshot into
+ * context, so this state stays a passive view of the model.
  *
- * Migrated events (these spread into states.idle.on):
+ * Events (spread into states.idle.on):
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
  *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
  *   DRAG_STATE_UPDATE.
  *
- * Cross-cutting / orchestrator events remain inline in appMachine.ts —
- * see the JSDoc on layoutActions for the explicit list.
+ * Cross-cutting events live inline in appMachine.ts — see the header of
+ * ../actions/layout.ts for the list.
  */
 
 import { notReadOnly } from '../readOnlyGuard';

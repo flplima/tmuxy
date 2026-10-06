@@ -62,7 +62,7 @@ function applyStyleToElement(
   }
 }
 
-export function stylesMatch(a: CellStyle | undefined, b: CellStyle | undefined): boolean {
+function stylesMatch(a: CellStyle | undefined, b: CellStyle | undefined): boolean {
   if (a === b) return true;
   if (!a && !b) return true;
   if (!a || !b) return false;
@@ -142,7 +142,7 @@ export function rowEdgeBackground(style: CellStyle | undefined): string | undefi
 }
 
 /** Publish a row's edge backgrounds as the custom properties the CSS reads. */
-export function applyRowEdges(el: HTMLElement, line: CellLine): void {
+function applyRowEdges(el: HTMLElement, line: CellLine): void {
   const left = rowEdgeBackground(line[0]?.s);
   const right = rowEdgeBackground(line[line.length - 1]?.s);
   if (left) el.style.setProperty('--row-edge-left', left);

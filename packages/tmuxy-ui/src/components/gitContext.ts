@@ -89,7 +89,7 @@ export function findPaneGitContext(
 }
 
 /** Stable identity for comparing contexts without relying on object identity. */
-export function gitContextKey(context: PaneGitContext): string {
+function gitContextKey(context: PaneGitContext): string {
   return `${context.repository.id}:${normalizeWorkspacePath(context.worktree.path)}`;
 }
 

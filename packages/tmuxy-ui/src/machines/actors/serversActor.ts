@@ -38,7 +38,7 @@ export interface ServersActorInput {
 }
 
 // Poll cadence while the sidebar tree is open. Kept deliberately slow: each
-// tick shells read-only tmux commands (external subprocesses on web), and the
+// tick runs read-only tmux commands over the control-mode connection, and the
 // tree tolerates a few seconds of lag on non-active sessions. The poll is
 // skipped entirely while the sidebar is closed, and an immediate refresh fires
 // on open (REFRESH_SESSIONS), so this only governs the steady-state refresh.
@@ -225,9 +225,9 @@ export function createServersActor(adapter: TmuxAdapter) {
     // sidebar gate on every repeat.
     const tick = (force = false): Effect.Effect<void> =>
       Effect.suspend(() => {
-        // Only enumerate while the tree is actually visible. The poll shells
-        // read-only tmux commands as external subprocesses; running them
-        // continuously (even with the sidebar closed) contends with the
+        // Only enumerate while the tree is actually visible. The poll's
+        // read-only tmux commands share the control-mode connection; running
+        // them continuously (even with the sidebar closed) contends with the
         // control-mode pipeline and delays window creation/`@tmuxy-window-type`
         // tagging. `force` bypasses the check for the REFRESH_SESSIONS nudge
         // raised as the sidebar opens (whose context commit may not be visible).

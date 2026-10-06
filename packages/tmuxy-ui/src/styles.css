@@ -50,7 +50,6 @@
   --text-muted: #a0a0a0;
   --text-dimmed: var(--term-bright-black);
   --text-subtle: #6a6a6a;
-  --text-faint: #5a5a5a;
   --text-dark: #1e1e1e;
 
   /* Colors - Borders */
@@ -63,17 +62,12 @@
 
   /* Colors - Accent (Green) */
   --accent-green: var(--term-green);
-  --accent-green-bright: var(--term-bright-green);
   --accent-green-bg: #1a3d1a;
-  --accent-green-border: #2d5a2d;
-  --accent-green-hover: #254d25;
   /* tmux's marked pane (prefix m). Themes may override. */
   --pane-marked-border: var(--term-yellow);
 
   /* Colors - Accent (Blue) */
-  --accent-blue: #094771;
   --accent-blue-light: rgba(100, 150, 255, 0.8);
-  --accent-blue-glow: rgba(100, 150, 255, 0.6);
   --accent-blue-bg: rgba(100, 150, 255, 0.1);
   --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
   --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
@@ -91,9 +85,6 @@
   /* Colors - Error */
   --error-color: var(--term-bright-red);
   --error-light: #f48771;
-  --error-text: #e57373;
-  --error-bg: rgba(255, 0, 0, 0.2);
-  --error-border: rgba(255, 0, 0, 0.4);
 
   /* The theme's accent: what the active tab is drawn in where a theme names
      one (yellow on gruvbox), the palette's green otherwise. */
@@ -116,18 +107,12 @@
 
   /* Typography */
   --font-mono: 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace;
-  --font-size-sm: 9px;
   --font-size-md: 11px;
   --font-size-base: 12px;
   --font-size-lg: 13px;
-  --font-size-xl: 15px;
-  --font-size-2xl: 17px;
 
   /* Line Heights */
   --line-height-terminal: 24px; /* CHAR_HEIGHT */
-
-  /* Container Padding */
-  --container-padding: 0px;
 
   /* Spacing */
   --spacing-xs: 2px;
@@ -151,7 +136,6 @@
   /* Transitions */
   --transition-fast: 0.1s ease;
   --transition-normal: 0.15s ease;
-  --transition-slow: 0.2s ease;
   --transition-layout: 100ms linear;
   /* Panes changing SIZE: a resize landing on whole cells, a stack opening the
      row the focus moved to. Longer and eased where --transition-layout is
@@ -183,12 +167,10 @@
   /* Z-index */
   --z-base: 1;
   --z-active: 2;
-  --z-elevated: 50;
   --z-dragging: 3;
   --z-pane-anim: 4;
   /* A zoomed pane covers the whole layout — above every other pane state. */
   --z-zoomed: 5;
-  --z-dropdown: 1000;
   /* Above the menus (10000): a tooltip can describe a menu item. */
   --z-tooltip: 10001;
 }
@@ -1710,10 +1692,6 @@
   background: #fff;
 }
 
-/* The sheet `--color-filter` recolours a framed page through. Covers the
-   frame exactly and nothing else, and is inert to the pointer so the page
-   under it stays live. See TmuxyBrowser for why a framed page needs a
-   BACKDROP filter where an image makes do with a plain one. */
 /* The page area under the address bar, and the containing block for the
    colour-filter sheet: the sheet recolours the page, never the chrome above
    it. */
@@ -1721,6 +1699,10 @@
   position: relative;
 }
 
+/* The sheet `--color-filter` recolours a framed page through. Covers the
+   frame exactly and nothing else, and is inert to the pointer so the page
+   under it stays live. See TmuxyBrowser for why a framed page needs a
+   BACKDROP filter where an image makes do with a plain one. */
 .widget-browser-tint {
   position: absolute;
   inset: 0;
@@ -1731,38 +1713,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-/* The surface a SERVER-SIDE session's page is painted on.
-   Owns the pointer, because every click, drag and wheel over it is forwarded
-   to the page rather than acted on here — and because `getBoundingClientRect`
-   on this element is what page coordinates are measured from, so it has to be
-   exactly the area the frame fills and nothing more. */
-.widget-browser-session {
-  position: relative;
-  overflow: hidden;
-  flex: 1;
-  min-height: 0;
-  /* The page is remote, so the pane cannot know what it will paint. White, as
-     a real browser window is, or an unstyled page's black text lands on the
-     pane's dark background. */
-  background: #fff;
-}
-
-.widget-browser-session-frame {
-  display: block;
-  /* The frame is capped on the server and scaled here, so it fills the surface
-     rather than sitting at whatever pixel size was encoded. `contain` keeps
-     the aspect ratio: a page stretched to the pane would be a page at the
-     wrong shape, which is worse than letterboxing. */
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: top left;
-  /* A drag over the page is a drag IN the page — selecting text, moving a
-     slider — so the browser's own image-drag must not intercept it. */
-  user-select: none;
-  -webkit-user-drag: none;
 }
 
 .widget-browser-image img {
@@ -1868,12 +1818,6 @@
   flex: 0 0 auto;
   font-size: 0.85em;
   opacity: 0.7;
-}
-
-.widget-session-empty {
-  padding: 0 var(--spacing-2xl);
-  color: var(--text-muted);
-  font-style: italic;
 }
 
 /* The verbs, pinned under the list. */
@@ -2598,14 +2542,9 @@
   opacity: 0.55;
 }
 
-/* The process name leads and is the bold half; whatever trails it — arguments,
-   the file being edited — recedes. */
+/* The process name leads, in bold. */
 .sidebar-tree-name {
   font-weight: 600;
-}
-
-.sidebar-tree-detail {
-  opacity: 0.7;
 }
 
 /* The fold control. It sits inside the tab row but takes its own clicks, so
@@ -3017,8 +2956,7 @@ body {
   overscroll-behavior-x: none;
 }
 
-.pane-container.tab-overview-open .float-modal,
-.pane-container.tab-overview-open .float-container-root {
+.pane-container.tab-overview-open .float-modal {
   visibility: hidden;
 }
 

@@ -577,11 +577,6 @@ export class DemoTmux {
     else this.paneAsks.delete(paneId);
   }
 
-  /** The raw `@tmuxy-ask` value on a pane, or null. */
-  getPaneAsk(paneId: string): string | null {
-    return this.paneAsks.get(paneId) ?? null;
-  }
-
   selectPane(paneId: string): boolean {
     if (!this.panes.has(paneId)) return false;
     const pane = this.panes.get(paneId)!;

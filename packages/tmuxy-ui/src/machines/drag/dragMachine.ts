@@ -37,7 +37,7 @@ import {
   sameGroupDrop,
   sideOf,
 } from '../../utils/groupDrop';
-import { PANE_INSET_Y, paneInsetX } from '../../constants';
+import { paneInsetX } from '../../constants';
 import { haptics } from '../../utils/haptics';
 
 /** How long the pointer rests on a pane before the dragged pane swaps with it. */
@@ -284,10 +284,9 @@ export const dragMachine = setup({
                 ? sideOf(
                     {
                       left: centerOffsetX + pane.x * context.charWidth - insetX,
-                      top: centerOffsetY + pane.y * context.charHeight - PANE_INSET_Y,
+                      top: centerOffsetY + pane.y * context.charHeight,
                       right: centerOffsetX + (pane.x + pane.width) * context.charWidth + insetX,
-                      bottom:
-                        centerOffsetY + (pane.y + pane.height) * context.charHeight + PANE_INSET_Y,
+                      bottom: centerOffsetY + (pane.y + pane.height) * context.charHeight,
                     },
                     cursorContainerX,
                     cursorContainerY,

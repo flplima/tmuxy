@@ -1,20 +1,15 @@
 /**
- * Action implementations for the commandUi parallel state.
+ * Action implementations for the commandUi slice (a root-level `on` block).
  *
  * Owns commandMode, statusMessage, prefixActive.
- * Helpers (parseCommandPrompt, parseDisplayMessage, STATUS_MESSAGE_DURATION)
- * live in ../helpers.ts and are shared with the layout state's
- * SEND_TMUX_COMMAND interception logic.
+ *
+ * A submitted command is raised as SEND_TMUX_COMMAND, whose handler holds
+ * the one intercept chain every command sender shares.
  */
 
-import { assign, cancel, enqueueActions, raise, sendTo } from 'xstate';
+import { assign, cancel, enqueueActions, raise } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import {
-  parseCommandPrompt,
-  parseDisplayMessage,
-  STATUS_MESSAGE_DURATION,
-  STATUS_MESSAGE_CLEAR_ID,
-} from '../helpers';
+import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -46,45 +41,10 @@ export const commandUiActions = {
 
     if (!finalCommand.trim()) return;
 
-    if (finalCommand.match(/^display-message\b/)) {
-      const msg = parseDisplayMessage(finalCommand);
-      if (msg !== null) {
-        enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
-        enqueue(cancel(STATUS_MESSAGE_CLEAR_ID));
-        enqueue(
-          raise(
-            { type: 'CLEAR_STATUS_MESSAGE' },
-            { delay: STATUS_MESSAGE_DURATION, id: STATUS_MESSAGE_CLEAR_ID },
-          ),
-        );
-        return;
-      }
-    }
-
-    if (finalCommand.match(/^command-prompt\b/)) {
-      const parsed = parseCommandPrompt(finalCommand, context);
-      enqueue(
-        assign({
-          commandMode: {
-            prompt: parsed.prompt,
-            input: parsed.initialValue,
-            template: parsed.template,
-          },
-        }),
-      );
-      return;
-    }
-
-    // Through the STORE so typed commands (rename-window from the tab-rename
-    // prompt, kill-*, splits entered via `:`) get their optimistic
-    // predictions; unrecognized commands pass through as RawCommand exactly
-    // as before.
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_COMMAND' as const,
-        command: finalCommand,
-      }),
-    );
+    // The same path as a key binding or a menu item: the intercepts
+    // (copy-mode, nested command-prompt, display-message, tab/group nav)
+    // and the store's optimistic prediction.
+    enqueue(raise({ type: 'SEND_TMUX_COMMAND', command: finalCommand }));
   }),
 
   commandUi_cancelCommandMode: assign<Ctx, Evt, undefined, Evt, never>({

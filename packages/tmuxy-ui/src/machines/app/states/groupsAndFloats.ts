@@ -1,5 +1,5 @@
 /**
- * groupsAndFloats state — parallel state for pane groups, float panes and the
+ * groupsAndFloats state — the `on` slice for pane groups, float panes and the
  * two sidebar columns.
  *
  * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId,
@@ -15,8 +15,8 @@
  *    right-sidebar event — the dock's toggle can have to CREATE its tmux
  *    window, so unlike the left column it needs a live connection).
  *
- * SELECT_PANE_GROUP_TAB stays inline in appMachine.ts (cross-cutting with
- * layout). It will be revisited during the layout migration.
+ * SELECT_PANE_GROUP_TAB lives inline in appMachine.ts (cross-cutting with
+ * layout).
  */
 
 import { notReadOnly } from '../readOnlyGuard';

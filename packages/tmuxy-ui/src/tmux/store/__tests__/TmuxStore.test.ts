@@ -3,8 +3,8 @@
  *
  * These cover the bridge points the XState layer relies on:
  *  - subscribe → notified on local dispatch and server reconcile
- *  - applyOptimistic → derived snapshot updates synchronously
- *  - dispatchRemote → adapter rejection rolls back the op
+ *  - dispatch → derived snapshot updates synchronously
+ *  - dispatch → adapter rejection rolls back the op
  *  - reconcile → committed advances, matched ops drop
  */
 
@@ -81,8 +81,6 @@ function makeFakeAdapter(): {
   const adapter: TmuxAdapter = {
     connect: async () => {},
     disconnect: () => {},
-    isConnected: () => true,
-    isReconnecting: () => false,
     invoke: async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
       invocations.push({ cmd, args });
       if (state.nextResult.kind === 'reject') throw state.nextResult.error;
@@ -96,6 +94,7 @@ function makeFakeAdapter(): {
     onReconnection: () => () => {},
     onKeyBindings: () => () => {},
     onThemeSettings: () => () => {},
+    onClipboard: () => () => {},
   };
   return {
     adapter,
@@ -128,9 +127,8 @@ describe('TmuxStore (integration)', () => {
     // Local optimistic dispatch — patch applies sync.
     fake.setNextResult({ kind: 'ok', value: undefined });
     const before = snaps.length;
-    const { opId } = store.applyOptimistic(parseCommandToOp('split-window -h'));
-    expect(opId).toBeDefined();
-    // The synchronous applyOptimistic fires the notify before returning.
+    Effect.runFork(store.dispatch(parseCommandToOp('split-window -h')));
+    // The prediction applies (and notifies) before the adapter call yields.
     expect(snaps.length).toBeGreaterThan(before);
     expect(snaps[snaps.length - 1].derived.panes).toHaveLength(2);
 

@@ -141,8 +141,8 @@ export function AppProvider({
   adapter?: TmuxAdapter;
   config?: AppConfig;
 }) {
-  // Create adapter, store, and actors once. The TmuxStore is the Tier-3
-  // client model — owns optimistic patches and reconciliation; the
+  // Create adapter, store, and actors once. The TmuxStore is the client
+  // model — owns optimistic patches and reconciliation; the
   // tmuxStoreActor bridges it into XState so the appMachine context stays
   // a passive mirror of the store's derived snapshot.
   const actors = useMemo(() => {

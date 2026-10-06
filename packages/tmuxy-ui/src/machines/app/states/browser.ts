@@ -1,5 +1,5 @@
 /**
- * browser state — parallel state for the browser widget's per-pane zoom and
+ * browser state — the `on` slice for the browser widget's per-pane zoom and
  * refresh (components/widgets/browser).
  *
  * Owns context field: browserStates.

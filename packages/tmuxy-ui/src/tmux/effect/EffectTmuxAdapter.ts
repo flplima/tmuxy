@@ -13,9 +13,7 @@
  *
  * Cancellation: when the surrounding fiber is interrupted, the wrapper does
  * NOT cancel the in-flight Promise (Promises aren't cancellable). It DOES
- * stop the Effect from completing — the result is dropped. This is the
- * pragmatic baseline; future work (Phase E2) can replace specific adapter
- * calls with native Effect / Stream implementations for true cancellation.
+ * stop the Effect from completing — the result is dropped.
  */
 
 import { Effect, Schema } from 'effect';
@@ -30,9 +28,6 @@ import {
 export interface EffectTmuxAdapter {
   /** Open the connection. Wraps adapter.connect(). */
   connect: () => Effect.Effect<void, AdapterError>;
-
-  /** Synchronous teardown of subscriptions and timers. */
-  disconnect: () => void;
 
   /** Send a command and await its response with typed errors. */
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Effect.Effect<T, AdapterError>;
@@ -70,8 +65,6 @@ export function toEffectAdapter(adapter: TmuxAdapter): EffectTmuxAdapter {
         try: () => adapter.connect(),
         catch: (cause) => classifyAdapterError(cause, { command: 'connect' }),
       }),
-
-    disconnect: () => adapter.disconnect(),
 
     invoke: <T>(cmd: string, args?: Record<string, unknown>) =>
       Effect.tryPromise<T, AdapterError>({

@@ -39,40 +39,40 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
   switch (actionId) {
     // Pane actions
     case 'pane-split-below':
-      send({ type: 'SEND_COMMAND', command: 'split-window -v' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -v' });
       break;
     case 'pane-split-right':
-      send({ type: 'SEND_COMMAND', command: 'split-window -h' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
       break;
     case 'pane-next':
-      send({ type: 'SEND_COMMAND', command: 'select-pane -t :.+' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t :.+' });
       break;
     case 'pane-previous':
-      send({ type: 'SEND_COMMAND', command: 'last-pane' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'last-pane' });
       break;
     case 'pane-swap-prev':
-      send({ type: 'SEND_COMMAND', command: 'swap-pane -U' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -U' });
       break;
     case 'pane-swap-next':
-      send({ type: 'SEND_COMMAND', command: 'swap-pane -D' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -D' });
       break;
     // The marked pane (tmux `select-pane -m`). Marking acts on the pane the
     // menu was opened for (the caller focuses it first); swap/join take tmux's
     // default source, which is the marked pane whenever one exists.
     case 'pane-mark':
-      send({ type: 'SEND_COMMAND', command: 'select-pane -m' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -m' });
       break;
     case 'pane-unmark':
-      send({ type: 'SEND_COMMAND', command: 'select-pane -M' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -M' });
       break;
     case 'pane-swap-marked':
-      send({ type: 'SEND_COMMAND', command: 'swap-pane' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane' });
       break;
     case 'pane-join-marked':
-      send({ type: 'SEND_COMMAND', command: 'join-pane' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'join-pane' });
       break;
     case 'pane-move-new-tab':
-      send({ type: 'SEND_COMMAND', command: 'break-pane' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'break-pane' });
       break;
     case 'pane-add-to-group':
       send({
@@ -82,13 +82,13 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       });
       break;
     case 'pane-copy-mode':
-      send({ type: 'SEND_COMMAND', command: 'copy-mode' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'copy-mode' });
       break;
     case 'pane-paste':
-      send({ type: 'SEND_COMMAND', command: 'paste-buffer' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'paste-buffer' });
       break;
     case 'pane-clear':
-      send({ type: 'SEND_COMMAND', command: 'send-keys -R \\; clear-history' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'send-keys -R \\; clear-history' });
       break;
     case 'pane-close':
       // Group members and floats need the group-aware close script: closing a
@@ -99,7 +99,7 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       if (closeTargetPaneId) {
         send({ type: 'CLOSE_PANE', paneId: closeTargetPaneId });
       } else {
-        send({ type: 'SEND_COMMAND', command: 'kill-pane' });
+        send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
       }
       break;
 
@@ -114,19 +114,22 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       restartApp();
       break;
     case 'tab-next':
-      send({ type: 'SEND_COMMAND', command: 'next-window' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'next-window' });
       break;
     case 'tab-previous':
-      send({ type: 'SEND_COMMAND', command: 'previous-window' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'previous-window' });
       break;
     case 'tab-last':
-      send({ type: 'SEND_COMMAND', command: 'last-window' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'last-window' });
       break;
     case 'tab-rename':
-      send({ type: 'SEND_COMMAND', command: 'command-prompt -I "#W" "rename-window -- \'%%\'"' });
+      send({
+        type: 'SEND_TMUX_COMMAND',
+        command: 'command-prompt -I "#W" "rename-window -- \'%%\'"',
+      });
       break;
     case 'tab-close':
-      send({ type: 'SEND_COMMAND', command: 'kill-window' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'kill-window' });
       break;
 
     // Session actions
@@ -140,12 +143,15 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       // switch-client, and XState delivers both events to the tmux actor in
       // order. The name mirrors the picker's `tmuxy_<n>` convention.
       const newSession = `tmuxy_${Date.now()}`;
-      send({ type: 'SEND_COMMAND', command: `new-session -d -s ${newSession}` });
+      send({ type: 'SEND_TMUX_COMMAND', command: `new-session -d -s ${newSession}` });
       send({ type: 'SWITCH_SESSION', sessionName: newSession });
       break;
     }
     case 'session-rename':
-      send({ type: 'SEND_COMMAND', command: 'command-prompt -I "#S" "rename-session -- \'%%\'"' });
+      send({
+        type: 'SEND_TMUX_COMMAND',
+        command: 'command-prompt -I "#S" "rename-session -- \'%%\'"',
+      });
       break;
     case 'session-detach':
       // Goes through DETACH_CLIENT, not a raw `detach-client`: the backend has
@@ -155,33 +161,33 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       send({ type: 'DETACH_CLIENT' });
       break;
     case 'session-kill':
-      send({ type: 'SEND_COMMAND', command: 'kill-session' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'kill-session' });
       break;
     case 'session-reload-config':
       // tmuxy's own config, NOT ~/.tmux.conf — sourcing the user's vanilla
       // tmux config would drag their default-server bindings/options into
       // the isolated tmuxy socket.
-      send({ type: 'SEND_COMMAND', command: 'source-file ~/.config/tmuxy/tmuxy.conf' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'source-file ~/.config/tmuxy/tmuxy.conf' });
       break;
 
     // View actions
     case 'view-zoom':
-      send({ type: 'SEND_COMMAND', command: 'resize-pane -Z' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'resize-pane -Z' });
       break;
     case 'view-layout-even-horizontal':
-      send({ type: 'SEND_COMMAND', command: 'select-layout even-horizontal' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout even-horizontal' });
       break;
     case 'view-layout-even-vertical':
-      send({ type: 'SEND_COMMAND', command: 'select-layout even-vertical' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout even-vertical' });
       break;
     case 'view-layout-main-horizontal':
-      send({ type: 'SEND_COMMAND', command: 'select-layout main-horizontal' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout main-horizontal' });
       break;
     case 'view-layout-main-vertical':
-      send({ type: 'SEND_COMMAND', command: 'select-layout main-vertical' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout main-vertical' });
       break;
     case 'view-layout-tiled':
-      send({ type: 'SEND_COMMAND', command: 'select-layout tiled' });
+      send({ type: 'SEND_TMUX_COMMAND', command: 'select-layout tiled' });
       break;
 
     // Help actions

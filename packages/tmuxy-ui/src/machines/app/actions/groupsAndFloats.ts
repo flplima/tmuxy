@@ -1,14 +1,11 @@
 /**
- * Action implementations for the groupsAndFloats parallel state.
+ * Action implementations for the groupsAndFloats state slice.
  *
  * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId, and both
  * sidebars' open/focus state.
  *
- * Note: SELECT_PANE_GROUP_TAB is intentionally NOT migrated here — it is a
- * cross-cutting handler that touches layout fields (panes, activePaneId)
- * during optimistic group swaps. It remains in appMachine.ts inline and
- * will be revisited as part of the layout-state migration, where the
- * coordination between the two states can be designed properly.
+ * SELECT_PANE_GROUP_TAB lives inline in appMachine.ts: it touches layout
+ * fields (panes, activePaneId) during optimistic group swaps.
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';

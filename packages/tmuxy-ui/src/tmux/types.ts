@@ -436,12 +436,11 @@ export type StateUpdate =
 export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
 export type ConnectionInfoListener = (
-  connectionId: number,
   defaultShell: string,
   /** The server runs `--read-only`: this client is a viewer. Absent on transports with no such mode. */
   readOnly?: boolean,
 ) => void;
-export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
+export type ReconnectionListener = (reconnecting: boolean) => void;
 /**
  * OSC 52 clipboard request from a terminal application. The frontend mirrors
  * the payload into the system clipboard via `navigator.clipboard.writeText`.
@@ -465,8 +464,6 @@ export type DetachedListener = (reason: string | null) => void;
 export interface TmuxAdapter {
   connect(): Promise<void>;
   disconnect(): void;
-  isConnected(): boolean;
-  isReconnecting(): boolean;
   invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
   onStateChange(listener: StateListener): () => void;
   onError(listener: ErrorListener): () => void;
@@ -482,12 +479,16 @@ export interface TmuxAdapter {
   /** Subscribe to connection-ended notices; see {@link DetachedListener}. */
   onDetached?(listener: DetachedListener): () => void;
   /**
-   * OSC 52 clipboard write request from a terminal application. Optional —
-   * adapters that don't implement it are treated as "no clipboard plumbing"
-   * by the rest of the app. Returns an unsubscribe function when supported.
+   * OSC 52 clipboard write request from a terminal application. Returns an
+   * unsubscribe function.
    */
-  onClipboard?(listener: ClipboardListener): () => void;
+  onClipboard(listener: ClipboardListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
+  /**
+   * Retry a dropped connection now instead of at the next backoff tick. For
+   * transports that reconnect on a schedule; a no-op while connected.
+   */
+  reconnectNow?(): void;
   /**
    * True when the adapter is attached to a real tmux server whose sessions can
    * be enumerated (`list-windows -a` across every session) — the web
@@ -495,11 +496,6 @@ export interface TmuxAdapter {
    * in-browser sandboxes (demo, v86), where the sidebar's sessions poll would
    * be pointless churn. Gates the `serversActor` poll.
    */
-  /**
-   * Retry a dropped connection now instead of at the next backoff tick. For
-   * transports that reconnect on a schedule; a no-op while connected.
-   */
-  reconnectNow?(): void;
   enumeratesSessions?: boolean;
   /**
    * The backend serves this client as a viewer (`tmuxy server --read-only`):

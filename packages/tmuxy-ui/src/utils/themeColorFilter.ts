@@ -33,7 +33,7 @@ export interface Rgb {
  * ordered by TONE (see `readThemeRamp`), so which of these is the dark end
  * depends on whether the theme is a dark or a light one.
  */
-export const THEME_RAMP_VARS = ['--term-foreground', '--term-bright-black', '--term-background'];
+const THEME_RAMP_VARS = ['--term-foreground', '--term-bright-black', '--term-background'];
 
 /**
  * Relative luminance (Rec. 709), the same weighting the filter's own colour

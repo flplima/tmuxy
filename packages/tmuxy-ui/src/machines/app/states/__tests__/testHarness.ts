@@ -1,5 +1,5 @@
 /**
- * Test harness for isolating a single parallel state.
+ * Test harness for isolating a single state slice.
  *
  * Mounts a minimal machine that contains just the state's on: handlers and
  * its action/guard implementations, with the full AppMachineContext + Event

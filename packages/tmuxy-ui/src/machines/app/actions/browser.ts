@@ -1,5 +1,5 @@
 /**
- * Action implementations for the browser parallel state.
+ * Action implementations for the browser state slice.
  *
  * Owns context field: browserStates (per-pane BrowserPaneState records).
  *

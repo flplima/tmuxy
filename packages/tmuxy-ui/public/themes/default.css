@@ -37,7 +37,6 @@
   --text-muted: #a0a0a0;
   --text-dimmed: var(--term-bright-black);
   --text-subtle: #6a6a6a;
-  --text-faint: #5a5a5a;
   --text-dark: #1e1e1e;
 
   --border-medium: #3d3d3d;
@@ -47,16 +46,11 @@
   --pane-header-text-inactive: var(--term-bright-black);
 
   --accent-green: var(--term-green);
-  --accent-green-bright: var(--term-bright-green);
   /* Active pane outline: the classic tmux green. */
   --pane-focus-border: var(--term-green);
   --accent-green-bg: #1a3d1a;
-  --accent-green-border: #2d5a2d;
-  --accent-green-hover: #254d25;
 
-  --accent-blue: #094771;
   --accent-blue-light: rgba(100, 150, 255, 0.8);
-  --accent-blue-glow: rgba(100, 150, 255, 0.6);
   --accent-blue-bg: rgba(100, 150, 255, 0.1);
   --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
   --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
@@ -67,9 +61,6 @@
 
   --error-color: var(--term-bright-red);
   --error-light: #f48771;
-  --error-text: #e57373;
-  --error-bg: rgba(255, 0, 0, 0.2);
-  --error-border: rgba(255, 0, 0, 0.4);
 
   --cursor-bg: var(--term-white);
   --cursor-text: var(--term-black);
@@ -117,7 +108,6 @@
   --text-muted: #6e6e6e;
   --text-dimmed: #8e8e93;
   --text-subtle: #a0a0a0;
-  --text-faint: #b0b0b0;
   --text-dark: #fafafa;
 
   --border-medium: #d0d0d0;
@@ -127,14 +117,9 @@
   --pane-header-text-inactive: #8e8e93;
 
   --accent-green: #00853e;
-  --accent-green-bright: #50a14f;
   --accent-green-bg: #e6f5ec;
-  --accent-green-border: #a3d9b1;
-  --accent-green-hover: #d0edda;
 
-  --accent-blue: #d0e4f7;
   --accent-blue-light: rgba(64, 120, 242, 0.8);
-  --accent-blue-glow: rgba(64, 120, 242, 0.4);
   --accent-blue-bg: rgba(64, 120, 242, 0.08);
   --accent-blue-bg-hover: rgba(64, 120, 242, 0.15);
   --accent-blue-bg-active: rgba(64, 120, 242, 0.25);
@@ -145,9 +130,6 @@
 
   --error-color: #e45649;
   --error-light: #c7243a;
-  --error-text: #c7243a;
-  --error-bg: rgba(199, 36, 58, 0.1);
-  --error-border: rgba(199, 36, 58, 0.3);
 
   --cursor-bg: #383a42;
   --cursor-text: #fafafa;

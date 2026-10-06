@@ -2,7 +2,7 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber } from 'effect';
 import type { TmuxAdapter, ServerState, KeyBindings, ThemeSettings } from '../../tmux/types';
 import type { TraceLevel, TraceSettings } from '../types';
-import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
+import { toEffectAdapter, formatAdapterError, type AdapterError, Schemas } from '../../tmux/effect';
 import { tracer } from '../../tmux/tracer';
 import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../tmux/readOnly';
 
@@ -27,32 +27,13 @@ export interface TmuxActorInput {
 }
 
 /**
- * Convert a typed AdapterError into a human-readable string for logs and
- * the status-line display. The structured `tagged` field stays available
- * on the TMUX_ERROR event for consumers that want pattern matching.
- */
-function adapterErrorToString(e: AdapterError): string {
-  switch (e._tag) {
-    case 'TmuxError':
-      return `${e.command}: ${e.stderr}`;
-    case 'TransportError':
-      return e.context ? `${e.context}: ${String(e.cause)}` : String(e.cause);
-    case 'ProtocolError':
-      return `protocol error: ${e.reason}`;
-    case 'Cancelled':
-      return e.reason ? `cancelled: ${e.reason}` : 'cancelled';
-  }
-}
-
-/**
  * Create a tmux actor with the given adapter.
  *
  * Internally wraps the Promise-based adapter with an Effect-based facade
  * (toEffectAdapter) so failures carry the AdapterError ADT instead of
- * arbitrary string messages. Errors tunnel back to the parent machine as
- * { type: 'TMUX_ERROR', error: <display string>, tagged: <AdapterError> }
- * — consumers can switch on `tagged._tag` for typed handling and fall back
- * to `error` for logging.
+ * arbitrary string messages. The actor branches on the tag (a read-only
+ * refusal becomes a notice) and tunnels the rest back to the parent as
+ * { type: 'TMUX_ERROR', error: <display string> }.
  */
 export function createTmuxActor(adapter: TmuxAdapter) {
   return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
@@ -103,19 +84,18 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         // Trace the failure by its typed tag (TransportError/ProtocolError/…),
         // never the message text.
         tracer.event({ layer: 'effect', name: 'fail', code: tagged._tag });
-        const display = adapterErrorToString(tagged);
+        const display = formatAdapterError(tagged);
         if (opts.silentFail) {
           console.error(`[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`, tagged._tag, display);
           return;
         }
         if (opts.logPrefix) logError(`${opts.logPrefix} -> ${display}`);
-        parent.send({ type: 'TMUX_ERROR', error: display, tagged });
+        parent.send({ type: 'TMUX_ERROR', error: display });
       });
     };
 
     /**
-     * In-flight scrollback fetches keyed by paneId. Phase E4: fast-scroll
-     * sends multiple FETCH_SCROLLBACK_CELLS in quick succession; without
+     * In-flight scrollback fetches keyed by paneId. Fast-scroll sends multiple FETCH_SCROLLBACK_CELLS in quick succession; without
      * cancellation, the responses race and stale results overwrite fresh
      * ones (or just waste bandwidth). Interrupting the previous fiber
      * before forking a new one keeps only the latest scroll position's
@@ -129,8 +109,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
 
     logInfo('Connecting to tmux backend...');
 
-    // Subscribe to adapter events (still callback-based — Phase E2 will
-    // convert SSE to Effect Stream for backpressure + structured cancellation).
+    // Subscribe to adapter events.
     const unsubscribeState = adapter.onStateChange((state: ServerState) => {
       parent.send({ type: 'TMUX_STATE_UPDATE', state });
     });
@@ -158,12 +137,12 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         })
       : () => {};
 
-    // SSE/Tauri channel dropped or recovered. Adapter tracks the attempt
-    // count; we surface it as a state-machine event so the UI can show a
-    // banner while the channel is down and clear it on recovery.
-    const unsubscribeReconnection = adapter.onReconnection((reconnecting, attempt) => {
+    // SSE/Tauri channel dropped or recovered, surfaced as a state-machine
+    // event so the UI can show a banner while the channel is down and clear
+    // it on recovery.
+    const unsubscribeReconnection = adapter.onReconnection((reconnecting) => {
       if (reconnecting) {
-        parent.send({ type: 'TMUX_RECONNECTING', attempt });
+        parent.send({ type: 'TMUX_RECONNECTING' });
       } else {
         parent.send({ type: 'TMUX_RECONNECTED' });
       }
@@ -183,23 +162,15 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     const unsubscribeThemeSettings = adapter.onThemeSettings(themeSettingsReceived);
 
     const unsubscribeConnectionInfo = adapter.onConnectionInfo(
-      (connectionId: number, defaultShell: string, readOnly?: boolean) => {
-        parent.send({
-          type: 'CONNECTION_INFO',
-          connectionId,
-          defaultShell,
-          readOnly: readOnly === true,
-        });
+      (defaultShell: string, readOnly?: boolean) => {
+        parent.send({ type: 'CONNECTION_INFO', defaultShell, readOnly: readOnly === true });
       },
     );
 
-    // OSC 52 clipboard requests from terminal applications. Optional on the
-    // adapter (older adapters don't expose it); fall back to a noop unsubscribe.
-    const unsubscribeClipboard = adapter.onClipboard
-      ? adapter.onClipboard((paneId: string, text: string) => {
-          parent.send({ type: 'TMUX_CLIPBOARD', paneId, text });
-        })
-      : () => {};
+    // OSC 52 clipboard requests from terminal applications.
+    const unsubscribeClipboard = adapter.onClipboard((paneId: string, text: string) => {
+      parent.send({ type: 'TMUX_CLIPBOARD', paneId, text });
+    });
 
     run(eff.connect(), {
       onSuccess: () => {
@@ -231,7 +202,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         run(
           // Schema-decoded: any wire-format drift surfaces as ProtocolError,
-          // distinguishable from network/tmux failures in TMUX_ERROR.tagged.
+          // distinguishable from network/tmux failures in the error text.
           eff.decodingInvoke('get_initial_state', Schemas.ServerState, {
             cols: event.cols,
             rows: event.rows,
@@ -294,7 +265,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
                 console.error(
                   `[tmuxActor] get_scrollback_cells failed:`,
                   e._tag,
-                  adapterErrorToString(e),
+                  formatAdapterError(e),
                 );
               }),
             ),

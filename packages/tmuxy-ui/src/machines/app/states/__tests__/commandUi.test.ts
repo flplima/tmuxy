@@ -24,48 +24,45 @@ describe('commandUi state', () => {
     expect(ctx.commandMode).toBeNull();
   });
 
-  it('COMMAND_MODE_SUBMIT clears commandMode after submit', () => {
-    const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
-      commandMode: { prompt: ':', input: '', template: null },
-    });
+  // The submitted command takes the same path as a key binding: it is raised
+  // as SEND_TMUX_COMMAND, whose handler owns every intercept.
+  function mountRecordingSubmits(template: string | null) {
+    const sent: string[] = [];
+    const actor = mountState(
+      { on: { ...commandUiState.on, SEND_TMUX_COMMAND: { actions: 'recordCommand' } } },
+      {
+        ...commandUiActions,
+        recordCommand: ({ event }: { event: { command: string } }) => {
+          sent.push(event.command);
+        },
+      },
+      commandUiGuards,
+      { commandMode: { prompt: ':', input: '', template } },
+    );
+    return { actor, sent };
+  }
+
+  it('COMMAND_MODE_SUBMIT clears commandMode and raises the typed command', () => {
+    const { actor, sent } = mountRecordingSubmits(null);
     const ctx = sendAndGetContext(actor, { type: 'COMMAND_MODE_SUBMIT', value: 'new-window' });
     expect(ctx.commandMode).toBeNull();
-  });
-
-  it('COMMAND_MODE_SUBMIT with template substitutes %% with value', () => {
-    const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
-      commandMode: { prompt: ':', input: '', template: 'rename-window %%' },
-    });
-    const ctx = sendAndGetContext(actor, { type: 'COMMAND_MODE_SUBMIT', value: 'my-name' });
-    // commandMode is cleared after submit regardless of template
-    expect(ctx.commandMode).toBeNull();
+    expect(sent).toEqual(['new-window']);
   });
 
   it('COMMAND_MODE_SUBMIT substitutes %% in the template with the typed value', () => {
     // The template drives the real tab-rename prompt (command-prompt -p ...
-    // "rename-window '%%'"). Observe the substitution through the only
-    // window this harness has: a display-message template whose %% lands in
-    // the resulting status message.
-    const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
-      commandMode: { prompt: 'name:', input: '', template: 'display-message "renamed to %%"' },
-    });
-    const ctx = sendAndGetContext(actor, {
-      type: 'COMMAND_MODE_SUBMIT',
-      value: 'build',
-    });
-    expect(ctx.statusMessage?.text).toBe('renamed to build');
+    // "rename-window '%%'").
+    const { actor, sent } = mountRecordingSubmits("rename-window -- '%%'");
+    const ctx = sendAndGetContext(actor, { type: 'COMMAND_MODE_SUBMIT', value: 'build' });
     expect(ctx.commandMode).toBeNull();
+    expect(sent).toEqual(["rename-window -- 'build'"]);
   });
 
-  it('COMMAND_MODE_SUBMIT with display-message sets statusMessage', () => {
-    const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
-      commandMode: { prompt: ':', input: '', template: null },
-    });
-    const ctx = sendAndGetContext(actor, {
-      type: 'COMMAND_MODE_SUBMIT',
-      value: 'display-message "Hello world"',
-    });
-    expect(ctx.statusMessage?.text).toBe('Hello world');
+  it('COMMAND_MODE_SUBMIT sends nothing for a blank command', () => {
+    const { actor, sent } = mountRecordingSubmits(null);
+    const ctx = sendAndGetContext(actor, { type: 'COMMAND_MODE_SUBMIT', value: '   ' });
+    expect(ctx.commandMode).toBeNull();
+    expect(sent).toEqual([]);
   });
 
   it('SHOW_STATUS_MESSAGE sets the message text', () => {
