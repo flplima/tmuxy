@@ -34,6 +34,9 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
   const visiblePanes = useAppSelector(selectVisiblePanes);
   const isSinglePane = visiblePanes.length <= 1;
   const markedPaneId = useAppSelector(selectMarkedPaneId);
+  const inGroup = useAppSelector((ctx) =>
+    Object.values(ctx.paneGroups).some((g) => g.paneIds.length > 1 && g.paneIds.includes(paneId)),
+  );
   // A pane running a widget gets that widget's own section at the top.
   const widgetItems = useWidgetMenuItems(paneId);
 
@@ -44,7 +47,11 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
       // and confuse the close script's visibility logic.
       send({ type: 'CLOSE_PANE', paneId });
     } else {
-      send({ type: 'FOCUS_PANE', paneId });
+      // The menu's actions run on the focused pane. A group member is brought
+      // into view the way clicking its tab does — `FOCUS_PANE` on a parked
+      // member would race the swap, and the action would land on the member
+      // that was showing instead of the one the menu was opened for.
+      send(inGroup ? { type: 'SELECT_PANE_GROUP_TAB', paneId } : { type: 'FOCUS_PANE', paneId });
       executeMenuAction(send, actionId);
     }
     onClose();
