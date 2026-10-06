@@ -53,9 +53,6 @@
     "playwright": "^1.58.0",
     "webdriverio": "^9.24.0"
   },
-  "dependencies": {
-    "web-haptics": "^0.0.6"
-  },
   "overrides": {
     "uuid": "^11.1.1",
     "postcss": "^8.5.23",

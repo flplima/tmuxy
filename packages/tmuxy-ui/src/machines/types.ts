@@ -865,14 +865,6 @@ export type BrowserZoomEvent = {
 };
 export type BrowserReloadEvent = { type: 'BROWSER_RELOAD'; paneId: string; source: string };
 export type BrowserCopyUrlEvent = { type: 'BROWSER_COPY_URL'; url: string };
-/**
- * Lay a server-side session's page out for a pane of this many CSS pixels.
- *
- * Sent by `SessionView` on mount and whenever the pane's measured size settles.
- * A machine event rather than a direct adapter call so the widget keeps the
- * same one-way path as everything else: components render, the machine talks to
- * the server (see tmuxy-ui/CLAUDE.md).
- */
 /** Point the pane somewhere new — the address bar's Enter. */
 export type BrowserNavigateEvent = {
   type: 'BROWSER_NAVIGATE';

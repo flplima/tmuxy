@@ -9,7 +9,7 @@
 import { fileUrl } from '../../../utils/fileUrl';
 
 /** How the current source is rendered. */
-export type SourceKind = 'image' | 'markdown' | 'page' | 'session';
+export type SourceKind = 'image' | 'markdown' | 'page';
 
 const IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i;
 const MARKDOWN_EXTENSIONS = /\.(?:md|markdown)$/i;
@@ -21,8 +21,7 @@ const COLOR_FILTER_MARKER = '__COLOR_FILTER__';
  * Read the source out of the pane's widget content.
  *
  * tmux hard-wraps a long URL across several cell lines with no separator, so
- * the lines are joined before the marker is stripped — the same reassembly the
- * image widget needed.
+ * the lines are joined before the marker is stripped.
  */
 export function parseSource(lines: string[]): string {
   const joined = lines.join('').trim();
@@ -38,20 +37,6 @@ export function parseSource(lines: string[]): string {
  */
 export function parseColorFilter(lines: string[]): boolean {
   return lines.join('').includes(COLOR_FILTER_MARKER);
-}
-
-/**
- * The URL an `<img>` streams a session's page from.
- *
- * `nonce` is the pane's Refresh and `attempt` the first-frame watchdog. Both
- * have to change the URL rather than only remount the element: a browser holds
- * one long-lived connection per `src`, so re-requesting the same address
- * reuses the connection that was already failing to produce frames.
- */
-export function sessionStreamUrl(session: string, nonce = 0, attempt = 0): string {
-  const base = `/api/browser/${encodeURIComponent(session)}/stream`;
-  if (nonce <= 0 && attempt <= 0) return base;
-  return `${base}?_tmuxyReload=${nonce}&_tmuxyAttempt=${attempt}`;
 }
 
 export function classifySource(src: string): SourceKind {

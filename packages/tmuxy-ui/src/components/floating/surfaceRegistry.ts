@@ -29,15 +29,6 @@ interface OpenSurface {
 
 let current: OpenSurface | null = null;
 
-/** Subscribers to "what is open now", for anything that renders differently
- * while a surface is up (the tab strip dims its hover affordance). */
-const listeners = new Set<(id: string | null) => void>();
-
-function notify() {
-  const id = current?.id ?? null;
-  for (const listener of listeners) listener(id);
-}
-
 /**
  * Claim the floating layer for `id`, dismissing whatever held it.
  *
@@ -55,38 +46,13 @@ export function openSurface(id: string, dismiss: () => void): () => void {
     previous.dismiss();
   }
   current = { id, dismiss };
-  notify();
 
   return () => {
-    if (current?.id === id) {
-      current = null;
-      notify();
-    }
+    if (current?.id === id) current = null;
   };
-}
-
-/** Put away whatever floating surface is open. Safe when none is. */
-export function dismissOpenSurface(): void {
-  if (!current) return;
-  const open = current;
-  current = null;
-  open.dismiss();
-  notify();
-}
-
-/** The id of the open top-level surface, or null. */
-export function openSurfaceId(): string | null {
-  return current?.id ?? null;
-}
-
-/** Subscribe to changes in which surface is open. Returns an unsubscribe. */
-export function subscribeSurface(listener: (id: string | null) => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
 }
 
 /** Drop all state. Tests only — module state outlives a component tree. */
 export function resetSurfaceRegistry(): void {
   current = null;
-  listeners.clear();
 }
