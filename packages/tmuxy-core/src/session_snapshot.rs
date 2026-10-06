@@ -527,11 +527,6 @@ pub fn foreground(ps_output: &str, shell_pid: u32) -> Option<Foreground> {
     best.map(|(_, found)| found)
 }
 
-/// The foreground program's argv alone — what `discover_commands` records.
-pub fn foreground_argv(ps_output: &str, shell_pid: u32) -> Option<Vec<String>> {
-    foreground(ps_output, shell_pid).map(|f| f.argv)
-}
-
 /// A shell line for argv, quoted so it round-trips through a prompt.
 pub fn shell_join(argv: &[String]) -> String {
     argv.iter()
@@ -1706,7 +1701,7 @@ mod tests {
   5100  5100  5100    12:30 vim notes.md\n\
   5101  5100  5100    00:02 /bin/sh -c spell\n";
         assert_eq!(
-            foreground_argv(ps, 4242),
+            foreground(ps, 4242).map(|f| f.argv),
             Some(vec!["vim".to_string(), "notes.md".to_string()])
         );
     }
@@ -1715,20 +1710,20 @@ mod tests {
     fn an_idle_shell_has_nothing_to_offer() {
         // The shell is the foreground group itself.
         let ps = "  4242  4242  4242 01:02:03 -zsh\n";
-        assert_eq!(foreground_argv(ps, 4242), None);
+        assert!(foreground(ps, 4242).is_none());
         // A background job does not count: its group is not the foreground one.
         let ps = "  4242  4242  4242 01:02:03 -zsh\n  5000  5000  4242 00:10 sleep 100\n";
-        assert_eq!(foreground_argv(ps, 4242), None);
+        assert!(foreground(ps, 4242).is_none());
         // A process on its way out is nobody's program.
         let ps = "  4242  4242  5300 01:02:03 -zsh\n  5300  5300  5300 00:00 (id)\n";
-        assert_eq!(foreground_argv(ps, 4242), None);
+        assert!(foreground(ps, 4242).is_none());
     }
 
     /// `sudo vim` makes sudo the leader; the user typed sudo, so that is right.
     #[test]
     fn a_wrapper_is_recorded_as_typed() {
         let ps = "  4242  4242  5200 01:02:03 -zsh\n  5200  5200  5200 05:00 sudo vim /etc/hosts\n  5201  5200  5200 05:00 vim /etc/hosts\n";
-        assert_eq!(foreground_argv(ps, 4242).unwrap()[0], "sudo");
+        assert_eq!(foreground(ps, 4242).unwrap().argv[0], "sudo");
     }
 
     /// A prompt's helper holds the terminal for milliseconds; the program the
