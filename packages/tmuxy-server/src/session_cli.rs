@@ -12,6 +12,8 @@ use std::path::PathBuf;
 
 use tmuxy_core::session_snapshot::{self as snap, RestoreOptions};
 
+use crate::cli_tmux::tmux;
+
 #[derive(clap::Args, Debug)]
 pub struct SessionArgs {
     #[command(subcommand)]
@@ -44,23 +46,6 @@ pub enum SessionVerb {
         #[arg(long)]
         force: bool,
     },
-}
-
-/// Run one tmux command as a subprocess and return what it printed.
-fn tmux(argv: &[String]) -> Result<String, String> {
-    let output = tmuxy_core::session::tmux_command()
-        .args(argv)
-        .output()
-        .map_err(|e| format!("tmux {}: {e}", argv.join(" ")))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        Err(format!(
-            "tmux {}: {}",
-            argv.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
 }
 
 fn session_exists(name: &str) -> bool {

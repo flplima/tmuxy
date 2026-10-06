@@ -2,29 +2,11 @@
 # Move a group member to another place in its group's order.
 # Args: $1=pane_id  $2=index (0-based; past the end means last)
 #
-# Every member gets its place written (@tmuxy-group-pos), so the order is a
-# property of the panes and survives a server restart through the snapshot.
+# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
+# `group` verb); this script is their name for the UI, the key bindings and
+# session restore.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-PANE="$1"
-INDEX="$2"
-
-GID=$(group_id_of_pane "$PANE")
-if [ -z "$GID" ]; then
-  echo "pane-group-move: $PANE is not in a group" >&2
-  exit 1
-fi
-
-others=()
-while read -r member; do
-  [ -n "$member" ] && [ "$member" != "$PANE" ] && others+=("$member")
-done < <(group_members "$GID")
-
-[ "$INDEX" -gt "${#others[@]}" ] && INDEX=${#others[@]}
-[ "$INDEX" -lt 0 ] && INDEX=0
-ordered=("${others[@]:0:$INDEX}" "$PANE" "${others[@]:$INDEX}")
-
-set_group_order "${ordered[@]}"
-announce_groups
+group_verb move "$@"

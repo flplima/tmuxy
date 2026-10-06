@@ -594,6 +594,15 @@ impl TmuxMonitor {
         // breaks (missing rows), input fails, or content is corrupted.
         self.enforce_settings().await?;
 
+        // Tell the helper scripts which binary runs this build's server verbs
+        // (see `session::SERVER_BIN_ENV`). A viewer changes nothing on the
+        // server it watches.
+        if !self.config.observer {
+            for cmd in crate::session::server_command_env() {
+                self.connection.send_command(&cmd).await?;
+            }
+        }
+
         // Enable flow control (tmux 3.2+)
         // pause-after=5 means pause output if client is 5+ seconds behind
         // This prevents unbounded memory growth during heavy output

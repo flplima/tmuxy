@@ -678,6 +678,21 @@ mod name_tests {
     use super::*;
 
     #[test]
+    fn the_server_command_is_published_quoted_with_its_subcommand() {
+        assert_eq!(
+            server_command_env_for(Path::new("/Apps/my tmuxy/tmuxy"), Some("server")),
+            [
+                "set-environment -g TMUXY_SERVER_BIN '/Apps/my tmuxy/tmuxy'",
+                "set-environment -g TMUXY_SERVER_SUBCOMMAND 'server'",
+            ]
+        );
+        assert_eq!(
+            server_command_env_for(Path::new("/bin/tmuxy-server"), None)[1],
+            "set-environment -g -u TMUXY_SERVER_SUBCOMMAND"
+        );
+    }
+
+    #[test]
     fn session_names_are_held_to_the_alphabet() {
         for ok in ["tmuxy", "tmuxy_test_1727", "a-b", "me@host", "c++", "x"] {
             assert!(is_safe_session_name(ok), "{ok:?} should be accepted");
@@ -721,6 +736,47 @@ pub fn ensure_themes() -> PathBuf {
     }
 
     themes_dir
+}
+
+/// The tmux global environment variables naming the binary that runs this
+/// build's server verbs (`group`, `session`, …), and the subcommand it needs
+/// first: none for `tmuxy-server`, `server` for the desktop app. The helper
+/// scripts run under `run-shell`, which hands them tmux's global environment,
+/// so this is how a script finds THIS build — the copies in [`bin_dir`] sit
+/// nowhere near a build tree, and a socket's tmux server is the one place a
+/// dev build and an installed one never share.
+pub const SERVER_BIN_ENV: &str = "TMUXY_SERVER_BIN";
+pub const SERVER_SUBCOMMAND_ENV: &str = "TMUXY_SERVER_SUBCOMMAND";
+
+static SERVER_COMMAND: OnceLock<(PathBuf, Option<&'static str>)> = OnceLock::new();
+
+/// Record how this process's own binary runs a server verb. Called once by
+/// each entry point, before any monitor attaches.
+pub fn set_server_command(exe: PathBuf, subcommand: Option<&'static str>) {
+    let _ = SERVER_COMMAND.set((exe, subcommand));
+}
+
+/// The commands that publish [`SERVER_BIN_ENV`] and [`SERVER_SUBCOMMAND_ENV`]
+/// to the tmux server, or nothing when no entry point recorded a binary.
+pub fn server_command_env() -> Vec<String> {
+    SERVER_COMMAND
+        .get()
+        .map(|(exe, subcommand)| server_command_env_for(exe, *subcommand))
+        .unwrap_or_default()
+}
+
+fn server_command_env_for(exe: &Path, subcommand: Option<&str>) -> Vec<String> {
+    let quote = crate::executor::tmux_quote;
+    vec![
+        format!(
+            "set-environment -g {SERVER_BIN_ENV} {}",
+            quote(&exe.to_string_lossy())
+        ),
+        match subcommand {
+            Some(sub) => format!("set-environment -g {SERVER_SUBCOMMAND_ENV} {}", quote(sub)),
+            None => format!("set-environment -g -u {SERVER_SUBCOMMAND_ENV}"),
+        },
+    ]
 }
 
 /// User bin directory: `~/.config/tmuxy/bin/`. Where we materialize the

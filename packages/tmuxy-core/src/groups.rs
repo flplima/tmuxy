@@ -634,6 +634,28 @@ pub enum Direction {
 /// `next` / `prev`: show the member after (or before) the one on screen,
 /// wrapping. `pane` names the group.
 pub fn step(panes: &Panes, pane: &PaneId, direction: Direction) -> Vec<Invocation> {
+    step_by(panes, pane, |at, len| match direction {
+        Direction::Next => Some((at + 1) % len),
+        Direction::Prev => Some((at + len - 1) % len),
+    })
+}
+
+/// `step` without wrapping: nothing past the last (or before the first)
+/// member, which is where Ctrl+l / Ctrl+h move on to the neighbouring pane.
+pub fn step_within(panes: &Panes, pane: &PaneId, direction: Direction) -> Vec<Invocation> {
+    step_by(panes, pane, |at, len| match direction {
+        Direction::Next => (at + 1 < len).then_some(at + 1),
+        Direction::Prev => at.checked_sub(1),
+    })
+}
+
+/// Switch to the member `pick` chooses, given the visible member's place and
+/// the group's size.
+fn step_by(
+    panes: &Panes,
+    pane: &PaneId,
+    pick: impl Fn(usize, usize) -> Option<usize>,
+) -> Vec<Invocation> {
     let Some(group) = panes.group_of(pane) else {
         return Vec::new();
     };
@@ -644,14 +666,10 @@ pub fn step(panes: &Panes, pane: &PaneId, direction: Direction) -> Vec<Invocatio
     let Some(at) = members.iter().position(|m| m.pane == visible.pane) else {
         return Vec::new();
     };
-    if members.len() < 2 {
-        return Vec::new();
+    match pick(at, members.len()) {
+        Some(target) if target != at => switch(panes, &members[target].pane),
+        _ => Vec::new(),
     }
-    let target = match direction {
-        Direction::Next => (at + 1) % members.len(),
-        Direction::Prev => (at + members.len() - 1) % members.len(),
-    };
-    switch(panes, &members[target].pane)
 }
 
 /// `move`: put a member at `index` in its group's order (past the end means
@@ -1199,6 +1217,28 @@ mod tests {
             lines(&step(&panes, &pid("%1"), Direction::Next))[1],
             "swap-pane -s %7 -t %1"
         );
+    }
+
+    #[test]
+    fn stepping_within_stops_at_either_end() {
+        let panes = grouped();
+        assert_eq!(
+            lines(&step_within(&panes, &pid("%1"), Direction::Next))[1],
+            "swap-pane -s %4 -t %1"
+        );
+        assert!(step_within(&panes, &pid("%1"), Direction::Prev).is_empty());
+        // Order %4, %7, %1: the one on screen is last.
+        let mut rows = panes.rows.clone();
+        rows[1].pos = Some(2);
+        rows[3].pos = Some(0);
+        rows[4].pos = Some(1);
+        let last = Panes::new(rows);
+        assert!(step_within(&last, &pid("%1"), Direction::Next).is_empty());
+        assert_eq!(
+            lines(&step_within(&last, &pid("%1"), Direction::Prev))[1],
+            "swap-pane -s %7 -t %1"
+        );
+        assert!(step_within(&panes, &pid("%2"), Direction::Next).is_empty());
     }
 
     #[test]

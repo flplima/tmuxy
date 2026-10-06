@@ -17,6 +17,12 @@ fn main() {
     #[cfg(target_os = "linux")]
     desktop::ensure_entry();
 
+    // Every server verb this binary runs is `tmuxy server <verb>`; the
+    // monitor publishes that to tmux for the helper scripts.
+    if let Ok(exe) = std::env::current_exe() {
+        tmuxy_core::session::set_server_command(exe, Some("server"));
+    }
+
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     use std::io::IsTerminal;

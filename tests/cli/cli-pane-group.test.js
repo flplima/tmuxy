@@ -1,7 +1,9 @@
-const { runCLI } = require('./helpers/run-cli');
 const path = require('path');
+const { runCLI } = require('./helpers/run-cli');
+const { runGroupScript } = require('./helpers/run-group-script');
 
 const SCRIPTS_DIR = path.resolve(__dirname, '../../bin/tmuxy');
+const MOCKS_DIR = path.resolve(__dirname, 'mocks');
 
 describe('CLI pane group subcommands', () => {
   describe('pane group add', () => {
@@ -103,6 +105,40 @@ describe('CLI pane group subcommands', () => {
     test('splits in beside a pane on the side named', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'leave', '%5', '--beside', '%2', 'down']);
       expect(tmuxCalls[0].args[1]).toMatch(/pane-group-leave' '%5' '--beside' '%2' 'down'$/);
+    });
+  });
+
+  describe('the pane-group scripts', () => {
+    test.each([
+      ['pane-group-add', ['%1', '80', '24'], 'group add %1 80 24'],
+      ['pane-group-close', ['%5'], 'group close %5'],
+      ['pane-group-switch', ['%3'], 'group switch %3'],
+      ['pane-group-next', ['%1'], 'group next %1'],
+      ['pane-group-prev', ['%1'], 'group prev %1'],
+      ['pane-group-move', ['%4', '0'], 'group move %4 0'],
+      ['pane-group-join', ['%9', '%4', ''], 'group join %9 %4 '],
+      ['pane-group-leave', ['%5', '--beside', '%2', 'up'], 'group leave %5 --beside %2 up'],
+      ['pane-group-park', ['work:0.0', 'g1', '/tmp', '2'], 'group park work:0.0 g1 /tmp 2'],
+    ])('%s hands its arguments to the server binary', (script, args, expected) => {
+      const { stdout, exitCode } = runGroupScript(script, args);
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe(`server ${expected} [scripts=${SCRIPTS_DIR}]`);
+    });
+
+    test("keeps the binary's output and exit status", () => {
+      const { stdout, exitCode } = runGroupScript('pane-group-join', ['%1', '%1'], {
+        STUB_EXIT: '1',
+      });
+      expect(exitCode).toBe(1);
+      expect(stdout).toContain('group join %1 %1');
+    });
+
+    test('prefers the binary the running tmuxy published, with its subcommand', () => {
+      const { stdout } = runGroupScript('pane-group-close', ['%5'], {
+        TMUXY_SERVER_BIN: path.join(MOCKS_DIR, 'tmuxy-server'),
+        TMUXY_SERVER_SUBCOMMAND: 'server',
+      });
+      expect(stdout).toBe('mock-server-started server group close %5');
     });
   });
 
