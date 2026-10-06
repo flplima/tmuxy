@@ -74,7 +74,7 @@ See [TESTS.md](TESTS.md) § Storybook Tests for the budgets and the CI wiring.
 
 Instrumentation the running product previously lacked entirely.
 
-`packages/tmuxy-ui/src/tmux/latencyTracker.ts` records the **input → paint**
+`packages/tmuxy-ui/src/infra/latencyTracker.ts` records the **input → paint**
 round trip: when a keystroke/command leaves the client (`markInput`) and when
 the resulting state update is applied (`recordUpdate`). It reports a latency
 distribution (p50/p95/p99/max), the count of outstanding un-applied inputs

@@ -317,7 +317,7 @@ On 3.7a, `send-keys -l 'text'` format-expands the literal. Empirically:
 | `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
 | `#(date)`      | `#(date)` (command formats not run)         |
 
-Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/tmux/v86/V86TmuxAdapter.ts`); the native server will need the same treatment when it upgrades. On 3.6b, `send-keys -l` does not expand at all.
+Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/infra/transport/drivers/v86/V86TmuxAdapter.ts`); the native server will need the same treatment when it upgrades. On 3.6b, `send-keys -l` does not expand at all.
 
 ### Mouse-tracking panes eat pasted SGR sequences — inject with `send-keys -H`
 
@@ -340,7 +340,7 @@ the frontend builds its binding table from — as the alias's **expansion**:
 
 This matters because the client classifies each binding's command to decide
 whether it can predict the result optimistically
-(`tmuxy-ui/src/tmux/store/parseCommand.ts`). Anything it fails to recognise
+(`tmuxy-ui/src/domain/store/parseCommand.ts`). Anything it fails to recognise
 becomes a `RawCommand` — correct, but unpredicted, so the user waits out the
 full round trip instead of seeing the result on the next frame. Matching only
 the alias spelling is therefore a silent latency bug, not a parse error: the
@@ -482,7 +482,7 @@ The frontend filters on `windowType`:
 - the sidebar tree (`machines/actors/serversActor.ts`) hides `float` / `sidebar-left` / `sidebar-right` windows and the `__tmuxy_stash` session; everything else (including untagged foreign windows) shows as a tab.
 - floats are rebuilt from `windowType === 'float'` windows and their `@tmuxy-float-*` metadata, and each group from the panes sharing a `group_id` (`machines/app/helpers.ts`).
 
-Window/pane mutations go through the optimistic pipeline in `packages/tmuxy-ui/src/tmux/store/` — each op predicts a local patch, dispatches the tmux command, and reconciles against the next server snapshot (`ops.ts`, `TmuxStore.ts`).
+Window/pane mutations go through the optimistic pipeline in `packages/tmuxy-ui/src/domain/store/` — each op predicts a local patch, dispatches the tmux command, and reconciles against the next server snapshot (`ops.ts`, `TmuxStore.ts`).
 
 ## Related
 

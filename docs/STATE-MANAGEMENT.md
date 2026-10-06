@@ -66,7 +66,7 @@ The monitor's substitutable capabilities. Today that is only the `Clock` the set
 
 The wire-shaped types the backend emits. `StateUpdate` is either a `Full` snapshot (initial sync, full resync) or a `Delta` (sequenced incremental change). The delta encoding distinguishes "no change" from "removed" so the frontend's reconciliation is unambiguous.
 
-See `tmuxy-core/src/lib.rs`. The TypeScript mirrors live in `tmuxy-ui/src/tmux/effect/schemas.ts` and are validated via Effect Schema on every receive.
+See `tmuxy-core/src/lib.rs`. The TypeScript side is Effect Schemas in `tmuxy-ui/src/domain/wire.ts`; the TS types are derived from them and every update is decoded once where it enters the client.
 
 ### StateEmitter trait
 
@@ -161,7 +161,7 @@ That settled size is also what the grid must be POSITIONED against for the lengt
 
 ### Optimistic Updates — TmuxClientModel
 
-Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src/tmux/store/`. The model splits server-confirmed state from in-flight predictions and replays predictions on top.
+Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src/domain/store/`. The model splits server-confirmed state from in-flight predictions and replays predictions on top.
 
 | Concept            | Lives in                    | Purpose                                                                 |
 | ------------------ | --------------------------- | ----------------------------------------------------------------------- |
@@ -213,7 +213,7 @@ Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_
 
 ### How the app machine is split
 
-`appMachine.ts` holds the lifecycle (connecting / idle / reconnecting), the actor wiring and the handlers that cut across concerns, including the one command path every tmux command goes through. Everything else is grouped by the context fields it owns: `machines/app/states/<concern>.ts` holds that concern's event handlers (an `on` map spread into the machine), and `machines/app/actions/<concern>.ts` the named actions they refer to. `context.ts` builds the initial context and owns the field-ownership map. Optimistic tmux state is not machine state at all: it lives in the store under `src/tmux/store/`.
+`appMachine.ts` holds the lifecycle (connecting / idle / reconnecting), the actor wiring and the handlers that cut across concerns, including the one command path every tmux command goes through. Everything else is grouped by the context fields it owns: `machines/app/states/<concern>.ts` holds that concern's event handlers (an `on` map spread into the machine), and `machines/app/actions/<concern>.ts` the named actions they refer to. `context.ts` builds the initial context and owns the field-ownership map. Optimistic tmux state is not machine state at all: it lives in the store under `src/domain/store/`.
 
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
 `AppMachineContext` field to the concern that owns it (the owner names are the `states/` file names, plus `parent` for the machine itself). The
@@ -228,28 +228,11 @@ Action names are prefixed with the owning state (`uiPrefs_applyTheme`,
 `layout_selectTab`, etc.) so they don't collide when merged into the
 parent's `setup({ actions })` block.
 
-### Effect-based protocol boundary
+### Domain and infrastructure
 
-The async/IO layer between adapters and `tmuxActor` uses Effect for typed
-errors, structured concurrency, and schema-validated decoding. Files under
-`tmuxy-ui/src/tmux/effect/`:
+The frontend splits along one line: `src/domain/` is pure — branded ids (`ids.ts`), the wire schemas and the decoding into them (`wire.ts`), the client model derived from the wire (`client.ts`), the command vocabulary (`commands.ts`: `TmuxOp` and `toTmuxCommand`, the only code that spells a tmux command), and the store's pure model (`store/`: predict, reconcile, replay). `src/infra/` is everything with an effect, as Effect services and Layers: the `TmuxTransport` service and its four Layers (`transport/`, see [DATA-FLOW.md](DATA-FLOW.md)), the one `ManagedRuntime` the app runs them on (`runtime.ts`), the store that holds the model and sends ops (`store/TmuxStore.ts`), the tracer and the latency tracker. XState machines orchestrate between the two: the actors run effects on the runtime, and machine actions call domain functions.
 
-- **`AdapterError.ts`** — Tagged union failure type:
-  `TransportError | ProtocolError | TmuxError | Cancelled`. A `{ error: '...' }`
-  rejection (the demo and v86 adapters') is classified as `TmuxError`; the real
-  transports' failures arrive as `TransportError`.
-- **`EffectTmuxAdapter.ts`** — `toEffectAdapter(adapter)` wraps the
-  Promise-based `TmuxAdapter` interface into Effect-returning methods.
-  `decodingInvoke(cmd, schema, args)` composes invoke + Schema.decodeUnknown
-  so decode failures surface as `ProtocolError`, distinct from network
-  (`TransportError`) and tmux command failures (`TmuxError`).
-- **`schemas.ts`** — Effect Schema mirrors of the inbound wire shapes
-  (`ServerState` and its substructures: panes, windows, cells, image
-  placements). Re-exported as the `Schemas` namespace from the barrel.
-
-**tmuxActor** consumes the Effect facade: every adapter call runs through
-`Effect.runPromiseExit`, and errors tunnel to the parent machine as
-`TMUX_ERROR { error }`, a display string.
+Failures are one tagged union (`infra/transport/AdapterError.ts`): `TmuxError` when tmux itself refused a command (the server's `kind: "tmux"`), `TransportError` for everything a transport reports otherwise (no monitor, a timeout, a malformed or forbidden request), `ProtocolError` for a payload that does not decode, and `Cancelled`. The tmux actor turns a failure into `TMUX_ERROR { error }`, a display string for the snackbar.
 
 ### Errors the user sees
 
@@ -293,9 +276,9 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 ## How Backend and Frontend Stay in Sync
 
-1. **Initial sync** — On connection, the frontend sends `get_initial_state` with viewport size. The backend answers with the monitor's own `TmuxState` (`MonitorCommand::GetState`, the same picture its `Full` broadcast carries), so a client that connects after that broadcast — the desktop webview always does, its monitor starts first — begins from a baseline the deltas agree with. The frontend starts from it only until the stream has delivered its own full state: after that the stream is the state, and a later answer only fills panes the stream has no content for yet (`adoptInitialState` in `tmux/deltaProtocol.ts`), since the answer sits outside the delta sequence and putting it back would undo what the stream delivered since.
+1. **Initial sync** — On connection, the frontend sends `get_initial_state` with viewport size. The backend answers with the monitor's own `TmuxState` (`MonitorCommand::GetState`, the same picture its `Full` broadcast carries), so a client that connects after that broadcast — the desktop webview always does, its monitor starts first — begins from a baseline the deltas agree with. The frontend starts from it only until the stream has delivered its own full state: after that the stream is the state, and a later answer only fills panes the stream has no content for yet (`adoptInitialState` in `domain/deltaProtocol.ts`), since the answer sits outside the delta sequence and putting it back would undo what the stream delivered since.
 
-2. **Incremental updates** — The backend sends `TmuxDelta` updates with sequence numbers. The frontend merges these via `handleStateUpdate()` in `tmuxy-ui/src/tmux/deltaProtocol.ts`. Only changed fields are transmitted.
+2. **Incremental updates** — The backend sends `TmuxDelta` updates with sequence numbers. The frontend merges these via `handleStateUpdate()` in `tmuxy-ui/src/domain/deltaProtocol.ts`. Only changed fields are transmitted.
 
 3. **Sequence gaps** — If a delta arrives with an unexpected sequence number, the frontend requests a full resync.
 

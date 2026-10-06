@@ -441,7 +441,7 @@ which someone reads and turns into tests, not a score a build trips over.
 | Runner  | `cargo-mutants`                                                   | Stryker                                 |
 | Config  | `.cargo/mutants.toml`                                             | `packages/tmuxy-ui/stryker.config.json` |
 | Command | `npm run mutants`                                                 | `npm run mutants:ui`                    |
-| Scope   | `command_router.rs`, `control_mode/parser.rs`, `request_guard.rs` | `src/tmux/deltaProtocol.ts`             |
+| Scope   | `command_router.rs`, `control_mode/parser.rs`, `request_guard.rs` | `src/domain/deltaProtocol.ts`           |
 | Runtime | ~9 min (66 mutants)                                               | ~2 min (613 mutants)                    |
 
 `cargo-mutants` comes from `bin/install-dev-tools --full`; Stryker is a

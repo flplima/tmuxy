@@ -82,7 +82,7 @@ list lives — add a tool there, not in one of them.
 
 Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Exception:** `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead (the server rewrites this automatically).
 
-Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux mutations from the frontend (fire-and-forget, resolves `null` on every transport) and `adapter.query(command)` when the command's output is needed — reads are answered in-band on the same connection (`RunCommandWithReply`). Never add a subprocess or shell path for a client command; the routing policy is `packages/tmuxy-core/src/command_router.rs` and both transports must call it. See `packages/tmuxy-ui/src/tmux/adapters.ts` for the adapter implementations and [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
+UI code never writes a tmux command string: it builds a `TmuxOp` (`packages/tmuxy-ui/src/domain/commands.ts`, where `toTmuxCommand` is the only place command syntax and script paths are spelled) and dispatches it. On the wire, mutations go out as `run_tmux_command` (fire-and-forget, resolves `null` on every transport) and reads as `query` — answered in-band on the same connection (`RunCommandWithReply`) — both through the `TmuxTransport` service (`packages/tmuxy-ui/src/infra/transport/`). Never add a subprocess or shell path for a client command; the routing policy is `packages/tmuxy-core/src/command_router.rs` and both transports must call it. See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
 
 ## Test Guidelines
 

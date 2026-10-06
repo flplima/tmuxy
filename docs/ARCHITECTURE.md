@@ -33,7 +33,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 **tmuxy-server** — Axum HTTP server providing SSE streaming (with `Last-Event-Id` resync), HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and structured shutdown. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
-**tmuxy-ui** — React frontend using XState for all state management. Communicates with the backend via an adapter pattern (`TmuxAdapter` interface). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, and `LifoShell` — a real in-browser shell backed by `@lifo-sh/core`) for the demo site. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
+**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, and `LifoShell` — a real in-browser shell backed by `@lifo-sh/core`) for the demo site. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
 **tmuxy-tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Each OS window is its own client with its own monitor, in a tmux session group (see "One monitor per GUI window" in [DATA-FLOW.md](DATA-FLOW.md), which also covers the Tauri data flow).
 
@@ -134,9 +134,9 @@ Like native tmux, when multiple browser clients connect to the same session, the
 
 2. **All commands through control mode** — External tmux subprocess calls can crash the tmux server when control mode is attached. See [TMUX.md](TMUX.md).
 
-3. **State machine + client model in frontend** — XState owns UI-mode finite states (connecting / idle / reconnecting / disconnected, drag, resize, copy mode, command mode). The tmux world itself lives in a dedicated `TmuxClientModel` (`src/tmux/store/`) with explicit committed / pending-ops / derived layers, owned by an Effect-managed Ref. The appMachine bridges them by routing `SEND_TMUX_COMMAND` and `TMUX_STATE_UPDATE` through `tmuxStoreActor`. Components render; business logic belongs in the machines, and `useEffect` is kept to DOM and timer work that has nowhere else to live.
+3. **State machine + client model in frontend** — XState owns UI-mode finite states (connecting / idle / reconnecting / disconnected, drag, resize, copy mode, command mode). The tmux world itself lives in a dedicated `TmuxClientModel` (`src/domain/store/`) with explicit committed / pending-ops / derived layers: plain state and pure functions (`src/domain/store/`), held by `src/infra/store/TmuxStore.ts`, whose only effect is sending an op through the `TmuxTransport` service. The appMachine bridges them: every intent is a `TmuxOp` dispatched to `tmuxStoreActor` (`DISPATCH_OP`), and state from the transport stream reaches it as `TMUX_STATE_UPDATE`. Components render; business logic belongs in the machines, and `useEffect` is kept to DOM and timer work that has nowhere else to live.
 
-4. **Adapter pattern for transport** — `TmuxAdapter` interface abstracts SSE/HTTP vs Tauri IPC, making the frontend transport-agnostic.
+4. **One transport service** — the `TmuxTransport` Effect service abstracts SSE/HTTP, Tauri IPC and the in-browser engines behind one interface and one ordered event stream, so the frontend is transport-agnostic.
 
 5. **Delta protocol** — After the initial full state snapshot, the server sends incremental deltas (changed panes, windows) to minimize bandwidth.
 

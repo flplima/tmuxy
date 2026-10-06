@@ -76,7 +76,7 @@ What it does not do: it is not confidentiality _within the session it shows_. A 
 
 A proxy on the same machine forwards to `127.0.0.1`, but it usually passes its public name through as the `Host` header, which the server does not recognise as itself (see below). Name it: `tmuxy server --allowed-host tmux.example.com` (repeatable, or `TMUXY_ALLOWED_HOSTS` comma-separated).
 
-Forgetting it is easy to diagnose: the page itself still loads (static files are not guarded), every API route answers 403, and the app says so — _The server refused this page: request Host is not this server (see --allowed-host)_ — instead of waiting on a connection that cannot open (see `explainRefusal` in `tmuxy-ui/src/tmux/HttpAdapter.ts`).
+Forgetting it is easy to diagnose: the page itself still loads (static files are not guarded), every API route answers 403, and the app says so — _The server refused this page: request Host is not this server (see --allowed-host)_ — instead of waiting on a connection that cannot open (see `explainRefusal` in `tmuxy-ui/src/infra/transport/drivers/HttpAdapter.ts`).
 
 ### Tauri Desktop App
 
@@ -236,7 +236,7 @@ Control mode reads one command per line, so a newline inside anything written in
 
 - **Session names** from `/events?session=` and `/commands?session=` are held to letters, digits and `_ - @ +` (`tmuxy_core::session::is_safe_session_name`) and refused with `400` otherwise. The name goes into control-mode command lines and into `run-shell` strings that tmux format-expands before a shell sees them; an alphabet nothing in those contexts can misread replaces escaping for each. A `--session` pin outside it is refused at startup, since no client could name it. Every name tmuxy creates fits, and tmux itself forbids `.` and `:`.
 - **Pane ids** a client sends (`get_scrollback_cells`) must parse as tmux's canonical `%<digits>` (`tmuxy_core::ids::PaneId`) before they are used as a `-t` target; a client only ever learned ids from `list-panes`, so `other:0.0` or `{last}` is not a pane it was shown.
-- **Literal text** — a paste, an IME composition, the selection menu's _Send keys_ — is typed one line at a time, one `send-keys -l` per line with `Enter` between them (`literalTextCommands` in `tmuxy-ui/src/tmux/keyBatching.ts`). Multi-line text pasted into a shell still runs as commands in that shell, exactly as in any terminal.
+- **Literal text** — a paste, an IME composition, the selection menu's _Send keys_ — is typed one line at a time, one `send-keys -l` per line with `Enter` between them (`literalTextCommands` in `tmuxy-ui/src/infra/transport/keyBatching.ts`). Multi-line text pasted into a shell still runs as commands in that shell, exactly as in any terminal.
 
 ## Pane Output Threat Model
 

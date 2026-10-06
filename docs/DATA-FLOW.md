@@ -56,9 +56,7 @@ Tauri IPC has lower latency than HTTP since communication is in-process.
 
 ## Adapter Pattern
 
-Every transport implements the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts` (the interface is the reference for its members): `connect`/`disconnect`, `invoke` for commands (fire-and-forget `run_tmux_command` among them), `query` for read-only tmux commands answered in-band on the control-mode connection, and one `on…` subscription per server event (state, errors, connection info, reconnection, keybindings, theme settings, clipboard, logs, fatal errors, detach).
-
-The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic. Two more adapters exist beyond the SSE and Tauri transports: `DemoAdapter` (in-browser demo — simulates a tmux backend) and `V86TmuxAdapter` (fully client-side **real** tmux — see Scenario 4 below).
+The frontend reaches tmux through one Effect service, `TmuxTransport` (`tmuxy-ui/src/infra/transport/TmuxTransport.ts`): `connect`/`disconnect`, `invoke` for commands (fire-and-forget `run_tmux_command` among them), `query` for read-only tmux commands answered in-band on the control-mode connection — each failing with a typed `AdapterError` — and `subscribe`, one ordered `Stream` of tagged transport events (state, connection info, reconnection, keybindings, theme settings, logs, errors, fatal, detach, clipboard), so the first state never overtakes the connection info it depends on. Four Layers provide it (`layers.ts`): HTTP/SSE and Tauri IPC, which share one stream stage (`stateFeed.ts`: decode, sequence, and on a gap or an undecodable payload refetch the full state once at the last viewport the client reported), and the in-browser demo and v86 engines. Each Layer wraps a driver under `drivers/` whose events go through one generic hub (`infra/eventHub.ts`). The app builds one `ManagedRuntime` from the Layer for its environment (`infra/runtime.ts`), and the XState actors run every effect on it; tests swap in a scripted driver behind the real Layer (`src/test/transport.ts`).
 
 ## Connection Lifecycle (Web)
 
@@ -70,12 +68,12 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 4. Client receives `connection-info` event with connection ID and default shell
 5. Client sends `get_initial_state` (via HTTP POST) with its viewport size (cols, rows)
 6. Server stores the client size, computes the minimum viewport across all clients, and sends a resize command through the monitor's control mode connection
-7. Client receives full state snapshot, then incremental deltas as tmux state changes. The stream (one full state, then deltas against the server's previous emission) is the client's state from its first full state on; the `get_initial_state` answer is a separate snapshot, so once the stream is synced it only fills panes the stream has not sent content for yet. It is the starting state only before the stream's first full state, after a delta sequence gap, or on a new connection (`adoptInitialState` in `tmuxy-ui/src/tmux/deltaProtocol.ts`).
+7. Client receives full state snapshot, then incremental deltas as tmux state changes. The stream (one full state, then deltas against the server's previous emission) is the client's state from its first full state on; the `get_initial_state` answer is a separate snapshot, so once the stream is synced it only fills panes the stream has not sent content for yet. It is the starting state only before the stream's first full state, after a delta sequence gap, or on a new connection (`adoptInitialState` in `tmuxy-ui/src/domain/deltaProtocol.ts`).
 8. On disconnect: server removes the client, recomputes minimum viewport, and shuts down the monitor if no clients remain
 
 ### Read-only servers
 
-Against a `tmuxy server --read-only` the server side is a different shape: one monitor per server, started with it and pinned to one session, that every viewer's stream subscribes to (viewers never start, hold or stop a monitor; see [SECURITY.md](SECURITY.md#read-only-server)). On the client the lifecycle differs in one direction only: the client still opens the stream and still asks for `get_initial_state`, but without its viewport, and it never sends `set_client_size` — so steps 5 and 6 size nothing, and the viewer draws the grid the writing client sized, scaled down to fit its own window (`selectFitScale` in `tmuxy-ui/src/machines/selectors.ts`). Every other command is refused by the server and never sent by the client (`tmuxy-ui/src/tmux/readOnly.ts`, `HttpAdapter`). The sessions poll is a `query_tmux`, so a viewer's tree shows the attached session only. See [SECURITY.md](SECURITY.md#read-only-server).
+Against a `tmuxy server --read-only` the server side is a different shape: one monitor per server, started with it and pinned to one session, that every viewer's stream subscribes to (viewers never start, hold or stop a monitor; see [SECURITY.md](SECURITY.md#read-only-server)). On the client the lifecycle differs in one direction only: the client still opens the stream and still asks for `get_initial_state`, but without its viewport, and it never sends `set_client_size` — so steps 5 and 6 size nothing, and the viewer draws the grid the writing client sized, scaled down to fit its own window (`selectFitScale` in `tmuxy-ui/src/machines/selectors.ts`). Every other command is refused by the server and never sent by the client (`tmuxy-ui/src/domain/readOnly.ts`, `HttpAdapter`). The sessions poll is a `query_tmux`, so a viewer's tree shows the attached session only. See [SECURITY.md](SECURITY.md#read-only-server).
 
 ## Connection Lifecycle (Tauri)
 
@@ -129,7 +127,7 @@ Reads go the same way: scrollback, key bindings, theme settings and snapshot che
 
 **Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`SseEvent::Error` / `tmux-error`), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path and no allowlist: nothing a client sends reaches a shell.
 
-**Failures carry a kind.** A failed command answers `{ "error": "<message>", "kind": … }` on both transports (the HTTP body of `POST /commands`, the object a Tauri command rejects with): `tmux` when tmux itself refused it (a query answered with `%error`), `unavailable` (no monitor, session or channel; a timeout), `invalid` (a malformed payload or id) and `forbidden` (a read-only server, a blocked command). The client maps `tmux` to `TmuxError` and the rest to `TransportError` (`tmuxy-ui/src/tmux/effect/AdapterError.ts`). See `tmuxy_core::CommandError`.
+**Failures carry a kind.** A failed command answers `{ "error": "<message>", "kind": … }` on both transports (the HTTP body of `POST /commands`, the object a Tauri command rejects with): `tmux` when tmux itself refused it (a query answered with `%error`), `unavailable` (no monitor, session or channel; a timeout), `invalid` (a malformed payload or id) and `forbidden` (a read-only server, a blocked command). The client maps `tmux` to `TmuxError` and the rest to `TransportError` (`tmuxy-ui/src/infra/transport/AdapterError.ts`). See `tmuxy_core::CommandError`.
 
 ```
 Frontend
@@ -161,7 +159,7 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 
 - Each delta has a `seq` number for ordering
 - Deltas contain only changed fields: modified panes (content, cursor, metadata), added/removed panes, added/removed windows, active pane/window changes, status line changes
-- The frontend merges deltas into its cached state via `handleStateUpdate()` in `tmuxy-ui/src/tmux/deltaProtocol.ts`
+- The frontend merges deltas into its cached state via `handleStateUpdate()` in `tmuxy-ui/src/domain/deltaProtocol.ts`
 - If a delta arrives with a sequence gap, the client requests a full state resync
 
 ## Keyboard Input Flow
@@ -325,12 +323,12 @@ TmuxyApp ──invoke(run_tmux_command)──> V86TmuxAdapter ──> V86Engine
 onStateChange <── tmuxy-wasm (parse + aggregate) <──serial── tmux -CC in v86 guest
 ```
 
-Key pieces (all under `tmuxy-ui/src/tmux/v86/`):
+Key pieces (all under `tmuxy-ui/src/infra/transport/drivers/v86/`):
 
 | Piece            | Responsibility                                                                                                                                                                                                                                                                |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `V86Engine`      | Owns the emulator: byte-paced UART writer (whole-command writes overrun the guest 16550 FIFO and corrupt commands), serial coalescing, tick/sync timers, `%exit`→fatal detection, and a guest bootstrap re-applied on every attach (snapshot restores rewind the filesystem). |
-| `V86TmuxAdapter` | The `TmuxAdapter` facade: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally.                                                                                              |
+| `V86TmuxAdapter` | The v86 driver behind `V86TransportLive`: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally.                                                                              |
 | shared engine    | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s).                                                                                                                        |
 
 Used by the Storybook `Scenarios/Application` stories and intended for the public demo. Assets (kernel, BIOS, state snapshot, wasm bindings) are served statically; nothing leaves the browser.
