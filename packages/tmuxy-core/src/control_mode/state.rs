@@ -2229,6 +2229,15 @@ impl StateAggregator {
                 }
                 if let Some(reply) = self.reply_in_flight.as_mut() {
                     if success {
+                        // The parser hands a block over without its last
+                        // newline, so a command list's blocks would run
+                        // together: the line between them is put back.
+                        if !output.is_empty()
+                            && !reply.output.is_empty()
+                            && !reply.output.ends_with('\n')
+                        {
+                            reply.output.push('\n');
+                        }
                         reply.output.push_str(&output);
                     } else if reply.error.is_none() {
                         reply.error = Some(output.trim().to_string());
@@ -3777,6 +3786,30 @@ mod tests {
             matches!(
                 &end.effects[..],
                 [SideEffect::CommandReply { id: 7, output, error: None }] if output == "HELLO\n"
+            ),
+            "got {:?}",
+            end.effects
+        );
+    }
+
+    /// A command list answers one block per command, each without its last
+    /// newline (that is how the parser hands blocks over): the reply keeps
+    /// them on separate lines, or the first command's last line would run
+    /// into the second's first.
+    #[test]
+    fn a_command_lists_blocks_stay_on_their_own_lines() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        agg.step(response("TMUXY_RPY_BEGIN 9", true));
+        agg.step(response("C-a", true));
+        agg.step(response("", true));
+        agg.step(response("bind-key -T prefix Space next-layout", true));
+        let end = agg.step(response("TMUXY_RPY_END 9", true));
+        assert!(
+            matches!(
+                &end.effects[..],
+                [SideEffect::CommandReply { id: 9, output, error: None }]
+                    if output == "C-a\nbind-key -T prefix Space next-layout"
             ),
             "got {:?}",
             end.effects
