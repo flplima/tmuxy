@@ -590,6 +590,13 @@ impl TmuxMonitor {
             self.connection.send_command(&cmd).await?;
         }
 
+        // Re-apply the choices made through the UI (theme, mode, cursor blink).
+        // tmux forgets them when its server exits; tmuxy.state.json does not.
+        // After the config so a UI choice wins over a hand-set value there.
+        for cmd in crate::session::managed_state_commands(&crate::session::read_managed_state()) {
+            self.connection.send_command(&cmd).await?;
+        }
+
         // Enforce critical settings on the current session regardless of config.
         // These are invariants the frontend depends on — if any are wrong, layout
         // breaks (missing rows), input fails, or content is corrupted.

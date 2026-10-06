@@ -527,7 +527,9 @@ fn write_user_conf_bridge(dir: &Path) {
 ///     only if it doesn't already exist. Sources defaults and leaves space
 ///     for overrides.
 ///   - `tmuxy.state.json` — app-managed state (theme, etc.). Not created
-///     here; written by [`write_managed_state`] when the UI changes it.
+///     here; written by [`write_managed_state`] when the UI changes it, and
+///     re-applied to tmux by the control-mode monitor on every connect
+///     (see [`managed_state_commands`]).
 pub fn ensure_config() -> PathBuf {
     let dir = config_dir();
     let user_path = dir.join("tmuxy.conf");
@@ -556,10 +558,9 @@ pub fn ensure_config() -> PathBuf {
 
 /// App-managed state persisted to `~/.config/tmuxy/tmuxy.state.json`.
 ///
-/// Read on startup by [`apply_managed_state`] which translates each set field
-/// into a `set-option -g` against tmux, so a theme picked through the UI
-/// survives a tmux server restart (fully quitting the app, last session
-/// closing, etc.).
+/// The control-mode monitor re-applies it on every connect (see
+/// [`managed_state_commands`]), so a theme picked through the UI survives a
+/// tmux server restart (fully quitting the app, last session closing, etc.).
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ManagedState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -576,6 +577,25 @@ pub struct ManagedState {
     /// into the config chain, so it has to be known before that chain is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_tmux_conf: Option<bool>,
+}
+
+/// The `set-option -g` commands that put every set field of `state` back into
+/// tmux, so the running server's `show-options -gqv @tmuxy-theme` (etc.)
+/// returns the persisted choice. The monitor sends them through the
+/// control-mode connection right after sourcing the config, which is what
+/// lets a UI choice win over a hand-set value in `tmuxy.conf`.
+pub fn managed_state_commands(state: &ManagedState) -> Vec<String> {
+    let blink = state.cursor_blink.map(|on| if on { "on" } else { "off" });
+    [
+        (tmux_options::THEME, state.theme.as_deref()),
+        (tmux_options::THEME_MODE, state.theme_mode.as_deref()),
+        (tmux_options::CURSOR_BLINK, blink),
+    ]
+    .into_iter()
+    .filter_map(|(option, value)| {
+        value.map(|v| format!("set-option -g {option} {}", crate::executor::tmux_quote(v)))
+    })
+    .collect()
 }
 
 /// Path to the JSON state file inside the user's config dir. Does not check
@@ -633,10 +653,6 @@ pub fn write_managed_state(
     Ok(path)
 }
 
-/// Push every set field in the JSON state file into tmux as a global option,
-/// so the running server's `show-options -gqv @tmuxy-theme` (etc.) returns
-/// the persisted value. Called once during session init — failure on any
-/// individual `set-option` is logged but doesn't abort startup.
 /// The session tmuxy targets: `TMUXY_SESSION` env or the default.
 /// One resolution point — the Tauri app used to carry two private copies
 /// plus an inline third in gui.rs.
@@ -710,29 +726,6 @@ mod name_tests {
             "%7 ; kill-server",
         ] {
             assert!(!is_pane_id(bad), "{bad:?}");
-        }
-    }
-}
-
-pub fn apply_managed_state(session_name: &str) {
-    let state = read_managed_state();
-    let blink = state.cursor_blink.map(|on| if on { "on" } else { "off" });
-    let pairs: [(Option<&str>, &str); 3] = [
-        (state.theme.as_deref(), tmux_options::THEME),
-        (state.theme_mode.as_deref(), tmux_options::THEME_MODE),
-        (blink, tmux_options::CURSOR_BLINK),
-    ];
-    for (value, option) in pairs {
-        let Some(v) = value else { continue };
-        if let Err(e) = crate::executor::execute_tmux_command(&[
-            "set-option",
-            "-t",
-            session_name,
-            "-g",
-            option,
-            v,
-        ]) {
-            warn!(%option, value = %v, error = %e, "failed to apply managed state option");
         }
     }
 }
@@ -968,117 +961,16 @@ pub fn session_exists(session_name: &str) -> Result<bool> {
     Ok(output.status.success())
 }
 
-pub fn create_session(session_name: &str) -> Result<()> {
-    let config_path = get_config_path();
-
-    let mut args = vec!["new-session", "-d", "-s", session_name];
-
-    // Use custom config if it exists — but never `-f` a whole tmuxy config at
-    // the user's OWN tmux server. `-f` is what the SERVER is configured from,
-    // so on the first session created there it would replace their config
-    // wholesale. See source_config, which applies the essentials instead.
-    let config_str = if on_users_own_server() {
-        None
-    } else {
-        config_path
-            .as_ref()
-            .map(|p| p.to_string_lossy().to_string())
-    };
-    if let Some(ref cs) = config_str {
-        args.insert(0, "-f");
-        args.insert(1, cs);
-    }
-
-    let args_ref: Vec<&str> = args.iter().map(|s| &**s).collect();
-    crate::debug_log::log_cmd("create-session", tmux_path(), &args_ref);
-    let output = tmux_command()
-        .args(&args)
-        .output()
-        .map_err(|e| format!("Failed to create session: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    crate::debug_log::log_cmd_result("create-session", output.status.code(), &stdout, &stderr);
-
-    if !output.status.success() {
-        return Err(TmuxError::other(format!(
-            "tmux new-session failed (exit {}): {}",
-            output.status.code().unwrap_or(-1),
-            stderr.trim()
-        )));
-    }
-
-    // The freshly-created window needs no marker — tabs carry none, and an
-    // untagged window in the session surfaces as a tab.
-    Ok(())
-}
-
 /// The socket name tmux itself uses when nobody says otherwise — the server a
 /// person's own `tmux` command talks to.
 ///
-/// tmuxy stays off it by default (see `DEFAULT_TMUX_SOCKET`), and treats it
-/// differently when a user deliberately attaches to it: see [`source_config`].
+/// tmuxy stays off it by default (see `DEFAULT_TMUX_SOCKET`).
 pub const USERS_OWN_SOCKET: &str = "default";
 
 /// Whether the socket in play is the user's OWN tmux server rather than one of
 /// tmuxy's.
 pub fn on_users_own_server() -> bool {
     tmux_socket() == USERS_OWN_SOCKET
-}
-
-/// Source the tmuxy config file (server-global — tmux `source-file` is not
-/// session-scoped, which is why this takes no session parameter).
-///
-/// On the user's OWN tmux server this sources `tmuxy.essentials.conf` alone,
-/// not the whole config. The full config is tmuxy's taste as much as its
-/// requirements — it rebinds the prefix to C-a, replaces the status line and
-/// adds root bindings — and `source-file` is server-global, so adopting
-/// somebody's existing server used to rewrite the prefix for every ordinary
-/// terminal client attached to it. Somebody's day job is on that server. The
-/// essentials are the command-aliases and the handful of options tmuxy stops
-/// working without, which is the least that can be applied and still function.
-pub fn source_config() -> Result<()> {
-    let config_path = if on_users_own_server() {
-        let essentials = config_dir().join("tmuxy.essentials.conf");
-        if !essentials.exists() {
-            return Ok(());
-        }
-        essentials
-    } else {
-        let Some(path) = get_config_path() else {
-            return Ok(()); // No config to source
-        };
-        path
-    };
-
-    let config_str = config_path.to_string_lossy().to_string();
-    tmux_command()
-        .args(["source-file", &config_str])
-        .output()
-        .map_err(|e| format!("Failed to source config: {}", e))?;
-
-    Ok(())
-}
-
-pub fn create_or_attach(session_name: &str) -> Result<()> {
-    if !session_exists(session_name)? {
-        create_session(session_name)?;
-        // On the user's own server the session was created WITHOUT `-f`, so the
-        // command-aliases tmuxy resolves every binding through are not there
-        // yet. Apply the essentials the same way an existing session gets them.
-        if on_users_own_server() {
-            let _ = source_config();
-        }
-    } else {
-        // Source config for existing session
-        let _ = source_config();
-    }
-    // Re-apply persisted app state (theme, etc.). Runs whether the session
-    // was just created or already existed — in both cases tmux's globals
-    // may have been reset (fresh server) or carry stale values from a prior
-    // tmuxy build. Failure is logged inside the helper, not returned.
-    apply_managed_state(session_name);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1137,6 +1029,25 @@ mod tests {
         let json = serde_json::to_string(&state).unwrap();
         // Empty struct must not write nulls — older readers might choke on them.
         assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn managed_state_commands_set_only_the_chosen_options() {
+        assert!(managed_state_commands(&ManagedState::default()).is_empty());
+
+        let state = ManagedState {
+            theme: Some("tokyo night".into()),
+            theme_mode: None,
+            cursor_blink: Some(false),
+            use_tmux_conf: Some(true),
+        };
+        assert_eq!(
+            managed_state_commands(&state),
+            vec![
+                "set-option -g @tmuxy-theme 'tokyo night'".to_string(),
+                "set-option -g @tmuxy-cursor-blink 'off'".to_string(),
+            ]
+        );
     }
 
     #[test]
