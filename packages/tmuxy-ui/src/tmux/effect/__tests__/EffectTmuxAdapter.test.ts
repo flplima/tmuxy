@@ -43,10 +43,10 @@ describe('toEffectAdapter', () => {
     }
   });
 
-  it('invoke promise rejection classifies as TmuxError when backend returns { error }', async () => {
+  it('invoke promise rejection classifies as TmuxError when the backend says tmux refused it', async () => {
     const adapter = makeStubAdapter({
       invoke: (async () => {
-        throw { error: 'no such pane: %999' };
+        throw { error: 'no such pane: %999', kind: 'tmux' };
       }) as TmuxAdapter['invoke'],
     });
     const eff = toEffectAdapter(adapter);
@@ -131,7 +131,7 @@ describe('toEffectAdapter', () => {
     const { Schema } = await import('effect');
     const adapter = makeStubAdapter({
       invoke: (async () => {
-        throw { error: 'no such command' };
+        throw { error: 'no such command', kind: 'tmux' };
       }) as TmuxAdapter['invoke'],
     });
     const schema = Schema.Struct({ count: Schema.Number });
@@ -148,7 +148,7 @@ describe('toEffectAdapter', () => {
   it('typed errors enable exhaustive pattern matching on _tag', async () => {
     const adapter = makeStubAdapter({
       invoke: (async () => {
-        throw { error: 'pane does not exist' };
+        throw { error: 'pane does not exist', kind: 'tmux' };
       }) as TmuxAdapter['invoke'],
     });
     const eff = toEffectAdapter(adapter);

@@ -149,7 +149,7 @@ describe('TmuxStore (integration)', () => {
 
     fake.setNextResult({
       kind: 'reject',
-      error: { error: 'no space for new pane' },
+      error: { error: 'no space for new pane', kind: 'tmux' },
     });
 
     const exit = await Effect.runPromiseExit(store.dispatch(parseCommandToOp('split-window -h')));

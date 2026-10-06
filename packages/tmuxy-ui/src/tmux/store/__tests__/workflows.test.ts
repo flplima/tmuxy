@@ -540,7 +540,7 @@ describe('TmuxStore — typed errors', () => {
     );
     await Effect.runPromise(store.reconcile(serverState()));
 
-    fake.setNextResult({ kind: 'reject', error: { error: 'no such pane: %999' } });
+    fake.setNextResult({ kind: 'reject', error: { error: 'no such pane: %999', kind: 'tmux' } });
     const exit = await Effect.runPromiseExit(
       store.dispatch({ _tag: 'Swap', sourcePaneId: pid('%999'), targetPaneId: pid('%0') }),
     );

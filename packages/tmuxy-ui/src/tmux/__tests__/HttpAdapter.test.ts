@@ -14,7 +14,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { Schedule } from 'effect';
+import { Cause, Effect, Exit, Option, Schedule } from 'effect';
+import { toEffectAdapter } from '../effect';
 import { HttpAdapter } from '../HttpAdapter';
 import type { ServerState } from '../../domain/wire';
 
@@ -286,6 +287,35 @@ describe('HttpAdapter connect() lifecycle', () => {
       }),
     );
     await expect(adapter.invoke('get_themes_list')).rejects.toThrow('HTTP 502');
+    adapter.disconnect();
+  });
+
+  it("a query tmux refused rejects as a TmuxError carrying tmux's message", async () => {
+    const adapter = new HttpAdapter();
+    const c = adapter.connect();
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+    await c;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: "can't find pane: %9", kind: 'tmux' }),
+      }),
+    );
+    const exit = await Effect.runPromiseExit(
+      toEffectAdapter(adapter).query('display -p -t %9 "#{pane_id}"'),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOption(exit.cause);
+      expect(Option.getOrNull(failure)).toMatchObject({
+        _tag: 'TmuxError',
+        command: 'display -p -t %9 "#{pane_id}"',
+        stderr: "can't find pane: %9",
+      });
+    }
     adapter.disconnect();
   });
 

@@ -194,7 +194,7 @@ describe('tmuxActor — cancellable scrollback', () => {
   it('fetch failure is silent (no TMUX_ERROR tunneled to parent)', async () => {
     const invoke = vi.fn(async (cmd: string) => {
       if (cmd === 'get_scrollback_cells') {
-        throw { error: 'pane gone' };
+        throw { error: 'pane gone', kind: 'tmux' };
       }
       return undefined;
     });

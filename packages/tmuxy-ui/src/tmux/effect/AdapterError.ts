@@ -6,21 +6,26 @@
  * Adding a new failure mode forces every consumer's switch to be updated
  * (via TypeScript exhaustiveness), preventing the silent-failure bug class.
  *
- * Where each failure comes from:
- *   a failed connect, an HTTP/IPC failure      → TransportError
- *   a command the demo/v86 tmux rejected        → TmuxError
- *   a payload that fails its schema decode      → ProtocolError
- *   a write a read-only session never sends     → Cancelled
+ * Every transport rejects a command the backend refused with the same shape,
+ * `{ error, kind }` (`CommandFailure` in `domain/wire.ts`): the HTTP adapter
+ * throws the `POST /commands` error body, a Tauri command rejects with it,
+ * and the demo and v86 sandboxes reject with it too. `kind` decides the tag:
  *
- * The HTTP and Tauri transports never reject with a TmuxError: a mutation is
- * acknowledged once it is written to control mode, and tmux's own rejection
- * arrives later on the event stream (`tmux-error`), not as the invoke's
- * answer. Their rejections — a missing monitor, a blocked command, an HTTP
- * error status — are transport failures, and a failed read's tmux message
- * is not told apart from those on the wire.
+ *   kind `tmux` — tmux itself rejected the command  → TmuxError
+ *   kind `unavailable` — no tmux connection          → TransportError
+ *   kind `invalid` / `forbidden` — the server refused → TransportError,
+ *     its context naming the refusal so the user sees why
+ *   a failed connect, a non-JSON HTTP error, IPC loss → TransportError
+ *   a payload that fails its schema decode           → ProtocolError
+ *   a write a read-only session never sends          → Cancelled
+ *
+ * A mutation is acknowledged once it is written to control mode, so tmux's
+ * rejection of one arrives later on the event stream (`tmux-error`); a read
+ * (`query_tmux`) is answered in-band and rejects with kind `tmux`.
  */
 
-import { Data } from 'effect';
+import { Data, Option, Schema } from 'effect';
+import { CommandFailure } from '../../domain/wire';
 
 export class TransportError extends Data.TaggedError('TransportError')<{
   readonly cause: unknown;
@@ -57,45 +62,45 @@ export function formatAdapterError(e: AdapterError): string {
   }
 }
 
+const decodeCommandFailure = Schema.decodeUnknownOption(CommandFailure);
+
+/** The tagged error for a command the backend refused. */
+function fromCommandFailure(command: string, failure: CommandFailure): AdapterError {
+  switch (failure.kind) {
+    case 'tmux':
+      return new TmuxError({ command, stderr: failure.error });
+    case 'unavailable':
+      return new TransportError({ cause: failure.error, context: command });
+    case 'invalid':
+    case 'forbidden':
+      return new TransportError({
+        cause: failure.error,
+        context: `${command} refused (${failure.kind})`,
+      });
+  }
+}
+
 /**
- * Best-effort coercion of a Promise rejection into a typed AdapterError.
- *
- * The adapters reject with various shapes (Error instances, plain strings
- * from Tauri IPC, `{ error: '...' }` objects from the demo and v86 tmux).
- * This helper picks the most accurate _tag based on shape; when in doubt it
- * falls back to TransportError, never throws.
+ * Coerce a Promise rejection into a typed AdapterError: an AdapterError
+ * passes through, a `{ error, kind }` command failure is tagged by its kind,
+ * and anything else (a network error, a lost IPC channel) is a
+ * TransportError. Never throws.
  */
 export function classifyAdapterError(cause: unknown, context?: { command?: string }): AdapterError {
-  // Already-tagged Effect errors pass through unchanged.
-  if (cause instanceof TransportError) return cause;
-  if (cause instanceof ProtocolError) return cause;
-  if (cause instanceof TmuxError) return cause;
-  if (cause instanceof Cancelled) return cause;
-
-  // The demo and v86 adapters reject a command their tmux refused as
-  //   { error: 'no such pane: %999' }
   if (
-    typeof cause === 'object' &&
-    cause !== null &&
-    'error' in cause &&
-    typeof (cause as { error: unknown }).error === 'string'
+    cause instanceof TransportError ||
+    cause instanceof ProtocolError ||
+    cause instanceof TmuxError ||
+    cause instanceof Cancelled
   ) {
-    return new TmuxError({
-      command: context?.command ?? '<unknown>',
-      stderr: (cause as { error: string }).error,
-    });
+    return cause;
   }
-
-  // Plain-string rejection.
-  if (typeof cause === 'string') {
-    return new TransportError({ cause, context: context?.command });
+  const failure = decodeCommandFailure(cause);
+  if (Option.isSome(failure)) {
+    return fromCommandFailure(context?.command ?? '<unknown>', failure.value);
   }
-
-  // Error instance.
-  if (cause instanceof Error) {
-    return new TransportError({ cause, context: context?.command ?? cause.message });
-  }
-
-  // Unknown shape — keep the original cause for debugging.
-  return new TransportError({ cause, context: context?.command });
+  return new TransportError({
+    cause: cause instanceof Error ? cause.message : cause,
+    context: context?.command,
+  });
 }

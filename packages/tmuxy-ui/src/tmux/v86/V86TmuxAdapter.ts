@@ -30,7 +30,7 @@ import type {
   ClipboardListener,
 } from '../types';
 import { isPaneId } from '../../domain/ids';
-import type { KeyBindings } from '../../domain/wire';
+import type { CommandFailure, KeyBindings } from '../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
 import { escapeLiteralText, unescapeLiteralText } from '../keyBatching';
@@ -264,10 +264,15 @@ export class V86TmuxAdapter implements TmuxAdapter {
           return null as T;
         }
         const result = await this.engine.sendTracked(wire);
-        // Reject with the `{ error }` shape classifyAdapterError types as a
-        // TmuxError (a real tmux rejection with stderr), not a generic
+        // Reject the way the real transports do when tmux refuses a command,
+        // so it is typed a TmuxError (with tmux's message), not a generic
         // TransportError.
-        if (!result.ok) throw { error: result.message || `tmux rejected: ${command}` };
+        if (!result.ok) {
+          throw {
+            error: result.message || `tmux rejected: ${command}`,
+            kind: 'tmux',
+          } satisfies CommandFailure;
+        }
         return null as T;
       }
       case 'set_theme': {
@@ -354,6 +359,11 @@ export class V86TmuxAdapter implements TmuxAdapter {
     // updates) and reject so the failure surfaces as TMUX_ERROR.
     const result = await this.engine.sendTracked(`switch-client -t ${sessionName}`);
     this.engine.resync();
-    if (!result.ok) throw new Error(result.message || `switch-client failed: ${sessionName}`);
+    if (!result.ok) {
+      throw {
+        error: result.message || `switch-client failed: ${sessionName}`,
+        kind: 'tmux',
+      } satisfies CommandFailure;
+    }
   }
 }

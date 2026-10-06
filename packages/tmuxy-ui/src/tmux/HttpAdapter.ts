@@ -13,6 +13,7 @@ import {
 } from './types';
 import {
   ClipboardEvent,
+  CommandFailure,
   ConnectionInfo,
   DetachedEvent,
   KeyBindings,
@@ -29,7 +30,7 @@ import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
 import { isReadCommand, READ_ONLY_REASON } from './readOnly';
 import { Cancelled } from './effect/AdapterError';
-import { Effect, Fiber, Queue, Schedule, type Schema } from 'effect';
+import { Effect, Fiber, Queue, Schedule, Schema } from 'effect';
 import type { PaneId } from '../domain/ids';
 
 /**
@@ -70,6 +71,8 @@ const STREAM_EVENTS = [
   'detached',
   'fatal',
 ] as const;
+
+const isCommandFailure = Schema.is(CommandFailure);
 
 /** The `data` of an SSE frame (`{ event, data }` JSON); undefined when the frame is not JSON. */
 function parseFrame(type: string, event: MessageEvent): unknown {
@@ -695,17 +698,12 @@ export class HttpAdapter implements TmuxAdapter {
     });
 
     if (!response.ok) {
-      // A non-JSON error body — a reverse-proxy 502 page, a 401 auth
-      // challenge — must surface as the HTTP status, not a JSON SyntaxError
-      // from parsing HTML. Try for a structured {error}, fall back to status.
-      let message = `HTTP ${response.status}`;
-      try {
-        const errData = await response.json();
-        if (errData?.error) message = errData.error;
-      } catch {
-        // Non-JSON body: keep the HTTP status message.
-      }
-      throw new Error(message);
+      // The server's refusal is a `{ error, kind }` body, thrown as is so the
+      // Effect facade tags it by kind (see AdapterError). Any other body — a
+      // reverse-proxy 502 page, a 401 auth challenge — surfaces as the HTTP
+      // status, not a JSON SyntaxError from parsing HTML.
+      const body: unknown = await response.json().catch(() => null);
+      throw isCommandFailure(body) ? body : new Error(`HTTP ${response.status}`);
     }
 
     const data = await response.json();

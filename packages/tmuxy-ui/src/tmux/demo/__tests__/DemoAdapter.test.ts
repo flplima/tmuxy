@@ -33,7 +33,7 @@ describe('DemoAdapter test-mode hooks', () => {
     expect(elapsed).toBeGreaterThanOrEqual(70);
   });
 
-  it('rejects run_tmux_command with { error } when failCommand returns a string', async () => {
+  it('rejects run_tmux_command as tmux would (kind tmux) when failCommand returns a string', async () => {
     const adapter = new DemoAdapter({
       failCommand: (cmd) => (cmd.startsWith('split-window') ? 'no space' : false),
     });
@@ -41,7 +41,7 @@ describe('DemoAdapter test-mode hooks', () => {
 
     await expect(
       adapter.invoke('run_tmux_command', { command: 'split-window -h' }),
-    ).rejects.toMatchObject({ error: 'no space' });
+    ).rejects.toMatchObject({ error: 'no space', kind: 'tmux' });
 
     // Non-failing commands still resolve.
     await expect(
