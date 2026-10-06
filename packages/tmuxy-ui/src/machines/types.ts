@@ -773,7 +773,6 @@ export type StopObserveContainerEvent = { type: 'STOP_OBSERVE_CONTAINER' };
 
 // Pane events
 export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
-export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
@@ -1256,7 +1255,6 @@ export type AppMachineEvent =
   | ObserveContainerEvent
   | StopObserveContainerEvent
   | FocusPaneEvent
-  | SendCommandEvent
   | SendKeysEvent
   | SendTmuxCommandEvent
   | CopySelectionEvent

@@ -68,8 +68,7 @@ export const SlowSplit: Story = {
     expect(before).toBe(1);
 
     // SEND_TMUX_COMMAND routes through TmuxStore.dispatch (optimistic predict
-    // → command → reconcile). SEND_COMMAND bypasses the store and waits for
-    // the server snapshot, which would defeat the test under commandDelayMs.
+    // → command → reconcile), so the pane shows before the delayed ack.
     win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
 
     // Optimistic patch should bring us to 2 panes within one rAF.

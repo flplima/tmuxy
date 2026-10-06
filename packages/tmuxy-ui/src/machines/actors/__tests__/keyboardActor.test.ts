@@ -289,7 +289,7 @@ describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', ()
     expect(ofType('SELECT_TAB_BY_POSITION')).toEqual([
       { type: 'SELECT_TAB_BY_POSITION', position: 2 },
     ]);
-    expect(ofType('SEND_COMMAND')).toEqual([]);
+    expect(ofType('SEND_TMUX_COMMAND')).toEqual([]);
 
     pressKey({ key: '0', ctrlKey: true });
     expect(ofType('TOGGLE_TAB_OVERVIEW')).toHaveLength(1);

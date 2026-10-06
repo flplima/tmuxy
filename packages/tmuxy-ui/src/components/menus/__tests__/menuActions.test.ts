@@ -31,7 +31,7 @@ describe('executeMenuAction pane-close routing', () => {
   it('falls back to raw kill-pane when no target pane is known', () => {
     const send = vi.fn();
     executeMenuAction(send, 'pane-close');
-    expect(send).toHaveBeenCalledWith({ type: 'SEND_COMMAND', command: 'kill-pane' });
+    expect(send).toHaveBeenCalledWith({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
   });
 
   it('opens github URL for help-github', () => {

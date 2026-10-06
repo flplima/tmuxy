@@ -61,7 +61,7 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterCopy).toBeUndefined();
     // Should have sent Up arrow keys instead
     const sendKeys = events.filter(
-      (e) => e.type === 'SEND_COMMAND' && (e as { command: string }).command.includes('Up'),
+      (e) => e.type === 'SEND_TMUX_COMMAND' && (e as { command: string }).command.includes('Up'),
     );
     expect(sendKeys.length).toBeGreaterThan(0);
   });
@@ -75,7 +75,7 @@ describe('usePaneMouse.handleWheel', () => {
     // keys ("1b 5b 3c 36 34" = ESC [ < 6 4).
     const sgrEvents = events.filter(
       (e) =>
-        e.type === 'SEND_COMMAND' &&
+        e.type === 'SEND_TMUX_COMMAND' &&
         /send-keys -t \S+ -H 1b 5b 3c 36 34/.test((e as { command: string }).command),
     );
     expect(sgrEvents.length).toBeGreaterThan(0);

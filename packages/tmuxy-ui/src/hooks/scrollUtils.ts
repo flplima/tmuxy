@@ -105,14 +105,14 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
     const button = isScrollUp ? 64 : 65;
     for (let i = 0; i < absLines; i++) {
       send({
-        type: 'SEND_COMMAND',
+        type: 'SEND_TMUX_COMMAND',
         command: sgrMouseCommand(paneId, button, cellX + 1, cellY + 1),
       });
     }
   } else {
     const key = isScrollUp ? 'Up' : 'Down';
     for (let i = 0; i < absLines; i++) {
-      send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
+      send({ type: 'SEND_TMUX_COMMAND', command: `send-keys -t ${paneId} ${key}` });
     }
   }
 

@@ -90,7 +90,7 @@ export function SelectionContextMenu({
         <MenuItem
           onClick={() => {
             send({
-              type: 'SEND_COMMAND',
+              type: 'SEND_TMUX_COMMAND',
               command: literalTextCommands(paneId, selectedText),
             });
             exitAndClose();
