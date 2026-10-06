@@ -140,7 +140,7 @@ jobs:
       fail-fast: false
       matrix:
         # `filter` (jest -t) splits one oversized file across two runners.
-        # 2-layout is 3,181 lines / 22 flows and the longest suite here once
+        # 2-layout is the largest file and the longest suite here once
         # the v86 job stops being the critical path. jest's own --shard only
         # divides at FILE granularity, so it cannot split a single file;
         # a name filter on the top-level `Scenario N:` describes can.

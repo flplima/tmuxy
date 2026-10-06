@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run `bin/dev` (or `bin/prod`) in the background, stop it, and read its log.
+# Run `bin/dev` in the background, stop it, and read its log.
 #
 # This is what `npm start` / `npm stop` / `npm logs` call: a PID file, a log
 # file and `tail`.
@@ -12,31 +12,17 @@
 # and signalled, youngest first.
 #
 # Usage:
-#   bin/dev-server start [dev|prod]   # start it, refuse if already running
-#   bin/dev-server stop  [dev|prod]   # stop it and everything it spawned
-#   bin/dev-server restart [dev|prod]
-#   bin/dev-server status  [dev|prod]
-#   bin/dev-server logs    [dev|prod] [--no-follow]
-#
-# The target defaults to `dev`. `prod` runs `bin/prod` (release build, the
-# `tmuxy-prod` socket) and keeps its own PID and log files, so the two can run
-# side by side.
+#   bin/dev-server start     # start it, refuse if already running
+#   bin/dev-server stop      # stop it and everything it spawned
+#   bin/dev-server restart
+#   bin/dev-server status
+#   bin/dev-server logs [--no-follow]
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ACTION="${1:-}"
-TARGET="${2:-dev}"
-case "$TARGET" in
-  dev | prod) ;;
-  --no-follow) TARGET=dev ;;
-  *)
-    echo "unknown target '$TARGET' (expected 'dev' or 'prod')" >&2
-    exit 2
-    ;;
-esac
-SCRIPT="bin/$TARGET"
 
 # State lives outside the repo: a PID file and a log are per-machine facts about
 # a running process, not source. Matches where the trace file goes.
@@ -45,8 +31,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 else
   STATE_DIR="${TMUXY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/tmuxy}"
 fi
-PID_FILE="$STATE_DIR/$TARGET-server.pid"
-LOG_FILE="$STATE_DIR/$TARGET-server.log"
+PID_FILE="$STATE_DIR/dev-server.pid"
+LOG_FILE="$STATE_DIR/dev-server.log"
 
 # Every descendant of $1, deepest last, so a caller can signal children before
 # their parent and no orphan is left holding the port. `ps` rather than pgrep
@@ -64,12 +50,12 @@ start_time_of() {
   ps -p "$1" -o lstart= 2>/dev/null | tr -s ' ' || true
 }
 
-# The PID of a live server for this target, or nothing.
+# The PID of a live dev server, or nothing.
 #
 # The PID file holds the pid AND the process's start time, and both must match.
 # A stale file outlives a crash and the number gets reused, so `kill -0` alone
 # reports a stranger's process as ours. Matching on the COMMAND LINE instead
-# does not work here: `bin/dev` and `bin/prod` both end in `exec`, so the
+# does not work here: `bin/dev` ends in `exec`, so the
 # process keeps its pid while its command line becomes `cargo …` — the check
 # then fails the moment the server is actually up, which is the worst possible
 # time to report "not running".
@@ -88,7 +74,7 @@ cmd_start() {
   local existing
   existing="$(running_pid)"
   if [[ -n "$existing" ]]; then
-    echo "$TARGET server already running (pid $existing) — 'bin/dev-server logs $TARGET' to watch it"
+    echo "dev server already running (pid $existing) — 'bin/dev-server logs' to watch it"
     return 0
   fi
 
@@ -118,7 +104,7 @@ cmd_start() {
   # the descendants of a process that no longer exists while the real server
   # keeps the port.
   cd "$REPO_ROOT"
-  nohup bash "$SCRIPT" </dev/null >>"$LOG_FILE" 2>&1 &
+  nohup bash bin/dev </dev/null >>"$LOG_FILE" 2>&1 &
   local started=$!
   printf '%s\t%s\n' "$started" "$(start_time_of "$started")" >"$PID_FILE"
 
@@ -126,11 +112,11 @@ cmd_start() {
   local pid
   pid="$(running_pid)"
   if [[ -z "$pid" ]]; then
-    echo "$TARGET server failed to start — last lines of $LOG_FILE:" >&2
+    echo "dev server failed to start — last lines of $LOG_FILE:" >&2
     tail -20 "$LOG_FILE" >&2 || true
     return 1
   fi
-  echo "$TARGET server started (pid $pid), logging to $LOG_FILE"
+  echo "dev server started (pid $pid), logging to $LOG_FILE"
 }
 
 cmd_stop() {
@@ -138,7 +124,7 @@ cmd_stop() {
   pid="$(running_pid)"
   if [[ -z "$pid" ]]; then
     rm -f "$PID_FILE"
-    echo "$TARGET server not running"
+    echo "dev server not running"
     return 0
   fi
 
@@ -162,23 +148,23 @@ cmd_stop() {
   kill -KILL "${targets[@]}" 2>/dev/null || true
 
   rm -f "$PID_FILE"
-  echo "$TARGET server stopped"
+  echo "dev server stopped"
 }
 
 cmd_status() {
   local pid
   pid="$(running_pid)"
   if [[ -n "$pid" ]]; then
-    echo "$TARGET server running (pid $pid), log: $LOG_FILE"
+    echo "dev server running (pid $pid), log: $LOG_FILE"
   else
-    echo "$TARGET server not running"
+    echo "dev server not running"
     return 1
   fi
 }
 
 cmd_logs() {
   if [[ ! -f "$LOG_FILE" ]]; then
-    echo "no log yet at $LOG_FILE — start the $TARGET server first" >&2
+    echo "no log yet at $LOG_FILE — start the dev server first" >&2
     return 1
   fi
   # `--no-follow` for a caller that wants a snapshot and its prompt back: the
@@ -200,9 +186,9 @@ case "$ACTION" in
     cmd_start
     ;;
   status) cmd_status ;;
-  logs) cmd_logs "$@" ;;
+  logs) cmd_logs "${@:2}" ;;
   *)
-    echo "Usage: bin/dev-server {start|stop|restart|status|logs} [dev|prod]" >&2
+    echo "Usage: bin/dev-server {start|stop|restart|status|logs [--no-follow]}" >&2
     exit 2
     ;;
 esac

@@ -193,14 +193,6 @@ async function sendPrefixCommand(page, key, options = {}) {
 }
 
 /**
- * Type a character (handles shift automatically)
- */
-async function typeChar(page, char) {
-  await page.keyboard.type(char);
-  await delay(DELAYS.SHORT);
-}
-
-/**
  * Resolve once the app is really holding the keyboard.
  *
  * The app keeps a hidden 1px `<input>` focused on every device
@@ -342,7 +334,6 @@ module.exports = {
   waitForPrefixConsumed,
   sendTmuxPrefix,
   sendPrefixCommand,
-  typeChar,
   typeInTerminal,
   typeComposedChar,
   typeComposedText,

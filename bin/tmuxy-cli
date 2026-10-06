@@ -18,28 +18,19 @@ TMUXY_VERSION="${TMUXY_VERSION:-}"
 if [ -z "$TMUXY_VERSION" ] && [ -f "$REPO_ROOT/package.json" ]; then
   TMUXY_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$REPO_ROOT/package.json" 2>/dev/null || true)
 fi
-TMUXY_VERSION="${TMUXY_VERSION:-0.0.10-alpha.64}"
+TMUXY_VERSION="${TMUXY_VERSION:-0.0.10-alpha.68}"
 
 # --- Helpers ---
 
-# Socket resolution — all tmux calls in this script go through this wrapper.
-# Explicit TMUX_SOCKET wins; inside a pane, derive the socket from $TMUX so we
-# target the hosting server; otherwise use the dedicated `tmuxy` socket (never
-# the user's default tmux server).
-if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
-  _tmux_path="${TMUX%%,*}"
-  TMUX_SOCKET="$(basename "$_tmux_path")"
-fi
-TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
-export TMUX_SOCKET
-# A TMUX_SOCKET containing a slash is a full socket path (-S); otherwise a
-# socket name in tmux's default directory (-L).
-case "$TMUX_SOCKET" in
-  */*) TMUX_SOCKET_FLAG="-S" ;;
-  *) TMUX_SOCKET_FLAG="-L" ;;
-esac
-export TMUX_SOCKET_FLAG
-tmux() { command tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"; }
+# Socket resolution (explicit TMUX_SOCKET, else the socket of the server whose
+# pane we are in, else the dedicated `tmuxy` socket — never the user's default
+# tmux server), `_tmux`/`_run_safe` and `shquote` are shared with the
+# bin/tmuxy scripts, so they live in their `_lib`. Every tmux call in this
+# script goes through `_tmux`, every mutation through `_run_safe`. `_lib`
+# resolves SCRIPTS_DIR from its own `$0` (this file, not the scripts
+# directory), so restore ours afterwards.
+source "$SCRIPTS_DIR/_lib"
+SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # Where a target-less command lands. Inside a pane, tmux reads the caller's
 # $TMUX_PANE and every `splitw`, `breakp` and `#{pane_id}` resolves from it.
@@ -50,11 +41,11 @@ tmux() { command tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"; }
 # send` would land where no client can see it. Resolving the pane here,
 # once, with the same preference the server has (an attached real session,
 # else the first real one) hands tmux an answer it honours for an unattached
-# client the way it does for a pane's own — and `run_safe` passes it on to
+# client the way it does for a pane's own — and `_run_safe` passes it on to
 # the client it spawns inside run-shell. Read-only, and skipped when there
 # is no server to ask.
 if [ -z "${TMUX_PANE:-}" ]; then
-  _outside_pane="$(tmux list-panes -a \
+  _outside_pane="$(_tmux list-panes -a \
     -f '#{&&:#{window_active},#{pane_active}}' \
     -F '#{session_attached}	#{session_name}	#{pane_id}' 2>/dev/null \
     | awk -F'\t' '$2 != "__tmuxy_stash" { if ($1 > 0) { print $3; exit } ; if (!first) first = $3 } END { if (first) print first }' \
@@ -64,32 +55,6 @@ if [ -z "${TMUX_PANE:-}" ]; then
     export TMUX_PANE
   fi
 fi
-
-# Run a mutating tmux command safely through run-shell.
-# Takes ONE pre-built tmux command string. Interpolate user-supplied values
-# with shquote so spaces, quotes and `#` survive the trip.
-#
-# The inner tmux is a client of its own, and run-shell hands it no pane: a
-# target-less `send-keys` or `breakp` in there resolves to whichever session
-# tmux touched last, not the caller's (see TMUX_PANE below). So the pane the
-# CLI acts on rides along as the inner client's TMUX_PANE, which tmux reads
-# for an unattached client the way it reads it for a shell in a pane.
-run_safe() {
-  if [ -n "${TMUX_PANE:-}" ]; then
-    tmux run-shell "TMUX_PANE=$TMUX_PANE tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
-  else
-    tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
-  fi
-}
-
-# `shquote` — quoting for interpolation into a run_safe command string — is
-# shared with the bin/tmuxy scripts, so it lives in their `_lib`. Sourcing it
-# also brings `_tmux`/`_run_safe`, which are this file's `tmux`/`run_safe`
-# under other names; the socket resolution above has already run, and `_lib`
-# honours the TMUX_SOCKET it set. It resolves SCRIPTS_DIR from its own `$0`
-# (this file, not the scripts directory), so restore ours afterwards.
-source "$SCRIPTS_DIR/_lib"
-SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # --- JSON output helpers ---
 #
@@ -233,7 +198,7 @@ cmd_info() {
 
   if ! $inside; then
     local server_running=false
-    if tmux has-session 2>/dev/null; then
+    if _tmux has-session 2>/dev/null; then
       server_running=true
     fi
     if $json; then
@@ -258,7 +223,7 @@ cmd_info() {
   # Inside session — read session, active pane, and active window in one display-message call
   local fmt=$'#{session_name}\t#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{window_index}\t#{window_name}\t#{window_panes}'
   local info_line
-  info_line=$(tmux display-message -p "$fmt" 2>/dev/null || true)
+  info_line=$(_tmux display-message -p "$fmt" 2>/dev/null || true)
 
   local session_name pane_id window_id pane_width pane_height pane_cmd window_index window_name window_panes
   IFS=$'\t' read -r session_name pane_id window_id pane_width pane_height pane_cmd window_index window_name window_panes <<< "$info_line"
@@ -280,6 +245,9 @@ cmd_info() {
   fi
 }
 
+# The one copy of the agent guide. .agents/skills/tmuxy/SKILL.md is this text
+# verbatim (a CLI test fails when they differ): an installed CLI has no repo to
+# read the skill file from, so the heredoc is the source.
 cmd_skill() {
   case "${1:-}" in
     --help|-h) echo "Usage: tmuxy skill"; return ;;
@@ -328,9 +296,13 @@ tmuxy pane select -U|-D|-L|-R|%id # select pane
 tmuxy pane kill [%id]           # close pane
 tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
 tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
+tmuxy pane group add            # group the current pane (members become header tabs)
+tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
+tmuxy ask %id <keys...>         # type into another pane once the user confirms (blocks until answered)
+tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy open <file|url|host>      # show an HTML file, a site, a .md file or an image
 tmuxy widget browser <file|url> # the same, spelled out
-tmuxy queue push <name> <msg|-> # push to a named queue (alias: send)
+tmuxy queue push <name> <msg|-> # push to a named queue (alias: send; `tmuxy q` = `tmuxy queue`)
 tmuxy queue pop <name>          # block and pop oldest message (also: peek, list, clear)
 tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
 ```
@@ -351,18 +323,19 @@ Commands:
   pane        Manage panes (split, kill, select, resize, group, float)
   ask         Send keys to another pane, once the user has confirmed
   tab         Manage tabs (create, kill, select, rename, layout)
-  session     Manage sessions (switch, connect)
+  session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
   open        Show a page, file or image in a browser pane (alias of widget browser)
-  widget      Display widgets (browser, tree)
+  widget      Display widgets (browser, tree, session)
   queue, q    Inter-agent coordination queue (push/send, pop, peek, list, clear)
-  tree        Open the sidebar tree view (tabs + panes)
+  tree        Browse tabs and panes as a tree in this terminal
   run         Run any tmux command safely
   browser     Drive a real browser, drawn in the pane (verbs, --repl)
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TELEMETRY.md)
+  config      Show or change a setting (use-tmux-conf)
   gui         Open the desktop GUI application
 
 Options:
@@ -408,7 +381,7 @@ Commands:
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
-  group         Pane group operations (add, close, switch, next, prev)
+  group         Pane group operations (add, close, switch, next, prev, move, join, leave)
 
 Run 'tmuxy pane <command> --help' for details.
 EOF
@@ -620,9 +593,9 @@ cmd_pane() {
         return 1
       fi
       if [ "$value" = "--clear" ]; then
-        run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-restore"
+        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-restore"
       else
-        run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-restore $(shquote "$value")"
+        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-restore $(shquote "$value")"
       fi
       ;;
 
@@ -655,7 +628,7 @@ cmd_pane() {
         echo "Error: no pane to target (pass %id or run inside a pane)" >&2
         return 1
       fi
-      run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
+      _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
       ;;
 
     list)
@@ -672,10 +645,10 @@ cmd_pane() {
       if $json; then
         # Tab-separated: pane_current_command is free text, so a comma in it
         # would shift every following field and break the JSON.
-        tmux list-panes ${scope[@]+"${scope[@]}"} -F "$LIST_PANES_JSON_FMT" | \
+        _tmux list-panes ${scope[@]+"${scope[@]}"} -F "$LIST_PANES_JSON_FMT" | \
           awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["} NR>1{printf ","} {printf "{\"id\":\"%s\",\"tab\":\"%s\",\"width\":%s,\"height\":%s,\"command\":\"%s\",\"active\":%s,\"title\":\"%s\"}", jstr($1), jstr($2), $3, $4, jstr($5), ($6=="1"?"true":"false"), jstr($7)} END{printf "]\n"}'
       else
-        tmux list-panes ${scope[@]+"${scope[@]}"}
+        _tmux list-panes ${scope[@]+"${scope[@]}"}
       fi
       ;;
 
@@ -692,7 +665,7 @@ cmd_pane() {
         esac
       done
       local out
-      out=$(run_safe "splitw$args -P -F '##{pane_id}'")
+      out=$(_run_safe "splitw$args -P -F '##{pane_id}'")
       local pane_id
       pane_id=$(echo "$out" | grep -o '%[0-9]*' | tail -1 || true)
       if $json; then
@@ -711,9 +684,9 @@ cmd_pane() {
         esac
       done
       if [ -n "$target" ]; then
-        run_safe "killp -t $(shquote "$target")"
+        _run_safe "killp -t $(shquote "$target")"
       else
-        run_safe "killp"
+        _run_safe "killp"
       fi
       ;;
 
@@ -721,8 +694,8 @@ cmd_pane() {
       local arg="${1:-}"
       case "$arg" in
         --help|-h) echo "Usage: tmuxy pane select [-U|-D|-L|-R|%id]"; return ;;
-        -U|-D|-L|-R) run_safe "selectp $arg" ;;
-        %*) run_safe "selectp -t $(shquote "$arg")" ;;
+        -U|-D|-L|-R) _run_safe "selectp $arg" ;;
+        %*) _run_safe "selectp -t $(shquote "$arg")" ;;
         "") echo "Error: pane direction or ID required" >&2; return 1 ;;
         *) echo "Error: invalid argument '$arg'. Use -U, -D, -L, -R, or %id" >&2; return 1 ;;
       esac
@@ -739,7 +712,7 @@ cmd_pane() {
       if [ -z "$args" ]; then
         echo "Error: direction required (-U, -D, -L, -R)" >&2; return 1
       fi
-      run_safe "resizep$args"
+      _run_safe "resizep$args"
       ;;
 
     swap)
@@ -748,21 +721,21 @@ cmd_pane() {
       esac
       local src="${1:?Usage: tmuxy pane swap <src> <dst>}"
       local dst="${2:?Usage: tmuxy pane swap <src> <dst>}"
-      run_safe "swap-pane -s $(shquote "$src") -t $(shquote "$dst")"
+      _run_safe "swap-pane -s $(shquote "$src") -t $(shquote "$dst")"
       ;;
 
     zoom)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane zoom"; return ;;
       esac
-      run_safe "resizep -Z"
+      _run_safe "resizep -Z"
       ;;
 
     break)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane break"; return ;;
       esac
-      run_safe "breakp -t '#{session_id}:'"
+      _run_safe "breakp -t '#{session_id}:'"
       ;;
 
     capture)
@@ -777,7 +750,7 @@ cmd_pane() {
       local cmd="capture-pane -p"
       if [ -n "$target" ]; then cmd="$cmd -t $target"; fi
       local content
-      content=$(tmux $cmd)
+      content=$(_tmux $cmd)
       if $json; then
         # Escape for JSON: backslash, double-quote, then convert newlines
         local escaped
@@ -793,7 +766,7 @@ cmd_pane() {
         --help|-h) echo "Usage: tmuxy pane send <keys...>"; return ;;
         "") echo "Error: keys required" >&2; return 1 ;;
       esac
-      run_safe "send-keys $(shquote "$@")"
+      _run_safe "send-keys $(shquote "$@")"
       ;;
 
     paste)
@@ -802,8 +775,8 @@ cmd_pane() {
         "") echo "Error: text required" >&2; return 1 ;;
       esac
       local text="$*"
-      tmux load-buffer - <<< "$text"
-      run_safe "pasteb"
+      _tmux load-buffer - <<< "$text"
+      _run_safe "pasteb"
       ;;
 
     float)
@@ -960,10 +933,10 @@ cmd_tab() {
         # windows so this still works in a plain (non-tmuxy) session.
         # Tab-separated: window_name is user-controlled free text (tmuxy tab
         # rename), so a comma in it would shift every following field.
-        tmux list-windows -F "$LIST_WINDOWS_JSON_FMT" | \
+        _tmux list-windows -F "$LIST_WINDOWS_JSON_FMT" | \
           awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} $6!="float" && $6!="float-backdrop" && $6!="group" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
-        tmux list-windows
+        _tmux list-windows
       fi
       ;;
 
@@ -986,9 +959,9 @@ cmd_tab() {
       # whichever session tmux last touched (see TMUX_PANE above).
       local out
       if [ -n "$name" ]; then
-        out=$(run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name") -P -F '##{window_id}'")
+        out=$(_run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name") -P -F '##{window_id}'")
       else
-        out=$(run_safe "splitw \\; breakp -t '#{session_id}:' -P -F '##{window_id}'")
+        out=$(_run_safe "splitw \\; breakp -t '#{session_id}:' -P -F '##{window_id}'")
       fi
       local tab_id
       tab_id=$(echo "$out" | grep -o '@[0-9]*' | tail -1 || true)
@@ -1005,9 +978,9 @@ cmd_tab() {
       esac
       local target="${1:-}"
       if [ -n "$target" ]; then
-        run_safe "killw -t $(shquote "$target")"
+        _run_safe "killw -t $(shquote "$target")"
       else
-        run_safe "killw"
+        _run_safe "killw"
       fi
       ;;
 
@@ -1016,21 +989,21 @@ cmd_tab() {
         --help|-h) echo "Usage: tmuxy tab select <index|@id>"; return ;;
         "") echo "Error: tab index or @id required" >&2; return 1 ;;
       esac
-      run_safe "select-window -t $(shquote "$1")"
+      _run_safe "select-window -t $(shquote "$1")"
       ;;
 
     next)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy tab next"; return ;;
       esac
-      run_safe "next-window"
+      _run_safe "next-window"
       ;;
 
     prev)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy tab prev"; return ;;
       esac
-      run_safe "previous-window"
+      _run_safe "previous-window"
       ;;
 
     rename)
@@ -1038,7 +1011,7 @@ cmd_tab() {
         --help|-h) echo "Usage: tmuxy tab rename <name>"; return ;;
         "") echo "Error: name required" >&2; return 1 ;;
       esac
-      run_safe "rename-window $(shquote "$1")"
+      _run_safe "rename-window $(shquote "$1")"
       ;;
 
     layout)
@@ -1047,9 +1020,9 @@ cmd_tab() {
       esac
       local layout="${1:-next}"
       if [ "$layout" = "next" ]; then
-        run_safe "next-layout"
+        _run_safe "next-layout"
       else
-        run_safe "select-layout $(shquote "$layout")"
+        _run_safe "select-layout $(shquote "$layout")"
       fi
       ;;
 
@@ -1076,7 +1049,7 @@ cmd_widget() {
   shift 2>/dev/null || true
 
   case "$sub" in
-    browser|web)
+    browser)
       case "${1:-}" in
         --help|-h)
           cat <<'BEOF'
@@ -1158,7 +1131,7 @@ cmd_session() {
       esac
       local quoted=""
       for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
-      tmux run-shell "$(shquote "$(find_server_binary)") session restore$quoted"
+      _tmux run-shell "$(shquote "$(find_server_binary)") session restore$quoted"
       ;;
 
     forget)
@@ -1169,7 +1142,7 @@ cmd_session() {
       esac
       local quoted=""
       for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
-      tmux run-shell "$(shquote "$(find_server_binary)") session forget$quoted"
+      _tmux run-shell "$(shquote "$(find_server_binary)") session forget$quoted"
       ;;
 
     --help|-h)
@@ -1303,9 +1276,9 @@ cmd_run() {
         esac
       done
       if [ -n "$name_arg" ]; then
-        run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name_arg")"
+        _run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name_arg")"
       else
-        run_safe "splitw \\; breakp -t '#{session_id}:'"
+        _run_safe "splitw \\; breakp -t '#{session_id}:'"
       fi
       ;;
 
@@ -1315,7 +1288,7 @@ cmd_run() {
       ;;
 
     *)
-      run_safe "$tmux_cmd $(shquote "$@")"
+      _run_safe "$tmux_cmd $(shquote "$@")"
       ;;
   esac
 }
@@ -1367,8 +1340,8 @@ cmd_connect() {
   # Session first, socket last: the desktop app's watcher triggers on
   # TMUXY_CONNECT_TO, so it must be the final write or the poll can fire
   # between the two and reconnect to the default session.
-  run_safe "set-environment -g TMUXY_CONNECT_SESSION $(shquote "$session")"
-  run_safe "set-environment -g TMUXY_CONNECT_TO $(shquote "$socket")"
+  _run_safe "set-environment -g TMUXY_CONNECT_SESSION $(shquote "$session")"
+  _run_safe "set-environment -g TMUXY_CONNECT_TO $(shquote "$socket")"
 
   echo "Requested desktop app reconnect to socket '$socket' (session '$session')."
   echo "No effect in the web UI — the web server's socket is fixed at launch."
@@ -1500,11 +1473,9 @@ BEOF
         exit 0
         ;;
     esac
-    # Straight to the binary. There is no pane wrapper any more: the pane
-    # program IS `tmuxy browser --repl`, which draws its own screen, so there is
-    # nothing for a shell script to set up around it. It is told where THIS
-    # CLI is, so it can write its restore tag through `tmuxy pane restore-cmd`
-    # wherever tmuxy is installed.
+    # Straight to the binary: the pane program IS `tmuxy browser --repl`, which
+    # draws its own screen. It is told where THIS CLI is, so it can write its
+    # restore tag through `tmuxy pane restore-cmd` wherever tmuxy is installed.
     TMUXY_CLI="$SELF" exec "$(find_server_binary)" browser "$@"
     ;;
   cleanup)

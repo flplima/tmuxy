@@ -474,4 +474,4 @@ class GlitchDetector {
   }
 }
 
-module.exports = { GlitchDetector, OPERATION_THRESHOLDS, DEFAULT_OPTIONS };
+module.exports = { GlitchDetector, OPERATION_THRESHOLDS };

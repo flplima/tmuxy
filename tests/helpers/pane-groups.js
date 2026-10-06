@@ -198,32 +198,6 @@ async function getThemeAccent(page) {
   });
 }
 
-/**
- * Get pane header titles from the UI DOM
- * Returns a map of pane_id -> header title text (stripped of close/add buttons)
- */
-async function getUIPaneTitles(page) {
-  return await page.evaluate(() => {
-    const titles = {};
-    const panes = document.querySelectorAll('[data-pane-id]');
-    for (const pane of panes) {
-      const paneId = pane.getAttribute('data-pane-id');
-      // For grouped panes, get the active tab title
-      const groupTab = pane.querySelector('.pane-tab-active .pane-tab-title');
-      if (groupTab) {
-        titles[paneId] = groupTab.textContent?.trim() || '';
-        continue;
-      }
-      // For single panes, get the pane-tab-title span
-      const titleEl = pane.querySelector('.pane-tab-title');
-      if (titleEl) {
-        titles[paneId] = titleEl.textContent?.trim() || '';
-      }
-    }
-    return titles;
-  });
-}
-
 module.exports = {
   clickPaneGroupAdd,
   clickGroupTabAdd,
@@ -234,5 +208,4 @@ module.exports = {
   isHeaderGrouped,
   getGroupTabInfo,
   getThemeAccent,
-  getUIPaneTitles,
 };

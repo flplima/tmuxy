@@ -12,150 +12,47 @@
 const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 const { delay } = require('./browser');
 const { DELAYS } = require('./config');
-const { tmuxQuery } = require('./cli');
+const { extractUIState, extractTmuxState } = require('./snapshot-compare');
 
 // ==================== Structural State Comparison ====================
 
 /**
- * Get tmux state snapshot via CLI (read-only tmux queries).
- * Queries tmux for windows, panes, and capture-pane content.
- *
- * Extracts the session name from the page URL to target the correct session.
- *
- * @param {Page} page - Playwright page (used to extract session name)
- * @returns {Promise<{windows: Array, panes: Array, content: Object}|null>}
- */
-async function getTmuxState(page) {
-  // Extract session name from page URL (?session=...)
-  let sessionName;
-  try {
-    const url = new URL(page.url());
-    sessionName = url.searchParams.get('session');
-    if (!sessionName) return null;
-  } catch {
-    return null;
-  }
-
-  try {
-    // Get windows: id, index, name, active, type. Keep tabs only — tabs carry
-    // no `@tmuxy-window-type` marker, so a tab is any window NOT tagged as
-    // float/float-backdrop/sidebar-left/sidebar-right chrome.
-    const winRaw = tmuxQuery(
-      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}"`,
-    );
-    const CHROME_TYPES = ['float', 'float-backdrop', 'sidebar-left', 'sidebar-right'];
-    const windows = winRaw
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const [id, index, name, active, windowType] = line.split('|');
-        return { id, index: parseInt(index, 10), name, active: active === '1', windowType };
-      })
-      .filter((w) => !CHROME_TYPES.includes(w.windowType));
-
-    // Get panes for active window: id, active, cols, rows
-    const paneRaw = tmuxQuery(
-      `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_active}|#{pane_width}|#{pane_height}"`,
-    );
-    const panes = paneRaw
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const [id, active, width, height] = line.split('|');
-        return {
-          id,
-          active: active === '1',
-          width: parseInt(width, 10),
-          height: parseInt(height, 10),
-        };
-      });
-
-    // Note: Pane content comparison (capture-pane vs DOM) is omitted because
-    // capture-pane and DOM rendering are inherently racy — the content is
-    // captured at different moments, causing 1-line shifts that trigger
-    // false positives. Structural comparison (windows, pane count, dimensions)
-    // is reliable and sufficient.
-    const content = {};
-
-    return { windows, panes, content };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Get UI state from XState context + DOM pane content.
+ * Read both sides through the snapshot extraction (snapshot-compare.js), for
+ * the session named in the page URL (`?session=`). Pane text is left out:
+ * capture-pane and the DOM are sampled at different moments, so a line-level
+ * comparison here would flag every redraw in flight. The snapshot suite owns
+ * the content comparison.
  *
  * @param {Page} page - Playwright page
- * @returns {Promise<{windows: Array, panes: Array, content: Object}|null>}
+ * @returns {Promise<{tmux: Object, ui: Object}|null>} null when there is no
+ *   session to compare or either side is unavailable
  */
-async function getUIState(page) {
-  return page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context) return null;
-    const ctx = snap.context;
-
-    // Windows (only tab-typed)
-    const windows = (ctx.windows || [])
-      .filter((w) => w.windowType === 'tab')
-      .map((w) => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
-
-    // Panes in active window
-    const visiblePanes = (ctx.panes || []).filter((p) => p.windowId === ctx.activeWindowId);
-    const panes = visiblePanes.map((p) => ({
-      id: p.tmuxId,
-      active: p.active,
-      width: p.width,
-      height: p.height,
-    }));
-
-    // Extract text content from DOM per pane
-    const content = {};
-    for (const pane of visiblePanes) {
-      const el = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .terminal-content`);
-      if (!el) {
-        content[pane.tmuxId] = [];
-        continue;
-      }
-      const lines = [];
-      el.querySelectorAll('.terminal-line').forEach((lineEl) => {
-        let text = '';
-        const spans = lineEl.querySelectorAll('span');
-        if (spans.length > 0) {
-          spans.forEach((s) => {
-            text += s.textContent || '';
-          });
-        } else {
-          text = lineEl.textContent || '';
-        }
-        lines.push(text);
-      });
-      content[pane.tmuxId] = lines;
-    }
-
-    return { windows, panes, content };
-  });
+async function readBothSides(page) {
+  let sessionName;
+  try {
+    sessionName = new URL(page.url()).searchParams.get('session');
+  } catch {
+    return null;
+  }
+  if (!sessionName) return null;
+  const [ui, tmux] = await Promise.all([
+    extractUIState(page),
+    Promise.resolve(extractTmuxState(sessionName, { content: false })),
+  ]);
+  return ui && tmux ? { tmux, ui } : null;
 }
 
 /**
- * Compare tmux state against UI state structurally.
+ * Compare tmux state against UI state structurally: window count, names and
+ * active flags; pane ids, active flags and dimensions.
  *
- * Checks:
- * - Window count and names match
- * - Pane count, IDs, active status, and dimensions match
- * - Pane content matches line-by-line (trimmed, with tolerance)
- *
- * @param {Object} tmux - Result from getTmuxState()
- * @param {Object} ui - Result from getUIState()
- * @param {Object} options
- * @param {number} options.contentDiffThreshold - Max differing chars per line to tolerate (default: 8)
+ * @param {Object} tmux - extractTmuxState() result
+ * @param {Object} ui - extractUIState() result
  * @returns {{match: boolean, errors: string[]}}
  */
-function compareState(tmux, ui, options = {}) {
-  const { contentDiffThreshold = 8 } = options;
+function compareState(tmux, ui) {
   const errors = [];
 
-  // --- Windows ---
   if (tmux.windows.length !== ui.windows.length) {
     errors.push(`Window count: tmux=${tmux.windows.length}, ui=${ui.windows.length}`);
   } else {
@@ -171,70 +68,27 @@ function compareState(tmux, ui, options = {}) {
     }
   }
 
-  // --- Panes ---
-  const tmuxPaneIds = tmux.panes.map((p) => p.id).sort();
-  const uiPaneIds = ui.panes.map((p) => p.id).sort();
+  const tmuxPaneIds = tmux.panes.map((p) => p.tmuxId).sort();
+  const uiPaneIds = ui.panes.map((p) => p.tmuxId).sort();
 
   if (tmuxPaneIds.join(',') !== uiPaneIds.join(',')) {
     errors.push(`Pane IDs differ: tmux=[${tmuxPaneIds}], ui=[${uiPaneIds}]`);
   } else {
-    // Pane IDs match — compare properties per pane
     for (const tmuxPane of tmux.panes) {
-      const uiPane = ui.panes.find((p) => p.id === tmuxPane.id);
-      if (!uiPane) continue; // shouldn't happen since IDs match
-
+      const uiPane = ui.panes.find((p) => p.tmuxId === tmuxPane.tmuxId);
+      const id = tmuxPane.tmuxId;
       if (tmuxPane.active !== uiPane.active) {
-        errors.push(`Pane ${tmuxPane.id} active: tmux=${tmuxPane.active}, ui=${uiPane.active}`);
+        errors.push(`Pane ${id} active: tmux=${tmuxPane.active}, ui=${uiPane.active}`);
       }
       if (tmuxPane.width !== uiPane.width) {
-        errors.push(`Pane ${tmuxPane.id} width: tmux=${tmuxPane.width}, ui=${uiPane.width}`);
+        errors.push(`Pane ${id} width: tmux=${tmuxPane.width}, ui=${uiPane.width}`);
       }
       // Allow 1-row height difference to account for the status line.
       // The server may report a different height than `list-panes` due to
       // how set_client_size allocates rows for the status bar.
       if (Math.abs(tmuxPane.height - uiPane.height) > 1) {
-        errors.push(`Pane ${tmuxPane.id} height: tmux=${tmuxPane.height}, ui=${uiPane.height}`);
+        errors.push(`Pane ${id} height: tmux=${tmuxPane.height}, ui=${uiPane.height}`);
       }
-    }
-  }
-
-  // --- Pane content ---
-  // Skip content comparison when tmux content is not populated (e.g., when
-  // getTmuxState omits capture-pane to avoid timing-related false positives).
-  for (const tmuxPane of tmux.panes) {
-    const tmuxLines = tmux.content[tmuxPane.id] || [];
-    const uiLines = ui.content[tmuxPane.id] || [];
-    if (tmuxLines.length === 0) continue;
-    const maxLines = Math.max(tmuxLines.length, uiLines.length);
-
-    let diffLineCount = 0;
-    for (let i = 0; i < maxLines; i++) {
-      const tLine = (tmuxLines[i] || '').replace(/\s+$/, '');
-      const uLine = (uiLines[i] || '').replace(/\s+$/, '');
-      if (tLine === uLine) continue;
-      // Skip if UI is empty but tmux has content (UI lag)
-      if (uLine === '' && tLine !== '') continue;
-
-      // Count character-level differences
-      let charDiffs = 0;
-      const len = Math.max(tLine.length, uLine.length);
-      for (let j = 0; j < len; j++) {
-        if ((tLine[j] || ' ') !== (uLine[j] || ' ')) charDiffs++;
-      }
-
-      if (charDiffs > contentDiffThreshold) {
-        diffLineCount++;
-        if (diffLineCount <= 3) {
-          errors.push(
-            `Pane ${tmuxPane.id} line ${i} (${charDiffs} chars differ):\n` +
-              `    tmux: ${JSON.stringify(tLine.slice(0, 80))}\n` +
-              `    ui:   ${JSON.stringify(uLine.slice(0, 80))}`,
-          );
-        }
-      }
-    }
-    if (diffLineCount > 3) {
-      errors.push(`Pane ${tmuxPane.id}: ${diffLineCount - 3} more differing lines`);
     }
   }
 
@@ -268,11 +122,10 @@ async function assertStateMatches(page, options = {}) {
     if (attempt > 0) await delay(retryDelay);
 
     try {
-      const [tmux, ui] = await Promise.all([getTmuxState(page), getUIState(page)]);
+      const sides = await readBothSides(page);
+      if (!sides) return; // can't compare, skip silently
 
-      if (!tmux || !ui) return; // can't compare, skip silently
-
-      const result = compareState(tmux, ui);
+      const result = compareState(sides.tmux, sides.ui);
       if (result.match) return; // success
 
       lastErrors = result.errors;
@@ -504,9 +357,9 @@ async function withConsistencyChecks(ctx, operation, options = {}) {
   // Compare structural state (tmux vs UI)
   if (!skipSnapshot && ctx.page) {
     try {
-      const [tmux, ui] = await Promise.all([getTmuxState(ctx.page), getUIState(ctx.page)]);
-      if (tmux && ui) {
-        const result = compareState(tmux, ui);
+      const sides = await readBothSides(ctx.page);
+      if (sides) {
+        const result = compareState(sides.tmux, sides.ui);
         snapshotResult = {
           match: result.match,
           diff: result.errors.map((e, i) => ({ line: i, description: e })),
@@ -542,95 +395,8 @@ async function withConsistencyChecks(ctx, operation, options = {}) {
   };
 }
 
-/**
- * Assert consistency check results pass expected thresholds.
- *
- * @param {Object} result - Result from withConsistencyChecks
- * @param {Object} options - Assertion options
- * @param {string} options.operation - Operation name for error messages
- * @param {boolean} options.allowFlicker - Allow flicker (default: false)
- * @param {boolean} options.allowSnapshotDiff - Allow snapshot differences (default: false)
- * @param {boolean} options.allowSizeErrors - Allow size errors (default: false)
- * @throws {Error} If consistency checks fail
- */
-function assertConsistencyPasses(result, options = {}) {
-  const {
-    operation = 'operation',
-    allowFlicker = false,
-    allowSnapshotDiff = false,
-    allowSizeErrors = false,
-  } = options;
-
-  const failures = [];
-
-  // Check flicker
-  if (!allowFlicker && result.glitch.hasFlicker) {
-    const { nodeFlickers } = result.glitch.summary;
-    const threshold = result.glitch.thresholds.nodeFlickers;
-    if (nodeFlickers > threshold) {
-      failures.push(
-        `Flicker detected (${nodeFlickers} events, threshold: ${threshold}):\n` +
-          result.glitch.flickers
-            .slice(0, 3)
-            .map((f) => `  - ${f.element}: ${f.sequence.map((s) => s.type).join(' -> ')}`)
-            .join('\n'),
-      );
-    }
-  }
-
-  // Check attribute churn
-  if (!allowFlicker && result.glitch.hasChurn) {
-    const { attrChurnEvents } = result.glitch.summary;
-    const threshold = result.glitch.thresholds.attrChurnEvents;
-    if (attrChurnEvents > threshold) {
-      failures.push(
-        `Attribute churn detected (${attrChurnEvents} events, threshold: ${threshold}):\n` +
-          result.glitch.churn
-            .slice(0, 3)
-            .map((c) => `  - ${c.target}: ${c.changeCount} changes`)
-            .join('\n'),
-      );
-    }
-  }
-
-  // Check state match
-  if (!allowSnapshotDiff && !result.snapshot.match) {
-    failures.push(
-      `State mismatch (${result.snapshot.diff.length} difference(s)):\n` +
-        result.snapshot.diff
-          .slice(0, 5)
-          .map((d) => `  - ${d.description || `Row ${d.line}`}`)
-          .join('\n'),
-    );
-  }
-
-  // Check DOM sizes
-  if (!allowSizeErrors && !result.sizes.valid) {
-    failures.push(
-      `DOM size verification failed:\n` +
-        result.sizes.errors
-          .slice(0, 5)
-          .map((e) => `  - ${e}`)
-          .join('\n'),
-    );
-  }
-
-  if (failures.length > 0) {
-    throw new Error(`Consistency check failed for "${operation}":\n\n` + failures.join('\n\n'));
-  }
-}
-
 module.exports = {
-  // Structural state comparison
-  getTmuxState,
-  getUIState,
-  compareState,
   assertStateMatches,
-
-  // DOM size verification
   verifyDomSizes,
-
-  // Wrapper and assertions
   withConsistencyChecks,
-  assertConsistencyPasses,
 };

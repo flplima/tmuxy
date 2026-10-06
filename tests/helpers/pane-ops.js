@@ -35,48 +35,6 @@ async function getUIPaneCount(page) {
 }
 
 /**
- * Get UI pane details
- */
-async function getUIPaneInfo(page) {
-  return await page.evaluate(() => {
-    const panes = document.querySelectorAll('[data-pane-id]');
-    if (panes.length === 0) {
-      const logs = document.querySelectorAll('[role="log"]');
-      return Array.from(logs).map((log, index) => {
-        const rect = log.getBoundingClientRect();
-        return {
-          index,
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-        };
-      });
-    }
-
-    const seenIds = new Set();
-    const uniquePanes = [];
-
-    for (const pane of panes) {
-      const paneId = pane.getAttribute('data-pane-id');
-      if (!seenIds.has(paneId)) {
-        seenIds.add(paneId);
-        const rect = pane.getBoundingClientRect();
-        uniquePanes.push({
-          id: paneId,
-          index: uniquePanes.length,
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-        });
-      }
-    }
-    return uniquePanes;
-  });
-}
-
-/**
  * Get terminal text content
  */
 /**
@@ -293,16 +251,6 @@ async function runCommand(page, command, expectedOutput, timeout = 20000, { scop
   return await waitForTerminalText(page, expectedOutput, timeout, { scope });
 }
 
-/**
- * Run a command and return terminal text after a delay (for commands without specific output)
- */
-async function runCommandWithDelay(page, command, delayMs = 1000) {
-  await typeInTerminal(page, command);
-  await pressEnter(page);
-  await delay(delayMs);
-  return await getTerminalText(page);
-}
-
 // ==================== UI Interactions ====================
 
 // ==================== Split Operations ====================
@@ -417,16 +365,6 @@ async function swapPaneKeyboard(page, direction = 'down') {
   await waitForLayoutSettled(page);
 }
 
-// ==================== Zoom Operations ====================
-
-/**
- * Toggle pane zoom via keyboard
- */
-async function toggleZoomKeyboard(page) {
-  await sendPrefixCommand(page, 'z');
-  await waitForLayoutSettled(page);
-}
-
 // ==================== Kill Operations ====================
 
 /**
@@ -441,14 +379,6 @@ async function killPaneKeyboard(page) {
 }
 
 // ==================== Layout Operations ====================
-
-/**
- * Cycle layout via keyboard
- */
-async function cycleLayoutKeyboard(page) {
-  await sendPrefixCommand(page, ' ');
-  await waitForLayoutSettled(page);
-}
 
 /**
  * Select a specific layout by name via tmux command
@@ -471,7 +401,6 @@ async function resizePaneKeyboard(page, direction, amount = 5) {
 module.exports = {
   // Pane info
   getUIPaneCount,
-  getUIPaneInfo,
   visibleTerminals,
   getTerminalText,
   waitForTerminalText,
@@ -480,19 +409,15 @@ module.exports = {
   showsShellPrompt,
   waitForLayoutSettled,
   runCommand,
-  runCommandWithDelay,
   // Split
   splitPaneKeyboard,
   // Navigate
   navigatePaneKeyboard,
   // Swap
   swapPaneKeyboard,
-  // Zoom
-  toggleZoomKeyboard,
   // Kill
   killPaneKeyboard,
   // Layout
-  cycleLayoutKeyboard,
   selectLayoutKeyboard,
   // Resize
   resizePaneKeyboard,

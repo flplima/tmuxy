@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { delay, focusPage } = require('./browser');
 const { DELAYS } = require('./config');
-const { typeInTerminal, pressEnter } = require('./ui');
+const { typeInTerminal, pressEnter } = require('./keyboard');
 const { getTerminalText } = require('./pane-ops');
 
 const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'mouse-capture.py');
@@ -22,7 +22,7 @@ const MOUSE_LOG = '/tmp/mouse-events.log';
 function describePaneCommands(ctx) {
   try {
     return ctx.session
-      .runCommandSync(`list-panes -t ${ctx.session.name} -F "#{pane_id}=#{pane_current_command}"`)
+      .runCommand(`list-panes -t ${ctx.session.name} -F "#{pane_id}=#{pane_current_command}"`)
       .split('\n')
       .join(' ');
   } catch (err) {
@@ -124,13 +124,6 @@ async function readMouseEvents(minCount = 1, timeout = 5000) {
 }
 
 /**
- * Calculate expected SGR coordinate from pixel position.
- */
-function expectedSgrCoord(pixel, origin, cellSize) {
-  return Math.max(0, Math.floor((pixel - origin) / cellSize)) + 1;
-}
-
-/**
  * Stop the mouse capture script by pressing 'q'.
  */
 async function stopMouseCapture(ctx) {
@@ -176,7 +169,6 @@ module.exports = {
   MOUSE_LOG,
   startMouseCapture,
   readMouseEvents,
-  expectedSgrCoord,
   stopMouseCapture,
   ensureMouseCaptureStopped,
 };

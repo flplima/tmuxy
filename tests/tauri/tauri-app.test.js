@@ -27,8 +27,7 @@ const {
   waitForPaneCount,
   waitForRawWindowCount,
 } = require('./helpers/wdio-client');
-const { tmuxQuery } = require('../helpers/cli');
-const { tmuxCmd } = require('../helpers/tmux-socket');
+const { tmuxCmd, tmuxExec } = require('../helpers/tmux-socket');
 
 // Shared driver/session state for each test
 let driver = null;
@@ -143,7 +142,7 @@ describe('App Lifecycle', () => {
 
     // The session the app reports really exists in tmux.
     try {
-      tmuxQuery(`has-session -t ${sessionName}`);
+      tmuxExec(`has-session -t ${sessionName}`);
     } catch {
       throw new Error(`tmux session '${sessionName}' not found`);
     }
@@ -347,7 +346,7 @@ describe('IPC Commands', () => {
     // tmux has the modes once the program printed them.
     let flags = '';
     for (let i = 0; i < 50; i++) {
-      flags = tmuxQuery(
+      flags = tmuxExec(
         `display-message -p -t ${sessionName} '#{alternate_on} #{mouse_any_flag}'`,
       ).trim();
       if (flags === '1 1') break;
@@ -464,7 +463,7 @@ describe('State Sync', () => {
 
     let names = '';
     for (let i = 0; i < 60; i++) {
-      names = tmuxQuery(`list-windows -t ${sessionName} -F '#{window_name}'`);
+      names = tmuxExec(`list-windows -t ${sessionName} -F '#{window_name}'`);
       if (names.includes('__sidebar-left')) break;
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -512,9 +511,7 @@ describe('GUI windows', () => {
     const grouped = `${sessionName}~2`;
     let sessions = '';
     for (let i = 0; i < 60; i++) {
-      sessions = tmuxQuery(
-        "list-sessions -F '#{session_name} #{session_group} #{session_windows}'",
-      );
+      sessions = tmuxExec("list-sessions -F '#{session_name} #{session_group} #{session_windows}'");
       if (sessions.includes(grouped)) break;
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -531,13 +528,13 @@ describe('GUI windows', () => {
     // two clients on one session could never do. The move goes through this
     // window's own control-mode connection — an external tmux mutation while a
     // control client is attached can crash tmux 3.5a.
-    const indexes = tmuxQuery(`list-windows -t ${sessionName} -F '#{window_index}'`)
+    const indexes = tmuxExec(`list-windows -t ${sessionName} -F '#{window_index}'`)
       .split('\n')
       .map((i) => i.trim())
       .filter((i) => i.length > 0);
     expect(indexes.length).toBeGreaterThanOrEqual(2);
     const currentOf = (session) =>
-      tmuxQuery(`display-message -p -t ${session} '#{window_index}'`).trim();
+      tmuxExec(`display-message -p -t ${session} '#{window_index}'`).trim();
     const otherBefore = currentOf(grouped);
 
     const target = indexes.find((i) => i !== otherBefore);

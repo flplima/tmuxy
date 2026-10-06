@@ -19,7 +19,7 @@ const { TMUXY_URL, DELAYS } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
 const { tmuxExec } = require('./tmux-socket');
 const { assertStateMatches } = require('./consistency');
-const { splitPaneKeyboard, navigatePaneKeyboard } = require('./ui');
+const { splitPaneKeyboard, navigatePaneKeyboard } = require('./pane-ops');
 const { tmuxRun } = require('./cli');
 
 /**
