@@ -28,7 +28,6 @@ never collide:
 | Release bundle | `tmuxy`      | nothing — the `DEFAULT_TMUX_SOCKET` fallback in `tmuxy-core/src/session.rs` |
 | Development    | `tmuxy-dev`  | `bin/dev`, which exports it so the server it spawns agrees                  |
 | E2E tests      | `tmuxy-test` | `tests/jest.setup.js` via `tests/helpers/tmux-socket.js`                    |
-| QA agents      | `tmuxy-prod` | `bin/prod`                                                                  |
 
 The development socket is identical across bare metal, the local devcontainer
 and Codespaces: all three reach it through `bin/dev`, so none of them hardcodes

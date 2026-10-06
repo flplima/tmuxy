@@ -70,12 +70,12 @@ Jobs that need tmux build **3.7a** from source and cache it (`e2e`, `interaction
 
 ### Local Gates
 
-`.github/pre-commit` (enabled by `npm install` through the `prepare` script) runs Prettier and `eslint --fix` on `packages/tmuxy-ui/src`, `eslint tests/`, a check that `eslint.config.mjs` still bans `tmuxQuery`, `vitest related --run` for staged UI sources, `cargo fmt -p tmuxy-core -p tmuxy-server` and `cargo clippy -p tmuxy-core -p tmuxy-server`. Formatter rewrites are re-staged only for fully staged files.
+`.github/pre-commit` (enabled by `npm install` through the `prepare` script) runs Prettier and `eslint --fix` on `packages/tmuxy-ui/src`, `eslint tests/`, a check that `eslint.config.mjs` still bans `tmuxExec`, `tmuxRun`, `tmuxCmd` and `execSync`, `vitest related --run` for staged UI sources, `cargo fmt -p tmuxy-core -p tmuxy-server` and `cargo clippy -p tmuxy-core -p tmuxy-server`. Formatter rewrites are re-staged only for fully staged files.
 
 ESLint rules that exist to protect test quality (`eslint.config.mjs`):
 
 - `jest/no-disabled-tests` is an error for `tests/**/*.js`.
-- `tests/helpers/pane-ops.js`, `tests/helpers/keyboard.js` and every `tests/**/*.test.js` outside `tests/tauri/` may not call `tmuxQuery`/`tmuxRun`, `execSync` or import `child_process`. Setup and ground-truth reads go through `tmuxExec()` in `tests/helpers/tmux-socket.js`.
+- Every `tests/**/*.test.js` outside `tests/tauri/` may not call `tmuxRun` or `tmuxCmd`, use `execSync` or import `child_process`; setup and ground-truth reads go through `tmuxExec()` in `tests/helpers/tmux-socket.js`. The interaction helpers `tests/helpers/pane-ops.js` and `tests/helpers/keyboard.js` may not call `tmuxExec` or `tmuxRun` at all, since they must act the way a user does.
 
 Clippy warns on `unwrap_used` and `expect_used` workspace-wide; CI promotes all warnings to errors. Test files opt out explicitly with an `allow` attribute.
 
@@ -199,7 +199,7 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 | `tests/15-session-snapshot.test.js`    | Session snapshots on a server of the test's own (own socket, port and state dir) — autosave follows split, float, tab, group, sidebar and restore tags; SIGTERM + `kill-server` + restart rebuilds the shape; `forget` needs `--force` |
 | `tests/snapshots/snapshot.test.js`     | Read-only UI ↔ tmux comparison, no interactions                                                                                                                                                                                        |
 
-Helpers live in `tests/helpers/`, one file per domain: `browser.js` (CDP connect or launch), `test-setup.js` (`createTestContext`), `extra-server.js` / `read-only-server.js` / `public-name-proxy.js` (a second server beside the suite's own), `TmuxTestSession.js`, `keyboard.js`, `pane-ops.js`, `window-ops.js`, `pane-groups.js`, `copy-mode.js` / `copy-mode-ui.js`, `mouse-capture.js`, `cell-grid.js`, `layout.js`, `glitch-detector.js`, `snapshot-compare.js`, `content-match.js`, `consistency.js`, `performance.js`, `ui.js`, `cli.js`, `tmux-socket.js`, `config.js`. Import them through `tests/helpers/index.js`.
+Helpers live in `tests/helpers/`, one file per domain: `browser.js` (CDP connect or launch), `test-setup.js` (`createTestContext`), `extra-server.js` / `read-only-server.js` / `public-name-proxy.js` (a second server beside the suite's own), `TmuxTestSession.js`, `keyboard.js`, `pane-ops.js`, `window-ops.js`, `pane-groups.js`, `copy-mode.js` / `copy-mode-ui.js`, `mouse-capture.js`, `cell-grid.js`, `layout.js`, `glitch-detector.js`, `snapshot-compare.js`, `content-match.js`, `consistency.js`, `cli.js`, `tmux-socket.js`, `config.js`. Import them through `tests/helpers/index.js`.
 
 ### Environment
 
