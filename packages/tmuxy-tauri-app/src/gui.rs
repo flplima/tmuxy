@@ -776,7 +776,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         "restart-app" => app_handle.restart(),
         "trace-open" => {
             if let Err(e) = commands::open_trace_file() {
-                show_status_message(app_handle, &e);
+                show_status_message(app_handle, &e.error);
             }
             return;
         }

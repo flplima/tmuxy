@@ -52,7 +52,7 @@ pub enum ClientCommand {
     },
     GetScrollbackCells {
         #[serde(rename = "paneId")]
-        pane_id: String,
+        pane_id: tmuxy_core::PaneId,
         #[serde(default = "default_scrollback_start")]
         start: i64,
         #[serde(default = "default_scrollback_end")]

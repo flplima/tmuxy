@@ -16,7 +16,7 @@ shared artefact that makes the drift visible.
 | `sse_state_update_full.json`  | The `state-update` SSE frame carrying a full snapshot                                                         |
 | `sse_state_update_delta.json` | The `state-update` SSE frame carrying a delta, including pane/window removals and sparse content              |
 | `sse_frames.json`             | Every other SSE frame, one per `SseEvent` variant                                                             |
-| `command_errors.json`         | The `/commands` error bodies a client has to render                                                           |
+| `command_errors.json`         | The `/commands` error bodies a client has to render: `{ error, kind }`, one of each kind                      |
 
 Each state and delta populates **every** field, so nothing is skipped by
 `skip_serializing_if` and hidden from the decoder.

@@ -363,13 +363,16 @@ impl AppState {
 
     /// The session's monitor command channel, or the error a client is
     /// answered with while its monitor is not connected.
-    pub async fn monitor_tx(&self, session: &str) -> Result<MonitorCommandSender, String> {
+    pub async fn monitor_tx(
+        &self,
+        session: &str,
+    ) -> Result<MonitorCommandSender, tmuxy_core::CommandError> {
         self.sessions
             .read()
             .await
             .get(session)
             .and_then(|s| s.monitor_command_tx.clone())
-            .ok_or_else(|| "No monitor connection available".to_string())
+            .ok_or_else(|| tmuxy_core::CommandError::unavailable("No monitor connection available"))
     }
 
     /// Whether `name` is a session this server will serve.
@@ -633,7 +636,10 @@ async fn image_handler(
     Path((pane_id, image_id)): Path<(String, u32)>,
 ) -> Response {
     let store = state.image_store.read().await;
-    match store.get(&format!("%{pane_id}"), image_id) {
+    let image = tmuxy_core::PaneId::parse(&format!("%{pane_id}"))
+        .ok()
+        .and_then(|pane_id| store.get(&pane_id, image_id));
+    match image {
         Some(img) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", &img.mime_type)

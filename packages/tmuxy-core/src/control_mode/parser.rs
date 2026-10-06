@@ -7,46 +7,50 @@
 //! - etc.
 
 use super::octal::decode_octal;
+use crate::{PaneId, WindowId};
 
 /// Events parsed from control mode output
 #[derive(Debug, Clone)]
 pub enum ControlModeEvent {
     /// Raw pane output (octal-decoded)
-    Output { pane_id: String, content: Vec<u8> },
+    Output { pane_id: PaneId, content: Vec<u8> },
 
     /// Extended output with timing info (when flow control is enabled)
     ExtendedOutput {
-        pane_id: String,
+        pane_id: PaneId,
         age_ms: u64,
         content: Vec<u8>,
     },
 
     /// Layout change notification
     LayoutChange {
-        window_id: String,
+        window_id: WindowId,
         layout: String,
         visible_layout: String,
         flags: String,
     },
 
     /// Window added
-    WindowAdd { window_id: String },
+    WindowAdd { window_id: WindowId },
 
     /// Window closed
-    WindowClose { window_id: String },
+    WindowClose { window_id: WindowId },
 
     /// Window renamed
-    WindowRenamed { window_id: String, name: String },
+    WindowRenamed { window_id: WindowId, name: String },
 
     /// Active pane changed in window
-    WindowPaneChanged { window_id: String, pane_id: String },
+    WindowPaneChanged {
+        window_id: WindowId,
+        pane_id: PaneId,
+    },
 
     /// Pane mode changed (e.g., entered/exited copy mode)
-    PaneModeChanged { pane_id: String },
+    PaneModeChanged { pane_id: PaneId },
 
     /// A `refresh-client -B` subscription's value changed for a pane:
     /// `%subscription-changed <name> $session @window <index> %pane ... : value`.
-    SubscriptionChanged { name: String, pane_id: String },
+    SubscriptionChanged { name: String, pane_id: PaneId },
 
     /// A paste buffer was created or updated (e.g. copy-mode yank, set-buffer).
     /// tmux does not forward OSC 52 to a control-mode client, so this is how
@@ -65,7 +69,7 @@ pub enum ControlModeEvent {
     /// Session window changed (active window in session)
     SessionWindowChanged {
         session_id: String,
-        window_id: String,
+        window_id: WindowId,
     },
 
     /// Sessions list changed (session created/destroyed)
@@ -80,19 +84,19 @@ pub enum ControlModeEvent {
     },
 
     /// Flow control: pane paused
-    Pause { pane_id: String },
+    Pause { pane_id: PaneId },
 
     /// Flow control: pane continued
-    Continue { pane_id: String },
+    Continue { pane_id: PaneId },
 
     /// Control mode client exiting
     Exit { reason: Option<String> },
 
     /// Unlinked window added (window not linked to current session)
-    UnlinkedWindowAdd { window_id: String },
+    UnlinkedWindowAdd { window_id: WindowId },
 
     /// Unlinked window closed
-    UnlinkedWindowClose { window_id: String },
+    UnlinkedWindowClose { window_id: WindowId },
 }
 
 /// Parser for control mode notifications
@@ -208,14 +212,14 @@ impl Parser {
         // %window-add @window
         if let Some(rest) = line.strip_prefix(ev::WINDOW_ADD) {
             return Some(ControlModeEvent::WindowAdd {
-                window_id: rest.trim().to_string(),
+                window_id: rest.trim().parse().ok()?,
             });
         }
 
         // %window-close @window
         if let Some(rest) = line.strip_prefix(ev::WINDOW_CLOSE) {
             return Some(ControlModeEvent::WindowClose {
-                window_id: rest.trim().to_string(),
+                window_id: rest.trim().parse().ok()?,
             });
         }
 
@@ -232,7 +236,7 @@ impl Parser {
         // %pane-mode-changed %pane
         if let Some(rest) = line.strip_prefix(ev::PANE_MODE_CHANGED) {
             return Some(ControlModeEvent::PaneModeChanged {
-                pane_id: rest.trim().to_string(),
+                pane_id: rest.trim().parse().ok()?,
             });
         }
 
@@ -241,7 +245,7 @@ impl Parser {
             let head = rest.split(" : ").next().unwrap_or(rest);
             let mut words = head.split_whitespace();
             let name = words.next()?.to_string();
-            let pane_id = words.find(|w| w.starts_with('%'))?.to_string();
+            let pane_id = words.find_map(|w| PaneId::parse(w).ok())?;
             return Some(ControlModeEvent::SubscriptionChanged { name, pane_id });
         }
 
@@ -277,14 +281,14 @@ impl Parser {
         // %pause %pane
         if let Some(rest) = line.strip_prefix(ev::PAUSE) {
             return Some(ControlModeEvent::Pause {
-                pane_id: rest.trim().to_string(),
+                pane_id: rest.trim().parse().ok()?,
             });
         }
 
         // %continue %pane
         if let Some(rest) = line.strip_prefix(ev::CONTINUE) {
             return Some(ControlModeEvent::Continue {
-                pane_id: rest.trim().to_string(),
+                pane_id: rest.trim().parse().ok()?,
             });
         }
 
@@ -308,14 +312,14 @@ impl Parser {
         // %unlinked-window-add @window
         if let Some(rest) = line.strip_prefix(ev::UNLINKED_WINDOW_ADD) {
             return Some(ControlModeEvent::UnlinkedWindowAdd {
-                window_id: rest.trim().to_string(),
+                window_id: rest.trim().parse().ok()?,
             });
         }
 
         // %unlinked-window-close @window
         if let Some(rest) = line.strip_prefix(ev::UNLINKED_WINDOW_CLOSE) {
             return Some(ControlModeEvent::UnlinkedWindowClose {
-                window_id: rest.trim().to_string(),
+                window_id: rest.trim().parse().ok()?,
             });
         }
 
@@ -328,7 +332,7 @@ impl Parser {
 
         // Find the space after pane-id
         if let Some(space_idx) = rest.find(' ') {
-            let pane_id = rest[..space_idx].to_string();
+            let pane_id = PaneId::parse(&rest[..space_idx]).ok()?;
             let value = &rest[space_idx + 1..];
             let content = decode_octal(value);
             return Some(ControlModeEvent::Output { pane_id, content });
@@ -336,7 +340,7 @@ impl Parser {
 
         // No content (empty output)
         Some(ControlModeEvent::Output {
-            pane_id: rest.trim().to_string(),
+            pane_id: rest.trim().parse().ok()?,
             content: Vec::new(),
         })
     }
@@ -355,7 +359,7 @@ impl Parser {
             return None;
         }
 
-        let pane_id = header_parts[0].to_string();
+        let pane_id = PaneId::parse(header_parts[0]).ok()?;
         let age_ms = header_parts
             .get(1)
             .and_then(|s| s.parse().ok())
@@ -376,7 +380,7 @@ impl Parser {
 
         if parts.len() >= 3 {
             Some(ControlModeEvent::LayoutChange {
-                window_id: parts[0].to_string(),
+                window_id: parts[0].parse().ok()?,
                 layout: parts[1].to_string(),
                 visible_layout: parts[2].to_string(),
                 flags: parts.get(3).unwrap_or(&"").to_string(),
@@ -389,11 +393,11 @@ impl Parser {
     fn parse_window_renamed(&self, line: &str) -> Option<ControlModeEvent> {
         // %window-renamed @window name
         let rest = &line["%window-renamed ".len()..];
-        rest.find(' ')
-            .map(|space_idx| ControlModeEvent::WindowRenamed {
-                window_id: rest[..space_idx].to_string(),
-                name: rest[space_idx + 1..].to_string(),
-            })
+        let (window_id, name) = rest.split_once(' ')?;
+        Some(ControlModeEvent::WindowRenamed {
+            window_id: WindowId::parse(window_id).ok()?,
+            name: name.to_string(),
+        })
     }
 
     fn parse_window_pane_changed(&self, line: &str) -> Option<ControlModeEvent> {
@@ -403,8 +407,8 @@ impl Parser {
 
         if parts.len() >= 2 {
             Some(ControlModeEvent::WindowPaneChanged {
-                window_id: parts[0].to_string(),
-                pane_id: parts[1].to_string(),
+                window_id: parts[0].parse().ok()?,
+                pane_id: parts[1].parse().ok()?,
             })
         } else {
             None
@@ -429,7 +433,7 @@ impl Parser {
         if parts.len() >= 2 {
             Some(ControlModeEvent::SessionWindowChanged {
                 session_id: parts[0].to_string(),
-                window_id: parts[1].to_string(),
+                window_id: parts[1].parse().ok()?,
             })
         } else {
             None

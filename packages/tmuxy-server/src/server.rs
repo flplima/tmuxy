@@ -255,6 +255,11 @@ pub enum ServerAction {
     /// Save, restore, list or forget session snapshots. Backs
     /// `tmuxy session save|restore|snapshots|forget`.
     Session(crate::session_cli::SessionArgs),
+    /// Pane-group operations. Backs the `bin/tmuxy/pane-group-*` scripts,
+    /// which run it inside `tmux run-shell`. Hidden: `tmuxy pane group` is
+    /// the user's way in.
+    #[command(hide = true)]
+    Group(crate::group_cli::GroupArgs),
 }
 
 /// Activate action tracing per the gating rules and announce it loudly, so it
@@ -335,6 +340,7 @@ pub async fn run(args: ServerArgs) {
         }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
         Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args),
+        Some(ServerAction::Group(group_args)) => crate::group_cli::run(group_args),
     }
 }
 

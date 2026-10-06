@@ -100,7 +100,7 @@ fn copy_mode_yank_mirrors_paste_buffer_to_clipboard() {
         "%begin 4 4 1\nyanked line one\nyanked line two\n%end 4 4 1\n",
         "%begin 5 5 1\nTMUXY_BUF_END\n%end 5 5 1\n",
     );
-    let mut clipboard: Vec<(String, String)> = Vec::new();
+    let mut clipboard: Vec<(Option<tmuxy_core::PaneId>, String)> = Vec::new();
     for line in response.split('\n') {
         if let Some(event) = parser.parse_line(line) {
             for effect in agg.step(event).effects {

@@ -2,32 +2,14 @@
 # Switch to a target pane within a group
 # Args: $1=target_pane_id
 #
-# Finds the group's visible member, resizes the target's stash window to match,
-# then swaps the target into the visible position. The per-pane @tmuxy-group-id
-# options follow the panes across the cross-session swap, so membership is
-# preserved automatically.
+# Sizes the target's stash window to the visible member's slot, then swaps the
+# target into view.
+#
+# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
+# `group` verb); this script is their name for the UI, the key bindings and
+# session restore.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-TARGET_PANE="$1"
-
-GID=$(group_id_of_pane "$TARGET_PANE")
-if [ -z "$GID" ]; then
-  exit 0
-fi
-
-VISIBLE_PANE=$(visible_member "$GID")
-if [ -z "$VISIBLE_PANE" ] || [ "$VISIBLE_PANE" = "$TARGET_PANE" ]; then
-  exit 0
-fi
-
-# Match the visible pane's dimensions, then swap (target may live in the stash).
-VISIBLE_WIDTH=$(_tmux display-message -t "$VISIBLE_PANE" -p '#{pane_width}')
-VISIBLE_HEIGHT=$(_tmux display-message -t "$VISIBLE_PANE" -p '#{pane_height}')
-TARGET_WIN=$(pane_window "$TARGET_PANE")
-
-_tmux resize-window -t "$TARGET_WIN" -x "$VISIBLE_WIDTH" -y "$VISIBLE_HEIGHT" \; \
-     swap-pane -s "$TARGET_PANE" -t "$VISIBLE_PANE"
-
-refresh_panes
+group_verb switch "$@"

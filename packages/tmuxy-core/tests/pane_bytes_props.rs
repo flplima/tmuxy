@@ -97,7 +97,7 @@ proptest! {
         let line = format!("%output %{} {}", pane, tmux_escape(&bytes));
         match parser.parse_line(&line) {
             Some(tmuxy_core::control_mode::ControlModeEvent::Output { pane_id, content }) => {
-                prop_assert_eq!(pane_id, format!("%{}", pane));
+                prop_assert_eq!(pane_id.number(), pane);
                 prop_assert_eq!(content, bytes);
             }
             other => prop_assert!(false, "expected an Output event, got {:?}", other),

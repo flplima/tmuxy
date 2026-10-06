@@ -673,19 +673,24 @@ pub fn is_safe_session_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'+'))
 }
 
-/// Whether `id` is a pane id in tmux's own canonical spelling, `%<digits>`.
-///
-/// SEC-17. A client that names a pane names it this way — it only ever learned
-/// ids from `list-panes` — so anything else (`other:0.0`, `{last}`, a name) is
-/// not a pane the client was shown, and is refused before it reaches tmux.
-pub fn is_pane_id(id: &str) -> bool {
-    id.strip_prefix('%')
-        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
-}
-
 #[cfg(test)]
 mod name_tests {
     use super::*;
+
+    #[test]
+    fn the_server_command_is_published_quoted_with_its_subcommand() {
+        assert_eq!(
+            server_command_env_for(Path::new("/Apps/my tmuxy/tmuxy"), Some("server")),
+            [
+                "set-environment -g TMUXY_SERVER_BIN '/Apps/my tmuxy/tmuxy'",
+                "set-environment -g TMUXY_SERVER_SUBCOMMAND 'server'",
+            ]
+        );
+        assert_eq!(
+            server_command_env_for(Path::new("/bin/tmuxy-server"), None)[1],
+            "set-environment -g -u TMUXY_SERVER_SUBCOMMAND"
+        );
+    }
 
     #[test]
     fn session_names_are_held_to_the_alphabet() {
@@ -705,25 +710,6 @@ mod name_tests {
             "ünïcode",
         ] {
             assert!(!is_safe_session_name(bad), "{bad:?} should be refused");
-        }
-    }
-
-    #[test]
-    fn pane_ids_are_tmux_canonical_only() {
-        for ok in ["%0", "%7", "%1234"] {
-            assert!(is_pane_id(ok), "{ok:?}");
-        }
-        for bad in [
-            "",
-            "%",
-            "7",
-            "%7a",
-            "%-1",
-            "other:0.0",
-            "{last}",
-            "%7 ; kill-server",
-        ] {
-            assert!(!is_pane_id(bad), "{bad:?}");
         }
     }
 }
@@ -750,6 +736,47 @@ pub fn ensure_themes() -> PathBuf {
     }
 
     themes_dir
+}
+
+/// The tmux global environment variables naming the binary that runs this
+/// build's server verbs (`group`, `session`, …), and the subcommand it needs
+/// first: none for `tmuxy-server`, `server` for the desktop app. The helper
+/// scripts run under `run-shell`, which hands them tmux's global environment,
+/// so this is how a script finds THIS build — the copies in [`bin_dir`] sit
+/// nowhere near a build tree, and a socket's tmux server is the one place a
+/// dev build and an installed one never share.
+pub const SERVER_BIN_ENV: &str = "TMUXY_SERVER_BIN";
+pub const SERVER_SUBCOMMAND_ENV: &str = "TMUXY_SERVER_SUBCOMMAND";
+
+static SERVER_COMMAND: OnceLock<(PathBuf, Option<&'static str>)> = OnceLock::new();
+
+/// Record how this process's own binary runs a server verb. Called once by
+/// each entry point, before any monitor attaches.
+pub fn set_server_command(exe: PathBuf, subcommand: Option<&'static str>) {
+    let _ = SERVER_COMMAND.set((exe, subcommand));
+}
+
+/// The commands that publish [`SERVER_BIN_ENV`] and [`SERVER_SUBCOMMAND_ENV`]
+/// to the tmux server, or nothing when no entry point recorded a binary.
+pub fn server_command_env() -> Vec<String> {
+    SERVER_COMMAND
+        .get()
+        .map(|(exe, subcommand)| server_command_env_for(exe, *subcommand))
+        .unwrap_or_default()
+}
+
+fn server_command_env_for(exe: &Path, subcommand: Option<&str>) -> Vec<String> {
+    let quote = crate::executor::tmux_quote;
+    vec![
+        format!(
+            "set-environment -g {SERVER_BIN_ENV} {}",
+            quote(&exe.to_string_lossy())
+        ),
+        match subcommand {
+            Some(sub) => format!("set-environment -g {SERVER_SUBCOMMAND_ENV} {}", quote(sub)),
+            None => format!("set-environment -g -u {SERVER_SUBCOMMAND_ENV}"),
+        },
+    ]
 }
 
 /// User bin directory: `~/.config/tmuxy/bin/`. Where we materialize the

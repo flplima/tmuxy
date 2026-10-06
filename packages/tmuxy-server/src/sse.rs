@@ -17,7 +17,7 @@ use tmuxy_core::control_mode::{
     TmuxMonitor,
 };
 use tmuxy_core::transport::KeyBindings;
-use tmuxy_core::{executor, StateUpdate};
+use tmuxy_core::{executor, CommandError, StateUpdate};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -167,7 +167,7 @@ impl StateEmitter for SseEmitter {
 
     fn store_images(
         &self,
-        pane_id: &str,
+        pane_id: &tmuxy_core::PaneId,
         images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
     ) {
         // Use try_write to avoid blocking the monitor loop; drop images if contended
@@ -176,26 +176,26 @@ impl StateEmitter for SseEmitter {
         }
     }
 
-    fn write_clipboard(&self, pane_id: &str, text: String) {
+    fn write_clipboard(&self, pane_id: Option<&tmuxy_core::PaneId>, text: String) {
         // SEC-13: a viewer never receives the writer's clipboard. tmux paste
         // buffers are global to the tmux SERVER, so `%paste-buffer-changed`
         // carries a yank from any session — text a viewer was never shown —
         // and every client that receives it writes it to its own system
         // clipboard.
         if self.app_state.read_only {
-            tracing::debug!(%pane_id, "read-only server: clipboard write not forwarded");
+            tracing::debug!(?pane_id, "read-only server: clipboard write not forwarded");
             return;
         }
         if !tmuxy_core::transport::clipboard_write_allowed(&text) {
             tracing::debug!(
-                %pane_id,
+                ?pane_id,
                 bytes = text.len(),
                 "clipboard write over the cap, dropped"
             );
             return;
         }
         self.send_event(&SseEvent::Clipboard {
-            pane_id: pane_id.to_string(),
+            pane_id: pane_id.map(|p| p.to_string()).unwrap_or_default(),
             text,
         });
     }
@@ -250,12 +250,22 @@ enum SseEvent {
 // Command Types
 // ============================================
 
+/// A command's answer. A failure is a `CommandError` instead —
+/// `{ "error", "kind" }` — sent with a 4xx status.
 #[derive(Debug, Serialize)]
 pub struct CommandResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    result: serde_json::Value,
+}
+
+/// A failed command, as `POST /commands` answers it.
+fn command_failure(status: StatusCode, error: CommandError) -> Response {
+    (status, Json(error)).into_response()
+}
+
+/// A command's answer as JSON; failing to make it is this side's fault.
+fn to_json(value: impl Serialize, what: &str) -> Result<serde_json::Value, CommandError> {
+    serde_json::to_value(value)
+        .map_err(|e| CommandError::unavailable(format!("Failed to serialize {what}: {e}")))
 }
 
 // ============================================
@@ -277,13 +287,34 @@ enum SessionRejection {
     NotServed,
 }
 
+impl SessionRejection {
+    fn status(&self) -> StatusCode {
+        match self {
+            Self::Invalid => StatusCode::BAD_REQUEST,
+            Self::NotServed => StatusCode::NOT_FOUND,
+        }
+    }
+
+    fn message(&self) -> &'static str {
+        match self {
+            Self::Invalid => "invalid session name",
+            Self::NotServed => "no such session",
+        }
+    }
+
+    /// The same refusal for `POST /commands`, in its error shape.
+    fn into_command_failure(self) -> Response {
+        let error = match self {
+            Self::Invalid => CommandError::invalid(self.message()),
+            Self::NotServed => CommandError::unavailable(self.message()),
+        };
+        command_failure(self.status(), error)
+    }
+}
+
 impl IntoResponse for SessionRejection {
     fn into_response(self) -> Response {
-        match self {
-            Self::Invalid => (StatusCode::BAD_REQUEST, "invalid session name\n"),
-            Self::NotServed => (StatusCode::NOT_FOUND, "no such session\n"),
-        }
-        .into_response()
+        (self.status(), format!("{}\n", self.message())).into_response()
     }
 }
 
@@ -615,7 +646,7 @@ pub async fn commands_handler(
 ) -> Response {
     let session = match query.session(&state) {
         Ok(session) => session,
-        Err(rejection) => return rejection.into_response(),
+        Err(rejection) => return rejection.into_command_failure(),
     };
 
     // Connection ID from the header. Every SSE client is handed its own id in
@@ -635,20 +666,15 @@ pub async fn commands_handler(
         tracing::info!(target: "tmuxy_server::sse", action_id = %action_id, "client command");
     }
 
-    // Decode into the typed enum. A parse failure still returns 400 with the
-    // serde error in the body — the existing wire contract (`{ "error": ... }`)
-    // is preserved so the TS adapter keeps working.
+    // Decode into the typed enum. A malformed payload — a misspelt field, a
+    // pane id that is not one — is a 400 of kind `invalid`.
     let cmd: ClientCommand = match ClientCommand::decode(&body) {
         Ok(c) => c,
         Err(e) => {
-            return (
+            return command_failure(
                 StatusCode::BAD_REQUEST,
-                Json(CommandResponse {
-                    result: None,
-                    error: Some(format!("invalid command payload: {}", e)),
-                }),
-            )
-                .into_response();
+                CommandError::invalid(format!("invalid command payload: {e}")),
+            );
         }
     };
 
@@ -659,14 +685,10 @@ pub async fn commands_handler(
         match serve_viewer(cmd, &session, &state).await {
             Some(result) => result,
             None => {
-                return (
+                return command_failure(
                     StatusCode::FORBIDDEN,
-                    Json(CommandResponse {
-                        result: None,
-                        error: Some("read-only server".to_string()),
-                    }),
-                )
-                    .into_response();
+                    CommandError::forbidden("read-only server"),
+                );
             }
         }
     } else {
@@ -674,22 +696,8 @@ pub async fn commands_handler(
     };
 
     match outcome {
-        Ok(result) => (
-            StatusCode::OK,
-            Json(CommandResponse {
-                result: Some(result),
-                error: None,
-            }),
-        )
-            .into_response(),
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            Json(CommandResponse {
-                result: None,
-                error: Some(error),
-            }),
-        )
-            .into_response(),
+        Ok(result) => (StatusCode::OK, Json(CommandResponse { result })).into_response(),
+        Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
     }
 }
 
@@ -745,13 +753,12 @@ async fn serve_viewer(
     cmd: ClientCommand,
     session: &str,
     state: &Arc<AppState>,
-) -> Option<Result<serde_json::Value, String>> {
+) -> Option<Result<serde_json::Value, CommandError>> {
     Some(match cmd {
         // The viewport that arrives with it is ignored, deliberately.
         ClientCommand::GetInitialState { .. } => match initial_state_for_size(state, session).await
         {
-            Ok(snapshot) => serde_json::to_value(snapshot)
-                .map_err(|e| format!("Failed to serialize state: {}", e)),
+            Ok(snapshot) => to_json(snapshot, "state"),
             Err(e) => Err(e),
         },
         // From the monitor's own history, never from tmux.
@@ -759,13 +766,7 @@ async fn serve_viewer(
             pane_id,
             start,
             end,
-        } => {
-            if !tmuxy_core::session::is_pane_id(&pane_id) {
-                Err(format!("not a pane id: {pane_id:?}"))
-            } else {
-                viewer_scrollback(state, session, &pane_id, start, end).await
-            }
-        }
+        } => viewer_scrollback(state, session, pane_id, start, end).await,
         // Read from tmux once per server, not once per request.
         ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
         // A static list compiled in; no tmux, no host.
@@ -782,7 +783,7 @@ async fn handle_command(
     session: &str,
     state: &Arc<AppState>,
     conn_id: Option<u64>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CommandError> {
     match cmd {
         ClientCommand::GetInitialState { cols, rows } => {
             // Apply client size before capturing state.
@@ -792,7 +793,7 @@ async fn handle_command(
                 }
             }
             let snapshot = initial_state_for_size(state, session).await?;
-            serde_json::to_value(snapshot).map_err(|e| format!("Failed to serialize state: {}", e))
+            to_json(snapshot, "state")
         }
         ClientCommand::SetClientSize { cols, rows } => {
             if cols > 0 && rows > 0 {
@@ -837,7 +838,7 @@ async fn handle_command(
                 new_window_client_size(state, session).await,
             ) {
                 tmuxy_core::command_router::Route::Blocked(reason) => {
-                    return Err(reason.to_string());
+                    return Err(CommandError::forbidden(reason));
                 }
                 tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
             };
@@ -876,12 +877,14 @@ async fn handle_command(
             let cmd = list_pane_paths_cmd(state.session_pin.as_deref());
             let listing = query_via_control_mode(state, session, &cmd).await?;
             let repositories = tokio::task::spawn_blocking(move || {
-                list_git_worktrees(paths_from_pane_listing(&listing)).map_err(|e| e.to_string())
+                list_git_worktrees(paths_from_pane_listing(&listing))
+                    .map_err(|e| CommandError::unavailable(e.to_string()))
             })
             .await
-            .map_err(|e| format!("worktree discovery task failed: {e}"))??;
-            serde_json::to_value(repositories)
-                .map_err(|e| format!("failed to serialize worktrees: {e}"))
+            .map_err(|e| {
+                CommandError::unavailable(format!("worktree discovery task failed: {e}"))
+            })??;
+            to_json(repositories, "worktrees")
         }
         ClientCommand::SetThemeMode { mode } => {
             let tx = state.monitor_tx(session).await?;
@@ -946,7 +949,7 @@ async fn refresh_keybindings(state: &Arc<AppState>, session: &str) {
 async fn theme_settings_for(
     state: &Arc<AppState>,
     session: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CommandError> {
     if state.read_only {
         return state
             .viewer_theme_settings
@@ -984,7 +987,7 @@ async fn send_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
     command: &str,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     // Record the WHAT of each mutating command as its tmux verb (first token) —
     // content-free (a fixed subcommand name, never the args). The full command
     // string is admitted only at trace level `full` (docs/TELEMETRY.md).
@@ -1009,14 +1012,16 @@ const MONITOR_READY_TIMEOUT: Duration = Duration::from_secs(15);
 async fn wait_for_monitor(
     state: &Arc<AppState>,
     session: &str,
-) -> Result<MonitorCommandSender, String> {
+) -> Result<MonitorCommandSender, CommandError> {
     let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
     loop {
         if let Ok(tx) = state.monitor_tx(session).await {
             return Ok(tx);
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err("tmux monitor did not come up in time".to_string());
+            return Err(CommandError::unavailable(
+                "tmux monitor did not come up in time",
+            ));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -1028,16 +1033,18 @@ async fn wait_for_monitor(
 async fn initial_state_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
-) -> Result<tmuxy_core::TmuxState, String> {
+) -> Result<tmuxy_core::TmuxState, CommandError> {
     let tx = wait_for_monitor(state, session).await?;
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::GetState { reply })
         .await
-        .map_err(|e| format!("Monitor channel error: {}", e))?;
+        .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
     tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
         .await
-        .map_err(|_| "tmux monitor did not answer with the initial state".to_string())?
-        .map_err(|_| "monitor went away before answering".to_string())
+        .map_err(|_| {
+            CommandError::unavailable("tmux monitor did not answer with the initial state")
+        })?
+        .map_err(|_| CommandError::unavailable("monitor went away before answering"))
 }
 
 /// How long a client's first state waits for the resize it just asked for.
@@ -1070,7 +1077,7 @@ const INITIAL_STATE_RESIZE_WAIT: Duration = Duration::from_millis(750);
 async fn initial_state_for_size(
     state: &Arc<AppState>,
     session: &str,
-) -> Result<tmuxy_core::TmuxState, String> {
+) -> Result<tmuxy_core::TmuxState, CommandError> {
     let mut snapshot = initial_state_via_control_mode(state, session).await?;
     let asked = {
         let sessions = state.sessions.read().await;
@@ -1102,7 +1109,7 @@ async fn query_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
     command: &str,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     tracing::debug!(
         target: "tmuxy_server::sse",
         verb = command.split_whitespace().next().unwrap_or(""),
@@ -1384,7 +1391,7 @@ const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
 /// used to cost three in-band control-mode queries, on the connection that
 /// session shares, on every scroll.
 ///
-/// `pane_id` is already known to be a `%N`. The monitor holds only the
+/// The monitor holds only the
 /// session it monitors, so a pane it does not know is a pane this viewer was
 /// never shown, and the request is refused. The range is capped at
 /// `MAX_VIEWER_SCROLLBACK_ROWS` from the end, with the clamped `start`
@@ -1392,25 +1399,27 @@ const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
 async fn viewer_scrollback(
     state: &Arc<AppState>,
     session: &str,
-    pane_id: &str,
+    pane_id: tmuxy_core::PaneId,
     start: i64,
     end: i64,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CommandError> {
     let tx = state.monitor_tx(session).await?;
     let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::GetScrollback {
-        pane_id: pane_id.to_string(),
+        pane_id: pane_id.clone(),
         start,
         end,
         reply,
     })
     .await
-    .map_err(|e| format!("Monitor channel error: {}", e))?;
+    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
     let chunk = rx
         .await
-        .map_err(|_| "monitor went away before answering".to_string())?
-        .ok_or_else(|| format!("pane {pane_id} is not in session {session}"))?;
+        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?
+        .ok_or_else(|| {
+            CommandError::invalid(format!("pane {pane_id} is not in session {session}"))
+        })?;
 
     Ok(serde_json::json!({
         "cells": chunk.cells,
@@ -2314,7 +2323,7 @@ mod tests {
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
-        emitter.write_clipboard("", "a secret someone yanked elsewhere".into());
+        emitter.write_clipboard(None, "a secret someone yanked elsewhere".into());
 
         assert!(rx.try_recv().is_err(), "nothing should have been broadcast");
     }
@@ -2330,7 +2339,7 @@ mod tests {
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
-        emitter.write_clipboard("%0", "yanked".into());
+        emitter.write_clipboard(Some(&"%0".parse().unwrap()), "yanked".into());
 
         let (_, message) = rx.try_recv().unwrap();
         assert!(message.contains("yanked"));
@@ -2351,7 +2360,7 @@ mod tests {
         );
 
         emitter.write_clipboard(
-            "",
+            None,
             "x".repeat(tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES + 1),
         );
 
@@ -2469,7 +2478,7 @@ mod tests {
     #[test]
     fn clipboard_event_serializes_with_expected_shape() {
         let evt = SseEvent::Clipboard {
-            pane_id: "%4".to_string(),
+            pane_id: "%4".parse().unwrap(),
             text: "hello world".to_string(),
         };
         let json = serde_json::to_string(&evt).unwrap();
@@ -2769,13 +2778,13 @@ mod protocol_fixtures {
     fn canonical_state() -> TmuxState {
         TmuxState {
             session_name: "tmuxy".to_string(),
-            active_window_id: Some("@1".to_string()),
-            active_pane_id: Some("%2".to_string()),
+            active_window_id: Some("@1".parse().unwrap()),
+            active_pane_id: Some("%2".parse().unwrap()),
             panes: vec![
                 TmuxPane {
                     id: 2,
-                    tmux_id: "%2".to_string(),
-                    window_id: "@1".to_string(),
+                    tmux_id: "%2".parse().unwrap(),
+                    window_id: "@1".parse().unwrap(),
                     content: std::sync::Arc::new(vec![
                         vec![cell("h"), cell("i")],
                         vec![styled_cell("!")],
@@ -2790,7 +2799,7 @@ mod protocol_fixtures {
                     command: "zsh".to_string(),
                     title: "pane title".to_string(),
                     border_title: "border".to_string(),
-                    group_id: Some("g5".to_string()),
+                    group_id: Some("g5".parse().unwrap()),
                     in_mode: true,
                     copy_cursor_x: 3,
                     copy_cursor_y: 4,
@@ -2820,8 +2829,8 @@ mod protocol_fixtures {
                 },
                 TmuxPane {
                     id: 3,
-                    tmux_id: "%3".to_string(),
-                    window_id: "@1".to_string(),
+                    tmux_id: "%3".parse().unwrap(),
+                    window_id: "@1".parse().unwrap(),
                     content: std::sync::Arc::new(vec![vec![]]),
                     cursor_x: 0,
                     cursor_y: 0,
@@ -2857,7 +2866,7 @@ mod protocol_fixtures {
             ],
             windows: vec![
                 TmuxWindow {
-                    id: "@1".to_string(),
+                    id: "@1".parse().unwrap(),
                     index: 0,
                     name: "main".to_string(),
                     active: true,
@@ -2872,15 +2881,15 @@ mod protocol_fixtures {
                     sidebar_hidden: false,
                     collapsible: true,
                     zoomed: true,
-                    active_pane_id: Some("%2".to_string()),
+                    active_pane_id: Some("%2".parse().unwrap()),
                 },
                 TmuxWindow {
-                    id: "@2".to_string(),
+                    id: "@2".parse().unwrap(),
                     index: 1,
                     name: "float".to_string(),
                     active: false,
                     window_type: Some(WindowType::Float),
-                    float_parent: Some("@1".to_string()),
+                    float_parent: Some("@1".parse().unwrap()),
                     float_width: Some(60),
                     float_height: Some(20),
                     float_drawer: Some("bottom".to_string()),
@@ -2902,11 +2911,11 @@ mod protocol_fixtures {
     /// A delta touching every field the client merges, including the removal
     /// shapes (`null` pane / window) and the sparse content map.
     fn canonical_delta() -> TmuxDelta {
-        let mut panes: HashMap<String, Option<PaneDelta>> = HashMap::new();
+        let mut panes: HashMap<tmuxy_core::PaneId, Option<PaneDelta>> = HashMap::new();
         panes.insert(
-            "%2".to_string(),
+            "%2".parse().unwrap(),
             Some(PaneDelta {
-                window_id: Some("@2".to_string()),
+                window_id: Some("@2".parse().unwrap()),
                 content: Some(HashMap::from([(1usize, vec![cell("x"), styled_cell("y")])])),
                 cursor_x: Some(5),
                 cursor_y: Some(6),
@@ -2940,11 +2949,11 @@ mod protocol_fixtures {
                 cursor_hidden: Some(false),
             }),
         );
-        panes.insert("%3".to_string(), None);
+        panes.insert("%3".parse().unwrap(), None);
 
-        let mut windows: HashMap<String, Option<WindowDelta>> = HashMap::new();
+        let mut windows: HashMap<tmuxy_core::WindowId, Option<WindowDelta>> = HashMap::new();
         windows.insert(
-            "@1".to_string(),
+            "@1".parse().unwrap(),
             Some(WindowDelta {
                 index: Some(1),
                 name: Some("renamed".to_string()),
@@ -2960,10 +2969,10 @@ mod protocol_fixtures {
                 sidebar_hidden: Some(true),
                 collapsible: Some(false),
                 zoomed: Some(false),
-                active_pane_id: Some(Some("%4".to_string())),
+                active_pane_id: Some(Some("%4".parse().unwrap())),
             }),
         );
-        windows.insert("@2".to_string(), None);
+        windows.insert("@2".parse().unwrap(), None);
 
         TmuxDelta {
             seq: 42,
@@ -2971,8 +2980,8 @@ mod protocol_fixtures {
             windows: Some(windows),
             new_panes: Some(vec![TmuxPane {
                 id: 4,
-                tmux_id: "%4".to_string(),
-                window_id: "@1".to_string(),
+                tmux_id: "%4".parse().unwrap(),
+                window_id: "@1".parse().unwrap(),
                 content: std::sync::Arc::new(vec![vec![cell("n")]]),
                 cursor_x: 1,
                 cursor_y: 0,
@@ -3006,12 +3015,12 @@ mod protocol_fixtures {
                 group_pos: None,
             }]),
             new_windows: Some(vec![TmuxWindow {
-                id: "@3".to_string(),
+                id: "@3".parse().unwrap(),
                 index: 2,
                 name: "added".to_string(),
                 active: false,
                 window_type: Some(WindowType::Float),
-                float_parent: Some("@2".to_string()),
+                float_parent: Some("@2".parse().unwrap()),
                 float_width: None,
                 float_height: None,
                 float_drawer: None,
@@ -3023,8 +3032,8 @@ mod protocol_fixtures {
                 zoomed: false,
                 active_pane_id: None,
             }]),
-            active_window_id: Some("@2".to_string()),
-            active_pane_id: Some("%4".to_string()),
+            active_window_id: Some("@2".parse().unwrap()),
+            active_pane_id: Some("%4".parse().unwrap()),
             focus_request: Some(String::new()),
             total_width: Some(100),
             total_height: Some(60),
@@ -3036,8 +3045,7 @@ mod protocol_fixtures {
     #[test]
     fn get_initial_state_response_matches_its_fixture() {
         let response = CommandResponse {
-            result: Some(serde_json::to_value(canonical_state()).unwrap()),
-            error: None,
+            result: serde_json::to_value(canonical_state()).unwrap(),
         };
         assert_fixture(
             "get_initial_state.json",
@@ -3113,7 +3121,7 @@ mod protocol_fixtures {
                 reason: Some("detached".to_string()),
             },
             SseEvent::Clipboard {
-                pane_id: "%2".to_string(),
+                pane_id: "%2".parse().unwrap(),
                 text: "copied".to_string(),
             },
         ]
@@ -3130,23 +3138,18 @@ mod protocol_fixtures {
         assert_fixture("sse_frames.json", &serde_json::Value::Array(frames));
     }
 
-    /// The `/commands` error bodies a client has to render.
+    /// The `/commands` error bodies a client has to render: one of each kind.
     #[test]
     fn command_error_responses_match_their_fixture() {
         let bodies: Vec<serde_json::Value> = [
-            "invalid command payload: unknown variant `frobnicate`",
-            "read-only server",
-            "No monitor connection available",
-            "tmux monitor did not answer with the initial state",
+            CommandError::tmux("can't find pane: %99"),
+            CommandError::invalid("invalid command payload: unknown variant `frobnicate`"),
+            CommandError::forbidden("read-only server"),
+            CommandError::unavailable("No monitor connection available"),
+            CommandError::unavailable("tmux monitor did not answer with the initial state"),
         ]
-        .into_iter()
-        .map(|error| {
-            serde_json::to_value(CommandResponse {
-                result: None,
-                error: Some(error.to_string()),
-            })
-            .unwrap()
-        })
+        .iter()
+        .map(|error| serde_json::to_value(error).unwrap())
         .collect();
         assert_fixture("command_errors.json", &serde_json::Value::Array(bodies));
     }
@@ -3191,5 +3194,194 @@ mod protocol_fixtures {
             names.len(),
             "duplicate SSE event names: {names:?}"
         );
+    }
+}
+
+/// What a failed `POST /commands` says: `{ error, kind }`, the status code
+/// unchanged, one kind per cause.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod command_error_tests {
+    use super::*;
+
+    /// POST `body` to `/commands` for `session` and return the status and the
+    /// decoded body.
+    async fn post(
+        state: &Arc<AppState>,
+        session: Option<&str>,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let response = commands_handler(
+            State(Arc::clone(state)),
+            Query(SessionQuery {
+                session: session.map(str::to_string),
+            }),
+            HeaderMap::new(),
+            axum::body::Bytes::from(body.to_string()),
+        )
+        .await;
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    /// A session whose monitor answers every query with tmux's `%error`.
+    async fn session_where_tmux_refuses(state: &Arc<AppState>, session: &str) {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        tokio::spawn(async move {
+            while let Some(cmd) = rx.recv().await {
+                if let MonitorCommand::RunCommandWithReply { reply, .. } = cmd {
+                    let _ = reply.send(tmuxy_core::control_mode::CommandReply {
+                        output: String::new(),
+                        error: Some("can't find pane: %99".to_string()),
+                    });
+                }
+            }
+        });
+        let mut conns = SessionConnections::new();
+        conns.monitor_command_tx = Some(tx);
+        state
+            .sessions
+            .write()
+            .await
+            .insert(session.to_string(), conns);
+    }
+
+    fn assert_failure(
+        (status, body): (StatusCode, serde_json::Value),
+        want_status: StatusCode,
+        kind: &str,
+    ) {
+        assert_eq!(status, want_status, "{body}");
+        assert_eq!(body["kind"], kind, "{body}");
+        assert!(
+            body["error"].as_str().is_some_and(|e| !e.is_empty()),
+            "{body}"
+        );
+        assert_eq!(body.as_object().unwrap().len(), 2, "{body}");
+    }
+
+    #[tokio::test]
+    async fn tmux_rejecting_a_query_is_kind_tmux() {
+        let state = Arc::new(AppState::new());
+        session_where_tmux_refuses(&state, "s").await;
+        let (status, body) = post(
+            &state,
+            Some("s"),
+            serde_json::json!({ "cmd": "query_tmux", "args": { "command": "display -p -t %99 x" } }),
+        )
+        .await;
+        assert_failure((status, body.clone()), StatusCode::BAD_REQUEST, "tmux");
+        assert_eq!(body["error"], "can't find pane: %99");
+    }
+
+    #[tokio::test]
+    async fn no_monitor_is_kind_unavailable() {
+        let state = Arc::new(AppState::new());
+        assert_failure(
+            post(
+                &state,
+                Some("s"),
+                serde_json::json!({ "cmd": "query_tmux", "args": { "command": "list-panes" } }),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+            "unavailable",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_malformed_payload_or_argument_is_kind_invalid() {
+        let state = Arc::new(AppState::new());
+        assert_failure(
+            post(
+                &state,
+                Some("s"),
+                serde_json::json!({ "cmd": "no_such_command" }),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+            "invalid",
+        );
+        // A pane id that is not one is refused at the door.
+        assert_failure(
+            post(
+                &state,
+                Some("s"),
+                serde_json::json!({ "cmd": "get_scrollback_cells", "args": { "paneId": "{last}" } }),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+            "invalid",
+        );
+        assert_failure(
+            post(
+                &state,
+                Some("a;b"),
+                serde_json::json!({ "cmd": "get_themes_list" }),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+            "invalid",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_only_server_or_a_blocked_query_is_kind_forbidden() {
+        let viewer = Arc::new(AppState::new().with_read_only(true));
+        assert_failure(
+            post(
+                &viewer,
+                Some("s"),
+                serde_json::json!({ "cmd": "run_tmux_command", "args": { "command": "kill-server" } }),
+            )
+            .await,
+            StatusCode::FORBIDDEN,
+            "forbidden",
+        );
+
+        let state = Arc::new(AppState::new());
+        session_where_tmux_refuses(&state, "s").await;
+        assert_failure(
+            post(
+                &state,
+                Some("s"),
+                serde_json::json!({ "cmd": "query_tmux", "args": { "command": "resizew -x 10" } }),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+            "forbidden",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_this_server_does_not_serve_is_kind_unavailable() {
+        let pinned = Arc::new(AppState::new().with_session_pin(Some("mine".into())));
+        assert_failure(
+            post(
+                &pinned,
+                Some("other"),
+                serde_json::json!({ "cmd": "get_themes_list" }),
+            )
+            .await,
+            StatusCode::NOT_FOUND,
+            "unavailable",
+        );
+    }
+
+    #[tokio::test]
+    async fn success_is_still_a_bare_result() {
+        let state = Arc::new(AppState::new());
+        let (status, body) = post(
+            &state,
+            Some("s"),
+            serde_json::json!({ "cmd": "get_themes_list" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["result"].is_array(), "{body}");
+        assert!(body.get("error").is_none());
     }
 }

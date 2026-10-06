@@ -1,6 +1,9 @@
+pub mod command_error;
 pub mod constants;
 pub mod control_mode;
 pub mod error;
+pub mod groups;
+pub mod ids;
 
 // Native (non-wasm) transport + tmux-command layer, gated behind `native`.
 #[cfg(feature = "native")]
@@ -34,7 +37,9 @@ pub mod worktrees;
 #[cfg(feature = "native")]
 pub use ctx::{Clock, Ctx};
 
+pub use command_error::{CommandError, ErrorKind};
 pub use error::{Result as TmuxResult, TmuxError};
+pub use ids::{GroupId, IdError, PaneId, WindowId};
 
 use serde::{Deserialize, Serialize};
 
@@ -256,8 +261,8 @@ pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneConten
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxPane {
     pub id: u32,
-    pub tmux_id: String,   // actual tmux pane ID (e.g., "%0")
-    pub window_id: String, // window this pane belongs to (e.g., "@0")
+    pub tmux_id: PaneId,     // actual tmux pane ID (e.g., "%0")
+    pub window_id: WindowId, // window this pane belongs to (e.g., "@0")
     /// Rendered cell grid. `Arc`-shared so building a state snapshot, storing
     /// `prev_state`, and diffing unchanged panes never deep-copies the grid —
     /// the cost that made a one-field delta as expensive as a full sync.
@@ -278,7 +283,7 @@ pub struct TmuxPane {
     /// member (the latter emitted as lightweight stubs from the stash session),
     /// so the frontend reconstructs group membership by grouping on this value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
+    pub group_id: Option<GroupId>,
     /// `@tmuxy-group-pos`: this member's place in its group, when the group
     /// has been reordered (see `constants::tmux_options::GROUP_POS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -406,7 +411,7 @@ impl WindowType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxWindow {
     /// Window ID (e.g., "@0")
-    pub id: String,
+    pub id: WindowId,
     pub index: u32,
     pub name: String,
     pub active: bool,
@@ -416,7 +421,7 @@ pub struct TmuxWindow {
     /// Parent window ID for a float (the launcher window).
     /// Sourced from @tmuxy-float-parent.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub float_parent: Option<String>,
+    pub float_parent: Option<WindowId>,
     /// Float width in cells (from @tmuxy-float-width).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_width: Option<u32>,
@@ -455,7 +460,7 @@ pub struct TmuxWindow {
     /// background tab's active pane would otherwise be unknown until it is
     /// switched to — and the switch would land on its first pane for a beat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_pane_id: Option<String>,
+    pub active_pane_id: Option<PaneId>,
 }
 
 /// Full tmux state with all panes and windows
@@ -464,9 +469,9 @@ pub struct TmuxState {
     /// Session name (e.g., "tmuxy")
     pub session_name: String,
     /// Active window ID (e.g., "@0")
-    pub active_window_id: Option<String>,
+    pub active_window_id: Option<WindowId>,
     /// Active pane ID (e.g., "%0")
-    pub active_pane_id: Option<String>,
+    pub active_pane_id: Option<PaneId>,
     pub panes: Vec<TmuxPane>,
     pub windows: Vec<TmuxWindow>,
     pub total_width: u32,
@@ -505,7 +510,7 @@ fn ser_line_map<S: serde::Serializer>(
 pub struct PaneDelta {
     /// Window ID (only if changed, e.g. after swap-pane across windows)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub window_id: Option<String>,
+    pub window_id: Option<WindowId>,
     /// Content (only changed lines) - line index → line content
     /// Only lines that differ from the previous state are included.
     #[serde(
@@ -543,7 +548,7 @@ pub struct PaneDelta {
     /// Pane-group id (only if changed). Outer `Option` = "changed?"; inner
     /// `Option` = the new value (`None` clears it — the pane left its group).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<Option<String>>,
+    pub group_id: Option<Option<GroupId>>,
     /// Place in the group (only if changed); nested like `group_id`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_pos: Option<Option<u32>>,
@@ -651,7 +656,7 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_type: Option<Option<WindowType>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub float_parent: Option<Option<String>>,
+    pub float_parent: Option<Option<WindowId>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_width: Option<Option<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -673,7 +678,7 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zoomed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_pane_id: Option<Option<String>>,
+    pub active_pane_id: Option<Option<PaneId>>,
 }
 
 impl WindowDelta {
@@ -703,10 +708,10 @@ pub struct TmuxDelta {
     pub seq: u64,
     /// Changed panes: pane_id -> delta (None = pane removed)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub panes: Option<std::collections::HashMap<String, Option<PaneDelta>>>,
+    pub panes: Option<std::collections::HashMap<PaneId, Option<PaneDelta>>>,
     /// Changed windows: window_id -> delta (None = window removed)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub windows: Option<std::collections::HashMap<String, Option<WindowDelta>>>,
+    pub windows: Option<std::collections::HashMap<WindowId, Option<WindowDelta>>>,
     /// New panes (full data for newly added panes)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_panes: Option<Vec<TmuxPane>>,
@@ -715,10 +720,10 @@ pub struct TmuxDelta {
     pub new_windows: Option<Vec<TmuxWindow>>,
     /// Active window changed
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_window_id: Option<String>,
+    pub active_window_id: Option<WindowId>,
     /// Active pane changed
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_pane_id: Option<String>,
+    pub active_pane_id: Option<PaneId>,
     /// A shell helper queued (or cleared) a focus request. `Some("")` means it
     /// was cleared — the option is gone — so the field distinguishes "no change"
     /// (absent) from "no longer pending" (empty string).

@@ -6,67 +6,12 @@
 #
 # A member on screen first hands its place to the next member in the order, so
 # the group keeps showing something; a group left with one member is no group.
+#
+# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
+# `group` verb); this script is their name for the UI, the key bindings and
+# session restore.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-PANE="$1"
-MODE="${2:---tab}"
-BESIDE="${3:-}"
-DIR="${4:-right}"
-
-GID=$(group_id_of_pane "$PANE")
-if [ -z "$GID" ]; then
-  echo "pane-group-leave: $PANE is not in a group" >&2
-  exit 1
-fi
-
-members=()
-while read -r member; do
-  [ -n "$member" ] && members+=("$member")
-done < <(group_members "$GID")
-
-VISIBLE=$(visible_member "$GID")
-if [ "$VISIBLE" = "$PANE" ]; then
-  # The member after it in the order takes its place (or the one before, if
-  # it was last).
-  next=""
-  for i in "${!members[@]}"; do
-    if [ "${members[$i]}" = "$PANE" ]; then
-      if [ $((i + 1)) -lt "${#members[@]}" ]; then next="${members[$((i + 1))]}"; else next="${members[$((i - 1))]}"; fi
-    fi
-  done
-  bash "${0%/*}/pane-group-switch" "$next"
-  VISIBLE="$next"
-fi
-SESSION=$(_tmux display-message -p -t "$VISIBLE" '#{session_name}')
-
-clear_group_id "$PANE"
-_tmux set-option -pu -t "$PANE" @tmuxy-group-pos 2>/dev/null || true
-
-case "$MODE" in
-  --beside)
-    case "$DIR" in
-      left) flags=(-h -b) ;;
-      right) flags=(-h) ;;
-      up) flags=(-v -b) ;;
-      down) flags=(-v) ;;
-      *) echo "pane-group-leave: direction must be left, right, up or down" >&2; exit 1 ;;
-    esac
-    _tmux join-pane "${flags[@]}" -s "$PANE" -t "$BESIDE"
-    ;;
-  *)
-    # A parked member is alone in its stash window: that window moves into the
-    # group's session as a tab of its own, and is shown.
-    WIN=$(pane_window "$PANE")
-    _tmux move-window -s "$WIN" -t "${SESSION}:" \; select-window -t "$WIN"
-    ;;
-esac
-
-dissolve_if_alone "$GID"
-remaining=()
-while read -r member; do
-  [ -n "$member" ] && remaining+=("$member")
-done < <(group_members "$GID")
-[ "${#remaining[@]}" -gt 1 ] && set_group_order "${remaining[@]}"
-announce_groups
+group_verb leave "$@"

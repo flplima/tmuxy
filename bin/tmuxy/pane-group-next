@@ -1,35 +1,12 @@
 #!/bin/bash
 # Navigate to the next tab in a pane group (wraps)
 # Args: $1=active_pane_id
+#
+# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
+# `group` verb); this script is their name for the UI, the key bindings and
+# session restore.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-PANE_ID="$1"
-
-GID=$(group_id_of_pane "$PANE_ID")
-if [ -z "$GID" ]; then
-  exit 0
-fi
-
-MEMBERS=$(group_members "$GID")
-COUNT=$(printf '%s\n' "$MEMBERS" | grep -c . || true)
-if [ "$COUNT" -le 1 ]; then
-  exit 0
-fi
-
-VISIBLE_PANE=$(visible_member "$GID")
-if [ -z "$VISIBLE_PANE" ]; then
-  exit 0
-fi
-
-# Next member after the visible one, wrapping to the first.
-TARGET=$(printf '%s\n' "$MEMBERS" | awk -v v="$VISIBLE_PANE" '
-  { m[NR] = $0 }
-  END {
-    for (i = 1; i <= NR; i++) if (m[i] == v) { print m[(i % NR) + 1]; exit }
-  }')
-
-if [ -n "$TARGET" ] && [ "$TARGET" != "$VISIBLE_PANE" ]; then
-  exec "$SCRIPTS_DIR/pane-group-switch" "$TARGET"
-fi
+group_verb next "$@"

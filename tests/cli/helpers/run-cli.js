@@ -74,6 +74,12 @@ function buildEnv(logFile, opts = {}) {
     delete env.TMUX;
     delete env.TMUX_PANE;
   }
+  // A shell inside tmuxy inherits the binary the running build published
+  // (TMUXY_SERVER_BIN); the CLI must find the mock server instead.
+  if (!opts.env?.TMUXY_SERVER_BIN) {
+    delete env.TMUXY_SERVER_BIN;
+    delete env.TMUXY_SERVER_SUBCOMMAND;
+  }
   return env;
 }
 
