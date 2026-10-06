@@ -192,6 +192,7 @@ pub async fn get_scrollback_cells(
     start: i64,
     end: i64,
 ) -> Result<Value, String> {
+    let pane_id = tmuxy_core::PaneId::parse(&pane_id).map_err(|e| e.to_string())?;
     let tx = windows::monitor_for(&window)?.connected_tx()?;
     tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
 }

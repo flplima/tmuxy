@@ -44,7 +44,7 @@ fn empty_event_yields_no_effects() {
 fn window_add_yields_refresh_after_window_add() {
     let mut agg = StateAggregator::new();
     let result = agg.step(ControlModeEvent::WindowAdd {
-        window_id: "@5".to_string(),
+        window_id: "@5".parse().unwrap(),
     });
     let variants = variant_names(&result.effects);
     assert!(
@@ -58,7 +58,7 @@ fn window_add_yields_refresh_after_window_add() {
 fn unlinked_window_add_also_yields_refresh_after_window_add() {
     let mut agg = StateAggregator::new();
     let result = agg.step(ControlModeEvent::UnlinkedWindowAdd {
-        window_id: "@7".to_string(),
+        window_id: "@7".parse().unwrap(),
     });
     let variants = variant_names(&result.effects);
     // tmux 3.5a emits %unlinked-window-add for the break-pane workaround we
@@ -79,17 +79,17 @@ fn step_never_returns_empty_variant_pattern_for_known_events() {
     let events = vec![
         ControlModeEvent::SessionsChanged,
         ControlModeEvent::WindowAdd {
-            window_id: "@1".into(),
+            window_id: "@1".parse().unwrap(),
         },
         ControlModeEvent::WindowClose {
-            window_id: "@1".into(),
+            window_id: "@1".parse().unwrap(),
         },
         ControlModeEvent::Output {
-            pane_id: "%0".into(),
+            pane_id: "%0".parse().unwrap(),
             content: b"hello".to_vec(),
         },
         ControlModeEvent::PaneModeChanged {
-            pane_id: "%0".into(),
+            pane_id: "%0".parse().unwrap(),
         },
         ControlModeEvent::Exit {
             reason: Some("test".into()),
@@ -105,12 +105,12 @@ fn change_type_is_surfaced_even_when_emission_is_suppressed() {
     // Pre-condition: a window exists so close can suppress-but-still-flag.
     let mut agg = StateAggregator::new();
     agg.step(ControlModeEvent::WindowAdd {
-        window_id: "@9".into(),
+        window_id: "@9".parse().unwrap(),
     });
     // Arming suppression mirrors the monitor's compound-command settling.
     agg.set_suppress_window_emissions(true);
     let result = agg.step(ControlModeEvent::WindowClose {
-        window_id: "@9".into(),
+        window_id: "@9".parse().unwrap(),
     });
     assert!(
         !result
@@ -144,7 +144,7 @@ fn arm_settling_suppresses_window_emissions() {
     // a non-default ProcessEventResult).
     let _ = agg.step_at(
         ControlModeEvent::WindowAdd {
-            window_id: "@9".into(),
+            window_id: "@9".parse().unwrap(),
         },
         t0,
     );
@@ -153,7 +153,7 @@ fn arm_settling_suppresses_window_emissions() {
     assert!(agg.is_suppressing_window_emissions());
     let result = agg.step_at(
         ControlModeEvent::WindowClose {
-            window_id: "@9".into(),
+            window_id: "@9".parse().unwrap(),
         },
         t0 + std::time::Duration::from_millis(5),
     );
@@ -177,14 +177,14 @@ fn tick_after_deadline_emits_and_clears_when_events_observed() {
     let t0 = std::time::Instant::now();
     let _ = agg.step_at(
         ControlModeEvent::WindowAdd {
-            window_id: "@9".into(),
+            window_id: "@9".parse().unwrap(),
         },
         t0,
     );
     agg.arm_settling(t0);
     let _ = agg.step_at(
         ControlModeEvent::WindowClose {
-            window_id: "@9".into(),
+            window_id: "@9".parse().unwrap(),
         },
         t0 + std::time::Duration::from_millis(5),
     );
@@ -233,7 +233,7 @@ fn step_at_extends_settling_on_window_events_only() {
     let t0 = std::time::Instant::now();
     let _ = agg.step_at(
         ControlModeEvent::WindowAdd {
-            window_id: "@7".into(),
+            window_id: "@7".parse().unwrap(),
         },
         t0,
     );
@@ -242,7 +242,7 @@ fn step_at_extends_settling_on_window_events_only() {
     // PaneOutput should NOT extend.
     let _ = agg.step_at(
         ControlModeEvent::Output {
-            pane_id: "%0".into(),
+            pane_id: "%0".parse().unwrap(),
             content: b"hi".to_vec(),
         },
         t0 + std::time::Duration::from_millis(5),
@@ -255,7 +255,7 @@ fn step_at_extends_settling_on_window_events_only() {
     // A real Window-typed event DOES extend (bounded by safety max).
     let _ = agg.step_at(
         ControlModeEvent::WindowClose {
-            window_id: "@7".into(),
+            window_id: "@7".parse().unwrap(),
         },
         t0 + std::time::Duration::from_millis(50),
     );

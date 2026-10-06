@@ -54,10 +54,10 @@ fn feed_lines(parser: &mut Parser, agg: &mut StateAggregator, text: &str) {
 /// Fill every pane with a screenful of output so measurements exercise real
 /// cell grids — an empty grid makes content construction/diff look free.
 fn fill_panes(agg: &mut StateAggregator) {
-    for pane in ["%0", "%1"] {
+    for pane in [0, 1] {
         for i in 0..24 {
             let _ = agg.step(ControlModeEvent::Output {
-                pane_id: pane.to_string(),
+                pane_id: tmuxy_core::PaneId::from_number(pane),
                 content: format!("{i}: the quick brown fox jumps over the lazy dog\r\n")
                     .into_bytes(),
             });
@@ -80,7 +80,7 @@ fn synced_session() -> (Parser, StateAggregator) {
 fn output_burst(lines: usize) -> Vec<ControlModeEvent> {
     (0..lines)
         .map(|i| ControlModeEvent::Output {
-            pane_id: "%0".to_string(),
+            pane_id: tmuxy_core::PaneId::from_number(0),
             content: format!("{i}: the quick brown fox jumps over the lazy dog\r\n").into_bytes(),
         })
         .collect()

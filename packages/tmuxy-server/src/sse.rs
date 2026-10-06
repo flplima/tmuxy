@@ -167,7 +167,7 @@ impl StateEmitter for SseEmitter {
 
     fn store_images(
         &self,
-        pane_id: &str,
+        pane_id: &tmuxy_core::PaneId,
         images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
     ) {
         // Use try_write to avoid blocking the monitor loop; drop images if contended
@@ -176,26 +176,26 @@ impl StateEmitter for SseEmitter {
         }
     }
 
-    fn write_clipboard(&self, pane_id: &str, text: String) {
+    fn write_clipboard(&self, pane_id: Option<&tmuxy_core::PaneId>, text: String) {
         // SEC-13: a viewer never receives the writer's clipboard. tmux paste
         // buffers are global to the tmux SERVER, so `%paste-buffer-changed`
         // carries a yank from any session — text a viewer was never shown —
         // and every client that receives it writes it to its own system
         // clipboard.
         if self.app_state.read_only {
-            tracing::debug!(%pane_id, "read-only server: clipboard write not forwarded");
+            tracing::debug!(?pane_id, "read-only server: clipboard write not forwarded");
             return;
         }
         if !tmuxy_core::transport::clipboard_write_allowed(&text) {
             tracing::debug!(
-                %pane_id,
+                ?pane_id,
                 bytes = text.len(),
                 "clipboard write over the cap, dropped"
             );
             return;
         }
         self.send_event(&SseEvent::Clipboard {
-            pane_id: pane_id.to_string(),
+            pane_id: pane_id.map(|p| p.to_string()).unwrap_or_default(),
             text,
         });
     }
@@ -759,13 +759,7 @@ async fn serve_viewer(
             pane_id,
             start,
             end,
-        } => {
-            if !tmuxy_core::session::is_pane_id(&pane_id) {
-                Err(format!("not a pane id: {pane_id:?}"))
-            } else {
-                viewer_scrollback(state, session, &pane_id, start, end).await
-            }
-        }
+        } => viewer_scrollback(state, session, pane_id, start, end).await,
         // Read from tmux once per server, not once per request.
         ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
         // A static list compiled in; no tmux, no host.
@@ -1384,7 +1378,7 @@ const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
 /// used to cost three in-band control-mode queries, on the connection that
 /// session shares, on every scroll.
 ///
-/// `pane_id` is already known to be a `%N`. The monitor holds only the
+/// The monitor holds only the
 /// session it monitors, so a pane it does not know is a pane this viewer was
 /// never shown, and the request is refused. The range is capped at
 /// `MAX_VIEWER_SCROLLBACK_ROWS` from the end, with the clamped `start`
@@ -1392,7 +1386,7 @@ const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
 async fn viewer_scrollback(
     state: &Arc<AppState>,
     session: &str,
-    pane_id: &str,
+    pane_id: tmuxy_core::PaneId,
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, String> {
@@ -1400,7 +1394,7 @@ async fn viewer_scrollback(
     let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::GetScrollback {
-        pane_id: pane_id.to_string(),
+        pane_id: pane_id.clone(),
         start,
         end,
         reply,
@@ -2314,7 +2308,7 @@ mod tests {
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
-        emitter.write_clipboard("", "a secret someone yanked elsewhere".into());
+        emitter.write_clipboard(None, "a secret someone yanked elsewhere".into());
 
         assert!(rx.try_recv().is_err(), "nothing should have been broadcast");
     }
@@ -2330,7 +2324,7 @@ mod tests {
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
-        emitter.write_clipboard("%0", "yanked".into());
+        emitter.write_clipboard(Some(&"%0".parse().unwrap()), "yanked".into());
 
         let (_, message) = rx.try_recv().unwrap();
         assert!(message.contains("yanked"));
@@ -2351,7 +2345,7 @@ mod tests {
         );
 
         emitter.write_clipboard(
-            "",
+            None,
             "x".repeat(tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES + 1),
         );
 
@@ -2469,7 +2463,7 @@ mod tests {
     #[test]
     fn clipboard_event_serializes_with_expected_shape() {
         let evt = SseEvent::Clipboard {
-            pane_id: "%4".to_string(),
+            pane_id: "%4".parse().unwrap(),
             text: "hello world".to_string(),
         };
         let json = serde_json::to_string(&evt).unwrap();
@@ -2769,13 +2763,13 @@ mod protocol_fixtures {
     fn canonical_state() -> TmuxState {
         TmuxState {
             session_name: "tmuxy".to_string(),
-            active_window_id: Some("@1".to_string()),
-            active_pane_id: Some("%2".to_string()),
+            active_window_id: Some("@1".parse().unwrap()),
+            active_pane_id: Some("%2".parse().unwrap()),
             panes: vec![
                 TmuxPane {
                     id: 2,
-                    tmux_id: "%2".to_string(),
-                    window_id: "@1".to_string(),
+                    tmux_id: "%2".parse().unwrap(),
+                    window_id: "@1".parse().unwrap(),
                     content: std::sync::Arc::new(vec![
                         vec![cell("h"), cell("i")],
                         vec![styled_cell("!")],
@@ -2790,7 +2784,7 @@ mod protocol_fixtures {
                     command: "zsh".to_string(),
                     title: "pane title".to_string(),
                     border_title: "border".to_string(),
-                    group_id: Some("g5".to_string()),
+                    group_id: Some("g5".parse().unwrap()),
                     in_mode: true,
                     copy_cursor_x: 3,
                     copy_cursor_y: 4,
@@ -2820,8 +2814,8 @@ mod protocol_fixtures {
                 },
                 TmuxPane {
                     id: 3,
-                    tmux_id: "%3".to_string(),
-                    window_id: "@1".to_string(),
+                    tmux_id: "%3".parse().unwrap(),
+                    window_id: "@1".parse().unwrap(),
                     content: std::sync::Arc::new(vec![vec![]]),
                     cursor_x: 0,
                     cursor_y: 0,
@@ -2857,7 +2851,7 @@ mod protocol_fixtures {
             ],
             windows: vec![
                 TmuxWindow {
-                    id: "@1".to_string(),
+                    id: "@1".parse().unwrap(),
                     index: 0,
                     name: "main".to_string(),
                     active: true,
@@ -2872,15 +2866,15 @@ mod protocol_fixtures {
                     sidebar_hidden: false,
                     collapsible: true,
                     zoomed: true,
-                    active_pane_id: Some("%2".to_string()),
+                    active_pane_id: Some("%2".parse().unwrap()),
                 },
                 TmuxWindow {
-                    id: "@2".to_string(),
+                    id: "@2".parse().unwrap(),
                     index: 1,
                     name: "float".to_string(),
                     active: false,
                     window_type: Some(WindowType::Float),
-                    float_parent: Some("@1".to_string()),
+                    float_parent: Some("@1".parse().unwrap()),
                     float_width: Some(60),
                     float_height: Some(20),
                     float_drawer: Some("bottom".to_string()),
@@ -2902,11 +2896,11 @@ mod protocol_fixtures {
     /// A delta touching every field the client merges, including the removal
     /// shapes (`null` pane / window) and the sparse content map.
     fn canonical_delta() -> TmuxDelta {
-        let mut panes: HashMap<String, Option<PaneDelta>> = HashMap::new();
+        let mut panes: HashMap<tmuxy_core::PaneId, Option<PaneDelta>> = HashMap::new();
         panes.insert(
-            "%2".to_string(),
+            "%2".parse().unwrap(),
             Some(PaneDelta {
-                window_id: Some("@2".to_string()),
+                window_id: Some("@2".parse().unwrap()),
                 content: Some(HashMap::from([(1usize, vec![cell("x"), styled_cell("y")])])),
                 cursor_x: Some(5),
                 cursor_y: Some(6),
@@ -2940,11 +2934,11 @@ mod protocol_fixtures {
                 cursor_hidden: Some(false),
             }),
         );
-        panes.insert("%3".to_string(), None);
+        panes.insert("%3".parse().unwrap(), None);
 
-        let mut windows: HashMap<String, Option<WindowDelta>> = HashMap::new();
+        let mut windows: HashMap<tmuxy_core::WindowId, Option<WindowDelta>> = HashMap::new();
         windows.insert(
-            "@1".to_string(),
+            "@1".parse().unwrap(),
             Some(WindowDelta {
                 index: Some(1),
                 name: Some("renamed".to_string()),
@@ -2960,10 +2954,10 @@ mod protocol_fixtures {
                 sidebar_hidden: Some(true),
                 collapsible: Some(false),
                 zoomed: Some(false),
-                active_pane_id: Some(Some("%4".to_string())),
+                active_pane_id: Some(Some("%4".parse().unwrap())),
             }),
         );
-        windows.insert("@2".to_string(), None);
+        windows.insert("@2".parse().unwrap(), None);
 
         TmuxDelta {
             seq: 42,
@@ -2971,8 +2965,8 @@ mod protocol_fixtures {
             windows: Some(windows),
             new_panes: Some(vec![TmuxPane {
                 id: 4,
-                tmux_id: "%4".to_string(),
-                window_id: "@1".to_string(),
+                tmux_id: "%4".parse().unwrap(),
+                window_id: "@1".parse().unwrap(),
                 content: std::sync::Arc::new(vec![vec![cell("n")]]),
                 cursor_x: 1,
                 cursor_y: 0,
@@ -3006,12 +3000,12 @@ mod protocol_fixtures {
                 group_pos: None,
             }]),
             new_windows: Some(vec![TmuxWindow {
-                id: "@3".to_string(),
+                id: "@3".parse().unwrap(),
                 index: 2,
                 name: "added".to_string(),
                 active: false,
                 window_type: Some(WindowType::Float),
-                float_parent: Some("@2".to_string()),
+                float_parent: Some("@2".parse().unwrap()),
                 float_width: None,
                 float_height: None,
                 float_drawer: None,
@@ -3023,8 +3017,8 @@ mod protocol_fixtures {
                 zoomed: false,
                 active_pane_id: None,
             }]),
-            active_window_id: Some("@2".to_string()),
-            active_pane_id: Some("%4".to_string()),
+            active_window_id: Some("@2".parse().unwrap()),
+            active_pane_id: Some("%4".parse().unwrap()),
             focus_request: Some(String::new()),
             total_width: Some(100),
             total_height: Some(60),
@@ -3113,7 +3107,7 @@ mod protocol_fixtures {
                 reason: Some("detached".to_string()),
             },
             SseEvent::Clipboard {
-                pane_id: "%2".to_string(),
+                pane_id: "%2".parse().unwrap(),
                 text: "copied".to_string(),
             },
         ]

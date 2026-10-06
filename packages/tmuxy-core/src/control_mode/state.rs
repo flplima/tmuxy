@@ -4,8 +4,8 @@
 
 use super::parser::ControlModeEvent;
 use crate::{
-    extract_cells_from_screen, extract_cells_with_urls, PaneContent, TmuxPane, TmuxState,
-    TmuxWindow, WindowType,
+    extract_cells_from_screen, extract_cells_with_urls, GroupId, PaneContent, PaneId, TmuxPane,
+    TmuxState, TmuxWindow, WindowId, WindowType,
 };
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
@@ -86,7 +86,7 @@ pub enum ChangeType {
     #[default]
     None,
     /// Pane output changed (high frequency, may be debounced)
-    PaneOutput { pane_id: String },
+    PaneOutput { pane_id: PaneId },
     /// Pane layout/position changed
     PaneLayout,
     /// Window-related change (add, close, rename, focus)
@@ -98,9 +98,9 @@ pub enum ChangeType {
     /// Full state refresh needed
     Full,
     /// Flow control: pane paused
-    FlowPause { pane_id: String },
+    FlowPause { pane_id: PaneId },
     /// Flow control: pane resumed
-    FlowContinue { pane_id: String },
+    FlowContinue { pane_id: PaneId },
 }
 
 /// Is this "title" a graphics escape tmux mistook for one?
@@ -143,15 +143,15 @@ pub struct ProcessEventResult {
     /// Whether state changed in a way that should trigger a UI update
     pub state_changed: bool,
     /// Pane IDs that need their content refreshed via capture-pane
-    pub panes_needing_refresh: Vec<String>,
+    pub panes_needing_refresh: Vec<PaneId>,
     /// Type of change that occurred (for smart update strategies)
     pub change_type: ChangeType,
     /// Newly decoded images: (pane_id, vec of (image_id, StoredImage))
-    pub new_images: Vec<(String, Vec<(u32, super::images::StoredImage)>)>,
+    pub new_images: Vec<(PaneId, Vec<(u32, super::images::StoredImage)>)>,
     /// OSC 52 clipboard write requests from the terminal application.
-    /// Each entry is (pane_id, decoded text). Forwarded to the emitter so
+    /// Each entry is (pane_id, decoded text); no pane for a paste-buffer yank. Forwarded to the emitter so
     /// the frontend can mirror the request into the system clipboard.
-    pub clipboard_writes: Vec<(String, String)>,
+    pub clipboard_writes: Vec<(Option<PaneId>, String)>,
     /// tmux commands the runtime must send back over the control connection
     /// (beyond the dedicated refresh/capture fields above). Used by the
     /// push-based (wasm) path, e.g. reading a paste buffer after
@@ -190,7 +190,7 @@ pub enum SideEffect {
     /// Capture-pane is needed for these pane ids — emit list-panes first,
     /// then capture each. Surfaced as its own variant so the monitor can
     /// preserve the ordering invariant documented in `refresh_panes`.
-    RefreshPanes { pane_ids: Vec<String> },
+    RefreshPanes { pane_ids: Vec<PaneId> },
     /// After a window-add event, refresh both list-panes and list-windows.
     /// Order is load-bearing (see `refresh_after_window_add`).
     RefreshAfterWindowAdd,
@@ -203,14 +203,18 @@ pub enum SideEffect {
     /// pick the right emission strategy (throttle, debounce, immediate).
     EmitState { change: ChangeType },
     /// Resume a paused pane (flow control).
-    ResumePane(String),
+    ResumePane(PaneId),
     /// Forward a freshly-decoded image set to the emitter.
     StoreImages {
-        pane_id: String,
+        pane_id: PaneId,
         images: Vec<(u32, super::images::StoredImage)>,
     },
     /// Forward an OSC 52 clipboard write to the system clipboard.
-    WriteClipboard { pane_id: String, text: String },
+    /// `pane_id` is the writer, or `None` for a paste-buffer yank.
+    WriteClipboard {
+        pane_id: Option<PaneId>,
+        text: String,
+    },
     /// A command sent with `reply_wrapped_lines` has finished: hand its output
     /// back to whoever asked. `error` is tmux's message when a block of the
     /// command was an `%error` — tmux stops a command list at the first
@@ -225,13 +229,14 @@ pub enum SideEffect {
 /// State of a single pane with terminal emulation
 pub struct PaneState {
     /// Pane ID (e.g., "%0")
-    pub id: String,
+    pub id: PaneId,
 
     /// Pane index (tmux pane_index)
     pub index: u32,
 
-    /// Window ID this pane belongs to (e.g., "@0")
-    pub window_id: String,
+    /// Window this pane belongs to (e.g., "@0"); `None` until a layout or
+    /// `list-panes` report places it.
+    pub window_id: Option<WindowId>,
 
     /// Terminal emulator for this pane
     pub terminal: vt100::Parser,
@@ -292,7 +297,7 @@ pub struct PaneState {
     pub border_title: String,
 
     /// Pane-group identity from `@tmuxy-group-id` (e.g. `g5`), or `None`.
-    pub group_id: Option<String>,
+    pub group_id: Option<GroupId>,
     /// `@tmuxy-group-pos`, when the group has been reordered.
     pub group_pos: Option<u32>,
 
@@ -379,16 +384,21 @@ pub struct PaneState {
 }
 
 impl PaneState {
-    pub fn new(id: &str, width: u32, height: u32) -> Self {
+    /// Whether the pane currently sits in `window`.
+    pub fn in_window(&self, window: &WindowId) -> bool {
+        self.window_id.as_ref() == Some(window)
+    }
+
+    pub fn new(id: PaneId, width: u32, height: u32) -> Self {
         // Guard: vt100 panics on zero dimensions
         let w = (width as u16).max(1);
         let h = (height as u16).max(1);
         let mut osc_parser = super::osc::OscParser::new();
         osc_parser.set_viewport_height(height);
         Self {
-            id: id.to_string(),
+            id,
             index: 0,
-            window_id: String::new(),
+            window_id: None,
             terminal: vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS),
             scrollback_rows: crate::constants::REFLOW_SCROLLBACK_ROWS,
             osc_parser,
@@ -803,8 +813,10 @@ impl PaneState {
         )));
     }
 
-    /// Build TmuxPane struct (uses &mut self for content caching)
-    pub fn build_tmux_pane(&mut self) -> TmuxPane {
+    /// Build TmuxPane struct (uses &mut self for content caching). `None`
+    /// while the pane has no window yet: it is not part of any state.
+    pub fn build_tmux_pane(&mut self) -> Option<TmuxPane> {
+        let window_id = self.window_id.clone()?;
         // Use vt100 emulator cursor for immediate feedback on output events.
         // The vt100 cursor is updated on every %output event, while tmux_cursor_x/y
         // are only updated on periodic list-panes responses (every 500ms).
@@ -824,10 +836,10 @@ impl PaneState {
             (0, 0)
         };
 
-        TmuxPane {
+        Some(TmuxPane {
             id: self.index,
             tmux_id: self.id.clone(),
-            window_id: self.window_id.clone(),
+            window_id,
             content: if self.in_mode {
                 self.copy_mode_content
                     .as_ref()
@@ -866,14 +878,14 @@ impl PaneState {
             pane_ask: self.pane_ask.clone(),
             pane_widget: self.pane_widget.clone(),
             pane_restore: self.pane_restore.clone(),
-        }
+        })
     }
 }
 
 /// Window state
 pub struct WindowState {
     /// Window ID (e.g., "@0")
-    pub id: String,
+    pub id: WindowId,
 
     /// Window index
     pub index: u32,
@@ -901,7 +913,7 @@ pub struct WindowState {
     pub collapsible: bool,
 
     /// Parent window ID for float / backdrop (@tmuxy-float-parent).
-    pub float_parent: Option<String>,
+    pub float_parent: Option<WindowId>,
 
     /// Float width in chars (from @tmuxy-float-width).
     pub float_width: Option<u32>,
@@ -919,17 +931,17 @@ pub struct WindowState {
     pub float_noheader: bool,
 
     /// Active pane ID in this window (tracked from %window-pane-changed events)
-    pub active_pane_id: Option<String>,
+    pub active_pane_id: Option<PaneId>,
 
     /// Whether this window has a zoomed pane (from %layout-change flags containing 'Z')
     pub zoomed: bool,
 }
 
 impl WindowState {
-    pub fn new(id: &str) -> Self {
+    pub fn new(id: WindowId) -> Self {
         Self {
-            id: id.to_string(),
-            index: id.trim_start_matches('@').parse().unwrap_or(0),
+            index: id.number(),
+            id,
             name: String::new(),
             active: false,
             layout: String::new(),
@@ -981,7 +993,7 @@ impl WindowState {
 
 /// Pane geometry extracted from a tmux layout string
 struct LayoutPane {
-    id: String,
+    id: PaneId,
     index: u32,
     x: u32,
     y: u32,
@@ -1077,7 +1089,7 @@ fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>)
         *pos += 1; // skip comma
         if let Some(pane_idx) = parse_layout_u32(bytes, pos) {
             panes.push(LayoutPane {
-                id: format!("%{}", pane_idx),
+                id: PaneId::from_number(pane_idx),
                 index: pane_idx,
                 x,
                 y,
@@ -1092,7 +1104,7 @@ fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>)
 /// Aggregates control mode events into coherent state
 /// A sidebar window with its column width and, when the client set it, the
 /// rows its column holds (`tmux_options::SIDEBAR_ROWS`).
-pub type SidebarSizing = (String, u32, Option<u32>);
+pub type SidebarSizing = (WindowId, u32, Option<u32>);
 
 pub struct StateAggregator {
     /// How many `list-panes` reports have been applied. A monitor sizing a
@@ -1101,12 +1113,12 @@ pub struct StateAggregator {
     pub pane_reports: u64,
     /// Windows whose `@tmuxy-collapsible` just dropped: their first-level rows
     /// are evened out on the next step (see `collapsible_layout_commands`).
-    even_out_pending: Vec<String>,
+    even_out_pending: Vec<WindowId>,
     /// Session name (e.g., "tmuxy")
     session_name: String,
 
     /// Pane states indexed by pane ID
-    panes: HashMap<String, PaneState>,
+    panes: HashMap<PaneId, PaneState>,
 
     /// Rows of history each pane keeps. Raised to
     /// `constants::VIEWER_SCROLLBACK_ROWS` on an observer's aggregator, whose
@@ -1115,10 +1127,10 @@ pub struct StateAggregator {
     scrollback_rows: usize,
 
     /// Window states indexed by window ID
-    windows: HashMap<String, WindowState>,
+    windows: HashMap<WindowId, WindowState>,
 
     /// Active window ID
-    active_window_id: Option<String>,
+    active_window_id: Option<WindowId>,
 
     /// Pane IDs with a capture-pane command in flight. Used for de-duplication
     /// (don't send a second capture while one is pending) and to preserve the
@@ -1127,7 +1139,7 @@ pub struct StateAggregator {
     /// is bracketed by `TMUXY_CAP_BEGIN <pane>` / `TMUXY_CAP_END` marker
     /// responses (see `capture_command`), so a capture block is attributed to
     /// its pane exactly, never by arrival order or output-shape guessing.
-    pending_captures: std::collections::VecDeque<String>,
+    pending_captures: std::collections::VecDeque<PaneId>,
     /// Whether a list-panes / list-windows response has been parsed since
     /// this aggregator was created — the first ones are the initial sync.
     panes_synced: bool,
@@ -1135,7 +1147,7 @@ pub struct StateAggregator {
     /// Pane the response between a `TMUXY_CAP_BEGIN <pane>` marker and its
     /// `TMUXY_CAP_END` belongs to (each command in a control-mode command
     /// list gets its own %begin/%end block, so the trio arrives consecutively).
-    capture_armed: Option<String>,
+    capture_armed: Option<PaneId>,
     /// Buffer names for pending marker-wrapped `show-buffer` reads (FIFO),
     /// issued in response to %paste-buffer-changed (copy-mode yank mirror).
     pending_buffer_reads: std::collections::VecDeque<String>,
@@ -1172,13 +1184,13 @@ pub struct StateAggregator {
     /// (e.g., break-pane). %output events are suppressed for these panes
     /// until a capture-pane response arrives, preventing stale content from
     /// the old window from accumulating in the reset buffer.
-    panes_moved_window: std::collections::HashSet<String>,
+    panes_moved_window: std::collections::HashSet<PaneId>,
 
     /// Buffered %output for panes not yet created in state.
     /// When tmux splits a pane, %output for the new pane can arrive before
     /// %layout-change creates the pane. This buffer holds that early output
     /// so parse_layout() can replay it when the pane is created.
-    early_output: HashMap<String, Vec<u8>>,
+    early_output: HashMap<PaneId, Vec<u8>>,
 
     /// HIDDEN pane-group members parked in the stash session, keyed by pane id.
     /// These are not real panes in this session's plane — they carry only what a
@@ -1186,18 +1198,18 @@ pub struct StateAggregator {
     /// each `LIST_STASH_PANES_CMD` response and emitted as lightweight
     /// `TmuxPane` stubs (see `to_tmux_state`). The frontend tells a stub from the
     /// visible member by its window id (a stash window is never the active one).
-    stash_members: HashMap<String, StashMember>,
+    stash_members: HashMap<PaneId, StashMember>,
 
     /// Window ids that have had `pane-border-status top` enforced. Tabs no
     /// longer carry a `@tmuxy-window-type` marker (untagged ⇒ tab, derived at
     /// emit), so there's no per-window tmux flag to make the enforcement
     /// idempotent — this in-memory set does, applying the border settings once
     /// per window per connection.
-    border_enforced: std::collections::HashSet<String>,
+    border_enforced: std::collections::HashSet<WindowId>,
     /// Sidebar windows whose pane border has been switched off. `pane-border-status
     /// top` is a GLOBAL window option (every new window inherits it), so a sidebar
     /// needs it turned off explicitly whether or not it was first adopted as a tab.
-    sidebar_border_cleared: std::collections::HashSet<String>,
+    sidebar_border_cleared: std::collections::HashSet<WindowId>,
 
     /// Compound-command settling state. When armed (`settling_until.is_some()`),
     /// window/layout emissions are suppressed and the aggregator's `tick(now)`
@@ -1232,11 +1244,9 @@ pub fn normalize_capture_bytes(content: &[u8]) -> Vec<u8> {
 /// tmux pane ids are always `%` followed by digits, and `LIST_PANES_CMD` puts
 /// `#{pane_id}` first, so a genuine record always starts that way.
 fn is_list_panes_line(line: &str) -> bool {
-    let Some(rest) = line.trim_start().strip_prefix('%') else {
-        return false;
-    };
-    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-    !digits.is_empty() && rest[digits.len()..].starts_with(',')
+    line.trim_start()
+        .split_once(',')
+        .is_some_and(|(id, _)| PaneId::parse(id).is_ok())
 }
 
 /// The process name to show for a pane, given tmux's `#{pane_current_command}`.
@@ -1288,9 +1298,9 @@ fn is_stash_member_line(line: &str) -> bool {
 struct StashMember {
     /// The pane's window in the stash session (never the attached session's
     /// active window, so the frontend treats the emitted stub as hidden).
-    window_id: String,
+    window_id: WindowId,
     /// `@tmuxy-group-id` value tying it to its group.
-    group_id: String,
+    group_id: GroupId,
     /// `@tmuxy-group-pos`, when the group has been reordered.
     group_pos: Option<u32>,
     command: String,
@@ -1301,10 +1311,10 @@ struct StashMember {
 /// geometry — the frontend only reads its id, group id, command, and title to
 /// draw the member's tab; its content streams in via a real pane once the user
 /// swaps it into view.
-fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
+fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
     TmuxPane {
         id: 0,
-        tmux_id: pane_id.to_string(),
+        tmux_id: pane_id.clone(),
         window_id: member.window_id.clone(),
         content: std::sync::Arc::new(PaneContent::default()),
         cursor_x: 0,
@@ -1372,8 +1382,8 @@ pub const MAX_STORED_IMAGES_PER_PANE: usize = 256;
 ///   session — cannot silently replace what the user is about to paste.
 /// - **A size cap.** See `MAX_CLIPBOARD_BYTES`.
 pub fn accepted_clipboard_write(
-    pane_id: &str,
-    active_pane_id: Option<&str>,
+    pane_id: &PaneId,
+    active_pane_id: Option<&PaneId>,
     text: String,
 ) -> Option<String> {
     if active_pane_id != Some(pane_id) {
@@ -1445,19 +1455,19 @@ fn reply_marker_id(line: &str, marker: &str) -> Option<u64> {
 /// (observed on tmux 3.7: `%69` prints as 67 spaces + `%69`; other versions
 /// can swallow it entirely). Bare digits are expansion-proof; the response
 /// router re-prefixes the `%`.
-pub fn capture_command(pane_id: &str) -> String {
+pub fn capture_command(pane_id: &PaneId) -> String {
     marker_wrapped_capture(pane_id, "")
 }
 
 /// `capture_command` for an explicit scrollback range (copy-mode sync).
-pub fn capture_command_range(pane_id: &str, start: i64, end: i64) -> String {
+pub fn capture_command_range(pane_id: &PaneId, start: i64, end: i64) -> String {
     marker_wrapped_capture(pane_id, &format!(" -S {start} -E {end}"))
 }
 
 /// Shared marker-bracket format for both capture commands, so the BEGIN/END
 /// bracketing can't drift between the plain and ranged variants.
-fn marker_wrapped_capture(pane_id: &str, range: &str) -> String {
-    let bare = pane_id.trim_start_matches('%');
+fn marker_wrapped_capture(pane_id: &PaneId, range: &str) -> String {
+    let bare = pane_id.number();
     format!(
         "display-message -p '{CAPTURE_BEGIN_MARKER} {bare}' ; capture-pane -t {pane_id} -p -e{range} ; display-message -p '{CAPTURE_END_MARKER}'"
     )
@@ -1486,7 +1496,7 @@ impl StateAggregator {
     /// ever holds the session it monitors.
     pub fn pane_scrollback(
         &mut self,
-        pane_id: &str,
+        pane_id: &PaneId,
         start: i64,
         end: i64,
     ) -> Option<(crate::PaneContent, usize, u32)> {
@@ -1604,7 +1614,7 @@ impl StateAggregator {
     /// were actually queued (not already pending). The caller must send the
     /// marker-bracketed `capture_command(..)` form for each returned ID —
     /// response routing relies on the markers, not on ordering.
-    pub fn queue_captures(&mut self, pane_ids: &[String]) -> Vec<String> {
+    pub fn queue_captures(&mut self, pane_ids: &[PaneId]) -> Vec<PaneId> {
         let mut queued = Vec::new();
         for pane_id in pane_ids {
             if !self.pending_captures.contains(pane_id) {
@@ -1617,7 +1627,7 @@ impl StateAggregator {
     }
 
     /// Get the list of window IDs
-    pub fn window_ids(&self) -> Vec<String> {
+    pub fn window_ids(&self) -> Vec<WindowId> {
         self.windows.keys().cloned().collect()
     }
 
@@ -1625,7 +1635,7 @@ impl StateAggregator {
     /// floats take the whole viewport; each sidebar takes its own narrow column
     /// (the two differ in width), so those come back paired with that width.
     /// Returns `(viewport_sized, sidebar_sized_with_cols)`.
-    pub fn window_ids_by_sizing(&self) -> (Vec<String>, Vec<SidebarSizing>) {
+    pub fn window_ids_by_sizing(&self) -> (Vec<WindowId>, Vec<SidebarSizing>) {
         let mut viewport = Vec::new();
         let mut sidebars = Vec::new();
         for w in self.windows.values() {
@@ -1648,10 +1658,10 @@ impl StateAggregator {
     /// batch racing a `%window-add`) can drop one — so the size a command
     /// ASKED for is not evidence the window has it. `None` when no pane of
     /// that window has been seen yet, which is not the same as "zero".
-    pub fn window_extent(&self, window_id: &str) -> Option<(u32, u32)> {
+    pub fn window_extent(&self, window_id: &WindowId) -> Option<(u32, u32)> {
         let mut extent: Option<(u32, u32)> = None;
         for p in self.panes.values() {
-            if p.window_id != window_id {
+            if !p.in_window(window_id) {
                 continue;
             }
             let (cols, rows) = extent.unwrap_or((0, 0));
@@ -1706,7 +1716,7 @@ impl StateAggregator {
     pub fn collect_window_tag_commands(&mut self) -> Vec<String> {
         // Snapshot the untagged windows first so we don't hold a `self.windows`
         // borrow while touching `self.border_enforced`.
-        let untagged: Vec<(String, String)> = self
+        let untagged: Vec<(WindowId, String)> = self
             .windows
             .values()
             .filter(|w| w.window_type.is_none())
@@ -1746,7 +1756,7 @@ impl StateAggregator {
         // window was first adopted as a tab above (the marker lands a beat after
         // `%window-add`) or arrived already typed because `list-windows` was
         // re-run right behind the create command.
-        let bordered: Vec<String> = self
+        let bordered: Vec<WindowId> = self
             .windows
             .values()
             .filter(|w| {
@@ -1770,10 +1780,10 @@ impl StateAggregator {
     }
 
     /// Get copy mode pane info: (pane_id, scroll_position, height) for building capture-pane commands
-    pub fn get_copy_mode_pane_info(&self) -> Vec<(String, u32, u32)> {
+    pub fn get_copy_mode_pane_info(&self) -> Vec<(PaneId, u32, u32)> {
         self.panes
             .values()
-            .filter(|p| p.in_mode && !p.window_id.is_empty())
+            .filter(|p| p.in_mode && p.window_id.is_some())
             .map(|p| (p.id.clone(), p.scroll_position, p.height))
             .collect()
     }
@@ -1803,7 +1813,7 @@ impl StateAggregator {
     /// Decoded image bytes for a pane placement (PNG/etc.), for hosts that serve
     /// image bytes themselves (the native server uses `/api/images`; the wasm
     /// host resolves via `window.__tmuxyImageSrc`). Returns `(data, mime_type)`.
-    pub fn image_data(&self, pane_id: &str, image_id: u32) -> Option<(Vec<u8>, String)> {
+    pub fn image_data(&self, pane_id: &PaneId, image_id: u32) -> Option<(Vec<u8>, String)> {
         self.panes
             .get(pane_id)
             .and_then(|p| p.image_store.get(&image_id))
@@ -1932,7 +1942,7 @@ impl StateAggregator {
     }
 
     /// The pane a keystroke would reach: the active pane of the active window.
-    fn active_pane_id(&self) -> Option<String> {
+    fn active_pane_id(&self) -> Option<PaneId> {
         self.active_window_id
             .as_ref()
             .and_then(|id| self.windows.get(id))
@@ -1941,7 +1951,7 @@ impl StateAggregator {
 
     /// Whether `pane_id` may have a clipboard write honoured at `now` — the
     /// rate limit of `MIN_CLIPBOARD_INTERVAL` — recording `now` when it may.
-    fn clipboard_write_due(&mut self, pane_id: &str, now: Instant) -> bool {
+    fn clipboard_write_due(&mut self, pane_id: &PaneId, now: Instant) -> bool {
         let Some(pane) = self.panes.get_mut(pane_id) else {
             return false;
         };
@@ -1955,7 +1965,7 @@ impl StateAggregator {
     }
 
     /// Shared body of the `%output` / `%extended-output` arms.
-    fn output_result(&mut self, pane_id: String, content: &[u8]) -> ProcessEventResult {
+    fn output_result(&mut self, pane_id: PaneId, content: &[u8]) -> ProcessEventResult {
         let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, content);
         let new_images = if new_imgs.is_empty() {
             Vec::new()
@@ -1964,9 +1974,9 @@ impl StateAggregator {
         };
         let active = self.active_pane_id();
         let clipboard_writes = clipboard
-            .and_then(|text| accepted_clipboard_write(&pane_id, active.as_deref(), text))
+            .and_then(|text| accepted_clipboard_write(&pane_id, active.as_ref(), text))
             .filter(|_| self.clipboard_write_due(&pane_id, Instant::now()))
-            .map(|text| vec![(pane_id.clone(), text)])
+            .map(|text| vec![(Some(pane_id.clone()), text)])
             .unwrap_or_default();
         ProcessEventResult {
             state_changed: changed,
@@ -2036,7 +2046,7 @@ impl StateAggregator {
             ControlModeEvent::UnlinkedWindowClose { window_id } => {
                 if self.windows.contains_key(&window_id) {
                     self.windows.remove(&window_id);
-                    self.panes.retain(|_, p| p.window_id != window_id);
+                    self.panes.retain(|_, p| !p.in_window(&window_id));
                     self.pending_captures
                         .retain(|id| self.panes.contains_key(id));
                     ProcessEventResult {
@@ -2056,7 +2066,7 @@ impl StateAggregator {
                 // indices diverge (e.g. `tmuxy tab create` makes @1 at index 2).
                 let provisional_index = self.next_window_index();
                 self.windows.entry(window_id.clone()).or_insert_with(|| {
-                    let mut w = WindowState::new(&window_id);
+                    let mut w = WindowState::new(window_id.clone());
                     w.index = provisional_index;
                     w
                 });
@@ -2070,7 +2080,7 @@ impl StateAggregator {
                 self.windows.remove(&window_id);
                 self.border_enforced.remove(&window_id);
                 self.sidebar_border_cleared.remove(&window_id);
-                self.panes.retain(|_, p| p.window_id != window_id);
+                self.panes.retain(|_, p| !p.in_window(&window_id));
                 self.pending_captures
                     .retain(|id| self.panes.contains_key(id));
                 ProcessEventResult {
@@ -2086,7 +2096,7 @@ impl StateAggregator {
                 // don't inherit WindowState::new's wrong id-derived index.
                 let provisional_index = self.next_window_index();
                 let window = self.windows.entry(window_id.clone()).or_insert_with(|| {
-                    let mut w = WindowState::new(&window_id);
+                    let mut w = WindowState::new(window_id.clone());
                     w.index = provisional_index;
                     w
                 });
@@ -2105,7 +2115,7 @@ impl StateAggregator {
                 }
                 // Update active pane flag on existing panes
                 for pane in self.panes.values_mut() {
-                    if pane.window_id == window_id {
+                    if pane.in_window(&window_id) {
                         pane.active = pane.id == pane_id;
                     }
                 }
@@ -2168,10 +2178,10 @@ impl StateAggregator {
                 // Refresh capture for every pane in the newly active window so
                 // long-idle tabs don't show stale content after a switch. The
                 // monitor batches these into a single capture-pane round-trip.
-                let refresh: Vec<String> = self
+                let refresh: Vec<PaneId> = self
                     .panes
                     .values()
-                    .filter(|p| p.window_id == window_id)
+                    .filter(|p| p.in_window(&window_id))
                     .map(|p| p.id.clone())
                     .collect();
 
@@ -2256,7 +2266,7 @@ impl StateAggregator {
                     let text = output.trim_end_matches(['\r', '\n']).to_string();
                     if success && !text.is_empty() {
                         return ProcessEventResult {
-                            clipboard_writes: vec![(String::new(), text)],
+                            clipboard_writes: vec![(None, text)],
                             ..Default::default()
                         };
                     }
@@ -2271,9 +2281,8 @@ impl StateAggregator {
                     // The id travels as bare digits (see capture_command) and
                     // may be surrounded by expansion padding — trim and
                     // re-prefix the `%`.
-                    let digits = rest.trim().trim_start_matches('%');
-                    if !digits.is_empty() {
-                        self.capture_armed = Some(format!("%{digits}"));
+                    if let Ok(number) = rest.trim().trim_start_matches('%').parse() {
+                        self.capture_armed = Some(PaneId::from_number(number));
                     }
                     return ProcessEventResult::default();
                 }
@@ -2417,7 +2426,7 @@ impl StateAggregator {
 
     fn handle_output(
         &mut self,
-        pane_id: &str,
+        pane_id: &PaneId,
         content: &[u8],
     ) -> (bool, Vec<(u32, super::images::StoredImage)>, Option<String>) {
         // Only process output for panes we know about from list-panes.
@@ -2432,7 +2441,7 @@ impl StateAggregator {
                 return (false, Vec::new(), None);
             }
             // Only process if pane has a valid window_id (was seen in list-panes)
-            if !pane.window_id.is_empty() {
+            if pane.window_id.is_some() {
                 // A set, not a Vec: `contains` on the Vec made every chunk of
                 // output O(images²) in a pane that had accumulated them.
                 let store_before: HashSet<u32> = pane.image_store.keys().copied().collect();
@@ -2472,7 +2481,7 @@ impl StateAggregator {
         // During split, %output can arrive before %layout-change creates the pane.
         // Cap per-pane buffer and total entry count to prevent unbounded growth.
         if self.early_output.len() < 32 || self.early_output.contains_key(pane_id) {
-            let buf = self.early_output.entry(pane_id.to_string()).or_default();
+            let buf = self.early_output.entry(pane_id.clone()).or_default();
             buf.extend(content);
             if buf.len() > 8192 {
                 let start = buf.len() - 8192;
@@ -2483,7 +2492,7 @@ impl StateAggregator {
     }
 
     /// Handle layout change and return list of pane IDs that need content refresh.
-    fn handle_layout_change(&mut self, window_id: &str, layout: &str) -> Vec<String> {
+    fn handle_layout_change(&mut self, window_id: &WindowId, layout: &str) -> Vec<PaneId> {
         if let Some(window) = self.windows.get_mut(window_id) {
             window.layout = layout.to_string();
         }
@@ -2494,7 +2503,7 @@ impl StateAggregator {
 
     /// Update only the geometry (x, y, width, height) of existing panes from a layout string.
     /// Does NOT create or remove panes. Used for visible_layout during zoom.
-    fn update_pane_geometry_from_layout(&mut self, window_id: &str, layout: &str) {
+    fn update_pane_geometry_from_layout(&mut self, window_id: &WindowId, layout: &str) {
         let layout = match layout.find(',') {
             Some(idx) => &layout[idx + 1..],
             None => return,
@@ -2503,7 +2512,7 @@ impl StateAggregator {
         let parsed_panes = parse_layout_panes(layout);
         for lp in &parsed_panes {
             if let Some(pane) = self.panes.get_mut(&lp.id) {
-                if pane.window_id == window_id {
+                if pane.in_window(window_id) {
                     pane.x = lp.x;
                     pane.y = lp.y;
                     let _ = pane.resize(lp.width, lp.height);
@@ -2522,7 +2531,7 @@ impl StateAggregator {
     /// This is the authoritative source for pane geometry. Panes discovered in the
     /// layout that don't exist in `self.panes` are created with default metadata.
     /// Panes in this window that are NOT in the layout are removed (reconciliation).
-    fn parse_layout(&mut self, window_id: &str, layout: &str) -> Vec<String> {
+    fn parse_layout(&mut self, window_id: &WindowId, layout: &str) -> Vec<PaneId> {
         // Skip the checksum prefix (e.g., "abc123,")
         let layout = match layout.find(',') {
             Some(idx) => &layout[idx + 1..],
@@ -2542,7 +2551,7 @@ impl StateAggregator {
             .and_then(|w| w.active_pane_id.clone());
 
         let mut resized_panes = Vec::new();
-        let mut seen_panes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_panes: HashSet<PaneId> = HashSet::new();
 
         for lp in &parsed_panes {
             seen_panes.insert(lp.id.clone());
@@ -2555,8 +2564,8 @@ impl StateAggregator {
                 // Reset the VT100 parser immediately to clear stale content from the
                 // old window. Without this, %output events that arrive before the
                 // capture-pane response would build on top of the stale buffer.
-                let moved_window = pane.window_id != window_id;
-                pane.window_id = window_id.to_string();
+                let moved_window = !pane.in_window(window_id);
+                pane.window_id = Some(window_id.clone());
                 pane.index = lp.index;
                 let was_resized = pane.resize(lp.width, lp.height);
                 if moved_window && !was_resized {
@@ -2577,9 +2586,9 @@ impl StateAggregator {
                 }
             } else {
                 // New pane discovered in layout: create with geometry
-                let mut pane = PaneState::new(&lp.id, lp.width, lp.height)
+                let mut pane = PaneState::new(lp.id.clone(), lp.width, lp.height)
                     .with_scrollback_rows(self.scrollback_rows);
-                pane.window_id = window_id.to_string();
+                pane.window_id = Some(window_id.clone());
                 pane.index = lp.index;
                 pane.x = lp.x;
                 pane.y = lp.y;
@@ -2601,7 +2610,7 @@ impl StateAggregator {
 
         // Reconcile: remove panes from this window that are no longer in the layout
         self.panes.retain(|pane_id, pane| {
-            if pane.window_id == window_id {
+            if pane.in_window(window_id) {
                 seen_panes.contains(pane_id)
             } else {
                 true // keep panes from other windows
@@ -2630,12 +2639,13 @@ impl StateAggregator {
             if parts.len() < 7 {
                 continue;
             }
-            let pane_id = parts[1].trim();
-            let window_id = parts[2].trim();
-            let group_id = parts[3].trim();
-            if !pane_id.starts_with('%') || group_id.is_empty() {
+            let (Ok(pane_id), Ok(window_id), Ok(group_id)) = (
+                PaneId::parse(parts[1].trim()),
+                WindowId::parse(parts[2].trim()),
+                GroupId::parse(parts[3].trim()),
+            ) else {
                 continue;
-            }
+            };
             // Same guard as a visible pane's title (see is_graphics_payload).
             // A parked member streams no content, so its tab label is tmux's
             // `pane_title` and nothing else — which is exactly where a Kitty
@@ -2644,10 +2654,10 @@ impl StateAggregator {
             // visible pane running the same program was labelled properly.
             let title = parts[6].to_string();
             members.insert(
-                pane_id.to_string(),
+                pane_id,
                 StashMember {
-                    window_id: window_id.to_string(),
-                    group_id: group_id.to_string(),
+                    window_id,
+                    group_id,
                     group_pos: parts[4].trim().parse().ok(),
                     command: normalize_pane_command(parts[5]),
                     title: if is_graphics_payload(&title) {
@@ -2662,7 +2672,7 @@ impl StateAggregator {
     }
 
     /// Handle command response (list-panes, list-windows) and return list of panes that were resized.
-    fn handle_command_response(&mut self, output: &str) -> Vec<String> {
+    fn handle_command_response(&mut self, output: &str) -> Vec<PaneId> {
         // A stash-members response (LIST_STASH_PANES_CMD) is a self-contained
         // block: rebuild the hidden-member map from it and return, so its rows
         // never reach the active-session pane/window parsers below. An empty
@@ -2675,8 +2685,8 @@ impl StateAggregator {
         }
 
         // Track which panes we see in this response
-        let mut seen_panes: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut resized_panes: Vec<String> = Vec::new();
+        let mut seen_panes: HashSet<PaneId> = HashSet::new();
+        let mut resized_panes: Vec<PaneId> = Vec::new();
         let mut is_list_panes_response = false;
 
         // Try to parse as list-panes output. Require the shape tmux actually
@@ -2711,7 +2721,7 @@ impl StateAggregator {
                 }
                 // Keep panes with empty window_id (from other sessions' output events)
                 // They'll be filtered out in to_tmux_state anyway
-                if pane.window_id.is_empty() {
+                if pane.window_id.is_none() {
                     return true;
                 }
                 // Remove panes that have a window_id but weren't in the list-panes response
@@ -2725,15 +2735,12 @@ impl StateAggregator {
 
         // Try to parse as list-windows output
         let mut is_list_windows_response = false;
-        let mut seen_windows: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_windows: HashSet<WindowId> = HashSet::new();
         for line in output.lines() {
             if line.contains('@') && line.contains(',') {
-                // Extract window_id before parsing (first field starts with @)
-                if let Some(wid) = line.split(',').next() {
-                    let wid = wid.trim();
-                    if wid.starts_with('@') {
-                        seen_windows.insert(wid.to_string());
-                    }
+                // Extract window_id before parsing (first field is `@N`)
+                if let Some(Ok(wid)) = line.split(',').next().map(|w| WindowId::parse(w.trim())) {
+                    seen_windows.insert(wid);
                 }
                 self.parse_list_windows_line(line);
                 is_list_windows_response = true;
@@ -2757,16 +2764,13 @@ impl StateAggregator {
     /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,scroll_position,window_id,border_title,alternate_on,mouse_any_flag,selection_present,selection_start_x,selection_start_y,history_size`
     /// Returns (pane_id, needs_capture) if successfully parsed.
     /// needs_capture is true if pane is new OR was resized.
-    fn parse_list_panes_line(&mut self, line: &str) -> Option<(String, bool)> {
+    fn parse_list_panes_line(&mut self, line: &str) -> Option<(PaneId, bool)> {
         let parts: Vec<&str> = line.split(',').collect();
         if parts.len() < 11 {
             return None;
         }
 
-        let pane_id = parts[0].trim();
-        if !pane_id.starts_with('%') {
-            return None;
-        }
+        let pane_id = PaneId::parse(parts[0].trim()).ok()?;
 
         let pane_index: u32 = parts[1].parse().unwrap_or(0);
         let x: u32 = parts[2].parse().unwrap_or(0);
@@ -2828,7 +2832,7 @@ impl StateAggregator {
                 parts[last - 8].parse::<u32>().unwrap_or(0),
                 parts[last - 7].parse::<u64>().unwrap_or(0),
                 parts[last - 6].parse::<u64>().unwrap_or(0),
-                (!gid.is_empty()).then(|| gid.to_string()),
+                GroupId::parse(gid).ok(),
                 pos.parse::<u32>().ok(),
                 (!state.is_empty()).then(|| state.to_string()),
                 (!ask.is_empty()).then(|| ask.to_string()),
@@ -2846,7 +2850,7 @@ impl StateAggregator {
         let mut copy_cursor_x: u32 = 0;
         let mut copy_cursor_y: u32 = 0;
         let mut scroll_position: u32 = 0;
-        let mut window_id = String::new();
+        let mut window_id = None;
         let mut border_title = String::new();
         let mut found_boundary = false;
 
@@ -2856,10 +2860,10 @@ impl StateAggregator {
             // then 4 structured fields, then window_id). Scan the middle region.
             for i in 15..(parts.len() - num_tail_fields) {
                 let val = parts[i];
-                if val.starts_with('@')
-                    && val.len() > 1
-                    && val[1..].chars().all(|c| c.is_ascii_digit())
-                    && (parts[i - 4] == "0" || parts[i - 4] == "1")
+                let Ok(anchor) = WindowId::parse(val) else {
+                    continue;
+                };
+                if (parts[i - 4] == "0" || parts[i - 4] == "1")
                     && is_intlike(parts[i - 3])
                     && is_intlike(parts[i - 2])
                     && is_intlike(parts[i - 1])
@@ -2869,7 +2873,7 @@ impl StateAggregator {
                     copy_cursor_x = parts[i - 3].parse().unwrap_or(0);
                     copy_cursor_y = parts[i - 2].parse().unwrap_or(0);
                     scroll_position = parts[i - 1].parse().unwrap_or(0);
-                    window_id = val.to_string();
+                    window_id = Some(anchor);
                     border_title = parts[i + 1..parts.len() - num_tail_fields].join(",");
                     found_boundary = true;
                     break;
@@ -2886,7 +2890,7 @@ impl StateAggregator {
             copy_cursor_x = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
             copy_cursor_y = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
             scroll_position = parts.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
-            window_id = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
+            window_id = parts.get(15).and_then(|s| WindowId::parse(s).ok());
             border_title = if parts.len() > 16 + num_tail_fields {
                 parts[16..parts.len() - num_tail_fields].join(",")
             } else {
@@ -2894,19 +2898,17 @@ impl StateAggregator {
             };
         }
 
-        let pane_id_string = pane_id.to_string();
-
         // Check if this is a new pane
-        let is_new_pane = !self.panes.contains_key(&pane_id_string);
+        let is_new_pane = !self.panes.contains_key(&pane_id);
         let scrollback_rows = self.scrollback_rows;
 
-        let pane = self.panes.entry(pane_id_string.clone()).or_insert_with(|| {
-            PaneState::new(pane_id, width, height).with_scrollback_rows(scrollback_rows)
+        let pane = self.panes.entry(pane_id.clone()).or_insert_with(|| {
+            PaneState::new(pane_id.clone(), width, height).with_scrollback_rows(scrollback_rows)
         });
 
         // Replay any early %output that arrived before this pane was created
         if is_new_pane {
-            let early_bytes = match self.early_output.remove(&pane_id_string) {
+            let early_bytes = match self.early_output.remove(&pane_id) {
                 Some(early) => {
                     pane.output_bytes += early.len() as u64;
                     pane.process_output(&early);
@@ -2915,8 +2917,8 @@ impl StateAggregator {
                 None => 0,
             };
             debug!(
-                pane = %pane_id_string,
-                window = %window_id,
+                pane = %pane_id,
+                window = ?window_id,
                 cols = width,
                 rows = height,
                 shell = crate::constants::is_shell_name(&command),
@@ -2930,7 +2932,7 @@ impl StateAggregator {
         pane.y = y;
         let was_resized = pane.resize(width, height);
         if was_resized && !is_new_pane {
-            debug!(pane = %pane_id_string, cols = width, rows = height, "pane resized");
+            debug!(pane = %pane_id, cols = width, rows = height, "pane resized");
         }
         pane.active = active;
         pane.command = command;
@@ -2952,7 +2954,11 @@ impl StateAggregator {
         // `#{pane_active}` is per window: it names each window's own active
         // pane, which %window-pane-changed only reports for later changes.
         if active {
-            if let Some(w) = self.windows.get_mut(&pane.window_id) {
+            if let Some(w) = pane
+                .window_id
+                .as_ref()
+                .and_then(|w| self.windows.get_mut(w))
+            {
                 w.active_pane_id = Some(pane.id.clone());
             }
         }
@@ -2979,7 +2985,7 @@ impl StateAggregator {
         // since %output events during copy mode may have desynchronized it)
         let exited_copy_mode = was_in_mode && !in_mode;
         let needs_capture = is_new_pane || was_resized || exited_copy_mode;
-        Some((pane_id_string, needs_capture))
+        Some((pane_id, needs_capture))
     }
 
     /// Parse a line from list-windows output. Expected format (comma-separated,
@@ -2997,10 +3003,9 @@ impl StateAggregator {
             return;
         }
 
-        let window_id = parts[0].trim();
-        if !window_id.starts_with('@') {
+        let Ok(window_id) = WindowId::parse(parts[0].trim()) else {
             return;
-        }
+        };
 
         let index: u32 = parts[1].parse().unwrap_or(0);
         let active = parts[2] == "1";
@@ -3015,7 +3020,7 @@ impl StateAggregator {
         };
 
         let window_type = opt(3).and_then(|s| WindowType::parse(&s));
-        let float_parent = opt(4);
+        let float_parent = opt(4).and_then(|s| WindowId::parse(&s).ok());
         let float_width = opt(5).and_then(|s| s.parse::<u32>().ok());
         let float_height = opt(6).and_then(|s| s.parse::<u32>().ok());
         let float_drawer = opt(7);
@@ -3047,8 +3052,8 @@ impl StateAggregator {
 
         let window = self
             .windows
-            .entry(window_id.to_string())
-            .or_insert_with(|| WindowState::new(window_id));
+            .entry(window_id.clone())
+            .or_insert_with(|| WindowState::new(window_id.clone()));
 
         window.index = index;
         window.name = name;
@@ -3065,12 +3070,12 @@ impl StateAggregator {
         window.sidebar_hidden = sidebar_hidden;
         window.sidebar_rows = sidebar_rows;
         if window.collapsible && !collapsible {
-            self.even_out_pending.push(window_id.to_string());
+            self.even_out_pending.push(window_id.clone());
         }
         window.collapsible = collapsible;
 
         if active {
-            self.active_window_id = Some(window_id.to_string());
+            self.active_window_id = Some(window_id);
         }
     }
 
@@ -3080,7 +3085,7 @@ impl StateAggregator {
     /// expanded (`layout::collapse_first_level`). Idempotent — a window already
     /// in shape yields nothing, so the %layout-change our own command causes
     /// does not echo another. Zoomed windows are left alone until they unzoom.
-    fn collapsible_layout_commands(&mut self, only_window: Option<&str>) -> Vec<String> {
+    fn collapsible_layout_commands(&mut self, only_window: Option<&WindowId>) -> Vec<String> {
         let mut cmds = Vec::new();
         for wid in std::mem::take(&mut self.even_out_pending) {
             if let Some(w) = self.windows.get(&wid) {
@@ -3099,11 +3104,10 @@ impl StateAggregator {
             let active = self
                 .panes
                 .values()
-                .find(|p| p.window_id == *wid && p.active)
-                .map(|p| p.id.as_str())
-                .or(w.active_pane_id.as_deref());
-            let Some(active) = active.and_then(|p| p.trim_start_matches('%').parse::<u32>().ok())
-            else {
+                .find(|p| p.in_window(wid) && p.active)
+                .map(|p| &p.id)
+                .or(w.active_pane_id.as_ref());
+            let Some(active) = active.map(PaneId::number) else {
                 continue;
             };
             if let Some(layout) = crate::layout::collapse_first_level(&w.layout, active) {
@@ -3126,8 +3130,8 @@ impl StateAggregator {
         // content from the cleared parser and emits it to the frontend.
         if !self.pending_captures.is_empty() {
             if let Some(ref prev) = self.prev_state {
-                let prev_panes: std::collections::HashMap<&str, &crate::TmuxPane> =
-                    prev.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
+                let prev_panes: HashMap<&PaneId, &crate::TmuxPane> =
+                    prev.panes.iter().map(|p| (&p.tmux_id, p)).collect();
                 for pane in &mut current.panes {
                     if self.pending_captures.contains(&pane.tmux_id) {
                         // Don't preserve prev_state for panes that moved windows.
@@ -3137,7 +3141,7 @@ impl StateAggregator {
                         if self.panes_moved_window.contains(&pane.tmux_id) {
                             continue;
                         }
-                        if let Some(prev_pane) = prev_panes.get(pane.tmux_id.as_str()) {
+                        if let Some(prev_pane) = prev_panes.get(&pane.tmux_id) {
                             pane.content = prev_pane.content.clone();
                             pane.cursor_x = prev_pane.cursor_x;
                             pane.cursor_y = prev_pane.cursor_y;
@@ -3184,22 +3188,18 @@ impl StateAggregator {
         }
 
         // Build maps for efficient lookup
-        let prev_panes: std::collections::HashMap<&str, &crate::TmuxPane> =
-            prev.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
-        let curr_panes: std::collections::HashMap<&str, &crate::TmuxPane> = current
-            .panes
-            .iter()
-            .map(|p| (p.tmux_id.as_str(), p))
-            .collect();
+        let prev_panes: HashMap<&PaneId, &crate::TmuxPane> =
+            prev.panes.iter().map(|p| (&p.tmux_id, p)).collect();
+        let curr_panes: HashMap<&PaneId, &crate::TmuxPane> =
+            current.panes.iter().map(|p| (&p.tmux_id, p)).collect();
 
-        let prev_windows: std::collections::HashMap<&str, &crate::TmuxWindow> =
-            prev.windows.iter().map(|w| (w.id.as_str(), w)).collect();
-        let curr_windows: std::collections::HashMap<&str, &crate::TmuxWindow> =
-            current.windows.iter().map(|w| (w.id.as_str(), w)).collect();
+        let prev_windows: HashMap<&WindowId, &crate::TmuxWindow> =
+            prev.windows.iter().map(|w| (&w.id, w)).collect();
+        let curr_windows: HashMap<&WindowId, &crate::TmuxWindow> =
+            current.windows.iter().map(|w| (&w.id, w)).collect();
 
         // Track pane changes
-        let mut pane_deltas: std::collections::HashMap<String, Option<crate::PaneDelta>> =
-            std::collections::HashMap::new();
+        let mut pane_deltas: HashMap<PaneId, Option<crate::PaneDelta>> = HashMap::new();
         let mut new_panes: Vec<crate::TmuxPane> = Vec::new();
 
         // Find new and modified panes
@@ -3213,7 +3213,7 @@ impl StateAggregator {
                     // Check for changes
                     let pane_delta = self.compute_pane_delta(prev_pane, curr_pane);
                     if !pane_delta.is_empty() {
-                        pane_deltas.insert(id.to_string(), Some(pane_delta));
+                        pane_deltas.insert((*id).clone(), Some(pane_delta));
                     }
                 }
             }
@@ -3222,13 +3222,12 @@ impl StateAggregator {
         // Find removed panes
         for id in prev_panes.keys() {
             if !curr_panes.contains_key(id) {
-                pane_deltas.insert(id.to_string(), None); // None = removed
+                pane_deltas.insert((*id).clone(), None); // None = removed
             }
         }
 
         // Track window changes
-        let mut window_deltas: std::collections::HashMap<String, Option<crate::WindowDelta>> =
-            std::collections::HashMap::new();
+        let mut window_deltas: HashMap<WindowId, Option<crate::WindowDelta>> = HashMap::new();
         let mut new_windows: Vec<crate::TmuxWindow> = Vec::new();
 
         // Find new and modified windows
@@ -3240,7 +3239,7 @@ impl StateAggregator {
                 Some(prev_window) => {
                     let window_delta = self.compute_window_delta(prev_window, curr_window);
                     if !window_delta.is_empty() {
-                        window_deltas.insert(id.to_string(), Some(window_delta));
+                        window_deltas.insert((*id).clone(), Some(window_delta));
                     }
                 }
             }
@@ -3249,7 +3248,7 @@ impl StateAggregator {
         // Find removed windows
         for id in prev_windows.keys() {
             if !curr_windows.contains_key(id) {
-                window_deltas.insert(id.to_string(), None);
+                window_deltas.insert((*id).clone(), None);
             }
         }
 
@@ -3492,28 +3491,19 @@ impl StateAggregator {
         // round-trip. Hidden pane-group and float windows ride along on the
         // same code path (no special-casing needed once the active-window
         // filter is gone).
-        let matching_pane_ids: Vec<String> = self
-            .panes
-            .values()
-            .filter(|p| !p.window_id.is_empty())
-            .map(|p| p.id.clone())
-            .collect();
-
         // Tmux stores `pane.active` per window — every window has its own
         // active pane. Collapse to a session-wide single active pane so the
         // frontend can treat `pane.active` as a uniqueness flag (used by
         // keyboard routing, optimistic-prediction lookups, focus indicators).
         // Without this collapse, multiple panes report active=true and any
         // downstream code that assumes "at most one active pane" misbehaves.
-        let mut panes: Vec<TmuxPane> = matching_pane_ids
-            .iter()
-            .filter_map(|id| {
-                self.panes.get_mut(id).map(|p| {
-                    let mut pane = p.build_tmux_pane();
-                    pane.active =
-                        pane.active && active_window.map(|w| pane.window_id == *w).unwrap_or(false);
-                    pane
-                })
+        let mut panes: Vec<TmuxPane> = self
+            .panes
+            .values_mut()
+            .filter_map(|p| {
+                let mut pane = p.build_tmux_pane()?;
+                pane.active = pane.active && active_window == Some(&pane.window_id);
+                Some(pane)
             })
             .collect();
 
@@ -3524,13 +3514,13 @@ impl StateAggregator {
         // dissolved, or its tab was closed wholesale) — those are orphans, not
         // tabs. The stub's stash `window_id` is never the active window, so
         // `selectVisiblePanes` keeps it out of the layout automatically.
-        let active_group_ids: std::collections::HashSet<&str> = self
+        let active_group_ids: HashSet<&GroupId> = self
             .panes
             .values()
-            .filter_map(|p| p.group_id.as_deref())
+            .filter_map(|p| p.group_id.as_ref())
             .collect();
         self.stash_members
-            .retain(|_, m| active_group_ids.contains(m.group_id.as_str()));
+            .retain(|_, m| active_group_ids.contains(&m.group_id));
         for (pane_id, member) in &self.stash_members {
             panes.push(stash_member_stub(pane_id, member));
         }
@@ -3561,7 +3551,7 @@ impl StateAggregator {
         // (each window has its own active pane, we want the one in the active window)
         let active_pane_id = panes
             .iter()
-            .find(|p| p.active && active_window.map(|w| p.window_id == *w).unwrap_or(false))
+            .find(|p| p.active && active_window == Some(&p.window_id))
             .or_else(|| panes.iter().find(|p| p.active))
             .map(|p| p.tmux_id.clone());
 
@@ -3600,7 +3590,7 @@ mod tests {
             }
         };
 
-        let mut viewer = PaneState::new("%1", 40, 10)
+        let mut viewer = PaneState::new(pid("%1"), 40, 10)
             .with_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
         feed(&mut viewer);
         let (rows, depth) = viewer.scrollback_cells(-400, -391);
@@ -3617,7 +3607,7 @@ mod tests {
 
         // The reflow default keeps far less, so the same request is clamped to
         // what exists rather than reaching back 400 rows.
-        let mut writer = PaneState::new("%1", 40, 10);
+        let mut writer = PaneState::new(pid("%1"), 40, 10);
         feed(&mut writer);
         let (_, shallow) = writer.scrollback_cells(-400, -391);
         assert!(
@@ -3633,26 +3623,34 @@ mod tests {
     fn an_aggregator_has_no_scrollback_for_a_pane_it_does_not_hold() {
         let mut agg = StateAggregator::new();
         agg.set_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
-        assert!(agg.pane_scrollback("%99", -10, 0).is_none());
+        assert!(agg.pane_scrollback(&pid("%99"), -10, 0).is_none());
     }
     use super::*;
+    use crate::ids::test_ids::{gid, pid, wid};
+
+    /// A pane as the client sees it, placed in window `@0`.
+    fn tmux_pane(id: &str) -> TmuxPane {
+        let mut pane = PaneState::new(pid(id), 80, 24);
+        pane.window_id = Some(wid("@0"));
+        pane.build_tmux_pane().expect("placed")
+    }
 
     /// Manually seat a pane in the aggregator so handle_output() processes it
     /// (handle_output rejects panes that haven't been seen in list-panes).
     fn seed_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
-        let mut pane = PaneState::new(pane_id, 80, 24);
-        pane.window_id = window_id.to_string();
-        agg.panes.insert(pane_id.to_string(), pane);
+        let mut pane = PaneState::new(pid(pane_id), 80, 24);
+        pane.window_id = Some(wid(window_id));
+        agg.panes.insert(pid(pane_id), pane);
     }
 
     /// Seed a pane and make it the one a keystroke would reach — what the
     /// clipboard gate asks about.
     fn seed_active_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
         seed_pane(agg, pane_id, window_id);
-        let mut window = WindowState::new(window_id);
-        window.active_pane_id = Some(pane_id.to_string());
-        agg.windows.insert(window_id.to_string(), window);
-        agg.active_window_id = Some(window_id.to_string());
+        let mut window = WindowState::new(wid(window_id));
+        window.active_pane_id = Some(pid(pane_id));
+        agg.windows.insert(wid(window_id), window);
+        agg.active_window_id = Some(wid(window_id));
     }
 
     /// A version-pinned launcher must not name the pane after its version.
@@ -3683,10 +3681,10 @@ mod tests {
     fn the_grid_size_is_the_active_windows_extent() {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
-        let mut tall = PaneState::new("%3", 35, 43);
-        tall.window_id = "@3".to_string();
-        agg.panes.insert("%3".to_string(), tall);
-        agg.active_window_id = Some("@0".to_string());
+        let mut tall = PaneState::new(pid("%3"), 35, 43);
+        tall.window_id = Some(wid("@3"));
+        agg.panes.insert(pid("%3"), tall);
+        agg.active_window_id = Some(wid("@0"));
 
         let state = agg.to_tmux_state();
         assert_eq!((state.total_width, state.total_height), (80, 24));
@@ -3885,7 +3883,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
         seed_pane(&mut agg, "%1", "@0");
-        agg.queue_captures(&["%0".to_string(), "%1".to_string()]);
+        agg.queue_captures(&[pid("%0"), pid("%1")]);
 
         let response = |output: &str| ControlModeEvent::CommandResponse {
             timestamp: 0,
@@ -3946,7 +3944,7 @@ mod tests {
     fn capture_marker_survives_strftime_padding() {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%69", "@0");
-        agg.queue_captures(&["%69".to_string()]);
+        agg.queue_captures(&[pid("%69")]);
 
         let response = |output: &str| ControlModeEvent::CommandResponse {
             timestamp: 0,
@@ -3973,7 +3971,7 @@ mod tests {
     fn capture_for_dead_pane_is_discarded_and_released() {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
-        agg.queue_captures(&["%9".to_string()]);
+        agg.queue_captures(&[pid("%9")]);
 
         let response = |output: &str| ControlModeEvent::CommandResponse {
             timestamp: 0,
@@ -3996,7 +3994,7 @@ mod tests {
         seed_active_pane(&mut agg, "%0", "@0");
 
         let event = ControlModeEvent::Output {
-            pane_id: "%0".to_string(),
+            pane_id: pid("%0"),
             content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
         };
 
@@ -4004,7 +4002,7 @@ mod tests {
 
         assert_eq!(
             result.clipboard_writes,
-            vec![("%0".to_string(), "hello world".to_string())],
+            vec![(Some(pid("%0")), "hello world".to_string())],
             "OSC 52 sequence must surface as a clipboard write on the event result"
         );
     }
@@ -4017,7 +4015,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         seed_active_pane(&mut agg, "%0", "@0");
         let write = || ControlModeEvent::Output {
-            pane_id: "%0".to_string(),
+            pane_id: pid("%0"),
             content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
         };
 
@@ -4040,7 +4038,7 @@ mod tests {
         seed_pane(&mut agg, "%0", "@0");
 
         let event = ControlModeEvent::Output {
-            pane_id: "%0".to_string(),
+            pane_id: pid("%0"),
             content: b"hello\r\n".to_vec(),
         };
 
@@ -4054,7 +4052,7 @@ mod tests {
     /// on nothing but pane output.
     #[test]
     fn a_pane_stops_hoarding_pictures_at_the_cap() {
-        let mut pane = PaneState::new("%0", 80, 24);
+        let mut pane = PaneState::new(pid("%0"), 80, 24);
         for id in 0..(MAX_STORED_IMAGES_PER_PANE as u32 * 2) {
             pane.image_store.insert(
                 id,
@@ -4090,7 +4088,7 @@ mod tests {
         seed_pane(&mut agg, "%1", "@0");
 
         let result = agg.process_event(ControlModeEvent::Output {
-            pane_id: "%1".to_string(),
+            pane_id: pid("%1"),
             content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
         });
 
@@ -4103,26 +4101,37 @@ mod tests {
     /// SEC-01. The payload is whatever the file held, so it is bounded.
     #[test]
     fn an_osc52_write_over_the_cap_is_dropped() {
-        let under = accepted_clipboard_write("%0", Some("%0"), "x".repeat(MAX_CLIPBOARD_BYTES));
+        let under = accepted_clipboard_write(
+            &pid("%0"),
+            Some(&pid("%0")),
+            "x".repeat(MAX_CLIPBOARD_BYTES),
+        );
         assert_eq!(under.map(|t| t.len()), Some(MAX_CLIPBOARD_BYTES));
 
-        let over = accepted_clipboard_write("%0", Some("%0"), "x".repeat(MAX_CLIPBOARD_BYTES + 1));
+        let over = accepted_clipboard_write(
+            &pid("%0"),
+            Some(&pid("%0")),
+            "x".repeat(MAX_CLIPBOARD_BYTES + 1),
+        );
         assert_eq!(over, None);
     }
 
     #[test]
     fn a_clipboard_write_needs_an_active_pane_to_match() {
         assert_eq!(
-            accepted_clipboard_write("%0", Some("%0"), "yank".into()),
+            accepted_clipboard_write(&pid("%0"), Some(&pid("%0")), "yank".into()),
             Some("yank".to_string())
         );
         assert_eq!(
-            accepted_clipboard_write("%0", Some("%1"), "yank".into()),
+            accepted_clipboard_write(&pid("%0"), Some(&pid("%1")), "yank".into()),
             None
         );
         // Nothing is active yet (a session still coming up): no pane is the
         // one the user is in, so none may write.
-        assert_eq!(accepted_clipboard_write("%0", None, "yank".into()), None);
+        assert_eq!(
+            accepted_clipboard_write(&pid("%0"), None, "yank".into()),
+            None
+        );
     }
 
     /// Build a LIST_PANES_CMD line with the given title and border_title, in the
@@ -4141,7 +4150,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(&list_panes_line("nvim", "@4", ""));
         let pane = agg.panes.get("%3").expect("pane parsed");
-        assert_eq!(pane.window_id, "@4");
+        assert_eq!(pane.window_id, Some(wid("@4")));
         assert_eq!(pane.title, "nvim");
         assert_eq!(pane.history_size, 100);
     }
@@ -4203,12 +4212,12 @@ mod tests {
 
         let untitled = agg.panes.get("%0").expect("untitled pane parsed");
         assert_eq!(untitled.title, "", "no app title means an empty field");
-        assert_eq!(untitled.window_id, "@0");
+        assert_eq!(untitled.window_id, Some(wid("@0")));
         assert_eq!(untitled.command, "sleep");
 
         let titled = agg.panes.get("%1").expect("titled pane parsed");
         assert_eq!(titled.title, "✳ Add tests, docs, and CI");
-        assert_eq!(titled.window_id, "@0");
+        assert_eq!(titled.window_id, Some(wid("@0")));
     }
 
     #[test]
@@ -4219,7 +4228,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(&list_panes_line("", "@4", ""));
         let pane = agg.panes.get("%3").expect("pane parsed");
-        assert_eq!(pane.window_id, "@4");
+        assert_eq!(pane.window_id, Some(wid("@4")));
         assert_eq!(pane.title, "");
         assert_eq!(pane.command, "zsh");
         assert_eq!(pane.history_size, 100);
@@ -4236,7 +4245,7 @@ mod tests {
         let pane = agg.panes.get("%3").expect("pane parsed");
         assert_eq!(pane.pane_state.as_deref(), Some("needs-input"));
         // The fields before it still land where they did.
-        assert_eq!(pane.window_id, "@4");
+        assert_eq!(pane.window_id, Some(wid("@4")));
         assert_eq!(pane.command, "claude");
         assert_eq!(pane.history_size, 100);
     }
@@ -4280,7 +4289,7 @@ mod tests {
         // The question appearing and being answered both have to reach the
         // client through the delta pass — the overlay is drawn from it.
         let agg = StateAggregator::new();
-        let prev = PaneState::new("%3", 80, 24).build_tmux_pane();
+        let prev = tmux_pane("%3");
         let mut asking = prev.clone();
         asking.pane_ask = Some("eyJ0b2tlbiI6ImExIn0=".to_string());
 
@@ -4302,7 +4311,7 @@ mod tests {
         // An agent moving from working to needs-input has to reach the client
         // through the delta pass, not just the initial snapshot.
         let agg = StateAggregator::new();
-        let mut prev = PaneState::new("%3", 80, 24).build_tmux_pane();
+        let mut prev = tmux_pane("%3");
         prev.pane_state = Some("working".to_string());
         let mut curr = prev.clone();
         curr.pane_state = Some("needs-input".to_string());
@@ -4326,7 +4335,7 @@ mod tests {
         // survive the delta pass — it used to be dropped, leaving the client
         // stuck on whatever title the initial snapshot carried.
         let agg = StateAggregator::new();
-        let mut prev = PaneState::new("%3", 80, 24).build_tmux_pane();
+        let mut prev = tmux_pane("%3");
         prev.title = "old".to_string();
         let mut curr = prev.clone();
         curr.title = "✳ new title".to_string();
@@ -4349,7 +4358,11 @@ mod tests {
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(&list_panes_line(title, "@4", ""));
         let pane = agg.panes.get("%3").expect("pane parsed");
-        assert_eq!(pane.window_id, "@4", "window_id must survive a comma title");
+        assert_eq!(
+            pane.window_id,
+            Some(wid("@4")),
+            "window_id must survive a comma title"
+        );
         assert_eq!(pane.title, title);
         assert_eq!(pane.scroll_position, 0);
         assert_eq!(pane.history_size, 100);
@@ -4362,7 +4375,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(&list_panes_line(title, "@9", border));
         let pane = agg.panes.get("%3").expect("pane parsed");
-        assert_eq!(pane.window_id, "@9");
+        assert_eq!(pane.window_id, Some(wid("@9")));
         assert_eq!(pane.title, title);
         assert_eq!(pane.border_title, border);
         assert_eq!(pane.history_size, 100);
@@ -4384,7 +4397,7 @@ mod tests {
         assert!(w.active);
         assert_eq!(w.window_type, Some(WindowType::Tab));
         assert!(!w.zoomed);
-        assert_eq!(agg.active_window_id.as_deref(), Some("@7"));
+        assert_eq!(agg.active_window_id, Some(wid("@7")));
     }
 
     /// Zoom has to come from `list-windows`, not only from `%layout-change`
@@ -4412,7 +4425,7 @@ mod tests {
         // Three stacked rows, the middle one active.
         let layout = "0000,80x32,0,0[80x10,0,0,1,80x10,0,11,2,80x10,0,22,3]";
         let r = agg.process_event(ControlModeEvent::LayoutChange {
-            window_id: "@1".into(),
+            window_id: wid("@1"),
             layout: layout.into(),
             visible_layout: layout.into(),
             flags: String::new(),
@@ -4423,8 +4436,8 @@ mod tests {
         );
 
         let r = agg.process_event(ControlModeEvent::WindowPaneChanged {
-            window_id: "@1".into(),
-            pane_id: "%2".into(),
+            window_id: wid("@1"),
+            pane_id: pid("%2"),
         });
         assert_eq!(r.commands.len(), 1);
         assert!(r.commands[0].starts_with("select-layout -t @1 '"));
@@ -4440,7 +4453,7 @@ mod tests {
 
         // tmux applies it and reports the new layout: already in shape, no echo.
         let r = agg.process_event(ControlModeEvent::LayoutChange {
-            window_id: "@1".into(),
+            window_id: wid("@1"),
             layout: sent.to_string(),
             visible_layout: sent.to_string(),
             flags: String::new(),
@@ -4466,7 +4479,7 @@ mod tests {
         // orders by index, so an index-only change must reach the client.
         let agg = StateAggregator::new();
         let before = crate::TmuxWindow {
-            id: String::new(),
+            id: wid("@0"),
             index: 0,
             name: String::new(),
             active: false,
@@ -4485,10 +4498,10 @@ mod tests {
         };
         let mut after = before.clone();
         after.index = 3;
-        after.active_pane_id = Some("%7".to_string());
+        after.active_pane_id = Some(pid("%7"));
         let delta = agg.compute_window_delta(&before, &after);
         assert_eq!(delta.index, Some(3));
-        assert_eq!(delta.active_pane_id, Some(Some("%7".to_string())));
+        assert_eq!(delta.active_pane_id, Some(Some(pid("%7"))));
         assert!(!delta.is_empty());
         assert!(agg.compute_window_delta(&before, &before).is_empty());
     }
@@ -4501,7 +4514,7 @@ mod tests {
         assert_eq!(w.sidebar_rows, Some(52));
         assert_eq!(w.name, "__sidebar-right");
         let (_, sidebars) = agg.window_ids_by_sizing();
-        assert_eq!(sidebars, vec![("@4".to_string(), 35, Some(52))]);
+        assert_eq!(sidebars, vec![(wid("@4"), 35, Some(52))]);
         // A row without the trailing column: the name is still the last field.
         agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,,0,__sidebar-right");
         let w = agg.windows.get("@4").expect("window parsed");
@@ -4559,7 +4572,7 @@ mod tests {
             "%3,0,0,0,80,24,0,0,1,zsh,t,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,2,idle,,,claude --resume x%2C y",
         );
         let pane = agg.panes.get("%3").expect("pane parsed");
-        assert_eq!(pane.group_id.as_deref(), Some("g5"));
+        assert_eq!(pane.group_id, Some(gid("g5")));
         assert_eq!(pane.group_pos, Some(2));
         assert_eq!(pane.pane_state.as_deref(), Some("idle"));
         assert_eq!(pane.pane_restore.as_deref(), Some("claude --resume x, y"));
@@ -4574,12 +4587,8 @@ mod tests {
             "%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,",
         );
         assert_eq!(
-            agg.panes
-                .get("%3")
-                .expect("pane parsed")
-                .group_id
-                .as_deref(),
-            Some("g5")
+            agg.panes.get("%3").expect("pane parsed").group_id.clone(),
+            Some(gid("g5"))
         );
 
         // Empty tail → no group.
@@ -4614,16 +4623,16 @@ mod tests {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
 
-        let (changed, _, _) = agg.handle_output("%0", b"\x1b]2;My Process Title\x07");
+        let (changed, _, _) = agg.handle_output(&pid("%0"), b"\x1b]2;My Process Title\x07");
         assert!(changed);
         assert_eq!(agg.panes.get("%0").expect("pane").title, "My Process Title");
 
         // OSC 0 sets icon AND title, so it counts too.
-        agg.handle_output("%0", b"\x1b]0;Second Title\x07");
+        agg.handle_output(&pid("%0"), b"\x1b]0;Second Title\x07");
         assert_eq!(agg.panes.get("%0").expect("pane").title, "Second Title");
 
         // OSC 1 is the icon name alone and must NOT rename the pane.
-        agg.handle_output("%0", b"\x1b]1;just-an-icon\x07");
+        agg.handle_output(&pid("%0"), b"\x1b]1;just-an-icon\x07");
         assert_eq!(agg.panes.get("%0").expect("pane").title, "Second Title");
     }
 
@@ -4632,8 +4641,8 @@ mod tests {
     fn an_osc_graphics_probe_does_not_become_the_title() {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
-        agg.handle_output("%0", b"\x1b]2;Real Title\x07");
-        agg.handle_output("%0", b"\x1b]2;Ga=q,f=32,s=1,v=1,i=31;AAAAAA==\x07");
+        agg.handle_output(&pid("%0"), b"\x1b]2;Real Title\x07");
+        agg.handle_output(&pid("%0"), b"\x1b]2;Ga=q,f=32,s=1,v=1,i=31;AAAAAA==\x07");
         assert_eq!(agg.panes.get("%0").expect("pane").title, "");
     }
 
@@ -4692,7 +4701,7 @@ mod tests {
             .iter()
             .find(|p| p.tmux_id == "%7")
             .expect("stub");
-        assert_eq!(stub.group_id.as_deref(), Some("g5"));
+        assert_eq!(stub.group_id, Some(gid("g5")));
         assert_eq!(
             stub.window_id, "@9",
             "stub keeps its stash window id (never the active one)"
@@ -4742,8 +4751,8 @@ mod tests {
         agg.parse_list_panes_line(&row("%2", 81, 1, 119, 49, "@1"));
         agg.parse_list_panes_line(&row("%3", 0, 1, 200, 20, "@2"));
 
-        assert_eq!(agg.window_extent("@1"), Some((200, 50)));
-        assert_eq!(agg.window_extent("@2"), Some((200, 21)));
+        assert_eq!(agg.window_extent(&wid("@1")), Some((200, 50)));
+        assert_eq!(agg.window_extent(&wid("@2")), Some((200, 21)));
     }
 
     /// Before any pane of a window has been seen there is no extent — which is
@@ -4752,7 +4761,7 @@ mod tests {
     #[test]
     fn window_extent_is_none_for_a_window_with_no_panes() {
         let agg = StateAggregator::new();
-        assert_eq!(agg.window_extent("@9"), None);
+        assert_eq!(agg.window_extent(&wid("@9")), None);
     }
 
     /// Each sidebar is docked beside the pane grid, so the client-size pass must
@@ -4770,14 +4779,14 @@ mod tests {
         agg.parse_list_windows_line("@4,3,0,sidebar-right,,,,,,,,,,,0,term");
 
         let (mut viewport, mut sidebars) = agg.window_ids_by_sizing();
-        viewport.sort();
-        sidebars.sort();
-        assert_eq!(viewport, vec!["@1".to_string(), "@2".to_string()]);
+        viewport.sort_by_key(WindowId::number);
+        sidebars.sort_by_key(|(w, _, _)| w.number());
+        assert_eq!(viewport, vec![wid("@1"), wid("@2")]);
         assert_eq!(
             sidebars,
             vec![
-                ("@3".to_string(), sidebar_dock::LEFT_COLS, None),
-                ("@4".to_string(), sidebar_dock::RIGHT_COLS, None),
+                (wid("@3"), sidebar_dock::LEFT_COLS, None),
+                (wid("@4"), sidebar_dock::RIGHT_COLS, None),
             ],
             "each column carries its own width, not a shared one"
         );
@@ -4807,7 +4816,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,,,0,tree");
         let (_, sidebars) = agg.window_ids_by_sizing();
-        assert_eq!(sidebars, vec![("@3".to_string(), 48, None)]);
+        assert_eq!(sidebars, vec![(wid("@3"), 48, None)]);
 
         assert_eq!(
             sidebar_dock::cols(WindowType::SidebarLeft, Some(2)),
@@ -4877,16 +4886,16 @@ mod tests {
         // The tmuxy guest snapshot already has window id and index diverged:
         // root @0 sits at positional index 1.
         let mut agg = StateAggregator::new();
-        let mut root = WindowState::new("@0");
+        let mut root = WindowState::new(wid("@0"));
         root.index = 1;
-        agg.windows.insert("@0".to_string(), root);
+        agg.windows.insert(wid("@0"), root);
 
         // `tmuxy tab create` allocates window @1; %window-add carries only the
         // id. The new window must land at index 2 (one past the highest), NOT
         // the id-derived guess of 1 — which would collide with root and render
         // the wrong tab number until the delayed list-windows arrives.
         agg.step(ControlModeEvent::WindowAdd {
-            window_id: "@1".to_string(),
+            window_id: wid("@1"),
         });
 
         let new_window = agg.windows.get("@1").expect("window @1 created");
@@ -4896,14 +4905,14 @@ mod tests {
     #[test]
     fn window_renamed_creating_a_window_also_gets_provisional_index() {
         let mut agg = StateAggregator::new();
-        let mut root = WindowState::new("@0");
+        let mut root = WindowState::new(wid("@0"));
         root.index = 1;
-        agg.windows.insert("@0".to_string(), root);
+        agg.windows.insert(wid("@0"), root);
 
         // A rename can arrive before the add and creates the window; it must
         // get the same provisional index, not the id-derived guess.
         agg.step(ControlModeEvent::WindowRenamed {
-            window_id: "@1".to_string(),
+            window_id: wid("@1"),
             name: "build".to_string(),
         });
 
@@ -4920,9 +4929,9 @@ mod tests {
     fn metadata_delta_shares_content_and_omits_grids() {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
-        agg.windows.insert("@0".to_string(), WindowState::new("@0"));
+        agg.windows.insert(wid("@0"), WindowState::new(wid("@0")));
         agg.step(ControlModeEvent::Output {
-            pane_id: "%0".to_string(),
+            pane_id: pid("%0"),
             content: b"hello world\r\n".to_vec(),
         });
 
@@ -4944,7 +4953,7 @@ mod tests {
         // A rename-only change yields a delta with the window change and no
         // pane entries at all.
         agg.step(ControlModeEvent::WindowRenamed {
-            window_id: "@0".to_string(),
+            window_id: wid("@0"),
             name: "renamed".to_string(),
         });
         match agg.to_state_update() {
@@ -4970,11 +4979,11 @@ mod tests {
         // Provisional is just a good default for the gap; the authoritative
         // list-windows must always win (e.g. an insert-in-the-middle case).
         let mut agg = StateAggregator::new();
-        let mut root = WindowState::new("@0");
+        let mut root = WindowState::new(wid("@0"));
         root.index = 1;
-        agg.windows.insert("@0".to_string(), root);
+        agg.windows.insert(wid("@0"), root);
         agg.step(ControlModeEvent::WindowAdd {
-            window_id: "@1".to_string(),
+            window_id: wid("@1"),
         });
         assert_eq!(agg.windows.get("@1").unwrap().index, 2);
 
@@ -5043,7 +5052,7 @@ mod tests {
         // what a shell prompt emits — was invisible to it, so its rows drifted
         // and the URL attached to whatever text later occupied those cells.
         // Here CUP jumps to row 4 before the link is written.
-        let mut pane = PaneState::new("%1", 40, 10);
+        let mut pane = PaneState::new(pid("%1"), 40, 10);
         let mut out = b"\x1b[5;1H".to_vec();
         out.extend_from_slice(&osc8("https://example.com/osc", "OSC-LINK"));
         out.extend_from_slice(b"\r\ntail-after-link");
@@ -5061,7 +5070,7 @@ mod tests {
 
     #[test]
     fn hyperlink_follows_its_line_as_output_scrolls_it_up() {
-        let mut pane = PaneState::new("%1", 40, 4);
+        let mut pane = PaneState::new(pid("%1"), 40, 4);
         pane.process_output(&osc8("https://example.com/s", "LINK"));
         // Push the link's line up with more output than the pane is tall.
         pane.process_output(b"\r\na\r\nb\r\nc");
@@ -5079,7 +5088,7 @@ mod tests {
         // Code. An application that repaints in place moves no lines, so
         // nothing shifted or cleared the marks — the link's COORDINATES
         // outlived its text, and the next frame's characters inherited them.
-        let mut pane = PaneState::new("%1", 40, 6);
+        let mut pane = PaneState::new(pid("%1"), 40, 6);
         pane.process_output(b"\x1b[?1049h\x1b[1;1H");
         pane.process_output(&osc8("https://example.com/x", "CLICK-ME"));
         assert_eq!(
@@ -5099,7 +5108,7 @@ mod tests {
     fn a_cleared_frame_drops_the_links_that_were_on_it() {
         // Erase-in-display writes blanks through vt100 without moving a line,
         // so it too left the marks where they were.
-        let mut pane = PaneState::new("%1", 40, 6);
+        let mut pane = PaneState::new(pid("%1"), 40, 6);
         pane.process_output(&osc8("https://example.com/y", "LINK-HERE"));
         pane.process_output(b"\x1b[2J\x1b[1;1HFRESH FRAME CONTENT");
 
@@ -5114,7 +5123,7 @@ mod tests {
     fn a_link_survives_output_that_leaves_its_text_alone() {
         // The other half of the rule: only the cells whose text changed lose
         // their link. A frame that redraws around a link keeps it clickable.
-        let mut pane = PaneState::new("%1", 40, 6);
+        let mut pane = PaneState::new(pid("%1"), 40, 6);
         pane.process_output(b"\x1b[?1049h\x1b[2;1H");
         pane.process_output(&osc8("https://example.com/z", "STILL-A-LINK"));
         pane.process_output(b"\x1b[1;1Hheader\x1b[3;1Hfooter");
@@ -5131,7 +5140,7 @@ mod tests {
 
     #[test]
     fn hyperlink_scrolled_off_the_top_is_dropped() {
-        let mut pane = PaneState::new("%1", 40, 3);
+        let mut pane = PaneState::new(pid("%1"), 40, 3);
         pane.process_output(&osc8("https://example.com/gone", "LINK"));
         pane.process_output(b"\r\na\r\nb\r\nc\r\nd\r\ne");
 
@@ -5143,7 +5152,7 @@ mod tests {
 
     #[test]
     fn hyperlink_wrapping_the_right_edge_covers_both_rows() {
-        let mut pane = PaneState::new("%1", 10, 6);
+        let mut pane = PaneState::new(pid("%1"), 10, 6);
         pane.process_output(b"\x1b[1;9H");
         pane.process_output(&osc8("https://example.com/w", "ABCD"));
 
@@ -5156,7 +5165,7 @@ mod tests {
     #[test]
     fn hyperlink_terminated_with_st_is_recorded() {
         // Real shells emit ST (ESC \\), not BEL, to close OSC 8.
-        let mut pane = PaneState::new("%1", 40, 6);
+        let mut pane = PaneState::new(pid("%1"), 40, 6);
         pane.process_output(b"\x1b]8;;https://example.com/st\x1b\\OSC-LINK\x1b]8;;\x1b\\\r\ntail");
         assert_eq!(
             linked_text(&pane),
@@ -5171,7 +5180,7 @@ mod tests {
         // then the capture refill rebuilds the parser. The rebuilt parser must
         // be on the alternate screen too, or every following %output flips
         // the flag back to false and the pane re-renders on each flap.
-        let mut pane = PaneState::new("%1", 40, 4);
+        let mut pane = PaneState::new(pid("%1"), 40, 4);
         pane.alternate_on = true;
         pane.reset_and_process_capture(b"drawn on the alternate screen\n");
         assert!(pane.terminal.screen().alternate_screen());
@@ -5182,7 +5191,7 @@ mod tests {
         );
 
         // And a pane on the main screen stays there.
-        let mut main = PaneState::new("%2", 40, 4);
+        let mut main = PaneState::new(pid("%2"), 40, 4);
         main.alternate_on = false;
         main.reset_and_process_capture(b"shell\n");
         assert!(!main.terminal.screen().alternate_screen());
@@ -5200,7 +5209,7 @@ mod tests {
         // that flag — SGR when it is set, arrow keys when the pane is merely
         // on the alternate screen — so events either side of a flap went out
         // as different things for a single gesture.
-        let mut pane = PaneState::new("%1", 40, 4);
+        let mut pane = PaneState::new(pid("%1"), 40, 4);
         pane.alternate_on = true;
         pane.mouse_any_flag = true;
         pane.reset_and_process_capture(b"a TUI that tracks the mouse\n");
@@ -5219,7 +5228,7 @@ mod tests {
         );
 
         // A pane that never had tracking does not acquire it from a refill.
-        let mut plain = PaneState::new("%2", 40, 4);
+        let mut plain = PaneState::new(pid("%2"), 40, 4);
         plain.mouse_any_flag = false;
         plain.reset_and_process_capture(b"shell\n");
         plain.process_output(b"x");
@@ -5233,7 +5242,7 @@ mod tests {
         // Comparing the new counter against the old baseline produced a large
         // negative delta, which shifted every subsequent mark off the screen —
         // links silently stopped appearing after the first capture refresh.
-        let mut pane = PaneState::new("%1", 40, 4);
+        let mut pane = PaneState::new(pid("%1"), 40, 4);
         // Scroll the grid so the counter is well past zero.
         pane.process_output(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng");
         pane.reset_and_process_capture(b"fresh\n");
@@ -5250,7 +5259,7 @@ mod tests {
     fn links_do_not_leak_onto_the_alternate_screen() {
         // The alternate grid has its own scroll counter AND its own text, so a
         // mark taken on the normal screen must not survive the switch.
-        let mut pane = PaneState::new("%1", 40, 4);
+        let mut pane = PaneState::new(pid("%1"), 40, 4);
         pane.process_output(&osc8("https://example.com/main", "LINK"));
         assert!(!linked_text(&pane).is_empty());
 
@@ -5267,7 +5276,7 @@ mod tests {
     fn plain_output_records_no_links() {
         // A URL in plain output is not an OSC 8 link; the frontend's own
         // detector decides whether to offer it (utils/urlDetect.ts).
-        let mut pane = PaneState::new("%1", 40, 6);
+        let mut pane = PaneState::new(pid("%1"), 40, 6);
         pane.process_output(b"https://example.com/not-osc8\r\nplain text");
         assert!(linked_text(&pane).is_empty());
     }
@@ -5276,7 +5285,7 @@ mod tests {
     fn clear_from_home_erases_the_screen() {
         // The exact bytes zsh emits for `clear` (captured with pipe-pane):
         // an OSC title, then CUP home + ED with no parameter.
-        let mut pane = PaneState::new("%1", 43, 10);
+        let mut pane = PaneState::new(pid("%1"), 43, 10);
         pane.process_output(b"one\r\ntwo\r\nthree\r\n");
         pane.process_output(
             b"c\x08clear\x1b[?2004l\r\r\n\x1b]0;clear\x07\x1b[H\x1b[J\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m       \r \r\x1b]0;zsh\x07\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\r\n\x1b[34m~\x1b[39m\r\n\x1b[35m\xe2\x9d\xaf\x1b[39m \x1b[K\x1b[?2004h",

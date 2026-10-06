@@ -633,7 +633,10 @@ async fn image_handler(
     Path((pane_id, image_id)): Path<(String, u32)>,
 ) -> Response {
     let store = state.image_store.read().await;
-    match store.get(&format!("%{pane_id}"), image_id) {
+    let image = tmuxy_core::PaneId::parse(&format!("%{pane_id}"))
+        .ok()
+        .and_then(|pane_id| store.get(&pane_id, image_id));
+    match image {
         Some(img) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", &img.mime_type)

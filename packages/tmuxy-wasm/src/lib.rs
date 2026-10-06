@@ -34,7 +34,8 @@ struct FeedOutput {
     updates: Vec<StateUpdate>,
     /// tmux commands the host must send back over the control connection.
     commands: Vec<String>,
-    /// OSC 52 clipboard writes: (pane_id, decoded text).
+    /// OSC 52 clipboard writes: (pane_id, decoded text); the pane id is empty
+    /// for a paste-buffer yank.
     clipboard: Vec<(String, String)>,
     /// One entry per command response (%begin/%end/%error block) in this feed,
     /// in arrival order: (success, first line of the output, truncated). Lets
@@ -94,7 +95,8 @@ impl Session {
                         .push(format!("refresh-client -A '{id}:continue'"));
                 }
                 SideEffect::WriteClipboard { pane_id, text } => {
-                    out.clipboard.push((pane_id, text));
+                    out.clipboard
+                        .push((pane_id.map(String::from).unwrap_or_default(), text));
                 }
                 // StoreImages: the decoded bytes are already kept in the pane's
                 // image store (surfaced via `image_url`); placements ride the
@@ -201,9 +203,10 @@ impl WasmTmux {
     /// with no server. `pane_id` is the tmux id (e.g. "%0").
     pub fn image_url(&self, pane_id: &str, image_id: u32) -> Option<String> {
         use base64::Engine;
+        let pane_id = tmuxy_core::PaneId::parse(pane_id).ok()?;
         self.inner
             .agg
-            .image_data(pane_id, image_id)
+            .image_data(&pane_id, image_id)
             .map(|(data, mime)| {
                 format!(
                     "data:{};base64,{}",

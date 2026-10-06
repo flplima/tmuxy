@@ -15,6 +15,7 @@
 use proptest::prelude::*;
 use std::collections::HashSet;
 use tmuxy_core::control_mode::{ChangeType, ControlModeEvent, SideEffect, StateAggregator};
+use tmuxy_core::{PaneId, WindowId};
 
 /// Generate a synthetic `Output` event with a small randomised payload.
 /// Pane id values are biased to a small pool so the aggregator actually has
@@ -25,7 +26,7 @@ fn output_event_strategy() -> impl Strategy<Value = ControlModeEvent> {
         prop::collection::vec(any::<u8>(), 1..16),
     )
         .prop_map(|(pane_id, content)| ControlModeEvent::Output {
-            pane_id: pane_id.to_string(),
+            pane_id: pane_id.parse().unwrap(),
             content,
         })
 }
@@ -37,20 +38,20 @@ fn structural_event_strategy() -> impl Strategy<Value = ControlModeEvent> {
     let window_ids = || prop::sample::select(vec!["@0", "@1", "@2"]);
     prop_oneof![
         window_ids().prop_map(|w| ControlModeEvent::WindowAdd {
-            window_id: w.to_string(),
+            window_id: w.parse().unwrap(),
         }),
         window_ids().prop_map(|w| ControlModeEvent::WindowClose {
-            window_id: w.to_string(),
+            window_id: w.parse().unwrap(),
         }),
         window_ids().prop_map(|w| ControlModeEvent::UnlinkedWindowAdd {
-            window_id: w.to_string(),
+            window_id: w.parse().unwrap(),
         }),
         window_ids().prop_map(|w| ControlModeEvent::UnlinkedWindowClose {
-            window_id: w.to_string(),
+            window_id: w.parse().unwrap(),
         }),
         prop::sample::select(vec!["%0", "%1", "%2"]).prop_map(|p| {
             ControlModeEvent::PaneModeChanged {
-                pane_id: p.to_string(),
+                pane_id: p.parse().unwrap(),
             }
         }),
     ]
@@ -89,11 +90,11 @@ proptest! {
         // Apply adds first, then closes — the order matters because closing
         // a non-existent window is a no-op, not an error.
         for w in &adds {
-            agg.process_event(ControlModeEvent::WindowAdd { window_id: w.to_string() });
+            agg.process_event(ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() });
         }
         let after_adds = agg.window_count();
         for w in &closes {
-            agg.process_event(ControlModeEvent::WindowClose { window_id: w.to_string() });
+            agg.process_event(ControlModeEvent::WindowClose { window_id: w.parse().unwrap() });
         }
         let after_closes = agg.window_count();
         // Sanity: closes can only ever reduce the window count.
@@ -159,7 +160,7 @@ proptest! {
             let _ = agg.step(ev);
         }
         let result = agg.step(ControlModeEvent::WindowAdd {
-            window_id: window_id.to_string(),
+            window_id: window_id.parse().unwrap(),
         });
         let refresh_idx = result.effects.iter().position(|e|
             matches!(e, SideEffect::RefreshAfterWindowAdd));
@@ -182,12 +183,12 @@ proptest! {
     #[test]
     fn queue_captures_is_idempotent_across_repeats(
         pane_ids in prop::collection::vec(
-            prop::sample::select(vec!["%0", "%1", "%2"]).prop_map(String::from),
+            prop::sample::select(vec!["%0", "%1", "%2"]).prop_map(|p| p.parse::<PaneId>().unwrap()),
             1..20,
         ),
     ) {
         let mut agg = StateAggregator::new();
-        let unique: HashSet<String> = pane_ids.iter().cloned().collect();
+        let unique: HashSet<PaneId> = pane_ids.iter().cloned().collect();
         let queued = agg.queue_captures(&pane_ids);
         // First call queues each distinct id exactly once.
         prop_assert_eq!(queued.len(), unique.len(),
@@ -204,7 +205,7 @@ proptest! {
     #[test]
     fn suppressed_window_events_do_not_emit_state(
         window_ids in prop::collection::vec(
-            prop::sample::select(vec!["@0", "@1", "@2"]).prop_map(String::from),
+            prop::sample::select(vec!["@0", "@1", "@2"]).prop_map(|w| w.parse::<WindowId>().unwrap()),
             1..10,
         ),
     ) {
@@ -239,7 +240,7 @@ proptest! {
         // the aggregator with matching WindowAdds beforehand so each Close
         // produces a real ChangeType::Window.
         window_ids in prop::collection::vec(
-            prop::sample::select(vec!["@0", "@1", "@2", "@3"]).prop_map(String::from),
+            prop::sample::select(vec!["@0", "@1", "@2", "@3"]).prop_map(|w| w.parse::<WindowId>().unwrap()),
             0..12,
         ),
         // Per-event time offset inside the settling window.
@@ -250,13 +251,13 @@ proptest! {
         let seeded: HashSet<&str> = ["@0", "@1", "@2", "@3"].into_iter().collect();
         for w in &seeded {
             agg.step_at(
-                ControlModeEvent::WindowAdd { window_id: (*w).to_string() },
+                ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() },
                 t0,
             );
         }
         agg.arm_settling(t0);
 
-        let pairs: Vec<(String, u64)> = window_ids.iter().cloned().zip(offsets).collect();
+        let pairs: Vec<(WindowId, u64)> = window_ids.iter().cloned().zip(offsets).collect();
         for (w, off) in &pairs {
             // Skip Closes for already-closed windows so process_event stays well-typed.
             let _ = agg.step_at(

@@ -54,11 +54,9 @@ pub fn lookup_image(
     path: &str,
 ) -> Option<tmuxy_core::control_mode::StoredImage> {
     let (pane, id) = path.trim_matches('/').split_once('/')?;
-    if pane.is_empty() || !pane.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
+    let pane = tmuxy_core::PaneId::parse(&format!("%{pane}")).ok()?;
     let id: u32 = id.parse().ok()?;
-    images.read().ok()?.get(&format!("%{pane}"), id).cloned()
+    images.read().ok()?.get(&pane, id).cloned()
 }
 
 /// Live handle to the running control-mode monitor.
@@ -270,7 +268,7 @@ impl StateEmitter for TauriEmitter {
 
     fn store_images(
         &self,
-        pane_id: &str,
+        pane_id: &tmuxy_core::PaneId,
         images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
     ) {
         // try_write so a contended lock never stalls the monitor loop; a
@@ -285,11 +283,16 @@ impl StateEmitter for TauriEmitter {
     /// tauri-plugin-clipboard-manager directly here, but doing it in the WebView
     /// keeps focus/transient activation context attached to the renderer, which
     /// is what some platforms require for clipboard access.
-    fn write_clipboard(&self, pane_id: &str, text: String) {
+    fn write_clipboard(&self, pane_id: Option<&tmuxy_core::PaneId>, text: String) {
         if !tmuxy_core::transport::clipboard_write_allowed(&text) {
-            tracing::debug!(%pane_id, bytes = text.len(), "clipboard write over the cap, dropped");
+            tracing::debug!(
+                ?pane_id,
+                bytes = text.len(),
+                "clipboard write over the cap, dropped"
+            );
             return;
         }
+        let pane_id = pane_id.map(|p| p.to_string()).unwrap_or_default();
         let payload = serde_json::json!({ "pane_id": pane_id, "text": text });
         if let Err(e) = self
             .app
@@ -748,7 +751,7 @@ mod tests {
     fn store_with(pane: &str, id: u32) -> ImageStore {
         let store: ImageStore = Default::default();
         store.write().unwrap().insert(
-            pane,
+            &tmuxy_core::PaneId::parse(pane).unwrap(),
             vec![(
                 id,
                 StoredImage {

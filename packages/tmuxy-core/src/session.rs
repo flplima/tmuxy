@@ -673,16 +673,6 @@ pub fn is_safe_session_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'+'))
 }
 
-/// Whether `id` is a pane id in tmux's own canonical spelling, `%<digits>`.
-///
-/// SEC-17. A client that names a pane names it this way — it only ever learned
-/// ids from `list-panes` — so anything else (`other:0.0`, `{last}`, a name) is
-/// not a pane the client was shown, and is refused before it reaches tmux.
-pub fn is_pane_id(id: &str) -> bool {
-    id.strip_prefix('%')
-        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
-}
-
 #[cfg(test)]
 mod name_tests {
     use super::*;
@@ -705,25 +695,6 @@ mod name_tests {
             "ünïcode",
         ] {
             assert!(!is_safe_session_name(bad), "{bad:?} should be refused");
-        }
-    }
-
-    #[test]
-    fn pane_ids_are_tmux_canonical_only() {
-        for ok in ["%0", "%7", "%1234"] {
-            assert!(is_pane_id(ok), "{ok:?}");
-        }
-        for bad in [
-            "",
-            "%",
-            "7",
-            "%7a",
-            "%-1",
-            "other:0.0",
-            "{last}",
-            "%7 ; kill-server",
-        ] {
-            assert!(!is_pane_id(bad), "{bad:?}");
         }
     }
 }

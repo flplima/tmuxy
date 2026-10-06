@@ -17,10 +17,11 @@
 //! take their inputs as values and are tested as values; the edges just fetch.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::constants::tmux_options;
+use crate::{GroupId, PaneId, WindowId};
 
 /// The snapshot format. Bump when a saved file would no longer mean what a
 /// reader expects; a reader refuses newer versions and starts fresh.
@@ -66,7 +67,7 @@ pub struct Snapshot {
 /// same group, beside the visible member that carries the group's tag.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HiddenMember {
-    pub group_id: String,
+    pub group_id: GroupId,
     /// Its place in the group, when the group was reordered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<u32>,
@@ -207,7 +208,7 @@ fn park_script() -> String {
 pub fn hidden_members(
     snapshot: &Snapshot,
     stash: &[PaneRecord],
-    commands: &BTreeMap<String, Vec<String>>,
+    commands: &HashMap<PaneId, Vec<String>>,
 ) -> Vec<HiddenMember> {
     let visible_groups: std::collections::BTreeSet<&str> = snapshot
         .windows
@@ -215,26 +216,16 @@ pub fn hidden_members(
         .flat_map(|w| &w.panes)
         .filter_map(|p| p.options.get(tmux_options::GROUP_ID).map(String::as_str))
         .collect();
-    let mut parked: Vec<&PaneRecord> = stash
+    let mut parked: Vec<(&PaneRecord, &GroupId)> = stash
         .iter()
-        .filter(|p| {
-            p.group_id
-                .as_deref()
-                .is_some_and(|g| visible_groups.contains(g))
-        })
+        .filter_map(|p| Some((p, p.group_id.as_ref()?)))
+        .filter(|(_, g)| visible_groups.contains(g.as_str()))
         .collect();
-    parked.sort_by_key(|p| {
-        (
-            p.group_pos.unwrap_or(u32::MAX),
-            p.id.trim_start_matches('%')
-                .parse::<u64>()
-                .unwrap_or(u64::MAX),
-        )
-    });
+    parked.sort_by_key(|(p, _)| (p.group_pos.unwrap_or(u32::MAX), p.id.number()));
     parked
         .into_iter()
-        .map(|p| HiddenMember {
-            group_id: p.group_id.clone().unwrap_or_default(),
+        .map(|(p, group_id)| HiddenMember {
+            group_id: group_id.clone(),
             position: p.group_pos,
             cwd: p.cwd.clone(),
             command: commands.get(&p.id).cloned(),
@@ -258,11 +249,11 @@ fn unescape(field: &str) -> String {
 /// A window as `QUERY_WINDOWS` prints it, before it is tied to its panes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowRecord {
-    pub id: String,
+    pub id: WindowId,
     pub index: u32,
     pub active: bool,
     pub window_type: Option<String>,
-    pub float_parent_id: Option<String>,
+    pub float_parent_id: Option<WindowId>,
     pub options: BTreeMap<String, String>,
     pub layout: String,
     pub name: String,
@@ -271,15 +262,15 @@ pub struct WindowRecord {
 /// A pane as `QUERY_PANES` prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneRecord {
-    pub id: String,
-    pub window_id: String,
+    pub id: PaneId,
+    pub window_id: WindowId,
     pub index: u32,
     pub active: bool,
     pub pid: u32,
     pub tty: String,
     pub cwd: String,
     pub restore_command: Option<String>,
-    pub group_id: Option<String>,
+    pub group_id: Option<GroupId>,
     pub group_pos: Option<u32>,
 }
 
@@ -308,9 +299,10 @@ pub fn parse_windows(output: &str) -> Vec<WindowRecord> {
         .filter_map(|line| {
             let parts: Vec<&str> = line.split(',').collect();
             // id, index, active, type, parent, 9 options, layout, name
-            if parts.len() != 16 || !parts[0].starts_with('@') {
+            if parts.len() != 16 {
                 return None;
             }
+            let id = WindowId::parse(parts[0]).ok()?;
             let mut options = BTreeMap::new();
             for (name, value) in WINDOW_OPTION_NAMES.iter().zip(&parts[5..14]) {
                 if let Some(value) = opt(value) {
@@ -318,11 +310,11 @@ pub fn parse_windows(output: &str) -> Vec<WindowRecord> {
                 }
             }
             Some(WindowRecord {
-                id: parts[0].to_string(),
+                id,
                 index: parts[1].parse().ok()?,
                 active: parts[2] == "1",
                 window_type: opt(parts[3]),
-                float_parent_id: opt(parts[4]),
+                float_parent_id: WindowId::parse(parts[4].trim()).ok(),
                 options,
                 layout: unescape(parts[14]),
                 name: unescape(parts[15]),
@@ -336,19 +328,19 @@ pub fn parse_panes(output: &str) -> Vec<PaneRecord> {
         .lines()
         .filter_map(|line| {
             let parts: Vec<&str> = line.split(',').collect();
-            if parts.len() != 10 || !parts[0].starts_with('%') {
+            if parts.len() != 10 {
                 return None;
             }
             Some(PaneRecord {
-                id: parts[0].to_string(),
-                window_id: parts[1].to_string(),
+                id: PaneId::parse(parts[0]).ok()?,
+                window_id: WindowId::parse(parts[1]).ok()?,
                 index: parts[2].parse().ok()?,
                 active: parts[3] == "1",
                 pid: parts[4].parse().ok()?,
                 tty: unescape(parts[5]),
                 cwd: unescape(parts[6]),
                 restore_command: opt(parts[7]),
-                group_id: opt(parts[8]),
+                group_id: GroupId::parse(parts[8].trim()).ok(),
                 group_pos: parts[9].trim().parse().ok(),
             })
         })
@@ -362,9 +354,9 @@ pub fn assemble(
     saved_at: u64,
     windows: Vec<WindowRecord>,
     panes: Vec<PaneRecord>,
-    commands: &BTreeMap<String, Vec<String>>,
+    commands: &HashMap<PaneId, Vec<String>>,
 ) -> Snapshot {
-    let index_of: BTreeMap<&str, u32> = windows.iter().map(|w| (w.id.as_str(), w.index)).collect();
+    let index_of: HashMap<&WindowId, u32> = windows.iter().map(|w| (&w.id, w.index)).collect();
     let mut out: Vec<WindowSnapshot> = windows
         .iter()
         .map(|w| {
@@ -374,7 +366,7 @@ pub fn assemble(
                 .map(|p| {
                     let mut options = BTreeMap::new();
                     if let Some(gid) = &p.group_id {
-                        options.insert(tmux_options::GROUP_ID.to_string(), gid.clone());
+                        options.insert(tmux_options::GROUP_ID.to_string(), gid.to_string());
                     }
                     if let Some(pos) = p.group_pos {
                         options.insert(tmux_options::GROUP_POS.to_string(), pos.to_string());
@@ -407,7 +399,7 @@ pub fn assemble(
                 window_type: w.window_type.clone(),
                 float_parent_index: w
                     .float_parent_id
-                    .as_deref()
+                    .as_ref()
                     .and_then(|id| index_of.get(id).copied()),
                 options: w.options.clone(),
                 panes: ws_panes,
@@ -1031,7 +1023,11 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
         let anchor = snapshot.windows.iter().find_map(|w| {
             w.panes
                 .iter()
-                .find(|p| p.options.get(tmux_options::GROUP_ID) == Some(&member.group_id))
+                .find(|p| {
+                    p.options
+                        .get(tmux_options::GROUP_ID)
+                        .is_some_and(|g| member.group_id == g.as_str())
+                })
                 .map(|p| (w, p))
         });
         let Some((w, p)) = anchor else { continue };
@@ -1044,7 +1040,7 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
                     "bash {} {} {} {}{}",
                     shell_quote(&park_script()),
                     shell_quote(&pane_target(s, w.index, p.index)),
-                    shell_quote(&member.group_id),
+                    shell_quote(member.group_id.as_str()),
                     shell_quote(&cwd_or_fallback(&member.cwd, options)),
                     member
                         .position
@@ -1209,7 +1205,7 @@ pub fn discover_commands(panes: &[PaneRecord]) -> Discovery {
 /// once `MIN_FOREGROUND_AGE_SECS` has passed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Discovery {
-    pub commands: BTreeMap<String, Vec<String>>,
+    pub commands: HashMap<PaneId, Vec<String>>,
     pub unsettled: bool,
 }
 
@@ -1601,6 +1597,7 @@ pub fn restorable(dir: &Path, session: &str) -> Option<Snapshot> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::ids::test_ids::{gid, pid, wid};
 
     /// `parse_windows` names the option columns by position, so the query
     /// must print them in exactly `WINDOW_OPTION_NAMES` order, after the type
@@ -1650,7 +1647,7 @@ mod tests {
         assert_eq!(windows[0].name, "main");
         assert!(windows[0].active);
         assert_eq!(windows[1].window_type.as_deref(), Some("float"));
-        assert_eq!(windows[1].float_parent_id.as_deref(), Some("@1"));
+        assert_eq!(windows[1].float_parent_id, Some(wid("@1")));
         assert_eq!(windows[1].options["@tmuxy-float-width"], "120");
         assert_eq!(windows[1].options["@tmuxy-float-bg"], "dim");
         assert_eq!(windows[1].options["@tmuxy-float-noheader"], "1");
@@ -1670,7 +1667,7 @@ mod tests {
             panes[0].restore_command.as_deref(),
             Some("claude --resume abc,def")
         );
-        assert_eq!(panes[0].group_id.as_deref(), Some("g2"));
+        assert_eq!(panes[0].group_id, Some(gid("g2")));
         assert_eq!(panes[0].pid, 4242);
         assert!(panes[1].restore_command.is_none());
         assert!(panes[1].group_id.is_none());
@@ -1841,7 +1838,7 @@ mod tests {
                 },
             ],
             hidden: vec![HiddenMember {
-                group_id: "g1".into(),
+                group_id: gid("g1"),
                 position: None,
                 cwd: "/srv".into(),
                 command: Some(vec!["htop".into()]),
@@ -2022,12 +2019,9 @@ mod tests {
         ));
         let panes =
             parse_panes("%5,@1,0,1,100,/dev/ttys001,/tmp,,,\n%6,@2,0,1,200,/dev/ttys002,/tmp,,,");
-        let mut commands = BTreeMap::new();
-        commands.insert("%5".to_string(), vec!["vim".to_string()]);
-        commands.insert(
-            "%6".to_string(),
-            vec!["sleep".to_string(), "3600".to_string()],
-        );
+        let mut commands = HashMap::new();
+        commands.insert(pid("%5"), vec!["vim".to_string()]);
+        commands.insert(pid("%6"), vec!["sleep".to_string(), "3600".to_string()]);
         let snapshot = assemble("s", 1, windows, panes, &commands);
         assert_eq!(
             snapshot.windows[0].panes[0].command,
@@ -2141,21 +2135,21 @@ mod tests {
              %7,@22,0,1,700,/dev/ttys007,/x,,g8,\n\
              %1,@1,0,1,100,/dev/ttys001,/,,,",
         );
-        let mut commands = BTreeMap::new();
-        commands.insert("%9".to_string(), vec!["htop".to_string()]);
+        let mut commands = HashMap::new();
+        commands.insert(pid("%9"), vec!["htop".to_string()]);
         let hidden = hidden_members(&snap, &stash, &commands);
         assert_eq!(
             hidden,
             vec![
                 HiddenMember {
-                    group_id: "g1".into(),
+                    group_id: gid("g1"),
                     position: None,
                     cwd: "/opt".into(),
                     command: None,
                     restore_command: Some("claude --resume x".into()),
                 },
                 HiddenMember {
-                    group_id: "g1".into(),
+                    group_id: gid("g1"),
                     position: None,
                     cwd: "/srv".into(),
                     command: Some(vec!["htop".into()]),
@@ -2234,7 +2228,7 @@ mod tests {
         assert!(!is_structural(&d));
         let mut panes = std::collections::HashMap::new();
         panes.insert(
-            "%1".to_string(),
+            pid("%1"),
             Some(crate::PaneDelta {
                 content: Some(Default::default()),
                 ..Default::default()
@@ -2242,11 +2236,11 @@ mod tests {
         );
         d.panes = Some(panes.clone());
         assert!(!is_structural(&d), "output alone is not a shape change");
-        panes.insert("%2".to_string(), None);
+        panes.insert(pid("%2"), None);
         d.panes = Some(panes);
         assert!(is_structural(&d), "a pane going away is");
         d.panes = None;
-        d.active_pane_id = Some("%1".into());
+        d.active_pane_id = Some(pid("%1"));
         assert!(is_structural(&d));
     }
 
@@ -2298,8 +2292,8 @@ mod tests {
             .join("\n"),
         );
         let panes = parse_panes("%5,@1,0,1,1,/dev/ttys1,/a,,,\n%6,@3,0,1,2,/dev/ttys2,/b,,g1,\n%4,@1,1,0,3,/dev/ttys3,/c,,,");
-        let mut commands = BTreeMap::new();
-        commands.insert("%5".to_string(), vec!["vim".to_string()]);
+        let mut commands = HashMap::new();
+        commands.insert(pid("%5"), vec!["vim".to_string()]);
         let snap = assemble("work", 7, windows, panes, &commands);
         assert_eq!(snap.windows.len(), 2);
         assert_eq!(

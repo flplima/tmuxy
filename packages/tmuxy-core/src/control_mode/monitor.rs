@@ -13,7 +13,7 @@ use super::state::{
 use crate::constants::tmux_formats;
 use crate::ctx::Ctx;
 use crate::error::TmuxError;
-use crate::StateUpdate;
+use crate::{PaneId, StateUpdate, WindowId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -89,7 +89,7 @@ pub enum MonitorCommand {
     /// `None` means the monitor has no such pane; a receiver that has gone
     /// away is ignored.
     GetScrollback {
-        pane_id: String,
+        pane_id: PaneId,
         start: i64,
         end: i64,
         reply: oneshot::Sender<Option<ScrollbackChunk>>,
@@ -137,12 +137,13 @@ pub trait StateEmitter: super::log::LogSink {
 
     /// Called when new images are decoded from terminal output.
     /// Default implementation discards images (for emitters that don't need them).
-    fn store_images(&self, _pane_id: &str, _images: Vec<(u32, super::images::StoredImage)>) {}
+    fn store_images(&self, _pane_id: &PaneId, _images: Vec<(u32, super::images::StoredImage)>) {}
 
     /// Called when an OSC 52 clipboard request is decoded from terminal output.
     /// `text` is the UTF-8 string the application asked to place on the system
-    /// clipboard. Default implementation discards the request.
-    fn write_clipboard(&self, _pane_id: &str, _text: String) {}
+    /// clipboard; `pane_id` is the pane that asked, `None` for a paste-buffer
+    /// yank. Default implementation discards the request.
+    fn write_clipboard(&self, _pane_id: Option<&PaneId>, _text: String) {}
 
     /// Called after initial state sync completes (config sourced, settings enforced).
     /// Default implementation does nothing.
@@ -160,7 +161,7 @@ pub trait StateEmitter: super::log::LogSink {
 ///
 /// Sent per window, immediately before its resize: idempotent, and it needs no
 /// bookkeeping about which windows have been seen.
-fn window_sizing_commands(window_id: &str, (cols, rows): (u32, u32)) -> [String; 3] {
+fn window_sizing_commands(window_id: &WindowId, (cols, rows): (u32, u32)) -> [String; 3] {
     [
         format!("setw -t {window_id} window-size manual"),
         format!("setw -t {window_id} aggressive-resize off"),
@@ -479,10 +480,10 @@ pub struct TmuxMonitor {
     /// session — the phone layout's `targetCols: 41, totalWidth: 200`. The
     /// authority is now `window_extent`, what tmux itself reports, and this
     /// only bounds the retries so a size tmux genuinely refuses cannot spin.
-    resize_attempts: HashMap<String, ((u32, u32), u8, u64)>,
+    resize_attempts: HashMap<WindowId, ((u32, u32), u8, u64)>,
     /// Windows already reported as ones tmux will not size, so the warning is
     /// said once rather than on every sync.
-    resize_given_up: HashSet<String>,
+    resize_given_up: HashSet<WindowId>,
 
     /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
     /// inside the loop so tests can advance time with `FakeClock`.
@@ -854,7 +855,7 @@ impl TmuxMonitor {
                 return true;
             }
             match crate::executor::show_buffer_named(buffer_name) {
-                Ok(text) if !text.is_empty() => emitter.write_clipboard("", text),
+                Ok(text) if !text.is_empty() => emitter.write_clipboard(None, text),
                 Ok(_) => {}
                 Err(e) => debug!(buffer = %buffer_name, error = %e, "show-buffer failed"),
             }
@@ -887,7 +888,7 @@ impl TmuxMonitor {
                     }
                 }
                 SideEffect::WriteClipboard { pane_id, text } => {
-                    emitter.write_clipboard(&pane_id, text);
+                    emitter.write_clipboard(pane_id.as_ref(), text);
                 }
                 SideEffect::RefreshAfterWindowAdd => {
                     self.refresh_after_window_add(emitter).await;
@@ -969,7 +970,7 @@ impl TmuxMonitor {
         // width. It keeps the viewport's rows unless the client set the rows
         // its column holds (the dock's rows are shorter than the pane grid's
         // — see `tmux_options::SIDEBAR_ROWS`).
-        let desired: Vec<(String, (u32, u32))> = viewport_windows
+        let desired: Vec<(WindowId, (u32, u32))> = viewport_windows
             .into_iter()
             .map(|wid| (wid, (cols, rows)))
             .chain(
@@ -982,11 +983,9 @@ impl TmuxMonitor {
             .collect();
 
         // Drop windows that are gone, so nothing inherits a stale retry count.
-        let live: HashSet<&str> = desired.iter().map(|(wid, _)| wid.as_str()).collect();
-        self.resize_attempts
-            .retain(|wid, _| live.contains(wid.as_str()));
-        self.resize_given_up
-            .retain(|wid| live.contains(wid.as_str()));
+        let live: HashSet<&WindowId> = desired.iter().map(|(wid, _)| wid).collect();
+        self.resize_attempts.retain(|wid, _| live.contains(wid));
+        self.resize_given_up.retain(|wid| live.contains(wid));
         let desired_snapshot = desired.clone();
         let reports = self.aggregator.pane_reports;
 
@@ -995,7 +994,7 @@ impl TmuxMonitor {
         // took; one that is not is asked again, because the previous `resizew`
         // may simply never have landed. `MAX_RESIZE_ATTEMPTS` keeps that from
         // becoming a command per step forever if tmux will not take the size.
-        let pending: Vec<(String, (u32, u32))> = desired
+        let pending: Vec<(WindowId, (u32, u32))> = desired
             .into_iter()
             .filter(|(wid, size)| {
                 needs_resize(
@@ -1093,14 +1092,14 @@ impl TmuxMonitor {
     /// each pane that flagged itself as needing refresh. Ordering is load-bearing:
     /// list-panes must precede capture-pane so the cursor repositioning logic uses
     /// the updated `tmux_cursor_x/y` when capture responses arrive.
-    async fn refresh_panes<E: StateEmitter>(&mut self, emitter: &E, pane_ids: &[String]) {
+    async fn refresh_panes<E: StateEmitter>(&mut self, emitter: &E, pane_ids: &[PaneId]) {
         let queued_panes = self.aggregator.queue_captures(pane_ids);
 
         let mut commands: Vec<String> = vec![
             tmux_formats::LIST_PANES_CMD.to_string(),
             tmux_formats::LIST_STASH_PANES_CMD.to_string(),
         ];
-        commands.extend(queued_panes.iter().map(|pane_id| capture_command(pane_id)));
+        commands.extend(queued_panes.iter().map(capture_command));
 
         if let Err(e) = self.connection.send_commands_batch(&commands).await {
             emitter.emit_error(format!("Failed to batch capture panes: {}", e));
@@ -1215,7 +1214,7 @@ impl TmuxMonitor {
 
         if in_copy_mode {
             let copy_pane_info = self.aggregator.get_copy_mode_pane_info();
-            let copy_pane_ids: Vec<String> =
+            let copy_pane_ids: Vec<PaneId> =
                 copy_pane_info.iter().map(|(id, _, _)| id.clone()).collect();
             // Queue first and send only what was newly queued, mirroring
             // refresh_panes. Building a capture for every copy-mode pane and
@@ -1588,7 +1587,7 @@ mod tests {
     /// options are per WINDOW, so the ones set at attach covered exactly one.
     #[test]
     fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
-        let cmds = window_sizing_commands("@3", (41, 29));
+        let cmds = window_sizing_commands(&WindowId::from_number(3), (41, 29));
         assert_eq!(
             cmds,
             [
