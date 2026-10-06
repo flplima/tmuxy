@@ -235,7 +235,7 @@ or claims a newer format, is logged and ignored, and the session starts fresh
 Control mode reads one command per line, so a newline inside anything written into a command line would end that command and start another.
 
 - **Session names** from `/events?session=` and `/commands?session=` are held to letters, digits and `_ - @ +` (`tmuxy_core::session::is_safe_session_name`) and refused with `400` otherwise. The name goes into control-mode command lines and into `run-shell` strings that tmux format-expands before a shell sees them; an alphabet nothing in those contexts can misread replaces escaping for each. A `--session` pin outside it is refused at startup, since no client could name it. Every name tmuxy creates fits, and tmux itself forbids `.` and `:`.
-- **Pane ids** a client sends (`get_scrollback_cells`) must be tmux's canonical `%<digits>` (`tmuxy_core::session::is_pane_id`) before they are used as a `-t` target; a client only ever learned ids from `list-panes`, so `other:0.0` or `{last}` is not a pane it was shown.
+- **Pane ids** a client sends (`get_scrollback_cells`) must parse as tmux's canonical `%<digits>` (`tmuxy_core::ids::PaneId`) before they are used as a `-t` target; a client only ever learned ids from `list-panes`, so `other:0.0` or `{last}` is not a pane it was shown.
 - **Literal text** — a paste, an IME composition, the selection menu's _Send keys_ — is typed one line at a time, one `send-keys -l` per line with `Enter` between them (`literalTextCommands` in `tmuxy-ui/src/tmux/keyBatching.ts`). Multi-line text pasted into a shell still runs as commands in that shell, exactly as in any terminal.
 
 ## Pane Output Threat Model
