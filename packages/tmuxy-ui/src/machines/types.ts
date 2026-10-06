@@ -769,7 +769,6 @@ export type SetTargetSizeEvent = {
 };
 export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number; height: number };
 export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };
-export type StopObserveContainerEvent = { type: 'STOP_OBSERVE_CONTAINER' };
 
 // Pane events
 export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
@@ -1253,7 +1252,6 @@ export type AppMachineEvent =
   | SetTargetSizeEvent
   | SetContainerSizeEvent
   | ObserveContainerEvent
-  | StopObserveContainerEvent
   | FocusPaneEvent
   | SendKeysEvent
   | SendTmuxCommandEvent

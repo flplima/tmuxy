@@ -626,9 +626,6 @@ export const appMachine = setup({
         element: event.element,
       })),
     },
-    STOP_OBSERVE_CONTAINER: {
-      actions: sendTo('size', { type: 'STOP_OBSERVE' as const }),
-    },
     // SET_ANIMATION_ROOT — handled by uiPrefsState (see spread at end of on:)
 
     // Focus gating events
