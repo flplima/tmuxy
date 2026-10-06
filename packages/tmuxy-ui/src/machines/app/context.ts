@@ -3,7 +3,7 @@
  *
  * The AppMachineContext type itself stays defined in ../types.ts (it's
  * imported across the codebase). This file owns the *initial value* and the
- * runtime mapping of each field to its owning parallel state.
+ * runtime mapping of each field to its owning state slice.
  */
 
 import type { AppMachineContext } from '../types';
@@ -20,10 +20,9 @@ import { loadThemeFromStorage } from '../../utils/themeManager';
 export type { AppMachineContext };
 
 /**
- * The name of each parallel state plus 'parent' for fields owned by the
- * parent machine itself (lifecycle, connection, dimensions).
- *
- * Keep in sync with the parallel states defined under ./states/.
+ * The name of each state slice (a root-level `on` block under ./states/)
+ * plus 'parent' for fields owned by the machine itself (lifecycle,
+ * connection, dimensions).
  */
 export type StateName =
   | 'layout'
@@ -39,12 +38,12 @@ export type StateName =
   | 'parent';
 
 /**
- * Maps every AppMachineContext field to the parallel state that owns it.
+ * Maps every AppMachineContext field to the state slice that owns it.
  *
- * This is the source of truth enforced by the tmuxy/state-field-ownership
- * ESLint rule — any `assign({...})` in states/<name>.ts may only mutate
- * fields whose owner is `<name>` (or 'parent', which is rewriteable by
- * the parent machine only).
+ * The tmuxy/state-field-ownership ESLint rule reads this map from this file
+ * (keep it one `field: 'owner',` entry per line) — any `assign({...})` in
+ * states/<name>.ts or actions/<name>.ts may only mutate fields whose owner
+ * is `<name>` ('parent' fields are written by appMachine.ts only).
  *
  * The `satisfies` clause guarantees every context field is covered;
  * removing one or adding a new one without updating this map is a type error.
