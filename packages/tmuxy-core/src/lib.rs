@@ -1,6 +1,7 @@
 pub mod constants;
 pub mod control_mode;
 pub mod error;
+pub mod groups;
 pub mod ids;
 
 // Native (non-wasm) transport + tmux-command layer, gated behind `native`.

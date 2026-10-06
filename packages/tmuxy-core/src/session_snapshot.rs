@@ -221,7 +221,7 @@ pub fn hidden_members(
         .filter_map(|p| Some((p, p.group_id.as_ref()?)))
         .filter(|(_, g)| visible_groups.contains(g.as_str()))
         .collect();
-    parked.sort_by_key(|(p, _)| (p.group_pos.unwrap_or(u32::MAX), p.id.number()));
+    parked.sort_by_key(|(p, _)| crate::groups::order_key(p.group_pos, &p.id));
     parked
         .into_iter()
         .map(|(p, group_id)| HiddenMember {
