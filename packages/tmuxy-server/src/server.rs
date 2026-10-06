@@ -509,7 +509,7 @@ async fn serve_embedded(uri: axum::http::Uri) -> Response {
     // none of these literal mime types can produce — fall back to a 500 on the
     // off-chance the embedded asset's mime string somehow becomes invalid.
     if let Some(file) = FrontendAssets::get(path) {
-        let mime = mime_for_path(path);
+        let mime = tmuxy_core::mime::content_type_for_path(path);
         build_response(StatusCode::OK, mime, file.data.into_owned())
     } else if path.starts_with("themes/") && path.ends_with(".css") {
         // Custom theme CSS not in the embedded bundle — try ~/.config/tmuxy/themes/.
@@ -538,26 +538,6 @@ async fn serve_embedded(uri: axum::http::Uri) -> Response {
         )
     } else {
         StatusCode::NOT_FOUND.into_response()
-    }
-}
-
-fn mime_for_path(path: &str) -> &'static str {
-    match path.rsplit('.').next() {
-        Some("html") => "text/html; charset=utf-8",
-        Some("js") | Some("mjs") => "application/javascript",
-        Some("css") => "text/css; charset=utf-8",
-        Some("json") => "application/json",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("ico") => "image/x-icon",
-        Some("woff") => "font/woff",
-        Some("woff2") => "font/woff2",
-        Some("ttf") => "font/ttf",
-        Some("wasm") => "application/wasm",
-        Some("map") => "application/json",
-        _ => "application/octet-stream",
     }
 }
 

@@ -10,6 +10,9 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tmuxy_core::control_mode::{MonitorCommandSender, StoredImage};
+use tmuxy_core::mime::{
+    content_type_for_path, read_served_file, ServeRefusal, FILE_SANDBOX_CSP, MAX_SERVED_FILE_BYTES,
+};
 use tmuxy_core::{Ctx, RetryPolicy};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
@@ -509,13 +512,11 @@ async fn read_file_offthread(path: String) -> Response {
     }
 }
 
-/// The Content-Security-Policy every file route answers with: the document
-/// renders sandboxed — its scripts run, in an opaque origin of their own and
-/// never the server's.
-const FILE_SANDBOX_CSP: &str =
-    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
-
 /// A local file, served so the browser widget can frame it in any build.
+///
+/// The checks before the read are `tmuxy_core::mime::read_served_file`'s,
+/// shared with the desktop app's `tmuxyfile:` scheme; each refusal maps to
+/// its status here.
 ///
 /// The Vite dev server serves the app cross-origin-isolated (COOP
 /// `same-origin`, COEP `require-corp`), and under that policy a framed
@@ -525,99 +526,41 @@ const FILE_SANDBOX_CSP: &str =
 /// cross-origin scripts and images still load, just without credentials — and
 /// `Cross-Origin-Resource-Policy` lets the file itself be embedded. Outside an
 /// isolated parent both headers change nothing.
-/// The largest file the browser widget will be served.
-///
-/// The widget frames documents — HTML, markdown, an image — so this is well
-/// above anything it legitimately opens. Without it, `/api/file` pointed at a
-/// multi-gigabyte log (or at `/dev/zero`, which has no end at all) grows the
-/// server until the OS kills it.
-const MAX_SERVED_FILE_BYTES: u64 = 64 * 1024 * 1024;
-
-/// Read a file for the browser widget, or say why not.
-///
-/// Three refusals before the read, because the path is the client's:
-/// - **Not a regular file.** `/dev/zero` never ends; a FIFO blocks its reader
-///   until someone writes, and this runs on a Tokio worker thread, so one
-///   request would park a worker for the life of the process. `symlink_metadata`
-///   asks about the link itself, so a symlink to a device is refused too.
-/// - **Over the cap.** See `MAX_SERVED_FILE_BYTES`.
-///
-/// The realistic failure is accidental rather than hostile — only a client that
-/// already has a shell can reach these routes — but it takes the whole server
-/// down either way.
-fn read_file_checked(path: &str) -> Result<Vec<u8>, Box<Response>> {
-    let meta = std::fs::symlink_metadata(path).map_err(|e| {
-        Box::new(json_response(
-            StatusCode::NOT_FOUND,
-            &serde_json::json!({ "error": format!("{}", e) }),
-        ))
-    })?;
-
-    // A symlink's own metadata says "symlink", so follow it once and ask about
-    // the target — a symlink to a regular file is ordinary and still served.
-    let meta = if meta.file_type().is_symlink() {
-        std::fs::metadata(path).map_err(|e| {
-            Box::new(json_response(
-                StatusCode::NOT_FOUND,
-                &serde_json::json!({ "error": format!("{}", e) }),
-            ))
-        })?
-    } else {
-        meta
-    };
-
-    if !meta.is_file() {
-        return Err(Box::new(json_response(
-            StatusCode::BAD_REQUEST,
-            &serde_json::json!({ "error": "not a regular file" }),
-        )));
-    }
-    if meta.len() > MAX_SERVED_FILE_BYTES {
-        return Err(Box::new(json_response(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            &serde_json::json!({
-                "error": format!("file is larger than {MAX_SERVED_FILE_BYTES} bytes"),
-            }),
-        )));
-    }
-
-    std::fs::read(path).map_err(|e| {
-        Box::new(json_response(
-            StatusCode::NOT_FOUND,
-            &serde_json::json!({ "error": format!("{}", e) }),
-        ))
-    })
-}
-
 fn read_file_response(path: &str) -> Response {
-    match read_file_checked(path) {
-        Ok(content) => {
-            let mut response = build_response(
-                StatusCode::OK,
-                tmuxy_core::mime::content_type_for_path(path),
-                content,
-            );
-            let headers = response.headers_mut();
-            headers.insert(
-                axum::http::header::HeaderName::from_static("cross-origin-embedder-policy"),
-                axum::http::HeaderValue::from_static("credentialless"),
-            );
-            headers.insert(
-                axum::http::header::HeaderName::from_static("cross-origin-resource-policy"),
-                axum::http::HeaderValue::from_static("cross-origin"),
-            );
-            // Rendered with the server's origin, an HTML file could POST tmux
-            // commands like the app does. `sandbox` gives it an opaque origin
-            // of its own, whether the browser widget frames it or someone
-            // opens its URL directly.
-            headers.insert(
-                axum::http::header::CONTENT_SECURITY_POLICY,
-                axum::http::HeaderValue::from_static(FILE_SANDBOX_CSP),
-            );
-            response
+    let content = match read_served_file(path) {
+        Ok(content) => content,
+        Err(refusal) => {
+            let (status, error) = match refusal {
+                ServeRefusal::NotFound(e) => (StatusCode::NOT_FOUND, e),
+                ServeRefusal::NotRegular => {
+                    (StatusCode::BAD_REQUEST, "not a regular file".to_string())
+                }
+                ServeRefusal::TooLarge { .. } => (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!("file is larger than {MAX_SERVED_FILE_BYTES} bytes"),
+                ),
+            };
+            return json_response(status, &serde_json::json!({ "error": error }));
         }
-        Err(refusal) => *refusal,
-    }
+    };
+    let mut response = build_response(StatusCode::OK, content_type_for_path(path), content);
+    let headers = response.headers_mut();
+    headers.insert(
+        axum::http::header::HeaderName::from_static("cross-origin-embedder-policy"),
+        axum::http::HeaderValue::from_static("credentialless"),
+    );
+    headers.insert(
+        axum::http::header::HeaderName::from_static("cross-origin-resource-policy"),
+        axum::http::HeaderValue::from_static("cross-origin"),
+    );
+    // Rendered with the server's origin, an HTML file could POST tmux commands
+    // like the app does. `sandbox` gives it an opaque origin of its own,
+    // whether the browser widget frames it or someone opens its URL directly.
+    headers.insert(
+        axum::http::header::CONTENT_SECURITY_POLICY,
+        axum::http::HeaderValue::from_static(FILE_SANDBOX_CSP),
+    );
+    response
 }
 
 #[cfg(test)]
