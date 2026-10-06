@@ -1,9 +1,10 @@
 /**
  * Action implementations for the commandUi slice (a root-level `on` block).
  *
- * Owns commandMode, statusMessage, statusLine, prefixActive. A submitted
- * command is raised as SEND_TMUX_COMMAND, whose handler holds the one
- * intercept chain every command sender shares.
+ * Owns commandMode, statusMessage, statusLine, prefixActive.
+ *
+ * A submitted command is raised as SEND_TMUX_COMMAND, whose handler holds
+ * the one intercept chain every command sender shares.
  */
 
 import { assign, cancel, enqueueActions, raise } from 'xstate';
