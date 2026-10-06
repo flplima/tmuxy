@@ -626,7 +626,7 @@ pub(crate) fn split_compound(cmd: &str) -> Vec<String> {
     parts
 }
 
-/// Key binding info returned by get_prefix_bindings
+/// One binding of a key table, as `list-keys` prints it
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBinding {
     pub key: String,
@@ -638,18 +638,12 @@ pub struct KeyBinding {
     pub repeat: bool,
 }
 
-/// Get all prefix key bindings from tmux
-pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>> {
-    let output = execute_tmux_command(&["list-keys", "-T", "prefix"])?;
-    Ok(parse_bindings("prefix", &output))
-}
-
 /// Parse `tmux list-keys -T <table>` output into `KeyBinding`s.
 ///
 /// One parser for every table — the prefix and root paths used to carry
 /// separate copies, and the root copy computed the `-r` indices but then
 /// hardcoded `repeat: false`, silently losing repeat bindings.
-fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
+pub(crate) fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
     let mut bindings = Vec::new();
 
     for line in output.lines() {
@@ -729,26 +723,6 @@ fn describe_binding(command_name: &str, command: &str) -> String {
         "select-window" => "Select window".to_string(),
         _ => command.to_string(),
     }
-}
-
-/// Get the tmux prefix key
-pub fn get_prefix_key() -> Result<String> {
-    let output = execute_tmux_command(&["show-options", "-g", "prefix"])?;
-    // Output format: prefix C-a
-    if let Some(line) = output.lines().next() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            return Ok(parts[1].to_string());
-        }
-    }
-    Ok("C-b".to_string()) // Default prefix
-}
-
-/// Get all root key bindings from tmux (bind -n keybindings)
-/// These are keybindings that work without pressing the prefix key first
-pub fn get_root_bindings() -> Result<Vec<KeyBinding>> {
-    let output = execute_tmux_command(&["list-keys", "-T", "root"])?;
-    Ok(parse_bindings("root", &output))
 }
 
 #[cfg(test)]

@@ -114,20 +114,17 @@ pub async fn run_tmux_command(
     let entry = windows::entry_for(&window)?;
     let session = entry.session();
     let state = entry.monitor;
-    // `source-file` may change the prefix, the theme or the appearance options:
-    // push the fresh settings once tmux has applied it (same settle delay as
-    // the SSE server's re-broadcast).
-    let is_source_file = {
-        let trimmed = command.trim_start();
-        trimmed.starts_with("source-file") || trimmed.starts_with("source ")
-    };
+    // `source-file` may change the prefix, the bindings, the theme or the
+    // appearance options: push fresh copies once tmux has applied it, as the
+    // web server re-broadcasts them.
+    let is_source_file = tmuxy_core::transport::is_source_file(&command);
     let Some(routed) = route(&state, &session, &command)? else {
         return Ok(());
     };
     send_via_monitor(&state, MonitorCommand::RunCommand { command: routed }).await?;
     if is_source_file {
-        tokio::time::sleep(SOURCE_FILE_SETTLE).await;
-        crate::monitor::emit_theme_settings(&app).await;
+        tokio::time::sleep(tmuxy_core::transport::SOURCE_FILE_SETTLE).await;
+        crate::monitor::emit_config_settings(&app, &state).await;
         for window in app.webview_windows().values() {
             crate::gui::apply_blur(window);
         }
@@ -164,9 +161,6 @@ async fn query_via_monitor(state: &MonitorState, command: &str) -> Result<String
         .map_err(|_| "monitor went away before answering".to_string())?
         .into_result()
 }
-
-/// How long to wait after a `source-file` before re-reading tmux options.
-const SOURCE_FILE_SETTLE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// The shared policy (`tmuxy_core::command_router`): `None` for a blocked
 /// command (logged, not an error — the web server answers those with null).
@@ -281,22 +275,14 @@ pub fn titlebar_double_click(
     titlebar::double_click(&window, action_id.as_deref()).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn get_key_bindings() -> Result<Value, String> {
-    let bindings = tmuxy_core::get_prefix_bindings()?;
-    let prefix = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".to_string());
-    Ok(serde_json::json!({
-        "prefix": prefix,
-        "bindings": bindings
-    }))
-}
-
 /// Return the most recent `tmux-keybindings` payload, or null if the monitor
 /// hasn't broadcast one yet. The frontend calls this on connect to recover
 /// from the race where the backend emits before the WebView's listener is
 /// attached.
 #[tauri::command]
-pub fn get_keybindings_snapshot(state: State<'_, KeyBindingsState>) -> Option<Value> {
+pub fn get_keybindings_snapshot(
+    state: State<'_, KeyBindingsState>,
+) -> Option<tmuxy_core::transport::KeyBindings> {
     state.0.read().ok().and_then(|guard| guard.clone())
 }
 

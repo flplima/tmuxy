@@ -16,20 +16,13 @@ use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
     TmuxMonitor,
 };
+use tmuxy_core::transport::KeyBindings;
 use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::command::ClientCommand;
 use crate::state::{AppState, SessionConnections};
-
-/// How long to wait after a `source-file` before re-reading keybindings.
-///
-/// `RunCommand` is fire-and-forget into the monitor channel, so there is no
-/// response to key off — this is a settle window, not a guarantee. A slow
-/// `source-file` can still broadcast the pre-source bindings; the correct fix
-/// is to await the command's control-mode response.
-const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
 // ============================================
 // SSE State Emitter (Adapter Pattern)
@@ -81,6 +74,8 @@ fn encode_event<T: Serialize>(event: &T) -> Option<String> {
 pub struct SseEmitter {
     broadcast: Arc<crate::state::SessionBroadcast>,
     app_state: Arc<AppState>,
+    /// The session the monitor feeds, for the reads that go back through it.
+    session: String,
     /// Told of every change to the session's shape, so a snapshot follows it.
     keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
 }
@@ -89,11 +84,13 @@ impl SseEmitter {
     pub fn new(
         broadcast: Arc<crate::state::SessionBroadcast>,
         app_state: Arc<AppState>,
+        session: String,
         keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
     ) -> Self {
         Self {
             broadcast,
             app_state,
+            session,
             keeper,
         }
     }
@@ -157,13 +154,15 @@ impl StateEmitter for SseEmitter {
     }
 
     fn on_initial_sync_complete(&self) {
-        // Broadcast keybindings now that config has been sourced and settings enforced.
-        let keybindings = KeyBindings::current();
-        self.send_event(&SseEvent::KeyBindings(keybindings));
-        // Same for the theme + appearance options the config may have set.
+        // The config has been sourced and the settings enforced: the bindings
+        // and the theme + appearance options are the ones to show now. Read
+        // off the monitor loop, whose own connection answers them.
+        let state = Arc::clone(&self.app_state);
+        let session = self.session.clone();
         let broadcast = self.broadcast.clone();
         let ctx = self.app_state.ctx.clone();
         tokio::spawn(async move {
+            refresh_keybindings(&state, &session).await;
             let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
             if let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) {
                 broadcast.broadcast(msg);
@@ -210,58 +209,6 @@ impl StateEmitter for SseEmitter {
 // ============================================
 // SSE Event Types
 // ============================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyBindings {
-    pub prefix_key: String,
-    pub prefix_bindings: Vec<tmuxy_core::KeyBinding>,
-    pub root_bindings: Vec<tmuxy_core::KeyBinding>,
-}
-
-impl KeyBindings {
-    /// `current()` off the async runtime.
-    ///
-    /// SEC-16: it runs three synchronous `tmux` subprocesses and waits on each.
-    /// Called from inside the `/events` stream generator that was a tokio
-    /// worker thread parked in `wait()` — one per connecting client, with no
-    /// cap on clients, and every one of them also another external `tmux`
-    /// process, which docs/TMUX.md says destabilises tmux 3.5a.
-    async fn current_offthread() -> Self {
-        tokio::task::spawn_blocking(Self::current)
-            .await
-            .unwrap_or_else(|_| Self {
-                prefix_key: "C-b".into(),
-                prefix_bindings: Vec::new(),
-                root_bindings: Vec::new(),
-            })
-    }
-
-    /// The bindings to greet a new stream of `state` with: read once and kept
-    /// on a viewer's server (`AppState::viewer_key_bindings`), read afresh on
-    /// a writable one.
-    async fn for_greeting(state: &AppState) -> Self {
-        if state.read_only {
-            state
-                .viewer_key_bindings
-                .get_or_init(Self::current_offthread)
-                .await
-                .clone()
-        } else {
-            Self::current_offthread().await
-        }
-    }
-
-    /// Snapshot the live tmux bindings with the standard fallbacks. The one
-    /// assembly point for the SSE greeting, `on_initial_sync_complete`, and
-    /// `broadcast_keybindings` (previously three identical copies).
-    fn current() -> Self {
-        Self {
-            prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
-            prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
-            root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
-        }
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event", content = "data")]
@@ -552,13 +499,17 @@ pub async fn sse_handler(
             yield Ok::<_, std::convert::Infallible>(Event::default().event("connection-info").data(s));
         }
 
-        // Send keybindings to each new SSE client. For reconnecting clients
-        // (monitor already running, config already sourced), this is the only
-        // chance to receive them. The monitor also broadcasts updated keybindings
-        // via on_initial_sync_complete() after sourcing config for the first time.
-        let keybindings = KeyBindings::for_greeting(&state).await;
-        let kb_event = SseEvent::KeyBindings(keybindings);
-        if let Some(s) = encode_event(&kb_event) {
+        // A reconnecting client's monitor sourced the config long ago, so the
+        // bindings it last broadcast are the ones in force; a client that
+        // got here before its monitor did is sent them by the monitor's
+        // `on_initial_sync_complete`, on the broadcast it already holds.
+        let known_bindings = state
+            .sessions
+            .read()
+            .await
+            .get(&session)
+            .and_then(|conns| conns.key_bindings.clone());
+        if let Some(s) = known_bindings.and_then(|kb| encode_event(&SseEvent::KeyBindings(kb))) {
             yield Ok(Event::default().event("keybindings").data(s));
         }
 
@@ -869,8 +820,7 @@ async fn handle_command(
                 tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
             };
 
-            // Detect source-file commands — keybindings may change
-            let is_source_file = routed.starts_with("source-file") || routed.starts_with("source ");
+            let is_source_file = tmuxy_core::transport::is_source_file(&routed);
 
             send_via_control_mode(state, session, &routed).await?;
             trace!(?conn_id, command = %routed, "client sent command via control mode");
@@ -878,8 +828,8 @@ async fn handle_command(
             // After source-file, re-broadcast keybindings (prefix key may have
             // changed) and theme settings (theme/appearance options may have).
             if is_source_file {
-                tokio::time::sleep(SOURCE_FILE_SETTLE).await;
-                broadcast_keybindings(state, session).await;
+                tokio::time::sleep(tmuxy_core::transport::SOURCE_FILE_SETTLE).await;
+                refresh_keybindings(state, session).await;
                 broadcast_theme_settings(state, session).await;
             }
 
@@ -1020,16 +970,20 @@ async fn handle_command(
 // Helper Functions
 // ============================================
 
-/// Re-fetch keybindings from tmux and broadcast to all SSE clients for a session.
-async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
-    let keybindings = KeyBindings::current_offthread().await;
-    let kb_event = SseEvent::KeyBindings(keybindings);
-    let Some(msg) = encode_event(&kb_event) else {
+/// Read the session's bindings over its monitor, keep them for the next
+/// stream's greeting, and broadcast them to the streams open now.
+async fn refresh_keybindings(state: &Arc<AppState>, session: &str) {
+    let Ok(tx) = state.monitor_tx(session).await else {
         return;
     };
-    let sessions = state.sessions.read().await;
-    if let Some(session_conn) = sessions.get(session) {
-        session_conn.broadcast.broadcast(msg);
+    let bindings = KeyBindings::read(&tx).await;
+    let Some(msg) = encode_event(&SseEvent::KeyBindings(bindings.clone())) else {
+        return;
+    };
+    let mut sessions = state.sessions.write().await;
+    if let Some(conns) = sessions.get_mut(session) {
+        conns.key_bindings = Some(bindings);
+        conns.broadcast.broadcast(msg);
         debug!(%session, "broadcast refreshed keybindings");
     }
 }
@@ -1594,6 +1548,7 @@ pub async fn start_monitoring(
     let emitter = Arc::new(SseEmitter::new(
         broadcast.clone(),
         Arc::clone(&state),
+        session.clone(),
         keeper.clone(),
     ));
     let snapshot_dir = tmuxy_core::session_snapshot::default_dir();
@@ -2300,25 +2255,40 @@ mod tests {
         assert!(conns.monitor_command_tx.is_some());
     }
 
-    /// SEC-11/SEC-16. The greeting's bindings cost three `tmux` subprocesses
-    /// per connecting client; a viewer's server reads them once and keeps
-    /// them, so a flood of viewers is a flood of clones, not of processes.
+    /// SEC-11/SEC-16. The greeting's bindings used to cost three `tmux`
+    /// subprocesses per connecting client. They are read once per monitor
+    /// connection, over the monitor, and every later greeting is served the
+    /// copy the session keeps.
     #[tokio::test]
-    async fn a_viewers_server_reads_its_key_bindings_once() {
-        let viewer = AppState::new().with_read_only(true);
-        let first = KeyBindings {
-            prefix_key: "C-space".into(),
-            prefix_bindings: Vec::new(),
-            root_bindings: Vec::new(),
-        };
-        viewer.viewer_key_bindings.set(first).unwrap();
-        // Whatever tmux says now, a viewer's server answers with what it read.
+    async fn a_session_keeps_the_bindings_it_last_broadcast() {
+        let state = Arc::new(AppState::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let queries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&queries);
+        tokio::spawn(async move {
+            while let Some(cmd) = rx.recv().await {
+                if let MonitorCommand::RunCommandWithReply { reply, .. } = cmd {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    let _ = reply.send(tmuxy_core::control_mode::CommandReply {
+                        output: "C-space\nbind-key -T prefix c new-window\n".to_string(),
+                        error: None,
+                    });
+                }
+            }
+        });
+        let mut conns = SessionConnections::new();
+        conns.monitor_command_tx = Some(tx);
+        let mut stream = conns.broadcast.subscribe();
+        state.sessions.write().await.insert("s".to_string(), conns);
+
+        refresh_keybindings(&state, "s").await;
+
+        assert_eq!(queries.load(Ordering::SeqCst), 1);
+        let (_, frame) = stream.try_recv().expect("the open streams are told");
+        assert!(frame.contains("C-space"), "{frame}");
+        let kept = state.sessions.read().await["s"].key_bindings.clone();
         assert_eq!(
-            KeyBindings::for_greeting(&viewer).await.prefix_key,
-            "C-space"
-        );
-        assert_eq!(
-            KeyBindings::for_greeting(&viewer).await.prefix_key,
+            kept.expect("kept for the next greeting").prefix_key,
             "C-space"
         );
     }
@@ -2418,6 +2388,7 @@ mod tests {
         let emitter = SseEmitter::new(
             broadcast.clone(),
             viewer,
+            "s".to_string(),
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
@@ -2433,6 +2404,7 @@ mod tests {
         let emitter = SseEmitter::new(
             broadcast.clone(),
             Arc::new(AppState::new()),
+            "s".to_string(),
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
@@ -2452,6 +2424,7 @@ mod tests {
         let emitter = SseEmitter::new(
             broadcast.clone(),
             Arc::new(AppState::new()),
+            "s".to_string(),
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 

@@ -197,6 +197,9 @@ pub struct SessionConnections {
     /// The autosave for this session's snapshots (`session_snapshot`), told
     /// of every shape change by the emitter; `None` until the monitor is up.
     pub snapshot_keeper: Option<Arc<tmuxy_core::session_snapshot::SnapshotKeeper>>,
+    /// The bindings the session's monitor last broadcast: what a new stream
+    /// is greeted with, at no tmux round trip.
+    pub key_bindings: Option<tmuxy_core::transport::KeyBindings>,
     /// Broadcast channel + sequence id + replay buffer for this session.
     /// Wrapped in `Arc` so `SseEmitter` can clone a handle and call
     /// `broadcast()` without holding the `sessions` write lock.
@@ -213,6 +216,7 @@ impl Default for SessionConnections {
             last_resize: None,
             monitor_command_tx: None,
             snapshot_keeper: None,
+            key_bindings: None,
             broadcast: Arc::new(SessionBroadcast::new()),
             monitor_handle: None,
         }
@@ -263,22 +267,13 @@ pub struct AppState {
     /// place in the `sessions` map, and nothing counted them. A connection
     /// flood grew both without bound.
     pub live_streams: AtomicU64,
-    /// The key bindings a viewer's server greets every stream with, read from
-    /// tmux once.
-    ///
-    /// SEC-11/SEC-16: the greeting ran three `tmux` subprocesses per connecting
-    /// client. A writable server re-reads them because its own monitor sources
-    /// the config and may change them; a viewer's server changes nothing, so
-    /// the first read is the last.
-    pub viewer_key_bindings: tokio::sync::OnceCell<crate::sse::KeyBindings>,
     /// The theme name, mode and appearance a viewer's server answers
     /// `GetThemeSettings` with, read from tmux once.
     ///
     /// SEC-11: the command ran four `read_option` round trips per request, and
     /// a viewer's client asks on every reconnect. The value can only change
     /// when a config is sourced, which is a writer's act on a writer's server —
-    /// a viewer's server sources nothing, so the first read is the last, the
-    /// same bargain `viewer_key_bindings` already makes.
+    /// a viewer's server sources nothing, so the first read is the last.
     pub viewer_theme_settings: tokio::sync::OnceCell<serde_json::Value>,
 }
 
@@ -317,7 +312,6 @@ impl AppState {
             read_only: false,
             session_pin: None,
             live_streams: AtomicU64::new(0),
-            viewer_key_bindings: tokio::sync::OnceCell::new(),
             viewer_theme_settings: tokio::sync::OnceCell::new(),
         }
     }

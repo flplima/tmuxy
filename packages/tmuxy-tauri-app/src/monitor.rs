@@ -5,6 +5,7 @@ use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
     TmuxMonitor,
 };
+use tmuxy_core::transport::KeyBindings;
 use tmuxy_core::StateUpdate;
 
 use tmuxy_core::session::session_name as get_session;
@@ -33,7 +34,7 @@ pub struct ConnectTarget {
 /// up with an empty `prefixBindings` map — which is why the statusline
 /// indicator was missing, prefix C-a + binding key did nothing, and
 /// `Ctrl+hjkl` fell through to the shell instead of triggering nav.
-pub struct KeyBindingsState(pub Arc<RwLock<Option<serde_json::Value>>>);
+pub struct KeyBindingsState(pub Arc<RwLock<Option<KeyBindings>>>);
 
 impl Default for KeyBindingsState {
     fn default() -> Self {
@@ -165,12 +166,11 @@ pub struct TauriEmitter {
     app: AppHandle,
     /// The webview window this monitor feeds (`main` for the first one).
     label: String,
-    /// Decoded picture bytes, keyed by pane and placement id, served back to
-    /// the webview by the `tmuxyimg:` scheme (see `gui.rs`). The web server
-    /// keeps the same map behind `/api/images`; without one here every image
-    /// a pane drew was decoded and then dropped, which is why no image
-    /// protocol ever rendered in the desktop app.
-    images: ImageStore,
+    /// The window's monitor: its picture store, served back to the webview by
+    /// the `tmuxyimg:` scheme (see `gui.rs`) as the web server serves
+    /// `/api/images`, and its command channel, which the reads after the
+    /// config is sourced go back through.
+    monitor: MonitorState,
     /// Told of every change to the session's shape, so a snapshot follows it
     /// (`tmuxy_core::session_snapshot`), the same as the web server's emitter.
     keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
@@ -180,13 +180,13 @@ impl TauriEmitter {
     pub fn new(
         app: AppHandle,
         label: String,
-        images: ImageStore,
+        monitor: MonitorState,
         keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
     ) -> Self {
         Self {
             app,
             label,
-            images,
+            monitor,
             keeper,
         }
     }
@@ -216,7 +216,7 @@ impl LogSink for TauriEmitter {
 impl StateEmitter for TauriEmitter {
     fn emit_state(&self, update: StateUpdate) {
         if let StateUpdate::Full { ref state } = update {
-            if let Ok(mut guard) = self.images.try_write() {
+            if let Ok(mut guard) = self.monitor.images.try_write() {
                 guard.retain_live_panes(state);
             }
         }
@@ -280,7 +280,7 @@ impl StateEmitter for TauriEmitter {
     ) {
         // try_write so a contended lock never stalls the monitor loop; a
         // dropped picture is redrawn by the next frame.
-        if let Ok(mut guard) = self.images.try_write() {
+        if let Ok(mut guard) = self.monitor.images.try_write() {
             guard.insert(pane_id, images);
         }
     }
@@ -301,15 +301,15 @@ impl StateEmitter for TauriEmitter {
 
     /// Re-emit keybindings after sync_initial_state has source-file'd
     /// the user's tmuxy.conf. Without this, the frontend latches the
-    /// prefix it read at start_monitoring time (before the config was
-    /// sourced) — which is the default C-b on a tmux server that
-    /// already existed from a previous tmuxy run, even though our
-    /// source-file just applied `set -g prefix C-a` server-globally.
-    /// SseEmitter does the same thing in tmuxy-server/src/sse.rs.
+    /// prefix it read before the config was sourced — which is the
+    /// default C-b on a tmux server that already existed from a previous
+    /// tmuxy run, even though our source-file just applied
+    /// `set -g prefix C-a` server-globally. SseEmitter does the same thing
+    /// in tmuxy-server/src/sse.rs.
     fn on_initial_sync_complete(&self) {
-        emit_keybindings(&self.app);
         let app = self.app.clone();
-        tauri::async_runtime::spawn(async move { emit_theme_settings(&app).await });
+        let monitor = self.monitor.clone();
+        tauri::async_runtime::spawn(async move { emit_config_settings(&app, &monitor).await });
     }
 }
 
@@ -335,7 +335,7 @@ pub async fn start_monitoring_window(
     let emitter = Arc::new(TauriEmitter::new(
         app.clone(),
         label.clone(),
-        monitor_state.images.clone(),
+        monitor_state.clone(),
         keeper.clone(),
     ));
     let snapshot_dir = tmuxy_core::session_snapshot::default_dir();
@@ -519,7 +519,6 @@ pub async fn start_monitoring_window(
                 if let Ok(mut guard) = monitor_state.cmd_tx.write() {
                     *guard = Some(cmd_tx);
                 }
-                emit_keybindings(&app);
                 let started = std::time::Instant::now();
                 monitor.run(emitter.as_ref()).await;
                 let lived = started.elapsed();
@@ -733,38 +732,40 @@ fn emit_detached(app: &AppHandle, label: &str) {
     }
 }
 
-/// Emit keybindings to the frontend after a successful connection.
-///
-/// Also stores the payload in `KeyBindingsState` so a frontend that connects
-/// after the emit can still retrieve them via `get_keybindings_snapshot`.
+/// Push everything a sourced config can change: the key bindings
+/// (`tmux-keybindings`) and the theme + appearance settings
+/// (`tmux-theme-settings`), read through the monitor. Mirrors the web server's
+/// `keybindings` and `theme-settings` broadcasts. Called once the monitor has
+/// sourced the config, and again after a client's `source-file`.
+pub async fn emit_config_settings(app: &AppHandle, monitor: &MonitorState) {
+    let Some(tx) = monitor.tx() else {
+        return;
+    };
+    emit_keybindings(app, &tx).await;
+    emit_theme_settings(app).await;
+}
+
 /// Push the theme + appearance settings (`tmux-theme-settings`) so the
 /// frontend re-applies them — after the config is sourced, the tmux options
-/// may carry new opacities or a new theme. Mirrors the SSE `theme-settings`
-/// broadcast in tmuxy-server/src/sse.rs.
-pub async fn emit_theme_settings(app: &AppHandle) {
+/// may carry new opacities or a new theme.
+async fn emit_theme_settings(app: &AppHandle) {
     let ctx = app.state::<Arc<tmuxy_core::Ctx>>();
     let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
     let _ = app.emit("tmux-theme-settings", settings);
 }
 
-fn emit_keybindings(app: &AppHandle) {
-    let prefix_key = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into());
-    let prefix_bindings = tmuxy_core::get_prefix_bindings().unwrap_or_default();
-    let root_bindings = tmuxy_core::get_root_bindings().unwrap_or_default();
-
-    let payload = serde_json::json!({
-        "prefix_key": prefix_key,
-        "prefix_bindings": prefix_bindings,
-        "root_bindings": root_bindings,
-    });
-
+/// Read the key bindings and emit them to the frontend.
+///
+/// Also stores them in `KeyBindingsState` so a frontend that connects after
+/// the emit can still retrieve them via `get_keybindings_snapshot`.
+async fn emit_keybindings(app: &AppHandle, tx: &MonitorCommandSender) {
+    let bindings = KeyBindings::read(tx).await;
     if let Some(state) = app.try_state::<KeyBindingsState>() {
         if let Ok(mut guard) = state.0.write() {
-            *guard = Some(payload.clone());
+            *guard = Some(bindings.clone());
         }
     }
-
-    if let Err(e) = app.emit("tmux-keybindings", &payload) {
+    if let Err(e) = app.emit("tmux-keybindings", &bindings) {
         eprintln!("Failed to emit keybindings: {}", e);
     }
 }

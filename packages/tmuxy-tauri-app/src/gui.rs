@@ -1419,7 +1419,6 @@ pub fn run() {
             // General
             commands::run_tmux_command,
             commands::query_tmux,
-            commands::get_key_bindings,
             commands::get_keybindings_snapshot,
             // Copy mode + themes (mirrors the SSE server's invoke surface so
             // the React frontend's INVOKE / FETCH_SCROLLBACK_CELLS paths work

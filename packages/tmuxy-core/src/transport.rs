@@ -8,8 +8,10 @@
 //! control-mode client is attached can crash tmux 3.5a (docs/TMUX.md).
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
+use crate::executor::{parse_bindings, KeyBinding};
 
 /// Run a command on the monitor's connection and wait for what it printed. An
 /// `%error` from tmux is the `Err`, carrying tmux's message.
@@ -179,6 +181,75 @@ pub fn clipboard_write_allowed(text: &str) -> bool {
     text.len() <= MAX_CLIPBOARD_BYTES
 }
 
+// ============================================
+// Key bindings
+// ============================================
+
+/// The prefix key and the prefix/root tables, as the client's keyboard
+/// handling reads them. The wire shape of the SSE `keybindings` frame and the
+/// desktop's `tmux-keybindings` event.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct KeyBindings {
+    pub prefix_key: String,
+    pub prefix_bindings: Vec<KeyBinding>,
+    pub root_bindings: Vec<KeyBinding>,
+}
+
+/// tmux's own prefix, for a server that answers nothing.
+const DEFAULT_PREFIX: &str = "C-b";
+
+impl KeyBindings {
+    /// Read the live bindings in one round trip. A server that cannot answer
+    /// yields tmux's defaults (prefix `C-b`, no tables) rather than an error:
+    /// the client keeps working, and the next refresh corrects it.
+    pub async fn read(tx: &MonitorCommandSender) -> Self {
+        match query(
+            tx,
+            "show-options -gv prefix ; list-keys -T prefix ; list-keys -T root",
+        )
+        .await
+        {
+            Ok(output) => Self::parse(&output),
+            Err(e) => {
+                tracing::warn!(error = %e, "could not read key bindings");
+                Self::parse("")
+            }
+        }
+    }
+
+    /// The first line is the prefix (`show-options -gv`); the tables follow,
+    /// each line naming its own table.
+    fn parse(output: &str) -> Self {
+        let prefix_key = output
+            .lines()
+            .next()
+            .map(str::trim)
+            .filter(|p| !p.is_empty() && !p.starts_with("bind-key"))
+            .unwrap_or(DEFAULT_PREFIX)
+            .to_string();
+        Self {
+            prefix_key,
+            prefix_bindings: parse_bindings("prefix", output),
+            root_bindings: parse_bindings("root", output),
+        }
+    }
+}
+
+/// Whether a client command sources a config, which may change the prefix,
+/// the bindings, the theme and the appearance options — so both transports
+/// push fresh copies of each after it.
+pub fn is_source_file(command: &str) -> bool {
+    let command = command.trim_start();
+    command.starts_with("source-file") || command.starts_with("source ")
+}
+
+/// How long to wait after a `source-file` before re-reading what it changed.
+///
+/// The reads ride the same connection as the `source-file`, so tmux answers
+/// them after it and everything it ran inline. The wait covers what a config
+/// starts in the background (`run-shell -b`, hooks).
+pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -240,6 +311,37 @@ mod tests {
             assert!(scrollback_cells(&tx, id, -1, -1).await.is_err(), "{id}");
         }
         assert!(asked.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn key_bindings_parse_the_prefix_and_both_tables() {
+        let parsed = KeyBindings::parse(
+            "C-a\n\
+             bind-key    -T prefix % split-window -h\n\
+             bind-key -r -T prefix h resize-pane -L 5\n\
+             bind-key    -T root C-Left select-pane -L\n",
+        );
+        assert_eq!(parsed.prefix_key, "C-a");
+        assert_eq!(parsed.prefix_bindings.len(), 2);
+        assert!(parsed.prefix_bindings[1].repeat);
+        assert_eq!(parsed.root_bindings.len(), 1);
+        assert_eq!(parsed.root_bindings[0].key, "C-Left");
+    }
+
+    #[tokio::test]
+    async fn key_bindings_fall_back_to_the_default_prefix_when_tmux_cannot_answer() {
+        let (tx, _) = answering(Err("no server".to_string()));
+        let read = KeyBindings::read(&tx).await;
+        assert_eq!(read.prefix_key, "C-b");
+        assert!(read.prefix_bindings.is_empty());
+    }
+
+    #[test]
+    fn source_file_is_recognised_in_both_spellings() {
+        assert!(is_source_file("source-file ~/.config/tmuxy/tmuxy.conf"));
+        assert!(is_source_file("  source ~/.tmux.conf"));
+        assert!(!is_source_file("sourcery"));
+        assert!(!is_source_file("send-keys source-file"));
     }
 
     fn picture(len: usize) -> StoredImage {

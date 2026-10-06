@@ -46,9 +46,9 @@ pub use retry::{retry_with, RetryPolicy};
 
 use serde::{Deserialize, Serialize};
 
-// Re-export key binding types and functions
+// Re-export the key binding type
 #[cfg(feature = "native")]
-pub use executor::{get_prefix_bindings, get_prefix_key, get_root_bindings, KeyBinding};
+pub use executor::KeyBinding;
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
