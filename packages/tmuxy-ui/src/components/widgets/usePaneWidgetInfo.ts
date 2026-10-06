@@ -16,7 +16,7 @@
  */
 
 import { useRef } from 'react';
-import type { PaneContent } from '../../tmux/types';
+import type { PaneContent } from '../../domain/wire';
 import { detectWidget } from './index';
 
 export type PaneWidgetInfo = ReturnType<typeof detectWidget>;

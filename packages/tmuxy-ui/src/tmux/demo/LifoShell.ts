@@ -1,5 +1,5 @@
 import { Sandbox } from '@lifo-sh/core';
-import type { PaneContent, CellLine, TerminalCell, CellStyle } from '../types';
+import type { PaneContent, CellLine, TerminalCell, CellStyle } from '../../domain/wire';
 import type { DemoTmux } from './DemoTmux';
 import { tmuxy as tmuxyCmd } from './commands/tmuxy';
 

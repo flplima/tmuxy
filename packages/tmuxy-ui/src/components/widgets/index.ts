@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { PaneContent } from '../../tmux/types';
+import type { PaneContent } from '../../domain/wire';
 import type { AppMachineContext, AppMachineEvent } from '../../machines/types';
 
 export interface WidgetProps {

@@ -62,7 +62,8 @@ import {
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
-import type { CopyModeState, CellLine } from '../../tmux/types';
+import type { CopyModeState } from '../../tmux/types';
+import type { CellLine } from '../../domain/wire';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';

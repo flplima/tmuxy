@@ -11,7 +11,7 @@
  * copy-pasted in both files and had already begun to drift.
  */
 
-import type { CellColor } from '../tmux/types';
+import type { CellColor } from '../domain/wire';
 
 /**
  * CSS variables for the standard 16 ANSI colors.

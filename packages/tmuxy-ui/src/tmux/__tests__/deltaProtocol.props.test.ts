@@ -12,12 +12,18 @@ import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 
 import { applyDelta } from '../deltaProtocol';
-import type { ServerState, ServerPane, ServerWindow, ServerDelta, PaneDelta } from '../types';
+import type {
+  ServerDelta,
+  ServerState,
+  WirePaneEncoded,
+  WireWindowEncoded,
+} from '../../domain/wire';
+import { wireDelta, wireState } from '../../test/wire';
 
 const PANE_IDS = ['%1', '%2', '%3', '%4'];
 const WINDOW_IDS = ['@1', '@2', '@3'];
 
-function pane(tmuxId: string, windowId: string): ServerPane {
+function pane(tmuxId: string, windowId: string): WirePaneEncoded {
   return {
     id: Number(tmuxId.slice(1)),
     tmux_id: tmuxId,
@@ -39,11 +45,11 @@ function pane(tmuxId: string, windowId: string): ServerPane {
   };
 }
 
-function window(id: string): ServerWindow {
+function window(id: string): WireWindowEncoded {
   return { id, index: Number(id.slice(1)), name: id, active: false };
 }
 
-const arbPaneDelta: fc.Arbitrary<PaneDelta> = fc.record(
+const arbPaneDelta = fc.record(
   {
     window_id: fc.constantFrom(...WINDOW_IDS),
     cursor_x: fc.nat(200),
@@ -73,7 +79,8 @@ const arbDelta: fc.Arbitrary<ServerDelta> = fc
     ...d,
     new_panes: d.new_panes?.map((id) => pane(id, WINDOW_IDS[0])),
     new_windows: d.new_windows?.map(window),
-  })) as fc.Arbitrary<ServerDelta>;
+  }))
+  .map(wireDelta);
 
 const arbState: fc.Arbitrary<ServerState> = fc
   .record({
@@ -88,7 +95,8 @@ const arbState: fc.Arbitrary<ServerState> = fc
     windows: windows.map(window),
     total_width: 80,
     total_height: 24,
-  }));
+  }))
+  .map(wireState);
 
 describe('applyDelta properties', () => {
   it('never produces a duplicate pane or window id, whatever the delta sequence', () => {
@@ -127,9 +135,7 @@ describe('applyDelta properties', () => {
   it('removes exactly the panes the delta nulls out', () => {
     fc.assert(
       fc.property(arbState, arbDelta, (initial, delta) => {
-        const removed = Object.entries(delta.panes ?? {})
-          .filter(([, d]) => d === null)
-          .map(([id]) => id);
+        const removed = [...(delta.panes ?? [])].filter(([, d]) => d === null).map(([id]) => id);
         const readded = new Set((delta.new_panes ?? []).map((p) => p.tmux_id));
         const after = applyDelta(initial, delta).panes.map((p) => p.tmux_id);
         for (const id of removed) {

@@ -28,8 +28,9 @@ import type {
   LogListener,
   FatalListener,
   ClipboardListener,
-  KeyBindings,
 } from '../types';
+import type { KeyBindings } from '../../domain/wire';
+import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
 import { escapeLiteralText, unescapeLiteralText } from '../keyBatching';
 import {
@@ -205,7 +206,12 @@ export class V86TmuxAdapter implements TmuxAdapter {
     // The engine tracks lastState independently of the sink, so the machine's
     // get_initial_state still returns the post-reset state.
     this.sink = {
-      onState: (state) => this.stateListeners.forEach((l) => l(state)),
+      onState: (raw) => {
+        // A sandbox engine emits a full state every time, so one that fails
+        // its decode is simply dropped; the next one replaces it.
+        const state = decodeStateForListener(raw);
+        if (state) this.stateListeners.forEach((l) => l(state));
+      },
       onClipboard: (paneId, text) => this.clipboardListeners.forEach((l) => l(paneId, text)),
       onFatal: (message) => this.fatalListeners.forEach((l) => l(message)),
     };
@@ -225,7 +231,7 @@ export class V86TmuxAdapter implements TmuxAdapter {
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     switch (cmd) {
       case 'get_initial_state':
-        return this.engine.getLastState() as T;
+        return decodeServerStateOrThrow(this.engine.getLastState()) as T;
       case 'set_client_size': {
         const cols = (args?.cols as number) || V86_DEFAULT_COLS;
         const rows = (args?.rows as number) || V86_DEFAULT_ROWS;

@@ -15,7 +15,7 @@
  */
 
 import { useRef } from 'react';
-import type { PaneContent } from '../tmux/types';
+import type { PaneContent } from '../domain/wire';
 
 const EMPTY: PaneContent = [];
 

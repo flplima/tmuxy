@@ -20,7 +20,7 @@
 import { Effect, Ref } from 'effect';
 import { formatAdapterError } from '../effect/AdapterError';
 import type { EffectTmuxAdapter } from '../effect/EffectTmuxAdapter';
-import type { ServerState } from '../types';
+import type { ServerState } from '../../domain/wire';
 import { preserveSnapshotIdentity, transformServerState } from './adapters';
 import { parseCommandToOp, toTmuxCommand } from './parseCommand';
 import {

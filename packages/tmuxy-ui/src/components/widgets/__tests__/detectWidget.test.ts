@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { detectWidget, registerWidget } from '../index';
-import type { PaneContent } from '../../../tmux/types';
+import type { PaneContent } from '../../../domain/wire';
 
 // The registry is populated by `widgets/init.ts` at app start; two stand-ins
 // are enough here — what is under test is the authorisation, not the widgets.

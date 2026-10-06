@@ -8,8 +8,9 @@ import type {
   LogListener,
   FatalListener,
   ClipboardListener,
-  KeyBindings,
 } from '../types';
+import type { KeyBindings } from '../../domain/wire';
+import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
 import type { TraceSettings } from '../../machines/types';
 import { DemoTmux } from './DemoTmux';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
@@ -203,7 +204,7 @@ export class DemoAdapter implements TmuxAdapter {
           this.executeCommand(initCmd);
         }
         this.initCommands = []; // Only run once
-        return this.tmux.getState() as T;
+        return decodeServerStateOrThrow(this.tmux.getState()) as T;
       }
 
       case 'get_scrollback_cells': {
@@ -378,8 +379,8 @@ export class DemoAdapter implements TmuxAdapter {
   }
 
   private emitState(): void {
-    const state = this.tmux.getState();
-    this.stateListeners.forEach((l) => l(state));
+    const state = decodeStateForListener(this.tmux.getState());
+    if (state) this.stateListeners.forEach((l) => l(state));
   }
 
   private handleTmuxCommand(commandStr: string): void {

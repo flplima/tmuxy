@@ -22,7 +22,7 @@
  */
 
 import { memo } from 'react';
-import type { CellLine } from '../tmux/types';
+import type { CellLine } from '../domain/wire';
 import { rowEdgeBackground } from './terminalRendering';
 
 interface RowEdgesProps {

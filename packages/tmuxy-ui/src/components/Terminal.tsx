@@ -14,7 +14,8 @@ import { isWrappedRow } from '../utils/copyMode';
 import { isTauri } from '../tmux/adapters';
 import { tauriSchemeUrl } from '../utils/platform';
 import type { CursorMode } from './Cursor';
-import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
+import type { ImagePlacement } from '../tmux/types';
+import type { PaneContent, CellLine } from '../domain/wire';
 
 /**
  * Resolve the URL the browser should load for a given image placement.

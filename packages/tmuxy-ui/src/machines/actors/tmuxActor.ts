@@ -1,8 +1,14 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber } from 'effect';
-import type { TmuxAdapter, ServerState, KeyBindings, ThemeSettings } from '../../tmux/types';
+import type { TmuxAdapter } from '../../tmux/types';
+import {
+  ScrollbackCells,
+  ThemeSettings,
+  type KeyBindings,
+  type ServerState,
+} from '../../domain/wire';
 import type { TraceLevel, TraceSettings } from '../types';
-import { toEffectAdapter, formatAdapterError, type AdapterError, Schemas } from '../../tmux/effect';
+import { toEffectAdapter, formatAdapterError, type AdapterError } from '../../tmux/effect';
 import { tracer } from '../../tmux/tracer';
 import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../tmux/readOnly';
 
@@ -201,15 +207,14 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       } else if (event.type === 'FETCH_INITIAL_STATE') {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         run(
-          // Schema-decoded: any wire-format drift surfaces as ProtocolError,
-          // distinguishable from network/tmux failures in the error text.
-          eff.decodingInvoke('get_initial_state', Schemas.ServerState, {
+          // The adapter decodes the answer: wire-format drift rejects with a
+          // ProtocolError, distinguishable from network/tmux failures.
+          eff.invoke<ServerState>('get_initial_state', {
             cols: event.cols,
             rows: event.rows,
           }),
           {
-            onSuccess: (state) =>
-              parent.send({ type: 'TMUX_STATE_UPDATE', state: state as ServerState }),
+            onSuccess: (state) => parent.send({ type: 'TMUX_STATE_UPDATE', state }),
             logPrefix: 'get_initial_state',
           },
         );
@@ -222,13 +227,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         }
 
         const program = eff
-          .invoke<{
-            cells: import('../../tmux/types').PaneContent;
-            historySize: number;
-            start: number;
-            end: number;
-            width: number;
-          }>('get_scrollback_cells', {
+          .decodingInvoke('get_scrollback_cells', ScrollbackCells, {
             paneId: event.paneId,
             start: event.start,
             end: event.end,
@@ -302,7 +301,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       } else if (event.type === 'OPEN_TRACE_FILE') {
         run(eff.invoke<void>('open_trace_file', {}), { logPrefix: 'open_trace_file' });
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
-        run(eff.invoke<ThemeSettings>('get_theme_settings', {}), {
+        run(eff.decodingInvoke('get_theme_settings', ThemeSettings, {}), {
           onSuccess: themeSettingsReceived,
           logPrefix: 'get_theme_settings',
           silentFail: true,

@@ -27,7 +27,8 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { KeyBindings, CopyModeState } from '../../tmux/types';
+import type { CopyModeState } from '../../tmux/types';
+import type { KeyBindings } from '../../domain/wire';
 import { extractSelectedText } from '../../utils/copyMode';
 import {
   focusKeyboardInput,

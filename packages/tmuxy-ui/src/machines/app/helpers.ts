@@ -2,7 +2,7 @@
  * Helper functions for the app machine
  */
 
-import type { ServerState } from '../../tmux/types';
+import type { ServerState } from '../../domain/wire';
 import type { TmuxPane, TmuxWindow } from '../types';
 
 /**

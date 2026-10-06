@@ -7,7 +7,7 @@
  * Groups consecutive cells by style into <span> elements for efficiency.
  */
 
-import type { CellLine, CellStyle, CellColor } from '../tmux/types';
+import type { CellLine, CellStyle, CellColor } from '../domain/wire';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { detectUrls } from '../utils/urlDetect';
 import { safeHref } from '../utils/openUrl';

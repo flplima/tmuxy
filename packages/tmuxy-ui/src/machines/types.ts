@@ -4,15 +4,8 @@
  * All type definitions for state machines and their events.
  */
 
-import type {
-  TmuxPane,
-  TmuxWindow,
-  ServerState,
-  KeyBindings,
-  KeyBinding,
-  CopyModeState,
-  Appearance,
-} from '../tmux/types';
+import type { TmuxPane, TmuxWindow, CopyModeState } from '../tmux/types';
+import type { ServerState, KeyBindings, KeyBinding, Appearance } from '../domain/wire';
 import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
 import type { GroupDrop, Side } from '../utils/groupDrop';
 import type { AskAnswer } from '../utils/paneAsk';
@@ -943,7 +936,7 @@ export type SelectAllScrollbackEvent = { type: 'SELECT_ALL_SCROLLBACK'; paneId: 
 export type CopyModeChunkLoadedEvent = {
   type: 'COPY_MODE_CHUNK_LOADED';
   paneId: string;
-  cells: import('../tmux/types').PaneContent;
+  cells: import('../domain/wire').PaneContent;
   start: number;
   end: number;
   historySize: number;

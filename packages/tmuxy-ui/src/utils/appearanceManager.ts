@@ -5,7 +5,7 @@
  * and in adapters without a config (demo, v86).
  */
 
-import type { Appearance } from '../tmux/types';
+import type { Appearance } from '../domain/wire';
 
 const VARIABLES: Array<[keyof Appearance, string]> = [
   ['opacity', '--app-opacity'],

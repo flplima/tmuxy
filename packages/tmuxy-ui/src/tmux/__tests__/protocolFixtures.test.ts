@@ -3,11 +3,11 @@
  *
  * `packages/protocol-fixtures/` holds canonical wire payloads serialized by
  * the Rust types (see `packages/tmuxy-server/src/sse.rs`, `mod
- * protocol_fixtures`). Nothing generates the TS decoders from those types —
- * the Effect schemas and `deltaProtocol` mirror them by hand — so a field that
- * drifts is invisible to both suites. `history_size` reached production that
- * way. These tests decode the committed fixtures through the real decoders and
- * fail when a field the server sends does not survive the trip.
+ * protocol_fixtures`). Nothing generates the TS schemas (`domain/wire.ts`)
+ * from those types — they mirror them by hand — so a field that drifts is
+ * invisible to both suites. `history_size` reached production that way. These
+ * tests decode the committed fixtures through the real schemas and fail when a
+ * field the server sends does not survive the trip.
  *
  * Regenerate the fixtures with:
  *   UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-server protocol_fixtures
@@ -17,9 +17,19 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { Schema } from 'effect';
 
-import { ServerState as ServerStateSchema } from '../effect/schemas';
+import {
+  ClipboardEvent,
+  ConnectionInfo,
+  DetachedEvent,
+  KeyBindings,
+  LogEvent,
+  MessageFrame,
+  ServerState as ServerStateSchema,
+  ThemeSettings,
+  type ServerState,
+} from '../../domain/wire';
 import { handleStateUpdate, applyDelta } from '../deltaProtocol';
-import type { ServerState, StateUpdate } from '../types';
+import { wireDelta, wireUpdate } from '../../test/wire';
 
 /** Vite serves modules under an `/@fs` prefix; `fs` wants the real path. */
 const FIXTURE_DIR = new URL('../../../../protocol-fixtures', import.meta.url).pathname.replace(
@@ -71,18 +81,18 @@ describe('Rust → TypeScript protocol fixtures', () => {
   });
 
   it('applies the canonical delta frame on top of the canonical full state', () => {
-    const full = fixture('sse_state_update_full.json') as { event: string; data: StateUpdate };
-    const delta = fixture('sse_state_update_delta.json') as { event: string; data: StateUpdate };
+    const full = fixture('sse_state_update_full.json') as { event: string; data: unknown };
+    const delta = fixture('sse_state_update_delta.json') as { event: string; data: unknown };
 
     expect(full.event).toBe('state-update');
     expect(delta.event).toBe('state-update');
 
-    const state = handleStateUpdate(full.data, null);
+    const state = handleStateUpdate(wireUpdate(full.data), null);
     expect(state).not.toBeNull();
     const before = state as ServerState;
     expect(before.panes.map((p) => p.tmux_id)).toEqual(['%2', '%3']);
 
-    const after = handleStateUpdate(delta.data, before) as ServerState;
+    const after = handleStateUpdate(wireUpdate(delta.data), before) as ServerState;
 
     // Every merge path the delta exercises, end to end.
     expect(after.active_pane_id).toBe('%4');
@@ -108,12 +118,15 @@ describe('Rust → TypeScript protocol fixtures', () => {
   });
 
   it('keeps every pane field the server can send reachable through applyDelta', () => {
-    const full = fixture('sse_state_update_full.json') as { data: StateUpdate };
+    const full = fixture('sse_state_update_full.json') as { data: unknown };
     const delta = fixture('sse_state_update_delta.json') as {
-      data: { type: 'delta'; delta: { panes: Record<string, Record<string, unknown>> } };
+      data: {
+        type: 'delta';
+        delta: { seq: number; panes: Record<string, Record<string, unknown>> };
+      };
     };
-    const state = handleStateUpdate(full.data, null) as ServerState;
-    const merged = applyDelta(state, delta.data.delta as never);
+    const state = handleStateUpdate(wireUpdate(full.data), null) as ServerState;
+    const merged = applyDelta(state, wireDelta(delta.data.delta));
 
     const paneDelta = delta.data.delta.panes['%2'];
     const pane = merged.panes.find((p) => p.tmux_id === '%2') as unknown as Record<string, unknown>;
@@ -138,11 +151,24 @@ describe('Rust → TypeScript protocol fixtures', () => {
       'detached',
       'fatal',
     ]);
+    // The schema each listener decodes its frame with.
+    const schemas = new Map<string, (data: unknown) => unknown>([
+      ['connection-info', Schema.decodeUnknownSync(ConnectionInfo)],
+      ['keybindings', Schema.decodeUnknownSync(KeyBindings)],
+      ['theme-settings', Schema.decodeUnknownSync(ThemeSettings)],
+      ['tmux-error', Schema.decodeUnknownSync(MessageFrame)],
+      ['clipboard', Schema.decodeUnknownSync(ClipboardEvent)],
+      ['log', Schema.decodeUnknownSync(LogEvent)],
+      ['detached', Schema.decodeUnknownSync(DetachedEvent)],
+      ['fatal', Schema.decodeUnknownSync(MessageFrame)],
+    ]);
     for (const frame of frames) {
       expect(handled.has(frame.event), `no client listener for SSE event "${frame.event}"`).toBe(
         true,
       );
-      expect(frame.data).toBeTypeOf('object');
+      const decode = schemas.get(frame.event);
+      expect(decode, `no schema for SSE event "${frame.event}"`).toBeDefined();
+      expect(() => decode!(frame.data)).not.toThrow();
     }
   });
 

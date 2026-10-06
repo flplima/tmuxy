@@ -16,6 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Schedule } from 'effect';
 import { HttpAdapter } from '../HttpAdapter';
+import type { ServerState } from '../../domain/wire';
 
 interface Resolver<T> {
   resolve: (value: T) => void;
@@ -421,7 +422,18 @@ describe('HttpAdapter connect() lifecycle', () => {
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ result: { panes: [], windows: [] } }),
+      json: () =>
+        Promise.resolve({
+          result: {
+            session_name: 's',
+            active_window_id: null,
+            active_pane_id: null,
+            panes: [],
+            windows: [],
+            total_width: 10,
+            total_height: 5,
+          },
+        }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -603,8 +615,18 @@ describe('HttpAdapter initial state against the live stream', () => {
     adapter.disconnect();
   });
 
+  /** The adapter's most recent state notification. */
+  const lastState = (adapter: HttpAdapter) => {
+    const seen: { state: ServerState | null } = { state: null };
+    adapter.onStateChange((s) => {
+      seen.state = s;
+    });
+    return seen;
+  };
+
   it('after a gap in the stream, the answer is the state to start again from', async () => {
     const { adapter, es, answer } = await withPendingAnswer();
+    const seen = lastState(adapter);
     const prompt = [[{ c: '$' }]];
     // The client's first answer, which also gives the resync its size.
     const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
@@ -618,13 +640,31 @@ describe('HttpAdapter initial state against the live stream', () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     answer(withTab(state(prompt), '@5'));
 
-    await vi.waitFor(() =>
-      expect(
-        (adapter as unknown as { currentState: ReturnType<typeof state> }).currentState.windows.map(
-          (w) => w.id,
-        ),
-      ).toEqual(['@1', '@5']),
-    );
+    await vi.waitFor(() => expect(seen.state?.windows.map((w) => w.id)).toEqual(['@1', '@5']));
+    adapter.disconnect();
+  });
+
+  it('a state update that does not decode is a gap: the adapter refetches a full state', async () => {
+    const { adapter, es, answer } = await withPendingAnswer();
+    const seen = lastState(adapter);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const prompt = [[{ c: '$' }]];
+    const initial = adapter.invoke('get_initial_state', { cols: 80, rows: 24 });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    answer(state(prompt));
+    await initial;
+    es.emit('state-update', { data: { type: 'full', state: state(prompt) } });
+    // A pane id in the wrong form: nothing past the boundary may see it.
+    es.emit('state-update', {
+      data: { type: 'delta', delta: { seq: 1, active_pane_id: 'not-a-pane' } },
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('state-update'), expect.anything());
+    answer(withTab(state(prompt), '@7'));
+
+    await vi.waitFor(() => expect(seen.state?.windows.map((w) => w.id)).toEqual(['@1', '@7']));
+    expect(seen.state?.active_pane_id).not.toBe('not-a-pane');
+    errors.mockRestore();
     adapter.disconnect();
   });
 });

@@ -33,14 +33,12 @@ export interface EffectTmuxAdapter {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Effect.Effect<T, AdapterError>;
 
   /**
-   * Invoke a command AND decode the response against an Effect Schema.
-   *
-   * Use this for once-per-session boundary calls where wire-format drift is
-   * a real risk (e.g. get_initial_state, get_keybindings_snapshot). Decode
-   * failures surface as ProtocolError carrying the raw payload, distinct
-   * from TransportError / TmuxError. Skipping the decode (plain `invoke`)
-   * is still correct for fire-and-forget commands or already-validated
-   * intermediate calls.
+   * Invoke a command AND decode the answer against its schema in
+   * `domain/wire.ts` (e.g. get_scrollback_cells, get_theme_settings). A
+   * mismatch surfaces as ProtocolError carrying the raw payload, distinct
+   * from TransportError / TmuxError. Plain `invoke` is for commands whose
+   * answer is nothing (fire-and-forget) or that the adapter already decodes
+   * (get_initial_state).
    */
   decodingInvoke: <A, I>(
     cmd: string,

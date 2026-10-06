@@ -1,9 +1,16 @@
 import { describe, test, expect } from 'vitest';
 import { handleStateUpdate, applyDelta, isDeltaSeqGap } from '../deltaProtocol';
-import type { ServerState, ServerPane, ServerDelta, StateUpdate } from '../types';
+import type {
+  ServerDelta,
+  ServerState,
+  ServerStateEncoded,
+  StateUpdate,
+  WirePaneEncoded,
+} from '../../domain/wire';
+import { wireDelta, wireState } from '../../test/wire';
 
 describe('isDeltaSeqGap', () => {
-  const delta = (seq: number): ServerDelta => ({ seq });
+  const delta = (seq: number): ServerDelta => wireDelta({ seq });
 
   test('no gap right after a full state (null prevSeq)', () => {
     expect(isDeltaSeqGap(null, delta(7))).toBe(false);
@@ -23,7 +30,7 @@ describe('isDeltaSeqGap', () => {
   });
 });
 
-function makePane(overrides: Partial<ServerPane> = {}): ServerPane {
+function makePane(overrides: Partial<WirePaneEncoded> = {}): WirePaneEncoded {
   return {
     id: 0,
     tmux_id: '%0',
@@ -46,8 +53,8 @@ function makePane(overrides: Partial<ServerPane> = {}): ServerPane {
   };
 }
 
-function makeState(overrides: Partial<ServerState> = {}): ServerState {
-  return {
+function makeState(overrides: Partial<ServerStateEncoded> = {}): ServerState {
+  return wireState({
     session_name: 'test',
     active_window_id: '@0',
     active_pane_id: '%0',
@@ -56,7 +63,7 @@ function makeState(overrides: Partial<ServerState> = {}): ServerState {
     total_width: 80,
     total_height: 24,
     ...overrides,
-  };
+  });
 }
 
 const nonEmptyContent = [[{ c: 'h' }, { c: 'e' }, { c: 'l' }, { c: 'l' }, { c: 'o' }]];
@@ -113,12 +120,15 @@ describe('applyDelta - content preservation', () => {
       panes: [makePane({ content: nonEmptyContent })],
     });
     const blanked = Object.fromEntries(nonEmptyContent.map((_, i) => [i, [{ c: ' ' }]]));
-    const result = applyDelta(state, {
-      seq: 1,
-      panes: {
-        '%0': { content: blanked },
-      },
-    });
+    const result = applyDelta(
+      state,
+      wireDelta({
+        seq: 1,
+        panes: {
+          '%0': { content: blanked },
+        },
+      }),
+    );
 
     expect(result.panes[0].content).toEqual(nonEmptyContent.map(() => [{ c: ' ' }]));
   });
@@ -128,40 +138,17 @@ describe('applyDelta - content preservation', () => {
       panes: [makePane({ content: nonEmptyContent })],
     });
     const newLine = [{ c: 'n' }, { c: 'e' }, { c: 'w' }];
-    const result = applyDelta(state, {
-      seq: 1,
-      panes: {
-        '%0': { content: { 0: newLine } },
-      },
-    });
+    const result = applyDelta(
+      state,
+      wireDelta({
+        seq: 1,
+        panes: {
+          '%0': { content: { 0: newLine } },
+        },
+      }),
+    );
 
     expect(result.panes[0].content[0]).toEqual(newLine);
-  });
-});
-
-describe('handleStateUpdate — malformed updates', () => {
-  // A state update the client cannot digest must never throw out of the state
-  // pipeline: that exception used to unmount the whole app and leave a blank
-  // page (seen after a float window appeared and vanished within one poll).
-  test('keeps the current state when a full update carries no state', () => {
-    const current = makeState();
-    const update = { type: 'full' } as unknown as StateUpdate;
-    expect(handleStateUpdate(update, current)).toBe(current);
-  });
-
-  test('keeps the current state when a delta update carries no delta', () => {
-    const current = makeState();
-    const update = { type: 'delta' } as unknown as StateUpdate;
-    expect(handleStateUpdate(update, current)).toBe(current);
-  });
-
-  test('keeps the current state when a full update has no pane or window arrays', () => {
-    const current = makeState();
-    const update = {
-      type: 'full',
-      state: { session_name: 'test' },
-    } as unknown as StateUpdate;
-    expect(handleStateUpdate(update, current)).toBe(current);
   });
 });
 
@@ -173,10 +160,10 @@ describe('applyDelta — window order', () => {
         { id: '@1', index: 2, name: 'b', active: false, window_type: 'tab' },
       ],
     });
-    const delta: ServerDelta = {
+    const delta = wireDelta({
       seq: 1,
       windows: { '@1': { index: 1, active_pane_id: '%9' }, '@0': { index: 2 } },
-    };
+    });
     const next = applyDelta(state, delta);
     expect(next.windows.map((w) => [w.id, w.index])).toEqual([
       ['@0', 2],

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Terminal } from '../components/Terminal';
 import { cellsToCss } from '../components/terminalShared';
-import type { PaneContent, CellLine, TerminalCell } from '../tmux/types';
+import type { PaneContent, CellLine, TerminalCell } from '../domain/wire';
 
 // Helper to create a simple cell line from a string
 function createLine(text: string): CellLine {

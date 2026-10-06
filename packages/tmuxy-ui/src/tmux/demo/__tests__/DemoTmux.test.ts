@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DemoTmux } from '../DemoTmux';
 import { Schema } from 'effect';
-import * as Schemas from '../../effect/schemas';
+import { ServerState } from '../../../domain/wire';
 
 describe('DemoTmux', () => {
   let tmux: DemoTmux;
@@ -242,7 +242,7 @@ describe('DemoTmux', () => {
       tmux.splitPane('horizontal');
       tmux.createFloat({ width: 30, height: 8 });
       const state = tmux.getState();
-      expect(() => Schema.decodeUnknownSync(Schemas.ServerState)(state)).not.toThrow();
+      expect(() => Schema.decodeUnknownSync(ServerState)(state)).not.toThrow();
     });
   });
   describe('float sizing', () => {

@@ -2,7 +2,8 @@
  * copyMode - Text extraction utilities for client-side copy mode
  */
 
-import type { CopyModeState, CellLine } from '../tmux/types';
+import type { CopyModeState } from '../tmux/types';
+import type { CellLine } from '../domain/wire';
 
 /**
  * Whether a physical row is a wrapped continuation of a logical line.
@@ -74,13 +75,16 @@ export function extractSelectedText(state: CopyModeState): string {
  * Returns a new Map with the merged data and updated loadedRanges.
  */
 export function mergeScrollbackChunk(
-  existingLines: Map<number, import('../tmux/types').CellLine>,
+  existingLines: Map<number, import('../domain/wire').CellLine>,
   existingRanges: Array<[number, number]>,
-  cells: import('../tmux/types').PaneContent,
+  cells: import('../domain/wire').PaneContent,
   historySize: number,
   tmuxStart: number,
   tmuxEnd: number,
-): { lines: Map<number, import('../tmux/types').CellLine>; loadedRanges: Array<[number, number]> } {
+): {
+  lines: Map<number, import('../domain/wire').CellLine>;
+  loadedRanges: Array<[number, number]>;
+} {
   const newLines = new Map(existingLines);
 
   // Convert tmux line offsets to absolute line indices

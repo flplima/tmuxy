@@ -5,20 +5,27 @@ import {
   ConnectionInfoListener,
   ReconnectionListener,
   KeyBindingsListener,
-  ThemeSettings,
   ThemeSettingsListener,
   LogListener,
-  LogEntryKind,
   FatalListener,
   DetachedListener,
   ClipboardListener,
-  ServerState,
-  StateUpdate,
-  KeyBindings,
 } from './types';
+import {
+  ClipboardEvent,
+  DetachedEvent,
+  KeyBindings,
+  LogEvent,
+  MessageFrame,
+  ThemeSettings,
+  type LogEntryKind,
+  type ServerState,
+} from '../domain/wire';
+import { Schema } from 'effect';
 import { HttpAdapter } from './HttpAdapter';
 import { DemoAdapter } from './demo/DemoAdapter';
-import { adoptInitialState, handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
+import { StateStream } from './stateStream';
+import { decodeEvent } from './wireDecode';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
@@ -44,18 +51,14 @@ export class TauriAdapter implements TmuxAdapter {
   private detachedListeners = new Set<DetachedListener>();
   private clipboardListeners = new Set<ClipboardListener>();
 
-  // Delta protocol state
-  private currentState: ServerState | null = null;
-  // Last applied delta seq (null right after a full snapshot) + cached client
-  // size, so a dropped/misordered delta triggers a get_initial_state refetch
-  // instead of diverging. The Tauri event channel has no ring-buffer replay,
-  // so this is the only recovery path on that transport.
-  private lastDeltaSeq: number | null = null;
   /**
-   * The stream has delivered a full state and no sequence gap since, so it is
-   * the client's state (see `adoptInitialState`).
+   * The state stream: decoding, delta sequencing and the client's copy of the
+   * state. With the cached client size below, a dropped/misordered or
+   * undecodable delta triggers a get_initial_state refetch instead of
+   * diverging. The Tauri event channel has no ring-buffer replay, so this is
+   * the only recovery path on that transport.
    */
-  private streamSynced = false;
+  private readonly stream = new StateStream();
   /** Delta seq of the most recent applied update, for the trace `apply` event. */
   private lastAppliedSeq: number | null = null;
   private lastCols = 0;
@@ -94,31 +97,31 @@ export class TauriAdapter implements TmuxAdapter {
         });
       });
 
-      // Listen for state updates (full or delta)
-      const unlistenState = await listen<StateUpdate>('tmux-state-update', (event) => {
-        const update = event.payload;
+      // Every event payload is decoded against its schema; a handler only
+      // ever sees one that matched.
+      const on = async <A, I>(
+        name: string,
+        schema: Schema.Schema<A, I>,
+        handle: (payload: A) => void,
+      ): Promise<void> => {
+        const decode = decodeEvent(schema, name);
+        const unlisten = await listen<unknown>(name, (event) => {
+          const payload = decode(event.payload);
+          if (payload !== null) handle(payload);
+        });
+        this.unlistenFns.push(unlisten);
+      };
 
-        // Delta seq-gap detection (see HttpAdapter): a dropped delta would
-        // apply to stale state and diverge. On a gap, refetch a full snapshot.
-        if (update.type === 'delta') {
-          if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
-            this.lastDeltaSeq = null;
-            this.streamSynced = false;
-            void this.resyncFullState();
-            return;
-          }
-          this.lastDeltaSeq = update.delta.seq;
-          this.lastAppliedSeq = update.delta.seq;
-        } else {
-          this.lastDeltaSeq = null;
-          this.lastAppliedSeq = null;
-          this.streamSynced = true;
+      // State updates (full or delta), decoded and sequenced by the stream.
+      const unlistenState = await listen<unknown>('tmux-state-update', (event) => {
+        const step = this.stream.receive(event.payload);
+        if (step._tag === 'resync') {
+          void this.resyncFullState();
+          return;
         }
-
-        const newState = handleStateUpdate(update, this.currentState);
-        if (newState) {
-          this.currentState = newState;
-          this.notifyStateChange(newState);
+        if (step._tag === 'apply') {
+          this.lastAppliedSeq = step.seq;
+          this.notifyStateChange(step.state);
         }
 
         // A successful state update means we're connected — and is the ONLY
@@ -137,60 +140,45 @@ export class TauriAdapter implements TmuxAdapter {
       });
       this.unlistenFns.push(unlistenState);
 
-      // Listen for keybindings
-      const unlistenKeybindings = await listen<KeyBindings>('tmux-keybindings', (event) => {
-        this.notifyKeyBindings(event.payload);
-      });
-      this.unlistenFns.push(unlistenKeybindings);
+      await on('tmux-keybindings', KeyBindings, (keybindings) =>
+        this.notifyKeyBindings(keybindings),
+      );
 
       // Theme + appearance, re-pushed after the config is sourced
-      const unlistenThemeSettings = await listen<ThemeSettings>('tmux-theme-settings', (event) => {
-        this.notifyThemeSettings(event.payload);
-      });
-      this.unlistenFns.push(unlistenThemeSettings);
-
-      // Listen for streaming connection-time progress (each command + output)
-      const unlistenLog = await listen<{ kind: LogEntryKind; message: string }>(
-        'tmux-log',
-        (event) => {
-          this.notifyLog(event.payload.kind, event.payload.message);
-        },
+      await on('tmux-theme-settings', ThemeSettings, (settings) =>
+        this.notifyThemeSettings(settings),
       );
-      this.unlistenFns.push(unlistenLog);
+
+      // Streaming connection-time progress (each command + output)
+      await on('tmux-log', LogEvent, (payload) => this.notifyLog(payload.kind, payload.message));
 
       // OSC 52 clipboard write requests from terminal applications, forwarded
       // by monitor.rs. Mirrored into the system clipboard by the tmux actor.
       // Without this the desktop app silently drops every terminal clipboard
       // write (HttpAdapter has the same listener).
-      const unlistenClipboard = await listen<{ pane_id: string; text: string }>(
-        'tmux-clipboard',
-        (event) => {
-          this.notifyClipboard(event.payload.pane_id, event.payload.text);
-        },
+      await on('tmux-clipboard', ClipboardEvent, (payload) =>
+        this.notifyClipboard(payload.pane_id, payload.text),
       );
-      this.unlistenFns.push(unlistenClipboard);
 
       // Backend gave up reconnecting — terminal state, no further events.
-      const unlistenFatal = await listen<{ message: string }>('tmux-fatal', (event) => {
+      await on('tmux-fatal', MessageFrame, (payload) => {
         this.connected = false;
         this.reconnectingState = false;
-        this.notifyFatal(event.payload.message);
+        this.notifyFatal(payload.message);
       });
-      this.unlistenFns.push(unlistenFatal);
 
       // The connection ended with tmux's own reason. A deliberate detach is
       // NOT a failure: clearing `reconnectingState` here is what stops the
       // adapter presenting it as a retry.
-      const unlistenDetached = await listen<{ reason: string | null }>('tmux-detached', (event) => {
+      await on('tmux-detached', DetachedEvent, (payload) => {
         this.connected = false;
         this.reconnectingState = false;
-        this.notifyDetached(event.payload.reason ?? null);
+        this.notifyDetached(payload.reason ?? null);
       });
-      this.unlistenFns.push(unlistenDetached);
 
-      // Listen for errors (emitted by monitor.rs on connection failure)
-      const unlistenError = await listen<string>('tmux-error', (event) => {
-        this.notifyError(event.payload);
+      // Errors (emitted by monitor.rs on connection failure), a bare message.
+      await on('tmux-error', Schema.String, (message) => {
+        this.notifyError(message);
 
         // A dropped connection, a failed first attempt and a failed retry
         // all leave the adapter retrying.
@@ -198,7 +186,6 @@ export class TauriAdapter implements TmuxAdapter {
         this.reconnectingState = true;
         this.notifyReconnection(true);
       });
-      this.unlistenFns.push(unlistenError);
 
       this.connected = true;
 
@@ -223,7 +210,10 @@ export class TauriAdapter implements TmuxAdapter {
       // launch where the WebView is still booting). Without this fetch the
       // prefix indicator stays hidden and prefix/root bindings are empty,
       // so prefix-key and Ctrl+hjkl silently no-op.
-      const snapshot = await invoke<KeyBindings | null>('get_keybindings_snapshot');
+      const snapshot = decodeEvent(
+        Schema.NullOr(KeyBindings),
+        'get_keybindings_snapshot',
+      )(await invoke<unknown>('get_keybindings_snapshot'));
       if (snapshot) {
         this.notifyKeyBindings(snapshot);
       }
@@ -246,9 +236,7 @@ export class TauriAdapter implements TmuxAdapter {
 
     this.connected = false;
     this.reconnectingState = false;
-    this.currentState = null;
-    this.lastDeltaSeq = null;
-    this.streamSynced = false;
+    this.stream.reset();
   }
 
   // Serial queue for mutating commands so they reach the Tauri executor in
@@ -271,15 +259,9 @@ export class TauriAdapter implements TmuxAdapter {
       this.lastRows = args.rows;
     }
 
-    // Special handling for get_initial_state: capture as currentState for delta protocol
+    // The answer is decoded and adopted by the stream, so deltas apply to it.
     if (cmd === 'get_initial_state') {
-      const result = await invoke<T>(cmd, args);
-      const synced = this.streamSynced;
-      this.currentState = adoptInitialState(result as ServerState, this.currentState, synced);
-      // A synced stream carries on from its own sequence; an adopted answer
-      // starts one.
-      if (!synced) this.lastDeltaSeq = null;
-      return this.currentState as T;
+      return this.stream.adopt(await invoke<unknown>(cmd, args)) as T;
     }
 
     // Check if this is a send-keys command that should be batched
@@ -441,7 +423,7 @@ export class TauriAdapter implements TmuxAdapter {
         cols: this.lastCols,
         rows: this.lastRows,
       });
-      // invoke() already set currentState + reset lastDeltaSeq.
+      // invoke() already adopted the answer into the stream.
       this.notifyStateChange(state);
     } catch (e) {
       console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e);

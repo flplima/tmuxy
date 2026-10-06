@@ -6,7 +6,8 @@
 
 import { transformServerState as _transform } from '../../machines/app/helpers';
 import { cellLinesEqual } from '../deltaProtocol';
-import type { ServerState, TmuxPane, TmuxWindow } from '../types';
+import type { TmuxPane, TmuxWindow } from '../types';
+import type { ServerState } from '../../domain/wire';
 import type { TmuxSnapshot } from './types';
 
 export function transformServerState(payload: ServerState): TmuxSnapshot {

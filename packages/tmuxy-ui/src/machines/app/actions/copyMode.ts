@@ -12,7 +12,8 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import type { CopyModeState, CellLine, ScrollbackMode, TmuxPane } from '../../../tmux/types';
+import type { CopyModeState, ScrollbackMode, TmuxPane } from '../../../tmux/types';
+import type { CellLine } from '../../../domain/wire';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import {
   firstUnloadedGap,

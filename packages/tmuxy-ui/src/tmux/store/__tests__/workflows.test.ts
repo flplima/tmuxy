@@ -24,7 +24,14 @@ import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../parseCommand';
 import { applyServerSnapshot, modelFromSnapshot, makePendingOp } from '../model';
 import type { OpId, TmuxOp, TmuxSnapshot } from '../types';
-import type { ServerState, ServerPane, ServerWindow, TmuxAdapter } from '../../types';
+import type { TmuxAdapter } from '../../types';
+import type {
+  ServerState,
+  ServerStateEncoded,
+  WirePaneEncoded,
+  WireWindowEncoded,
+} from '../../../domain/wire';
+import { wireState } from '../../../test/wire';
 import { toEffectAdapter } from '../../effect';
 import { TmuxError } from '../../effect/AdapterError';
 import { predict } from '../ops';
@@ -33,7 +40,7 @@ import { predict } from '../ops';
 // Fixtures
 // ============================================
 
-const serverPane = (over: Partial<ServerPane> = {}): ServerPane => ({
+const serverPane = (over: Partial<WirePaneEncoded> = {}): WirePaneEncoded => ({
   id: 0,
   tmux_id: '%0',
   window_id: '@0',
@@ -63,7 +70,7 @@ const serverPane = (over: Partial<ServerPane> = {}): ServerPane => ({
   ...over,
 });
 
-const serverWindow = (over: Partial<ServerWindow> = {}): ServerWindow => ({
+const serverWindow = (over: Partial<WireWindowEncoded> = {}): WireWindowEncoded => ({
   id: '@0',
   index: 0,
   name: 'main',
@@ -72,16 +79,17 @@ const serverWindow = (over: Partial<ServerWindow> = {}): ServerWindow => ({
   ...over,
 });
 
-const serverState = (over: Partial<ServerState> = {}): ServerState => ({
-  session_name: 'tmuxy',
-  active_window_id: '@0',
-  active_pane_id: '%0',
-  panes: [serverPane()],
-  windows: [serverWindow()],
-  total_width: 80,
-  total_height: 24,
-  ...over,
-});
+const serverState = (over: Partial<ServerStateEncoded> = {}): ServerState =>
+  wireState({
+    session_name: 'tmuxy',
+    active_window_id: '@0',
+    active_pane_id: '%0',
+    panes: [serverPane()],
+    windows: [serverWindow()],
+    total_width: 80,
+    total_height: 24,
+    ...over,
+  });
 
 interface FakeAdapter {
   adapter: TmuxAdapter;

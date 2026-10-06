@@ -13,7 +13,7 @@
 
 import { memo, useMemo, useCallback, useSyncExternalStore, CSSProperties } from 'react';
 import { LogProfiler } from '../utils/renderLog';
-import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
+import type { CellLine, TerminalCell, CellStyle } from '../domain/wire';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';

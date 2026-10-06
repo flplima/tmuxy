@@ -24,7 +24,7 @@
  */
 export const V86_DEFAULT_COLS = 80;
 export const V86_DEFAULT_ROWS = 30;
-import type { ServerState, StateUpdate, PaneContent } from '../types';
+import type { PaneContent, ServerStateEncoded, StateUpdateEncoded } from '../../domain/wire';
 
 const WASM_JS = '/wasm/tmuxy_wasm.js';
 const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';
@@ -75,7 +75,7 @@ interface V86Emulator {
   screen_adapter?: { pause(): void; continue(): void };
 }
 interface FeedOutput {
-  updates: StateUpdate[];
+  updates: StateUpdateEncoded[];
   commands: string[];
   clipboard: [string, string][];
   /** (success, first output line) per %begin/%end/%error block, in order. */
@@ -84,7 +84,7 @@ interface FeedOutput {
 interface WasmCore {
   feed(text: string): FeedOutput;
   tick(): FeedOutput;
-  snapshot(): ServerState;
+  snapshot(): ServerStateEncoded;
   initial_sync(): string[];
   image_url(paneId: string, imageId: number): string | undefined;
   parse_scrollback(text: string, width: number): PaneContent;
@@ -96,14 +96,14 @@ interface WasmModule {
 
 /** Where the engine forwards reconstructed state + clipboard writes. */
 export interface EngineSink {
-  onState(state: ServerState): void;
+  onState(state: ServerStateEncoded): void;
   onClipboard(paneId: string, text: string): void;
   /** The control-mode stream ended (`%exit`) — the tmux server died or the
    *  client was detached. Non-recoverable for this attach. */
   onFatal(message: string): void;
 }
 
-const EMPTY_STATE: ServerState = {
+const EMPTY_STATE: ServerStateEncoded = {
   session_name: 'm',
   active_window_id: null,
   active_pane_id: null,
@@ -145,7 +145,7 @@ export class V86Engine {
   >();
   private armedTracker: string | null = null;
   private attached = false;
-  private lastState: ServerState = EMPTY_STATE;
+  private lastState: ServerStateEncoded = EMPTY_STATE;
   private readonly decoder = new TextDecoder();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
@@ -218,7 +218,7 @@ export class V86Engine {
     return () => this.readyListeners.delete(cb);
   }
 
-  getLastState(): ServerState {
+  getLastState(): ServerStateEncoded {
     return this.lastState;
   }
 
@@ -551,11 +551,14 @@ export class V86Engine {
     // optimistic-focus/layout-transition heuristics (tuned against
     // server-timed emissions) permanently pin the stale focus. The per-batch
     // snapshot is always internally consistent, which those heuristics assume.
-    const state = this.core.snapshot();
+    const snapshot = this.core.snapshot();
     // serde-wasm-bindgen serializes Option::None as `undefined`; the wire
-    // schema (and the strict get_initial_state decode) expects `null`.
-    state.active_window_id ??= null;
-    state.active_pane_id ??= null;
+    // schema expects `null`.
+    const state: ServerStateEncoded = {
+      ...snapshot,
+      active_window_id: snapshot.active_window_id ?? null,
+      active_pane_id: snapshot.active_pane_id ?? null,
+    };
     this.lastState = state;
     this.sink?.onState(state);
     if (state.panes.length > 0 && this.resolveFirstState) {

@@ -1,3 +1,13 @@
+import type {
+  CellLine,
+  KeyBindings,
+  LogEntryKind,
+  PaneContent,
+  ServerState,
+  ThemeSettings,
+  WindowType,
+} from '../domain/wire';
+
 // ============================================
 // Tmux Domain Types
 // ============================================
@@ -88,13 +98,6 @@ export interface ImagePlacement {
   protocol: 'iterm2' | 'kitty' | 'sixel';
 }
 
-/**
- * Window type as set on the tmux window via @tmuxy-window-type.
- * `null` means foreign — tmuxy never created or adopted this window and
- * filters it out everywhere.
- */
-export type WindowType = 'tab' | 'float' | 'sidebar-left' | 'sidebar-right';
-
 export interface TmuxWindow {
   /** Window ID (e.g., "@0") */
   id: string;
@@ -146,39 +149,6 @@ export interface TmuxWindow {
    *  Absent is equivalent to false. */
   zoomed?: boolean;
 }
-
-// ============================================
-// Structured Cell Types (from Rust backend)
-// ============================================
-
-/** Color can be indexed (0-255) or RGB */
-export type CellColor = number | { r: number; g: number; b: number };
-
-/** Cell style attributes */
-export interface CellStyle {
-  fg?: CellColor;
-  bg?: CellColor;
-  bold?: boolean;
-  /** SGR 2: faint/dim text (rendered at reduced opacity) */
-  dim?: boolean;
-  italic?: boolean;
-  underline?: boolean;
-  inverse?: boolean;
-  /** OSC 8 hyperlink URL */
-  url?: string;
-}
-
-/** A single terminal cell with character and optional styling */
-export interface TerminalCell {
-  c: string; // character
-  s?: CellStyle; // style (optional)
-}
-
-/** A line of terminal cells */
-export type CellLine = TerminalCell[];
-
-/** Pane content is always structured cells */
-export type PaneContent = CellLine[];
 
 // ============================================
 // Client-Side Copy Mode Types
@@ -253,183 +223,6 @@ export interface CopyModeState {
 }
 
 // ============================================
-// Server Types (snake_case from backend)
-// ============================================
-
-export interface ServerPane {
-  id: number;
-  tmux_id: string;
-  window_id: string;
-  content: PaneContent;
-  cursor_x: number;
-  cursor_y: number;
-  width: number;
-  height: number;
-  x: number;
-  y: number;
-  active: boolean;
-  command: string;
-  title: string;
-  border_title: string;
-  group_id?: string | null;
-  group_pos?: number | null;
-  in_mode: boolean;
-  copy_cursor_x: number;
-  copy_cursor_y: number;
-  alternate_on?: boolean;
-  mouse_any_flag?: boolean;
-  marked?: boolean;
-  paused?: boolean;
-  history_size?: number;
-  selection_present?: boolean;
-  selection_start_x?: number;
-  selection_start_y?: number;
-  images?: ServerImagePlacement[];
-  cursor_shape?: number;
-  cursor_hidden?: boolean;
-  pane_state?: string | null;
-  pane_ask?: string | null;
-  /**
-   * `@tmuxy-pane-widget`: which widget this pane may render. The
-   * `__TMUXY_WIDGET__:` marker is pane OUTPUT, so it authorises nothing on its
-   * own — see `detectWidget`.
-   */
-  pane_widget?: string | null;
-  /** `@tmuxy-pane-restore`: the line a session restore types to bring the pane back. */
-  pane_restore?: string | null;
-}
-
-/** Image placement in snake_case from backend */
-export interface ServerImagePlacement {
-  id: number;
-  row: number;
-  col: number;
-  width_cells: number;
-  height_cells: number;
-  protocol: 'iterm2' | 'kitty' | 'sixel';
-}
-
-export interface ServerWindow {
-  id: string;
-  index: number;
-  name: string;
-  active: boolean;
-  window_type?: WindowType | null;
-  float_parent?: string | null;
-  float_width?: number | null;
-  float_height?: number | null;
-  float_drawer?: string | null;
-  float_bg?: string | null;
-  float_noheader?: boolean;
-  sidebar_cols?: number | null;
-  sidebar_hidden?: boolean;
-  collapsible?: boolean;
-  zoomed?: boolean;
-  active_pane_id?: string | null;
-}
-
-export interface ServerState {
-  session_name: string;
-  active_window_id: string | null;
-  active_pane_id: string | null;
-  panes: ServerPane[];
-  windows: ServerWindow[];
-  total_width: number;
-  total_height: number;
-  /**
-   * A one-shot request from a shell helper for this client to move keyboard
-   * focus somewhere no tmux command could reach: `left`/`right` for a sidebar
-   * column, `panes` to leave one. Set by `bin/tmuxy/nav` when a directional
-   * `select-pane` is a no-op at the grid's edge. The client that acts on it
-   * unsets the tmux option, which clears the field on the next poll.
-   */
-  focus_request?: string;
-}
-
-// ============================================
-// Delta Types (for incremental updates)
-// ============================================
-
-export interface PaneDelta {
-  window_id?: string;
-  /** Sparse line updates: line index → cells (only changed lines) */
-  content?: Record<number, CellLine>;
-  cursor_x?: number;
-  cursor_y?: number;
-  width?: number;
-  height?: number;
-  x?: number;
-  y?: number;
-  active?: boolean;
-  command?: string;
-  title?: string;
-  border_title?: string;
-  group_id?: string | null;
-  group_pos?: number | null;
-  in_mode?: boolean;
-  copy_cursor_x?: number;
-  copy_cursor_y?: number;
-  alternate_on?: boolean;
-  mouse_any_flag?: boolean;
-  marked?: boolean;
-  paused?: boolean;
-  history_size?: number;
-  selection_present?: boolean;
-  selection_start_x?: number;
-  selection_start_y?: number;
-  images?: ServerImagePlacement[];
-  cursor_shape?: number;
-  cursor_hidden?: boolean;
-  pane_state?: string | null;
-  pane_ask?: string | null;
-  /**
-   * `@tmuxy-pane-widget`: which widget this pane may render. The
-   * `__TMUXY_WIDGET__:` marker is pane OUTPUT, so it authorises nothing on its
-   * own — see `detectWidget`.
-   */
-  pane_widget?: string | null;
-  /** `@tmuxy-pane-restore`: the line a session restore types to bring the pane back. */
-  pane_restore?: string | null;
-}
-
-export interface WindowDelta {
-  /** The window's index moved (a reorder renumbers its neighbours too). */
-  index?: number;
-  name?: string;
-  active?: boolean;
-  window_type?: WindowType | null;
-  float_parent?: string | null;
-  float_width?: number | null;
-  float_height?: number | null;
-  float_drawer?: string | null;
-  float_bg?: string | null;
-  float_noheader?: boolean;
-  sidebar_cols?: number | null;
-  sidebar_hidden?: boolean;
-  collapsible?: boolean;
-  zoomed?: boolean;
-  active_pane_id?: string | null;
-}
-
-export interface ServerDelta {
-  seq: number;
-  panes?: Record<string, PaneDelta | null>; // null = removed
-  windows?: Record<string, WindowDelta | null>; // null = removed
-  new_panes?: ServerPane[];
-  new_windows?: ServerWindow[];
-  active_window_id?: string;
-  active_pane_id?: string;
-  /** See `ServerState.focus_request`. An empty string means "cleared". */
-  focus_request?: string;
-  total_width?: number;
-  total_height?: number;
-}
-
-export type StateUpdate =
-  | { type: 'full'; state: ServerState }
-  | { type: 'delta'; delta: ServerDelta };
-
-// ============================================
 // Adapter Types
 // ============================================
 
@@ -446,9 +239,6 @@ export type ReconnectionListener = (reconnecting: boolean) => void;
  * the payload into the system clipboard via `navigator.clipboard.writeText`.
  */
 export type ClipboardListener = (paneId: string, text: string) => void;
-
-/** Streamed progress entry kind from the backend (matches `LogKind` in Rust) */
-export type LogEntryKind = 'command' | 'output' | 'info' | 'error';
 
 export type LogListener = (kind: LogEntryKind, message: string) => void;
 
@@ -515,57 +305,6 @@ export interface TmuxAdapter {
   query?(command: string): Promise<string>;
 }
 
-// ============================================
-// Key Bindings Types
-// ============================================
-
-export interface KeyBinding {
-  key: string;
-  command: string;
-  description: string;
-  repeat?: boolean;
-}
-
-export interface KeyBindings {
-  prefix_key: string;
-  prefix_bindings: KeyBinding[];
-  root_bindings: KeyBinding[];
-}
-
 export type KeyBindingsListener = (keybindings: KeyBindings) => void;
-
-/**
- * Surface opacities + native blur flag from tmuxy.conf (`@tmuxy-*`), the same
- * on every transport — mirrors `tmuxy_core::theme::Appearance`.
- */
-export interface Appearance {
-  /** Window chrome: title bar, sidebar, the gaps between panes. */
-  opacity: number;
-  activePaneOpacity: number;
-  inactivePaneOpacity: number;
-  activeTextOpacity: number;
-  inactiveTextOpacity: number;
-  /** macOS blur behind the window; ignored elsewhere. */
-  blur: boolean;
-  /** Layout animations (`@tmuxy-animations`): pane morphs, swaps, resizes, float keyframes. */
-  animations: boolean;
-  /** Whether the cursor blinks (`@tmuxy-cursor-blink`), unless the app asks for a steady one. */
-  cursorBlink: boolean;
-  /** Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`), 1–12. */
-  tabOverviewCols: number;
-  /** Two-finger slide switches tabs (`@tmuxy-gesture-swipe-tabs`). */
-  gestureSwipeTabs: boolean;
-  /** Pinch out zooms a pane, pinch in unzooms (`@tmuxy-gesture-pinch-zoom`). */
-  gesturePinchZoom: boolean;
-  /** Pinch in opens the "all tabs" view (`@tmuxy-gesture-pinch-overview`). */
-  gesturePinchOverview: boolean;
-}
-
-/** `get_theme_settings` result / `theme-settings` push payload. */
-export interface ThemeSettings {
-  theme: string;
-  mode: string;
-  appearance?: Appearance;
-}
 
 export type ThemeSettingsListener = (settings: ThemeSettings) => void;

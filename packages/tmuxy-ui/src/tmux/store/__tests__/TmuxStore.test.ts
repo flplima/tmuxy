@@ -12,13 +12,15 @@ import { describe, it, expect } from 'vitest';
 import { Effect } from 'effect';
 import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../parseCommand';
-import type { ServerState, TmuxAdapter } from '../../types';
+import type { TmuxAdapter } from '../../types';
+import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
+import { wireState } from '../../../test/wire';
 import { toEffectAdapter } from '../../effect';
 import { TmuxError } from '../../effect/AdapterError';
 import type { TmuxClientModel } from '../types';
 
-function blankServerState(over: Partial<ServerState> = {}): ServerState {
-  return {
+function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
+  return wireState({
     session_name: 'tmuxy',
     active_window_id: '@0',
     active_pane_id: '%0',
@@ -64,7 +66,7 @@ function blankServerState(over: Partial<ServerState> = {}): ServerState {
     total_width: 80,
     total_height: 24,
     ...over,
-  };
+  });
 }
 
 /** Build a fake adapter that records invocations and lets the test control
@@ -248,15 +250,17 @@ describe('notify granularity', () => {
     });
     notifies = 0; // subscribe fires once on attach
     Effect.runSync(
-      store.reconcile({
-        session_name: 'test',
-        active_window_id: '@0',
-        active_pane_id: '%0',
-        panes: [],
-        windows: [],
-        total_width: 80,
-        total_height: 24,
-      }),
+      store.reconcile(
+        wireState({
+          session_name: 'test',
+          active_window_id: '@0',
+          active_pane_id: '%0',
+          panes: [],
+          windows: [],
+          total_width: 80,
+          total_height: 24,
+        }),
+      ),
     );
     expect(notifies).toBe(1);
     unsubscribe();
@@ -264,7 +268,7 @@ describe('notify granularity', () => {
 
   describe('read-only', () => {
     /** Two tabs: @0 holds %0 and %1 side by side, @1 holds %2. tmux has @0/%0 active. */
-    function twoTabs(over: Partial<ServerState> = {}): ServerState {
+    function twoTabs(over: Partial<ServerStateEncoded> = {}): ServerState {
       const base = blankServerState();
       const pane = base.panes[0];
       return blankServerState({

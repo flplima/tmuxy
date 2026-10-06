@@ -6,7 +6,7 @@ import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
 import { RowEdges } from './RowEdges';
-import type { CellLine } from '../tmux/types';
+import type { CellLine } from '../domain/wire';
 
 function styled(str: string, style: Record<string, unknown>): CellLine {
   return str.split('').map((c) => ({ c, s: style }));

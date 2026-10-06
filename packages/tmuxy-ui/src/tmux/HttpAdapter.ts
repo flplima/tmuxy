@@ -5,24 +5,31 @@ import {
   ConnectionInfoListener,
   ReconnectionListener,
   KeyBindingsListener,
-  ThemeSettings,
   ThemeSettingsListener,
   LogListener,
-  LogEntryKind,
   FatalListener,
   DetachedListener,
   ClipboardListener,
-  ServerState,
-  StateUpdate,
-  KeyBindings,
 } from './types';
-import { adoptInitialState, handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
+import {
+  ClipboardEvent,
+  ConnectionInfo,
+  DetachedEvent,
+  KeyBindings,
+  LogEvent,
+  MessageFrame,
+  ThemeSettings,
+  type LogEntryKind,
+  type ServerState,
+} from '../domain/wire';
+import { StateStream } from './stateStream';
+import { decodeEvent } from './wireDecode';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
 import { isReadCommand, READ_ONLY_REASON } from './readOnly';
 import { Cancelled } from './effect/AdapterError';
-import { Effect, Fiber, Queue, Schedule } from 'effect';
+import { Effect, Fiber, Queue, Schedule, type Schema } from 'effect';
 
 /**
  * Reconnection backoff: retry forever, exponential from 1s, capped at 30s.
@@ -62,6 +69,16 @@ const STREAM_EVENTS = [
   'detached',
   'fatal',
 ] as const;
+
+/** The `data` of an SSE frame (`{ event, data }` JSON); undefined when the frame is not JSON. */
+function parseFrame(type: string, event: MessageEvent): unknown {
+  try {
+    return (JSON.parse(event.data) as { data?: unknown }).data;
+  } catch (e) {
+    console.error(`Failed to parse ${type} frame:`, e);
+    return undefined;
+  }
+}
 
 /** A connect() caller waiting for the channel to (re)reach the connected state. */
 interface ConnectWaiter {
@@ -127,16 +144,8 @@ export class HttpAdapter implements TmuxAdapter {
   /** The in-flight question to a server whose event stream would not open. */
   private refusalProbe: AbortController | null = null;
 
-  // Delta protocol state
-  private currentState: ServerState | null = null;
-  // Last applied delta seq (null right after a full snapshot). Used to detect a
-  // dropped/misordered delta and refetch a full state before it diverges.
-  private lastDeltaSeq: number | null = null;
-  /**
-   * The stream has delivered a full state and no sequence gap since, so it is
-   * the client's state (see `adoptInitialState`).
-   */
-  private streamSynced = false;
+  /** The state stream: decoding, delta sequencing and the client's copy of the state. */
+  private readonly stream = new StateStream();
   /** Delta seq of the most recent applied update, for the trace `apply` event
    * (joins to the server's `emit state` seq). Null for full snapshots. */
   private lastAppliedSeq: number | null = null;
@@ -334,7 +343,7 @@ export class HttpAdapter implements TmuxAdapter {
       const es = new EventSource(eventsUrl);
       // A new connection starts a new sequence; until its full state lands,
       // an initial-state answer is the state to start from.
-      this.streamSynced = false;
+      this.stream.reopen();
       this.eventSource = es;
 
       // A link that dies silently — a sleeping laptop, a Wi-Fi roam, a proxy
@@ -376,147 +385,85 @@ export class HttpAdapter implements TmuxAdapter {
         resume(Effect.fail(error));
       };
 
-      es.addEventListener('connection-info', (event: MessageEvent) => {
-        try {
-          const { data } = JSON.parse(event.data);
-          this.connectionId = data.connection_id;
-          this.connected = true;
+      // Every frame is `{ event, data }` JSON; `data` is decoded against its
+      // schema and the handler only ever sees a payload that matched.
+      const on = <A, I>(
+        type: (typeof STREAM_EVENTS)[number],
+        schema: Schema.Schema<A, I>,
+        handle: (data: A) => void,
+      ): void => {
+        const decode = decodeEvent(schema, type);
+        es.addEventListener(type, (event: MessageEvent) => {
+          const data = decode(parseFrame(type, event));
+          if (data !== null) handle(data);
+        });
+      };
 
-          // Clear reconnecting state if was reconnecting
-          if (this.reconnecting) {
-            this.reconnecting = false;
-            this.notifyReconnection(false);
-          }
+      on('connection-info', ConnectionInfo, (data) => {
+        this.connectionId = data.connection_id;
+        this.connected = true;
 
-          this.readOnly = Boolean(data.read_only);
-          this.notifyConnectionInfo(data.default_shell ?? 'bash', this.readOnly);
-
-          // Action tracing (docs/TELEMETRY.md): the server tells us whether it
-          // is recording; only then do we ship our own events, and only through
-          // the same-origin /trace sink. The server independently rejects when
-          // off, so this is a hint, not the gate.
-          tracer.setServerEnabled(!!data.trace_enabled && !this.readOnly);
-          tracer.setSink((events) => this.shipTrace(events));
-
-          this.resolveConnectWaiters();
-        } catch (e) {
-          console.error('Failed to parse connection-info:', e);
+        // Clear reconnecting state if was reconnecting
+        if (this.reconnecting) {
+          this.reconnecting = false;
+          this.notifyReconnection(false);
         }
+
+        this.readOnly = data.read_only === true;
+        this.notifyConnectionInfo(data.default_shell ?? 'bash', this.readOnly);
+
+        // Action tracing (docs/TELEMETRY.md): the server tells us whether it
+        // is recording; only then do we ship our own events, and only through
+        // the same-origin /trace sink. The server independently rejects when
+        // off, so this is a hint, not the gate.
+        tracer.setServerEnabled(data.trace_enabled === true && !this.readOnly);
+        tracer.setSink((events) => this.shipTrace(events));
+
+        this.resolveConnectWaiters();
       });
 
       es.addEventListener('state-update', (event: MessageEvent) => {
-        try {
-          const update: StateUpdate = JSON.parse(event.data).data;
-
-          // Delta seq-gap detection: a dropped or misordered delta would
-          // otherwise apply to stale state and silently diverge. On a gap,
-          // refetch a full snapshot instead of applying the delta.
-          if (update.type === 'delta') {
-            if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
-              this.lastDeltaSeq = null;
-              this.streamSynced = false;
-              this.resyncFullState();
-              return;
-            }
-            this.lastDeltaSeq = update.delta.seq;
-            this.lastAppliedSeq = update.delta.seq;
-          } else {
-            // A full snapshot is a fresh sync point.
-            this.lastDeltaSeq = null;
-            this.streamSynced = true;
-            this.lastAppliedSeq = null;
-          }
-
-          const newState = handleStateUpdate(update, this.currentState);
-          if (newState) {
-            this.currentState = newState;
-            this.scheduleStateNotify(newState);
-          }
-        } catch (e) {
-          console.error('Failed to parse state-update:', e);
+        // Decoded and sequenced by the stream. A dropped or misordered delta
+        // — or one that does not decode — would otherwise apply to stale
+        // state and silently diverge; the stream says to refetch instead.
+        const step = this.stream.receive(parseFrame('state-update', event));
+        if (step._tag === 'resync') {
+          this.resyncFullState();
+        } else if (step._tag === 'apply') {
+          this.lastAppliedSeq = step.seq;
+          this.scheduleStateNotify(step.state);
         }
       });
 
-      es.addEventListener('keybindings', (event: MessageEvent) => {
-        try {
-          const keybindings: KeyBindings = JSON.parse(event.data).data;
-          this.notifyKeyBindings(keybindings);
-        } catch (e) {
-          console.error('Failed to parse keybindings:', e);
-        }
-      });
+      on('keybindings', KeyBindings, (keybindings) => this.notifyKeyBindings(keybindings));
 
-      es.addEventListener('theme-settings', (event: MessageEvent) => {
-        try {
-          const settings: ThemeSettings = JSON.parse(event.data).data;
-          this.notifyThemeSettings(settings);
-        } catch (e) {
-          console.error('Failed to parse theme settings:', e);
-        }
-      });
+      on('theme-settings', ThemeSettings, (settings) => this.notifyThemeSettings(settings));
 
       // Backend errors for the user (a rejected command, a failed sync). The
       // wire name is `tmux-error`, not `error`: a server event named `error`
       // also fires `es.onerror`, and every reported error would have bounced
       // the connection.
-      es.addEventListener('tmux-error', (event: MessageEvent) => {
-        try {
-          const { data } = JSON.parse(event.data);
-          this.notifyError(data.message || 'Unknown error');
-        } catch (e) {
-          console.error('Failed to parse tmux-error event:', e);
-        }
-      });
+      on('tmux-error', MessageFrame, (data) => this.notifyError(data.message || 'Unknown error'));
 
       // OSC 52 clipboard write requests from terminal applications.
       // Mirrored into the system clipboard via navigator.clipboard.writeText.
-      es.addEventListener('clipboard', (event: MessageEvent) => {
-        try {
-          const payload = JSON.parse(event.data).data;
-          const paneId = String(payload.pane_id ?? '');
-          const text = String(payload.text ?? '');
-          this.notifyClipboard(paneId, text);
-        } catch (e) {
-          console.error('Failed to parse clipboard event:', e);
-        }
-      });
+      on('clipboard', ClipboardEvent, (data) => this.notifyClipboard(data.pane_id, data.text));
 
-      es.addEventListener('log', (event: MessageEvent) => {
-        try {
-          const payload = JSON.parse(event.data).data;
-          const kind = (payload.kind as LogEntryKind) || 'info';
-          const message = String(payload.message ?? '');
-          this.notifyLog(kind, message);
-        } catch (e) {
-          console.error('Failed to parse log event:', e);
-        }
-      });
+      on('log', LogEvent, (data) => this.notifyLog(data.kind, data.message));
 
       // The connection ended with tmux's own reason. Deliberately does NOT set
       // `this.fatal`: that flag stops the retry loop for good, and a detach is
       // something the user steps back from by reconnecting.
-      es.addEventListener('detached', (event: MessageEvent) => {
-        try {
-          const { data } = JSON.parse(event.data);
-          this.notifyDetached((data.reason ?? null) as string | null);
-        } catch (e) {
-          console.error('Failed to parse detached event:', e);
-        }
-      });
+      on('detached', DetachedEvent, (data) => this.notifyDetached(data.reason ?? null));
 
       // Backend gave up reconnecting — terminal state, no more events. Flip the
       // flag the retry `while` predicate checks so the loop stops instead of
       // reconnecting into a dead backend, then end the connection.
-      es.addEventListener('fatal', (event: MessageEvent) => {
-        try {
-          const { data } = JSON.parse(event.data);
-          const message = String(data.message || 'tmux unavailable');
-          this.fatal = true;
-          this.notifyFatal(message);
-          endConnection(new Error(message));
-        } catch (e) {
-          console.error('Failed to parse fatal event:', e);
-        }
+      on('fatal', MessageFrame, (data) => {
+        const message = data.message || 'tmux unavailable';
+        this.fatal = true;
+        this.notifyFatal(message);
+        endConnection(new Error(message));
       });
 
       es.onerror = () => {
@@ -613,15 +560,9 @@ export class HttpAdapter implements TmuxAdapter {
       this.lastRows = args.rows;
     }
 
-    // Special handling for get_initial_state: also set currentState so delta updates work
+    // The answer is decoded and adopted by the stream, so deltas apply to it.
     if (cmd === 'get_initial_state') {
-      const result = await this.invokeInternal<T>(cmd, args);
-      const synced = this.streamSynced;
-      this.currentState = adoptInitialState(result as ServerState, this.currentState, synced);
-      // A synced stream carries on from its own sequence; an adopted answer
-      // starts one.
-      if (!synced) this.lastDeltaSeq = null;
-      return this.currentState as T;
+      return this.stream.adopt(await this.invokeInternal<unknown>(cmd, args)) as T;
     }
 
     // Check if this is a send-keys command that should be batched
@@ -822,9 +763,7 @@ export class HttpAdapter implements TmuxAdapter {
 
   async switchSession(newSession: string): Promise<void> {
     this.sessionOverride = newSession;
-    this.currentState = null;
-    this.lastDeltaSeq = null;
-    this.streamSynced = false;
+    this.stream.reset();
 
     // Switching sessions is a fresh start — clear a prior fatal so the switch
     // isn't permanently rejected by connect()'s fatal guard (recovering from a
@@ -874,7 +813,7 @@ export class HttpAdapter implements TmuxAdapter {
         }),
       catch: (e) => e,
     }).pipe(
-      // invoke() already set currentState + reset lastDeltaSeq.
+      // invoke() already adopted the answer into the stream.
       Effect.flatMap((state) => Effect.sync(() => this.scheduleStateNotify(state))),
       Effect.catchAll((e) =>
         Effect.sync(() =>

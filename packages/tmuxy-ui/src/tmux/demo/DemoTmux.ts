@@ -1,10 +1,10 @@
 import type {
-  ServerState,
-  ServerPane,
-  ServerWindow,
   PaneContent,
-  ServerImagePlacement,
-} from '../types';
+  ServerStateEncoded,
+  WireImagePlacement,
+  WirePaneEncoded,
+  WireWindowEncoded,
+} from '../../domain/wire';
 import { LifoShell } from './LifoShell';
 import { LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../../machines/constants';
 
@@ -43,7 +43,7 @@ interface FakePane {
    */
   title: string;
   /** Image placements injected into this pane (storybook / test-only path). */
-  images?: ServerImagePlacement[];
+  images?: WireImagePlacement[];
 }
 
 interface FakeWindow {
@@ -195,7 +195,7 @@ export class DemoTmux {
     }
   }
 
-  getState(): ServerState {
+  getState(): ServerStateEncoded {
     // Compute pane positions from every window's layout: like the server, the
     // state carries the panes of EVERY window (the Tab Overview draws the
     // other tabs' screens from them; PaneLayout shows only the active one's).
@@ -226,7 +226,7 @@ export class DemoTmux {
       for (const pid of w.groupPanes) groupIdByPane.set(pid, w.id);
     }
 
-    const panes: ServerPane[] = [];
+    const panes: WirePaneEncoded[] = [];
     for (const [, pane] of this.panes) {
       const pos = posMap.get(pane.id);
       // In zoom mode, only show the zoomed pane from the active window
@@ -271,7 +271,7 @@ export class DemoTmux {
       });
     }
 
-    const windows: ServerWindow[] = this.windows
+    const windows: WireWindowEncoded[] = this.windows
       // Group windows model the hidden stash: their member panes are emitted
       // (carrying group_id) but the windows themselves are never tabs.
       .filter((w) => w.windowType !== 'group')
@@ -958,14 +958,14 @@ export class DemoTmux {
   /**
    * Attach an image placement to a pane. Storybook stories and tests use
    * this to simulate the result of the Rust backend parsing an OSC 1337 /
-   * Kitty / Sixel sequence — the placement flows through ServerPane.images
+   * Kitty / Sixel sequence — the placement flows through WirePaneEncoded.images
    * → the app machine → Terminal.tsx exactly like a real one.
    *
    * The frontend renders `<img src="/api/images/<paneNum>/<imageId>">`; in
    * Storybook we override that URL via `window.__tmuxyImageSrc` so the
    * image bytes can be a data URL the story registered.
    */
-  attachImage(paneId: string, placement: ServerImagePlacement): boolean {
+  attachImage(paneId: string, placement: WireImagePlacement): boolean {
     const pane = this.panes.get(paneId);
     if (!pane) return false;
     pane.images = pane.images ?? [];

@@ -26,7 +26,7 @@ import { Effect, Exit, Cause } from 'effect';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../tmux/store';
 import type { TmuxOp } from '../../tmux/store/types';
-import type { ServerState } from '../../tmux/types';
+import type { ServerState } from '../../domain/wire';
 import { parseCommandToOp } from '../../tmux/store/parseCommand';
 import { tracer } from '../../tmux/tracer';
 import { isInputCommand, READ_ONLY_NOTICE } from '../../tmux/readOnly';

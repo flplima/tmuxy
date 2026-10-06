@@ -5,7 +5,8 @@ import { copyModeActions, copyModeExitTimes } from '../../actions/copyMode';
 import { COPY_FLASH_MS } from '../../../../utils/copyFlash';
 const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
-import type { CopyModeState, CellLine, TmuxPane } from '../../../../tmux/types';
+import type { CopyModeState, TmuxPane } from '../../../../tmux/types';
+import type { CellLine } from '../../../../domain/wire';
 
 function makeCell(c: string): { c: string } {
   return { c };
