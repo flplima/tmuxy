@@ -2424,7 +2424,10 @@ describe('Scenario 6i: Cursor motion across tabs and group members', () => {
     expect(member.moved).toBe(true);
     expect(member.longestRun <= 2 ? 'drawn in place' : member.detail).toBe('drawn in place');
 
-    // Another tab, then back: the whole picture changes both times.
+    // Another tab, then back: the whole picture changes both times. The new
+    // tab's cursor sits after its first prompt, top left — exactly where this
+    // member's is until it prints something, which would leave nothing to see.
+    await runCommand(ctx.page, 'for i in 1 2 3; do echo back$i; done', 'back3');
     const firstTab = await ctx.page.evaluate(() => window.app.getSnapshot().context.activeWindowId);
     await createWindowKeyboard(ctx.page);
     const tab = await motion(() => ctx.page.click(`.tab-name[data-window-id="${firstTab}"]`));
