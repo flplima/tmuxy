@@ -71,12 +71,6 @@ describe('CLI widget subcommands', () => {
       expect(stderr).toContain('file, url or - required');
     });
 
-    test('web alias shows help', () => {
-      const { stdout, exitCode } = runCLI(['widget', 'web', '--help']);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain('Usage: tmuxy widget browser');
-    });
-
     test('errors on a file that does not exist', () => {
       const { stderr, exitCode } = runCLI(['widget', 'browser', '/tmp/tmuxy-no-such-file.html']);
       expect(exitCode).toBe(1);

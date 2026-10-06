@@ -117,36 +117,50 @@ either; `tmuxy config use-tmux-conf on` changes that (see
 
 ### Keybindings & CLI Overview
 
-| Keybinding           | Action                              |
-| -------------------- | ----------------------------------- |
-| `Ctrl+H/J/K/L`       | Move to the pane left/down/up/right |
-| `Ctrl+←/↓/↑/→`       | The same, with arrow keys           |
-| `Ctrl+Tab`           | Next tab / window                   |
-| `Ctrl+Shift+D`       | Split pane vertical (below)         |
-| `Ctrl+Shift+E`       | Split pane horizontal (right)       |
-| `Ctrl+Shift+W`       | Close current pane                  |
-| `Ctrl+Shift+T`       | New tab / window                    |
-| `Ctrl+Shift+[` / `]` | Previous / next tab                 |
-| `Ctrl+Shift+F`       | Toggle float for current pane       |
-| `Ctrl+Shift+Z`       | Zoom / unzoom active pane           |
-| `Ctrl+Shift+A`       | Select the pane's scrollback        |
-| `Ctrl+Shift+C`       | Copy the selection                  |
-| `Ctrl+Shift+N`       | New window (desktop app)            |
-| `Ctrl+Shift+1`…`9`   | Focus window 1…9 (desktop)          |
+Without the prefix:
 
-On macOS these are the `Cmd` shortcuts you would expect instead: `Cmd+A`,
+| Keybinding                    | Action                              |
+| ----------------------------- | ----------------------------------- |
+| `Ctrl+H/J/K/L`                | Move to the pane left/down/up/right |
+| `Ctrl+←/↓/↑/→`                | The same, with arrow keys           |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab                 |
+| `Ctrl+1`…`9`                  | Go to tab 1…9                       |
+| `Ctrl+0`                      | Show every tab (Tab Overview)       |
+| `Ctrl` / `Cmd` `+` `-`        | Font size (`Cmd+0` resets it)       |
+| `Ctrl+Shift+A`                | Select the pane's scrollback        |
+| `Ctrl+Shift+C`                | Copy the selection                  |
+| `Ctrl+Shift+N`                | New window (desktop app)            |
+| `Ctrl+Shift+1`…`9`            | Focus window 1…9 (desktop app)      |
+
+On macOS the last four are the `Cmd` shortcuts you would expect: `Cmd+A`,
 `Cmd+C`, `Cmd+N` and `Cmd+1`…`9`. A _window_ here is an OS window — several can
 watch one session, each on its own tab (Window ▸ New Window).
 
-All mutations are also accessible from the terminal via the `tmuxy` CLI:
+With the prefix (`Ctrl+a`):
+
+| Keys             | Action                                       |
+| ---------------- | -------------------------------------------- |
+| `-` / `"`        | Split below                                  |
+| `\|` / `\` / `%` | Split to the right                           |
+| `c`              | New tab                                      |
+| `=`              | Add a pane to the current pane's group       |
+| `s` / `S`        | Stack a new row / toggle stacking the window |
+| `H/J/K/L`        | Resize the pane                              |
+| `<` / `>`        | Swap with the previous / next pane           |
+| `z`              | Zoom / unzoom                                |
+| `r`              | Reload the config                            |
+
+Everything is also reachable from a shell through the `tmuxy` CLI
+(`tmuxy --help` lists it all):
 
 ```bash
-tmuxy pane float            # float the current pane or target pane
-tmuxy pane unfloat          # unfloat back into the tiling layout
-tmuxy queue push <id> <msg> # push message to an agent/pane queue
-tmuxy queue pop <id>        # pop message (blocking or timed)
-tmuxy ask <id> "question"   # ask confirmation in another pane
-tmuxy tree                  # open interactive session/tab/pane tree
+tmuxy pane split -h              # split the current pane to the right
+tmuxy pane float htop            # run a command in a float; it closes when htop exits
+tmuxy pane group add             # add a pane to the current pane's group
+tmuxy pane group move %4 0       # move a group member to the front
+tmuxy ask %3 make Enter          # ask the user before typing "make" + Enter into %3
+tmuxy session save               # snapshot the session (restored on the next start)
+tmuxy widget tree                # the session/tab/pane tree, as a pane
 ```
 
 ## getting started (development)

@@ -389,6 +389,5 @@ module.exports = {
   invokeCommand,
   waitForPaneCount,
   waitForRawWindowCount,
-  KEYS,
   TAURI_BINARY,
 };

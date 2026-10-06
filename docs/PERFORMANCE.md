@@ -237,14 +237,8 @@ to the parse/aggregate/delta pipeline or the transport.
 
 ### Axis A — core + client processing (`cargo bench -p tmuxy-core`)
 
-**Bench-integrity note.** The first published numbers (3.7–3.8 ms for
-`full_sync`/`delta_rename`) were an artifact: on the native feature the
-status-line dirty-refresh spawns `tmux display-message` subprocesses _inside_
-`to_state_update`, and the bench hit that in the timed region — measuring
-process-spawn latency, not the pipeline. The bench now supplies the status
-line out-of-band (`set_status_line`, exactly what the wasm host does) and
-fills panes with a real screenful (empty grids made content cost look free).
-Numbers below are from the fixed bench.
+The bench fills panes with a real screenful (empty grids made content cost
+look free).
 
 Devcontainer (aarch64), same machine for both columns. "Before" is the
 per-cell deep-copy pipeline; "after" is the `Arc`-shared-content pipeline
@@ -353,69 +347,19 @@ prediction / local echo** (an explicit Non-Goal, see
 keystroke — which is fine on LAN (C1) and acceptable on a typical remote VM
 (C2, ~180 ms p50) but degrades on high-RTT links (C3+).
 
-### Prioritized improvement areas (against measured bottlenecks)
+### Open improvement areas (against measured bottlenecks)
 
-Two of the original three are done — kept here with their measured outcomes so
-the next reader knows what already happened:
-
-1. ~~**Axis A — snapshot/delta construction.**~~ **Done.** Pane grids are
-   `Arc`-shared across snapshots with a `ptr_eq` diff skip: metadata-only
-   deltas dropped 160 µs → 23.5 µs (−85%), full sync −34%, bursts −6…−22%.
-   (The original "3.8 ms construction" number also turned out to be mostly a
-   bench artifact — subprocess status-line refresh in the timed region.)
-2. ~~**Axis B — the input batching floor.**~~ **Done.** The `KeyBatcher` now
-   leading-edge-flushes isolated keystrokes (was: always wait the 16 ms
-   window): keydown→paint p50 dropped 42.5 ms → 25.4 ms (−40%), and sustained
-   input still coalesces to ~one send per frame.
-
-Still open:
-
-3. **Transport — targeted, not blanket.** The curve shows SSE+POST is a clean
+1. **Transport — targeted, not blanket.** The curve shows SSE+POST is a clean
    additive-RTT transport with no HoL cost until loss. The measurable QUIC/
    WebTransport win is specifically the C4 loss tail (p99 195 → 978 ms), not
    steady-state RTT. Input prediction (a Non-Goal) is the only thing that hides
    RTT itself; the data says revisit it only for genuinely high-RTT (C3+) remote
    use, not for LAN/typical-remote.
-4. ~~**Subprocesses on the keyboard path.**~~ **Done** — three separate
-   causes, found by the axis-C harness and fixed together (356 ms → 10 ms for
-   keyboard pane navigation). The desktop app kept one more until every
-   command was routed through control mode: each keystroke's `send-keys` was
-   an external `sh -c "tmux …"` — a shell and a tmux client forked per
-   character typed — while the web sent the same string down the connection.
-   - **Navigation had lost its optimistic prediction.** `Ctrl+hjkl` /
-     `Ctrl+arrow` are bound to the `tmuxy-nav-*` command alias, and
-     `parseCommandToOp` matched that spelling — but bindings reach the client
-     through `list-keys`, which reports aliases **already expanded**, so what
-     a keypress actually carried was
-     `run-shell "bash …/bin/tmuxy/nav <dir> …"`. That fell through to
-     `RawCommand`, no prediction, and the user waited out the shell script
-     _and_ the round trip. The parser now recognises both spellings; tmux
-     still receives the original command, so the script's group/sidebar
-     semantics are untouched. This was the whole difference between 356 ms and
-     10 ms — the two below are what the server no longer has to hurry through.
-   - **The status-line refresh ran on every window event.**
-     `executor::capture_status_line` is five `tmux display-message` calls plus
-     a `sh -c` per `#(…)` in `status-right` (the shipped default is
-     `#(whoami)@#H`, so six process spawns), synchronous, inside
-     `to_state_update`. It was marked dirty by every window-level event _and
-     by every `list-windows` response_ — several times a second. It now
-     refreshes only when something it renders actually changed (a fingerprint
-     over the session name and each window's id/index/name/active), with a
-     15 s staleness fallback matching tmux's own `status-interval` so a
-     `#(…)`-driven clock still ticks. Zoom toggle: 235 ms → 92 ms.
-   - **The shell helpers forked to compute their own path.** `_lib` ran
-     `dirname`, `basename` and their subshells on every invocation — ~50 ms
-     per call here, paid by every float, group, stack-relayout and nav — and
-     `nav`'s horizontal branch made four separate `tmux` reads (window type,
-     group id, edge flag) that a single `display-message` on the pane target
-     answers at once. Parameter expansion and one probe: `nav right`
-     187 ms → 75 ms, `nav up` 107 ms → 53 ms.
-
-   Still open, and now the largest remaining term: **navigation shells out at
-   all.** `run-shell` + bash is ~30 ms before the script does anything, and
-   the Rust monitor already holds the window/pane/group state the script
-   shells out to rediscover. Prediction hides that from the user, but the
-   server-side move is still the honest fix.
+2. **Navigation shells out at all.** `Ctrl+hjkl` runs the `nav` helper through
+   `run-shell` + bash, ~30 ms before the script does anything, while the Rust
+   monitor already holds the window/pane/group state the script rediscovers.
+   The client predicts the move, so the user does not wait for it, but moving
+   navigation into the server is the honest fix.
 
 ## Axis D — retention over a long session
 

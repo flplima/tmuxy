@@ -5,7 +5,7 @@
  * Checks: text content, dimensions, cursor position, pane titles, and spacing.
  */
 
-const { tmuxQuery } = require('./cli');
+const { tmuxExec } = require('./tmux-socket');
 const { delay } = require('./browser');
 
 /**
@@ -49,7 +49,7 @@ async function assertContentMatch(page, label) {
       lastErrors = [];
 
       // Query tmux state in a single list-panes call
-      const tmuxRaw = tmuxQuery(
+      const tmuxRaw = tmuxExec(
         `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_width}|#{pane_height}|#{cursor_x}|#{cursor_y}|#{T:pane-border-format}"`,
       );
       const tmuxPanes = {};
@@ -185,7 +185,7 @@ async function assertContentMatch(page, label) {
         // Check content line-by-line. When heights differ by 1, content may be
         // shifted — try offsets [-1, 0, +1] and pick the best alignment.
         // Allow up to 2 differing lines for timing races.
-        const tmuxContent = tmuxQuery(`capture-pane -t ${paneId} -p`);
+        const tmuxContent = tmuxExec(`capture-pane -t ${paneId} -p`);
         const tmuxLines = tmuxContent.split('\n');
 
         let bestDiffCount = Infinity;
@@ -302,7 +302,7 @@ async function assertAltScreenMatch(page, sessionName, options = {}) {
     );
   }
 
-  const tmuxLines = tmuxQuery(`capture-pane -t ${sessionName} -p`).split('\n');
+  const tmuxLines = tmuxExec(`capture-pane -t ${sessionName} -p`).split('\n');
 
   const compareCount = Math.min(tmuxLines.length, uiState.lines.length);
   if (compareCount < 5) {

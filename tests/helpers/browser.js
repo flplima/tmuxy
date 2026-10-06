@@ -6,7 +6,7 @@
 
 const { chromium } = require('playwright');
 const { CDP_PORT, TMUXY_URL, DELAYS, WAIT_SCALE, waitBudget } = require('./config');
-const { tmuxQuery } = require('./cli');
+const { tmuxExec } = require('./tmux-socket');
 const { tmuxSideOfSession } = require('./tmux-side');
 
 /**
@@ -324,7 +324,7 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
 
   while (Date.now() - monitorStart < monitorTimeout) {
     try {
-      tmuxQuery(`display-message -t ${sessionName} ""`);
+      tmuxExec(`display-message -t ${sessionName} ""`);
       break;
     } catch {
       // Session not ready yet

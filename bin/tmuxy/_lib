@@ -57,8 +57,16 @@ _tmux() {
 # live pane with a control-mode client attached (the UI spawns them in floats),
 # so direct external mutations (new-session, set-environment, …) can crash the
 # tmux server on 3.5a — run-shell executes them in the server's own context.
+# Takes ONE pre-built tmux command string; interpolate user-supplied values
+# with `shquote` so spaces, quotes and `#` survive the trip.
+#
+# The inner tmux is a client of its own, and run-shell hands it no pane: a
+# target-less `send-keys` or `breakp` in there resolves to whichever session
+# tmux touched last, not the caller's. So the caller's pane rides along as the
+# inner client's TMUX_PANE, which tmux reads for an unattached client the way
+# it reads it for a shell in a pane.
 _run_safe() {
-  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+  _tmux run-shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
 }
 
 # Quote arguments for interpolation into a `_run_safe` command string. Each

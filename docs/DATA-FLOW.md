@@ -7,6 +7,7 @@ This document describes how data moves through tmuxy in different deployment sce
 The web version uses two HTTP endpoints on the Axum server:
 
 **`GET /events?session=<name>`** — Server-Sent Events stream (server-to-client):
+
 - `connection-info` — Connection ID, default shell, and whether the server is read-only (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
 - `theme-settings` — Theme name/mode and appearance (surface opacities, blur flag) from tmux config; re-sent after a `source-file`
@@ -16,6 +17,7 @@ The web version uses two HTTP endpoints on the Axum server:
 - `log`, `tmux-error`, `fatal` — Diagnostic and error notifications. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
 
 **`POST /commands?session=<name>`** — HTTP POST (client-to-server):
+
 - Request body: `{ "cmd": "command_name", "args": {...} }`
 - Response: `{ "result": ... }` or `{ "error": "message" }`
 - **Loopback by default** — a routable `--host` needs an HTTP Basic password (or an explicit `--no-auth`), and every API route refuses requests from other origins — see [SECURITY.md](SECURITY.md).
@@ -27,7 +29,7 @@ SSE was chosen over WebSocket because: server-to-client is the dominant directio
 The adapter reopens a dropped stream on an exponential backoff (1s, 2s, 4s … capped at 30s), and three rules keep that from turning into a long wait on a link that drops often and briefly — a laptop waking, a Wi-Fi roam:
 
 - **The backoff belongs to one outage.** A connection that was established and then dropped starts the next one on a fresh schedule, after a short beat. One schedule for the page's whole life only climbs, and a few drops in every reconnect waited out the cap.
-- **A reason to retry now beats the timer.** The browser's `online` event, the tab becoming visible, and the overlay's *Retry now* button (`RECONNECT_NOW` → `adapter.reconnectNow()`) all abandon the current wait and try immediately. None of them does anything while connected.
+- **A reason to retry now beats the timer.** The browser's `online` event, the tab becoming visible, and the overlay's _Retry now_ button (`RECONNECT_NOW` → `adapter.reconnectNow()`) all abandon the current wait and try immediately. None of them does anything while connected.
 - **Silence is a drop.** The server's keepalive is a named `ping` event rather than an SSE comment (a page never sees comments), sent whenever the stream has been idle for a second. Once a client has seen one, five seconds without any event ends the connection — a link that dies without an error is otherwise noticed minutes later, if at all. A server that sends no pings is never timed out.
 
 ### A refused stream is not a dropped one
@@ -38,7 +40,7 @@ The adapter reopens a dropped stream on an exponential backoff (1s, 2s, 4s … c
 
 Every event the server broadcasts is tagged with a monotonic per-session sequence id (set as the SSE `id:` field). `EventSource` persists the last received id across reconnects and sends it back as the `Last-Event-Id` request header on retry. The server keeps a small ring buffer of recent events per session and replays everything strictly newer than the supplied id before resuming the live stream. If the client's id is older than the buffer head (long disconnect), the next full-state snapshot covers the gap — no client-side panic, no data corruption.
 
-This is independent from the delta protocol's own `seq` field: the SSE id keeps the *transport* in sync after a reconnect; the delta `seq` keeps the *application state* in sync after each individual update.
+This is independent from the delta protocol's own `seq` field: the SSE id keeps the _transport_ in sync after a reconnect; the delta `seq` keeps the _application state_ in sync after each individual update.
 
 ## Transport: Tauri IPC (Desktop Version)
 
@@ -50,11 +52,11 @@ The Tauri desktop app bypasses the network stack entirely:
 
 Tauri IPC has lower latency than HTTP since communication is in-process.
 
-**One monitor per GUI window.** The desktop app can have several OS windows open on one tmux session (Window ▸ New Window). Each is its own client: its own webview, its own control-mode monitor, and its own tmux session, with the sessions members of one tmux *session group* — they share every window and pane while each keeps its own current window, which is what puts two tabs of one session on screen at once. The first window holds the group's base session (the one `TMUXY_SESSION` names) and every later one attaches to `<base>~<index>` (`tmux -CC new-session -A -s <base>~2 -t <base>`); a window's session is killed when its window closes, which leaves the shared windows alive in the remaining members. A registry keyed by webview label (`tmuxy-tauri-app/src/windows.rs`) is what turns a command back into the monitor that must run it, so a mutation from window 2 moves window 2's current tab and not the other's. Per-session events (state, errors, logs, clipboard, detach) are addressed to the one window; server-wide ones (keybindings, theme settings) are still broadcast.
+**One monitor per GUI window.** The desktop app can have several OS windows open on one tmux session (Window ▸ New Window). Each is its own client: its own webview, its own control-mode monitor, and its own tmux session, with the sessions members of one tmux _session group_ — they share every window and pane while each keeps its own current window, which is what puts two tabs of one session on screen at once. The first window holds the group's base session (the one `TMUXY_SESSION` names) and every later one attaches to `<base>~<index>` (`tmux -CC new-session -A -s <base>~2 -t <base>`); a window's session is killed when its window closes, which leaves the shared windows alive in the remaining members. A registry keyed by webview label (`tmuxy-tauri-app/src/windows.rs`) is what turns a command back into the monitor that must run it, so a mutation from window 2 moves window 2's current tab and not the other's. Per-session events (state, errors, logs, clipboard, detach) are addressed to the one window; server-wide ones (keybindings, theme settings) are still broadcast.
 
 ## Adapter Pattern
 
-Both transports implement the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts`. Key methods: `connect()`, `disconnect()`, `isConnected()`, `isReconnecting()`, `invoke<T>(cmd, args?)`, `onStateChange(listener)`, `onError(listener)`, `onConnectionInfo(listener)`, `onReconnection(listener)`, `onKeyBindings(listener)`, `onLog(listener)`, `onFatal(listener)`. Optional members: `onClipboard(listener)` (OSC 52 clipboard writes), `switchSession(sessionName)`, `enumeratesSessions` (gates the sidebar sessions poll), and `queryReadonly(command)` (read-only queries that bypass the mutation queue).
+Every transport implements the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts` (the interface is the reference for its members): `connect`/`disconnect`, `invoke` for commands (fire-and-forget `run_tmux_command` among them), `query` for read-only tmux commands answered in-band on the control-mode connection, and one `on…` subscription per server event (state, errors, connection info, reconnection, keybindings, theme settings, clipboard, logs, fatal errors, detach).
 
 The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic. Two more adapters exist beyond the SSE and Tauri transports: `DemoAdapter` (in-browser demo — simulates a tmux backend) and `V86TmuxAdapter` (fully client-side **real** tmux — see Scenario 4 below).
 
@@ -68,7 +70,7 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 4. Client receives `connection-info` event with connection ID and default shell
 5. Client sends `get_initial_state` (via HTTP POST) with its viewport size (cols, rows)
 6. Server stores the client size, computes the minimum viewport across all clients, and sends a resize command through the monitor's control mode connection
-7. Client receives full state snapshot, then incremental deltas as tmux state changes
+7. Client receives full state snapshot, then incremental deltas as tmux state changes. The stream (one full state, then deltas against the server's previous emission) is the client's state from its first full state on; the `get_initial_state` answer is a separate snapshot, so once the stream is synced it only fills panes the stream has not sent content for yet. It is the starting state only before the stream's first full state, after a delta sequence gap, or on a new connection (`adoptInitialState` in `tmuxy-ui/src/tmux/deltaProtocol.ts`).
 8. On disconnect: server removes the client, recomputes minimum viewport, and shuts down the monitor if no clients remain
 
 ### Read-only servers
@@ -114,6 +116,7 @@ SideEffect dispatch (refresh-panes, emit-state, store-image, ...)
 ```
 
 The monitor multiplexes control-mode events with timer-driven flushes (throttle, settling, layout debounce, periodic sync) and external commands (resize, run-command, shutdown). The exact set of `tokio::select!` arms drifts as we tune timings; the durable contract is:
+
 - The aggregator decides **what** state effects exist.
 - The monitor decides **when** to flush them (throttle / debounce / settle).
 - The emitter decides **where** they go (SSE broadcast vs Tauri event).
@@ -177,11 +180,11 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 
 Step 5 cannot be decided by "no modifiers held". Keyboards compose characters through three paths that all set flags reading like a chord:
 
-| Path | What the keydown looks like | Example |
-|------|-----------------------------|---------|
-| Dead key | the finished character on one keydown, stamped `keyCode` 229 because the OS composed it through the IME | `´` then `a` → `á` |
-| macOS Option as compose key | `altKey` set, but the letter already replaced by a non-ASCII character | Option+c → `ç` |
-| AltGr third level | legacy ctrl+alt flags; only the `AltGraph` modifier state separates it from a real Ctrl+Alt chord | AltGr+Q on ABNT2 → `@` |
+| Path                        | What the keydown looks like                                                                             | Example                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Dead key                    | the finished character on one keydown, stamped `keyCode` 229 because the OS composed it through the IME | `´` then `a` → `á`     |
+| macOS Option as compose key | `altKey` set, but the letter already replaced by a non-ASCII character                                  | Option+c → `ç`         |
+| AltGr third level           | legacy ctrl+alt flags; only the `AltGraph` modifier state separates it from a real Ctrl+Alt chord       | AltGr+Q on ABNT2 → `@` |
 
 Forwarding one of these as a tmux key name is not rejected — tmux accepts `send-keys M-ç` and delivers ESC + `ç`, an unbound meta sequence the application discards, so the character silently never arrives. The inverse mistake is as bad: treating a real chord as text turns every keyboard shortcut into garbage on screen. The classifier therefore reads a non-ASCII key under bare Alt (and any key with the `AltGraph` state) as text, an ASCII key under Alt as a chord, and anything under Ctrl or Cmd as a chord.
 
@@ -213,12 +216,14 @@ IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown 
 ```
 
 **Data flow:**
+
 1. Tauri app starts, reads `TMUXY_SESSION=dev` from environment
 2. `TmuxMonitor` attaches to local tmux session via `tmux -CC attach-session -t dev`
 3. All IPC is in-process — no network involved
 4. Latency: sub-millisecond for commands, near-instant state updates
 
 **Characteristics:**
+
 - Lowest possible latency (no network stack)
 - No security concerns (local IPC only)
 - One control-mode monitor per GUI window, each on its own session in a shared session group (see **One monitor per GUI window** above)
@@ -240,6 +245,7 @@ IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown 
 ```
 
 **How it works:**
+
 - There is no SSH library — tmuxy shells out to the system `ssh` client. The `TMUXY_SSH` env var holds a whitespace-separated ssh argv tail (options plus destination, e.g. `-p 2222 user@host`). When set, every tmux invocation is wrapped as `ssh … tmux …` by `tmux_argv`/`ssh_target` in `packages/tmuxy-core/src/session.rs` — with `-tt` (remote tty allocation) for the `-CC` control-mode attach, and without it for one-off reads.
 - Saved servers live in `~/.config/tmuxy/servers.json` (`packages/tmuxy-core/src/servers.rs`); each entry's optional `ssh` field maps to the same `TMUXY_SSH` value. The desktop sidebar's server picker and the `tmuxy connect` form select an entry and reconnect the monitor live.
 - The `TmuxMonitor` and `ControlModeConnection` are transport-agnostic — they read/write stdin/stdout of a child process, so the ssh hop is invisible to them.
@@ -264,6 +270,7 @@ IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown 
 ```
 
 **Data flow:**
+
 1. User runs `TMUXY_PASSWORD=… tmuxy server --host 0.0.0.0` on the VM (plain `tmuxy server` listens on `127.0.0.1:9000` only, and a routable address needs a password or an explicit `--no-auth`)
 2. User opens `https://vm-ip:9000` in their browser (requires a reverse proxy for HTTPS — see below)
 3. Browser opens SSE connection to `/events?session=<name>`
@@ -273,12 +280,14 @@ IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown 
 **Security considerations (critical):**
 
 The tmuxy server has **no TLS**, and on a routable address its only gate is an HTTP Basic password (`--password` / `TMUXY_PASSWORD`) — or none, with `--no-auth`. See SECURITY.md. Exposing it directly on a public IP means:
+
 - Anyone who discovers the IP and port can try the password, with no rate limit — and with `--no-auth` simply controls your tmux session
 - All traffic is in cleartext (eavesdropping reveals terminal content and lets attackers inject commands; Basic-auth credentials are only base64, not encrypted)
 - `run-shell` commands allow arbitrary code execution on the server
 - File reading endpoints have no path restrictions
 
 **Required mitigations for this scenario:**
+
 1. **Never expose tmuxy directly to the internet.** Use one of:
    - SSH tunnel: `ssh -L 9000:localhost:9000 user@vm` (recommended for single user)
    - VPN: WireGuard, Tailscale, or similar (recommended for mobile access)
@@ -290,6 +299,7 @@ The tmuxy server has **no TLS**, and on a routable address its only gate is an H
 See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 
 **What works today:**
+
 - SSE streaming with delta protocol works well over high-latency connections
 - `EventSource` auto-reconnects on brief network drops
 - Multi-client support — multiple browser tabs/devices can connect simultaneously
@@ -297,6 +307,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 - Mobile browsers work (touch events are translated to mouse events)
 
 **Limitations:**
+
 - No offline capability — requires constant network connection
 - No compression — JSON payloads can be large during rapid output (mitigated by delta protocol)
 - Only HTTP Basic auth (`--password`) built in; for anything stronger rely on external layers (SSH, VPN, reverse proxy)
@@ -315,11 +326,11 @@ onStateChange <── tmuxy-wasm (parse + aggregate) <──serial── tmux -C
 
 Key pieces (all under `tmuxy-ui/src/tmux/v86/`):
 
-| Piece | Responsibility |
-|-------|----------------|
-| `V86Engine` | Owns the emulator: byte-paced UART writer (whole-command writes overrun the guest 16550 FIFO and corrupt commands), serial coalescing, tick/sync timers, `%exit`→fatal detection, and a guest bootstrap re-applied on every attach (snapshot restores rewind the filesystem). |
-| `V86TmuxAdapter` | The `TmuxAdapter` facade: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally. |
-| shared engine | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s). |
+| Piece            | Responsibility                                                                                                                                                                                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `V86Engine`      | Owns the emulator: byte-paced UART writer (whole-command writes overrun the guest 16550 FIFO and corrupt commands), serial coalescing, tick/sync timers, `%exit`→fatal detection, and a guest bootstrap re-applied on every attach (snapshot restores rewind the filesystem). |
+| `V86TmuxAdapter` | The `TmuxAdapter` facade: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally.                                                                                              |
+| shared engine    | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s).                                                                                                                        |
 
 Used by the Storybook `Scenarios/Application` stories and intended for the public demo. Assets (kernel, BIOS, state snapshot, wasm bindings) are served statically; nothing leaves the browser.
 
@@ -329,13 +340,13 @@ This scenario is CI-tested: the `storybook-v86-probe` job builds the wasm bindin
 
 Beyond the core SSE/HTTP protocol, the web server exposes:
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/events` | GET | SSE stream (state updates, connection info) |
-| `/commands` | POST | tmux commands (no authentication unless `--password` is set — see SECURITY.md) |
-| `/api/file` | GET | Read file contents by `?path=` |
-| `/api/browse/{*path}` | GET | Read a file at a path-shaped URL, typed by extension |
-| `/api/images/{pane_id}/{image_id}` | GET | Serve a decoded inline-image blob |
+| Endpoint                           | Method | Purpose                                                                        |
+| ---------------------------------- | ------ | ------------------------------------------------------------------------------ |
+| `/events`                          | GET    | SSE stream (state updates, connection info)                                    |
+| `/commands`                        | POST   | tmux commands (no authentication unless `--password` is set — see SECURITY.md) |
+| `/api/file`                        | GET    | Read file contents by `?path=`                                                 |
+| `/api/browse/{*path}`              | GET    | Read a file at a path-shaped URL, typed by extension                           |
+| `/api/images/{pane_id}/{image_id}` | GET    | Serve a decoded inline-image blob                                              |
 
 Both file routes exist for widget rendering. `/api/browse` is the one the browser widget frames: the path lives in the URL rather than a query string, so a framed page's relative links resolve to the files beside it, and the response carries a real content type (see `tmuxy-core/src/mime.rs`) so HTML renders as a page instead of as source. The desktop app serves no HTTP; it answers the same requests over its `tmuxyfile:` scheme, and the frontend picks between the two in `tmuxy-ui/src/utils/fileUrl.ts` — the same split `Terminal.tsx` makes for inline images.
 

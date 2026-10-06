@@ -337,8 +337,10 @@ describe('CLI pane subcommands', () => {
       // which window it made, and `set-option -w` with no target would tag the
       // window the user is looking at instead. The trailing select-pane hands
       // the caller's pane back: break-pane took the tab's active pane away.
+      // The caller's pane rides along as the inner client's TMUX_PANE, like
+      // every run-shell mutation (_run_safe in bin/tmuxy/_lib).
       expect(lists[0].args[1]).toBe(
-        'tmux -L tmuxy split-window -t %5' +
+        'TMUX_PANE=%5 tmux -L tmuxy split-window -t %5' +
           ' \\; break-pane -d -n float -t main:2' +
           ' \\; set-option -w -t main:2 @tmuxy-window-type float' +
           ' \\; set-option -w -t main:2 @tmuxy-float-parent @3' +

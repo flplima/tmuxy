@@ -14,7 +14,7 @@ See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
-See [docs/TELEMETRY.md](docs/TELEMETRY.md) for unified cross-layer action tracing into a single local NDJSON file (design: schema, seams, redaction boundary, phased plan).
+See [docs/TELEMETRY.md](docs/TELEMETRY.md) for unified cross-layer action tracing into a single local NDJSON file (schema, seams, redaction boundary).
 See [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) for the failing-CI-job → local-command map.
 See [docs/ARCHITECTURE-INDEX.md](docs/ARCHITECTURE-INDEX.md) for where a given concern lives in the tree.
 
@@ -118,22 +118,6 @@ Tag every bug-fix commit (`🐛`) with the test layer that should have caught th
 - Example layers: `[missed-by: unit-tests]`, `[missed-by: e2e]`, `[missed-by: storybook-probe]`, `[missed-by: rust-tests]`, `[missed-by: cli]`, `[missed-by: WebKit]`, or `[missed-by: none]`.
 - An answer of `[missed-by: none]` means a gap exists in the testing architecture (e.g. process lifecycle, system fonts) and highlights where a new test tier or harness belongs.
 
-### Red-Main Policy: Fix or Quarantine Within 24 Hours
-
-A broken build on `main` stops everyone. If CI turns red on `main`:
-
-1. **Fix or quarantine within 24 hours**: Either land a fix, revert the offending commit, or quarantine the failing test within a day. Never leave `main` red.
-2. **Never build features on a red main**: If `main` is red, fixing CI takes precedence over any new feature work.
-3. **Quarantine is explicit and bounded**: For Storybook probes, use the bounded quarantine files (`packages/tmuxy-ui/scripts/probe-quarantine.json` or `probe-quarantine-v86.json`) with an issue reference and an ISO expiry date. Never skip a test without tracking.
-
-### Bug-Fix Commit Tagging: Missed-By Layer
-
-Tag every bug-fix commit (`🐛`) with the test layer that should have caught the bug:
-
-- Format: `🐛 <description> [missed-by: <layer>]`
-- Example layers: `[missed-by: unit-tests]`, `[missed-by: e2e]`, `[missed-by: storybook-probe]`, `[missed-by: rust-tests]`, `[missed-by: cli]`, `[missed-by: WebKit]`, or `[missed-by: none]`.
-- An answer of `[missed-by: none]` means a gap exists in the testing architecture (e.g. process lifecycle, system fonts) and highlights where a new test tier or harness belongs.
-
 Before wrapping up a task, run local checks that mirror CI lint gates:
 
 - `npm run check:fast`
@@ -168,7 +152,7 @@ Work out the set from what you changed:
 | `tests/**`                                  | the suites you edited, **plus** any other suite sharing their helpers                                      |
 | `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour               |
 | a `constants.rs` tmux format string         | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
-| `bin/tmuxy-cli`, `scripts/**`               | `npm run test:cli`                                                                                         |
+| `bin/tmuxy-cli`, `bin/tmuxy/**`             | `npm run test:cli`                                                                                         |
 | `packages/tmuxy-tauri-app/**`               | `npm run test:tauri`                                                                                       |
 | perf harnesses, `perf/**`                   | `npm run perf:interactions` + `npm run perf:compare`                                                       |
 
