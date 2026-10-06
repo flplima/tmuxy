@@ -95,8 +95,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     };
 
     /**
-     * In-flight scrollback fetches keyed by paneId. Phase E4: fast-scroll
-     * sends multiple FETCH_SCROLLBACK_CELLS in quick succession; without
+     * In-flight scrollback fetches keyed by paneId. Fast-scroll sends multiple FETCH_SCROLLBACK_CELLS in quick succession; without
      * cancellation, the responses race and stale results overwrite fresh
      * ones (or just waste bandwidth). Interrupting the previous fiber
      * before forking a new one keeps only the latest scroll position's
@@ -110,8 +109,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
 
     logInfo('Connecting to tmux backend...');
 
-    // Subscribe to adapter events (still callback-based — Phase E2 will
-    // convert SSE to Effect Stream for backpressure + structured cancellation).
+    // Subscribe to adapter events.
     const unsubscribeState = adapter.onStateChange((state: ServerState) => {
       parent.send({ type: 'TMUX_STATE_UPDATE', state });
     });

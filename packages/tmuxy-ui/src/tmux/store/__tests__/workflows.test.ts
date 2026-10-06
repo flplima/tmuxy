@@ -1,5 +1,5 @@
 /**
- * Workflow tests for the Tier-3 TmuxClientModel + Store.
+ * Workflow tests for the TmuxClientModel + Store.
  *
  * Covers the integration shapes that the XState bridge depends on:
  *   - Prefix-pinned commands (keyboardActor's `select-pane -t %N \;` prefix)

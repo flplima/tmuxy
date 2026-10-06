@@ -310,7 +310,6 @@ export interface BrowserPaneState {
   pageTitle?: { url: string; title: string };
 }
 
-/** Pending state update stored during pane exit animation */
 export interface AppMachineContext {
   connected: boolean;
   error: string | null;
@@ -430,16 +429,16 @@ export interface AppMachineContext {
    */
   bodyWidth: number;
   /**
-   * The Tab Overview (ctrl+0): every tab as a slot over the pane area, the
-   * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
-   * cursor over the slots in strip order, the last index being the "+" slot.
-   */
-  /**
    * Tabs the user has collapsed in the sidebar tree, by window id. Tabs are
    * expanded by default, so this holds only the exceptions — a tab that goes
    * away takes its entry with it.
    */
   collapsedTabIds: string[];
+  /**
+   * The Tab Overview (ctrl+0): every tab as a slot over the pane area, the
+   * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
+   * cursor over the slots in strip order, the last index being the "+" slot.
+   */
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
   /** Whether browser-side animations are enabled */
@@ -1330,6 +1329,5 @@ export type AppMachineEvent =
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
 
-// Optimistic operation tracking lives in `src/tmux/store/` now (Tier 3).
-// The PendingOp / TmuxOp / TmuxClientModel types replace the per-op
-// prediction structs that used to live here.
+// Optimistic operation tracking (PendingOp / TmuxOp / TmuxClientModel)
+// lives in `src/tmux/store/`.

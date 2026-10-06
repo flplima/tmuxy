@@ -1,5 +1,5 @@
 /**
- * Action implementations for the notifications parallel state.
+ * Action implementations for the notifications state slice.
  *
  * Owns notifications. A notification ages out after NOTIFICATION_DURATION
  * through a delayed DISMISS_NOTIFICATION raise keyed by its id, so closing it

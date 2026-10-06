@@ -22,8 +22,8 @@
  * Quarantine: scripts/probe-quarantine-v86.json lists stories whose failures
  * are reported but do not turn the run red — capped, dated, and each with its
  * reason (scripts/probe-quarantine.mjs enforces the policy, the same one the
- * deterministic probe uses). Without it the sweep was red every night with the
- * same 13 failures, which buries a real regression instead of showing it.
+ * deterministic probe uses). Without it the sweep is red every night with the
+ * same known failures, which buries a real regression instead of showing it.
  *
  * Set PROBE_TIMINGS_JSON=<path> to also write a machine-readable per-story
  * timings report ({ generatedAt, storybookPort, stories: [{id, ok, retried,

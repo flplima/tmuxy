@@ -487,17 +487,17 @@ export interface TmuxAdapter {
   onClipboard(listener: ClipboardListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
   /**
+   * Retry a dropped connection now instead of at the next backoff tick. For
+   * transports that reconnect on a schedule; a no-op while connected.
+   */
+  reconnectNow?(): void;
+  /**
    * True when the adapter is attached to a real tmux server whose sessions can
    * be enumerated (`list-windows -a` across every session) — the web
    * `HttpAdapter` and the desktop Tauri adapter. Absent on the single-session
    * in-browser sandboxes (demo, v86), where the sidebar's sessions poll would
    * be pointless churn. Gates the `serversActor` poll.
    */
-  /**
-   * Retry a dropped connection now instead of at the next backoff tick. For
-   * transports that reconnect on a schedule; a no-op while connected.
-   */
-  reconnectNow?(): void;
   enumeratesSessions?: boolean;
   /**
    * The backend serves this client as a viewer (`tmuxy server --read-only`):

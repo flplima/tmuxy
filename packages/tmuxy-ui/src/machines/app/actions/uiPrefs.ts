@@ -1,5 +1,5 @@
 /**
- * Action implementations for the uiPrefs parallel state.
+ * Action implementations for the uiPrefs state slice.
  *
  * Each action is prefixed `uiPrefs_` to avoid name collisions across states
  * when spread into setup({ actions }).

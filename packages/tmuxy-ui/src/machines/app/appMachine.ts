@@ -396,7 +396,7 @@ export const appMachine = setup({
       input: ({ self }) => ({ parent: self }),
     },
     {
-      // The Tier-3 client model: bridges TmuxStore (Effect Ref) into XState.
+      // The client model: bridges TmuxStore (Effect Ref) into XState.
       // SEND_TMUX_COMMAND relays here for optimistic dispatch; TMUX_STATE_UPDATE
       // relays here for reconcile. The actor forwards model changes back as
       // TMUX_MODEL_UPDATE so XState context stays in sync without any
@@ -443,9 +443,8 @@ export const appMachine = setup({
     },
   ],
   on: {
-    // Per-state event handlers (parallel-state migration: Option D′).
     // Each `<name>State.on` slice owns events whose context-field writes
-    // are restricted to that state per FIELD_OWNERS in ./context.ts.
+    // are restricted to that slice per FIELD_OWNERS in ./context.ts.
     ...uiPrefsState.on,
     ...commandUiState.on,
     ...notificationsState.on,

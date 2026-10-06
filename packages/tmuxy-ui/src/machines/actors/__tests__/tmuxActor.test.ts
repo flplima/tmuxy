@@ -66,7 +66,7 @@ async function waitFor(pred: () => boolean, timeoutMs = 1000): Promise<void> {
   throw new Error('timeout waiting for predicate');
 }
 
-describe('tmuxActor — Phase E4 cancellable scrollback', () => {
+describe('tmuxActor — cancellable scrollback', () => {
   it('FETCH_SCROLLBACK_CELLS success sends COPY_MODE_CHUNK_LOADED to parent', async () => {
     const invoke = vi.fn(async (cmd: string) => {
       if (cmd === 'get_scrollback_cells') {

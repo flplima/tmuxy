@@ -10,8 +10,9 @@
  *     through `store.dispatchCommand`. The store applies the predicted
  *     patch synchronously (caller sees the change before the network
  *     round-trip), then awaits the adapter for the real round-trip.
- *  3. Log dispatched commands and rollback warnings via LOG_APPEND so the
- *     debug log stays populated.
+ *  3. Log dispatched commands via LOG_APPEND (the debug log), and surface a
+ *     failed dispatch — or a structural op tmux never confirmed — as
+ *     TMUX_ERROR.
  *
  * Why a callback actor and not direct context access:
  *   The store lives in plain JS-land (Effect.Ref); the bridge actor is the
@@ -146,10 +147,9 @@ export function createTmuxStoreActor(store: TmuxStore) {
             /* unparseable command — skip the op trace */
           }
         }
-        // Fire-and-forget — the store handles rollback on its own. We swallow
-        // OpError because the store has already updated the model; the next
-        // TMUX_MODEL_UPDATE will reflect the rolled-back state. Logged here
-        // for debuggability.
+        // Fire-and-forget — the store rolls a failed op back on its own (the
+        // next TMUX_MODEL_UPDATE reflects it); dispatchWithErrorSurface
+        // reports the failure.
         dispatchWithErrorSurface(store.dispatchCommand(event.command), event.command);
         return;
       }

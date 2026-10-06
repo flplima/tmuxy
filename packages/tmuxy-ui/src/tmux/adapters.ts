@@ -253,8 +253,8 @@ export class TauriAdapter implements TmuxAdapter {
 
   // Serial queue for mutating commands so they reach the Tauri executor in
   // issue order. Same rationale as HttpAdapter: tauri::invoke spawns each
-  // command as its own task and tmux's external subprocess calls have no
-  // cross-command ordering guarantee. A `split-window -h` racing past a
+  // command as its own task, so two commands have no ordering guarantee on
+  // their way to the monitor. A `split-window -h` racing past a
   // `select-window -t @B` would split the previous tab.
   private sendQueue: Promise<void> = Promise.resolve();
 

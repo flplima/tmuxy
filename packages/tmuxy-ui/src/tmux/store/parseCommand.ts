@@ -1,12 +1,9 @@
 /**
  * String → TmuxOp parser.
  *
- * Replaces the old `optimistic/commandParser.ts`. The intent is the same —
- * recognize the shape of a tmux command string so the store can apply the
- * matching optimistic prediction — but the output is a typed op value, not
- * an internal ParsedCommand struct. The store consumes the op directly;
- * nobody needs to look up "is this command of type X" through a second
- * indirection.
+ * Recognizes the shape of a tmux command string so the store can apply the
+ * matching optimistic prediction. The output is a typed op value the store
+ * consumes directly.
  *
  * This stays as a parser (not a full lexer) on purpose. It only needs to
  * recognize the handful of commands we predict; everything else falls

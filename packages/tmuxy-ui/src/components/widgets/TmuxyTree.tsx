@@ -2,8 +2,8 @@
  * TmuxyTree — the `tree` widget: the tabs+panes tree the left sidebar shows.
  *
  * Registered like any other tmuxy widget, so a pane running `tmuxy widget tree`
- * renders this component instead of its terminal. Unlike the image and markdown
- * widgets it ignores the pane's content entirely: `bin/tmuxy/tmuxy-widget-tree`
+ * renders this component instead of its terminal. Unlike the browser widget,
+ * which reads its source out of the pane, it ignores the pane's content entirely: `bin/tmuxy/tmuxy-widget-tree`
  * prints the marker and then blocks, because the tree is derived from the tmux
  * state the app already holds rather than streamed through the pane.
  *

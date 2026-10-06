@@ -13,9 +13,7 @@
  *
  * Cancellation: when the surrounding fiber is interrupted, the wrapper does
  * NOT cancel the in-flight Promise (Promises aren't cancellable). It DOES
- * stop the Effect from completing — the result is dropped. This is the
- * pragmatic baseline; future work (Phase E2) can replace specific adapter
- * calls with native Effect / Stream implementations for true cancellation.
+ * stop the Effect from completing — the result is dropped.
  */
 
 import { Effect, Schema } from 'effect';
