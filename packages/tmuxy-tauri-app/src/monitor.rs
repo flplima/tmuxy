@@ -100,8 +100,9 @@ impl MonitorState {
 
     /// The live command channel, or the error a command is answered with
     /// while the monitor is not connected.
-    pub fn connected_tx(&self) -> Result<MonitorCommandSender, String> {
-        self.tx().ok_or_else(|| "monitor not connected".to_string())
+    pub fn connected_tx(&self) -> Result<MonitorCommandSender, tmuxy_core::CommandError> {
+        self.tx()
+            .ok_or_else(|| tmuxy_core::CommandError::unavailable("monitor not connected"))
     }
 }
 

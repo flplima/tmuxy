@@ -1356,7 +1356,7 @@ pub fn is_structural(delta: &crate::TmuxDelta) -> bool {
 // Through a running monitor: the hosts' half
 // =============================================================================
 
-use crate::control_mode::{MonitorCommand, MonitorCommandSender};
+use crate::control_mode::MonitorCommandSender;
 
 /// Run one tmux command through a monitor's control-mode connection.
 async fn via_monitor(tx: &MonitorCommandSender, argv: &[String]) -> Result<String, String> {
@@ -1365,14 +1365,9 @@ async fn via_monitor(tx: &MonitorCommandSender, argv: &[String]) -> Result<Strin
         .map(|a| tmux_word(a))
         .collect::<Vec<_>>()
         .join(" ");
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::RunCommandWithReply { command, reply })
+    crate::transport::query(tx, &command)
         .await
-        .map_err(|e| format!("monitor channel: {e}"))?;
-    let reply: crate::control_mode::CommandReply = rx
-        .await
-        .map_err(|_| "monitor went away before answering".to_string())?;
-    reply.into_result()
+        .map_err(|e| e.error)
 }
 
 /// One argv word as tmux's own command parser reads it: double-quoted, with

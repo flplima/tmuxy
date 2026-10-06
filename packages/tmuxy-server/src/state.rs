@@ -363,13 +363,16 @@ impl AppState {
 
     /// The session's monitor command channel, or the error a client is
     /// answered with while its monitor is not connected.
-    pub async fn monitor_tx(&self, session: &str) -> Result<MonitorCommandSender, String> {
+    pub async fn monitor_tx(
+        &self,
+        session: &str,
+    ) -> Result<MonitorCommandSender, tmuxy_core::CommandError> {
         self.sessions
             .read()
             .await
             .get(session)
             .and_then(|s| s.monitor_command_tx.clone())
-            .ok_or_else(|| "No monitor connection available".to_string())
+            .ok_or_else(|| tmuxy_core::CommandError::unavailable("No monitor connection available"))
     }
 
     /// Whether `name` is a session this server will serve.

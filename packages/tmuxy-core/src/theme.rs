@@ -12,6 +12,7 @@ use crate::control_mode::MonitorCommandSender;
 use crate::executor::tmux_quote;
 use crate::session;
 use crate::transport::query;
+use crate::CommandError;
 
 /// Fallbacks when the tmux options are unset (fresh server, never themed).
 const DEFAULT_THEME: &str = "default";
@@ -167,7 +168,9 @@ fn parse_settings(output: &str) -> serde_json::Value {
 /// "appearance" }` — the wire shape the `get_theme_settings` Tauri command,
 /// the `GetThemeSettings` SSE command and the `theme-settings` push (after the
 /// config is sourced) all share.
-pub async fn get_theme_settings(tx: &MonitorCommandSender) -> Result<serde_json::Value, String> {
+pub async fn get_theme_settings(
+    tx: &MonitorCommandSender,
+) -> Result<serde_json::Value, CommandError> {
     let output = query(tx, &settings_query()).await?;
     Ok(parse_settings(&output))
 }
@@ -175,9 +178,11 @@ pub async fn get_theme_settings(tx: &MonitorCommandSender) -> Result<serde_json:
 /// A value written into a control-mode command line. Quoting keeps `;` and
 /// spaces literal; a control character would end the line and start another
 /// command, so it is refused.
-fn option_value(value: &str) -> Result<String, String> {
+fn option_value(value: &str) -> Result<String, CommandError> {
     if value.chars().any(char::is_control) {
-        return Err(format!("not a usable option value: {value:?}"));
+        return Err(CommandError::invalid(format!(
+            "not a usable option value: {value:?}"
+        )));
     }
     Ok(tmux_quote(value))
 }
@@ -187,7 +192,7 @@ async fn set_options(
     tx: &MonitorCommandSender,
     options: &[(&str, &str)],
     what: &str,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let mut commands = Vec::with_capacity(options.len());
     for (option, value) in options {
         commands.push(format!("set-option -g {option} {}", option_value(value)?));
@@ -195,7 +200,7 @@ async fn set_options(
     query(tx, &commands.join(" ; "))
         .await
         .map(|_| ())
-        .map_err(|e| format!("Failed to set {what}: {e}"))
+        .map_err(|e| e.context(&format!("Failed to set {what}")))
 }
 
 /// Turn the cursor's blink on or off, and remember the choice.
@@ -204,7 +209,10 @@ async fn set_options(
 /// makes it survive a tmux server restart. A `@tmuxy-cursor-blink` line in
 /// the user's own `tmuxy.conf` is the default this starts from — set it
 /// there and the app never has to be told.
-pub async fn set_cursor_blink(tx: &MonitorCommandSender, enabled: bool) -> Result<(), String> {
+pub async fn set_cursor_blink(
+    tx: &MonitorCommandSender,
+    enabled: bool,
+) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
     set_options(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
     if let Err(e) = session::write_managed_state(None, None, Some(enabled), None) {
@@ -220,7 +228,7 @@ pub async fn set_theme(
     tx: &MonitorCommandSender,
     name: &str,
     mode: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let mut options = vec![(tmux_options::THEME, name)];
     if let Some(m) = mode {
         options.push((tmux_options::THEME_MODE, m));
@@ -233,7 +241,7 @@ pub async fn set_theme(
 }
 
 /// Set only the mode (dark/light) and persist it.
-pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), String> {
+pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
     set_options(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
     if let Err(e) = session::write_managed_state(None, Some(mode), None, None) {
         tracing::warn!(error = %e, "could not persist theme mode to tmuxy.state.json");

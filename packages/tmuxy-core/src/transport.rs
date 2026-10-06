@@ -13,31 +13,32 @@ use std::time::Duration;
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
 use crate::executor::{parse_bindings, tmux_quote, KeyBinding};
 use crate::session_snapshot::{self as snapshot, RestoreOptions};
-use crate::PaneId;
+use crate::{CommandError, PaneId};
 
 /// Run a command on the monitor's connection and wait for what it printed. An
-/// `%error` from tmux is the `Err`, carrying tmux's message.
-pub async fn query(tx: &MonitorCommandSender, command: &str) -> Result<String, String> {
+/// `%error` from tmux is a `tmux` error carrying tmux's message; a monitor
+/// that is gone is `unavailable`.
+pub async fn query(tx: &MonitorCommandSender, command: &str) -> Result<String, CommandError> {
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::RunCommandWithReply {
         command: command.to_string(),
         reply,
     })
     .await
-    .map_err(|e| format!("Monitor channel error: {e}"))?;
+    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
     rx.await
-        .map_err(|_| "monitor went away before answering".to_string())?
+        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?
         .into_result()
 }
 
 /// Run a command on the monitor's connection without waiting for it. A
 /// `%error` reaches the user through the emitter, not the caller.
-pub async fn run(tx: &MonitorCommandSender, command: &str) -> Result<(), String> {
+pub async fn run(tx: &MonitorCommandSender, command: &str) -> Result<(), CommandError> {
     tx.send(MonitorCommand::RunCommand {
         command: command.to_string(),
     })
     .await
-    .map_err(|e| format!("Monitor channel error: {e}"))
+    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))
 }
 
 // ============================================
@@ -60,7 +61,7 @@ pub async fn scrollback_cells(
     pane_id: &PaneId,
     start: i64,
     end: i64,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CommandError> {
     let output = query(
         tx,
         &format!(
@@ -69,9 +70,9 @@ pub async fn scrollback_cells(
         ),
     )
     .await
-    .map_err(|e| format!("Failed to capture pane range: {e}"))?;
+    .map_err(|e| e.context("Failed to capture pane range"))?;
     let (geometry, raw) = output.split_once('\n').unwrap_or((output.as_str(), ""));
-    let (width, history_size) = parse_geometry(geometry)?;
+    let (width, history_size) = parse_geometry(geometry).map_err(CommandError::tmux)?;
     Ok(serde_json::json!({
         "cells": crate::parse_scrollback_to_cells(raw, width),
         "historySize": history_size,
@@ -254,11 +255,11 @@ pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
 /// The sessions that have a snapshot to be rebuilt from, as the
 /// `[{ name, savedAt }]` both transports answer `list_snapshots` with.
-pub async fn list_snapshots_json() -> Result<serde_json::Value, String> {
+pub async fn list_snapshots_json() -> Result<serde_json::Value, CommandError> {
     let dir = snapshot::default_dir();
     let list = tokio::task::spawn_blocking(move || snapshot::list(&dir))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| CommandError::unavailable(e.to_string()))?;
     Ok(serde_json::json!(list
         .into_iter()
         .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
@@ -269,24 +270,30 @@ pub async fn list_snapshots_json() -> Result<serde_json::Value, String> {
 /// control-mode client — a session made from inside a control-mode client is
 /// how both transports already create one. Refused when the session is
 /// already running.
-pub async fn restore_named(name: &str, tx: &MonitorCommandSender) -> Result<(), String> {
+pub async fn restore_named(name: &str, tx: &MonitorCommandSender) -> Result<(), CommandError> {
     if !crate::session::is_safe_session_name(name) {
-        return Err(format!("not a usable session name: {name:?}"));
+        return Err(CommandError::invalid(format!(
+            "not a usable session name: {name:?}"
+        )));
     }
     if session_running(tx, name).await {
-        return Err(format!("session {name:?} is already running"));
+        return Err(CommandError::invalid(format!(
+            "session {name:?} is already running"
+        )));
     }
     let dir = snapshot::default_dir();
     let saved = snapshot::read_latest(&dir, name)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("no snapshot for {name:?}"))?;
+        .map_err(|e| CommandError::unavailable(e.to_string()))?
+        .ok_or_else(|| CommandError::invalid(format!("no snapshot for {name:?}")))?;
     let options = RestoreOptions {
         run: false,
         fallback_cwd: snapshot::fallback_cwd(),
         onto_existing_window: false,
         existing_window_index: None,
     };
-    snapshot::restore_via_monitor(&saved, &options, tx).await
+    snapshot::restore_via_monitor(&saved, &options, tx)
+        .await
+        .map_err(CommandError::tmux)
 }
 
 /// Whether a session of exactly this name exists, asked over control mode.
@@ -350,6 +357,33 @@ mod tests {
     /// The width is tmux's or nothing: a guessed 80 re-wraps every captured
     /// line at the wrong column.
     #[tokio::test]
+    async fn tmux_refusing_is_kind_tmux_and_a_gone_monitor_unavailable() {
+        let (tx, _) = answering(Err("unknown command: frob".to_string()));
+        let err = query(&tx, "frob").await.unwrap_err();
+        assert_eq!(err, CommandError::tmux("unknown command: frob"));
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        drop(rx);
+        assert_eq!(
+            query(&tx, "list-panes").await.unwrap_err().kind,
+            crate::ErrorKind::Unavailable
+        );
+        assert_eq!(
+            run(&tx, "list-panes").await.unwrap_err().kind,
+            crate::ErrorKind::Unavailable
+        );
+    }
+
+    #[tokio::test]
+    async fn restoring_a_bad_name_is_an_invalid_argument() {
+        let (tx, _) = answering(Ok(String::new()));
+        assert_eq!(
+            restore_named("a\nkill-server", &tx).await.unwrap_err().kind,
+            crate::ErrorKind::Invalid
+        );
+    }
+
+    #[tokio::test]
     async fn scrollback_without_a_width_fails_rather_than_guessing() {
         let (tx, _) = answering(Ok("\nhello\n".to_string()));
         assert!(scrollback_cells(&tx, &PaneId::from_number(3), -10, -1)
@@ -393,7 +427,8 @@ mod tests {
         // `has-session` answers without an error: the session exists.
         let (tx, asked) = answering(Ok(String::new()));
         let refused = restore_named("work", &tx).await.unwrap_err();
-        assert!(refused.contains("already running"), "{refused}");
+        assert!(refused.error.contains("already running"), "{refused}");
+        assert_eq!(refused.kind, crate::ErrorKind::Invalid);
         assert_eq!(asked.lock().unwrap()[0], "has-session -t '=work'");
     }
 

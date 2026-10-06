@@ -1,3 +1,4 @@
+pub mod command_error;
 pub mod constants;
 pub mod control_mode;
 pub mod error;
@@ -36,6 +37,7 @@ pub mod worktrees;
 #[cfg(feature = "native")]
 pub use ctx::{Clock, Ctx};
 
+pub use command_error::{CommandError, ErrorKind};
 pub use error::{Result as TmuxResult, TmuxError};
 pub use ids::{GroupId, IdError, PaneId, WindowId};
 

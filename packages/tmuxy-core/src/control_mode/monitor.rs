@@ -30,11 +30,12 @@ pub struct CommandReply {
 }
 
 impl CommandReply {
-    /// The output, or tmux's message.
-    pub fn into_result(self) -> Result<String, String> {
+    /// The output, or tmux's message as a [`crate::CommandError`] of kind
+    /// `tmux`.
+    pub fn into_result(self) -> Result<String, crate::CommandError> {
         match self.error {
             None => Ok(self.output),
-            Some(error) => Err(error),
+            Some(error) => Err(crate::CommandError::tmux(error)),
         }
     }
 }
