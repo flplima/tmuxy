@@ -24,7 +24,7 @@ We do NOT maintain a local terminal state machine (cursor position, SGR attribut
 
 We do NOT continuously buffer a pane's output on the client. tmux is the only owner of scrollback history.
 
-What we _do_ render client-side is a **view** of it: mouse wheel in a normal shell enters copy mode and renders scrollback **fetched on demand from tmux** (`get_scrollback_cells` → `capture-pane`), lazily in chunks as the user scrolls, discarded when the pane leaves copy mode — see [COPY-MODE.md](COPY-MODE.md). In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works and scrollback renders client-side, but the history always comes from tmux at scroll time, never from a buffer we keep in sync with live output.
+What we _do_ render client-side is a **view** of it: the mouse wheel in a normal shell opens the client-only scroll view, which renders scrollback **fetched on demand from tmux** (`get_scrollback_cells` → `capture-pane`), lazily in chunks as the user scrolls, and discards it when the view closes; tmux itself is never put into copy mode by the wheel — see [COPY-MODE.md](COPY-MODE.md). In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works and scrollback renders client-side, but the history always comes from tmux at scroll time, never from a buffer we keep in sync with live output.
 
 **Why no live buffer?**
 

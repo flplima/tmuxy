@@ -54,13 +54,13 @@ The heart of the system. Consumes `ControlModeEvent`s and returns typed `SideEff
 
 This separation is what makes the aggregator testable without tokio: drive it with synthetic event sequences and assert on the returned effects. The settling mechanism (window-emission suppression during compound commands) lives here as a sticky flag the runtime arms/disarms; the time-based debounce/safety timer that decides _when_ to disarm still lives in the monitor.
 
-`step(event) -> StepResult` is the public entry point. `tick(now)` is reserved for future time-driven transitions and currently returns no effects.
+`step(event) -> StepResult` is the public entry point. `tick(now)` drives the time-based transitions: once `now` passes the settling deadline after a burst of structural events, it ends the settling window and returns one consolidated `EmitState` (or nothing, when no event arrived during it).
 
 See `tmuxy-core/src/control_mode/state.rs` and the `SideEffect` enum's docblocks for the ordering invariants the runtime relies on.
 
 ### Ctx — execution context
 
-A small bundle of substitutable capabilities (`TmuxCommand`, `Clock`, `FileSystem`) plus a `RetryPolicy`. Production uses `Ctx::live()` (real subprocess, system clock, on-disk FS). Tests use `test_ctx()` (mock tmux that records argvs, fake clock, in-memory FS) — gated behind a `test-support` cargo feature so external integration tests can pull in the mocks.
+A small bundle of substitutable capabilities (`TmuxCommand`, `Clock`) plus a `RetryPolicy`. Production uses `Ctx::live()` (real subprocess, system clock). Tests use `test_ctx()` (mock tmux that records argvs, fake clock) — gated behind a `test-support` cargo feature so external integration tests can pull in the mocks.
 
 See `tmuxy-core/src/ctx.rs`.
 
@@ -223,48 +223,12 @@ Rules an action that flips focus must follow:
 
 Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_TAB` (pane-group tab clicks) in `appMachine.ts`. Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these via `resolveTabNavTarget` / `resolvePaneGroupNavTarget` so they share the same optimism.
 
-### Parallel-state decomposition (Option D′)
+### How the app machine is split
 
-`appMachine.ts` is decomposed into per-concern files under `tmuxy-ui/src/machines/app/`:
-
-```
-machines/app/
-├── appMachine.ts          # Parent: lifecycle (connecting / idle / reconnecting),
-│                          # actor wiring, cross-cutting orchestrators.
-│                          # SEND_TMUX_COMMAND keeps its keybinding intercepts
-│                          # (copy-mode, command-prompt, display-message, tab
-│                          # remap) but the optimistic-apply path is now a
-│                          # one-liner sendTo('tmuxStore', DISPATCH_COMMAND).
-│                          # TMUX_STATE_UPDATE is one-liner sendTo('tmuxStore',
-│                          # RECONCILE_SERVER); the TMUX_MODEL_UPDATE handler
-│                          # mirrors the model into context directly via
-│                          # snapshotFromModel, then runs the heavy downstream
-│                          # work (groups, floats, copy-mode detect, animations).
-├── context.ts             # createInitialContext() and FIELD_OWNERS registry
-├── helpers.ts             # transformServerState, parseCommandPrompt,
-│                          # parseDisplayMessage, STATUS_MESSAGE_DURATION.
-├── states/                # One file per parallel state — exports the state
-│   │                      # config (on: slice) referenced by named actions.
-│   ├── uiPrefs.ts         # theme, font size, animations
-│   ├── commandUi.ts       # command mode, status messages, prefix indicator
-│   ├── notifications.ts   # the snackbar: errors the user has to see
-│   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
-│   ├── browser.ts         # browser widget history + zoom (per-pane)
-│   ├── groupsAndFloats.ts # pane groups, float panes, sidebar columns, tree folds
-│   ├── tabOverview.ts     # the "all tabs" view: open flag, keyboard cursor
-│   ├── gestures.ts        # trackpad slide / pinch in progress (gestureActor)
-│   └── layout.ts          # panes, windows, focus, drag/resize
-│                          # (optimistic state lives in src/tmux/store/, not here)
-├── actions/               # Named action implementations referenced by
-│                          # states/<name>.ts via string IDs. Spread into
-│                          # setup({ actions: { ...uiPrefsActions, ... }}).
-└── guards/                # Named guards (currently empty placeholders).
-```
+`appMachine.ts` holds the lifecycle (connecting / idle / reconnecting), the actor wiring and the handlers that cut across concerns, including the one command path every tmux command goes through. Everything else is grouped by the context fields it owns: `machines/app/states/<concern>.ts` holds that concern's event handlers (an `on` map spread into the machine), and `machines/app/actions/<concern>.ts` the named actions they refer to. `context.ts` builds the initial context and owns the field-ownership map. Optimistic tmux state is not machine state at all: it lives in the store under `src/tmux/store/`.
 
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
-`AppMachineContext` field to its owning state (`'layout' | 'copyMode' |
-'browser' | 'groupsAndFloats' | 'tabOverview' | 'commandUi' | 'notifications' |
-'uiPrefs' | 'parent'`). The
+`AppMachineContext` field to the concern that owns it (the owner names are the `states/` file names, plus `parent` for the machine itself). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
 enforces this: any `assign({...})` inside a `states/<name>.ts` or
 `actions/<name>.ts` file may only mutate fields owned by `<name>`.
@@ -332,7 +296,7 @@ Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `sele
 Split and kill morphs are deliberately **not** machine state — the lifecycle lives entirely in `tmuxy-ui/src/components/PaneLayout.tsx` as refs plus a tick reducer. Each render is diffed against a snapshot of the previous render, keyed by the pane's effective React key (`paneKeyOverrides` honored, so the optimistic placeholder→real-id swap never re-triggers an animation):
 
 - **Enter** (split): a newly visible key mounts at its final geometry, is FLIP-rewound before paint to the pre-split box of the sibling that shrank for it, then transitions into place while fading in (`pane-entering`).
-- **Leave** (kill): a key that vanishes from the render keeps its DOM node mounted for the leave duration at its last box, scaling down into its own centre while fading out (`pane-leaving`), painted below the survivor that grows over the space (`pane-shifting`) so the closing pane recedes behind it. Its frozen pane snapshot is exposed through `LeavingPanesContext` (`tmuxy-ui/src/machines/LeavingPanesContext.ts`), which `usePane` falls back to after the model has dropped the pane.
+- **Leave** (kill): the closed pane's node goes away in the same commit that drops it from the model; only the survivors animate, growing into the freed space (`pane-shifting`).
 - **Shift**: pre-existing panes whose geometry changed alongside an enter/leave animate on the same clock (`pane-shifting`) so converging edges track.
 
 The from/to geometry is inferred generically from previous-render pixel boxes (`tmuxy-ui/src/utils/paneTransitions.ts`), so splits/kills initiated from the CLI or another client animate identically to optimistic local ones. The lifecycle classes intentionally out-specify the `enableAnimations`/`suppressLayoutTransition` container gates in CSS; detection is skipped on initial load, window switches, and during drag/resize.
@@ -341,7 +305,7 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 ## How Backend and Frontend Stay in Sync
 
-1. **Initial sync** — On connection, the frontend sends `get_initial_state` with viewport size. The backend answers with the monitor's own `TmuxState` (`MonitorCommand::GetState`, the same picture its `Full` broadcast carries), so a client that connects after that broadcast — the desktop webview always does, its monitor starts first — begins from a baseline the deltas agree with. The frontend stores this as the base state.
+1. **Initial sync** — On connection, the frontend sends `get_initial_state` with viewport size. The backend answers with the monitor's own `TmuxState` (`MonitorCommand::GetState`, the same picture its `Full` broadcast carries), so a client that connects after that broadcast — the desktop webview always does, its monitor starts first — begins from a baseline the deltas agree with. The frontend starts from it only until the stream has delivered its own full state: after that the stream is the state, and a later answer only fills panes the stream has no content for yet (`adoptInitialState` in `tmux/deltaProtocol.ts`), since the answer sits outside the delta sequence and putting it back would undo what the stream delivered since.
 
 2. **Incremental updates** — The backend sends `TmuxDelta` updates with sequence numbers. The frontend merges these via `handleStateUpdate()` in `tmuxy-ui/src/tmux/deltaProtocol.ts`. Only changed fields are transmitted.
 

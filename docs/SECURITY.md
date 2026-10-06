@@ -70,7 +70,7 @@ What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`
 - **Serves one session and creates none.** A name other than the pinned one answers 404, and so does the pinned one while it does not exist — the server's monitor waits for it, where the old shape answered every invented name with `new-session -A`, spawning a live shell per name that outlived the viewer.
 - **Has no `/api/file`, `/api/browse` or `/trace`.** "Read-only" is about the session, and those routes are a different power: the two file routes read any file the server process can, anywhere on the disk, and `/trace` writes to it. A read-only server is the one meant to be handed to people who are not trusted with the machine, so those routes are not built into its router at all (they answer 404, as any unknown path does). Only the browser widget used the file routes, and opening one takes a command a viewer cannot send.
 
-What it does not do: it is not confidentiality _within the session it shows_. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server, and for a genuinely public viewer see [A Public Read-Only Viewer](#a-public-read-only-viewer).
+What it does not do: it is not confidentiality _within the session it shows_. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server.
 
 ### Behind a Reverse Proxy
 
@@ -456,7 +456,7 @@ Not yet implemented, but would improve the security posture:
 - **Per-client permissions** — writers and viewers on one server, instead of one server per role
 - **Audit logging** — Log all commands and client connections
 - **Path restrictions** — Limit `/api/file` and `/api/browse` to specific directories
-- **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional Password](#optional-password))
+- **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional HTTP Basic Auth](#optional-http-basic-auth))
 
 ## Related
 

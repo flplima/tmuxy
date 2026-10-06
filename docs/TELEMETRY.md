@@ -96,36 +96,14 @@ of the plan are implemented; see [§ Using it](#using-it).
   and v86/wasm builds have no host filesystem and no server; they are not
   traced to a file. See [§ Deployment scope](#deployment-scope).
 
-## What this replaced
+## What it complements
 
-The five mechanisms below predate the trace file and mostly still exist — they
-are the per-layer buffers you reach for interactively. What none of them had was
-a shared timeline, correlation, or persistence beyond one hand-rolled file, and
-that gap is what the design in this document closes. Kept here because it is the
-_why_: it explains which problem each part of the schema exists to solve.
-
-| Layer    | Mechanism                                                                                                                                   | Sink                    | Persisted?                           |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------------------------------ |
-| Rust     | `tracing` + `tracing-subscriber`, `RUST_LOG` filter (`packages/tmuxy-server/src/lib.rs`)                                                    | stderr                  | no                                   |
-| Rust     | hand-rolled `debug_log` (`packages/tmuxy-core/src/debug_log.rs`)                                                                            | `~/tmuxy-debug.log`     | yes (one file, unstructured)         |
-| Rust     | one real span, the Tower `tmux_call` (`packages/tmuxy-core/src/tmux_service.rs`), plus scattered `#[instrument]`                            | via subscriber → stderr | no                                   |
-| Rust     | in-memory SSE replay ring (100) and control-mode tail (200 lines)                                                                           | memory only             | no (rolls over)                      |
-| Frontend | XState event ring (200), via a `send` monkey-patch (`packages/tmuxy-ui/src/machines/AppContext.tsx`), exposed as `window.getRecentEvents()` | memory only             | no                                   |
-| Frontend | in-app activity log (500), `LOG_APPEND` → `context.log`                                                                                     | memory only             | no (**and carries command strings**) |
-| Frontend | dev-gated `latencyTracker` + `PerfHud` (`packages/tmuxy-ui/src/tmux/latencyTracker.ts`)                                                     | memory only             | no                                   |
-
-The gaps that motivated the design, and where each landed:
-
-- **The two Rust log systems didn't share a sink**, and neither was structured
-  for machine loading — the NDJSON `TraceLayer` is now the common structured
-  sink alongside them.
-- **The Tauri GUI dropped `tracing` entirely** — `init_logging()` ran on the
-  `tmuxy server` subcommand path but not the desktop GUI entry, so every
-  `tracing` event was silently discarded in the desktop app. Both entry points
-  install it now.
-- **No cross-layer correlation** — a frontend event and the Rust work it caused
-  lived in different buffers with different clocks. The `action_id` threaded
-  through `X-Action-Id` closes the request leg; the return leg stays heuristic.
+The trace is the shared, persisted timeline. The per-layer buffers you reach
+for interactively still exist beside it: `RUST_LOG`-filtered `tracing` on
+stderr, the hand-rolled `~/tmuxy-debug.log` (`tmuxy-core/src/debug_log.rs`),
+the in-memory SSE replay ring and control-mode tail, the in-app activity log
+(`LOG_APPEND` → `context.log`, which carries command strings and so never
+leaves the app), and the dev-gated `latencyTracker` + `PerfHud`.
 
 ## Design
 
@@ -163,7 +141,7 @@ every `info!`/`warn!`/`error!` — with **zero new call sites**. The work is:
 1. Write the NDJSON `Layer` and add it to the subscriber in `init_logging()`.
 2. **Install the subscriber on every entry path**, including the Tauri GUI path
    that currently skips it (the gap above).
-3. Route the file write through `Ctx.FileSystem` and timestamps through
+3. Route timestamps through
    `Ctx.Clock` (`packages/tmuxy-core/src/ctx.rs`) so the pure core stays pure
    and tests stay deterministic — the same substitution seam the rest of the
    core uses.
@@ -179,9 +157,8 @@ Three seams are already tapped; the tracer reuses them rather than adding new
 ones:
 
 - The **`send` monkey-patch** in `packages/tmuxy-ui/src/machines/AppContext.tsx`
-  already sees every event dispatched to the app machine (today it feeds the
-  200-entry `window.getRecentEvents()` ring). Generalize it to emit a trace
-  event per transition.
+  sees every event dispatched to the app machine and emits one trace event per
+  event type.
 - The **Effect chokepoint**: every adapter call runs through
   `Effect.runPromiseExit` in `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts`,
   yielding a typed `AdapterError` (`packages/tmuxy-ui/src/tmux/effect/AdapterError.ts`).
@@ -288,7 +265,7 @@ Structural enforcements, not just discipline:
    on the list is dropped. A newly added event, or a stray `attrs` field, cannot
    leak by default — it has to be deliberately opted in. The famous terminal
    leaks came from the vector nobody thought to blacklist (see
-   [§ Prior art](#prior-art--the-principles-we-take-from-it)).
+   [§ Why local-only](#why-local-only-prior-art)).
 2. **Trace the typed variant, never the string.** Recording the `TmuxOp` /
    `MonitorCommand` variant instead of the rewritten command is content-free by
    construction, and is _also_ more robust — it survives the
