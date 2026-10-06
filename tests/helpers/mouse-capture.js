@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { delay, focusPage } = require('./browser');
 const { DELAYS } = require('./config');
-const { typeInTerminal, pressEnter } = require('./ui');
+const { typeInTerminal, pressEnter } = require('./keyboard');
 const { getTerminalText } = require('./pane-ops');
 
 const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'mouse-capture.py');

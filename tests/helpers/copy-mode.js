@@ -6,7 +6,7 @@
  */
 
 const { delay, waitForCondition } = require('./browser');
-const { enterCopyModeKeyboard } = require('./ui');
+const { enterCopyModeKeyboard } = require('./copy-mode-ui');
 
 /**
  * Get copy mode state from the XState machine context.

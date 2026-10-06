@@ -1,8 +1,8 @@
 /**
  * CLI Helpers
  *
- * Wrappers around the tmuxy CLI and direct tmux commands for E2E tests.
- * Replaces the previous approach of routing commands through window._adapter.
+ * Mutating tmux commands for E2E tests, through the tmuxy CLI. Read-only
+ * queries go through tmuxExec in tmux-socket.js.
  */
 
 const { execSync } = require('child_process');
@@ -11,7 +11,7 @@ const path = require('path');
 const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
 const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'bin/tmuxy-cli');
 
-const { tmuxCmd, tmuxEnv } = require('./tmux-socket');
+const { tmuxEnv } = require('./tmux-socket');
 
 /**
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).
@@ -44,26 +44,7 @@ function tmuxRun(command) {
   }
 }
 
-/**
- * Run a read-only tmux command directly via `tmux <command>`.
- * Safe for read-only queries (list-panes, list-windows, capture-pane, has-session, display-message)
- * even while control mode is attached.
- *
- * @param {string} command - Full tmux command (e.g. 'list-panes -t mysession -F "#{pane_id}"')
- * @returns {string} Trimmed stdout
- */
-function tmuxQuery(command) {
-  // Same socket as tmuxRun, so reads and writes can never address different
-  // tmux servers.
-  return execSync(`${tmuxCmd()} ${command}`, {
-    encoding: 'utf-8',
-    timeout: 30000,
-    env: tmuxEnv(),
-  }).trim();
-}
-
 module.exports = {
   tmuxRun,
-  tmuxQuery,
   TMUXY_CLI,
 };

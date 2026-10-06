@@ -11,16 +11,14 @@ export default [
   },
   // Ban tmux CLI calls in test helper files that handle user interactions.
   // Tests must exercise the real user path: browser keyboard → tmux → SSE → DOM.
-  // tmuxQuery/tmuxRun bypass the rendering pipeline and hide real bugs.
-  // Allowed only in: cli.js (definitions), test-setup.js (lifecycle),
-  // TmuxTestSession.js (session management), consistency.js (snapshot checks).
+  // tmuxExec/tmuxRun bypass the rendering pipeline and hide real bugs.
   {
     files: ['tests/helpers/pane-ops.js', 'tests/helpers/keyboard.js'],
     rules: {
       'no-restricted-syntax': ['error',
         {
-          selector: "CallExpression[callee.name='tmuxQuery']",
-          message: 'tmuxQuery bypasses the rendering pipeline. Tests must verify via DOM, not tmux capture-pane.',
+          selector: "CallExpression[callee.name='tmuxExec']",
+          message: 'tmuxExec bypasses the rendering pipeline. Tests must verify via DOM, not tmux capture-pane.',
         },
         {
           selector: "CallExpression[callee.name='tmuxRun']",
@@ -33,7 +31,9 @@ export default [
       ],
     },
   },
-  // Ban tmuxQuery/tmuxRun in test files themselves (the .test.js files).
+  // Ban direct tmux calls in test files themselves (the .test.js files): input
+  // goes through the browser, and the one sanctioned way to reach tmux is
+  // tmuxExec() for environment setup and ground-truth reads.
   // Exceptions: tauri tests (different architecture, no browser DOM).
   {
     files: ['tests/**/*.test.js'],
@@ -41,8 +41,9 @@ export default [
     rules: {
       'no-restricted-syntax': ['error',
         {
-          selector: "CallExpression[callee.name='tmuxQuery']",
-          message: 'tmuxQuery bypasses the rendering pipeline. Use runCommand() and verify output in the DOM.',
+          selector: "CallExpression[callee.name='tmuxCmd']",
+          message:
+            'Do not build tmux command lines in test files. Use runCommand() and verify output in the DOM, or tmuxExec() for setup/ground truth.',
         },
         {
           selector: "CallExpression[callee.name='tmuxRun']",
