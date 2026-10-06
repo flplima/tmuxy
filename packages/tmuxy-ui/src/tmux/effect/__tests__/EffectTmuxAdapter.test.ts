@@ -25,6 +25,7 @@ function makeStubAdapter(overrides: Partial<TmuxAdapter>): TmuxAdapter {
     onThemeSettings: () => () => {},
     onLog: () => () => {},
     onFatal: () => () => {},
+    onClipboard: () => () => {},
     ...overrides,
   };
 }

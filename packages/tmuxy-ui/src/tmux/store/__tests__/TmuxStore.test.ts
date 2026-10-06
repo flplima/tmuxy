@@ -95,6 +95,7 @@ function makeFakeAdapter(): {
     onReconnection: () => () => {},
     onKeyBindings: () => () => {},
     onThemeSettings: () => () => {},
+    onClipboard: () => () => {},
   };
   return {
     adapter,

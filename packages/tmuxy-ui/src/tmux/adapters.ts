@@ -205,37 +205,27 @@ export class TauriAdapter implements TmuxAdapter {
       this.notifyConnectionInfo('bash');
 
       // Action tracing (docs/TELEMETRY.md): ask the local backend whether it is
-      // recording; only then ship our events to it over IPC. A backend without
-      // the trace commands (older build) leaves tracing off.
-      try {
-        const traceEnabled = await invoke<boolean>('trace_enabled');
-        tracer.setServerEnabled(!!traceEnabled);
-        tracer.setSink((events) => {
-          void import('@tauri-apps/api/core').then(({ invoke: inv }) =>
-            inv('record_trace', { events }).catch(() => {}),
-          );
-        });
-        // The native Debug menu can flip the switch behind the frontend's
-        // back; gui.rs calls this after a toggle so the client tracer starts
-        // or stops shipping in the same beat as the backend.
-        (window as { tmuxyTraceSync?: (on: boolean) => void }).tmuxyTraceSync = (on) =>
-          tracer.setServerEnabled(on);
-      } catch {
-        // no trace commands on this backend — leave tracing disabled
-      }
+      // recording; only then ship our events to it over IPC.
+      tracer.setServerEnabled(!!(await invoke<boolean>('trace_enabled')));
+      tracer.setSink((events) => {
+        void import('@tauri-apps/api/core').then(({ invoke: inv }) =>
+          inv('record_trace', { events }).catch(() => {}),
+        );
+      });
+      // The native Debug menu can flip the switch behind the frontend's
+      // back; gui.rs calls this after a toggle so the client tracer starts
+      // or stops shipping in the same beat as the backend.
+      (window as { tmuxyTraceSync?: (on: boolean) => void }).tmuxyTraceSync = (on) =>
+        tracer.setServerEnabled(on);
 
       // Backfill keybindings: the backend's first `tmux-keybindings` event
       // can fire before this listener is attached (especially on a fresh
       // launch where the WebView is still booting). Without this fetch the
       // prefix indicator stays hidden and prefix/root bindings are empty,
       // so prefix-key and Ctrl+hjkl silently no-op.
-      try {
-        const snapshot = await invoke<KeyBindings | null>('get_keybindings_snapshot');
-        if (snapshot) {
-          this.notifyKeyBindings(snapshot);
-        }
-      } catch {
-        // Older app builds won't have the command — fall through silently.
+      const snapshot = await invoke<KeyBindings | null>('get_keybindings_snapshot');
+      if (snapshot) {
+        this.notifyKeyBindings(snapshot);
       }
     } catch (e) {
       this.notifyError('Failed to connect to Tauri');

@@ -113,6 +113,7 @@ function makeFakeAdapter(): FakeAdapter {
     onReconnection: () => () => {},
     onKeyBindings: () => () => {},
     onThemeSettings: () => () => {},
+    onClipboard: () => () => {},
   };
   return {
     adapter,

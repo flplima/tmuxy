@@ -43,6 +43,20 @@ export class Cancelled extends Data.TaggedError('Cancelled')<{
 
 export type AdapterError = TransportError | ProtocolError | TmuxError | Cancelled;
 
+/** An AdapterError as the one human-readable line logs and the snackbar show. */
+export function formatAdapterError(e: AdapterError): string {
+  switch (e._tag) {
+    case 'TmuxError':
+      return `${e.command}: ${e.stderr}`;
+    case 'TransportError':
+      return e.context ? `${e.context}: ${String(e.cause)}` : String(e.cause);
+    case 'ProtocolError':
+      return `protocol error: ${e.reason}`;
+    case 'Cancelled':
+      return e.reason ? `cancelled: ${e.reason}` : 'cancelled';
+  }
+}
+
 /**
  * Best-effort coercion of a Promise rejection into a typed AdapterError.
  *

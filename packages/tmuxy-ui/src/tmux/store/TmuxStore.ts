@@ -18,7 +18,7 @@
  */
 
 import { Effect, Ref } from 'effect';
-import type { AdapterError } from '../effect/AdapterError';
+import { formatAdapterError } from '../effect/AdapterError';
 import type { EffectTmuxAdapter } from '../effect/EffectTmuxAdapter';
 import type { ServerState } from '../types';
 import { preserveSnapshotIdentity, transformServerState } from './adapters';
@@ -35,7 +35,7 @@ import {
 } from './model';
 import type { PredictContext } from './ops';
 import { predict } from './ops';
-import type { OpError, OpId, TmuxClientModel, TmuxOp, TmuxSnapshot } from './types';
+import type { OpError, OpId, TmuxClientModel, TmuxOp } from './types';
 import { EMPTY_MODEL, OpBlockedReadOnly, OpRejectedByTmux, OpTransportError } from './types';
 
 export interface DispatchOptions {
@@ -204,7 +204,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
           const { model: rolledBackModel, entry } = rollbackOp(
             yield* Ref.get(ref),
             opId,
-            describeAdapterError(err),
+            formatAdapterError(err),
           );
           yield* Ref.set(ref, rolledBackModel);
           notify(rolledBackModel);
@@ -277,7 +277,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
         // Reuse previous objects for anything value-equal — wire snapshots are
         // fresh object graphs, and without identity preservation every tick
         // re-renders every pane (see preserveSnapshotIdentity).
-        const snapshot = preserveSnapshotIdentity(current.committed, serverStateToSnapshot(state));
+        const snapshot = preserveSnapshotIdentity(current.committed, transformServerState(state));
         const result = applyServerSnapshot(current, snapshot, Date.now());
         yield* Ref.set(ref, result.model);
         notify(result.model);
@@ -315,21 +315,4 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       setPredictContext,
     };
   });
-}
-
-function serverStateToSnapshot(state: ServerState): TmuxSnapshot {
-  return transformServerState(state);
-}
-
-function describeAdapterError(err: AdapterError): string {
-  switch (err._tag) {
-    case 'TmuxError':
-      return `tmux rejected: ${err.stderr}`;
-    case 'TransportError':
-      return `transport: ${String(err.cause)}`;
-    case 'ProtocolError':
-      return `protocol: ${err.reason}`;
-    case 'Cancelled':
-      return 'cancelled';
-  }
 }

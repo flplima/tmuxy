@@ -2,7 +2,7 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber } from 'effect';
 import type { TmuxAdapter, ServerState, KeyBindings, ThemeSettings } from '../../tmux/types';
 import type { TraceLevel, TraceSettings } from '../types';
-import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
+import { toEffectAdapter, formatAdapterError, type AdapterError, Schemas } from '../../tmux/effect';
 import { tracer } from '../../tmux/tracer';
 import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../tmux/readOnly';
 
@@ -24,20 +24,6 @@ export type TmuxActorEvent =
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
-}
-
-/** Convert a typed AdapterError into a human-readable string for logs and the snackbar. */
-function adapterErrorToString(e: AdapterError): string {
-  switch (e._tag) {
-    case 'TmuxError':
-      return `${e.command}: ${e.stderr}`;
-    case 'TransportError':
-      return e.context ? `${e.context}: ${String(e.cause)}` : String(e.cause);
-    case 'ProtocolError':
-      return `protocol error: ${e.reason}`;
-    case 'Cancelled':
-      return e.reason ? `cancelled: ${e.reason}` : 'cancelled';
-  }
 }
 
 /**
@@ -98,7 +84,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         // Trace the failure by its typed tag (TransportError/ProtocolError/…),
         // never the message text.
         tracer.event({ layer: 'effect', name: 'fail', code: tagged._tag });
-        const display = adapterErrorToString(tagged);
+        const display = formatAdapterError(tagged);
         if (opts.silentFail) {
           console.error(`[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`, tagged._tag, display);
           return;
@@ -183,13 +169,10 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       },
     );
 
-    // OSC 52 clipboard requests from terminal applications. Optional on the
-    // adapter (older adapters don't expose it); fall back to a noop unsubscribe.
-    const unsubscribeClipboard = adapter.onClipboard
-      ? adapter.onClipboard((paneId: string, text: string) => {
-          parent.send({ type: 'TMUX_CLIPBOARD', paneId, text });
-        })
-      : () => {};
+    // OSC 52 clipboard requests from terminal applications.
+    const unsubscribeClipboard = adapter.onClipboard((paneId: string, text: string) => {
+      parent.send({ type: 'TMUX_CLIPBOARD', paneId, text });
+    });
 
     run(eff.connect(), {
       onSuccess: () => {
@@ -284,7 +267,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
                 console.error(
                   `[tmuxActor] get_scrollback_cells failed:`,
                   e._tag,
-                  adapterErrorToString(e),
+                  formatAdapterError(e),
                 );
               }),
             ),

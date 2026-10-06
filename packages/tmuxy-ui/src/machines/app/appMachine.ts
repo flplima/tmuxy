@@ -90,15 +90,6 @@ function resolveWindowTarget(command: string, activeWindowId: string | null): st
   return command;
 }
 
-/**
- * Materialize a mutable snapshot view from the TmuxClientModel.
- *
- * The derived arrays are passed through by REFERENCE — no cloning. The
- * store already preserves identity for unchanged panes/windows/arrays, so
- * spreading here would hand every subscriber a fresh identity on every
- * tick. This function only widens the store's readonly TmuxSnapshot types
- * to the mutable shapes the machine context declares.
- */
 type ResizeGeom = { tmuxId: string; x: number; y: number; width: number; height: number };
 
 /**
@@ -168,6 +159,11 @@ function resizePreviewSettled(
   return true;
 }
 
+/**
+ * The store's derived snapshot, widened from its readonly types to the
+ * mutable shapes the machine context declares, as a local object a model
+ * update can adjust before it is assigned.
+ */
 function snapshotFromModel(model: TmuxClientModel): {
   panes: TmuxSnapshot['panes'][number][];
   windows: TmuxSnapshot['windows'][number][];

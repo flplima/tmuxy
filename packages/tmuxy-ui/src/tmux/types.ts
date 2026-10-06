@@ -481,11 +481,10 @@ export interface TmuxAdapter {
   /** Subscribe to connection-ended notices; see {@link DetachedListener}. */
   onDetached?(listener: DetachedListener): () => void;
   /**
-   * OSC 52 clipboard write request from a terminal application. Optional —
-   * adapters that don't implement it are treated as "no clipboard plumbing"
-   * by the rest of the app. Returns an unsubscribe function when supported.
+   * OSC 52 clipboard write request from a terminal application. Returns an
+   * unsubscribe function.
    */
-  onClipboard?(listener: ClipboardListener): () => void;
+  onClipboard(listener: ClipboardListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
   /**
    * True when the adapter is attached to a real tmux server whose sessions can
