@@ -272,7 +272,7 @@ fn announce_trace(trace: Option<Option<String>>, dev_mode: bool) {
 }
 
 pub async fn run(args: ServerArgs) {
-    let dev_mode = args.dev || std::env::var("TMUXY_DEV").is_ok();
+    let dev_mode = args.dev;
     let password = resolve_password(args.password.clone());
     match args.action {
         None => {
@@ -298,11 +298,20 @@ pub async fn run(args: ServerArgs) {
                     std::process::exit(2);
                 }
             };
-            if dev_mode {
-                start_dev_server(args.port, listen, password, read_only, session_pin).await
+            let frontend = if dev_mode {
+                Frontend::Dev
             } else {
-                start_server(args.port, listen, password, read_only, session_pin).await
-            }
+                Frontend::Embedded
+            };
+            serve(
+                frontend,
+                args.port,
+                listen,
+                password,
+                read_only,
+                session_pin,
+            )
+            .await
         }
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
@@ -329,27 +338,32 @@ pub async fn run(args: ServerArgs) {
     }
 }
 
-/// Start the development server with Vite and demo proxies
-async fn start_dev_server(
-    requested_port: u16,
+/// Where the app's own pages come from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Frontend {
+    /// The built frontend compiled into this binary.
+    Embedded,
+    /// `--dev`: Vite (and the demo site) started as children and proxied, so
+    /// the UI hot-reloads.
+    Dev,
+}
+
+/// Serve the API and the frontend until a shutdown signal.
+async fn serve(
+    frontend: Frontend,
+    port: u16,
     listen: Listen,
     password: Option<String>,
     read_only: bool,
     session_pin: Option<String>,
 ) {
-    // Honor PORT env (legacy) when present, otherwise fall back to the CLI arg.
-    let port = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(requested_port);
-
     // Vite (strictPort: true, port 9001) and the demo dev server (port 9002)
     // bind to hard-coded ports. If tmuxy-server is told to bind one of those,
     // it wins the race; Vite fails silently, and the `/proxy_to_vite` fallback
     // then loops back to tmuxy-server itself — browser EventSources 404 on
     // /events while `curl` (different headers/timing) appears to work. Bail
     // early with an actionable message instead of letting that happen.
-    if port == dev::VITE_PORT || port == dev::DEMO_PORT {
+    if frontend == Frontend::Dev && (port == dev::VITE_PORT || port == dev::DEMO_PORT) {
         let role = if port == dev::VITE_PORT {
             "Vite"
         } else {
@@ -363,11 +377,14 @@ async fn start_dev_server(
         error!(
             vite_port = dev::VITE_PORT,
             demo_port = dev::DEMO_PORT,
-            "choose a different port (e.g. --port 9000 or PORT=9000) and restart"
+            "choose a different port (e.g. --port 9000) and restart"
         );
         std::process::exit(1);
     }
 
+    if frontend == Frontend::Embedded {
+        write_pid_file(port);
+    }
     tmuxy_core::session::ensure_config();
     tmuxy_core::session::ensure_themes();
     // Materialize bundled CLI dispatcher and helper scripts so the in-config
@@ -375,105 +392,65 @@ async fn start_dev_server(
     // direct "Add Pane to Group" menu commands resolve at the absolute
     // `$HOME/.config/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
     tmuxy_core::session::ensure_bin_scripts();
-    let state = Arc::new(
-        AppState::new()
-            .with_read_only(read_only)
-            .with_session_pin(session_pin.clone()),
-    );
-
-    println!(
-        "[dev] Starting Vite dev server on port {}...",
-        dev::VITE_PORT
-    );
-    let vite_child = dev::spawn_dev_server("vite", "tmuxy-ui", &[]).await;
-
-    println!(
-        "[dev] Starting demo dev server on port {}...",
-        dev::DEMO_PORT
-    );
-    let demo_child = dev::spawn_dev_server(
-        "demo",
-        "tmuxy-demo",
-        &["--", "--port", "9002", "--hostname", "0.0.0.0"],
-    )
-    .await;
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-    crate::sse::start_viewer_monitor(&state).await;
-    let app = crate::state::api_routes(listen.policy.clone(), read_only)
-        .route(
-            "/demo",
-            axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
-        )
-        .route(
-            "/demo/{*path}",
-            axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
-        )
-        .fallback_service(tower::service_fn(|req: Request| async move {
-            Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
-        }))
-        .with_state(state.clone());
-    let password_set = password.is_some();
-    let app = with_optional_auth(app, password);
-
-    let addr = std::net::SocketAddr::new(listen.ip, port);
-    println!("tmuxy dev server running at http://{addr}");
-    announce_security(&listen, password_set);
-    println!(
-        "[dev] Vite proxied from port {}, demo proxied from port {}",
-        dev::VITE_PORT,
-        dev::DEMO_PORT
-    );
-
-    let listener = bind_with_retry(addr, 5).await;
-
-    // `into_make_service_with_connect_info` rather than the plain router: the
-    // auth layer reads the peer address to rate-limit failed passwords per
-    // source, and `ConnectInfo` is only populated by this make-service.
-    if let Err(e) = axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal(state, vec![vite_child, demo_child]))
-    .await
-    {
-        error!(error = %e, "axum serve loop exited with error");
-    }
-}
-
-/// Start the production server with embedded frontend assets
-async fn start_server(
-    port: u16,
-    listen: Listen,
-    password: Option<String>,
-    read_only: bool,
-    session_pin: Option<String>,
-) {
-    write_pid_file(port);
-    tmuxy_core::session::ensure_config();
-    tmuxy_core::session::ensure_themes();
-    tmuxy_core::session::ensure_bin_scripts();
 
     let state = Arc::new(
         AppState::new()
             .with_read_only(read_only)
             .with_session_pin(session_pin.clone()),
     );
+
+    let children = match frontend {
+        Frontend::Embedded => Vec::new(),
+        Frontend::Dev => {
+            println!(
+                "[dev] Starting Vite dev server on port {}...",
+                dev::VITE_PORT
+            );
+            let vite = dev::spawn_dev_server("vite", "tmuxy-ui", &[]).await;
+            println!(
+                "[dev] Starting demo dev server on port {}...",
+                dev::DEMO_PORT
+            );
+            let demo = dev::spawn_dev_server(
+                "demo",
+                "tmuxy-demo",
+                &["--", "--port", "9002", "--hostname", "0.0.0.0"],
+            )
+            .await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            vec![vite, demo]
+        }
+    };
 
     // A viewer's server attaches to its session before it listens, and keeps
     // that one monitor for its whole life; nothing a client does starts or
     // stops it.
     crate::sse::start_viewer_monitor(&state).await;
-    let app = crate::state::api_routes(listen.policy.clone(), read_only)
-        .fallback(serve_embedded)
-        .with_state(state.clone());
+    let routes = crate::state::api_routes(listen.policy.clone(), read_only);
+    let app = match frontend {
+        Frontend::Embedded => routes.fallback(serve_embedded),
+        Frontend::Dev => routes
+            .route(
+                "/demo",
+                axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
+            )
+            .route(
+                "/demo/{*path}",
+                axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
+            )
+            .fallback_service(tower::service_fn(|req: Request| async move {
+                Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
+            })),
+    }
+    .with_state(state.clone());
     let password_set = password.is_some();
     let app = with_optional_auth(app, password);
 
     let addr = std::net::SocketAddr::new(listen.ip, port);
-
-    println!("tmuxy server running at http://{addr}");
+    match frontend {
+        Frontend::Embedded => println!("tmuxy server running at http://{addr}"),
+        Frontend::Dev => println!("tmuxy dev server running at http://{addr}"),
+    }
     announce_security(&listen, password_set);
     if read_only {
         println!("tmuxy server: read-only — clients can watch the session, not change it");
@@ -481,6 +458,13 @@ async fn start_server(
             println!("tmuxy server: pinned to session {session} — no other one is served");
         }
     }
+    if frontend == Frontend::Dev {
+        println!(
+            "[dev] Vite proxied from port {}, demo proxied from port {}",
+            dev::VITE_PORT,
+            dev::DEMO_PORT
+        );
+    }
 
     let listener = bind_with_retry(addr, 5).await;
 
@@ -491,13 +475,15 @@ async fn start_server(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal(state, vec![]))
+    .with_graceful_shutdown(shutdown_signal(state, children))
     .await
     {
         error!(error = %e, "axum serve loop exited with error");
     }
 
-    remove_pid_file(port, std::process::id());
+    if frontend == Frontend::Embedded {
+        remove_pid_file(port, std::process::id());
+    }
 }
 
 /// Serve files from embedded frontend assets (SPA with index.html fallback)
@@ -991,8 +977,8 @@ mod tests {
         assert_eq!(listen.policy, loopback(vec!["tmux.example.com".into()]));
     }
 
-    /// The app exactly as `start_server` assembles it, optionally behind the
-    /// password layer.
+    /// The app exactly as `serve` assembles it for the embedded frontend,
+    /// optionally behind the password layer.
     fn served_app(password: Option<&str>) -> axum::Router {
         let app = crate::state::api_routes(loopback(vec![]), false)
             .fallback(serve_embedded)

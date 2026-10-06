@@ -841,9 +841,7 @@ async fn handle_command(
                 }
                 tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
             };
-            let output = query_via_control_mode(state, session, &routed)
-                .await?
-                .into_result()?;
+            let output = query_via_control_mode(state, session, &routed).await?;
             Ok(serde_json::json!(output))
         }
         ClientCommand::GetScrollbackCells {
@@ -876,9 +874,7 @@ async fn handle_command(
             // otherwise a viewer learns the repo path and branch of every pane
             // on the tmux server, including the writer's.
             let cmd = list_pane_paths_cmd(state.session_pin.as_deref());
-            let listing = query_via_control_mode(state, session, &cmd)
-                .await?
-                .into_result()?;
+            let listing = query_via_control_mode(state, session, &cmd).await?;
             let repositories = tokio::task::spawn_blocking(move || {
                 list_git_worktrees(paths_from_pane_listing(&listing)).map_err(|e| e.to_string())
             })
@@ -999,22 +995,8 @@ async fn send_via_control_mode(
         "run command"
     );
 
-    let command_tx = {
-        let sessions = state.sessions.read().await;
-        sessions
-            .get(session)
-            .and_then(|s| s.monitor_command_tx.clone())
-    };
-
-    if let Some(tx) = command_tx {
-        tx.send(MonitorCommand::RunCommand {
-            command: command.to_string(),
-        })
-        .await
-        .map_err(|e| format!("Monitor channel error: {}", e))
-    } else {
-        Err("No monitor connection available".to_string())
-    }
+    let tx = state.monitor_tx(session).await?;
+    tmuxy_core::transport::run(&tx, command).await
 }
 
 /// How long `get_initial_state` waits for the session's monitor to come up.
@@ -1030,13 +1012,7 @@ async fn wait_for_monitor(
 ) -> Result<MonitorCommandSender, String> {
     let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
     loop {
-        let tx = {
-            let sessions = state.sessions.read().await;
-            sessions
-                .get(session)
-                .and_then(|s| s.monitor_command_tx.clone())
-        };
-        if let Some(tx) = tx {
+        if let Ok(tx) = state.monitor_tx(session).await {
             return Ok(tx);
         }
         if tokio::time::Instant::now() >= deadline {
@@ -1126,31 +1102,15 @@ async fn query_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
     command: &str,
-) -> Result<tmuxy_core::control_mode::CommandReply, String> {
+) -> Result<String, String> {
     tracing::debug!(
         target: "tmuxy_server::sse",
         verb = command.split_whitespace().next().unwrap_or(""),
         command,
         "query"
     );
-    let command_tx = {
-        let sessions = state.sessions.read().await;
-        sessions
-            .get(session)
-            .and_then(|s| s.monitor_command_tx.clone())
-    };
-    let Some(tx) = command_tx else {
-        return Err("No monitor connection available".to_string());
-    };
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::RunCommandWithReply {
-        command: command.to_string(),
-        reply,
-    })
-    .await
-    .map_err(|e| format!("Monitor channel error: {}", e))?;
-    rx.await
-        .map_err(|_| "monitor went away before answering".to_string())
+    let tx = state.monitor_tx(session).await?;
+    tmuxy_core::transport::query(&tx, command).await
 }
 
 /// Compute the minimum (cols, rows) across all connected clients
@@ -1238,9 +1198,12 @@ async fn set_client_size(
                         trace!("resize command sent via monitor");
                         true
                     }
+                    // The monitor has gone; the next one sizes the session
+                    // from the client sizes it is given, so this one is
+                    // asked for again rather than run behind its back.
                     Err(e) => {
-                        warn!(error = %e, "monitor channel error, falling back to executor");
-                        executor::resize_window(session, min_cols, min_rows).is_ok()
+                        warn!(error = %e, "monitor channel closed, resize not sent");
+                        false
                     }
                 }
             }
@@ -1371,8 +1334,6 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
                     rows: min_rows,
                 })
                 .await;
-        } else {
-            let _ = executor::resize_window(session, min_cols, min_rows);
         }
     }
 }
@@ -1381,16 +1342,13 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
 // Monitoring (Control Mode)
 // ============================================
 
-/// `has-session` check run off the async worker threads (it shells a
-/// synchronous tmux subprocess, which would otherwise block a tokio worker).
+/// `tmuxy_core::session::session_exists` off the async worker threads (it
+/// runs a synchronous `has-session`, which would otherwise block a tokio
+/// worker). Used by the monitor loop, before its own connection is attached.
 async fn session_exists(session: &str) -> bool {
     let session = session.to_string();
     tokio::task::spawn_blocking(move || {
-        tmuxy_core::session::tmux_command()
-            .args(["has-session", "-t", &session])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        tmuxy_core::session::session_exists(&session).unwrap_or(false)
     })
     .await
     .unwrap_or(false)
@@ -1443,16 +1401,7 @@ async fn viewer_scrollback(
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, String> {
-    let command_tx = {
-        let sessions = state.sessions.read().await;
-        sessions
-            .get(session)
-            .and_then(|s| s.monitor_command_tx.clone())
-    };
-    let Some(tx) = command_tx else {
-        return Err("No monitor connection available".to_string());
-    };
-
+    let tx = state.monitor_tx(session).await?;
     let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::GetScrollback {

@@ -1,7 +1,9 @@
 use axum::body::Body;
 use axum::extract::Request;
+use axum::http::HeaderMap;
 use axum::response::Response;
 use std::process::Stdio;
+use std::sync::LazyLock;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{error, warn};
@@ -12,32 +14,20 @@ pub const VITE_PORT: u16 = 9001;
 /// Port for Next.js demo dev server
 pub const DEMO_PORT: u16 = 9002;
 
-/// Handle to a dev child process for cleanup
-#[cfg(unix)]
+/// A dev child's process group, killed with the server.
 pub struct ViteChild {
+    #[cfg_attr(not(unix), allow(dead_code))]
     pgid: i32,
 }
 
-#[cfg(unix)]
 impl ViteChild {
     pub fn kill(&self) {
+        // SAFETY: `killpg` takes plain integers and touches no memory of ours.
+        #[cfg(unix)]
         unsafe {
             libc::killpg(self.pgid, libc::SIGTERM);
         }
         println!("[dev] Process group killed");
-    }
-}
-
-#[cfg(not(unix))]
-pub struct ViteChild {
-    child: tokio::process::Child,
-}
-
-#[cfg(not(unix))]
-impl ViteChild {
-    pub fn kill(mut self) {
-        let _ = self.child.start_kill();
-        println!("[dev] Process killed");
     }
 }
 
@@ -53,68 +43,40 @@ const HOP_BY_HOP: &[&str] = &[
     "upgrade",
 ];
 
-fn is_hop_by_hop(name: &str) -> bool {
-    HOP_BY_HOP.contains(&name.to_ascii_lowercase().as_str())
+/// One client for every proxied request, so connections to Vite are reused.
+static PROXY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+
+/// Drop the headers that describe one hop rather than the message.
+fn without_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
+    let mut headers = headers.clone();
+    for name in HOP_BY_HOP {
+        headers.remove(*name);
+    }
+    headers
 }
 
 async fn proxy_to_port(port: u16, req: Request) -> Response {
-    let client = reqwest::Client::new();
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+    let target_url = format!("http://localhost:{port}{path_and_query}");
 
-    let uri = req.uri();
-    let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
-
-    let target_url = format!("http://localhost:{}{}", port, path_and_query);
-
-    let mut headers = reqwest::header::HeaderMap::new();
-    for (name, value) in req.headers() {
-        if is_hop_by_hop(name.as_str()) {
-            continue;
-        }
-        if let Ok(name) = reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()) {
-            if let Ok(value) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
-                headers.insert(name, value);
-            }
-        }
-    }
-
-    let method = match req.method().as_str() {
-        "GET" => reqwest::Method::GET,
-        "POST" => reqwest::Method::POST,
-        "PUT" => reqwest::Method::PUT,
-        "DELETE" => reqwest::Method::DELETE,
-        "PATCH" => reqwest::Method::PATCH,
-        "HEAD" => reqwest::Method::HEAD,
-        "OPTIONS" => reqwest::Method::OPTIONS,
-        _ => reqwest::Method::GET,
-    };
-
-    match client
-        .request(method, &target_url)
-        .headers(headers)
+    match PROXY_CLIENT
+        .request(req.method().clone(), &target_url)
+        .headers(without_hop_by_hop(req.headers()))
         .send()
         .await
     {
         Ok(resp) => {
-            let status = axum::http::StatusCode::from_u16(resp.status().as_u16())
-                .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
-
-            let mut response_builder = Response::builder().status(status);
-
-            for (name, value) in resp.headers() {
-                if is_hop_by_hop(name.as_str()) {
-                    continue;
-                }
-                if let Ok(name) = axum::http::HeaderName::from_bytes(name.as_str().as_bytes()) {
-                    if let Ok(value) = axum::http::HeaderValue::from_bytes(value.as_bytes()) {
-                        response_builder = response_builder.header(name, value);
-                    }
-                }
-            }
-
+            let status = resp.status();
+            let headers = without_hop_by_hop(resp.headers());
             let body = resp.bytes().await.unwrap_or_default();
-            response_builder
-                .body(Body::from(body))
-                .unwrap_or_else(|_| Response::new(Body::empty()))
+            let mut response = Response::new(Body::from(body));
+            *response.status_mut() = status;
+            *response.headers_mut() = headers;
+            response
         }
         Err(e) => {
             warn!(error = %e, "dev proxy error");
@@ -144,31 +106,21 @@ pub async fn spawn_dev_server(
     let mut args = vec!["run", "dev", "-w", npm_workspace];
     args.extend_from_slice(extra_args);
 
+    let mut cmd = Command::new("npm");
+    cmd.args(&args)
+        .current_dir(&workspace_root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Its own process group, so the shutdown can stop npm and everything it
+    // started with one signal.
+    // SAFETY: `setpgid` is async-signal-safe, which is all `pre_exec` asks.
     #[cfg(unix)]
-    let mut cmd = {
-        let mut cmd = Command::new("npm");
-        cmd.args(&args)
-            .current_dir(&workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setpgid(0, 0);
-                Ok(())
-            });
-        }
-        cmd
-    };
-
-    #[cfg(not(unix))]
-    let mut cmd = {
-        let mut cmd = Command::new("npm");
-        cmd.args(&args)
-            .current_dir(&workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        cmd
-    };
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setpgid(0, 0);
+            Ok(())
+        });
+    }
 
     let mut child = match cmd.spawn() {
         Ok(child) => child,
@@ -178,8 +130,7 @@ pub async fn spawn_dev_server(
         }
     };
 
-    #[cfg(unix)]
-    let pid = child.id().unwrap_or(0) as i32;
+    let pgid = child.id().unwrap_or(0) as i32;
 
     let label_out = label.to_string();
     if let Some(stdout) = child.stdout.take() {
@@ -217,9 +168,5 @@ pub async fn spawn_dev_server(
         }
     });
 
-    #[cfg(unix)]
-    return Some(ViteChild { pgid: pid });
-
-    #[cfg(not(unix))]
-    return None;
+    Some(ViteChild { pgid })
 }
