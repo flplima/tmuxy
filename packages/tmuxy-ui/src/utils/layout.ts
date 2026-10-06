@@ -11,6 +11,7 @@ import {
   CONTAINER_PADDING_X,
   CONTAINER_PADDING_BOTTOM,
 } from '../constants';
+import type { PaneId } from '../domain/ids';
 
 /**
  * Calculate target dimensions (cols/rows) based on available space.
@@ -49,7 +50,7 @@ export function calculateTargetSize(
 export interface DividerSegment {
   start: number; // left for horizontal, top for vertical
   end: number; // right for horizontal, bottom for vertical
-  paneId: string; // pane to resize
+  paneId: PaneId; // pane to resize
 }
 
 /**

@@ -15,9 +15,10 @@ import type { ScrollbackMode } from '../tmux/types';
 import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from './scrollUtils';
 import { haptics } from '../utils/haptics';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
+import type { PaneId } from '../domain/ids';
 
 interface UsePaneMouseOptions {
-  paneId: string;
+  paneId: PaneId;
   /** Character width in pixels */
   charWidth: number;
   /** Character height in pixels */

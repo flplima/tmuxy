@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { pid } from '../../test/wire';
 import { renderHook } from '@testing-library/react';
 import { createRef } from 'react';
 import { usePaneMouse } from '../usePaneMouse';
@@ -26,7 +27,7 @@ function setup(overrides: SetupOptions = {}) {
 
   const { result } = renderHook(() =>
     usePaneMouse(send, {
-      paneId: '%1',
+      paneId: pid('%1'),
       charWidth: 8,
       charHeight: overrides.charHeight ?? 18,
       mouseAnyFlag: overrides.mouseAnyFlag ?? false,
@@ -117,7 +118,7 @@ describe('usePaneMouse.handleWheel', () => {
     const enterScroll = events.find((e) => e.type === 'ENTER_SCROLL_MODE');
     expect(enterScroll).toBeDefined();
     // Quantized to whole lines, and scrolling up means a negative delta.
-    expect(enterScroll).toMatchObject({ paneId: '%1', scrollLines: -5 });
+    expect(enterScroll).toMatchObject({ paneId: pid('%1'), scrollLines: -5 });
   });
 
   it('does NOT enter copy mode on scroll-down in normal shell', () => {
@@ -175,7 +176,7 @@ describe('usePaneMouse — copy-mode selection sequencing', () => {
     (contentRef as { current: HTMLDivElement }).current = document.createElement('div');
     (scrollRef as { current: HTMLDivElement }).current = document.createElement('div');
     const baseProps = {
-      paneId: '%1',
+      paneId: pid('%1'),
       charWidth: 8,
       charHeight: 18,
       mouseAnyFlag: false,

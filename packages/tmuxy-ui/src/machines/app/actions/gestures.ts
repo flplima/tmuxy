@@ -29,6 +29,7 @@ import {
   swipeOffsetPx,
   swipeSettleMs,
 } from '../../../utils/gestures';
+import type { PaneId } from '../../../domain/ids';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -51,7 +52,7 @@ function pinchMode(context: Ctx, scale: number): PinchMode | null {
 }
 
 /** The pane a pinch acts on: the tiled pane under the fingers for a zoom, else the active one. */
-function pinchPane(context: Ctx, mode: PinchMode, paneId: string | null): string | null {
+function pinchPane(context: Ctx, mode: PinchMode, paneId: PaneId | null): PaneId | null {
   if (mode !== 'zoom') return context.activePaneId;
   const own = context.panes.filter((p) => p.windowId === context.activeWindowId);
   // A lone pane has nothing to zoom over.

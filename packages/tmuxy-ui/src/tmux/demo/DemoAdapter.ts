@@ -9,6 +9,7 @@ import type {
   FatalListener,
   ClipboardListener,
 } from '../types';
+import type { PaneId } from '../../domain/ids';
 import type { KeyBindings } from '../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
 import type { TraceSettings } from '../../machines/types';
@@ -165,7 +166,7 @@ export class DemoAdapter implements TmuxAdapter {
    * tmuxy pane. Used by ClipboardOSC52 stories so the test doesn't need a
    * live tmux process.
    */
-  public emitClipboard(paneId: string, text: string): void {
+  public emitClipboard(paneId: PaneId, text: string): void {
     this.clipboardListeners.forEach((l) => l(paneId, text));
   }
 

@@ -47,6 +47,7 @@ import {
 } from './floating/useFloatingSurface';
 import './floating/FloatingSurface.css';
 import './TabPreview.css';
+import type { WindowId } from '../domain/ids';
 
 /**
  * How long a pointer has to rest on a tab before the FIRST preview opens.
@@ -59,14 +60,14 @@ const WIDTH_PX = 280;
 
 interface TabPreviewProps {
   /** The tab being previewed, or null when nothing is. */
-  windowId: string | null;
+  windowId: WindowId | null;
   /** Its name, for the close button's label — the strip already knows it. */
   label: string;
   /** The pointer moved onto the card, or off it. */
   onPointerEnter: () => void;
   onPointerLeave: () => void;
   /** The card was clicked: open that tab and put the card away. */
-  onActivate: (windowId: string) => void;
+  onActivate: (windowId: WindowId) => void;
   /** Put the card away — called when another floating surface takes the layer. */
   onDismiss: () => void;
 }
@@ -92,7 +93,7 @@ export function TabPreview({
     shown: card,
     leaving,
     reposition,
-  } = useFloatingSurface<{ windowId: string; label: string }>({
+  } = useFloatingSurface<{ windowId: WindowId; label: string }>({
     id: 'tab-preview',
     content: windowId ? { windowId, label } : null,
     anchor: {

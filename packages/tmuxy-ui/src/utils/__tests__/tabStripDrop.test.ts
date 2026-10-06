@@ -4,20 +4,21 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { pid, wid } from '../../test/wire';
 import { tabStripDrop, tabDropCommand, type TabStripGeometry } from '../tabStripDrop';
 
 const geometry: TabStripGeometry = {
   strip: { left: 0, top: 0, right: 800, bottom: 30 },
   tabs: [
-    { windowId: '@0', rect: { left: 10, top: 4, right: 110, bottom: 26 } },
-    { windowId: '@1', rect: { left: 120, top: 4, right: 220, bottom: 26 } },
+    { windowId: wid('@0'), rect: { left: 10, top: 4, right: 110, bottom: 26 } },
+    { windowId: wid('@1'), rect: { left: 120, top: 4, right: 220, bottom: 26 } },
   ],
 };
 
 describe('tabStripDrop', () => {
   it('names the tab the pointer is over', () => {
-    expect(tabStripDrop(geometry, 60, 15)).toEqual({ kind: 'tab', windowId: '@0' });
-    expect(tabStripDrop(geometry, 200, 15)).toEqual({ kind: 'tab', windowId: '@1' });
+    expect(tabStripDrop(geometry, 60, 15)).toEqual({ kind: 'tab', windowId: wid('@0') });
+    expect(tabStripDrop(geometry, 200, 15)).toEqual({ kind: 'tab', windowId: wid('@1') });
   });
 
   it('reads the empty space past the last tab as a new tab', () => {
@@ -41,20 +42,22 @@ describe('tabStripDrop', () => {
 
 describe('tabDropCommand', () => {
   it('joins the pane into the tab it was dropped on', () => {
-    expect(tabDropCommand({ kind: 'tab', windowId: '@1' }, '%3', '@0', 2)).toBe(
+    expect(tabDropCommand({ kind: 'tab', windowId: wid('@1') }, pid('%3'), wid('@0'), 2)).toBe(
       'join-pane -s %3 -t @1',
     );
   });
 
   it('does nothing when the pane is dropped back on its own tab', () => {
-    expect(tabDropCommand({ kind: 'tab', windowId: '@0' }, '%3', '@0', 2)).toBeNull();
+    expect(
+      tabDropCommand({ kind: 'tab', windowId: wid('@0') }, pid('%3'), wid('@0'), 2),
+    ).toBeNull();
   });
 
   it('breaks the pane out into a tab of its own', () => {
-    expect(tabDropCommand({ kind: 'new' }, '%3', '@0', 2)).toBe('break-pane -s %3');
+    expect(tabDropCommand({ kind: 'new' }, pid('%3'), wid('@0'), 2)).toBe('break-pane -s %3');
   });
 
   it('leaves a lone pane where it is — tmux will not break out the last one', () => {
-    expect(tabDropCommand({ kind: 'new' }, '%3', '@0', 1)).toBeNull();
+    expect(tabDropCommand({ kind: 'new' }, pid('%3'), wid('@0'), 1)).toBeNull();
   });
 });

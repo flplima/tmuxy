@@ -37,9 +37,10 @@ import { RowEdges } from './RowEdges';
 import { AskOverlay } from './AskOverlay';
 import { isCollapsedPane } from '../constants';
 import { extractSelectedText } from '../utils/copyMode';
+import type { PaneId } from '../domain/ids';
 
 interface TerminalPaneProps {
-  paneId: string;
+  paneId: PaneId;
   /**
    * `none` drops the pane header. The pinned dock renders through here so it
    * gets the same wheel/drag/copy-mode layer a tiled pane has, but its title

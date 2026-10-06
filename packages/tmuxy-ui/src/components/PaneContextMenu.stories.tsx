@@ -3,13 +3,14 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { PaneContextMenu } from './PaneContextMenu';
 import { ProviderHarness } from '../stories/StoryHarness';
+import { PaneId } from '../domain/ids';
 
 /**
  * Hosts the controlled menu the way TerminalPane does on right-click: open at
  * an anchor point, closed via the menu's own onClose. The marker div lets the
  * play function observe the close callback without reaching into state.
  */
-function ContextMenuHost({ paneId = '%0' }: { paneId?: string }) {
+function ContextMenuHost({ paneId = PaneId.make('%0') }: { paneId?: PaneId }) {
   const [open, setOpen] = useState(true);
   return (
     <div style={{ height: 360 }}>

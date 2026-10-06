@@ -13,6 +13,7 @@ import { assign, enqueueActions } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents, BrowserPaneState } from '../../types';
 import { clampZoom, normalizeAddress } from '../../../components/widgets/browser/view';
 import { isOpenableUrl, openExternalUrl } from '../../../utils/openUrl';
+import type { PaneId } from '../../../domain/ids';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -27,7 +28,7 @@ type Evt = AllAppMachineEvents;
  */
 function update(
   context: Ctx,
-  paneId: string,
+  paneId: PaneId,
   source: string,
   change: (state: BrowserPaneState) => BrowserPaneState | null,
 ): Partial<Ctx> {

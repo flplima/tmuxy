@@ -11,8 +11,8 @@
  * override that with `window.__tmuxyImageSrc` so each placement resolves
  * to a tiny data: URL drawn live with a canvas. End-to-end this exercises:
  *
- *   DemoAdapter command → DemoTmux state → AppMachine →
- *   transformServerState (snake → camel) → TerminalPane → Terminal img
+ *   DemoAdapter command → DemoTmux state → wire decode → AppMachine →
+ *   client model (snake → camel, domain/client.ts) → TerminalPane → Terminal img
  *
  * Real-image pipeline (Rust decoder → /api/images) is covered by the
  * Rust unit tests + the agent-browser E2E suite.
@@ -230,7 +230,7 @@ export const Sixel: Story = {
     const img = await waitForImage('sixel');
     expect(img.getAttribute('data-image-id')).toBe('3');
     // Confirms snake_case width_cells → camelCase widthCells made it through
-    // the camelize() transform — Terminal.tsx sizes the img in cell units.
+    // the client-model schema (domain/client.ts) — Terminal.tsx sizes the img in cell units.
     expect(img.style.width).toBe(cellsToCss(35));
     expect(img.style.height).toBe('calc(14 * var(--line-height-terminal))');
   },

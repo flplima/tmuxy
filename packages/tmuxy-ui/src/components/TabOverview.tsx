@@ -50,9 +50,10 @@ import { TabShot } from './TabShot';
 import { useTabStill } from '../hooks/useTabStill';
 import { nudgeCursorAnchor } from './cursorAnchor';
 import { Tooltip } from './Tooltip';
+import type { WindowId } from '../domain/ids';
 
 interface DragState {
-  windowId: string;
+  windowId: WindowId;
   fromIndex: number;
   pointerId: number;
   startX: number;
@@ -100,7 +101,7 @@ function TabOverviewInner() {
    * Set on activate, and the FLIP target follows it instead of the active
    * tab's card until the overview closes a frame later.
    */
-  const [opening, setOpening] = useState<{ index: number; windowId: string } | null>(null);
+  const [opening, setOpening] = useState<{ index: number; windowId: WindowId } | null>(null);
   const slots = useMemo(
     () => overviewSlots(windows, stillPanes(livePanes, snapshot)),
     [windows, livePanes, snapshot],
@@ -347,7 +348,7 @@ function TabOverviewInner() {
   }, []);
 
   // ---- pointer: click to open, drag to reorder ------------------------------
-  const centersExcluding = useCallback((windowId: string) => {
+  const centersExcluding = useCallback((windowId: WindowId) => {
     const cards = Array.from(
       gridRef.current?.querySelectorAll<HTMLElement>('.tab-overview-slot[data-window-id]') ?? [],
     ).filter((c) => c.dataset.windowId !== windowId);

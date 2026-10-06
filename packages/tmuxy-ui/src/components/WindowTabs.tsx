@@ -55,6 +55,7 @@ import type { TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
 import { InlineRename } from './InlineRename';
+import { isModelWindowId, type WindowId } from '../domain/ids';
 
 /**
  * How long the strip keeps checking that the current tab is still in view
@@ -73,7 +74,7 @@ interface TabContextMenuState {
   visible: boolean;
   x: number;
   y: number;
-  windowId: string;
+  windowId: WindowId | null;
   /** The tab's button, when the menu is taking a preview card's place. */
   anchorEl: HTMLElement | null;
   /** That card's box, for the menu to grow out of. */
@@ -81,7 +82,7 @@ interface TabContextMenuState {
 }
 
 interface DragState {
-  windowId: string;
+  windowId: WindowId;
   fromIndex: number;
   pointerId: number;
   startX: number;
@@ -110,7 +111,7 @@ export const WindowTabs = memo(function WindowTabs() {
   const suppressClickRef = useRef(false);
   const [drag, setDrag] = useState<DragState | null>(null);
   // The tab being renamed, if any: the field takes the label's place.
-  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<WindowId | null>(null);
   // The tab whose picture is showing, and the timer waiting to show the first.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);
@@ -124,12 +125,12 @@ export const WindowTabs = memo(function WindowTabs() {
    * menu is asked for, the card is already playing its exit. This is what the
    * menu grows out of.
    */
-  const pressedPreviewRef = useRef<{ windowId: string; rect: DOMRect } | null>(null);
+  const pressedPreviewRef = useRef<{ windowId: WindowId; rect: DOMRect } | null>(null);
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>({
     visible: false,
     x: 0,
     y: 0,
-    windowId: '',
+    windowId: null,
     anchorEl: null,
     morphFrom: null,
   });
@@ -153,7 +154,7 @@ export const WindowTabs = memo(function WindowTabs() {
   );
 
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, windowId: string) => {
+    (e: React.MouseEvent, windowId: WindowId) => {
       e.preventDefault();
       e.stopPropagation();
       if (readOnly) return;
@@ -249,7 +250,7 @@ export const WindowTabs = memo(function WindowTabs() {
     }
   };
 
-  const handleTabEnter = (e: React.PointerEvent<HTMLSpanElement>, windowId: string) => {
+  const handleTabEnter = (e: React.PointerEvent<HTMLSpanElement>, windowId: WindowId) => {
     // A finger on a tab is pressing it, not asking about it.
     if (e.pointerType !== 'mouse') return;
     cancelClose();
@@ -317,7 +318,7 @@ export const WindowTabs = memo(function WindowTabs() {
 
   // ---- pointer: drag to reorder --------------------------------------------
   // The strip is one row, so only the x axis decides where a tab lands.
-  const centersExcluding = (windowId: string) =>
+  const centersExcluding = (windowId: WindowId) =>
     Array.from(listRef.current?.querySelectorAll<HTMLElement>('.tab-name[data-window-id]') ?? [])
       .filter((t) => t.dataset.windowId !== windowId)
       .map((t) => {
@@ -338,9 +339,11 @@ export const WindowTabs = memo(function WindowTabs() {
     const card = document.querySelector<HTMLElement>(
       '[data-testid="tab-preview"]:not(.is-leaving)',
     );
-    pressedPreviewRef.current = card
-      ? { windowId: card.dataset.windowId ?? '', rect: card.getBoundingClientRect() }
-      : null;
+    const cardWindowId = card?.dataset.windowId;
+    pressedPreviewRef.current =
+      card && isModelWindowId(cardWindowId)
+        ? { windowId: cardWindowId, rect: card.getBoundingClientRect() }
+        : null;
     dismissPreview();
     const tab = visibleWindows[index];
     // A lone tab is the desktop window's drag handle, not a control.
@@ -419,6 +422,8 @@ export const WindowTabs = memo(function WindowTabs() {
       ? dragging.overIndex + 1
       : dragging.overIndex
     : -1;
+
+  const menuWindowId = contextMenu.visible ? contextMenu.windowId : null;
 
   return (
     <LogProfiler id="WindowTabs">
@@ -527,9 +532,9 @@ export const WindowTabs = memo(function WindowTabs() {
             onDismiss={dismissPreview}
           />
         )}
-        {contextMenu.visible && (
+        {menuWindowId && (
           <TabContextMenu
-            windowId={contextMenu.windowId}
+            windowId={menuWindowId}
             x={contextMenu.x}
             y={contextMenu.y}
             anchorEl={contextMenu.anchorEl}
@@ -537,7 +542,7 @@ export const WindowTabs = memo(function WindowTabs() {
             onClose={closeContextMenu}
             onRename={() => {
               dismissPreview();
-              setRenamingId(contextMenu.windowId);
+              setRenamingId(menuWindowId);
             }}
           />
         )}

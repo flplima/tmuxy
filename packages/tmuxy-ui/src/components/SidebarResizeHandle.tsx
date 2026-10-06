@@ -29,11 +29,12 @@ import {
 } from '../machines/AppContext';
 import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../machines/constants';
 import { Tooltip } from './Tooltip';
+import type { WindowId } from '../domain/ids';
 
 interface SidebarResizeHandleProps {
   side: 'left' | 'right';
   /** The column's tmux window, which carries the width option. */
-  windowId: string | null;
+  windowId: WindowId | null;
   /** Current column width in pixels, the drag's starting point. */
   width: number;
 }

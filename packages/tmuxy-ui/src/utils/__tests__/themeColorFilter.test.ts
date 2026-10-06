@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { pid } from '../../test/wire';
 import { luminance, parseRgb, rampTables, sortByTone, themeFilterId } from '../themeColorFilter';
 
 describe('rampTables', () => {
@@ -37,7 +38,7 @@ describe('parseRgb', () => {
 
 describe('themeFilterId', () => {
   it('drops what url(#…) cannot hold, like the % of a pane id', () => {
-    expect(themeFilterId('%12')).toBe('tmuxy-theme-filter-12');
+    expect(themeFilterId(pid('%12'))).toBe('tmuxy-theme-filter-12');
   });
 });
 

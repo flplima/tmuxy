@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { pid, wid } from '../../../test/wire';
 import { createActor, createMachine, assign, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
 import * as mobileKeyboard from '../../../utils/mobileKeyboard';
@@ -8,7 +9,7 @@ import * as mobileKeyboard from '../../../utils/mobileKeyboard';
  * sends and exposes a context snapshot (the actor reads activePaneId /
  * copyModeStates off the parent snapshot for copy-mode detection).
  */
-function spawnKeyboardActor(activePaneId = '%3') {
+function spawnKeyboardActor(activePaneId = pid('%3')) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const keyboardActor = createKeyboardActor();
   const parent = createMachine({
@@ -54,7 +55,7 @@ function lastSendCommand(
 describe('keyboardActor — Tab / Shift-Tab', () => {
   let handle: ReturnType<typeof spawnKeyboardActor>;
   beforeEach(() => {
-    handle = spawnKeyboardActor('%3');
+    handle = spawnKeyboardActor(pid('%3'));
   });
 
   it('sends plain Tab as the tmux key "Tab"', () => {
@@ -79,7 +80,7 @@ describe('keyboardActor — Tab / Shift-Tab', () => {
  * snapshot, not its stale closure, or the first keystroke after the click
  * targets the previously-active pane.
  */
-function spawnWithLiveContext(initial = '%1') {
+function spawnWithLiveContext(initial = pid('%1')) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const keyboardActor = createKeyboardActor();
   const parent = createMachine({
@@ -94,13 +95,13 @@ function spawnWithLiveContext(initial = '%1') {
     },
     context: {
       activePaneId: initial,
-      activeWindowId: '@0',
+      activeWindowId: wid('@0'),
       copyModeStates: {},
       // Two tabs: @0 holds %1 (active) and %2; @1 holds %3.
       panes: [
-        { tmuxId: '%1', windowId: '@0', active: true },
-        { tmuxId: '%2', windowId: '@0', active: false },
-        { tmuxId: '%3', windowId: '@1', active: true },
+        { tmuxId: pid('%1'), windowId: wid('@0'), active: true },
+        { tmuxId: pid('%2'), windowId: wid('@0'), active: false },
+        { tmuxId: pid('%3'), windowId: wid('@1'), active: true },
       ],
     },
     invoke: {
@@ -136,11 +137,11 @@ function spawnWithLiveContext(initial = '%1') {
 
 describe('keyboardActor — active-pane target uses the live snapshot', () => {
   it('targets the newly-active pane even before UPDATE_ACTIVE_PANE arrives', () => {
-    const { actor, events } = spawnWithLiveContext('%1');
+    const { actor, events } = spawnWithLiveContext(pid('%1'));
 
     // Tab click: machine context flips synchronously; the child closure is NOT
     // refreshed (no UPDATE_ACTIVE_PANE), exactly as in the same-tick race.
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%2' });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%2') });
 
     // A printable key fired in this same tick must reach %2, not the stale
     // %1 (sent literally as `-l 'a'`).
@@ -171,7 +172,7 @@ describe('keyboardActor — active-pane target uses the live snapshot', () => {
     const actor = createActor(parent);
     actor.start();
     const child = actor.getSnapshot().children.keyboard as AnyActorRef;
-    child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: '%7' });
+    child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%7') });
 
     pressKey({ key: 'b' });
     expect(lastSendCommand(events)).toBe("send-keys -t %7 -l 'b'");
@@ -184,7 +185,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     // (optimistically) while tmux may still be on the old one. `select-pane`
     // alone never changes the current window, so without the window pin the
     // split could land in the tab the user just left.
-    const { actor, child, events } = spawnWithLiveContext('%1');
+    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
     child.send({
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
@@ -193,7 +194,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
         root_bindings: [{ key: 'C-n', command: 'next-window' }],
       },
     });
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%2' });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%2') });
 
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: '%', shiftKey: true });
@@ -212,7 +213,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     // current target at it, so `split-window` after it would land in THAT tab
     // (seen in the wild: a stale active-pane id from the initial snapshot,
     // tab 2 on screen, the split appeared in tab 1).
-    const { actor, child, events } = spawnWithLiveContext('%1');
+    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
     child.send({
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
@@ -222,8 +223,8 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
       },
     });
     // The machine shows tab @1 while its active pane id still points into @0.
-    actor.send({ type: 'SET_PARENT_WINDOW', windowId: '@1' });
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%2' });
+    actor.send({ type: 'SET_PARENT_WINDOW', windowId: wid('@1') });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%2') });
 
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: '%', shiftKey: true });
@@ -232,7 +233,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     );
 
     // A window whose panes are not known yet is pinned on its own.
-    actor.send({ type: 'SET_PARENT_WINDOW', windowId: '@2' });
+    actor.send({ type: 'SET_PARENT_WINDOW', windowId: wid('@2') });
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: '%', shiftKey: true });
     expect(lastSendCommand(events)).toBe('select-window -t @2 \\; split-window -h');
@@ -243,7 +244,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     // unset. A pane pin on its own steers nothing: `select-pane` on a pane in
     // another window leaves tmux's current window alone, so the split ran
     // wherever tmux already was — the split that kept landing in the first tab.
-    const { actor, events, child } = spawnWithLiveContext('%1');
+    const { actor, events, child } = spawnWithLiveContext(pid('%1'));
     child.send({
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
@@ -254,7 +255,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     });
     // No active window published yet, and the user is in %3 (which lives in @1).
     actor.send({ type: 'SET_PARENT_WINDOW', windowId: '' });
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%3' });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%3') });
 
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: '%', shiftKey: true });
@@ -273,7 +274,7 @@ describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', ()
     // Sidebars and floats occupy tmux window indexes the user never sees, so
     // `select-window -t N` would pick the wrong tab. The client resolves the
     // Nth visible tab itself; a root binding on the same key never wins.
-    const { child, events } = spawnWithLiveContext('%1');
+    const { child, events } = spawnWithLiveContext(pid('%1'));
     child.send({
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
@@ -314,14 +315,14 @@ describe('keyboardActor — prefix mode', () => {
   };
 
   it('entering prefix mode (Ctrl+A) announces PREFIX_MODE_CHANGE active', () => {
-    const { events } = spawnKeyboardActor('%3');
+    const { events } = spawnKeyboardActor(pid('%3'));
     pressKey({ key: 'a', ctrlKey: true });
     expect(lastPrefixActive(events)).toBe(true);
   });
 
   it('auto-exits prefix mode after the timeout', () => {
     vi.useFakeTimers();
-    const { events } = spawnKeyboardActor('%3');
+    const { events } = spawnKeyboardActor(pid('%3'));
     pressKey({ key: 'a', ctrlKey: true });
     expect(lastPrefixActive(events)).toBe(true);
     // The 8s prefix window elapses with no binding pressed.
@@ -330,7 +331,7 @@ describe('keyboardActor — prefix mode', () => {
   });
 
   it('double prefix exits prefix mode and sends the literal prefix key', () => {
-    const { events } = spawnKeyboardActor('%3');
+    const { events } = spawnKeyboardActor(pid('%3'));
     pressKey({ key: 'a', ctrlKey: true }); // enter
     pressKey({ key: 'a', ctrlKey: true }); // double → exit + literal
     expect(lastPrefixActive(events)).toBe(false);
@@ -349,7 +350,7 @@ describe('keyboardActor — prefix mode', () => {
 describe('keyboardActor — composed characters are literal text', () => {
   let handle: ReturnType<typeof spawnKeyboardActor>;
   beforeEach(() => {
-    handle = spawnKeyboardActor('%3');
+    handle = spawnKeyboardActor(pid('%3'));
   });
 
   it('sends a dead-key character even though the IME stamped it keyCode 229', () => {
@@ -409,7 +410,7 @@ describe('keyboardActor — composed characters are literal text', () => {
 describe('keyboardActor — chords stay chords', () => {
   let handle: ReturnType<typeof spawnKeyboardActor>;
   beforeEach(() => {
-    handle = spawnKeyboardActor('%3');
+    handle = spawnKeyboardActor(pid('%3'));
   });
 
   it('keeps bare Alt + an ASCII key as M-<key>', () => {
@@ -495,7 +496,7 @@ describe('keyboardActor — desktop IME', () => {
   beforeEach(() => {
     delete (window as Window & { ontouchstart?: unknown }).ontouchstart;
     Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 0 });
-    handle = spawnKeyboardActor('%3');
+    handle = spawnKeyboardActor(pid('%3'));
   });
 
   afterEach(() => {
@@ -526,7 +527,7 @@ describe('keyboardActor — desktop IME', () => {
     document.body.appendChild(textarea);
     textarea.focus();
 
-    handle = spawnKeyboardActor('%4');
+    handle = spawnKeyboardActor(pid('%4'));
 
     expect(document.activeElement).toBe(textarea);
     textarea.remove();
@@ -554,10 +555,10 @@ describe('keyboardActor — desktop IME', () => {
     input.blur();
     Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
 
-    handle = spawnKeyboardActor('%3');
+    handle = spawnKeyboardActor(pid('%3'));
 
     expect(document.activeElement).not.toBe(input);
-    mobileKeyboard.focusMobileInput('%3');
+    mobileKeyboard.focusMobileInput(pid('%3'));
     expect(document.activeElement).toBe(input);
   });
 
@@ -567,14 +568,14 @@ describe('keyboardActor — desktop IME', () => {
     expect(input).not.toBeNull();
     if (!input) return;
 
-    mobileKeyboard.focusKeyboardInput('%3');
+    mobileKeyboard.focusKeyboardInput(pid('%3'));
     expect(document.activeElement).toBe(input);
 
     input.blur();
-    mobileKeyboard.focusMobileInput('%3');
+    mobileKeyboard.focusMobileInput(pid('%3'));
     expect(document.activeElement).toBe(input);
 
-    mobileKeyboard.focusMobileInput('%3');
+    mobileKeyboard.focusMobileInput(pid('%3'));
     expect(document.activeElement).not.toBe(input);
   });
 
@@ -600,9 +601,9 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    mobileKeyboard.focusKeyboardInput('%3');
+    mobileKeyboard.focusKeyboardInput(pid('%3'));
 
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: '%4' });
+    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
     insertText(input, 'b');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l 'b'"]);
@@ -612,9 +613,9 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    mobileKeyboard.focusKeyboardInput('%3');
+    mobileKeyboard.focusKeyboardInput(pid('%3'));
 
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: '%9' });
+    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
     insertText(input, 'f');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %9 -l 'f'"]);
@@ -624,8 +625,8 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: '%9' });
-    mobileKeyboard.focusKeyboardInput('%9');
+    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
+    mobileKeyboard.focusKeyboardInput(pid('%9'));
 
     handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: null });
     insertText(input, 'r');
@@ -725,7 +726,7 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    mobileKeyboard.focusKeyboardInput('%3');
+    mobileKeyboard.focusKeyboardInput(pid('%3'));
 
     startComposition(input, ['ㅎ']);
     commitComposition(input, '한글');
@@ -737,11 +738,11 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    mobileKeyboard.focusKeyboardInput('%3');
+    mobileKeyboard.focusKeyboardInput(pid('%3'));
     startComposition(input, ['ㅎ']);
 
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: '%4' });
-    mobileKeyboard.focusKeyboardInput('%4');
+    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
+    mobileKeyboard.focusKeyboardInput(pid('%4'));
     commitComposition(input, '한');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l '한'"]);
@@ -751,11 +752,11 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    mobileKeyboard.focusKeyboardInput('%3');
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: '%4' });
+    mobileKeyboard.focusKeyboardInput(pid('%3'));
+    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
     startComposition(input, ['ㅎ']);
 
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: '%5' });
+    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%5') });
     commitComposition(input, '한');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l '한'"]);
@@ -763,7 +764,7 @@ describe('keyboardActor — desktop IME', () => {
 
   it('commits non-input composition to the pane where composition started', () => {
     window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: '%4' });
+    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
     window.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한' }));
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l '한'"]);
@@ -773,8 +774,8 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: '%9' });
-    mobileKeyboard.focusKeyboardInput('%9');
+    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
+    mobileKeyboard.focusKeyboardInput(pid('%9'));
 
     startComposition(input, ['ㅎ']);
     commitComposition(input, '한');
@@ -800,7 +801,7 @@ describe('keyboardActor — desktop IME', () => {
     insertText(input, 'x');
     pressKey({ key: 'Tab' });
     startComposition(input, ['ㅎ']);
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: '%9' });
+    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
     commitComposition(input, '한');
     handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: placeholder });
     pasteText('붙여넣기');

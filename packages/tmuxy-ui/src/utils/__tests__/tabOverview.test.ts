@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { pid, wid } from '../../test/wire';
 import { dropIndex, overviewSlots, reorderCommand, slotBoxes } from '../tabOverview';
 import type { TmuxPane, TmuxWindow } from '../../machines/types';
+import { placeholderWindowId, type WindowId } from '../../domain/ids';
 
-const win = (id: string, index: number): TmuxWindow => ({
+const win = (id: WindowId, index: number): TmuxWindow => ({
   id,
   index,
   name: 'sh',
@@ -19,7 +21,14 @@ const win = (id: string, index: number): TmuxWindow => ({
   zoomed: false,
 });
 
-const pane = (id: string, windowId: string, x: number, y: number, w: number, h: number): TmuxPane =>
+const pane = (
+  id: string,
+  windowId: WindowId,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): TmuxPane =>
   ({
     tmuxId: id,
     windowId,
@@ -36,34 +45,34 @@ const pane = (id: string, windowId: string, x: number, y: number, w: number, h: 
 describe('slotBoxes', () => {
   it('scales a 2×2 grid to percentages of the tab extent, ignoring the border row', () => {
     const panes = [
-      pane('%0', '@1', 0, 1, 69, 14),
-      pane('%1', '@1', 70, 1, 69, 14),
-      pane('%2', '@1', 0, 16, 69, 14),
-      pane('%3', '@1', 70, 16, 69, 14),
-      pane('%9', '@2', 0, 1, 139, 29),
+      pane(pid('%0'), wid('@1'), 0, 1, 69, 14),
+      pane(pid('%1'), wid('@1'), 70, 1, 69, 14),
+      pane(pid('%2'), wid('@1'), 0, 16, 69, 14),
+      pane(pid('%3'), wid('@1'), 70, 16, 69, 14),
+      pane(pid('%9'), wid('@2'), 0, 1, 139, 29),
     ];
-    const boxes = slotBoxes(panes, '@1');
+    const boxes = slotBoxes(panes, wid('@1'));
     expect(boxes).toHaveLength(4);
     const byId = Object.fromEntries(boxes.map((b) => [b.paneId, b]));
-    expect(byId['%0'].left).toBe(0);
-    expect(byId['%0'].top).toBe(0);
-    expect(byId['%1'].left).toBeCloseTo((70 / 139) * 100, 5);
-    expect(byId['%2'].top).toBeCloseTo((15 / 29) * 100, 5);
-    expect(byId['%3'].width).toBeCloseTo((69 / 139) * 100, 5);
-    expect(byId['%0'].active).toBe(true);
+    expect(byId[pid('%0')].left).toBe(0);
+    expect(byId[pid('%0')].top).toBe(0);
+    expect(byId[pid('%1')].left).toBeCloseTo((70 / 139) * 100, 5);
+    expect(byId[pid('%2')].top).toBeCloseTo((15 / 29) * 100, 5);
+    expect(byId[pid('%3')].width).toBeCloseTo((69 / 139) * 100, 5);
+    expect(byId[pid('%0')].active).toBe(true);
   });
 
   it('drops optimistic placeholder panes and tolerates a tab with no panes yet', () => {
-    expect(slotBoxes([pane('__placeholder_1', '@1', 0, 1, 10, 10)], '@1')).toEqual([]);
-    expect(slotBoxes([], '@1')).toEqual([]);
+    expect(slotBoxes([pane('__placeholder_1', wid('@1'), 0, 1, 10, 10)], wid('@1'))).toEqual([]);
+    expect(slotBoxes([], wid('@1'))).toEqual([]);
   });
 });
 
 describe('overviewSlots', () => {
   it('numbers slots by strip position, not tmux index', () => {
-    const slots = overviewSlots([win('@0', 1), win('@9', 3), win('@16', 6)], []);
+    const slots = overviewSlots([win(wid('@0'), 1), win(wid('@9'), 3), win(wid('@16'), 6)], []);
     expect(slots.map((s) => s.position)).toEqual([1, 2, 3]);
-    expect(slots.map((s) => s.window.id)).toEqual(['@0', '@9', '@16']);
+    expect(slots.map((s) => s.window.id)).toEqual([wid('@0'), wid('@9'), wid('@16')]);
   });
 });
 
@@ -90,27 +99,27 @@ describe('dropIndex', () => {
 });
 
 describe('reorderCommand', () => {
-  const tabs = [win('@0', 1), win('@1', 2), win('@2', 3)];
+  const tabs = [win(wid('@0'), 1), win(wid('@1'), 2), win(wid('@2'), 3)];
 
   it('inserts before the window that will follow', () => {
-    expect(reorderCommand(tabs, '@2', 0)).toBe('move-window -b -s @2 -t @0');
-    expect(reorderCommand(tabs, '@0', 1)).toBe('move-window -b -s @0 -t @2');
+    expect(reorderCommand(tabs, wid('@2'), 0)).toBe('move-window -b -s @2 -t @0');
+    expect(reorderCommand(tabs, wid('@0'), 1)).toBe('move-window -b -s @0 -t @2');
   });
 
   it('appends after the last window when dropped at the end', () => {
-    expect(reorderCommand(tabs, '@0', 2)).toBe('move-window -a -s @0 -t @2');
-    expect(reorderCommand(tabs, '@0', 99)).toBe('move-window -a -s @0 -t @2');
+    expect(reorderCommand(tabs, wid('@0'), 2)).toBe('move-window -a -s @0 -t @2');
+    expect(reorderCommand(tabs, wid('@0'), 99)).toBe('move-window -a -s @0 -t @2');
   });
 
   it('is a no-op when the slot does not move or the window is unknown', () => {
-    expect(reorderCommand(tabs, '@1', 1)).toBeNull();
-    expect(reorderCommand(tabs, '@7', 0)).toBeNull();
+    expect(reorderCommand(tabs, wid('@1'), 1)).toBeNull();
+    expect(reorderCommand(tabs, wid('@7'), 0)).toBeNull();
   });
 
   it('never targets an optimistic placeholder tab, as source or as neighbour', () => {
-    const withPlaceholder = [...tabs, win('__placeholder_op_1_2', 4)];
-    expect(reorderCommand(withPlaceholder, '__placeholder_op_1_2', 0)).toBeNull();
+    const withPlaceholder = [...tabs, win(placeholderWindowId('op_1_2'), 4)];
+    expect(reorderCommand(withPlaceholder, placeholderWindowId('op_1_2'), 0)).toBeNull();
     // Dropping at the end lands after the last REAL tab, not after the placeholder.
-    expect(reorderCommand(withPlaceholder, '@0', 3)).toBe('move-window -a -s @0 -t @2');
+    expect(reorderCommand(withPlaceholder, wid('@0'), 3)).toBe('move-window -a -s @0 -t @2');
   });
 });

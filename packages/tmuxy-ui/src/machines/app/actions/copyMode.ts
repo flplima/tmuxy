@@ -12,7 +12,8 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import type { CopyModeState, ScrollbackMode, TmuxPane } from '../../../tmux/types';
+import type { CopyModeState, ScrollbackMode } from '../../../tmux/types';
+import type { TmuxPane } from '../../../domain/client';
 import type { CellLine } from '../../../domain/wire';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import {
@@ -26,6 +27,7 @@ import {
 import { selectRightSidebarPane } from '../../selectors';
 import { COPY_FLASH_MS } from '../../../utils/copyFlash';
 import { writeClipboard } from '../../../utils/clipboard';
+import type { PaneId } from '../../../domain/ids';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -55,7 +57,7 @@ function selectEveryRow(state: CopyModeState): CopyModeState {
  */
 function buildScrollbackState(
   context: Ctx,
-  paneId: string,
+  paneId: PaneId,
   mode: ScrollbackMode,
   event: { scrollLines?: number; nativeScrollTop?: number },
 ): { state: CopyModeState; historySize: number; height: number } | null {
@@ -114,7 +116,7 @@ function buildScrollbackState(
   };
 }
 
-export const copyModeExitTimes = new Map<string, number>();
+export const copyModeExitTimes = new Map<PaneId, number>();
 
 /** The `enqueue` an action in this file receives (xstate does not export it). */
 type Enqueue = Parameters<
@@ -128,7 +130,7 @@ type Enqueue = Parameters<
  * then COPY_MODE_COPIED_EXIT closes it. The clipboard write itself happens on
  * the path that copied — the keyboard's native copy event, or the mouse.
  */
-function leaveAfterCopy(enqueue: Enqueue, context: Ctx, paneId: string): void {
+function leaveAfterCopy(enqueue: Enqueue, context: Ctx, paneId: PaneId): void {
   const copyState = context.copyModeStates[paneId];
   if (!copyState) return;
   const copiedAt = Date.now();

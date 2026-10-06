@@ -9,6 +9,7 @@
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';
+import { isPlaceholderId, type PaneId } from '../../../domain/ids';
 import type { AppMachineContext, AllAppMachineEvents, TmuxWindow } from '../../types';
 import {
   selectLeftSidebarPane,
@@ -18,7 +19,6 @@ import {
   visibleFloats,
 } from '../../selectors';
 import { calculateTargetSize } from '../../../utils/layout';
-import { isPlaceholderId } from '../../../utils/tabOverview';
 import { SIDEBAR_MOTION_SETTLE_MS } from '../../constants';
 
 type Ctx = AppMachineContext;
@@ -92,7 +92,7 @@ export function breakOutTaggedWindow(
     windowType: 'float' | 'sidebar-left' | 'sidebar-right';
     extraOptions?: Array<[string, string]>;
     /** Pane to split, so the new window is born beside what the user sees. */
-    splitFrom?: string | null;
+    splitFrom?: PaneId | null;
   },
 ): string {
   const byName = windowType !== 'float';

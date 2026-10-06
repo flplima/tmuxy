@@ -11,6 +11,7 @@
 
 import { useAppActor, usePane } from '../../machines/AppContext';
 import { detectWidget, getWidget, type WidgetDefinition, type WidgetMenuItem } from './index';
+import type { PaneId } from '../../domain/ids';
 
 interface PaneWidget {
   name: string;
@@ -19,8 +20,8 @@ interface PaneWidget {
   lines: string[];
 }
 
-function usePaneWidget(paneId: string | null | undefined): PaneWidget | null {
-  const pane = usePane(paneId ?? '');
+function usePaneWidget(paneId: PaneId | null | undefined): PaneWidget | null {
+  const pane = usePane(paneId ?? null);
   if (!pane) return null;
   const info = detectWidget(pane.content, pane.paneWidget);
   if (!info) return null;
@@ -39,7 +40,7 @@ const NO_ITEMS: WidgetMenuItem[] = [];
  * and a selector that built a fresh array every tick would re-render the menu
  * on every model update for no gain.
  */
-export function useWidgetMenuItems(paneId: string | null | undefined): WidgetMenuItem[] {
+export function useWidgetMenuItems(paneId: PaneId | null | undefined): WidgetMenuItem[] {
   const actor = useAppActor();
   const widget = usePaneWidget(paneId);
   if (!paneId || !widget?.definition.selectMenuItems) return NO_ITEMS;

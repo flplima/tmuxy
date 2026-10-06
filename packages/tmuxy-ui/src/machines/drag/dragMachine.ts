@@ -432,7 +432,7 @@ export const dragMachine = setup({
               command = tabDropCommand(
                 drag.tabDrop,
                 drag.draggedPaneId,
-                context.paneWindowId ?? '',
+                context.paneWindowId,
                 context.panesInWindow,
               );
             }

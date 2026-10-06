@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { PaneId } from '../../../domain/ids';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { TmuxyBrowser } from './TmuxyBrowser';
 import { ProviderHarness } from '../../../stories/StoryHarness';
@@ -41,7 +42,7 @@ type FileSrcWindow = { __tmuxyFileSrc?: (path: string) => string | undefined };
 
 function widgetProps(src: string, colorFilter = false): WidgetProps {
   return {
-    paneId: '%0',
+    paneId: PaneId.make('%0'),
     widgetName: 'browser',
     lines: [...(colorFilter ? ['__COLOR_FILTER__'] : []), `__SRC__:${src}`],
     lastLine: `__SRC__:${src}`,
@@ -288,9 +289,9 @@ export const PaneIsNamedAfterThePage: Story = {
     // The title arrives from a fetch, so it lands a moment after the frame.
     await waitFor(
       () => {
-        expect(browserWidget.selectTitle?.(app.getSnapshot().context, '%0', lines)).toBe(
-          'Release — notes',
-        );
+        expect(
+          browserWidget.selectTitle?.(app.getSnapshot().context, PaneId.make('%0'), lines),
+        ).toBe('Release — notes');
       },
       { timeout: 8000 },
     );

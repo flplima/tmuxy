@@ -2,153 +2,10 @@ import type {
   CellLine,
   KeyBindings,
   LogEntryKind,
-  PaneContent,
   ServerState,
   ThemeSettings,
-  WindowType,
 } from '../domain/wire';
-
-// ============================================
-// Tmux Domain Types
-// ============================================
-
-export interface TmuxPane {
-  id: number;
-  tmuxId: string;
-  /** Window this pane belongs to (e.g., "@0") */
-  windowId: string;
-  content: PaneContent;
-  cursorX: number;
-  cursorY: number;
-  width: number;
-  height: number;
-  x: number;
-  y: number;
-  active: boolean;
-  command: string;
-  /** Pane title (set by shell/application) */
-  title: string;
-  /** Evaluated pane-border-format from tmux config */
-  borderTitle: string;
-  /**
-   * Pane-group identity (`@tmuxy-group-id`, e.g. `g5`); absent/null when the
-   * pane is not in a group (the backend omits it from the wire). Panes sharing
-   * a value form a group; the member whose `windowId` is the active window is
-   * the visible one, the rest are hidden stubs parked in the stash session.
-   */
-  groupId?: string | null;
-  /** `@tmuxy-group-pos`: this member's place in its group, once reordered. */
-  groupPos?: number | null;
-  inMode: boolean;
-  copyCursorX: number;
-  copyCursorY: number;
-  /** True if application is in alternate screen mode (vim, less, htop) */
-  alternateOn: boolean;
-  /** True if application has mouse tracking enabled */
-  mouseAnyFlag: boolean;
-  /**
-   * True if this is tmux's marked pane (`select-pane -m`, `#{pane_marked}`).
-   * Absent means false. `swap-pane` / `join-pane` without a source act on it.
-   */
-  marked?: boolean;
-  /** True if output is paused due to flow control (backpressure) */
-  paused: boolean;
-  /** Number of history lines (scrollback above the visible area) */
-  historySize: number;
-  /** True if a selection is active in copy mode */
-  selectionPresent: boolean;
-  /** Selection start X (visible-area-relative column), only meaningful when selectionPresent */
-  selectionStartX: number;
-  /** Selection start Y (visible-area-relative row, can be negative), only meaningful when selectionPresent */
-  selectionStartY: number;
-  /** Image placements on this pane's terminal grid */
-  images?: ImagePlacement[];
-  /** Cursor shape from DECSCUSR: 0/1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar */
-  cursorShape: number;
-  /** Whether the cursor is hidden (DECTCEM mode 25 off / ESC[?25l) */
-  cursorHidden: boolean;
-  /**
-   * What the pane says it is doing (`@tmuxy-pane-state`), verbatim. Any
-   * process can set it via `tmuxy pane state <value>`; the vocabulary the tree
-   * draws lives in `utils/paneState.ts`, which collapses anything unknown.
-   * Absent when the option is unset.
-   */
-  paneState?: string | null;
-  /**
-   * The confirmation this pane is waiting on (`@tmuxy-ask`), as the base64
-   * payload `tmuxy ask` wrote. Decoded by `utils/paneAsk.ts`; absent when no
-   * question is pending.
-   */
-  paneAsk?: string | null;
-  /**
-   * Which widget this pane may render (`@tmuxy-pane-widget`), written by
-   * `tmuxy-widget`. The `__TMUXY_WIDGET__:` marker travels in pane OUTPUT and
-   * so authorises nothing on its own — see `components/widgets/detectWidget`.
-   */
-  paneWidget?: string | null;
-}
-
-/** An image placement on the terminal grid */
-export interface ImagePlacement {
-  id: number;
-  row: number;
-  col: number;
-  widthCells: number;
-  heightCells: number;
-  protocol: 'iterm2' | 'kitty' | 'sixel';
-}
-
-export interface TmuxWindow {
-  /** Window ID (e.g., "@0") */
-  id: string;
-  index: number;
-  name: string;
-  active: boolean;
-  /** Window type. `null` = foreign (ignored by the UI). */
-  windowType: WindowType | null;
-  /** Parent window id for floats (launcher) and backdrops (the float). */
-  floatParent: string | null;
-  /** Float width in cells (@tmuxy-float-width). */
-  floatWidth: number | null;
-  /** Float height in cells (@tmuxy-float-height). */
-  floatHeight: number | null;
-  /** Drawer direction for drawer-style floats. */
-  floatDrawer: string | null;
-  /** Backdrop style for floats. */
-  floatBg: string | null;
-  /** True when the float hides its header chrome. */
-  floatNoheader: boolean;
-  /**
-   * The window's own active pane, from the server. `pane.active` is a
-   * session-wide flag (only the current window's active pane carries it), so
-   * this is how a tab switch knows which pane of a background tab to land on.
-   */
-  activePaneId?: string | null;
-  /**
-   * A sidebar column's width in cells when the user has dragged it off its
-   * default (@tmuxy-sidebar-cols). The column is drawn at this many cells, and
-   * the backend sized its pane to the same number — so a drag moves both, and
-   * every client attached to the session agrees on the width. Absent is
-   * equivalent to null — the side's default.
-   */
-  sidebarCols?: number | null;
-  /**
-   * True while the user has closed this sidebar column (@tmuxy-sidebar-hidden).
-   * The pane behind it stays alive, so the window existing no longer means the
-   * column is shown; every client reads the flag, so a close made in one client
-   * or before a reload holds everywhere. Absent is equivalent to false.
-   */
-  sidebarHidden?: boolean;
-  /**
-   * True while the window keeps only the active pane's first-level row
-   * expanded (@tmuxy-collapsible; the backend reshapes the layout). Absent is
-   * equivalent to false.
-   */
-  collapsible?: boolean;
-  /** True while a pane in this window is zoomed (tmux hides the others).
-   *  Absent is equivalent to false. */
-  zoomed?: boolean;
-}
+import type { PaneId } from '../domain/ids';
 
 // ============================================
 // Client-Side Copy Mode Types
@@ -238,7 +95,7 @@ export type ReconnectionListener = (reconnecting: boolean) => void;
  * OSC 52 clipboard request from a terminal application. The frontend mirrors
  * the payload into the system clipboard via `navigator.clipboard.writeText`.
  */
-export type ClipboardListener = (paneId: string, text: string) => void;
+export type ClipboardListener = (paneId: PaneId | null, text: string) => void;
 
 export type LogListener = (kind: LogEntryKind, message: string) => void;
 

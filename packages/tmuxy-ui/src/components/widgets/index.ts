@@ -1,9 +1,10 @@
 import type { ComponentType } from 'react';
 import type { PaneContent } from '../../domain/wire';
 import type { AppMachineContext, AppMachineEvent } from '../../machines/types';
+import type { PaneId } from '../../domain/ids';
 
 export interface WidgetProps {
-  paneId: string;
+  paneId: PaneId;
   widgetName: string;
   lines: string[];
   lastLine: string;
@@ -34,7 +35,7 @@ export interface WidgetMenuItem {
 
 /** What a widget's key handler is given to act with. */
 export interface WidgetKeyContext {
-  paneId: string;
+  paneId: PaneId;
   lines: string[];
   context: AppMachineContext;
   send: (event: AppMachineEvent) => void;
@@ -56,11 +57,11 @@ export interface WidgetDefinition {
    * Pane tab title. Falls back to the generic `__TITLE__`/URL sniffing in
    * getWidgetTitle when absent or when it returns undefined.
    */
-  selectTitle?: (context: AppMachineContext, paneId: string, lines: string[]) => string | undefined;
+  selectTitle?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => string | undefined;
   /** The widget's own section of the pane menu, above the generic pane items. */
   selectMenuItems?: (
     context: AppMachineContext,
-    paneId: string,
+    paneId: PaneId,
     lines: string[],
   ) => WidgetMenuItem[];
   /**

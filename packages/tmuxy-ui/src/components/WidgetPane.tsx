@@ -20,9 +20,10 @@ import {
   useIsResizing,
 } from '../machines/AppContext';
 import { useFramedPaneFocus } from '../hooks';
+import type { PaneId } from '../domain/ids';
 
 interface WidgetPaneProps {
-  paneId: string;
+  paneId: PaneId;
   widgetInfo: { widgetName: string; contentLines: string[] };
 }
 

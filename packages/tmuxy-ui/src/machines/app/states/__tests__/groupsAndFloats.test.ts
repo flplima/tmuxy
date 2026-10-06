@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { pid, wid } from '../../../../test/wire';
 import { assign } from 'xstate';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from '../groupsAndFloats';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
@@ -6,8 +7,9 @@ import { SIDEBAR_MOTION_SETTLE_MS } from '../../../constants';
 const groupsAndFloatsGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { FloatPaneState } from '../../../types';
+import type { PaneId } from '../../../../domain/ids';
 
-function makeFloat(paneId: string, extra: Partial<FloatPaneState> = {}): FloatPaneState {
+function makeFloat(paneId: PaneId, extra: Partial<FloatPaneState> = {}): FloatPaneState {
   return {
     paneId,
     parentWindowId: null,
@@ -27,45 +29,45 @@ const groupsAndFloatsState = {
 describe('groupsAndFloats state', () => {
   it('CLOSE_FLOAT removes the float from floatPanes', () => {
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
-      floatPanes: { 'pane-1': makeFloat('pane-1'), 'pane-2': makeFloat('pane-2') },
-      focusedFloatPaneId: 'pane-2',
+      floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
+      focusedFloatPaneId: pid('%2'),
     });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: 'pane-1' });
-    expect(ctx.floatPanes['pane-1']).toBeUndefined();
-    expect(ctx.floatPanes['pane-2']).toBeDefined();
+    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: pid('%1') });
+    expect(ctx.floatPanes[pid('%1')]).toBeUndefined();
+    expect(ctx.floatPanes[pid('%2')]).toBeDefined();
     // focusedFloatPaneId untouched because closed pane wasn't focused
-    expect(ctx.focusedFloatPaneId).toBe('pane-2');
+    expect(ctx.focusedFloatPaneId).toBe(pid('%2'));
   });
 
   it('CLOSE_FLOAT re-focuses next remaining float when the focused one is closed', () => {
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
-      floatPanes: { 'pane-1': makeFloat('pane-1'), 'pane-2': makeFloat('pane-2') },
-      focusedFloatPaneId: 'pane-2',
+      floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
+      focusedFloatPaneId: pid('%2'),
     });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: 'pane-2' });
-    expect(ctx.floatPanes['pane-2']).toBeUndefined();
-    expect(ctx.focusedFloatPaneId).toBe('pane-1');
+    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: pid('%2') });
+    expect(ctx.floatPanes[pid('%2')]).toBeUndefined();
+    expect(ctx.focusedFloatPaneId).toBe(pid('%1'));
   });
 
   it('CLOSE_FLOAT clears focus when last float is closed', () => {
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
-      floatPanes: { 'pane-1': makeFloat('pane-1') },
-      focusedFloatPaneId: 'pane-1',
+      floatPanes: { [pid('%1')]: makeFloat(pid('%1')) },
+      focusedFloatPaneId: pid('%1'),
     });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: 'pane-1' });
+    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: pid('%1') });
     expect(ctx.focusedFloatPaneId).toBeNull();
   });
 
   it('CLOSE_TOP_FLOAT removes the most-recently-added float (last in object)', () => {
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
-      floatPanes: { 'pane-1': makeFloat('pane-1'), 'pane-2': makeFloat('pane-2') },
-      focusedFloatPaneId: 'pane-1',
+      floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
+      focusedFloatPaneId: pid('%1'),
     });
     const ctx = sendAndGetContext(actor, { type: 'CLOSE_TOP_FLOAT' });
-    expect(ctx.floatPanes['pane-2']).toBeUndefined();
-    expect(ctx.floatPanes['pane-1']).toBeDefined();
+    expect(ctx.floatPanes[pid('%2')]).toBeUndefined();
+    expect(ctx.floatPanes[pid('%1')]).toBeDefined();
     // After closing the top (pane-2), focus moves to the next one
-    expect(ctx.focusedFloatPaneId).toBe('pane-1');
+    expect(ctx.focusedFloatPaneId).toBe(pid('%1'));
   });
 
   it('CLOSE_TOP_FLOAT leaves a float that belongs to another tab alone', () => {
@@ -74,15 +76,15 @@ describe('groupsAndFloats state', () => {
     // and killing it would take a pane the user cannot even see.
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
       windows: [
-        { id: '@0', index: 0, name: 'one', active: true, windowType: 'tab' },
-        { id: '@1', index: 1, name: 'two', active: false, windowType: 'tab' },
+        { id: wid('@0'), index: 0, name: 'one', active: true, windowType: 'tab' },
+        { id: wid('@1'), index: 1, name: 'two', active: false, windowType: 'tab' },
       ] as never,
-      activeWindowId: '@0',
-      floatPanes: { 'pane-9': makeFloat('pane-9', { parentWindowId: '@1' }) },
+      activeWindowId: wid('@0'),
+      floatPanes: { [pid('%9')]: makeFloat(pid('%9'), { parentWindowId: wid('@1') }) },
       focusedFloatPaneId: null,
     });
     const ctx = sendAndGetContext(actor, { type: 'CLOSE_TOP_FLOAT' });
-    expect(ctx.floatPanes['pane-9']).toBeDefined();
+    expect(ctx.floatPanes[pid('%9')]).toBeDefined();
   });
 
   it('CLOSE_TOP_FLOAT no-ops when there are no floats', () => {

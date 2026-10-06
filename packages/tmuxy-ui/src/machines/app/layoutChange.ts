@@ -1,3 +1,4 @@
+import type { PaneId } from '../../domain/ids';
 /**
  * Telling one kind of geometry change from another.
  *
@@ -13,7 +14,7 @@
  */
 
 interface Boxed {
-  tmuxId: string;
+  tmuxId: PaneId;
   x: number;
   y: number;
   width: number;

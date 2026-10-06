@@ -1,3 +1,4 @@
+import { isModelWindowId, type PaneId, type WindowId } from '../domain/ids';
 /**
  * Dropping a dragged pane on the tab strip.
  *
@@ -22,11 +23,11 @@ export interface Rect {
 export interface TabStripGeometry {
   /** The whole strip, including the empty space after the last tab. */
   strip: Rect;
-  tabs: Array<{ windowId: string; rect: Rect }>;
+  tabs: Array<{ windowId: WindowId; rect: Rect }>;
 }
 
 /** Where a pane dropped on the strip would land. */
-export type TabDrop = { kind: 'tab'; windowId: string } | { kind: 'new' };
+export type TabDrop = { kind: 'tab'; windowId: WindowId } | { kind: 'new' };
 
 function toRect(el: Element): Rect {
   const r = el.getBoundingClientRect();
@@ -37,9 +38,12 @@ function toRect(el: Element): Rect {
 export function measureTabStrip(): TabStripGeometry | null {
   const list = document.querySelector('.tab-list');
   if (!list) return null;
-  const tabs = Array.from(list.querySelectorAll<HTMLElement>('.tab-name[data-window-id]'))
-    .map((el) => ({ windowId: el.dataset.windowId ?? '', rect: toRect(el) }))
-    .filter((t) => t.windowId !== '');
+  const tabs = Array.from(list.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')).flatMap(
+    (el) => {
+      const windowId = el.dataset.windowId;
+      return isModelWindowId(windowId) ? [{ windowId, rect: toRect(el) }] : [];
+    },
+  );
   return { strip: toRect(list), tabs };
 }
 
@@ -80,8 +84,8 @@ export function sameTabDrop(a: TabDrop | null, b: TabDrop | null): boolean {
  */
 export function tabDropCommand(
   drop: TabDrop,
-  paneId: string,
-  paneWindowId: string,
+  paneId: PaneId,
+  paneWindowId: WindowId | null,
   panesInWindow: number,
 ): string | null {
   if (drop.kind === 'tab') {

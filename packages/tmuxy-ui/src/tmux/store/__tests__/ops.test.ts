@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { pid, wid } from '../../../test/wire';
 import { predict, reconcile } from '../ops';
 import { parseCommandToOp } from '../parseCommand';
 import { makePendingOp } from '../model';
@@ -15,13 +16,14 @@ import {
   type TmuxSnapshot,
   type OpId,
 } from '../types';
-import type { TmuxPane } from '../../types';
+import type { TmuxPane } from '../../../domain/client';
+import type { PaneId, WindowId } from '../../../domain/ids';
 
-function pane(tmuxId: string, x: number, y: number, width: number, height: number): TmuxPane {
+function pane(tmuxId: PaneId, x: number, y: number, width: number, height: number): TmuxPane {
   return {
     id: parseInt(tmuxId.slice(1), 10),
     tmuxId,
-    windowId: '@0',
+    windowId: wid('@0'),
     content: [],
     cursorX: 0,
     cursorY: 0,
@@ -51,14 +53,14 @@ function pane(tmuxId: string, x: number, y: number, width: number, height: numbe
 // Two side-by-side panes: %0 [0..39] and %1 [41..80].
 const SNAPSHOT: TmuxSnapshot = {
   ...EMPTY_SNAPSHOT,
-  panes: [pane('%0', 0, 0, 40, 20), pane('%1', 41, 0, 40, 20)],
-  activePaneId: '%0',
-  activeWindowId: '@0',
+  panes: [pane(pid('%0'), 0, 0, 40, 20), pane(pid('%1'), 41, 0, 40, 20)],
+  activePaneId: pid('%0'),
+  activeWindowId: wid('@0'),
   totalWidth: 81,
   totalHeight: 20,
 };
 
-const CTX = { defaultShell: 'bash', paneActivationOrder: [] as string[] };
+const CTX = { defaultShell: 'bash', paneActivationOrder: [] as PaneId[] };
 
 function focusOp(now: number) {
   const op = parseCommandToOp('select-pane -t %1');
@@ -132,7 +134,7 @@ describe('reconcileFocus — linger and supersession', () => {
 
   it('holds a confirmed focus op until the linger expires, then matches', () => {
     const op = focusOp(t0);
-    const confirmed: TmuxSnapshot = { ...SNAPSHOT, activePaneId: '%1' };
+    const confirmed: TmuxSnapshot = { ...SNAPSHOT, activePaneId: pid('%1') };
     expect(reconcile(op, confirmed, undefined, t0 + 100)._tag).toBe('pending');
     expect(reconcile(op, confirmed, undefined, t0 + FOCUS_CONFIRM_LINGER_MS + 1)._tag).toBe(
       'matched',
@@ -141,7 +143,7 @@ describe('reconcileFocus — linger and supersession', () => {
 
   it('holds through stale echoes of the pre-op focus', () => {
     const op = focusOp(t0);
-    const staleEcho: TmuxSnapshot = { ...SNAPSHOT, activePaneId: '%0' };
+    const staleEcho: TmuxSnapshot = { ...SNAPSHOT, activePaneId: pid('%0') };
     // Even past the supersede grace — %0 is what was active when we predicted,
     // so this is a stale snapshot, not a new focus.
     expect(reconcile(op, staleEcho, undefined, t0 + FOCUS_SUPERSEDE_GRACE_MS + 500)._tag).toBe(
@@ -153,8 +155,8 @@ describe('reconcileFocus — linger and supersession', () => {
     const op = focusOp(t0);
     const superseded: TmuxSnapshot = {
       ...SNAPSHOT,
-      panes: [...SNAPSHOT.panes, pane('%2', 0, 21, 81, 10)],
-      activePaneId: '%2',
+      panes: [...SNAPSHOT.panes, pane(pid('%2'), 0, 21, 81, 10)],
+      activePaneId: pid('%2'),
     };
     // Young: server may not have processed us yet.
     expect(reconcile(op, superseded, undefined, t0 + 100)._tag).toBe('pending');
@@ -168,7 +170,7 @@ describe('reconcileFocus — linger and supersession', () => {
 describe('parseCommandToOp — kill / rename / zoom', () => {
   it('parses kill-pane forms', () => {
     expect(parseCommandToOp('kill-pane')).toEqual({ _tag: 'KillPane', paneId: null });
-    expect(parseCommandToOp('kill-pane -t %3')).toEqual({ _tag: 'KillPane', paneId: '%3' });
+    expect(parseCommandToOp('kill-pane -t %3')).toEqual({ _tag: 'KillPane', paneId: pid('%3') });
     expect(parseCommandToOp('select-pane -t %0 \\; kill-pane')).toEqual({
       _tag: 'KillPane',
       paneId: null,
@@ -177,7 +179,10 @@ describe('parseCommandToOp — kill / rename / zoom', () => {
 
   it('parses kill-window forms (index targets stay raw)', () => {
     expect(parseCommandToOp('kill-window')).toEqual({ _tag: 'KillWindow', windowId: null });
-    expect(parseCommandToOp('kill-window -t @2')).toEqual({ _tag: 'KillWindow', windowId: '@2' });
+    expect(parseCommandToOp('kill-window -t @2')).toEqual({
+      _tag: 'KillWindow',
+      windowId: wid('@2'),
+    });
     expect(parseCommandToOp('kill-window -t :2')._tag).toBe('RawCommand');
   });
 
@@ -189,14 +194,17 @@ describe('parseCommandToOp — kill / rename / zoom', () => {
     });
     expect(parseCommandToOp('rename-window -t @1 newname')).toEqual({
       _tag: 'RenameWindow',
-      target: '@1',
+      target: wid('@1'),
       name: 'newname',
     });
   });
 
   it('parses zoom toggles, leaving plain resizes raw', () => {
     expect(parseCommandToOp('resize-pane -Z')).toEqual({ _tag: 'ZoomToggle', paneId: null });
-    expect(parseCommandToOp('resize-pane -t %2 -Z')).toEqual({ _tag: 'ZoomToggle', paneId: '%2' });
+    expect(parseCommandToOp('resize-pane -t %2 -Z')).toEqual({
+      _tag: 'ZoomToggle',
+      paneId: pid('%2'),
+    });
     expect(parseCommandToOp('resize-pane -L 5')._tag).toBe('RawCommand');
   });
 });
@@ -206,18 +214,23 @@ describe('KillPane predict/reconcile', () => {
     // %0 on top of %1 (same x/width, vertically adjacent).
     const snap: TmuxSnapshot = {
       ...EMPTY_SNAPSHOT,
-      panes: [pane('%0', 0, 0, 80, 10), pane('%1', 0, 11, 80, 9)],
-      activePaneId: '%1',
-      activeWindowId: '@0',
+      panes: [pane(pid('%0'), 0, 0, 80, 10), pane(pid('%1'), 0, 11, 80, 9)],
+      activePaneId: pid('%1'),
+      activeWindowId: wid('@0'),
       totalWidth: 80,
       totalHeight: 20,
     };
     const op = parseCommandToOp('kill-pane -t %1');
-    const result = predict(op, snap, { ...CTX, paneActivationOrder: ['%1', '%0'] }, 'k1' as OpId)!;
+    const result = predict(
+      op,
+      snap,
+      { ...CTX, paneActivationOrder: [pid('%1'), pid('%0')] },
+      'k1' as OpId,
+    )!;
     const patched = result.patch(snap);
-    expect(patched.panes.map((p) => p.tmuxId)).toEqual(['%0']);
+    expect(patched.panes.map((p) => p.tmuxId)).toEqual([pid('%0')]);
     expect(patched.panes[0].height).toBe(20); // absorbed 9 + 1 separator
-    expect(patched.activePaneId).toBe('%0');
+    expect(patched.activePaneId).toBe(pid('%0'));
 
     const pendingOp = makePendingOp({
       id: 'k1' as OpId,
@@ -241,26 +254,31 @@ describe('KillPane predict/reconcile', () => {
   it('patch replays idempotently over confirmed layouts during the linger', () => {
     const snap: TmuxSnapshot = {
       ...EMPTY_SNAPSHOT,
-      panes: [pane('%0', 0, 0, 80, 10), pane('%1', 0, 11, 80, 9)],
-      activePaneId: '%1',
-      activeWindowId: '@0',
+      panes: [pane(pid('%0'), 0, 0, 80, 10), pane(pid('%1'), 0, 11, 80, 9)],
+      activePaneId: pid('%1'),
+      activeWindowId: wid('@0'),
       totalWidth: 80,
       totalHeight: 20,
     };
     const op = parseCommandToOp('kill-pane -t %1');
-    const result = predict(op, snap, { ...CTX, paneActivationOrder: ['%1', '%0'] }, 'k2' as OpId)!;
+    const result = predict(
+      op,
+      snap,
+      { ...CTX, paneActivationOrder: [pid('%1'), pid('%0')] },
+      'k2' as OpId,
+    )!;
 
     // Stale pre-kill echo: doomed pane present → filter + expand absorber.
     const echoPatched = result.patch(snap);
-    expect(echoPatched.panes.map((p) => p.tmuxId)).toEqual(['%0']);
+    expect(echoPatched.panes.map((p) => p.tmuxId)).toEqual([pid('%0')]);
     expect(echoPatched.panes[0].height).toBe(20);
 
     // Confirmed post-kill layout: server already expanded the absorber —
     // the patch must NOT double-add the dead pane's space.
     const confirmed: TmuxSnapshot = {
       ...snap,
-      panes: [pane('%0', 0, 0, 80, 20)],
-      activePaneId: '%0',
+      panes: [pane(pid('%0'), 0, 0, 80, 20)],
+      activePaneId: pid('%0'),
     };
     const replayed = result.patch(confirmed);
     expect(replayed.panes[0].height).toBe(20);
@@ -270,9 +288,9 @@ describe('KillPane predict/reconcile', () => {
 describe('ZoomToggle predict/reconcile', () => {
   const snap: TmuxSnapshot = {
     ...EMPTY_SNAPSHOT,
-    panes: [pane('%0', 0, 0, 40, 20), pane('%1', 41, 0, 40, 20)],
-    activePaneId: '%0',
-    activeWindowId: '@0',
+    panes: [pane(pid('%0'), 0, 0, 40, 20), pane(pid('%1'), 41, 0, 40, 20)],
+    activePaneId: pid('%0'),
+    activeWindowId: wid('@0'),
     totalWidth: 81,
     totalHeight: 20,
   };
@@ -281,24 +299,24 @@ describe('ZoomToggle predict/reconcile', () => {
     const op = parseCommandToOp('resize-pane -Z');
     const result = predict(op, snap, CTX, 'z1' as OpId)!;
     const patched = result.patch(snap);
-    const zoomed = patched.panes.find((p) => p.tmuxId === '%0')!;
+    const zoomed = patched.panes.find((p) => p.tmuxId === pid('%0'))!;
     expect(zoomed.width).toBe(81);
     expect(zoomed.height).toBe(20);
     // Siblings untouched — mirrors the server's visible_layout behavior.
-    expect(patched.panes.find((p) => p.tmuxId === '%1')!.width).toBe(40);
+    expect(patched.panes.find((p) => p.tmuxId === pid('%1'))!.width).toBe(40);
   });
 
   it('does not predict unzoom (pane already at full extent)', () => {
     const zoomedSnap: TmuxSnapshot = {
       ...snap,
-      panes: [pane('%0', 0, 0, 81, 20), pane('%1', 41, 0, 40, 20)],
+      panes: [pane(pid('%0'), 0, 0, 81, 20), pane(pid('%1'), 41, 0, 40, 20)],
     };
     expect(predict(parseCommandToOp('resize-pane -Z'), zoomedSnap, CTX, 'z2' as OpId)).toBeNull();
   });
 });
 
 describe('KillWindow / RenameWindow predict', () => {
-  const win = (id: string, index: number, active: boolean) => ({
+  const win = (id: WindowId, index: number, active: boolean) => ({
     id,
     index,
     name: `w${index}`,
@@ -315,27 +333,30 @@ describe('KillWindow / RenameWindow predict', () => {
   it('KillWindow drops the window + panes and activates the previous tab', () => {
     const snap: TmuxSnapshot = {
       ...EMPTY_SNAPSHOT,
-      windows: [win('@0', 1, false), win('@1', 2, true)],
-      panes: [pane('%0', 0, 0, 80, 20), { ...pane('%1', 0, 0, 80, 20), windowId: '@1' }],
-      activePaneId: '%1',
-      activeWindowId: '@1',
+      windows: [win(wid('@0'), 1, false), win(wid('@1'), 2, true)],
+      panes: [
+        pane(pid('%0'), 0, 0, 80, 20),
+        { ...pane(pid('%1'), 0, 0, 80, 20), windowId: wid('@1') },
+      ],
+      activePaneId: pid('%1'),
+      activeWindowId: wid('@1'),
     };
-    snap.panes[0].windowId = '@0';
+    snap.panes[0].windowId = wid('@0');
     const result = predict(parseCommandToOp('kill-window'), snap, CTX, 'kw1' as OpId)!;
     const patched = result.patch(snap);
-    expect(patched.windows.map((w) => w.id)).toEqual(['@0']);
-    expect(patched.activeWindowId).toBe('@0');
-    expect(patched.activePaneId).toBe('%0');
-    expect(patched.panes.map((p) => p.tmuxId)).toEqual(['%0']);
+    expect(patched.windows.map((w) => w.id)).toEqual([wid('@0')]);
+    expect(patched.activeWindowId).toBe(wid('@0'));
+    expect(patched.activePaneId).toBe(pid('%0'));
+    expect(patched.panes.map((p) => p.tmuxId)).toEqual([pid('%0')]);
   });
 
   it('RenameWindow renames optimistically and reconciles on the server echo', () => {
     const snap: TmuxSnapshot = {
       ...EMPTY_SNAPSHOT,
-      windows: [win('@0', 1, true)],
-      panes: [pane('%0', 0, 0, 80, 20)],
-      activePaneId: '%0',
-      activeWindowId: '@0',
+      windows: [win(wid('@0'), 1, true)],
+      panes: [pane(pid('%0'), 0, 0, 80, 20)],
+      activePaneId: pid('%0'),
+      activeWindowId: wid('@0'),
     };
     const op = parseCommandToOp("rename-window -- 'STORY_TAB'");
     const result = predict(op, snap, CTX, 'rn1' as OpId)!;
@@ -359,9 +380,9 @@ describe('ZoomToggle supersede (rapid re-toggle)', () => {
   it('drops the zoom patch when committed shows the pre-zoom rect past the grace', () => {
     const snap: TmuxSnapshot = {
       ...EMPTY_SNAPSHOT,
-      panes: [pane('%0', 0, 0, 40, 20), pane('%1', 41, 0, 40, 20)],
-      activePaneId: '%0',
-      activeWindowId: '@0',
+      panes: [pane(pid('%0'), 0, 0, 40, 20), pane(pid('%1'), 41, 0, 40, 20)],
+      activePaneId: pid('%0'),
+      activeWindowId: wid('@0'),
       totalWidth: 81,
       totalHeight: 20,
     };
@@ -390,7 +411,7 @@ describe('SelectWindow predicts even when the target window has no known panes',
   // the prediction left the whole switch unpinned, and pre-confirm snapshots
   // flapped the tab strip back (masked, pre-refactor, by a machine-level
   // grace pin that no longer exists).
-  const win = (id: string, index: number, active: boolean) => ({
+  const win = (id: WindowId, index: number, active: boolean) => ({
     id,
     index,
     name: `w${index}`,
@@ -405,14 +426,14 @@ describe('SelectWindow predicts even when the target window has no known panes',
   });
   const snap: TmuxSnapshot = {
     ...SNAPSHOT,
-    windows: [win('@0', 0, true), win('@1', 1, false)],
+    windows: [win(wid('@0'), 0, true), win(wid('@1'), 1, false)],
   };
 
   it('resolves a target given by window id, which is what the client sends', () => {
     const op = parseCommandToOp('select-window -t @1');
     const result = predict(op, snap, CTX, 'op_selwin_id' as OpId);
     expect(result).not.toBeNull();
-    expect(result!.patch(snap).activeWindowId).toBe('@1');
+    expect(result!.patch(snap).activeWindowId).toBe(wid('@1'));
   });
 
   it('pins the window flip immediately and resolves the pane when it arrives', () => {
@@ -422,17 +443,20 @@ describe('SelectWindow predicts even when the target window has no known panes',
 
     // Replayed on the paneless snapshot: window flips, pane focus unchanged.
     const flipped = result!.patch(snap);
-    expect(flipped.activeWindowId).toBe('@1');
-    expect(flipped.windows.find((w) => w.id === '@1')!.active).toBe(true);
-    expect(flipped.activePaneId).toBe('%0');
+    expect(flipped.activeWindowId).toBe(wid('@1'));
+    expect(flipped.windows.find((w) => w.id === wid('@1'))!.active).toBe(true);
+    expect(flipped.activePaneId).toBe(pid('%0'));
 
     // Replayed after the target's pane lands: the patch resolves it.
     const withPane: TmuxSnapshot = {
       ...snap,
-      panes: [...snap.panes, { ...pane('%9', 0, 0, 80, 20), windowId: '@1', active: true }],
+      panes: [
+        ...snap.panes,
+        { ...pane(pid('%9'), 0, 0, 80, 20), windowId: wid('@1'), active: true },
+      ],
     };
     const resolved = result!.patch(withPane);
-    expect(resolved.activePaneId).toBe('%9');
+    expect(resolved.activePaneId).toBe(pid('%9'));
   });
 });
 
@@ -446,7 +470,7 @@ describe('intentionally non-predicted commands', () => {
 });
 
 describe('NewWindow reconcile requires the window to have a pane', () => {
-  const win = (id: string, index: number, windowType: 'tab' | null) => ({
+  const win = (id: WindowId, index: number, windowType: 'tab' | null) => ({
     id,
     index,
     name: `w${index}`,
@@ -463,10 +487,10 @@ describe('NewWindow reconcile requires the window to have a pane', () => {
   it('stays pending until the new tab window has a pane (guards placeholder remount)', () => {
     const snap: TmuxSnapshot = {
       ...EMPTY_SNAPSHOT,
-      windows: [win('@0', 1, 'tab')],
-      panes: [pane('%0', 0, 0, 80, 20)],
-      activePaneId: '%0',
-      activeWindowId: '@0',
+      windows: [win(wid('@0'), 1, 'tab')],
+      panes: [pane(pid('%0'), 0, 0, 80, 20)],
+      activePaneId: pid('%0'),
+      activeWindowId: wid('@0'),
     };
     const op = parseCommandToOp('new-window');
     const result = predict(op, snap, CTX, 'nw1' as OpId)!;
@@ -483,29 +507,35 @@ describe('NewWindow reconcile requires the window to have a pane', () => {
     // (break-pane emits %window-add before the moved pane's window settles).
     const windowNoPane: TmuxSnapshot = {
       ...snap,
-      windows: [win('@0', 1, 'tab'), win('@1', 2, 'tab')],
+      windows: [win(wid('@0'), 1, 'tab'), win(wid('@1'), 2, 'tab')],
       // %1 still parented to @0 (not yet moved to @1)
-      panes: [pane('%0', 0, 0, 80, 20), { ...pane('%1', 0, 0, 80, 20), windowId: '@0' }],
+      panes: [
+        pane(pid('%0'), 0, 0, 80, 20),
+        { ...pane(pid('%1'), 0, 0, 80, 20), windowId: wid('@0') },
+      ],
     };
     expect(reconcile(pendingOp, windowNoPane, undefined, 100)._tag).toBe('pending');
 
     // Pane now in @1 → matches, so the pane-key override maps it (no remount).
     const windowWithPane: TmuxSnapshot = {
       ...windowNoPane,
-      panes: [pane('%0', 0, 0, 80, 20), { ...pane('%1', 0, 0, 80, 20), windowId: '@1' }],
+      panes: [
+        pane(pid('%0'), 0, 0, 80, 20),
+        { ...pane(pid('%1'), 0, 0, 80, 20), windowId: wid('@1') },
+      ],
     };
     const verdict = reconcile(pendingOp, windowWithPane, undefined, 100);
     expect(verdict._tag).toBe('matched');
-    expect(verdict._tag === 'matched' && verdict.realId).toBe('@1');
+    expect(verdict._tag === 'matched' && verdict.realWindowId).toBe(wid('@1'));
   });
 
   it('patch hides a tab-typed-but-paneless newborn so it does not render as a 2nd tab', () => {
     const snap: TmuxSnapshot = {
       ...EMPTY_SNAPSHOT,
-      windows: [win('@0', 1, 'tab')],
-      panes: [pane('%0', 0, 0, 80, 20)],
-      activePaneId: '%0',
-      activeWindowId: '@0',
+      windows: [win(wid('@0'), 1, 'tab')],
+      panes: [pane(pid('%0'), 0, 0, 80, 20)],
+      activePaneId: pid('%0'),
+      activeWindowId: wid('@0'),
     };
     const { patch } = predict(parseCommandToOp('new-window'), snap, CTX, 'nw2' as OpId)!;
 
@@ -514,19 +544,25 @@ describe('NewWindow reconcile requires the window to have a pane', () => {
     // show a duplicate tab beside the placeholder that blinks away next tick.
     const paneless: TmuxSnapshot = {
       ...snap,
-      windows: [win('@0', 1, 'tab'), win('@1', 2, 'tab')],
-      panes: [pane('%0', 0, 0, 80, 20), { ...pane('%1', 0, 0, 80, 20), windowId: '@0' }],
+      windows: [win(wid('@0'), 1, 'tab'), win(wid('@1'), 2, 'tab')],
+      panes: [
+        pane(pid('%0'), 0, 0, 80, 20),
+        { ...pane(pid('%1'), 0, 0, 80, 20), windowId: wid('@0') },
+      ],
     };
     const hiddenIds = patch(paneless).windows.map((w) => w.id);
-    expect(hiddenIds).not.toContain('@1'); // the newborn tab is hidden…
+    expect(hiddenIds).not.toContain(wid('@1')); // the newborn tab is hidden…
     expect(hiddenIds.filter((id) => id.startsWith('__placeholder_'))).toHaveLength(1); // …placeholder stands in
 
     // Once @1 owns its pane it is renderable; the patch keeps it (reconcile
     // matches it the same tick and swaps the placeholder out — no duplicate).
     const withPane: TmuxSnapshot = {
       ...paneless,
-      panes: [pane('%0', 0, 0, 80, 20), { ...pane('%1', 0, 0, 80, 20), windowId: '@1' }],
+      panes: [
+        pane(pid('%0'), 0, 0, 80, 20),
+        { ...pane(pid('%1'), 0, 0, 80, 20), windowId: wid('@1') },
+      ],
     };
-    expect(patch(withPane).windows.map((w) => w.id)).toContain('@1');
+    expect(patch(withPane).windows.map((w) => w.id)).toContain(wid('@1'));
   });
 });

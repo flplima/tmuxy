@@ -29,6 +29,7 @@ import {
   type Box,
 } from '../utils/gestures';
 import { clearZoomHandoff, holdZoomHandoff } from '../utils/zoomHandoff';
+import type { PaneId } from '../domain/ids';
 
 const offsetBox = (el: HTMLElement): Box => ({
   left: el.offsetLeft,
@@ -38,7 +39,7 @@ const offsetBox = (el: HTMLElement): Box => ({
 });
 
 /** A pinched pane, its box and the tiled grid's box, in the layout's own coordinates. */
-function measurePinch(layout: HTMLElement, paneId: string) {
+function measurePinch(layout: HTMLElement, paneId: PaneId) {
   const node = layout.querySelector<HTMLElement>(
     `:scope > .pane-layout-item[data-pane-id="${paneId}"]`,
   );

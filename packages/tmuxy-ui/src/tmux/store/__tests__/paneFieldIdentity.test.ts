@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { gid, pid, wid } from '../../../test/wire';
 import { preserveSnapshotIdentity } from '../adapters';
 import type { TmuxSnapshot } from '../types';
-import type { TmuxPane } from '../../types';
+import type { TmuxPane } from '../../../domain/client';
 
 /**
  * The store keeps the PREVIOUS pane object whenever its comparison says the
@@ -12,9 +13,9 @@ import type { TmuxPane } from '../../types';
  */
 const full: TmuxPane = {
   id: 0,
-  tmuxId: '%1',
-  windowId: '@1',
-  groupId: 'g1',
+  tmuxId: pid('%1'),
+  windowId: wid('@1'),
+  groupId: gid('g1'),
   groupPos: 1,
   content: [],
   cursorX: 0,
@@ -61,8 +62,8 @@ const snap = (pane: TmuxPane): TmuxSnapshot =>
   ({
     panes: [pane],
     windows: [],
-    activePaneId: '%1',
-    activeWindowId: '@1',
+    activePaneId: pid('%1'),
+    activeWindowId: wid('@1'),
     totalWidth: 80,
     totalHeight: 24,
     focusRequest: '',

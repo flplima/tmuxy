@@ -14,9 +14,10 @@
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';
+import { isPlaceholderId } from '../../../domain/ids';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import { selectVisibleWindows } from '../../selectors';
-import { isPlaceholderId, reorderCommand } from '../../../utils/tabOverview';
+import { reorderCommand } from '../../../utils/tabOverview';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;

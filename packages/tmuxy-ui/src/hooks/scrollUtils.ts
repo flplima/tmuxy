@@ -12,6 +12,7 @@
  */
 
 import type { AppMachineEvent } from '../machines/types';
+import type { PaneId } from '../domain/ids';
 
 /**
  * Split a pixel delta into whole rows, carrying what is left over.
@@ -59,7 +60,7 @@ export function scrollByRows(el: HTMLElement, rows: number, charHeight: number):
  * lowercase `m` terminator.
  */
 export function sgrMouseCommand(
-  paneId: string,
+  paneId: PaneId,
   button: number,
   cellX: number,
   cellY: number,
@@ -72,7 +73,7 @@ export function sgrMouseCommand(
 
 interface ScrollCommandOptions {
   send: (event: AppMachineEvent) => void;
-  paneId: string;
+  paneId: PaneId;
   /** Number of lines to scroll. Positive = down, negative = up. */
   lines: number;
   alternateOn: boolean;

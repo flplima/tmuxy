@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { pid } from '../../../test/wire';
 import { DemoAdapter } from '../DemoAdapter';
 
 describe('DemoAdapter test-mode hooks', () => {
@@ -52,14 +53,14 @@ describe('DemoAdapter test-mode hooks', () => {
     const adapter = new DemoAdapter();
     await adapter.connect();
 
-    const seen: Array<[string, string]> = [];
+    const seen: Array<[string | null, string]> = [];
     const unsub = adapter.onClipboard!((paneId, text) => seen.push([paneId, text]));
 
-    adapter.emitClipboard('%3', 'pasted via OSC 52');
-    expect(seen).toEqual([['%3', 'pasted via OSC 52']]);
+    adapter.emitClipboard(pid('%3'), 'pasted via OSC 52');
+    expect(seen).toEqual([[pid('%3'), 'pasted via OSC 52']]);
 
     unsub();
-    adapter.emitClipboard('%3', 'after unsubscribe');
-    expect(seen).toEqual([['%3', 'pasted via OSC 52']]);
+    adapter.emitClipboard(pid('%3'), 'after unsubscribe');
+    expect(seen).toEqual([[pid('%3'), 'pasted via OSC 52']]);
   });
 });

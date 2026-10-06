@@ -16,7 +16,7 @@
  * Pure: no React, no machine, no adapter.
  */
 
-import type { TmuxPane } from '../tmux/types';
+import type { TmuxPane } from '../domain/client';
 import { paneAskFor } from './paneAsk';
 
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;

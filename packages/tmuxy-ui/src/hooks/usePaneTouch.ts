@@ -17,6 +17,7 @@ import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { focusMobileInput } from '../utils/mobileKeyboard';
 import { haptics } from '../utils/haptics';
+import type { PaneId } from '../domain/ids';
 
 /** One animation frame as an Effect resolving to its rAF timestamp; its
  *  finalizer cancels the pending frame when the fiber is interrupted. */
@@ -26,7 +27,7 @@ const nextFrame = Effect.async<number>((resume) => {
 });
 
 interface UsePaneTouchOptions {
-  paneId: string;
+  paneId: PaneId;
   charHeight: number;
   alternateOn: boolean;
   mouseAnyFlag: boolean;

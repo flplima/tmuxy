@@ -15,7 +15,7 @@
 import { Terminal } from './Terminal';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
 import type { SlotBox } from '../utils/tabOverview';
-import type { TmuxPane } from '../tmux/types';
+import type { TmuxPane } from '../domain/client';
 
 interface TabShotProps {
   boxes: readonly SlotBox[];

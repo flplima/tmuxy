@@ -43,6 +43,7 @@ import { makeTmuxStore } from '../tmux/store';
 import { toEffectAdapter } from '../tmux/effect';
 import { Effect } from 'effect';
 import { measureCellMetrics } from '../utils/cellMetrics';
+import type { PaneId } from '../domain/ids';
 
 // ============================================
 // App Config (static flags passed via provider)
@@ -267,13 +268,15 @@ export function useIsResizing(): boolean {
 }
 
 /** Get a specific pane by ID (with resize preview). */
-export function usePane(paneId: string): TmuxPane | undefined {
+export function usePane(paneId: PaneId | null): TmuxPane | undefined {
   const actor = useAppActor();
-  return useSelector(actor, (snapshot) => selectPaneById(snapshot.context, paneId));
+  return useSelector(actor, (snapshot) =>
+    paneId === null ? undefined : selectPaneById(snapshot.context, paneId),
+  );
 }
 
 /** Check if a pane is in the active window */
-export function useIsPaneInActiveWindow(paneId: string): boolean {
+export function useIsPaneInActiveWindow(paneId: PaneId): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => selectIsPaneInActiveWindowFn(snapshot.context, paneId));
 }
@@ -287,7 +290,7 @@ export function useIsSinglePane(): boolean {
 interface PaneGroupResult {
   group: PaneGroup | undefined;
   groupPanes: TmuxPane[];
-  activePaneId: string | null;
+  activePaneId: PaneId | null;
 }
 
 /**
@@ -308,7 +311,7 @@ function paneGroupResultEqual(a: PaneGroupResult, b: PaneGroupResult): boolean {
 }
 
 /** Get the group containing a pane, with resolved pane data and active pane ID */
-export function usePaneGroup(paneId: string): PaneGroupResult {
+export function usePaneGroup(paneId: PaneId): PaneGroupResult {
   const actor = useAppActor();
   return useSelector(
     actor,
@@ -323,7 +326,7 @@ export function usePaneGroup(paneId: string): PaneGroupResult {
 }
 
 /** Get the copy mode state for a pane (undefined if not in copy mode) */
-export function useCopyModeState(paneId: string): CopyModeState | undefined {
+export function useCopyModeState(paneId: PaneId): CopyModeState | undefined {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.copyModeStates[paneId]);
 }

@@ -4,11 +4,13 @@
  * All type definitions for state machines and their events.
  */
 
-import type { TmuxPane, TmuxWindow, CopyModeState } from '../tmux/types';
+import type { CopyModeState } from '../tmux/types';
+import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { ServerState, KeyBindings, KeyBinding, Appearance } from '../domain/wire';
 import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
 import type { GroupDrop, Side } from '../utils/groupDrop';
 import type { AskAnswer } from '../utils/paneAsk';
+import type { GroupId, PaneId, WindowId } from '../domain/ids';
 
 // Re-export domain types
 export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
@@ -19,8 +21,8 @@ export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyMo
 
 /** Pane group - groups panes that share the same visual position (like tabs) */
 export interface PaneGroup {
-  id: string;
-  paneIds: string[]; // Tab order - active pane is derived from which pane is in activeWindowId
+  id: GroupId;
+  paneIds: PaneId[]; // Tab order - active pane is derived from which pane is in activeWindowId
 }
 
 /** Drawer direction for float panes docked to an edge */
@@ -32,7 +34,7 @@ export type FloatBackdrop = 'dim' | 'blur' | 'none';
 /** Float pane state */
 export interface FloatPaneState {
   /** Pane ID (e.g., "%5") */
-  paneId: string;
+  paneId: PaneId;
   /**
    * The tab the float belongs to (`@tmuxy-float-parent`), or null when its
    * window carries no parent. A float is only shown while that tab is the
@@ -40,7 +42,7 @@ export interface FloatPaneState {
    * not reappear over the next one. A float whose parent window is gone is
    * orphaned and shown anywhere, so closing a tab can never hide it for good.
    */
-  parentWindowId: string | null;
+  parentWindowId: WindowId | null;
   /** Size in pixels */
   width: number;
   height: number;
@@ -54,8 +56,8 @@ export interface FloatPaneState {
 
 /** Drag operation state */
 export interface DragState {
-  draggedPaneId: string;
-  targetPaneId: string | null;
+  draggedPaneId: PaneId;
+  targetPaneId: PaneId | null;
   startX: number;
   startY: number;
   currentX: number;
@@ -115,7 +117,7 @@ export interface ResizeLimits {
 }
 
 export interface ResizeState {
-  paneId: string;
+  paneId: PaneId;
   handle: ResizeHandle;
   startX: number;
   startY: number;
@@ -130,7 +132,7 @@ export interface ResizeState {
    * reconstructs the band from this frozen snapshot instead of the live server
    * panes, so nothing wobbles. See selectPreviewPanesUncached.
    */
-  originalGeometry: Record<string, PaneCellBox>;
+  originalGeometry: Record<PaneId, PaneCellBox>;
   /**
    * How far this drag may travel before tmux would refuse it. Computed once
    * from the frozen geometry (machines/resize/limits.ts) and applied to the
@@ -180,15 +182,15 @@ export interface LogEntry {
  * Only the fields needed to render and switch — not a full {@link TmuxWindow}.
  */
 export interface SessionTreeWindow {
-  id: string;
+  id: WindowId;
   index: number;
   name: string;
 }
 
 /** A lightweight pane in another session's subtree. */
 export interface SessionTreePane {
-  id: string;
-  windowId: string;
+  id: PaneId;
+  windowId: WindowId;
   command: string;
   /** App-set pane title (OSC 0/2); empty when the app never set one. */
   title: string;
@@ -315,13 +317,13 @@ export interface AppMachineContext {
   /** Recent commands sent and errors received (debug log shown on status screen) */
   log: LogEntry[];
   sessionName: string;
-  activeWindowId: string | null;
-  activePaneId: string | null;
+  activeWindowId: WindowId | null;
+  activePaneId: PaneId | null;
   panes: TmuxPane[];
   windows: TmuxWindow[];
   totalWidth: number;
   totalHeight: number;
-  paneGroups: Record<string, PaneGroup>;
+  paneGroups: Record<GroupId, PaneGroup>;
   /**
    * Which of Yes/No is highlighted on each pane showing a `tmuxy ask`
    * question, keyed by pane id. A pane with no entry starts on `yes` — the
@@ -329,7 +331,7 @@ export interface AppMachineContext {
    * agree before the user has touched anything. Entries are dropped when the
    * question goes away.
    */
-  askSelections: Record<string, AskAnswer>;
+  askSelections: Record<PaneId, AskAnswer>;
   targetCols: number;
   targetRows: number;
   drag: DragState | null;
@@ -350,9 +352,9 @@ export interface AppMachineContext {
   containerWidth: number;
   containerHeight: number;
   /** Float pane positions and states (keyed by pane ID) */
-  floatPanes: Record<string, FloatPaneState>;
+  floatPanes: Record<PaneId, FloatPaneState>;
   /** Pane ID of the currently focused float (keyboard routes here instead of session) */
-  focusedFloatPaneId: string | null;
+  focusedFloatPaneId: PaneId | null;
   /**
    * Whether the left sidebar column (the tab/pane tree) is shown. Its pane lives
    * in a `sidebar-left`-typed window running `tmuxy widget tree`; closing hides
@@ -400,7 +402,7 @@ export interface AppMachineContext {
    */
   sidebarColsPreview: { side: 'left' | 'right'; cols: number | null } | null;
   /** Rows last written to the dock's @tmuxy-sidebar-rows, and for which window. */
-  dockRowsSent: { windowId: string; rows: number } | null;
+  dockRowsSent: { windowId: WindowId; rows: number } | null;
   /**
    * A sidebar column is sliding open or closed. Set by either toggle, cleared
    * by SIDEBAR_MOTION_SETTLED once the CSS transition has run. While set, the
@@ -424,7 +426,7 @@ export interface AppMachineContext {
    * expanded by default, so this holds only the exceptions — a tab that goes
    * away takes its entry with it.
    */
-  collapsedTabIds: string[];
+  collapsedTabIds: WindowId[];
   /**
    * The Tab Overview (ctrl+0): every tab as a slot over the pane area, the
    * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
@@ -459,11 +461,11 @@ export interface AppMachineContext {
   /** Keybindings received from the server */
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */
-  copyModeStates: Record<string, CopyModeState>;
+  copyModeStates: Record<PaneId, CopyModeState>;
   /** Browser widget zoom and refresh per pane (absent until the user acts) */
-  browserStates: Record<string, BrowserPaneState>;
+  browserStates: Record<PaneId, BrowserPaneState>;
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
-  paneActivationOrder: string[];
+  paneActivationOrder: PaneId[];
   /**
    * Whether the previous TMUX_MODEL_UPDATE carried no geometry delta on
    * existing panes. React can batch an optimistic (dirty) update and its
@@ -482,7 +484,7 @@ export interface AppMachineContext {
    * geometry/window pinning itself lives in the op's optimistic patch
    * (see store/ops.ts predictGroupSwitch); no timers, no overrides.
    */
-  groupSwitchPaneIds: string[];
+  groupSwitchPaneIds: PaneId[];
   /** Command mode state (tmux command prompt) */
   commandMode: {
     prompt: string;
@@ -524,10 +526,10 @@ export interface AppMachineContext {
   /** Maps real pane tmuxId → stable React key (placeholder ID it morphed from).
    *  Prevents unmount/remount flicker when optimistic placeholders are replaced
    *  by server-confirmed panes. */
-  paneKeyOverrides: Record<string, string>;
+  paneKeyOverrides: Record<PaneId, PaneId>;
   /** Per-window most-recently-active pane ID, populated from server state and
    *  used by SELECT_TAB to pick the optimistic focus when switching tabs. */
-  lastActivePaneByWindow: Record<string, string>;
+  lastActivePaneByWindow: Record<WindowId, PaneId>;
   /**
    * All tmux sessions on the current server, for the sidebar sessions→tabs→panes
    * tree. Populated by the `serversActor` poll on web + desktop; stays `[]` on
@@ -558,7 +560,7 @@ export interface AppMachineContext {
 
 export interface DragMachineContext {
   panes: TmuxPane[];
-  activePaneId: string | null;
+  activePaneId: PaneId | null;
   charWidth: number;
   charHeight: number;
   containerWidth: number;
@@ -568,9 +570,9 @@ export interface DragMachineContext {
   /** The tab strip's boxes, measured once when the drag started. */
   tabStrip: TabStripGeometry | null;
   /** The window the dragged pane came from, and how many panes it had. */
-  paneWindowId: string | null;
+  paneWindowId: WindowId | null;
   panesInWindow: number;
-  groups: Record<string, PaneGroup>;
+  groups: Record<GroupId, PaneGroup>;
   /** The pane the pointer is resting on, waiting out the swap dwell. */
   pendingSwap: string | null;
   drag: DragState | null;
@@ -579,11 +581,11 @@ export interface DragMachineContext {
 export type DragMachineEvent =
   | {
       type: 'DRAG_START';
-      paneId: string;
+      paneId: PaneId;
       startX: number;
       startY: number;
       panes: TmuxPane[];
-      activePaneId: string | null;
+      activePaneId: PaneId | null;
       charWidth: number;
       charHeight: number;
       containerWidth: number;
@@ -591,13 +593,13 @@ export type DragMachineEvent =
       containerLeft: number;
       containerTop: number;
       tabStrip: TabStripGeometry | null;
-      paneWindowId: string | null;
+      paneWindowId: WindowId | null;
       panesInWindow: number;
-      groups: Record<string, PaneGroup>;
+      groups: Record<GroupId, PaneGroup>;
       memberDrag: boolean;
     }
   | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
-  | { type: 'SWAP_DWELL'; paneId: string }
+  | { type: 'SWAP_DWELL'; paneId: PaneId }
   | { type: 'DRAG_END' }
   | KeyPressEvent;
 
@@ -615,7 +617,7 @@ export interface ResizeMachineContext {
 export type ResizeMachineEvent =
   | {
       type: 'RESIZE_START';
-      paneId: string;
+      paneId: PaneId;
       handle: ResizeHandle;
       startX: number;
       startY: number;
@@ -681,7 +683,8 @@ export type TmuxReconnectedEvent = { type: 'TMUX_RECONNECTED' };
  * OSC 52 clipboard write request emitted by a terminal application.
  * The appMachine forwards the payload to navigator.clipboard.writeText.
  */
-export type TmuxClipboardEvent = { type: 'TMUX_CLIPBOARD'; paneId: string; text: string };
+/** A clipboard write; `paneId` is null for the paste-buffer mirror. */
+export type TmuxClipboardEvent = { type: 'TMUX_CLIPBOARD'; paneId: PaneId | null; text: string };
 export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
   defaultShell: string;
@@ -692,7 +695,7 @@ export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindin
 // Drag events
 export type DragStartEvent = {
   type: 'DRAG_START';
-  paneId: string;
+  paneId: PaneId;
   startX: number;
   startY: number;
   containerLeft: number;
@@ -705,7 +708,7 @@ export type DragEndEvent = { type: 'DRAG_END' };
 // Resize events
 export type ResizeStartEvent = {
   type: 'RESIZE_START';
-  paneId: string;
+  paneId: PaneId;
   handle: ResizeHandle;
   startX: number;
   startY: number;
@@ -742,13 +745,13 @@ export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number;
 export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };
 
 // Pane events
-export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
-export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
+export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: PaneId };
+export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: PaneId; keys: string };
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
 // Semantic pane events (components send intent, machine constructs commands)
-export type ClosePaneEvent = { type: 'CLOSE_PANE'; paneId: string };
+export type ClosePaneEvent = { type: 'CLOSE_PANE'; paneId: PaneId };
 /**
  * Click on a pane-group tab (the tabs inside a `PaneHeader`, not the top
  * window tabs — those use `SELECT_TAB`). Handler is optimistic in the same
@@ -758,7 +761,7 @@ export type ClosePaneEvent = { type: 'CLOSE_PANE'; paneId: string };
  * to the keyboard actor so subsequent keystrokes target the clicked pane
  * before tmux's `swap-pane` round-trips.
  */
-export type SelectPaneGroupTabEvent = { type: 'SELECT_PANE_GROUP_TAB'; paneId: string };
+export type SelectPaneGroupTabEvent = { type: 'SELECT_PANE_GROUP_TAB'; paneId: PaneId };
 /**
  * Create a new tab/window. Single entry point for the "+" button, the
  * tab context-menu "New Tab" item, and the AppMenu "New Tab" item.
@@ -766,7 +769,7 @@ export type SelectPaneGroupTabEvent = { type: 'SELECT_PANE_GROUP_TAB'; paneId: s
  * placeholder tab appears instantly and reconciliation surfaces failures.
  */
 export type CreateTabEvent = { type: 'CREATE_TAB' };
-export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: string };
+export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: PaneId };
 
 // Pending confirmations (`tmuxy ask`) — see utils/paneAsk.ts.
 /**
@@ -774,9 +777,9 @@ export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: string };
  * machine rather than in the overlay's own state because the keyboard actor
  * moves it too, and that runs outside React.
  */
-export type MoveAskSelectionEvent = { type: 'MOVE_ASK_SELECTION'; paneId: string; to: AskAnswer };
+export type MoveAskSelectionEvent = { type: 'MOVE_ASK_SELECTION'; paneId: PaneId; to: AskAnswer };
 /** Answer the question on one pane. */
-export type AnswerAskEvent = { type: 'ANSWER_ASK'; paneId: string; answer: AskAnswer };
+export type AnswerAskEvent = { type: 'ANSWER_ASK'; paneId: PaneId; answer: AskAnswer };
 /**
  * Answer every question pending in the ACTIVE tab at once — what Cmd+Enter
  * (Ctrl+Enter off macOS) does. Deliberately scoped to the tab in view: saying
@@ -784,7 +787,7 @@ export type AnswerAskEvent = { type: 'ANSWER_ASK'; paneId: string; answer: AskAn
  * prevent.
  */
 export type AnswerVisibleAsksEvent = { type: 'ANSWER_VISIBLE_ASKS'; answer: AskAnswer };
-export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
+export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: PaneId };
 export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
 
 // Left sidebar (the tree column — a `sidebar-left`-typed tmux window)
@@ -792,7 +795,7 @@ export type ToggleLeftSidebarEvent = { type: 'TOGGLE_LEFT_SIDEBAR' };
 export type FocusLeftSidebarEvent = { type: 'FOCUS_LEFT_SIDEBAR' };
 export type BlurLeftSidebarEvent = { type: 'BLUR_LEFT_SIDEBAR' };
 /** Collapse or expand one tab's panes in the tree. Tabs start expanded. */
-export type ToggleTabCollapseEvent = { type: 'TOGGLE_TAB_COLLAPSE'; windowId: string };
+export type ToggleTabCollapseEvent = { type: 'TOGGLE_TAB_COLLAPSE'; windowId: WindowId };
 
 // Right sidebar (the pinned terminal — a `sidebar-right`-typed tmux window)
 export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
@@ -837,10 +840,10 @@ export type TabOverviewActivateEvent = { type: 'TAB_OVERVIEW_ACTIVATE'; index?: 
 /** ctrl+1…9: select the Nth tab as the strip shows it (1-based position). */
 export type SelectTabByPositionEvent = { type: 'SELECT_TAB_BY_POSITION'; position: number };
 /** Put a tab at a new strip position (0-based among the other tabs). */
-export type ReorderTabEvent = { type: 'REORDER_TAB'; windowId: string; toIndex: number };
+export type ReorderTabEvent = { type: 'REORDER_TAB'; windowId: WindowId; toIndex: number };
 /** Close a specific tab (kill-window on that window, not the current one). */
-export type CloseTabEvent = { type: 'CLOSE_TAB'; windowId: string };
-export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
+export type CloseTabEvent = { type: 'CLOSE_TAB'; windowId: WindowId };
+export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string };
 
 // Browser widget (components/widgets/browser). Sent by the widget's own pane
 // menu section and its ctrl+r binding.
@@ -849,23 +852,23 @@ export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: st
 // running in the pane from one left by a previous browser in the same pane.
 export type BrowserZoomEvent = {
   type: 'BROWSER_ZOOM';
-  paneId: string;
+  paneId: PaneId;
   source: string;
   delta: number;
 };
-export type BrowserReloadEvent = { type: 'BROWSER_RELOAD'; paneId: string; source: string };
+export type BrowserReloadEvent = { type: 'BROWSER_RELOAD'; paneId: PaneId; source: string };
 export type BrowserCopyUrlEvent = { type: 'BROWSER_COPY_URL'; url: string };
 /** Point the pane somewhere new — the address bar's Enter. */
 export type BrowserNavigateEvent = {
   type: 'BROWSER_NAVIGATE';
-  paneId: string;
+  paneId: PaneId;
   source: string;
   url: string;
 };
 /** Step back or forward through the places this pane has been pointed. */
 export type BrowserHistoryEvent = {
   type: 'BROWSER_HISTORY';
-  paneId: string;
+  paneId: PaneId;
   source: string;
   delta: -1 | 1;
 };
@@ -881,7 +884,7 @@ export type BrowserOpenExternalEvent = { type: 'BROWSER_OPEN_EXTERNAL'; url: str
  */
 export type BrowserPageTitleEvent = {
   type: 'BROWSER_PAGE_TITLE';
-  paneId: string;
+  paneId: PaneId;
   source: string;
   url: string;
   title: string;
@@ -895,17 +898,17 @@ export type BrowserPageTitleEvent = {
  */
 export type SelectTabEvent = {
   type: 'SELECT_TAB';
-  windowId: string;
+  windowId: WindowId;
 };
 
 // Copy mode events
 export type EnterCopyModeEvent = {
   type: 'ENTER_COPY_MODE';
-  paneId: string;
+  paneId: PaneId;
   scrollLines?: number;
   nativeScrollTop?: number;
 };
-export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
+export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: PaneId };
 
 /**
  * Open the native-like scrollback view — a wheel or touch scroll up on a pane
@@ -916,7 +919,7 @@ export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
  */
 export type EnterScrollModeEvent = {
   type: 'ENTER_SCROLL_MODE';
-  paneId: string;
+  paneId: PaneId;
   scrollLines?: number;
   nativeScrollTop?: number;
 };
@@ -926,16 +929,16 @@ export type EnterScrollModeEvent = {
  * copy mode — and no re-entry cooldown, which exists only to outlast a stale
  * `in_mode` flag this view never sets.
  */
-export type ExitScrollModeEvent = { type: 'EXIT_SCROLL_MODE'; paneId: string };
+export type ExitScrollModeEvent = { type: 'EXIT_SCROLL_MODE'; paneId: PaneId };
 /**
  * Select the whole of a pane's scrollback (Cmd+A / Ctrl+Shift+A), so Cmd+C
  * copies it. Opens the scroll view on a pane that has none — there is nothing
  * else to hold a selection over history that is not on screen.
  */
-export type SelectAllScrollbackEvent = { type: 'SELECT_ALL_SCROLLBACK'; paneId: string };
+export type SelectAllScrollbackEvent = { type: 'SELECT_ALL_SCROLLBACK'; paneId: PaneId };
 export type CopyModeChunkLoadedEvent = {
   type: 'COPY_MODE_CHUNK_LOADED';
-  paneId: string;
+  paneId: PaneId;
   cells: import('../domain/wire').PaneContent;
   start: number;
   end: number;
@@ -944,33 +947,33 @@ export type CopyModeChunkLoadedEvent = {
 };
 export type CopyModeCursorMoveEvent = {
   type: 'COPY_MODE_CURSOR_MOVE';
-  paneId: string;
+  paneId: PaneId;
   row: number;
   col: number;
   relative?: boolean;
 };
 export type CopyModeSelectionStartEvent = {
   type: 'COPY_MODE_SELECTION_START';
-  paneId: string;
+  paneId: PaneId;
   mode: 'char' | 'line';
   row: number;
   col: number;
 };
-export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; paneId: string };
+export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; paneId: PaneId };
 export type CopyModeScrollEvent = {
   type: 'COPY_MODE_SCROLL';
-  paneId: string;
+  paneId: PaneId;
   scrollTop: number;
   /** The browser has text selected in the scrollback (scroll view only). */
   nativeSelection?: boolean;
 };
-export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: string };
+export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: PaneId };
 /** A mouse drag in copy mode was released: copy the selection and leave, as tmux does. */
-export type CopyModeMouseCopyEvent = { type: 'COPY_MODE_MOUSE_COPY'; paneId: string };
+export type CopyModeMouseCopyEvent = { type: 'COPY_MODE_MOUSE_COPY'; paneId: PaneId };
 /** The copy flash is over: close the view the copy at `copiedAt` left open. */
 export type CopyModeCopiedExitEvent = {
   type: 'COPY_MODE_COPIED_EXIT';
-  paneId: string;
+  paneId: PaneId;
   copiedAt: number;
 };
 export type CopyModeKeyEvent = {
@@ -981,14 +984,14 @@ export type CopyModeKeyEvent = {
 };
 export type CopyModeWordSelectEvent = {
   type: 'COPY_MODE_WORD_SELECT';
-  paneId: string;
+  paneId: PaneId;
   row: number;
   col: number;
   broad?: boolean;
 };
 export type CopyModeLineSelectEvent = {
   type: 'COPY_MODE_LINE_SELECT';
-  paneId: string;
+  paneId: PaneId;
   row: number;
 };
 
@@ -1148,7 +1151,7 @@ export type GestureState =
   | {
       kind: 'swipe';
       dx: number;
-      neighborId: string | null;
+      neighborId: WindowId | null;
       phase: 'tracking' | 'finishing' | 'cancelling';
       /** How long the released slide has to run, from its distance and the speed the fingers had. */
       settleMs: number;
@@ -1157,11 +1160,11 @@ export type GestureState =
       kind: 'pinch';
       mode: 'zoom' | 'unzoom' | 'overview' | 'enter';
       scale: number;
-      paneId: string;
+      paneId: PaneId;
       phase: 'tracking' | 'handoff';
     };
 
-export type GesturePinchEvent = { type: 'GESTURE_PINCH'; scale: number; paneId: string | null };
+export type GesturePinchEvent = { type: 'GESTURE_PINCH'; scale: number; paneId: PaneId | null };
 export type GesturePinchEndEvent = { type: 'GESTURE_PINCH_END' };
 export type GestureSwipeEvent = { type: 'GESTURE_SWIPE'; dx: number };
 /** `speed`: how fast the fingers were moving the grid as they left it, signed like `dx` (px/ms). */

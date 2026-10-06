@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pid } from '../../test/wire';
 import {
   focusKeyboardInput,
   getMobileInput,
@@ -47,20 +48,20 @@ describe('mobileKeyboard handler ownership', () => {
     const second = vi.fn();
     const cleanupFirst = register(first);
     register(second);
-    focusKeyboardInput('%9');
+    focusKeyboardInput(pid('%9'));
 
     cleanupFirst();
     insertText('한');
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledOnce();
-    expect(second).toHaveBeenCalledWith('한', '%9');
+    expect(second).toHaveBeenCalledWith('한', pid('%9'));
   });
 
   it('stops forwarding and blurs the input when the current owner cleans up', () => {
     const handler = vi.fn();
     const cleanup = register(handler);
-    focusKeyboardInput('%3');
+    focusKeyboardInput(pid('%3'));
 
     cleanup();
     insertText('x');
@@ -71,7 +72,7 @@ describe('mobileKeyboard handler ownership', () => {
 
   it('does not leak a previous pane target into the next owner', () => {
     const cleanupFirst = register(vi.fn());
-    setKeyboardInputTarget('%3');
+    setKeyboardInputTarget(pid('%3'));
     cleanupFirst();
     const second = vi.fn();
     register(second);

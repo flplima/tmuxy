@@ -18,9 +18,10 @@ import { executeMenuAction } from './menus/menuActions';
 import { PaneMenuItems } from './menus/PaneMenuItems';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';
 import type { WidgetMenuItem } from './widgets';
+import type { PaneId } from '../domain/ids';
 
 interface PaneContextMenuProps {
-  paneId: string;
+  paneId: PaneId;
   x: number;
   y: number;
   onClose: () => void;

@@ -73,6 +73,7 @@ import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { TmuxPane, TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
+import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 
 /**
  * A flattened, keyboard-navigable row: the attached session's tabs, each with
@@ -94,8 +95,8 @@ const connector = (last: boolean) => (last ? '└─ ' : '├─ ');
 
 /** An open right-click menu targeting a tree row, positioned at the cursor. */
 type MenuState =
-  | { kind: 'pane'; paneId: string; x: number; y: number }
-  | { kind: 'tab'; windowId: string; x: number; y: number }
+  | { kind: 'pane'; paneId: PaneId; x: number; y: number }
+  | { kind: 'tab'; windowId: WindowId; x: number; y: number }
   | null;
 
 /** DOM id for a row, so the tree can point `aria-activedescendant` at it. */
@@ -107,7 +108,7 @@ function rowLevel(r: Row): number {
 }
 
 /** Optimistic placeholder panes have no identity worth a row; they resolve within a round trip. */
-const isPlaceholderPane = (p: TmuxPane) => p.tmuxId.startsWith('__placeholder_');
+const isPlaceholderPane = (p: TmuxPane) => isPlaceholderId(p.tmuxId);
 
 /** Stable identity per row, used to preserve the keyboard cursor across refreshes. */
 function rowKey(r: Row): string {
@@ -145,8 +146,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // The poll is the only place a pane's cwd comes from — live state carries
   // none — and it is read for THIS session alone, the one the tree draws.
   const git = useMemo(() => {
-    const byPane = new Map<string, PaneGitContext>();
-    const panesByWindow = new Map<string, string[]>();
+    const byPane = new Map<PaneId, PaneGitContext>();
+    const panesByWindow = new Map<WindowId, PaneId[]>();
     for (const s of sessions.filter((s) => s.sessionName === sessionName)) {
       for (const p of s.panes) {
         const ids = panesByWindow.get(p.windowId) ?? [];
@@ -161,7 +162,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   }, [sessions, sessionName, repositories]);
 
   const branchOf = useCallback(
-    (paneIds: readonly string[]): { text: string; title: string } | null => {
+    (paneIds: readonly PaneId[]): { text: string; title: string } | null => {
       const summary = summarizeGitContexts(paneIds.map((id) => git.byPane.get(id) ?? null));
       if (summary.kind !== 'single') return null;
       const text = gitBadgeText(summary.context);
@@ -179,7 +180,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // What each tab rolls up to: how many panes it holds and the most
   // attention-worthy state among them. Collapsed, this is all a tab shows.
   const tabSummaries = useMemo(() => {
-    const out = new Map<string, { count: number; state: PaneStateName }>();
+    const out = new Map<WindowId, { count: number; state: PaneStateName }>();
     for (const window of windows) {
       const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
       out.set(window.id, {
@@ -260,14 +261,14 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   );
 
   const toggleCollapse = useCallback(
-    (windowId: string) => send({ type: 'TOGGLE_TAB_COLLAPSE', windowId }),
+    (windowId: WindowId) => send({ type: 'TOGGLE_TAB_COLLAPSE', windowId }),
     [send],
   );
 
   // Move a pane into another tab: join-pane splits that window's active pane and
   // moves the source there (the source window closes if it was its last pane).
   const movePaneToTab = useCallback(
-    (paneId: string, targetWindowId: string) => {
+    (paneId: PaneId, targetWindowId: WindowId) => {
       send({ type: 'SEND_TMUX_COMMAND', command: `join-pane -s ${paneId} -t ${targetWindowId}` });
       send({ type: 'SELECT_TAB', windowId: targetWindowId });
     },
@@ -384,7 +385,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // Drag state: which pane is being dragged, and which tab is a hover target.
   // The tab whose name is being edited in the tree, if any.
   const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null);
-  const [dragPaneId, setDragPaneId] = useState<string | null>(null);
+  const [dragPaneId, setDragPaneId] = useState<PaneId | null>(null);
   const [dropWindowId, setDropWindowId] = useState<string | null>(null);
 
   // Right-click context menu (pane or tab), anchored at the cursor.
@@ -470,7 +471,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               onDragLeave={() => setDropWindowId((w) => (w === row.window.id ? null : w))}
               onDrop={(e) => {
                 e.preventDefault();
-                const paneId = e.dataTransfer.getData('text/tmuxy-pane') || dragPaneId;
+                const dropped = e.dataTransfer.getData('text/tmuxy-pane');
+                const paneId = isModelPaneId(dropped) ? dropped : dragPaneId;
                 if (paneId) movePaneToTab(paneId, row.window.id);
                 setDragPaneId(null);
                 setDropWindowId(null);

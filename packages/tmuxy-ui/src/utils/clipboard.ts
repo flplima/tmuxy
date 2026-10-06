@@ -1,3 +1,5 @@
+import type { PaneId } from '../domain/ids';
+
 /**
  * Put text on the system clipboard from inside the app.
  *
@@ -6,14 +8,14 @@
  * see what was copied without reading the system clipboard (which needs a
  * permission a headless browser does not grant).
  */
-export function writeClipboard(text: string, paneId: string): void {
+export function writeClipboard(text: string, paneId: PaneId | null): void {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     void navigator.clipboard.writeText(text).catch((err) => {
       console.warn('[clipboard] write rejected:', err);
     });
   }
   const win = globalThis as unknown as {
-    __tmuxyLastClipboard?: { paneId: string; text: string };
+    __tmuxyLastClipboard?: { paneId: PaneId | null; text: string };
   };
   win.__tmuxyLastClipboard = { paneId, text };
 }
@@ -28,7 +30,7 @@ export function writeClipboard(text: string, paneId: string): void {
  * than the risk. The pane is named because a write the user did not make is
  * the one worth noticing.
  */
-export function clipboardWriteMessage(text: string, paneId: string): string {
+export function clipboardWriteMessage(text: string, paneId: PaneId | null): string {
   const chars = text.length === 1 ? '1 char' : `${text.length} chars`;
   return paneId ? `Copied ${chars} from pane ${paneId}` : `Copied ${chars}`;
 }

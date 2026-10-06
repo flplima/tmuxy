@@ -16,6 +16,7 @@
  */
 
 import type { ResizeHandle, ResizeLimits, PaneCellBox } from '../types';
+import type { PaneId } from '../../domain/ids';
 
 /**
  * The smallest pane tmux will leave behind: one cell on the resized axis.
@@ -35,7 +36,7 @@ export const LOCKED_LIMITS: ResizeLimits = { min: 0, max: 0 };
  * there the pane itself is the one that shrinks.
  */
 function bands(
-  geometry: Record<string, PaneCellBox>,
+  geometry: Record<PaneId, PaneCellBox>,
   edge: number,
   handle: ResizeHandle,
 ): { grows: PaneCellBox[]; shrinks: PaneCellBox[] } {
@@ -80,8 +81,8 @@ export function draggedEdge(box: PaneCellBox, handle: ResizeHandle): number {
  * all, which is what pins a divider at the edge of the window.
  */
 export function resizeLimits(
-  geometry: Record<string, PaneCellBox>,
-  paneId: string,
+  geometry: Record<PaneId, PaneCellBox>,
+  paneId: PaneId,
   handle: ResizeHandle,
 ): ResizeLimits {
   const target = geometry[paneId];

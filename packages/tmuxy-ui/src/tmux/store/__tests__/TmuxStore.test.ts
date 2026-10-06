@@ -14,7 +14,7 @@ import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../parseCommand';
 import type { TmuxAdapter } from '../../types';
 import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
-import { wireState } from '../../../test/wire';
+import { pid, wid, wireState } from '../../../test/wire';
 import { toEffectAdapter } from '../../effect';
 import { TmuxError } from '../../effect/AdapterError';
 import type { TmuxClientModel } from '../types';
@@ -22,13 +22,13 @@ import type { TmuxClientModel } from '../types';
 function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
   return wireState({
     session_name: 'tmuxy',
-    active_window_id: '@0',
-    active_pane_id: '%0',
+    active_window_id: wid('@0'),
+    active_pane_id: pid('%0'),
     panes: [
       {
         id: 0,
-        tmux_id: '%0',
-        window_id: '@0',
+        tmux_id: pid('%0'),
+        window_id: wid('@0'),
         content: [],
         cursor_x: 0,
         cursor_y: 0,
@@ -56,7 +56,7 @@ function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
     ],
     windows: [
       {
-        id: '@0',
+        id: wid('@0'),
         index: 0,
         name: 'main',
         active: true,
@@ -186,20 +186,20 @@ describe('TmuxStore (integration)', () => {
             ...blankServerState().panes,
             {
               ...blankServerState().panes[0],
-              tmux_id: '%1',
+              tmux_id: pid('%1'),
               x: 41,
               width: 39,
               active: true,
             },
           ],
-          active_pane_id: '%1',
+          active_pane_id: pid('%1'),
         }),
       ),
     );
     const m = store.getModel();
     expect(m.ops).toHaveLength(0);
     expect(m.committed.panes).toHaveLength(2);
-    expect(m.paneKeyOverrides['%1']).toMatch(/^__placeholder_/);
+    expect(m.paneKeyOverrides[pid('%1')]).toMatch(/^__placeholder_/);
   });
 
   it('TransportError surfaces as OpTransportError and rolls back', async () => {
@@ -253,8 +253,8 @@ describe('notify granularity', () => {
       store.reconcile(
         wireState({
           session_name: 'test',
-          active_window_id: '@0',
-          active_pane_id: '%0',
+          active_window_id: wid('@0'),
+          active_pane_id: pid('%0'),
           panes: [],
           windows: [],
           total_width: 80,
@@ -274,18 +274,26 @@ describe('notify granularity', () => {
       return blankServerState({
         panes: [
           { ...pane, width: 40 },
-          { ...pane, id: 1, tmux_id: '%1', x: 41, width: 39, active: false },
-          { ...pane, id: 2, tmux_id: '%2', window_id: '@1', width: 120, height: 40, active: false },
+          { ...pane, id: 1, tmux_id: pid('%1'), x: 41, width: 39, active: false },
+          {
+            ...pane,
+            id: 2,
+            tmux_id: pid('%2'),
+            window_id: wid('@1'),
+            width: 120,
+            height: 40,
+            active: false,
+          },
         ],
         windows: [
-          { ...base.windows[0], active_pane_id: '%0' },
+          { ...base.windows[0], active_pane_id: pid('%0') },
           {
-            id: '@1',
+            id: wid('@1'),
             index: 1,
             name: 'logs',
             active: false,
             window_type: 'tab',
-            active_pane_id: '%2',
+            active_pane_id: pid('%2'),
           },
         ],
         ...over,
@@ -307,8 +315,8 @@ describe('notify granularity', () => {
       await Effect.runPromise(store.dispatchCommand('select-window -t @1'));
       expect(fake.invocations).toHaveLength(0);
       expect(store.getModel().ops).toHaveLength(0);
-      expect(store.getModel().derived.activeWindowId).toBe('@1');
-      expect(store.getModel().derived.activePaneId).toBe('%2');
+      expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
+      expect(store.getModel().derived.activePaneId).toBe(pid('%2'));
       expect(store.getModel().derived.windows.map((w) => w.active)).toEqual([false, true]);
       // The grid drawn is the viewed tab's, not the one tmux has active.
       expect(store.getModel().derived.totalWidth).toBe(120);
@@ -316,21 +324,21 @@ describe('notify granularity', () => {
 
       // tmux still says @0 — and keeps saying it on every update.
       await Effect.runPromise(store.reconcile(twoTabs()));
-      await Effect.runPromise(store.reconcile(twoTabs({ active_pane_id: '%1' })));
-      expect(store.getModel().committed.activeWindowId).toBe('@0');
-      expect(store.getModel().derived.activeWindowId).toBe('@1');
+      await Effect.runPromise(store.reconcile(twoTabs({ active_pane_id: pid('%1') })));
+      expect(store.getModel().committed.activeWindowId).toBe(wid('@0'));
+      expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
     });
 
     it('pane focus is kept locally, by id and by direction', async () => {
       const { fake, store } = await readOnlyStore();
 
       await Effect.runPromise(store.dispatchCommand('select-pane -t %1'));
-      expect(store.getModel().derived.activePaneId).toBe('%1');
+      expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
       await Effect.runPromise(store.reconcile(twoTabs()));
-      expect(store.getModel().derived.activePaneId).toBe('%1');
+      expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
 
       await Effect.runPromise(store.dispatchCommand('select-pane -L'));
-      expect(store.getModel().derived.activePaneId).toBe('%0');
+      expect(store.getModel().derived.activePaneId).toBe(pid('%0'));
       expect(fake.invocations).toHaveLength(0);
     });
 
@@ -342,12 +350,12 @@ describe('notify granularity', () => {
       await Effect.runPromise(
         store.reconcile({
           ...closed,
-          panes: closed.panes.filter((p) => p.window_id !== '@1'),
-          windows: closed.windows.filter((w) => w.id !== '@1'),
+          panes: closed.panes.filter((p) => p.window_id !== wid('@1')),
+          windows: closed.windows.filter((w) => w.id !== wid('@1')),
         }),
       );
       expect(store.getModel().viewFocus).toBeNull();
-      expect(store.getModel().derived.activeWindowId).toBe('@0');
+      expect(store.getModel().derived.activeWindowId).toBe(wid('@0'));
     });
 
     it('refuses anything that would change the session, unpredicted and unsent', async () => {

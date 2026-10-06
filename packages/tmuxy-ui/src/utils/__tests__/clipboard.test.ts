@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { pid } from '../../test/wire';
 import { clipboardWriteMessage } from '../clipboard';
 
 /**
@@ -9,16 +10,16 @@ import { clipboardWriteMessage } from '../clipboard';
  */
 describe('clipboardWriteMessage', () => {
   it('names the pane and the size, so a write the user did not make is visible', () => {
-    expect(clipboardWriteMessage('hello world', '%3')).toBe('Copied 11 chars from pane %3');
+    expect(clipboardWriteMessage('hello world', pid('%3'))).toBe('Copied 11 chars from pane %3');
   });
 
   it('counts one character in the singular', () => {
-    expect(clipboardWriteMessage('x', '%0')).toBe('Copied 1 char from pane %0');
+    expect(clipboardWriteMessage('x', pid('%0'))).toBe('Copied 1 char from pane %0');
   });
 
   it('drops the pane clause when there is no pane to name', () => {
     // The paste-buffer mirror carries no pane: tmux does not say which one
     // the yank came from.
-    expect(clipboardWriteMessage('abc', '')).toBe('Copied 3 chars');
+    expect(clipboardWriteMessage('abc', null)).toBe('Copied 3 chars');
   });
 });

@@ -1,3 +1,4 @@
+import type { PaneId } from '../domain/ids';
 /**
  * mobileKeyboard - Manages the hidden text input used by desktop IMEs and touch keyboards.
  *
@@ -16,11 +17,11 @@
  */
 
 let input: HTMLInputElement | null = null;
-let activePaneId: string | null = null;
-let onText: ((text: string, paneId: string | null) => void) | null = null;
+let activePaneId: PaneId | null = null;
+let onText: ((text: string, paneId: PaneId | null) => void) | null = null;
 let handlerOwner: symbol | null = null;
 let isComposing = false;
-let compositionPaneId: string | null = null;
+let compositionPaneId: PaneId | null = null;
 let suppressCommittedText: string | null = null;
 let clearSuppressionTimer: number | null = null;
 
@@ -97,7 +98,7 @@ export function isTouchDevice(): boolean {
 
 /** Called by keyboardActor at startup to register the character-forwarding handler. */
 export function setupMobileKeyboard(
-  handler: (text: string, paneId: string | null) => void,
+  handler: (text: string, paneId: PaneId | null) => void,
 ): () => void {
   const owner = Symbol();
   handlerOwner = owner;
@@ -128,11 +129,11 @@ export function getMobileInput(): HTMLInputElement | null {
 }
 
 /** Updates the pane target without changing DOM focus. */
-export function setKeyboardInputTarget(paneId: string | null): void {
+export function setKeyboardInputTarget(paneId: PaneId | null): void {
   activePaneId = paneId;
 }
 
-function focusInput(paneId: string): void {
+function focusInput(paneId: PaneId): void {
   setKeyboardInputTarget(paneId);
   const inp = ensureInput();
   if (document.activeElement !== inp) {
@@ -142,7 +143,7 @@ function focusInput(paneId: string): void {
 }
 
 /** Moves mouse or keyboard input to the hidden editable element. */
-export function focusKeyboardInput(paneId: string): void {
+export function focusKeyboardInput(paneId: PaneId): void {
   focusInput(paneId);
 }
 
@@ -151,7 +152,7 @@ export function focusKeyboardInput(paneId: string): void {
  * - Same pane tapped again → dismiss keyboard (blur)
  * - Different pane tapped → keep keyboard open and update active pane
  */
-export function focusMobileInput(paneId: string): void {
+export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;
 
   const inp = ensureInput();

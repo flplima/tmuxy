@@ -13,9 +13,10 @@ import { literalTextCommands } from '../tmux/keyBatching';
 import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
 import { flashCopiedRange } from '../utils/copyFlash';
 import { writeClipboard } from '../utils/clipboard';
+import type { PaneId } from '../domain/ids';
 
 interface SelectionContextMenuProps {
-  paneId: string;
+  paneId: PaneId;
   x: number;
   y: number;
   selectedText: string;

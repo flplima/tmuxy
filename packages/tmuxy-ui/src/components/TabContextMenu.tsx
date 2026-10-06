@@ -18,10 +18,11 @@ import {
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
 import { KeyLabel } from './menus/KeyLabel';
+import type { WindowId } from '../domain/ids';
 
 interface TabContextMenuProps {
   /** tmux window index the actions target (Close/Rename operate on this tab). */
-  windowId: string;
+  windowId: WindowId;
   x: number;
   y: number;
   /** The tab's button, when the menu is replacing that tab's preview card. */

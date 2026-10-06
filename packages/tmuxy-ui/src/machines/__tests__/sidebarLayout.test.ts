@@ -6,6 +6,7 @@
  * the panes each time.
  */
 import { describe, expect, it } from 'vitest';
+import { wid } from '../../test/wire';
 import { selectSidebarLayout } from '../selectors';
 import { createInitialContext } from '../app/context';
 import type { AppMachineContext, TmuxWindow } from '../types';
@@ -15,7 +16,7 @@ const CHAR = 9;
 
 function sidebarWindow(side: 'left' | 'right', extra: Partial<TmuxWindow> = {}): TmuxWindow {
   return {
-    id: side === 'left' ? '@1' : '@2',
+    id: side === 'left' ? wid('@1') : wid('@2'),
     index: side === 'left' ? 2 : 3,
     name: `__sidebar-${side}`,
     active: false,

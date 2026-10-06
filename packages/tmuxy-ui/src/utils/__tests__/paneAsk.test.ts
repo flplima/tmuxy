@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { pid } from '../../test/wire';
 import { answerAskCommand, decodePaneAsk, paneAskFor, type PaneAsk } from '../paneAsk';
 
 /** Encode a payload the way `bin/tmuxy/ask` does. */
@@ -79,7 +80,7 @@ describe('answerAskCommand', () => {
   it('clears the question before recording the answer', () => {
     // The overlay is what the user is looking at: it comes down as they
     // choose, not once the waiting CLI gets around to sending the keys.
-    const command = answerAskCommand('%3', ask, 'yes');
+    const command = answerAskCommand(pid('%3'), ask, 'yes');
     expect(command.indexOf('-pu -t %3 @tmuxy-ask')).toBeLessThan(
       command.indexOf('@tmuxy-ask-answer'),
     );
@@ -88,7 +89,7 @@ describe('answerAskCommand', () => {
   it('pins the answer to the question that was on screen', () => {
     // Without the token, an answer to a question the asker already withdrew
     // would be read as an answer to whatever replaced it.
-    expect(answerAskCommand('%3', ask, 'yes')).toContain("@tmuxy-ask-answer '3-4821:yes'");
-    expect(answerAskCommand('%3', ask, 'no')).toContain("@tmuxy-ask-answer '3-4821:no'");
+    expect(answerAskCommand(pid('%3'), ask, 'yes')).toContain("@tmuxy-ask-answer '3-4821:yes'");
+    expect(answerAskCommand(pid('%3'), ask, 'no')).toContain("@tmuxy-ask-answer '3-4821:no'");
   });
 });

@@ -1,3 +1,4 @@
+import type { PaneId } from '../domain/ids';
 /**
  * The browser widget's `--color-filter`: recolour whatever a page or an image
  * draws into the current theme's colours.
@@ -97,6 +98,6 @@ export function readThemeRamp(): Rgb[] | null {
 }
 
 /** A filter id safe inside `url(#…)`: pane ids carry a `%`. */
-export function themeFilterId(paneId: string): string {
+export function themeFilterId(paneId: PaneId): string {
   return `tmuxy-theme-filter-${paneId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 }

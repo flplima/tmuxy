@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { pid, wid } from '../../test/wire';
 import {
   getTabText,
   getTabLabel,
@@ -6,12 +7,12 @@ import {
   paneRowLines,
   splitTitleIcon,
 } from '../paneTabDisplay';
-import type { TmuxPane } from '../../tmux/types';
+import type { TmuxPane } from '../../domain/client';
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
   id: 0,
-  tmuxId: '%0',
-  windowId: '@0',
+  tmuxId: pid('%0'),
+  windowId: wid('@0'),
   content: [],
   cursorX: 0,
   cursorY: 0,

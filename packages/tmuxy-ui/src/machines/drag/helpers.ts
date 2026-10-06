@@ -3,6 +3,7 @@
  */
 
 import type { TmuxPane } from '../types';
+import type { PaneId } from '../../domain/ids';
 import { paneInsetX } from '../../constants';
 
 /**
@@ -12,14 +13,14 @@ import { paneInsetX } from '../../constants';
  */
 export function findSwapTarget(
   panes: TmuxPane[],
-  draggedId: string,
+  draggedId: PaneId,
   mouseX: number,
   mouseY: number,
   charWidth: number,
   charHeight: number,
   centerOffsetX: number = 0,
   centerOffsetY: number = 0,
-): string | null {
+): PaneId | null {
   const insetX = paneInsetX(charWidth);
 
   for (const pane of panes) {

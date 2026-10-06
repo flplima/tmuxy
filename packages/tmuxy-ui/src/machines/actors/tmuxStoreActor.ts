@@ -23,6 +23,7 @@
  */
 
 import { Effect, Exit, Cause } from 'effect';
+import type { PaneId } from '../../domain/ids';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../tmux/store';
 import type { TmuxOp } from '../../tmux/store/types';
@@ -70,7 +71,7 @@ export type TmuxStoreActorEvent =
   | {
       type: 'UPDATE_PREDICT_CONTEXT';
       defaultShell: string;
-      paneActivationOrder: readonly string[];
+      paneActivationOrder: readonly PaneId[];
     };
 
 export interface TmuxStoreActorInput {

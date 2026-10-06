@@ -20,6 +20,7 @@ import React, {
   useMemo,
   ReactNode,
 } from 'react';
+import { isModelPaneId } from '../domain/ids';
 import { ResizeDividers } from './ResizeDividers';
 import {
   computePaneBox,
@@ -815,7 +816,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         const from = styleBox(oldStyle);
         const to = styleBox(node.getAttribute('style') ?? '');
         if (!from || !to || full(from) === full(to)) continue;
-        const id = node.dataset.paneId ?? '';
+        const id = node.dataset.paneId;
+        if (!isModelPaneId(id)) continue;
         // Filling the grid is a zoom when this pane is the zoomed one, or when
         // its siblings are all still here (tmux keeps them while zoomed and
         // the flag can lag) - not when one of them just closed. Leaving it is

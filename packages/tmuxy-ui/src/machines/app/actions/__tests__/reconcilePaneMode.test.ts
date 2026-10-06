@@ -8,9 +8,10 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { pid } from '../../../../test/wire';
 import { COPY_MODE_REENTRY_COOLDOWN, copyModeExitTimes, reconcilePaneMode } from '../copyMode';
 
-const pane = (inMode: boolean) => ({ tmuxId: '%1', inMode });
+const pane = (inMode: boolean) => ({ tmuxId: pid('%1'), inMode });
 const live = { readOnly: false, now: 100_000 };
 
 afterEach(() => copyModeExitTimes.clear());
@@ -58,9 +59,9 @@ describe('reconcilePaneMode', () => {
 
     /** The same stale report in the other direction: the mode still showing on just after the client left it. */
     it('is ignored inside the cooldown after the client exited', () => {
-      copyModeExitTimes.set('%1', live.now - COPY_MODE_REENTRY_COOLDOWN + 1);
+      copyModeExitTimes.set(pid('%1'), live.now - COPY_MODE_REENTRY_COOLDOWN + 1);
       expect(reconcilePaneMode(pane(false), pane(true), undefined, live)).toBe('none');
-      copyModeExitTimes.set('%1', live.now - COPY_MODE_REENTRY_COOLDOWN);
+      copyModeExitTimes.set(pid('%1'), live.now - COPY_MODE_REENTRY_COOLDOWN);
       expect(reconcilePaneMode(pane(false), pane(true), undefined, live)).toBe('enter');
     });
 

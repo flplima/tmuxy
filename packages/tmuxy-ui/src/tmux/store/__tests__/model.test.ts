@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { pid, wid } from '../../../test/wire';
 import {
   modelFromSnapshot,
   addPendingOp,
@@ -11,12 +12,12 @@ import { predict } from '../ops';
 import { parseCommandToOp, toTmuxCommand } from '../parseCommand';
 import type { TmuxOp, TmuxSnapshot, OpId } from '../types';
 import { OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from '../types';
-import type { TmuxPane, TmuxWindow } from '../../types';
+import type { TmuxPane, TmuxWindow } from '../../../domain/client';
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
   id: 0,
-  tmuxId: '%0',
-  windowId: '@0',
+  tmuxId: pid('%0'),
+  windowId: wid('@0'),
   content: [],
   cursorX: 0,
   cursorY: 0,
@@ -44,7 +45,7 @@ const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
 });
 
 const win = (over: Partial<TmuxWindow> = {}): TmuxWindow => ({
-  id: '@0',
+  id: wid('@0'),
   index: 0,
   name: 'main',
   active: true,
@@ -61,8 +62,8 @@ const win = (over: Partial<TmuxWindow> = {}): TmuxWindow => ({
 const snapshot = (over: Partial<TmuxSnapshot> = {}): TmuxSnapshot => ({
   panes: [pane({ active: true })],
   windows: [win()],
-  activePaneId: '%0',
-  activeWindowId: '@0',
+  activePaneId: pid('%0'),
+  activeWindowId: wid('@0'),
   totalWidth: 80,
   totalHeight: 24,
   focusRequest: '',
@@ -121,17 +122,17 @@ describe('TmuxClientModel', () => {
     // Server sends a snapshot with both panes — placeholder gone, real pane present.
     const serverSnap = snapshot({
       panes: [
-        pane({ tmuxId: '%0', width: 39 }),
-        pane({ tmuxId: '%1', x: 40, width: 40, active: true }),
+        pane({ tmuxId: pid('%0'), width: 39 }),
+        pane({ tmuxId: pid('%1'), x: 40, width: 40, active: true }),
       ],
-      activePaneId: '%1',
+      activePaneId: pid('%1'),
     });
     const reconciled = applyServerSnapshot(m1, serverSnap, 100);
     expect(reconciled.matched).toHaveLength(1);
-    expect(reconciled.matched[0].realId).toBe('%1');
+    expect(reconciled.matched[0].realId).toBe(pid('%1'));
     expect(reconciled.model.ops).toHaveLength(0);
-    expect(reconciled.model.paneKeyOverrides['%1']).toMatch(/^__placeholder_/);
-    expect(reconciled.model.derived.panes.map((p) => p.tmuxId)).toEqual(['%0', '%1']);
+    expect(reconciled.model.paneKeyOverrides[pid('%1')]).toMatch(/^__placeholder_/);
+    expect(reconciled.model.derived.panes.map((p) => p.tmuxId)).toEqual([pid('%0'), pid('%1')]);
   });
 
   it('stale ops get rolled back after OP_STALE_TIMEOUT_MS', () => {
@@ -205,15 +206,15 @@ describe('TmuxClientModel', () => {
       ...m0,
       committed: snapshot({
         panes: [
-          pane({ tmuxId: '%0', x: 40, active: true }),
-          pane({ tmuxId: '%1', x: 0, width: 39 }),
+          pane({ tmuxId: pid('%0'), x: 40, active: true }),
+          pane({ tmuxId: pid('%1'), x: 0, width: 39 }),
         ],
       }),
     });
     const result = predict(
       op,
       withLeft.committed,
-      { defaultShell: 'bash', paneActivationOrder: ['%1'] },
+      { defaultShell: 'bash', paneActivationOrder: [pid('%1')] },
       'opNav',
     );
     expect(result).not.toBeNull();
@@ -225,28 +226,34 @@ describe('TmuxClientModel', () => {
       meta: result!.meta,
     });
     const withOp = addPendingOp(withLeft, pending);
-    expect(withOp.derived.activePaneId).toBe('%1');
+    expect(withOp.derived.activePaneId).toBe(pid('%1'));
 
     const { model: rolledBack, entry } = rollbackOp(withOp, 'op_nav' as OpId, 'manual cancel');
     expect(entry?.reason).toBe('manual cancel');
-    expect(rolledBack.derived.activePaneId).toBe('%0');
+    expect(rolledBack.derived.activePaneId).toBe(pid('%0'));
   });
 
   it('parseCommandToOp recognizes the common shapes', () => {
     expect(parseCommandToOp('split-window -h')).toEqual({ _tag: 'Split', direction: 'vertical' });
     expect(parseCommandToOp('splitw -v')).toEqual({ _tag: 'Split', direction: 'horizontal' });
     expect(parseCommandToOp('select-pane -L')).toEqual({ _tag: 'Navigate', direction: 'L' });
-    expect(parseCommandToOp('select-pane -t %5')).toEqual({ _tag: 'SelectPane', paneId: '%5' });
+    expect(parseCommandToOp('select-pane -t %5')).toEqual({
+      _tag: 'SelectPane',
+      paneId: pid('%5'),
+    });
     expect(parseCommandToOp('new-window')).toEqual({ _tag: 'NewWindow' });
     expect(parseCommandToOp('next-window')).toEqual({ _tag: 'SelectWindow', target: 'next' });
     expect(parseCommandToOp('select-window -t 3')).toEqual({ _tag: 'SelectWindow', target: 3 });
     // The client's own tab switch names the window by id, so a stale index
     // can never land on the wrong window.
-    expect(parseCommandToOp('select-window -t @3')).toEqual({ _tag: 'SelectWindow', target: '@3' });
+    expect(parseCommandToOp('select-window -t @3')).toEqual({
+      _tag: 'SelectWindow',
+      target: wid('@3'),
+    });
     expect(parseCommandToOp('swap-pane -s %1 -t %2')).toEqual({
       _tag: 'Swap',
-      sourcePaneId: '%1',
-      targetPaneId: '%2',
+      sourcePaneId: pid('%1'),
+      targetPaneId: pid('%2'),
     });
     // Unknown shapes fall through to RawCommand
     expect(parseCommandToOp('display-message hello')).toEqual({
@@ -260,7 +267,7 @@ describe('TmuxClientModel', () => {
     expect(toTmuxCommand({ _tag: 'Navigate', direction: 'R' })).toBe('select-pane -R');
     expect(toTmuxCommand({ _tag: 'SelectWindow', target: 'next' })).toBe('next-window');
     expect(toTmuxCommand({ _tag: 'SelectWindow', target: 5 })).toBe('select-window -t 5');
-    expect(toTmuxCommand({ _tag: 'Swap', sourcePaneId: '%1', targetPaneId: '%2' })).toBe(
+    expect(toTmuxCommand({ _tag: 'Swap', sourcePaneId: pid('%1'), targetPaneId: pid('%2') })).toBe(
       'swap-pane -s %1 -t %2',
     );
   });

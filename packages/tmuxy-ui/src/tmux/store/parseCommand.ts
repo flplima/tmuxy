@@ -11,6 +11,7 @@
  */
 
 import type { TmuxOp } from './types';
+import { isPaneId, isWindowId } from '../../domain/ids';
 
 /**
  * Strip the pin that keyboardActor prepends to every prefix/root-bound
@@ -82,11 +83,11 @@ export function parseCommandToOp(command: string): TmuxOp {
 
   // swap-pane -s %X -t %Y (and the reversed -t/-s form)
   const swapForward = trimmed.match(/^(swap-pane|swapp)\s+.*-s\s+(%\d+)\s+.*-t\s+(%\d+)/);
-  if (swapForward) {
+  if (swapForward && isPaneId(swapForward[2]) && isPaneId(swapForward[3])) {
     return { _tag: 'Swap', sourcePaneId: swapForward[2], targetPaneId: swapForward[3] };
   }
   const swapReverse = trimmed.match(/^(swap-pane|swapp)\s+.*-t\s+(%\d+)\s+.*-s\s+(%\d+)/);
-  if (swapReverse) {
+  if (swapReverse && isPaneId(swapReverse[2]) && isPaneId(swapReverse[3])) {
     return { _tag: 'Swap', sourcePaneId: swapReverse[3], targetPaneId: swapReverse[2] };
   }
 
@@ -99,7 +100,7 @@ export function parseCommandToOp(command: string): TmuxOp {
 
   // select-pane -t %X — direct focus
   const selectPaneMatch = trimmed.match(/^(select-pane|selectp)\s+-t\s+(%\d+)/);
-  if (selectPaneMatch) {
+  if (selectPaneMatch && isPaneId(selectPaneMatch[2])) {
     return { _tag: 'SelectPane', paneId: selectPaneMatch[2] };
   }
 
@@ -112,20 +113,21 @@ export function parseCommandToOp(command: string): TmuxOp {
   // resize forms fall through to RawCommand)
   const zoomMatch = trimmed.match(/^(resize-pane|resizep)\s+(?:-t\s+(%\d+)\s+)?-Z\s*$/);
   if (zoomMatch) {
-    return { _tag: 'ZoomToggle', paneId: zoomMatch[2] ?? null };
+    return { _tag: 'ZoomToggle', paneId: isPaneId(zoomMatch[2]) ? zoomMatch[2] : null };
   }
 
   // kill-pane / killp [-t %N]
   const killPaneMatch = trimmed.match(/^(kill-pane|killp)(?:\s+-t\s+(%\d+))?\s*$/);
   if (killPaneMatch) {
-    return { _tag: 'KillPane', paneId: killPaneMatch[2] ?? null };
+    return { _tag: 'KillPane', paneId: isPaneId(killPaneMatch[2]) ? killPaneMatch[2] : null };
   }
 
   // kill-window / killw [-t @N] — index-form targets (`-t :2`) resolve
   // server-side and are deliberately not predicted.
   const killWindowMatch = trimmed.match(/^(kill-window|killw)(?:\s+-t\s+(@\d+))?\s*$/);
   if (killWindowMatch) {
-    return { _tag: 'KillWindow', windowId: killWindowMatch[2] ?? null };
+    const windowId = killWindowMatch[2];
+    return { _tag: 'KillWindow', windowId: isWindowId(windowId) ? windowId : null };
   }
 
   // rename-window / renamew [-t target] [--] NAME
@@ -137,9 +139,9 @@ export function parseCommandToOp(command: string): TmuxOp {
     const quoted = name.match(/^'(.*)'$/s) ?? name.match(/^"(.*)"$/s);
     if (quoted) name = quoted[1];
     // Only @-form or absent targets are predictable client-side.
-    const target = renameMatch[2] ?? null;
-    if (target === null || /^@\d+$/.test(target)) {
-      return { _tag: 'RenameWindow', target, name };
+    const target = renameMatch[2];
+    if (target === undefined || isWindowId(target)) {
+      return { _tag: 'RenameWindow', target: target ?? null, name };
     }
     return { _tag: 'RawCommand', command };
   }
@@ -148,7 +150,7 @@ export function parseCommandToOp(command: string): TmuxOp {
   // stale index can never land on the wrong window) or -t N (by index, with
   // optional `:` and `=` prefixes).
   const selectWinId = trimmed.match(/^(select-window|selectw)\s+-t\s+(@\d+)/);
-  if (selectWinId) {
+  if (selectWinId && isWindowId(selectWinId[2])) {
     return { _tag: 'SelectWindow', target: selectWinId[2] };
   }
   const selectWinIdx = trimmed.match(/^(select-window|selectw)\s+-t\s+:?=?(\d+)/);

@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { Either } from 'effect';
 import { decodeStateUpdate } from '../wireDecode';
+import { toClientState } from '../../domain/client';
 
 const COLS = 200;
 const ROWS = 60;
@@ -90,17 +91,31 @@ function measure(payload: unknown, iterations: number): number {
   return (performance.now() - start) / iterations;
 }
 
+/** Mean milliseconds to derive the client model from a decoded full state. */
+function measureClient(payload: unknown, iterations: number): number {
+  const decoded = decodeStateUpdate(payload);
+  if (Either.isLeft(decoded) || decoded.right.type !== 'full') throw new Error('not a full state');
+  const state = decoded.right.state;
+  for (let i = 0; i < 20; i++) toClientState(state);
+  const start = performance.now();
+  for (let i = 0; i < iterations; i++) toClientState(state);
+  return (performance.now() - start) / iterations;
+}
+
 describe('state-update decode cost', () => {
   it('decodes a full 4-pane 200x60 state and a typical delta well inside a frame', () => {
     const full = measure(fullUpdate(ROWS), 200);
     const tiny = measure(fullUpdate(1), 200);
     const delta = measure(typicalDelta, 2000);
+    const client = measureClient(fullUpdate(ROWS), 200);
     console.info(
       `[wire decode] full ${PANES}x${COLS}x${ROWS}: ${(full * 1000).toFixed(1)}µs, ` +
-        `full ${PANES}x${COLS}x1: ${(tiny * 1000).toFixed(1)}µs, delta: ${(delta * 1000).toFixed(1)}µs`,
+        `full ${PANES}x${COLS}x1: ${(tiny * 1000).toFixed(1)}µs, delta: ${(delta * 1000).toFixed(1)}µs, ` +
+        `client model from full: ${(client * 1000).toFixed(1)}µs`,
     );
     // The budget for a full state; the measured cost is a small fraction of it.
     expect(full).toBeLessThan(2);
     expect(delta).toBeLessThan(2);
+    expect(client).toBeLessThan(2);
   });
 });

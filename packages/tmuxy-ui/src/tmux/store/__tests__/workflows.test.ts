@@ -31,7 +31,7 @@ import type {
   WirePaneEncoded,
   WireWindowEncoded,
 } from '../../../domain/wire';
-import { wireState } from '../../../test/wire';
+import { pid, wid, wireState } from '../../../test/wire';
 import { toEffectAdapter } from '../../effect';
 import { TmuxError } from '../../effect/AdapterError';
 import { predict } from '../ops';
@@ -42,8 +42,8 @@ import { predict } from '../ops';
 
 const serverPane = (over: Partial<WirePaneEncoded> = {}): WirePaneEncoded => ({
   id: 0,
-  tmux_id: '%0',
-  window_id: '@0',
+  tmux_id: pid('%0'),
+  window_id: wid('@0'),
   content: [],
   cursor_x: 0,
   cursor_y: 0,
@@ -71,7 +71,7 @@ const serverPane = (over: Partial<WirePaneEncoded> = {}): WirePaneEncoded => ({
 });
 
 const serverWindow = (over: Partial<WireWindowEncoded> = {}): WireWindowEncoded => ({
-  id: '@0',
+  id: wid('@0'),
   index: 0,
   name: 'main',
   active: true,
@@ -82,8 +82,8 @@ const serverWindow = (over: Partial<WireWindowEncoded> = {}): WireWindowEncoded 
 const serverState = (over: Partial<ServerStateEncoded> = {}): ServerState =>
   wireState({
     session_name: 'tmuxy',
-    active_window_id: '@0',
-    active_pane_id: '%0',
+    active_window_id: wid('@0'),
+    active_pane_id: pid('%0'),
     panes: [serverPane()],
     windows: [serverWindow()],
     total_width: 80,
@@ -167,8 +167,8 @@ describe('parseCommandToOp — prefix-pinned commands', () => {
     });
     expect(parseCommandToOp('select-pane -t %5 \\; swap-pane -s %1 -t %2')).toEqual({
       _tag: 'Swap',
-      sourcePaneId: '%1',
-      targetPaneId: '%2',
+      sourcePaneId: pid('%1'),
+      targetPaneId: pid('%2'),
     });
   });
 
@@ -214,8 +214,8 @@ describe('TmuxStore — verbatim command preservation', () => {
       panes: [
         {
           id: 0,
-          tmuxId: '%0',
-          windowId: '@0',
+          tmuxId: pid('%0'),
+          windowId: wid('@0'),
           content: [],
           cursorX: 0,
           cursorY: 0,
@@ -243,7 +243,7 @@ describe('TmuxStore — verbatim command preservation', () => {
       ],
       windows: [
         {
-          id: '@0',
+          id: wid('@0'),
           index: 0,
           name: 'main',
           active: true,
@@ -256,8 +256,8 @@ describe('TmuxStore — verbatim command preservation', () => {
           floatNoheader: false,
         },
       ],
-      activePaneId: '%0',
-      activeWindowId: '@0',
+      activePaneId: pid('%0'),
+      activeWindowId: wid('@0'),
       totalWidth: 80,
       totalHeight: 24,
       focusRequest: '',
@@ -323,8 +323,8 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
       panes: [
         {
           id: 0,
-          tmuxId: '%0',
-          windowId: '@0',
+          tmuxId: pid('%0'),
+          windowId: wid('@0'),
           content: [],
           cursorX: 0,
           cursorY: 0,
@@ -352,7 +352,7 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
       ],
       windows: [
         {
-          id: '@0',
+          id: wid('@0'),
           index: 0,
           name: 'main',
           active: true,
@@ -365,8 +365,8 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
           floatNoheader: false,
         },
       ],
-      activePaneId: '%0',
-      activeWindowId: '@0',
+      activePaneId: pid('%0'),
+      activeWindowId: wid('@0'),
       totalWidth: 80,
       totalHeight: 24,
       focusRequest: '',
@@ -419,13 +419,13 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
         {
           ...baseSnap.panes[0],
           id: 1,
-          tmuxId: '%1',
+          tmuxId: pid('%1'),
           x: 40,
           width: 40,
           active: true,
         },
       ],
-      activePaneId: '%1',
+      activePaneId: pid('%1'),
     };
 
     const out = applyServerSnapshot(m2, serverSnap, Date.now());
@@ -455,10 +455,10 @@ describe('TmuxStore — kill-pane reconcile', () => {
       store.reconcile(
         serverState({
           panes: [
-            serverPane({ tmux_id: '%0', x: 0, width: 39 }),
-            serverPane({ tmux_id: '%1', x: 40, width: 40, active: true }),
+            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+            serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
           ],
-          active_pane_id: '%1',
+          active_pane_id: pid('%1'),
         }),
       ),
     );
@@ -470,32 +470,32 @@ describe('TmuxStore — kill-pane reconcile', () => {
       store.reconcile(
         serverState({
           panes: [
-            serverPane({ tmux_id: '%0', x: 0, width: 39 }),
-            serverPane({ tmux_id: '%1', x: 40, width: 20 }),
-            serverPane({ tmux_id: '%2', x: 61, width: 19, active: true }),
+            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+            serverPane({ tmux_id: pid('%1'), x: 40, width: 20 }),
+            serverPane({ tmux_id: pid('%2'), x: 61, width: 19, active: true }),
           ],
-          active_pane_id: '%2',
+          active_pane_id: pid('%2'),
         }),
       ),
     );
-    expect(Object.keys(store.getModel().paneKeyOverrides)).toContain('%2');
+    expect(Object.keys(store.getModel().paneKeyOverrides)).toContain(pid('%2'));
 
     // Server reports the new pane killed.
     await Effect.runPromise(
       store.reconcile(
         serverState({
           panes: [
-            serverPane({ tmux_id: '%0', x: 0, width: 39 }),
-            serverPane({ tmux_id: '%1', x: 40, width: 40, active: true }),
+            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+            serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
           ],
-          active_pane_id: '%1',
+          active_pane_id: pid('%1'),
         }),
       ),
     );
 
     // The stale override for %2 should be pruned.
-    expect(store.getModel().paneKeyOverrides).not.toHaveProperty('%2');
-    expect(store.getModel().derived.panes.map((p) => p.tmuxId)).toEqual(['%0', '%1']);
+    expect(store.getModel().paneKeyOverrides).not.toHaveProperty(pid('%2'));
+    expect(store.getModel().derived.panes.map((p) => p.tmuxId)).toEqual([pid('%0'), pid('%1')]);
   });
 });
 
@@ -542,7 +542,7 @@ describe('TmuxStore — typed errors', () => {
 
     fake.setNextResult({ kind: 'reject', error: { error: 'no such pane: %999' } });
     const exit = await Effect.runPromiseExit(
-      store.dispatch({ _tag: 'Swap', sourcePaneId: '%999', targetPaneId: '%0' }),
+      store.dispatch({ _tag: 'Swap', sourcePaneId: pid('%999'), targetPaneId: pid('%0') }),
     );
     expect(exit._tag).toBe('Failure');
     expect(store.getModel().ops).toHaveLength(0);
@@ -620,8 +620,8 @@ describe('Op predictions — tmux-output shape', () => {
       panes: [
         {
           id: 0,
-          tmuxId: '%0',
-          windowId: '@0',
+          tmuxId: pid('%0'),
+          windowId: wid('@0'),
           content: [],
           cursorX: 0,
           cursorY: 0,
@@ -649,7 +649,7 @@ describe('Op predictions — tmux-output shape', () => {
       ],
       windows: [
         {
-          id: '@0',
+          id: wid('@0'),
           index: 0,
           name: 'main',
           active: true,
@@ -662,8 +662,8 @@ describe('Op predictions — tmux-output shape', () => {
           floatNoheader: false,
         },
       ],
-      activePaneId: '%0',
-      activeWindowId: '@0',
+      activePaneId: pid('%0'),
+      activeWindowId: wid('@0'),
       totalWidth: 80,
       totalHeight: 24,
       focusRequest: '',
@@ -677,7 +677,7 @@ describe('Op predictions — tmux-output shape', () => {
     )!;
     const next = r.patch(m.committed);
     const placeholder = next.panes.find((p) => p.tmuxId.startsWith('__placeholder_'))!;
-    const original = next.panes.find((p) => p.tmuxId === '%0')!;
+    const original = next.panes.find((p) => p.tmuxId === pid('%0'))!;
     // 80 - floor(80/2) - 1 = 39 for the existing, 40 for the placeholder.
     expect(original.width).toBe(39);
     expect(placeholder.width).toBe(40);
@@ -693,7 +693,7 @@ describe('Op predictions — tmux-output shape', () => {
       panes: [],
       windows: [
         {
-          id: '@5',
+          id: wid('@5'),
           index: 5,
           name: 'a',
           active: true,
@@ -706,7 +706,7 @@ describe('Op predictions — tmux-output shape', () => {
           floatNoheader: false,
         },
         {
-          id: '@7',
+          id: wid('@7'),
           index: 7,
           name: 'b',
           active: false,
@@ -720,7 +720,7 @@ describe('Op predictions — tmux-output shape', () => {
         },
       ],
       activePaneId: null,
-      activeWindowId: '@5',
+      activeWindowId: wid('@5'),
       totalWidth: 80,
       totalHeight: 24,
       focusRequest: '',
@@ -743,7 +743,7 @@ describe('Op predictions — tmux-output shape', () => {
       panes: [],
       windows: [
         {
-          id: '@5',
+          id: wid('@5'),
           index: 5,
           name: 'a',
           active: true,
@@ -757,7 +757,7 @@ describe('Op predictions — tmux-output shape', () => {
         },
       ],
       activePaneId: null,
-      activeWindowId: '@5',
+      activeWindowId: wid('@5'),
       totalWidth: 160,
       totalHeight: 48,
       focusRequest: '',
@@ -782,7 +782,7 @@ describe('Op predictions — tmux-output shape', () => {
     expect(next.activePaneId).toBe(newPane.tmuxId);
     expect(newWin.active).toBe(true);
     // Prior tab is no longer the active one in the predicted snapshot.
-    const priorWin = next.windows.find((w) => w.id === '@5')!;
+    const priorWin = next.windows.find((w) => w.id === wid('@5'))!;
     expect(priorWin.active).toBe(false);
   });
 
@@ -800,8 +800,8 @@ describe('Op predictions — tmux-output shape', () => {
       store.reconcile(
         serverState({
           session_name: 'B',
-          panes: [serverPane({ tmux_id: '%0', active: true })],
-          active_pane_id: '%0',
+          panes: [serverPane({ tmux_id: pid('%0'), active: true })],
+          active_pane_id: pid('%0'),
         }),
       ),
     );
@@ -817,10 +817,10 @@ describe('Op predictions — tmux-output shape', () => {
         serverState({
           session_name: 'B',
           panes: [
-            serverPane({ tmux_id: '%0', x: 0, width: 39 }),
-            serverPane({ tmux_id: '%1', x: 40, width: 40, active: true }),
+            serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+            serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
           ],
-          active_pane_id: '%1',
+          active_pane_id: pid('%1'),
         }),
       ),
     );

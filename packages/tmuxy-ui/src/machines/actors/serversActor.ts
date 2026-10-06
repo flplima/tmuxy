@@ -27,6 +27,7 @@
  * cwds to worktrees client-side (`components/gitContext.ts`).
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
+import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { TmuxAdapter } from '../../tmux/types';
 import type { GitRepository, SessionTreeNode, TmuxServer } from '../types';
@@ -91,11 +92,11 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
     return node;
   };
 
-  const keptWindowIds = new Set<string>();
+  const keptWindowIds = new Set<WindowId>();
   for (const line of windowsOut.split('\n')) {
     if (!line) continue;
     const [session, windowId, index, name, type] = line.split(SEP);
-    if (!session || !windowId) continue;
+    if (!session || !isWindowId(windowId)) continue;
     if (session === STASH_SESSION) continue;
     if (HIDDEN_WINDOW_TYPES.has(type)) continue;
     keptWindowIds.add(windowId);
@@ -109,7 +110,7 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
   for (const line of panesOut.split('\n')) {
     if (!line) continue;
     const [session, windowId, paneId, command, active, title, cwd] = line.split(SEP);
-    if (!session || !windowId || !paneId) continue;
+    if (!session || !isWindowId(windowId) || !isPaneId(paneId)) continue;
     if (!keptWindowIds.has(windowId)) continue;
     ensure(session).panes.push({
       id: paneId,

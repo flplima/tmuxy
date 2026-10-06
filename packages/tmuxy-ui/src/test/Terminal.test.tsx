@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { pid } from './wire';
 import { render, screen } from '@testing-library/react';
 import { Terminal } from '../components/Terminal';
 import { cellsToCss } from '../components/terminalShared';
@@ -254,7 +255,7 @@ describe('Terminal', () => {
     render(
       <Terminal
         content={content}
-        paneId="%0"
+        paneId={pid('%0')}
         images={[{ id: 1, row: 3, col: 5, widthCells: 10, heightCells: 4, protocol: 'iterm2' }]}
       />,
     );
@@ -277,7 +278,7 @@ describe('Terminal', () => {
       render(
         <Terminal
           content={createContent(['x'])}
-          paneId="%7"
+          paneId={pid('%7')}
           images={[{ id: 3, row: 0, col: 0, widthCells: 4, heightCells: 2, protocol: 'kitty' }]}
         />,
       );
@@ -294,7 +295,7 @@ describe('Terminal', () => {
     render(
       <Terminal
         content={createContent(['x'])}
-        paneId="%7"
+        paneId={pid('%7')}
         images={[{ id: 3, row: 0, col: 0, widthCells: 4, heightCells: 2, protocol: 'kitty' }]}
       />,
     );
@@ -312,11 +313,11 @@ describe('Terminal', () => {
       { id, row: 0, col: 0, widthCells: 40, heightCells: 20, protocol: 'kitty' as const },
     ];
     const { rerender } = render(
-      <Terminal content={createContent(['x'])} paneId="%0" images={frame(1)} />,
+      <Terminal content={createContent(['x'])} paneId={pid('%0')} images={frame(1)} />,
     );
     const first = screen.getByTestId('terminal').querySelector('img.terminal-image');
 
-    rerender(<Terminal content={createContent(['x'])} paneId="%0" images={frame(2)} />);
+    rerender(<Terminal content={createContent(['x'])} paneId={pid('%0')} images={frame(2)} />);
     const second = screen.getByTestId('terminal').querySelector('img.terminal-image');
 
     expect(second).toBe(first);

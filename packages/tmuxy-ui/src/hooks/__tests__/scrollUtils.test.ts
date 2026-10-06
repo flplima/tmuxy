@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { pid } from '../../test/wire';
 import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from '../scrollUtils';
 import type { AppMachineEvent } from '../../machines/types';
 
@@ -74,7 +75,7 @@ describe('sendScrollLines', () => {
     const { events, send } = captureSends();
     const handled = sendScrollLines({
       send,
-      paneId: '%1',
+      paneId: pid('%1'),
       lines: -3,
       alternateOn: false,
       mouseAnyFlag: false,
@@ -87,7 +88,7 @@ describe('sendScrollLines', () => {
     const { events, send } = captureSends();
     const handled = sendScrollLines({
       send,
-      paneId: '%1',
+      paneId: pid('%1'),
       lines: 0,
       alternateOn: true,
       mouseAnyFlag: false,
@@ -100,7 +101,7 @@ describe('sendScrollLines', () => {
     const { events, send } = captureSends();
     sendScrollLines({
       send,
-      paneId: '%1',
+      paneId: pid('%1'),
       lines: -3,
       alternateOn: true,
       mouseAnyFlag: false,
@@ -118,7 +119,7 @@ describe('sendScrollLines', () => {
     const { events, send } = captureSends();
     sendScrollLines({
       send,
-      paneId: '%1',
+      paneId: pid('%1'),
       lines: 2,
       alternateOn: true,
       mouseAnyFlag: false,
@@ -133,7 +134,7 @@ describe('sendScrollLines', () => {
     const { events, send } = captureSends();
     sendScrollLines({
       send,
-      paneId: '%1',
+      paneId: pid('%1'),
       lines: -1,
       alternateOn: false,
       mouseAnyFlag: true,
@@ -143,14 +144,14 @@ describe('sendScrollLines', () => {
     expect(events).toHaveLength(1);
     const cmd = (events[0] as { command: string }).command;
     // Button 64 = wheel up, coords 1-based (5, 8), injected as raw hex keys
-    expect(cmd).toBe(sgrMouseCommand('%1', 64, 5, 8));
+    expect(cmd).toBe(sgrMouseCommand(pid('%1'), 64, 5, 8));
   });
 
   it('sends SGR wheel-down events when mouse tracking is enabled', () => {
     const { events, send } = captureSends();
     sendScrollLines({
       send,
-      paneId: '%1',
+      paneId: pid('%1'),
       lines: 1,
       alternateOn: false,
       mouseAnyFlag: true,
@@ -160,7 +161,7 @@ describe('sendScrollLines', () => {
     expect(events).toHaveLength(1);
     const cmd = (events[0] as { command: string }).command;
     // Button 65 = wheel down, coords 1-based (1, 1)
-    expect(cmd).toBe(sgrMouseCommand('%1', 65, 1, 1));
+    expect(cmd).toBe(sgrMouseCommand(pid('%1'), 65, 1, 1));
   });
 
   it('prefers SGR mouse events when BOTH alternate-screen and mouse tracking are active', () => {
@@ -170,7 +171,7 @@ describe('sendScrollLines', () => {
     const { events, send } = captureSends();
     sendScrollLines({
       send,
-      paneId: '%1',
+      paneId: pid('%1'),
       lines: -2,
       alternateOn: true,
       mouseAnyFlag: true,
@@ -182,7 +183,7 @@ describe('sendScrollLines', () => {
     for (const ev of events) {
       const cmd = (ev as { command: string }).command;
       expect(cmd).not.toMatch(/send-keys -t \S+ (Up|Down)/);
-      expect(cmd).toBe(sgrMouseCommand('%1', 64, 1, 1));
+      expect(cmd).toBe(sgrMouseCommand(pid('%1'), 64, 1, 1));
     }
   });
 });

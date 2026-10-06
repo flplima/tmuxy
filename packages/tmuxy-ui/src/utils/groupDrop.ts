@@ -16,32 +16,33 @@
  *   pane it is dropped on, or as a tab of its own (`pane-group-leave`).
  */
 
-import type { TmuxPane } from '../tmux/types';
+import type { TmuxPane } from '../domain/client';
 import type { PaneGroup } from '../machines/types';
 import { paneInsetX } from '../constants';
 import type { TabDrop } from './tabStripDrop';
+import type { GroupId, PaneId } from '../domain/ids';
 
 const SCRIPTS = '$HOME/.config/tmuxy/bin/tmuxy';
 
 /** A pane header's box, container-relative, with the members sharing it. */
 export interface HeaderBand {
-  paneId: string;
+  paneId: PaneId;
   left: number;
   top: number;
   right: number;
   bottom: number;
-  members: string[];
+  members: PaneId[];
 }
 
 /** Where a pane released over a header would go. */
 export type GroupDrop =
-  | { kind: 'order'; paneId: string; from: number; index: number }
-  | { kind: 'join'; anchorPaneId: string; index: number };
+  | { kind: 'order'; paneId: PaneId; from: number; index: number }
+  | { kind: 'join'; anchorPaneId: PaneId; index: number };
 
 export type Side = 'left' | 'right' | 'up' | 'down';
 
 /** The member list of the group a pane is in, or null when it is in none. */
-export function groupOf(groups: Record<string, PaneGroup>, paneId: string): string[] | null {
+export function groupOf(groups: Record<GroupId, PaneGroup>, paneId: PaneId): PaneId[] | null {
   for (const group of Object.values(groups)) {
     if (group.paneIds.includes(paneId)) return group.paneIds;
   }
@@ -51,7 +52,7 @@ export function groupOf(groups: Record<string, PaneGroup>, paneId: string): stri
 /** Each visible pane's header row, in the geometry of `findSwapTarget`. */
 export function headerBands(
   panes: TmuxPane[],
-  groups: Record<string, PaneGroup>,
+  groups: Record<GroupId, PaneGroup>,
   charWidth: number,
   charHeight: number,
   centerOffsetX: number,
@@ -79,7 +80,7 @@ export function headerBands(
  */
 export function groupDropAt(
   bands: HeaderBand[],
-  draggedId: string,
+  draggedId: PaneId,
   draggedInGroup: boolean,
   x: number,
   y: number,
@@ -133,10 +134,10 @@ export function sideOf(
 }
 
 /** Where a parked member dragged out of its group is released. */
-export type LeaveDrop = { kind: 'beside'; paneId: string; side: Side } | TabDrop;
+export type LeaveDrop = { kind: 'beside'; paneId: PaneId; side: Side } | TabDrop;
 
 /** The command that takes a member out of its group to `drop`. */
-export function leaveCommand(paneId: string, drop: LeaveDrop): string {
+export function leaveCommand(paneId: PaneId, drop: LeaveDrop): string {
   const script = `${SCRIPTS}/pane-group-leave ${paneId}`;
   if (drop.kind === 'beside') return `run-shell "${script} --beside ${drop.paneId} ${drop.side}"`;
   // Over a tab: beside that window's active pane, which join-pane picks for a

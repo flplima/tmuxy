@@ -2,8 +2,21 @@
  * Helper functions for the app machine
  */
 
-import type { ServerState } from '../../domain/wire';
-import type { TmuxPane, TmuxWindow } from '../types';
+import {
+  isModelPaneId,
+  paneNumber,
+  type GroupId,
+  type PaneId,
+  type WindowId,
+} from '../../domain/ids';
+import type {
+  DrawerDirection,
+  FloatBackdrop,
+  FloatPaneState,
+  PaneGroup,
+  TmuxPane,
+  TmuxWindow,
+} from '../types';
 
 /**
  * Parse a `command-prompt` command and extract -I (initial value), -p (prompt), and template.
@@ -13,7 +26,7 @@ export function parseCommandPrompt(
   command: string,
   context: {
     windows: { id: string; name: string }[];
-    activeWindowId: string | null;
+    activeWindowId: WindowId | null;
     sessionName: string;
   },
 ): { prompt: string; initialValue: string; template: string | null } {
@@ -103,7 +116,7 @@ export function parseDisplayMessage(command: string): string | null {
  */
 export function gridExtent(
   panes: ReadonlyArray<Pick<TmuxPane, 'windowId' | 'x' | 'y' | 'width' | 'height'>>,
-  activeWindowId: string | null,
+  activeWindowId: WindowId | null,
   fallback: { cols: number; rows: number },
 ): { cols: number; rows: number } {
   const inWindow = activeWindowId ? panes.filter((p) => p.windowId === activeWindowId) : [];
@@ -124,53 +137,21 @@ export const STATUS_MESSAGE_DURATION = 5000;
 export const STATUS_MESSAGE_CLEAR_ID = 'statusMessageClear';
 
 /**
- * Convert snake_case object keys to camelCase
+ * `record` without the entries of panes that no longer exist — the same
+ * object when every pane is still alive, so an unchanged record keeps its
+ * identity.
  */
-export function camelize<T>(obj: Record<string, unknown>): T {
-  const result: Record<string, unknown> = {};
-  for (const key in obj) {
-    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      result[camelKey] = value.map((item) =>
-        item && typeof item === 'object' && !Array.isArray(item)
-          ? camelize(item as Record<string, unknown>)
-          : item,
-      );
-    } else if (value && typeof value === 'object') {
-      result[camelKey] = camelize(value as Record<string, unknown>);
-    } else {
-      result[camelKey] = value;
-    }
+export function keepLivePanes<V>(
+  record: Record<PaneId, V>,
+  live: ReadonlySet<PaneId>,
+): Record<PaneId, V> {
+  const kept: Record<PaneId, V> = {};
+  let dropped = false;
+  for (const id of Object.keys(record)) {
+    if (isModelPaneId(id) && live.has(id)) kept[id] = record[id];
+    else dropped = true;
   }
-  return result as T;
-}
-
-/**
- * Transform server state to client format
- */
-export function transformServerState(payload: ServerState): {
-  sessionName: string;
-  activeWindowId: string | null;
-  activePaneId: string | null;
-  panes: TmuxPane[];
-  windows: TmuxWindow[];
-  totalWidth: number;
-  totalHeight: number;
-  focusRequest: string;
-} {
-  return {
-    sessionName: payload.session_name,
-    activeWindowId: payload.active_window_id,
-    activePaneId: payload.active_pane_id,
-    panes: payload.panes.map((p) => camelize<TmuxPane>(p as unknown as Record<string, unknown>)),
-    windows: payload.windows
-      .map((w) => normalizeWindow(camelize<TmuxWindow>(w as unknown as Record<string, unknown>)))
-      .sort((a, b) => a.index - b.index),
-    totalWidth: payload.total_width,
-    totalHeight: payload.total_height,
-    focusRequest: payload.focus_request ?? '',
-  };
+  return dropped ? kept : record;
 }
 
 /**
@@ -184,11 +165,9 @@ export function transformServerState(payload: ServerState): {
  * pane-id number — the same rule as `group_members` in bin/tmuxy/_lib, so the
  * tab order and the shell's next/prev agree.
  */
-export function buildGroupsFromPanes(
-  panes: TmuxPane[],
-): Record<string, { id: string; paneIds: string[] }> {
-  const byGroup = new Map<string, string[]>();
-  const position = new Map<string, number>();
+export function buildGroupsFromPanes(panes: TmuxPane[]): Record<GroupId, PaneGroup> {
+  const byGroup = new Map<GroupId, PaneId[]>();
+  const position = new Map<PaneId, number>();
   for (const pane of panes) {
     if (!pane.groupId) continue;
     const list = byGroup.get(pane.groupId) ?? [];
@@ -197,11 +176,10 @@ export function buildGroupsFromPanes(
     if (typeof pane.groupPos === 'number') position.set(pane.tmuxId, pane.groupPos);
   }
 
-  const paneNumber = (id: string) => parseInt(id.replace(/^%/, ''), 10) || 0;
-  const order = (a: string, b: string) =>
+  const order = (a: PaneId, b: PaneId) =>
     (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity) || paneNumber(a) - paneNumber(b);
 
-  const groups: Record<string, { id: string; paneIds: string[] }> = {};
+  const groups: Record<GroupId, PaneGroup> = {};
   for (const [gid, paneIds] of byGroup) {
     if (paneIds.length < 2) continue;
     groups[gid] = {
@@ -214,46 +192,21 @@ export function buildGroupsFromPanes(
 }
 
 /**
- * Normalize a window record decoded from the server: turn undefined optionals
- * into null, ensure booleans are booleans, and coerce string drawer/bg into
- * narrowed unions for downstream readers.
- */
-function normalizeWindow(w: TmuxWindow): TmuxWindow {
-  return {
-    ...w,
-    windowType: w.windowType ?? null,
-    floatParent: w.floatParent ?? null,
-    floatWidth: w.floatWidth ?? null,
-    floatHeight: w.floatHeight ?? null,
-    floatDrawer: w.floatDrawer ?? null,
-    floatBg: w.floatBg ?? null,
-    floatNoheader: Boolean(w.floatNoheader),
-    sidebarCols: w.sidebarCols ?? null,
-    sidebarHidden: Boolean(w.sidebarHidden),
-    collapsible: Boolean(w.collapsible),
-    zoomed: Boolean(w.zoomed),
-    activePaneId: w.activePaneId ?? null,
-  };
-}
-
-/**
  * Build float pane states from float-typed windows.
  * Float metadata (drawer, backdrop, no-header) is sourced from @tmuxy-float-*
  * options on the window; each float window contains exactly one pane.
  */
 
-import type { DrawerDirection, FloatBackdrop, FloatPaneState } from '../types';
-
 export function buildFloatPanesFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
-  existingFloats: Record<string, FloatPaneState>,
+  existingFloats: Record<PaneId, FloatPaneState>,
   containerWidth: number,
   containerHeight: number,
   charWidth: number,
   charHeight: number,
-): Record<string, FloatPaneState> {
-  const floatPanes: Record<string, FloatPaneState> = {};
+): Record<PaneId, FloatPaneState> {
+  const floatPanes: Record<PaneId, FloatPaneState> = {};
 
   for (const window of windows) {
     if (window.windowType !== 'float') continue;

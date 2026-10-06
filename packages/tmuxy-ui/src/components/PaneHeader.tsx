@@ -19,9 +19,10 @@ import {
 import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
-import type { TmuxPane } from '../tmux/types';
+import type { TmuxPane } from '../domain/client';
 import { Tooltip } from './Tooltip';
 import { measureTabStrip } from '../utils/tabStripDrop';
+import { isModelPaneId, type PaneId } from '../domain/ids';
 
 /** Minimum pixels of movement before a mousedown becomes a drag */
 const DRAG_THRESHOLD = 5;
@@ -105,7 +106,7 @@ const PaneTab = memo(function PaneTab({
 });
 
 interface PaneHeaderProps {
-  paneId: string;
+  paneId: PaneId;
   /** Override the tab title for this pane (used by widgets) */
   titleOverride?: string;
   /** Widget name for icon lookup (e.g., "markdown", "image") */
@@ -120,7 +121,7 @@ interface ContextMenuState {
   visible: boolean;
   x: number;
   y: number;
-  targetPaneId: string;
+  targetPaneId: PaneId | null;
 }
 
 export function PaneHeader({
@@ -141,12 +142,12 @@ export function PaneHeader({
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   // The pane whose title is being edited in its own header, if any.
-  const [renamingPaneId, setRenamingPaneId] = useState<string | null>(null);
+  const [renamingPaneId, setRenamingPaneId] = useState<PaneId | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
     y: 0,
-    targetPaneId: '',
+    targetPaneId: null,
   });
 
   // Cleanup long-press timer on unmount
@@ -166,7 +167,7 @@ export function PaneHeader({
   }, [activePaneId]);
 
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, targetPaneId: string) => {
+    (e: React.MouseEvent, targetPaneId: PaneId) => {
       e.preventDefault();
       e.stopPropagation();
       if (readOnly) return;
@@ -181,7 +182,7 @@ export function PaneHeader({
   );
 
   const handleMenuClick = useCallback(
-    (e: React.MouseEvent, forPaneId?: string) => {
+    (e: React.MouseEvent, forPaneId?: PaneId) => {
       e.preventDefault();
       e.stopPropagation();
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -210,7 +211,7 @@ export function PaneHeader({
   // a time, and "marked" belongs to that one, not to the strip.
   const shownPane = tabPanes.find((p) => p.tmuxId === activeTabId) ?? pane;
 
-  const handleTabClick = (e: React.MouseEvent, clickedPaneId: string) => {
+  const handleTabClick = (e: React.MouseEvent, clickedPaneId: PaneId) => {
     e.preventDefault();
     e.stopPropagation();
     // For a group tab, route strictly through SELECT_PANE_GROUP_TAB: it flips
@@ -225,7 +226,7 @@ export function PaneHeader({
     }
   };
 
-  const handleClosePane = (e: React.MouseEvent, forPaneId?: string) => {
+  const handleClosePane = (e: React.MouseEvent, forPaneId?: PaneId) => {
     e.preventDefault();
     e.stopPropagation();
     // Uses CLOSE_PANE which routes through pane-group-close.sh
@@ -245,8 +246,10 @@ export function PaneHeader({
     send({ type: 'ZOOM_PANE', paneId: tmuxId });
   };
 
-  const memberUnder = (el: HTMLElement): string =>
-    (isGroup && el.closest<HTMLElement>('.pane-tab')?.dataset.paneTab) || tmuxId;
+  const memberUnder = (el: HTMLElement): PaneId => {
+    const tab = isGroup ? el.closest<HTMLElement>('.pane-tab')?.dataset.paneTab : undefined;
+    return isModelPaneId(tab) ? tab : tmuxId;
+  };
 
   const dropMarkFor = (index: number): 'onto' | 'before' | 'after' | null => {
     if (!groupDrop) return null;
@@ -396,7 +399,7 @@ export function PaneHeader({
   const isGroup = tabPanes.length > 1;
 
   /** One member's buttons, or the header's own when there is no group. */
-  const controlsFor = (forPaneId: string) =>
+  const controlsFor = (forPaneId: PaneId) =>
     readOnly ? null : (
       <span className="pane-tab-controls">
         <Tooltip label="Pane menu">
@@ -427,6 +430,8 @@ export function PaneHeader({
         </Tooltip>
       </span>
     );
+
+  const menuPaneId = contextMenu.visible ? contextMenu.targetPaneId : null;
 
   return (
     <div
@@ -519,13 +524,13 @@ export function PaneHeader({
           </Tooltip>
         </>
       )}
-      {contextMenu.visible && (
+      {menuPaneId && (
         <PaneContextMenu
-          paneId={contextMenu.targetPaneId}
+          paneId={menuPaneId}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={closeContextMenu}
-          onRename={() => setRenamingPaneId(contextMenu.targetPaneId)}
+          onRename={() => setRenamingPaneId(menuPaneId)}
         />
       )}
     </div>

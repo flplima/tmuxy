@@ -25,9 +25,10 @@ import { useAppSend } from '../../../machines/AppContext';
 import { isOpenableUrl } from '../../../utils/openUrl';
 import { Tooltip } from '../../Tooltip';
 import type { BrowserView } from './view';
+import type { PaneId } from '../../../domain/ids';
 
 interface BrowserNavProps {
-  paneId: string;
+  paneId: PaneId;
   view: BrowserView;
 }
 

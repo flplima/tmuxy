@@ -6,6 +6,7 @@
 
 import { restartApp } from '../../utils/restartApp';
 import type { AppMachineEvent } from '../../machines/types';
+import { type PaneId, isPlaceholderId } from '../../domain/ids';
 
 const GITHUB_URL = 'https://github.com/flplima/tmuxy';
 const GITHUB_BUG_REPORT_URL = 'https://github.com/flplima/tmuxy/issues/new?template=bug.yml';
@@ -21,11 +22,10 @@ type Send = (event: AppMachineEvent) => void;
  * realPaneId(activePaneId)`), so close hits the pane the user sees as active.
  */
 export function activeCloseTarget(
-  activePaneId: string | null,
-  focusedFloatPaneId: string | null,
-): string | undefined {
-  const realActive =
-    activePaneId && !activePaneId.startsWith('__placeholder_') ? activePaneId : null;
+  activePaneId: PaneId | null,
+  focusedFloatPaneId: PaneId | null,
+): PaneId | undefined {
+  const realActive = activePaneId && !isPlaceholderId(activePaneId) ? activePaneId : null;
   return focusedFloatPaneId ?? realActive ?? undefined;
 }
 
@@ -35,7 +35,7 @@ export function activeCloseTarget(
  * group-aware CLOSE_PANE path instead of a raw kill-pane that bypasses group
  * teardown (see activeCloseTarget).
  */
-export function executeMenuAction(send: Send, actionId: string, closeTargetPaneId?: string): void {
+export function executeMenuAction(send: Send, actionId: string, closeTargetPaneId?: PaneId): void {
   switch (actionId) {
     // Pane actions
     case 'pane-split-below':

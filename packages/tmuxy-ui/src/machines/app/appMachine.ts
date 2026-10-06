@@ -59,6 +59,7 @@ import {
   STATUS_MESSAGE_DURATION,
   STATUS_MESSAGE_CLEAR_ID,
   gridExtent,
+  keepLivePanes,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
@@ -73,6 +74,7 @@ import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
 import type { GestureActorEvent } from '../actors/gestureActor';
 import type { ServersActorEvent } from '../actors/serversActor';
+import { type PaneId, type WindowId, isPlaceholderId } from '../../domain/ids';
 
 /**
  * Resolve relative window targets in tmux commands.
@@ -82,7 +84,7 @@ import type { ServersActorEvent } from '../actors/serversActor';
  * active window. This replaces the implicit "." with the explicit window ID
  * so commands target the correct window regardless of CC client state.
  */
-function resolveWindowTarget(command: string, activeWindowId: string | null): string {
+function resolveWindowTarget(command: string, activeWindowId: WindowId | null): string {
   if (activeWindowId && command.includes('-t :.')) {
     // Global: a compound command (e.g. `selectw -t :. ; swapw -t :.`) can carry
     // more than one relative window target — resolve every one, not just the first.
@@ -91,7 +93,7 @@ function resolveWindowTarget(command: string, activeWindowId: string | null): st
   return command;
 }
 
-type ResizeGeom = { tmuxId: string; x: number; y: number; width: number; height: number };
+type ResizeGeom = { tmuxId: PaneId; x: number; y: number; width: number; height: number };
 
 /**
  * Whether the server geometry has caught up to the optimistic resize preview's
@@ -168,8 +170,8 @@ function resizePreviewSettled(
 function snapshotFromModel(model: TmuxClientModel): {
   panes: TmuxSnapshot['panes'][number][];
   windows: TmuxSnapshot['windows'][number][];
-  activePaneId: string | null;
-  activeWindowId: string | null;
+  activePaneId: PaneId | null;
+  activeWindowId: WindowId | null;
   totalWidth: number;
   totalHeight: number;
   sessionName: string;
@@ -193,17 +195,15 @@ function snapshotFromModel(model: TmuxClientModel): {
 
 /** Move a pane ID to the front of the MRU list */
 /** A group member parked out of view: in a group, and not in the window on screen. */
-function isParkedMember(context: AppMachineContext, paneId: string): boolean {
+function isParkedMember(context: AppMachineContext, paneId: PaneId): boolean {
   const pane = context.panes.find((p) => p.tmuxId === paneId);
   return !!pane?.groupId && pane.windowId !== context.activeWindowId;
 }
 
-function updateActivationOrder(order: string[], paneId: string | null): string[] {
+function updateActivationOrder(order: PaneId[], paneId: PaneId | null): PaneId[] {
   if (!paneId) return order;
   return [paneId, ...order.filter((id) => id !== paneId)];
 }
-
-// parseCommandPrompt, parseDisplayMessage moved to ./helpers.ts
 
 /**
  * Detect a tab-navigation command (`select-window -t N`, `next-window`,
@@ -218,7 +218,7 @@ function updateActivationOrder(order: string[], paneId: string | null): string[]
 function resolveTabNavTarget(
   command: string,
   context: AppMachineContext,
-): { windowId: string } | null {
+): { windowId: WindowId } | null {
   if (!context.activeWindowId) return null;
   const visibleWindows = context.windows.filter((w) => w.windowType === 'tab');
   if (visibleWindows.length === 0) return null;
@@ -280,7 +280,7 @@ function resolveTabNavTarget(
 function resolvePaneGroupNavTarget(
   command: string,
   context: AppMachineContext,
-): { paneId: string } | null {
+): { paneId: PaneId } | null {
   const trimmed = command.trim();
 
   let direction: 'prev' | 'next' | null = null;
@@ -966,10 +966,10 @@ export const appMachine = setup({
               const paneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
               const pruned: typeof paneGroups = {};
               let changed = false;
-              for (const [key, group] of Object.entries(paneGroups)) {
+              for (const group of Object.values(paneGroups)) {
                 const validIds = group.paneIds.filter((id) => paneIdSet.has(id));
                 if (validIds.length >= 2) {
-                  pruned[key] =
+                  pruned[group.id] =
                     validIds.length === group.paneIds.length
                       ? group
                       : { ...group, paneIds: validIds };
@@ -999,13 +999,7 @@ export const appMachine = setup({
             // updated pane list, remove it. Handles external kills where the
             // float window disappears via %unlinked-window-close.
             const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
-            const deadFloatIds = Object.keys(floatPanes).filter((id) => !currentPaneIdSet.has(id));
-            if (deadFloatIds.length > 0) {
-              floatPanes = { ...floatPanes };
-              for (const id of deadFloatIds) {
-                delete floatPanes[id];
-              }
-            }
+            floatPanes = keepLivePanes(floatPanes, currentPaneIdSet);
 
             // Detect float removal — check for session switch env var
             const prevFloatCount = Object.keys(context.floatPanes).length;
@@ -1285,25 +1279,14 @@ export const appMachine = setup({
             // routing is derived from copyModeStates[activePaneId], so leaving a
             // stale entry could keep keys routed to a dead pane's copy mode
             // during the brief window before activePaneId moves to a live pane.
-            for (const staleId of Object.keys(updatedCopyModeStates)) {
-              if (!currentPaneIdSet.has(staleId)) {
-                updatedCopyModeStates = { ...updatedCopyModeStates };
-                delete updatedCopyModeStates[staleId];
-              }
-            }
+            updatedCopyModeStates = keepLivePanes(updatedCopyModeStates, currentPaneIdSet);
 
             // Same for browser widget state. tmux hands out pane ids from a
             // counter that starts again when the server does, so a stale
             // record left behind by a closed pane could be inherited by an
             // unrelated pane after a restart — and its history cursor would
             // point the new pane's browser at a page that was never opened.
-            let updatedBrowserStates = context.browserStates;
-            for (const staleId of Object.keys(updatedBrowserStates)) {
-              if (!currentPaneIdSet.has(staleId)) {
-                updatedBrowserStates = { ...updatedBrowserStates };
-                delete updatedBrowserStates[staleId];
-              }
-            }
+            const updatedBrowserStates = keepLivePanes(context.browserStates, currentPaneIdSet);
 
             // Detect pane dimension changes from command-based resize
             // (not drag-resize, which uses resizeActive). Suppress CSS
@@ -2054,8 +2037,7 @@ export const appMachine = setup({
             // was focused, or to the previous pane right after an optimistic
             // switch.
             const activePane = context.activePaneId;
-            const realActivePane =
-              activePane && !activePane.startsWith('__placeholder_') ? activePane : null;
+            const realActivePane = activePane && !isPlaceholderId(activePane) ? activePane : null;
             const dockPane = context.rightSidebarFocused
               ? (selectRightSidebarPane(context)?.tmuxId ?? null)
               : null;

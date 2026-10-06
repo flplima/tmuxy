@@ -24,9 +24,10 @@ import { useAppSend, useAppSelector, usePane, useReadOnly } from '../machines/Ap
 import { paneAskFor } from '../utils/paneAsk';
 import type { AskAnswer } from '../utils/paneAsk';
 import './AskOverlay.css';
+import type { PaneId } from '../domain/ids';
 
 interface AskOverlayProps {
-  paneId: string;
+  paneId: PaneId;
   /**
    * Whether this pane holds the keyboard. Only then is the keyboard hint true
    * — in any other pane the question is answered by clicking it, or by the

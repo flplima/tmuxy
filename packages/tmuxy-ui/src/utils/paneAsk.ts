@@ -17,7 +17,8 @@
  * Pure: no React, no machine, no adapter.
  */
 
-import type { TmuxPane } from '../tmux/types';
+import type { TmuxPane } from '../domain/client';
+import type { PaneId } from '../domain/ids';
 
 /** A question waiting on a pane. */
 export interface PaneAsk {
@@ -85,7 +86,7 @@ export function paneAskFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): 
  * the overlay is what the user is looking at, and it should come down the
  * instant they choose, not once the keys arrive.
  */
-export function answerAskCommand(paneId: string, ask: PaneAsk, answer: AskAnswer): string {
+export function answerAskCommand(paneId: PaneId, ask: PaneAsk, answer: AskAnswer): string {
   return (
     `set-option -pu -t ${paneId} @tmuxy-ask \\; ` +
     `set-option -p -t ${paneId} @tmuxy-ask-answer '${ask.token}:${answer}'`

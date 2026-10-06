@@ -18,12 +18,13 @@ import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import { answerAskCommand, paneAskFor, type AskAnswer } from '../../../utils/paneAsk';
 import { visibleFloats } from '../../selectors';
+import type { PaneId } from '../../../domain/ids';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
 
 /** The highlighted option for a pane — `yes` until the user moves it. */
-export function askSelectionFor(context: Ctx, paneId: string): AskAnswer {
+export function askSelectionFor(context: Ctx, paneId: PaneId): AskAnswer {
   return context.askSelections[paneId] ?? 'yes';
 }
 
@@ -31,11 +32,11 @@ export function askSelectionFor(context: Ctx, paneId: string): AskAnswer {
  * Drop highlight entries for panes that no longer have a question, so a pane
  * asked twice does not start the second question on the first one's answer.
  */
-export function pruneAskSelections(context: Ctx): Record<string, AskAnswer> {
-  const asking = new Set(context.panes.filter((pane) => paneAskFor(pane)).map((p) => p.tmuxId));
-  const kept: Record<string, AskAnswer> = {};
-  for (const [paneId, answer] of Object.entries(context.askSelections)) {
-    if (asking.has(paneId)) kept[paneId] = answer;
+export function pruneAskSelections(context: Ctx): Record<PaneId, AskAnswer> {
+  const kept: Record<PaneId, AskAnswer> = {};
+  for (const pane of context.panes) {
+    const answer = context.askSelections[pane.tmuxId];
+    if (answer !== undefined && paneAskFor(pane)) kept[pane.tmuxId] = answer;
   }
   return kept;
 }

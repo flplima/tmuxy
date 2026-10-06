@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { pid, wid } from '../../../test/wire';
 import { preserveSnapshotIdentity } from '../adapters';
 import type { TmuxSnapshot } from '../types';
-import type { TmuxPane } from '../../types';
+import type { TmuxPane } from '../../../domain/client';
 
 /**
  * The store keeps the PREVIOUS pane object whenever a pane is "unchanged", so
@@ -15,8 +16,8 @@ import type { TmuxPane } from '../../types';
  */
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
   id: 0,
-  tmuxId: '%1',
-  windowId: '@1',
+  tmuxId: pid('%1'),
+  windowId: wid('@1'),
   content: [],
   cursorX: 0,
   cursorY: 0,
@@ -47,8 +48,8 @@ const snap = (panes: TmuxPane[]): TmuxSnapshot =>
   ({
     panes,
     windows: [],
-    activePaneId: '%1',
-    activeWindowId: '@1',
+    activePaneId: pid('%1'),
+    activeWindowId: wid('@1'),
     totalWidth: 80,
     totalHeight: 24,
     focusRequest: '',

@@ -10,15 +10,16 @@
  */
 
 import type { Box } from './gestures';
+import type { PaneId } from '../domain/ids';
 
-let held: { paneId: string; box: Box } | null = null;
+let held: { paneId: PaneId; box: Box } | null = null;
 
-export function holdZoomHandoff(paneId: string, box: Box): void {
+export function holdZoomHandoff(paneId: PaneId, box: Box): void {
   held = { paneId, box };
 }
 
 /** The box a committed pinch left `paneId` at, once; null when no pinch handed this pane off. */
-export function takeZoomHandoff(paneId: string): Box | null {
+export function takeZoomHandoff(paneId: PaneId): Box | null {
   if (held?.paneId !== paneId) return null;
   const { box } = held;
   held = null;

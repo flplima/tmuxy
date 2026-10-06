@@ -22,6 +22,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
 import type { DemoAdapter } from '../lib';
+import { PaneId } from '../domain/ids';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/Resilience',
@@ -354,7 +355,7 @@ export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const win = window as unknown as {
-      app?: { send: (e: unknown) => void; getSnapshot(): { context: { activePaneId: string } } };
+      app?: { send: (e: unknown) => void; getSnapshot(): { context: { activePaneId: PaneId } } };
       __staleAdapter?: DemoAdapter;
     };
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
@@ -478,12 +479,12 @@ export const ClipboardOSC52: StoryObj<ClipboardArgs> = {
     expect(adapter).toBeTruthy();
 
     // Clear any prior test hook payload.
-    const win = window as unknown as { __tmuxyLastClipboard?: { paneId: string; text: string } };
+    const win = window as unknown as { __tmuxyLastClipboard?: { paneId: PaneId; text: string } };
     win.__tmuxyLastClipboard = undefined;
 
     // Inject the clipboard write the same way the Rust backend would after
     // parsing an OSC 52 sequence.
-    adapter!.emitClipboard('%0', 'gemini says hi');
+    adapter!.emitClipboard(PaneId.make('%0'), 'gemini says hi');
 
     await waitFor(
       () => {

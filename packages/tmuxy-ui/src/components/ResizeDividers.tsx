@@ -20,6 +20,7 @@ import { useAppSend, useReadOnly } from '../machines/AppContext';
 import type { PaneCellBox, TmuxPane } from '../machines/types';
 import { haptics } from '../utils/haptics';
 import { resizeLimits, isLocked } from '../machines/resize/limits';
+import type { PaneId } from '../domain/ids';
 
 interface ResizeDividersProps {
   panes: TmuxPane[];
@@ -31,7 +32,7 @@ interface ResizeDividersProps {
 interface DividerSegment {
   start: number; // left for horizontal, top for vertical
   end: number; // right for horizontal, bottom for vertical
-  paneId: string; // pane to resize
+  paneId: PaneId; // pane to resize
 }
 
 /** A fully resolved divider with orientation and axis position */
@@ -40,7 +41,7 @@ interface ResolvedDivider {
   axisPos: number; // yPos for horizontal, xPos for vertical
   start: number;
   end: number;
-  paneId: string;
+  paneId: PaneId;
 }
 
 /** Merge adjacent/overlapping segments at a given divider position */
@@ -180,7 +181,7 @@ export function ResizeDividers({
   if (readOnly) return null;
   const { horizontal, vertical } = collectDividerSegments(panes);
   const dividers = resolveDividers(horizontal, vertical);
-  const geometry: Record<string, PaneCellBox> = Object.fromEntries(
+  const geometry: Record<PaneId, PaneCellBox> = Object.fromEntries(
     panes.map((p) => [p.tmuxId, { x: p.x, y: p.y, width: p.width, height: p.height }]),
   );
 

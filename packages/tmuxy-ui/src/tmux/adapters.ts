@@ -29,6 +29,7 @@ import { decodeEvent } from './wireDecode';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 import { tracer } from './tracer';
+import type { PaneId } from '../domain/ids';
 
 // ============================================
 // Tauri Adapter
@@ -409,7 +410,7 @@ export class TauriAdapter implements TmuxAdapter {
     this.themeSettingsListeners.forEach((listener) => listener(settings));
   }
 
-  private notifyClipboard(paneId: string, text: string) {
+  private notifyClipboard(paneId: PaneId | null, text: string) {
     this.clipboardListeners.forEach((listener) => listener(paneId, text));
   }
 

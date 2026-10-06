@@ -30,6 +30,7 @@ import { tracer } from './tracer';
 import { isReadCommand, READ_ONLY_REASON } from './readOnly';
 import { Cancelled } from './effect/AdapterError';
 import { Effect, Fiber, Queue, Schedule, type Schema } from 'effect';
+import type { PaneId } from '../domain/ids';
 
 /**
  * Reconnection backoff: retry forever, exponential from 1s, capped at 30s.
@@ -922,7 +923,7 @@ export class HttpAdapter implements TmuxAdapter {
     this.detachedListeners.forEach((listener) => listener(reason));
   }
 
-  private notifyClipboard(paneId: string, text: string): void {
+  private notifyClipboard(paneId: PaneId | null, text: string): void {
     this.clipboardListeners.forEach((listener) => listener(paneId, text));
   }
 }

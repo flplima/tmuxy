@@ -10,12 +10,7 @@
  */
 
 import type { TmuxPane, TmuxWindow } from '../machines/types';
-
-/**
- * An optimistic placeholder (a tab the client predicted but tmux has not
- * confirmed yet) has no `@id` to target: closing or moving it must wait.
- */
-export const isPlaceholderId = (id: string): boolean => id.startsWith('__placeholder_');
+import { type PaneId, type WindowId, isPlaceholderId } from '../domain/ids';
 
 /** Pixels a mouse must travel before a press on a tab becomes a drag. */
 export const DRAG_THRESHOLD_PX = 6;
@@ -38,7 +33,7 @@ export function capturePointer(el: Element, pointerId: number): void {
 
 /** A pane drawn inside a slot, in percent of the slot's box. */
 export interface SlotBox {
-  paneId: string;
+  paneId: PaneId;
   /** What the pane runs (or its title) — the box's caption. */
   label: string;
   active: boolean;
@@ -67,7 +62,7 @@ export interface OverviewSlot {
  * 1). Percentages are taken over the tab's own extent so a half-height window
  * still fills its slot.
  */
-export function slotBoxes(panes: readonly TmuxPane[], windowId: string): SlotBox[] {
+export function slotBoxes(panes: readonly TmuxPane[], windowId: WindowId): SlotBox[] {
   const own = panes.filter((p) => p.windowId === windowId && !isPlaceholderId(p.tmuxId));
   if (own.length === 0) return [];
   const minX = Math.min(...own.map((p) => p.x));
@@ -152,7 +147,7 @@ export function dropIndex(
  */
 export function reorderCommand(
   visibleWindows: readonly TmuxWindow[],
-  windowId: string,
+  windowId: WindowId,
   toIndex: number,
 ): string | null {
   if (isPlaceholderId(windowId)) return null;

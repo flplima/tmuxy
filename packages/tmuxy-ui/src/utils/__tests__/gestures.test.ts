@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { WindowId } from '../../domain/ids';
+import { pid, wid } from '../../test/wire';
 import {
   SWIPE_EDGE_LIMIT_SHARE,
   SWIPE_GUTTER_PX,
@@ -20,13 +22,13 @@ import {
 import type { GestureState, TmuxWindow } from '../../machines/types';
 
 const tab = (id: string) => ({ id }) as TmuxWindow;
-const tabs = [tab('@1'), tab('@2'), tab('@3')];
+const tabs = [tab(wid('@1')), tab(wid('@2')), tab(wid('@3'))];
 
 type SwipeGesture = Extract<GestureState, { kind: 'swipe' }>;
 
 const swipe = (
   dx: number,
-  neighborId: string | null,
+  neighborId: WindowId | null,
   phase: SwipeGesture['phase'],
 ): SwipeGesture => ({
   kind: 'swipe',
@@ -38,21 +40,21 @@ const swipe = (
 
 describe('neighborTab', () => {
   it('pulls in the next tab when the fingers move left and the previous one when they move right', () => {
-    expect(neighborTab(tabs, '@2', -40)?.id).toBe('@3');
-    expect(neighborTab(tabs, '@2', 40)?.id).toBe('@1');
+    expect(neighborTab(tabs, wid('@2'), -40)?.id).toBe(wid('@3'));
+    expect(neighborTab(tabs, wid('@2'), 40)?.id).toBe(wid('@1'));
   });
 
   it('has nothing to pull in past either end of the strip', () => {
-    expect(neighborTab(tabs, '@3', -40)).toBeNull();
-    expect(neighborTab(tabs, '@1', 40)).toBeNull();
-    expect(neighborTab(tabs, '@2', 0)).toBeNull();
+    expect(neighborTab(tabs, wid('@3'), -40)).toBeNull();
+    expect(neighborTab(tabs, wid('@1'), 40)).toBeNull();
+    expect(neighborTab(tabs, wid('@2'), 0)).toBeNull();
   });
 });
 
 describe('parseSwipeNeighbor', () => {
   it('splits the tab id from the side it comes in from', () => {
-    expect(parseSwipeNeighbor('@3:1')).toEqual(['@3', 1]);
-    expect(parseSwipeNeighbor('@1:-1')).toEqual(['@1', -1]);
+    expect(parseSwipeNeighbor('@3:1')).toEqual([wid('@3'), 1]);
+    expect(parseSwipeNeighbor('@1:-1')).toEqual([wid('@1'), -1]);
     expect(parseSwipeNeighbor(null)).toEqual([null, 0]);
   });
 });
@@ -112,14 +114,14 @@ describe('swipeOffsetPx', () => {
 describe('gestureStageMode', () => {
   it('moves the grid with the fingers, settles a released slide, and enters from the overview', () => {
     expect(gestureStageMode(null)).toBeNull();
-    expect(gestureStageMode(swipe(10, '@1', 'tracking'))).toBe('moving');
-    expect(gestureStageMode(swipe(800, '@1', 'finishing'))).toBe('settling');
+    expect(gestureStageMode(swipe(10, wid('@1'), 'tracking'))).toBe('moving');
+    expect(gestureStageMode(swipe(800, wid('@1'), 'finishing'))).toBe('settling');
     expect(
       gestureStageMode({
         kind: 'pinch',
         mode: 'enter',
         scale: 1.2,
-        paneId: '%0',
+        paneId: pid('%0'),
         phase: 'tracking',
       }),
     ).toBe('entering');
@@ -128,7 +130,7 @@ describe('gestureStageMode', () => {
 
 describe('gridGestureTransform', () => {
   it('moves the grid with the fingers, and gives with resistance past the last tab', () => {
-    expect(gridGestureTransform(swipe(100, '@1', 'tracking'), 800, 600)).toBe(
+    expect(gridGestureTransform(swipe(100, wid('@1'), 'tracking'), 800, 600)).toBe(
       'translate3d(100px, 0, 0)',
     );
     expect(gridGestureTransform(swipe(100, null, 'tracking'), 800, 600)).toBe(
@@ -140,24 +142,24 @@ describe('gridGestureTransform', () => {
       'translate3d(-995px, 0, 0)',
     );
     // One sliding back belongs at rest, which is the stylesheet's job.
-    expect(gridGestureTransform(swipe(0, '@1', 'cancelling'), 800, 600)).toBeNull();
+    expect(gridGestureTransform(swipe(0, wid('@1'), 'cancelling'), 800, 600)).toBeNull();
   });
 
   it('carries on from where the grid was when a slide took over one still sliding home', () => {
-    expect(gridGestureTransform(swipe(60, '@1', 'tracking'), 800, 600, -140)).toBe(
+    expect(gridGestureTransform(swipe(60, wid('@1'), 'tracking'), 800, 600, -140)).toBe(
       'translate3d(-80px, 0, 0)',
     );
-    expect(gridGestureTransform(swipe(-935, '@1', 'finishing'), 800, 600, -140)).toBe(
+    expect(gridGestureTransform(swipe(-935, wid('@1'), 'finishing'), 800, 600, -140)).toBe(
       'translate3d(-1075px, 0, 0)',
     );
     // Wherever it started, sliding back means rest.
-    expect(gridGestureTransform(swipe(0, '@1', 'cancelling'), 800, 600, -140)).toBeNull();
+    expect(gridGestureTransform(swipe(0, wid('@1'), 'cancelling'), 800, 600, -140)).toBeNull();
   });
 
   it('shrinks the grid about its centre on a pinch in, and leaves it to the pane or the card otherwise', () => {
     const pinch = (mode: 'overview' | 'zoom' | 'enter', scale: number) =>
       gridGestureTransform(
-        { kind: 'pinch', mode, scale, paneId: '%0', phase: 'tracking' },
+        { kind: 'pinch', mode, scale, paneId: pid('%0'), phase: 'tracking' },
         800,
         600,
       );

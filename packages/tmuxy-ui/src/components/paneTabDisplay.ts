@@ -5,7 +5,7 @@
  * (`SidebarTree`) so a pane reads with the identical icon + title everywhere.
  */
 
-import type { TmuxPane } from '../tmux/types';
+import type { TmuxPane } from '../domain/client';
 import { getWidget } from './widgets';
 
 const PROCESS_ICONS: Record<string, string> = {

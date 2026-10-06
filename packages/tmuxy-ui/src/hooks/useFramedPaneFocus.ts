@@ -24,13 +24,14 @@
 
 import { useEffect, type RefObject } from 'react';
 import { useAppSend } from '../machines/AppContext';
+import type { PaneId } from '../domain/ids';
 
 /**
  * @param paneId - the pane to activate
  * @param ref - the pane's root element; only frames inside it count, so one
  *   pane's hook cannot activate its neighbour
  */
-export function useFramedPaneFocus(paneId: string, ref: RefObject<HTMLElement | null>): void {
+export function useFramedPaneFocus(paneId: PaneId, ref: RefObject<HTMLElement | null>): void {
   const send = useAppSend();
 
   useEffect(() => {

@@ -1,18 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
+import { pid, wid } from '../../../../test/wire';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
 const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { ResizeState, DragState } from '../../../types';
+import type { PaneId, WindowId } from '../../../../domain/ids';
 
 describe('layout state', () => {
   it('SELECT_TAB flips activeWindowId and computes optimistic activePaneId', () => {
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: '@0',
-      activePaneId: '%0',
+      activeWindowId: wid('@0'),
+      activePaneId: pid('%0'),
       windows: [
         {
-          id: '@0',
+          id: wid('@0'),
           index: 0,
           name: 'a',
           active: true,
@@ -25,7 +27,7 @@ describe('layout state', () => {
           floatNoheader: false,
         },
         {
-          id: '@1',
+          id: wid('@1'),
           index: 1,
           name: 'b',
           active: false,
@@ -41,8 +43,8 @@ describe('layout state', () => {
       panes: [
         {
           id: 0,
-          tmuxId: '%0',
-          windowId: '@0',
+          tmuxId: pid('%0'),
+          windowId: wid('@0'),
           content: [],
           cursorX: 0,
           cursorY: 0,
@@ -69,8 +71,8 @@ describe('layout state', () => {
         },
         {
           id: 1,
-          tmuxId: '%1',
-          windowId: '@1',
+          tmuxId: pid('%1'),
+          windowId: wid('@1'),
           content: [],
           cursorX: 0,
           cursorY: 0,
@@ -99,19 +101,19 @@ describe('layout state', () => {
     });
     const ctx = sendAndGetContext(actor, {
       type: 'SELECT_TAB',
-      windowId: '@1',
+      windowId: wid('@1'),
     });
-    expect(ctx.activeWindowId).toBe('@1');
-    expect(ctx.activePaneId).toBe('%1');
+    expect(ctx.activeWindowId).toBe(wid('@1'));
+    expect(ctx.activePaneId).toBe(pid('%1'));
     // Outgoing window's active pane was recorded for restore-on-return
-    expect(ctx.lastActivePaneByWindow['@0']).toBe('%0');
+    expect(ctx.lastActivePaneByWindow[wid('@0')]).toBe(pid('%0'));
   });
 
   it("SELECT_TAB lands on the target window's own active pane, not its first pane", () => {
     // `pane.active` is session-wide: none of a background tab's panes carry
     // it. The window's own activePaneId (from the server) is what the switch
     // must use — the first pane was a wrong guess the server then corrected.
-    const win = (id: string, index: number, active: boolean, activePaneId: string | null) => ({
+    const win = (id: WindowId, index: number, active: boolean, activePaneId: PaneId | null) => ({
       id,
       index,
       name: id,
@@ -125,7 +127,7 @@ describe('layout state', () => {
       floatNoheader: false,
       activePaneId,
     });
-    const pane = (tmuxId: string, windowId: string, active: boolean) => ({
+    const pane = (tmuxId: PaneId, windowId: WindowId, active: boolean) => ({
       id: Number(tmuxId.slice(1)),
       tmuxId,
       windowId,
@@ -156,27 +158,31 @@ describe('layout state', () => {
       cursorHidden: false,
     });
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: '@0',
-      activePaneId: '%0',
-      windows: [win('@0', 0, true, '%0'), win('@4', 4, false, '%36')],
-      panes: [pane('%0', '@0', true), pane('%50', '@4', false), pane('%36', '@4', false)],
+      activeWindowId: wid('@0'),
+      activePaneId: pid('%0'),
+      windows: [win(wid('@0'), 0, true, pid('%0')), win(wid('@4'), 4, false, pid('%36'))],
+      panes: [
+        pane(pid('%0'), wid('@0'), true),
+        pane(pid('%50'), wid('@4'), false),
+        pane(pid('%36'), wid('@4'), false),
+      ],
     });
-    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: '@4' });
-    expect(ctx.activeWindowId).toBe('@4');
-    expect(ctx.activePaneId).toBe('%36');
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@4') });
+    expect(ctx.activeWindowId).toBe(wid('@4'));
+    expect(ctx.activePaneId).toBe(pid('%36'));
   });
 
   it('SELECT_TAB is a no-op when already on the target window', () => {
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: '@5',
+      activeWindowId: wid('@5'),
       windows: [],
     });
     const ctx = sendAndGetContext(actor, {
       type: 'SELECT_TAB',
-      windowId: '@5',
+      windowId: wid('@5'),
     });
     // No flip and no dispatch — active window unchanged.
-    expect(ctx.activeWindowId).toBe('@5');
+    expect(ctx.activeWindowId).toBe(wid('@5'));
   });
 
   it('RESIZE_STATE_UPDATE writes resize and resizeActive flag', () => {
@@ -186,7 +192,7 @@ describe('layout state', () => {
     });
     // Casting via unknown — the test only cares about the assign behavior,
     // not the shape of the resize payload itself (covered elsewhere).
-    const resize = { paneId: '%1', handle: 'e' } as unknown as ResizeState;
+    const resize = { paneId: pid('%1'), handle: 'e' } as unknown as ResizeState;
     let ctx = sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize });
     expect(ctx.resize).toEqual(resize);
     expect(ctx.resizeActive).toBe(true);
@@ -201,7 +207,7 @@ describe('layout state', () => {
     // A real drag payload must land verbatim... (null → null asserted
     // nothing: the previous version of this test passed even with the
     // handler deleted).
-    const drag = { paneId: '%2', currentX: 10, currentY: 20 } as unknown as DragState;
+    const drag = { paneId: pid('%2'), currentX: 10, currentY: 20 } as unknown as DragState;
     let ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag });
     expect(ctx.drag).toEqual(drag);
     // ...and null must clear it again.
@@ -216,7 +222,7 @@ describe('layout state', () => {
         resize: null,
         resizeActive: false,
       });
-      const resize = { paneId: '%1', handle: 'e' } as unknown as ResizeState;
+      const resize = { paneId: pid('%1'), handle: 'e' } as unknown as ResizeState;
       sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize });
       actor.send({ type: 'RESIZE_COMPLETED' });
       // No new resize and no TMUX_STATE_UPDATE: the fallback nulls the preview.
@@ -234,12 +240,12 @@ describe('layout state', () => {
         resize: null,
         resizeActive: false,
       });
-      const resizeA = { paneId: '%1', handle: 'e' } as unknown as ResizeState;
+      const resizeA = { paneId: pid('%1'), handle: 'e' } as unknown as ResizeState;
       sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize: resizeA });
       // Resize A finishes, scheduling the 2s fallback bound to A.
       actor.send({ type: 'RESIZE_COMPLETED' });
       // The user starts a fresh resize B before the fallback fires.
-      const resizeB = { paneId: '%2', handle: 's' } as unknown as ResizeState;
+      const resizeB = { paneId: pid('%2'), handle: 's' } as unknown as ResizeState;
       sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize: resizeB });
       // A's stale timer fires — B's live preview must survive.
       vi.advanceTimersByTime(2000);

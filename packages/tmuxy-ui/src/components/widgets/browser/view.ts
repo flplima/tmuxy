@@ -10,6 +10,7 @@
 
 import type { AppMachineContext, BrowserPaneState } from '../../../machines/types';
 import { parseSource } from './source';
+import type { PaneId } from '../../../domain/ids';
 
 /** Zoom bounds. Wider than a real browser's ladder; a pane can be very small. */
 export const MIN_ZOOM = 0.3;
@@ -95,7 +96,7 @@ export function normalizeAddress(raw: string): string {
 /** Same view, read from machine context — for the menu, which has no props. */
 export function selectBrowserView(
   context: AppMachineContext,
-  paneId: string,
+  paneId: PaneId,
   lines: string[],
 ): BrowserView {
   return browserView(context.browserStates[paneId], lines);

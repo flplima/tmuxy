@@ -24,6 +24,7 @@
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';
+import type { PaneId } from '../../../domain/ids';
 
 // Fallback for clearing the optimistic resize preview if the server-confirmed
 // TMUX_STATE_UPDATE never arrives. Scheduled as a delayed self-event by id and
@@ -129,7 +130,7 @@ export const layoutActions = {
       }
 
       const targetPanes = context.panes.filter((p) => p.windowId === event.windowId);
-      const inTarget = (id: string | null | undefined) =>
+      const inTarget = (id: PaneId | null | undefined) =>
         id && targetPanes.some((p) => p.tmuxId === id) ? id : null;
       // Where the switch lands, best knowledge first: the pane this client
       // last left the tab on; the tab's own active pane as tmux reports it

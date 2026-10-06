@@ -369,8 +369,19 @@ export const MessageFrame = Schema.Struct({ message: Schema.String });
 /** The connection ended, with tmux's `%exit` reason when it gave one. */
 export const DetachedEvent = Schema.Struct({ reason: Schema.NullishOr(Schema.String) });
 
-/** An OSC 52 clipboard write from a pane. */
-export const ClipboardEvent = Schema.Struct({ pane_id: PaneId, text: Schema.String });
+/** The pane a clipboard write came from; the paste-buffer mirror has none and sends `''`. */
+const ClipboardSource = Schema.transform(
+  Schema.Union(Schema.Literal(''), PaneId),
+  Schema.NullOr(Schema.typeSchema(PaneId)),
+  {
+    strict: true,
+    decode: (id) => (id === '' ? null : id),
+    encode: (id) => id ?? '',
+  },
+);
+
+/** A clipboard write: an OSC 52 sequence from a pane, or the tmux paste buffer (no pane). */
+export const ClipboardEvent = Schema.Struct({ pane_id: ClipboardSource, text: Schema.String });
 
 /** A `get_scrollback_cells` answer: a slice of a pane's history. */
 export const ScrollbackCells = Schema.Struct({

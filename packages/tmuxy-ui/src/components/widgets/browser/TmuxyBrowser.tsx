@@ -27,6 +27,7 @@ import { getThemeVersion, subscribeTheme } from '../../../utils/themeManager';
 import { MarkdownView } from './MarkdownView';
 import { BrowserNav } from './BrowserNav';
 import { canReadPageTitle, fetchPageTitle } from './pageTitle';
+import type { PaneId } from '../../../domain/ids';
 
 /**
  * What a local page may do in its frame. There is no `allow-same-origin`, so
@@ -91,7 +92,7 @@ const ThemeColorFilter = memo(function ThemeColorFilter({ id }: { id: string }) 
  * pane's title — the header, the tree, the tab overview — gets it at once.
  */
 function usePageTitle(
-  paneId: string,
+  paneId: PaneId,
   source: string,
   url: string,
   loadUrl: string,

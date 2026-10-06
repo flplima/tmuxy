@@ -29,6 +29,7 @@ import type {
   FatalListener,
   ClipboardListener,
 } from '../types';
+import { isPaneId } from '../../domain/ids';
 import type { KeyBindings } from '../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../wireDecode';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
@@ -212,7 +213,10 @@ export class V86TmuxAdapter implements TmuxAdapter {
         const state = decodeStateForListener(raw);
         if (state) this.stateListeners.forEach((l) => l(state));
       },
-      onClipboard: (paneId, text) => this.clipboardListeners.forEach((l) => l(paneId, text)),
+      onClipboard: (paneId, text) => {
+        const source = isPaneId(paneId) ? paneId : null;
+        this.clipboardListeners.forEach((l) => l(source, text));
+      },
       onFatal: (message) => this.fatalListeners.forEach((l) => l(message)),
     };
     this.engine.setSink(this.sink);

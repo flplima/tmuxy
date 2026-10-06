@@ -24,6 +24,7 @@ import {
   RIGHT_SIDEBAR_COLS,
   SIDEBAR_OVERLAY_MIN_COLS,
 } from './constants';
+import type { PaneId, WindowId } from '../domain/ids';
 
 // ============================================
 // Pane Selectors
@@ -594,7 +595,7 @@ export const selectCellMetrics = createMemoizedSelector(
 /**
  * Get the active pane ID in a group (derived from which pane is in the active window)
  */
-export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): string | null {
+export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): PaneId | null {
   for (const paneId of group.paneIds) {
     const pane = context.panes.find((p) => p.tmuxId === paneId);
     if (pane?.windowId === context.activeWindowId) {
@@ -626,7 +627,7 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
     result = previewPanes;
   } else {
     // Build a Set of hidden pane IDs for O(1) lookup
-    const hiddenPaneIds = new Set<string>();
+    const hiddenPaneIds = new Set<PaneId>();
 
     for (const group of groupsArray) {
       // The active pane is whichever one is in the active window
@@ -680,9 +681,9 @@ export const selectMarkedPaneId = createMemoizedSelector(
  * would evict the entry every component reads from.
  */
 export function visibleFloats(
-  floatPanes: Record<string, FloatPaneState>,
+  floatPanes: Record<PaneId, FloatPaneState>,
   windows: TmuxWindow[],
-  activeWindowId: string | null,
+  activeWindowId: WindowId | null,
 ): FloatPaneState[] {
   return Object.values(floatPanes).filter((float) => {
     const parent = float.parentWindowId;
@@ -726,7 +727,7 @@ function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[]
   const { panes, activeWindowId, floatPanes, paneGroups, windows } = context;
   if (!activeWindowId) return [];
 
-  const hiddenGroupPaneIds = new Set<string>();
+  const hiddenGroupPaneIds = new Set<PaneId>();
   for (const group of Object.values(paneGroups)) {
     const activeGroupPaneId = getActivePaneInGroup(context, group);
     for (const id of group.paneIds) {
@@ -768,8 +769,8 @@ export const selectHiddenWindowPanes = createMemoizedSelector(
  * Find the group that contains a given pane (if any)
  */
 export const selectPaneGroupForPane = createMemoizedSelectorWithArg(
-  (ctx: AppMachineContext, _paneId: string) => ctx.paneGroups,
-  (context: AppMachineContext, paneId: string): PaneGroup | undefined => {
+  (ctx: AppMachineContext, _paneId: PaneId) => ctx.paneGroups,
+  (context: AppMachineContext, paneId: PaneId): PaneGroup | undefined => {
     return Object.values(context.paneGroups).find((group) => group.paneIds.includes(paneId));
   },
 );
@@ -811,9 +812,9 @@ const selectPreviewPaneMap = createMemoizedSelector(
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
   }),
-  (context: AppMachineContext): Map<string, TmuxPane> => {
+  (context: AppMachineContext): Map<PaneId, TmuxPane> => {
     const previewPanes = selectPreviewPanes(context);
-    const map = new Map<string, TmuxPane>();
+    const map = new Map<PaneId, TmuxPane>();
     for (const pane of previewPanes) {
       map.set(pane.tmuxId, pane);
     }
@@ -822,7 +823,7 @@ const selectPreviewPaneMap = createMemoizedSelector(
 );
 
 export const selectPaneById = createMemoizedSelectorWithArg(
-  (ctx: AppMachineContext, _paneId: string) => ({
+  (ctx: AppMachineContext, _paneId: PaneId) => ({
     panes: ctx.panes,
     resize: ctx.resize,
     drag: ctx.drag,
@@ -831,7 +832,7 @@ export const selectPaneById = createMemoizedSelectorWithArg(
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
   }),
-  (context: AppMachineContext, paneId: string): TmuxPane | undefined => {
+  (context: AppMachineContext, paneId: PaneId): TmuxPane | undefined => {
     const paneMap = selectPreviewPaneMap(context);
     return paneMap.get(paneId) ?? context.panes.find((p) => p.tmuxId === paneId);
   },
@@ -840,7 +841,7 @@ export const selectPaneById = createMemoizedSelectorWithArg(
 /**
  * Check if a specific pane is in the active window
  */
-export function selectIsPaneInActiveWindow(context: AppMachineContext, paneId: string): boolean {
+export function selectIsPaneInActiveWindow(context: AppMachineContext, paneId: PaneId): boolean {
   const pane = context.panes.find((p) => p.tmuxId === paneId);
   return pane?.windowId === context.activeWindowId;
 }
@@ -863,7 +864,7 @@ export function selectIsSinglePane(context: AppMachineContext): boolean {
  * Derived from the store's op log (mirrored into context on every
  * TMUX_MODEL_UPDATE); clears itself when the op confirms or rolls back.
  */
-export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<string> | null {
+export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<PaneId> | null {
   const ids = context.groupSwitchPaneIds;
   if (ids.length === 0) return null;
   return new Set(ids);
@@ -936,7 +937,7 @@ export function selectSwipeNeighbor(context: AppMachineContext): string | null {
   const g = context.gesture;
   if (g?.kind !== 'swipe' || !g.neighborId) return null;
   const tabs = selectVisibleWindows(context);
-  const at = (id: string | null) => tabs.findIndex((w) => w.id === id);
+  const at = (id: WindowId | null) => tabs.findIndex((w) => w.id === id);
   return `${g.neighborId}:${at(g.neighborId) > at(context.activeWindowId) ? 1 : -1}`;
 }
 

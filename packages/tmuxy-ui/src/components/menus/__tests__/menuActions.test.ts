@@ -1,18 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
+import { placeholderPaneId } from '../../../domain/ids';
+import { pid } from '../../../test/wire';
 import { activeCloseTarget, executeMenuAction } from '../menuActions';
 import type { AppMachineEvent } from '../../../machines/types';
 
 describe('activeCloseTarget', () => {
   it('prefers the focused float pane', () => {
-    expect(activeCloseTarget('%3', '%9')).toBe('%9');
+    expect(activeCloseTarget(pid('%3'), pid('%9'))).toBe(pid('%9'));
   });
 
   it('falls back to the real active pane when no float is focused', () => {
-    expect(activeCloseTarget('%3', null)).toBe('%3');
+    expect(activeCloseTarget(pid('%3'), null)).toBe(pid('%3'));
   });
 
   it('ignores an optimistic placeholder active pane', () => {
-    expect(activeCloseTarget('__placeholder_5', null)).toBeUndefined();
+    expect(activeCloseTarget(placeholderPaneId('5'), null)).toBeUndefined();
   });
 
   it('returns undefined when there is no active pane', () => {
@@ -24,8 +26,8 @@ describe('executeMenuAction pane-close routing', () => {
   it('routes to group-aware CLOSE_PANE when a target pane is known', () => {
     const sent: AppMachineEvent[] = [];
     const send = (e: AppMachineEvent) => sent.push(e);
-    executeMenuAction(send, 'pane-close', '%7');
-    expect(sent).toEqual([{ type: 'CLOSE_PANE', paneId: '%7' }]);
+    executeMenuAction(send, 'pane-close', pid('%7'));
+    expect(sent).toEqual([{ type: 'CLOSE_PANE', paneId: pid('%7') }]);
   });
 
   it('falls back to raw kill-pane when no target pane is known', () => {

@@ -11,12 +11,13 @@ import type { TraceLevel, TraceSettings } from '../types';
 import { toEffectAdapter, formatAdapterError, type AdapterError } from '../../tmux/effect';
 import { tracer } from '../../tmux/tracer';
 import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../tmux/readOnly';
+import type { PaneId } from '../../domain/ids';
 
 export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
-  | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number }
+  | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_TRACE_SETTINGS' }
   | { type: 'SET_TRACE_ENABLED'; enabled: boolean }
@@ -111,7 +112,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
      * but Fiber.interrupt stops the Effect from emitting onSuccess, so
      * the parent never sees the stale chunk.
      */
-    const scrollbackFibers = new Map<string, Fiber.RuntimeFiber<unknown, AdapterError>>();
+    const scrollbackFibers = new Map<PaneId, Fiber.RuntimeFiber<unknown, AdapterError>>();
 
     logInfo('Connecting to tmux backend...');
 
@@ -174,7 +175,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     );
 
     // OSC 52 clipboard requests from terminal applications.
-    const unsubscribeClipboard = adapter.onClipboard((paneId: string, text: string) => {
+    const unsubscribeClipboard = adapter.onClipboard((paneId: PaneId | null, text: string) => {
       parent.send({ type: 'TMUX_CLIPBOARD', paneId, text });
     });
 

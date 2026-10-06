@@ -11,9 +11,10 @@ import { LogProfiler } from '../utils/renderLog';
 import { usePaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { WidgetPane } from './WidgetPane';
 import { TerminalPane } from './TerminalPane';
+import type { PaneId } from '../domain/ids';
 
 interface PaneProps {
-  paneId: string;
+  paneId: PaneId;
 }
 
 /**

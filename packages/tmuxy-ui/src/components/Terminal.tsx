@@ -14,8 +14,9 @@ import { isWrappedRow } from '../utils/copyMode';
 import { isTauri } from '../tmux/adapters';
 import { tauriSchemeUrl } from '../utils/platform';
 import type { CursorMode } from './Cursor';
-import type { ImagePlacement } from '../tmux/types';
+import type { ImagePlacement } from '../domain/client';
 import type { PaneContent, CellLine } from '../domain/wire';
+import { paneNumber, type PaneId } from '../domain/ids';
 
 /**
  * Resolve the URL the browser should load for a given image placement.
@@ -30,8 +31,8 @@ import type { PaneContent, CellLine } from '../domain/wire';
  * `window.__tmuxyImageSrc` — useful for serving data:/blob: URLs without
  * standing up a real backend.
  */
-function resolveImageSrc(paneId: string, imageId: number): string {
-  const numericPaneId = paneId.replace('%', '');
+function resolveImageSrc(paneId: PaneId, imageId: number): string {
+  const numericPaneId = paneNumber(paneId);
   if (typeof window !== 'undefined') {
     const override = (
       window as unknown as {
@@ -67,7 +68,7 @@ interface TerminalProps {
   /** Image placements on this pane */
   images?: ImagePlacement[];
   /** Pane tmux ID (e.g., "%0") for image URL construction */
-  paneId?: string;
+  paneId?: PaneId;
   /** Cursor shape from DECSCUSR (0-6) */
   cursorShape?: number;
   /** Whether the cursor is hidden (DECTCEM mode 25 off) */

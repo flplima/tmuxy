@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { PaneId } from '../domain/ids';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { SelectionContextMenu } from './SelectionContextMenu';
@@ -33,7 +34,7 @@ function SelectionMenuHost() {
       </button>
       {open && (
         <SelectionContextMenu
-          paneId="%0"
+          paneId={PaneId.make('%0')}
           x={120}
           y={60}
           selectedText={SELECTED}

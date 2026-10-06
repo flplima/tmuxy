@@ -7,6 +7,7 @@
  */
 
 import type { GestureState, TmuxWindow } from '../machines/types';
+import type { WindowId } from '../domain/ids';
 
 export interface Box {
   left: number;
@@ -45,7 +46,7 @@ const PINCH_OUT_FULL = 1.6;
 /** The tab a slide by `dx` pulls in: fingers moving left bring in the next one. */
 export function neighborTab(
   tabs: readonly TmuxWindow[],
-  activeWindowId: string | null,
+  activeWindowId: WindowId | null,
   dx: number,
 ): TmuxWindow | null {
   if (dx === 0) return null;

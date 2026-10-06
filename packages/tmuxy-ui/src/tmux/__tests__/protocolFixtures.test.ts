@@ -29,6 +29,7 @@ import {
   type ServerState,
 } from '../../domain/wire';
 import { handleStateUpdate, applyDelta } from '../deltaProtocol';
+import { toClientState } from '../../domain/client';
 import { wireDelta, wireUpdate } from '../../test/wire';
 
 /** Vite serves modules under an `/@fs` prefix; `fs` wants the real path. */
@@ -78,6 +79,24 @@ describe('Rust → TypeScript protocol fixtures', () => {
 
     // The field that escaped: present on the wire, and it has to survive.
     expect(decodedPanes[0].history_size).toBe(1234);
+  });
+
+  it('carries every pane and window field into the client model', () => {
+    const sent = initial.result as {
+      panes: Record<string, unknown>[];
+      windows: Record<string, unknown>[];
+    };
+    const client = toClientState(Schema.decodeUnknownSync(ServerStateSchema)(sent));
+    const camel = (key: string) => key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    // Read by the shell side only; the client does not model it.
+    const notModelled = new Set(['pane_restore']);
+    const missing = (sentRecord: Record<string, unknown>, decoded: object) =>
+      Object.keys(sentRecord).filter((key) => !notModelled.has(key) && !(camel(key) in decoded));
+    sent.panes.forEach((pane, i) => expect(missing(pane, client.panes[i])).toEqual([]));
+    for (const window of sent.windows) {
+      const decoded = client.windows.find((w) => w.id === window.id);
+      expect(missing(window, decoded!)).toEqual([]);
+    }
   });
 
   it('applies the canonical delta frame on top of the canonical full state', () => {

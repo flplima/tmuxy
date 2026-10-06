@@ -180,8 +180,9 @@ export function SmoothCursor() {
       window: ctx.activeWindowId,
       pane: ctx.activePaneId,
       group:
-        Object.values(ctx.paneGroups).find((g) => g.paneIds.includes(ctx.activePaneId ?? ''))?.id ??
-        null,
+        Object.values(ctx.paneGroups).find(
+          (g) => ctx.activePaneId !== null && g.paneIds.includes(ctx.activePaneId),
+        )?.id ?? null,
     }),
   );
   const rootRef = useRef<HTMLDivElement>(null);

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { pid, wid } from '../../../test/wire';
 import { preserveSnapshotIdentity } from '../adapters';
 import type { TmuxSnapshot } from '../types';
-import type { TmuxWindow } from '../../types';
+import type { TmuxWindow } from '../../../domain/client';
 
 /**
  * The store hands derived arrays to subscribers by reference and keeps the
@@ -12,7 +13,7 @@ import type { TmuxWindow } from '../../types';
  * change — or the page was reloaded.
  */
 const win = (over: Partial<TmuxWindow> = {}): TmuxWindow => ({
-  id: '@1',
+  id: wid('@1'),
   index: 1,
   name: 'shell',
   active: true,
@@ -30,8 +31,8 @@ const snap = (windows: TmuxWindow[]): TmuxSnapshot =>
   ({
     panes: [],
     windows,
-    activePaneId: '%1',
-    activeWindowId: '@1',
+    activePaneId: pid('%1'),
+    activeWindowId: wid('@1'),
     totalWidth: 80,
     totalHeight: 24,
     focusRequest: '',
@@ -76,12 +77,12 @@ describe("preserveSnapshotIdentity — a window's own active pane", () => {
   it("publishes a new window object when a background tab's active pane changes", () => {
     // Only the window's active pane changes when a split lands in a tab that
     // is not current; pinned, a switch to that tab would land on a stale pane.
-    const prev = snap([win({ active: false, activePaneId: '%50' })]);
-    const next = snap([win({ active: false, activePaneId: '%36' })]);
+    const prev = snap([win({ active: false, activePaneId: pid('%50') })]);
+    const next = snap([win({ active: false, activePaneId: pid('%36') })]);
     const result = preserveSnapshotIdentity(prev, next);
 
     expect(result).not.toBe(prev);
-    expect(result.windows[0].activePaneId).toBe('%36');
+    expect(result.windows[0].activePaneId).toBe(pid('%36'));
   });
 
   it('treats absent and null as the same', () => {
