@@ -111,59 +111,12 @@ impl LogSink for SseEmitter {
     }
 }
 
-/// The most a single pane's images may hold in memory.
-///
-/// A pane used to accumulate images forever: the store is only swept when the
-/// PANE goes away, and nothing retires an image whose placement was replaced.
-/// That was survivable while an image meant a picture someone `icat`ed, and is
-/// not survivable now that `tmuxy browser --repl` draws a JPEG of the page
-/// several times a second — the same anchor, a new image id each time, so the
-/// placements stay at one while the bytes behind them grow without limit.
-///
-/// Generous on purpose: this is a backstop against a stream, not a budget for
-/// ordinary use. A pane full of distinct pictures in its scrollback stays
-/// whole, and a page at 30KB a frame has room for several hundred frames
-/// before the oldest is dropped.
-const MAX_PANE_IMAGE_BYTES: usize = 24 * 1024 * 1024;
-
-/// Drop a pane's oldest images until it is back under the cap.
-///
-/// Oldest by image id, which the core assigns increasing per pane, so the one
-/// dropped first is the one least likely to still be placed on screen. An image
-/// whose placement is live is only dropped if a pane is holding 24MB of newer
-/// images, in which case the alternative was unbounded growth.
-fn trim_pane_images(
-    store: &mut HashMap<(String, u32), tmuxy_core::control_mode::StoredImage>,
-    pane_id: &str,
-) {
-    let mut ids: Vec<(u32, usize)> = store
-        .iter()
-        .filter(|((pane, _), _)| pane == pane_id)
-        .map(|((_, id), img)| (*id, img.data.len()))
-        .collect();
-    let mut total: usize = ids.iter().map(|(_, len)| *len).sum();
-    if total <= MAX_PANE_IMAGE_BYTES {
-        return;
-    }
-    ids.sort_unstable_by_key(|(id, _)| *id);
-    for (id, len) in ids {
-        if total <= MAX_PANE_IMAGE_BYTES {
-            break;
-        }
-        if store.remove(&(pane_id.to_string(), id)).is_some() {
-            total = total.saturating_sub(len);
-        }
-    }
-}
-
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
         // Garbage-collect orphaned images when we have a full state snapshot
         if let StateUpdate::Full { ref state } = update {
-            let active_pane_ids: std::collections::HashSet<&str> =
-                state.panes.iter().map(|p| p.tmux_id.as_str()).collect();
             if let Ok(mut guard) = self.app_state.image_store.try_write() {
-                guard.retain(|(pane_id, _), _| active_pane_ids.contains(pane_id.as_str()));
+                guard.retain_live_panes(state);
             }
         }
         // The snapshot follows the session's SHAPE, not its output: a split, a
@@ -223,13 +176,9 @@ impl StateEmitter for SseEmitter {
         pane_id: &str,
         images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
     ) {
-        let pane_id = pane_id.to_string();
         // Use try_write to avoid blocking the monitor loop; drop images if contended
         if let Ok(mut guard) = self.app_state.image_store.try_write() {
-            for (id, img) in images {
-                guard.insert((pane_id.clone(), id), img);
-            }
-            trim_pane_images(&mut guard, &pane_id);
+            guard.insert(pane_id, images);
         }
     }
 
@@ -243,10 +192,7 @@ impl StateEmitter for SseEmitter {
             tracing::debug!(%pane_id, "read-only server: clipboard write not forwarded");
             return;
         }
-        // SEC-01/SEC-13: the OSC 52 path bounds this at the aggregator, where
-        // the active pane is known; a paste-buffer mirror arrives here with no
-        // pane at all, so the size cap is applied for both on the way out.
-        if text.len() > tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES {
+        if !tmuxy_core::transport::clipboard_write_allowed(&text) {
             tracing::debug!(
                 %pane_id,
                 bytes = text.len(),
@@ -3351,87 +3297,6 @@ mod protocol_fixtures {
             unique.len(),
             names.len(),
             "duplicate SSE event names: {names:?}"
-        );
-    }
-    /// A pane that keeps producing frames must not grow without limit, and a
-    /// pane with a screenful of ordinary pictures must not be trimmed at all.
-    ///
-    /// The frame case is the one that bit: `browser --repl` draws at the same
-    /// anchor, so the PLACEMENTS stay at one while every frame adds a new image
-    /// id — and the store is otherwise only swept when the pane goes away.
-    #[test]
-    fn a_pane_streaming_frames_stops_growing_but_keeps_the_newest() {
-        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
-            HashMap::new();
-        let frame = |len: usize| tmuxy_core::control_mode::StoredImage {
-            data: vec![0u8; len],
-            mime_type: "image/jpeg".to_string(),
-        };
-
-        // A megabyte a frame, far past the cap.
-        for id in 0..40u32 {
-            store.insert(("%1".to_string(), id), frame(1024 * 1024));
-            trim_pane_images(&mut store, "%1");
-        }
-
-        let total: usize = store.values().map(|img| img.data.len()).sum();
-        assert!(
-            total <= MAX_PANE_IMAGE_BYTES,
-            "a streaming pane must stay under the cap, held {total}"
-        );
-        assert!(
-            store.contains_key(&("%1".to_string(), 39)),
-            "the newest frame is the one on screen and must survive"
-        );
-        assert!(
-            !store.contains_key(&("%1".to_string(), 0)),
-            "the oldest frame is the one to drop"
-        );
-    }
-
-    #[test]
-    fn an_ordinary_pane_of_pictures_is_left_alone() {
-        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
-            HashMap::new();
-        for id in 0..50u32 {
-            store.insert(
-                ("%1".to_string(), id),
-                tmuxy_core::control_mode::StoredImage {
-                    data: vec![0u8; 200 * 1024],
-                    mime_type: "image/png".to_string(),
-                },
-            );
-        }
-        trim_pane_images(&mut store, "%1");
-        assert_eq!(store.len(), 50, "10MB of pictures is under the cap");
-    }
-
-    /// One pane's flood must not evict another pane's pictures: the cap is per
-    /// pane, and a browser pane beside an editor would otherwise empty it.
-    #[test]
-    fn the_cap_is_per_pane() {
-        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
-            HashMap::new();
-        store.insert(
-            ("%2".to_string(), 1),
-            tmuxy_core::control_mode::StoredImage {
-                data: vec![0u8; 1024],
-                mime_type: "image/png".to_string(),
-            },
-        );
-        for id in 0..40u32 {
-            store.insert(
-                ("%1".to_string(), id),
-                tmuxy_core::control_mode::StoredImage {
-                    data: vec![0u8; 1024 * 1024],
-                    mime_type: "image/jpeg".to_string(),
-                },
-            );
-            trim_pane_images(&mut store, "%1");
-        }
-        assert!(
-            store.contains_key(&("%2".to_string(), 1)),
-            "the neighbouring pane's picture is untouched"
         );
     }
 }

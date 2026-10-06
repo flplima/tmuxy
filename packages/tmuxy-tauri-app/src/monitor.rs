@@ -54,8 +54,7 @@ impl Default for KeyBindingsState {
 /// window matches the visible viewport instead of inheriting the half-width
 /// post-`splitw` size or the 200x50 control-mode PTY default.
 /// Decoded image bytes keyed by `(pane id, placement id)`.
-pub type ImageStore =
-    Arc<RwLock<std::collections::HashMap<(String, u32), tmuxy_core::control_mode::StoredImage>>>;
+pub type ImageStore = Arc<RwLock<tmuxy_core::transport::ImageStore>>;
 
 /// Look up the picture behind a `tmuxyimg:` request path, which is
 /// `<pane digits>/<placement id>` — the same pair the web build spells
@@ -70,7 +69,7 @@ pub fn lookup_image(
         return None;
     }
     let id: u32 = id.parse().ok()?;
-    images.read().ok()?.get(&(format!("%{pane}"), id)).cloned()
+    images.read().ok()?.get(&format!("%{pane}"), id).cloned()
 }
 
 #[derive(Clone, Default)]
@@ -216,6 +215,11 @@ impl LogSink for TauriEmitter {
 
 impl StateEmitter for TauriEmitter {
     fn emit_state(&self, update: StateUpdate) {
+        if let StateUpdate::Full { ref state } = update {
+            if let Ok(mut guard) = self.images.try_write() {
+                guard.retain_live_panes(state);
+            }
+        }
         let structural = match &update {
             StateUpdate::Full { .. } => true,
             StateUpdate::Delta { delta } => tmuxy_core::session_snapshot::is_structural(delta),
@@ -277,13 +281,15 @@ impl StateEmitter for TauriEmitter {
         // try_write so a contended lock never stalls the monitor loop; a
         // dropped picture is redrawn by the next frame.
         if let Ok(mut guard) = self.images.try_write() {
-            for (id, img) in images {
-                guard.insert((pane_id.to_string(), id), img);
-            }
+            guard.insert(pane_id, images);
         }
     }
 
     fn write_clipboard(&self, pane_id: &str, text: String) {
+        if !tmuxy_core::transport::clipboard_write_allowed(&text) {
+            tracing::debug!(%pane_id, bytes = text.len(), "clipboard write over the cap, dropped");
+            return;
+        }
         let payload = serde_json::json!({ "pane_id": pane_id, "text": text });
         if let Err(e) = self
             .app
@@ -771,11 +777,14 @@ mod tests {
     fn store_with(pane: &str, id: u32) -> ImageStore {
         let store: ImageStore = Default::default();
         store.write().unwrap().insert(
-            (pane.to_string(), id),
-            StoredImage {
-                data: vec![1, 2, 3],
-                mime_type: "image/png".to_string(),
-            },
+            pane,
+            vec![(
+                id,
+                StoredImage {
+                    data: vec![1, 2, 3],
+                    mime_type: "image/png".to_string(),
+                },
+            )],
         );
         store
     }

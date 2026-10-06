@@ -9,10 +9,11 @@ use axum::{
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tmuxy_core::control_mode::{MonitorCommandSender, StoredImage};
+use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::mime::{
     content_type_for_path, read_served_file, ServeRefusal, FILE_SANDBOX_CSP, MAX_SERVED_FILE_BYTES,
 };
+use tmuxy_core::transport::ImageStore;
 use tmuxy_core::{Ctx, RetryPolicy};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
@@ -229,8 +230,8 @@ pub struct AppState {
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
     /// Counter for generating unique connection IDs
     pub next_conn_id: AtomicU64,
-    /// Shared image store: (pane_id, image_id) -> StoredImage
-    pub image_store: RwLock<HashMap<(String, u32), StoredImage>>,
+    /// Pictures decoded out of pane output, served by `/api/images`.
+    pub image_store: RwLock<ImageStore>,
     /// Structured shutdown: every background task spawned by the server lives
     /// in this `JoinSet`. `server::shutdown_signal` calls
     /// `join_set.shutdown().await` after firing `shutdown.cancel()` so we drain
@@ -309,7 +310,7 @@ impl AppState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
-            image_store: RwLock::new(HashMap::new()),
+            image_store: RwLock::new(ImageStore::default()),
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
             ctx,
@@ -667,8 +668,7 @@ async fn image_handler(
     Path((pane_id, image_id)): Path<(String, u32)>,
 ) -> Response {
     let store = state.image_store.read().await;
-    let key = (format!("%{}", pane_id), image_id);
-    match store.get(&key) {
+    match store.get(&format!("%{pane_id}"), image_id) {
         Some(img) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", &img.mime_type)
