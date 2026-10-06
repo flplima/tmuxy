@@ -186,41 +186,10 @@ pub fn run_trace(args: Vec<String>) {
         .block_on(server::run(cli.server));
 }
 
+/// The dispatcher's own help, which lists every noun it serves — a copy kept
+/// here went stale as nouns were added.
 pub fn print_help() {
-    println!(
-        "tmuxy {VERSION} — AI-first terminal multiplexer
-
-Usage: tmuxy [command] [args...]
-
-Commands:
-  (no args)     Show multiplexer and session status
-  info          Show multiplexer and session status [--json]
-  skill         Show AI agent guide and safety rules
-  gui           Open the desktop GUI application
-  server        Start the web server (--port, --host, --dev, --trace)
-  trace         Inspect/export a local action-trace file (--export)
-  connect       Add a tmux server (form), or reconnect to one: connect [socket]
-  pane          Pane operations (split, kill, select, resize, ...)
-  tab           Tab operations (create, kill, select, rename, ...)
-  session       Session management (switch, connect)
-  widget        Display widgets (image, markdown)
-  nav           Navigation (left, right, up, down, next, prev)
-  queue, q      Inter-agent coordination queue (push/send, pop, peek, list, clear)
-  run           Run a raw tmux command safely
-
-Options:
-  -h, --help    Show this help
-  -V, --version Show version
-  --json        Output as JSON (with info or root command)
-
-Note for AI/LLM agents:
-  • Do NOT run raw mutating tmux commands (external new-window/split-window crash control mode).
-  • Always route mutations through 'tmuxy pane/tab/run'.
-  • Use --json on query commands for unambiguous, parseable output.
-  • Run 'tmuxy skill' to print the full agent instruction guide.
-
-Run 'tmuxy <command> --help' for details on each command."
-    );
+    run_cli(vec!["--help".to_string()]);
 }
 
 pub fn print_version() {
