@@ -325,7 +325,10 @@ async function invokeCommand(driver, command, args = {}) {
           }
           done(JSON.parse(JSON.stringify(result)));
         })
-        .catch((e) => done({ __error: e?.message || String(e) }));
+        // A command refuses with `{ error, kind }`; an exception has `message`.
+        .catch((e) =>
+          done({ __error: e?.error || e?.message || String(e), __kind: e?.kind ?? null }),
+        );
     },
     command,
     args,

@@ -585,5 +585,6 @@ describe('GUI windows', () => {
     // it never rejects and `.rejects` could not pass whatever the app did.
     const refused = await invokeCommand(driver, 'set_window_style', { style: 'sideways' });
     expect(refused.__error).toMatch(/unknown window style/i);
+    expect(refused.__kind).toBe('invalid');
   }, 120000);
 });
