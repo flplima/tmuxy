@@ -19,6 +19,12 @@ describe('cursor scene changes', () => {
     expect(isSceneChange(at('@1', '%1', 'g1'), at('@1', '%7', 'g2'))).toBe(false);
   });
 
+  it('into or out of the dock or a sidebar glides: their window is current, the tab stays', () => {
+    const chrome = (pane: string) => ({ window: null, pane, group: null });
+    expect(isSceneChange(at('@1', '%1'), chrome('%9'))).toBe(false);
+    expect(isSceneChange(chrome('%9'), at('@1', '%1'))).toBe(false);
+  });
+
   it('the cursor staying put, or the first scene seen, is not a change', () => {
     expect(isSceneChange(at('@1', '%1', 'g1'), at('@1', '%1', 'g1'))).toBe(false);
     expect(isSceneChange(null, at('@1', '%1'))).toBe(false);

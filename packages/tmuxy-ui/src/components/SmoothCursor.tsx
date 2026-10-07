@@ -177,7 +177,9 @@ export function SmoothCursor() {
   );
   const scene = useAppSelector((ctx) =>
     sceneKey({
-      window: ctx.activeWindowId,
+      window: ctx.windows.some((w) => w.id === ctx.activeWindowId && w.windowType === 'tab')
+        ? ctx.activeWindowId
+        : null,
       pane: ctx.activePaneId,
       group:
         Object.values(ctx.paneGroups).find(
