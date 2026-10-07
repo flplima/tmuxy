@@ -1,6 +1,13 @@
 'use client';
 
-import { TmuxyProvider, TmuxyApp, DemoAdapter, useAppFocused, type RenderTabline } from 'tmuxy-ui';
+import {
+  TmuxyProvider,
+  TmuxyApp,
+  DemoAdapter,
+  DemoTransportLive,
+  useAppFocused,
+  type RenderTabline,
+} from 'tmuxy-ui';
 import 'tmuxy-ui/styles.css';
 import 'tmuxy-ui/fonts/nerd-font.css';
 import { useEffect, useMemo, useRef } from 'react';
@@ -120,7 +127,9 @@ export default function TmuxyDemoInner() {
   const lastWindowId = useRef<string | null>(null);
 
   useEffect(() => {
-    return adapter.onStateChange((state) => {
+    return adapter.events.subscribe((event) => {
+      if (event._tag !== 'State') return;
+      const { state } = event;
       const activeId = state.active_window_id;
       if (lastWindowId.current !== null && activeId !== lastWindowId.current) {
         const win = state.windows.find((w) => w.id === activeId);
@@ -131,6 +140,8 @@ export default function TmuxyDemoInner() {
       lastWindowId.current = activeId;
     });
   }, [adapter]);
+
+  const transport = useMemo(() => DemoTransportLive(adapter), [adapter]);
 
   return (
     <div
@@ -146,7 +157,7 @@ export default function TmuxyDemoInner() {
         }
       }}
     >
-      <TmuxyProvider adapter={adapter} config={{ forwardScrollToParent: true, requireFocus: true, isDemo: true }}>
+      <TmuxyProvider transport={transport} config={{ forwardScrollToParent: true, requireFocus: true, isDemo: true }}>
         <TmuxyApp renderTabline={renderTabline} />
       </TmuxyProvider>
     </div>
