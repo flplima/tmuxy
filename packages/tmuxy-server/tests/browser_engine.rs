@@ -504,10 +504,13 @@ async fn a_changing_page_keeps_producing_frames() {
 
     // Count distinct frames rather than events: an implementation that stopped
     // after its unacknowledged allowance would deliver a handful and stall.
+    // Each wait runs to the overall deadline: the first frame waits for the
+    // browser to start and the page to load, which a slow runner can stretch
+    // well past the interval between frames.
     let mut seen = 0;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
-    while std::time::Instant::now() < deadline && seen < 8 {
-        if tokio::time::timeout(std::time::Duration::from_secs(3), frames.changed())
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    while seen < 8 {
+        if tokio::time::timeout_at(deadline, frames.changed())
             .await
             .is_err()
         {
