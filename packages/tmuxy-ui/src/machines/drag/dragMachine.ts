@@ -42,7 +42,7 @@ import { TmuxOp } from '../../domain/commands';
 import { haptics } from '../../utils/haptics';
 
 /** How long the pointer rests on a pane before the dragged pane swaps with it. */
-const SWAP_DWELL_MS = 250;
+export const SWAP_DWELL_MS = 250;
 const SWAP_DWELL_ID = 'swap-dwell';
 
 export const dragMachine = setup({

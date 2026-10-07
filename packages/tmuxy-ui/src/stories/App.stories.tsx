@@ -9,6 +9,7 @@ import { LayoutMutationRecorder } from './animationObservers';
 import { ContentMutationRecorder } from './contentMutation';
 import { withTmuxView } from './tmuxView';
 import { isMacPlatform } from '../utils/platform';
+import { SWAP_DWELL_MS } from '../machines/drag/dragMachine';
 
 /**
  * Full-application stories driven by REAL tmux.
@@ -3796,9 +3797,10 @@ export const SwapDragReconcile: Story = {
       await new Promise((r) => setTimeout(r, 80));
     }
 
-    // Hover onto the target: the drag machine fires the swap command HERE, and
-    // the store's Swap prediction must slide the target pane into the source's
-    // slot within a few frames — long before the tmux round-trip could land.
+    // Hover onto the target: once the pointer has rested there for the swap
+    // dwell, the drag machine fires the swap command, and the store's Swap
+    // prediction must slide the target pane into the source's slot within a
+    // few frames of that — long before the tmux round-trip could land.
     const hoverProbe = armPaintProbe(
       dstWrapper,
       (rec) =>
@@ -3806,11 +3808,24 @@ export const SwapDragReconcile: Story = {
         rec.attributeName === 'style' &&
         `${dstWrapper.style.left}|${dstWrapper.style.top}` === srcSlotBefore,
     );
+    // The frames the dwell itself takes on this machine, so the budget is "a
+    // few frames after the dwell" whatever the frame rate.
+    let dwellFrames = 0;
+    let countingDwell = true;
+    const countDwell = () => {
+      if (!countingDwell) return;
+      dwellFrames += 1;
+      requestAnimationFrame(countDwell);
+    };
+    requestAnimationFrame(countDwell);
     dstEl.dispatchEvent(
       new MouseEvent('mousemove', { clientX: endX, clientY: endY, bubbles: true }),
     );
-    const hoverFrames = await hoverProbe.wait(5, 5000);
-    expect(hoverFrames).toBeLessThanOrEqual(5);
+    await new Promise((r) => setTimeout(r, SWAP_DWELL_MS));
+    countingDwell = false;
+    const hoverBudget = dwellFrames + 5;
+    const hoverFrames = await hoverProbe.wait(hoverBudget, 5000);
+    expect(hoverFrames).toBeLessThanOrEqual(hoverBudget);
 
     // Drop: the source pane's pin lifts and it must take the target's slot
     // immediately (the patch is already in the derived model).
