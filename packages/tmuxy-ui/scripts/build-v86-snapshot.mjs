@@ -118,17 +118,17 @@ async function buildBundle({ fetchBinaries }) {
     }
   }
 
-  // The real sidebar tree TUI, cross-compiled static for the i686 guest so
-  // `tmuxy tree` works without the tmuxy-server binary.
-  console.log('… cross-compiling tmuxy-tree (i686-musl)');
+  // The guest has no tmuxy-server, so the two things the scripts need from
+  // Rust are cross-compiled static for i686 on their own: the sidebar tree
+  // TUI (`tmuxy tree`) and the pane-group operations the pane-group-* scripts
+  // run (`tmuxy-group`).
+  const GUEST_BINARIES = ['tmuxy-tree', 'tmuxy-group'];
+  console.log(`… cross-compiling ${GUEST_BINARIES.join(', ')} (i686-musl)`);
   execFileSync(
     'cargo',
     [
       'build',
-      '-p',
-      'tmuxy-tree',
-      '--bin',
-      'tmuxy-tree',
+      ...GUEST_BINARIES.flatMap((name) => ['-p', name, '--bin', name]),
       '--target',
       'i686-unknown-linux-musl',
       '--release',
@@ -139,11 +139,10 @@ async function buildBundle({ fetchBinaries }) {
       stdio: 'pipe',
     },
   );
-  await cp(
-    join(REPO, 'target', 'i686-unknown-linux-musl', 'release', 'tmuxy-tree'),
-    join(WORK, 'tmuxy-tree'),
-  );
-  await chmod(join(WORK, 'tmuxy-tree'), 0o755);
+  for (const name of GUEST_BINARIES) {
+    await cp(join(REPO, 'target', 'i686-unknown-linux-musl', 'release', name), join(WORK, name));
+    await chmod(join(WORK, name), 0o755);
+  }
 
   // Fresh repo scripts: the CLI dispatcher + helper scripts.
   await mkdir(join(WORK, 'bin', 'tmuxy'), { recursive: true });
@@ -194,6 +193,7 @@ const GUEST_INSTALL = [
   'ln -sf /tmp/tb/tmux /usr/bin/tmux',
   'ln -sf /tmp/tb/bin/tmuxy-cli /usr/bin/tmuxy',
   'ln -sf /tmp/tb/tmuxy-tree /usr/bin/tmuxy-tree',
+  'ln -sf /tmp/tb/tmuxy-group /usr/bin/tmuxy-group',
   'mkdir -p /root/.config/tmuxy/bin',
   'ln -sfn /tmp/tb/bin/tmuxy /root/.config/tmuxy/bin/tmuxy',
   'cp /tmp/tb/tmuxy.conf /tmp/tb/tmuxy.defaults.conf /root/.config/tmuxy/',

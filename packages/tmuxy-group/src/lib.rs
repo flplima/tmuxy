@@ -1,15 +1,16 @@
-//! `tmuxy-server group <verb>` — the pane-group operations, run.
+//! The pane-group operations, run: `tmuxy-group <verb>`, and the same verbs
+//! as `tmuxy-server group <verb>`.
 //!
 //! The rules live in `tmuxy_core::groups`; this reads the panes once, asks it
 //! for the commands and runs them. The `bin/tmuxy/pane-group-*` scripts are
 //! its names: the UI, the key bindings and session restore call them inside
-//! `tmux run-shell`, where this binary's own tmux calls are tmux-internal (see
-//! `cli_tmux`). A refusal prints `pane-group-<verb>: <why>` and exits 1.
+//! `tmux run-shell`, where these tmux calls are tmux-internal (see
+//! `tmuxy_core::session::tmux_output`). A refusal prints
+//! `pane-group-<verb>: <why>` and exits 1.
 
 use tmuxy_core::groups::{self, Context, Direction, Invocation, Leave, Panes, Side};
+use tmuxy_core::session::tmux_output as tmux;
 use tmuxy_core::{GroupId, PaneId};
-
-use crate::cli_tmux::tmux;
 
 #[derive(clap::Args, Debug)]
 pub struct GroupArgs {

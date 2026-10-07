@@ -122,6 +122,10 @@ find_server_cmd() {
 # directory whose pane-group-close a member's pane-died hook runs.
 # Args: $1=verb, then the script's own arguments
 group_verb() {
+  # The v86 guest ships the operations as their own binary, having no server.
+  if command -v tmuxy-group &>/dev/null; then
+    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec tmuxy-group "$@"
+  fi
   find_server_cmd || exit 1
   TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${SERVER_CMD[@]}" group "$@"
 }

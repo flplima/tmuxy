@@ -27,6 +27,6 @@ echo "Type checking (tsc --noEmit)..."
 echo "Checking Rust (cargo clippy -D warnings)..."
 mkdir -p packages/tmuxy-ui/dist
 cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-  -p tmuxy-tree -p tmuxy-connect -- -D warnings
+  -p tmuxy-tree -p tmuxy-connect -p tmuxy-group -- -D warnings
 
 echo "pre-push: OK"

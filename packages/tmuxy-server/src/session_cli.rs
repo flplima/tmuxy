@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use tmuxy_core::session_snapshot::{self as snap, RestoreOptions};
 
-use crate::cli_tmux::tmux;
+use tmuxy_core::session::tmux_output as tmux;
 
 #[derive(clap::Args, Debug)]
 pub struct SessionArgs {

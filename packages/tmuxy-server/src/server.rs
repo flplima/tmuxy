@@ -259,7 +259,7 @@ pub enum ServerAction {
     /// which run it inside `tmux run-shell`. Hidden: `tmuxy pane group` is
     /// the user's way in.
     #[command(hide = true)]
-    Group(crate::group_cli::GroupArgs),
+    Group(tmuxy_group::GroupArgs),
 }
 
 /// Activate action tracing per the gating rules and announce it loudly, so it
@@ -340,7 +340,7 @@ pub async fn run(args: ServerArgs) {
         }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
         Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args),
-        Some(ServerAction::Group(group_args)) => crate::group_cli::run(group_args),
+        Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
     }
 }
 

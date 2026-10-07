@@ -35,7 +35,7 @@ jobs:
       - name: Rust format check
         run: |
           cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-            -p tmuxy-tree -p tmuxy-connect -p tmuxy-wasm
+            -p tmuxy-tree -p tmuxy-connect -p tmuxy-group -p tmuxy-wasm
 
       - name: ESLint
         run: npm run lint -w tmuxy-ui
@@ -47,7 +47,7 @@ jobs:
         run: |
           mkdir -p packages/tmuxy-ui/dist
           cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-            -p tmuxy-tree -p tmuxy-connect -- -D warnings
+            -p tmuxy-tree -p tmuxy-connect -p tmuxy-group -- -D warnings
 
       - name: Clippy (tmuxy-wasm)
         run: |

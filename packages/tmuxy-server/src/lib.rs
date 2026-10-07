@@ -1,9 +1,7 @@
 pub mod auth;
 pub mod browser;
-mod cli_tmux;
 pub mod command;
 mod dev;
-pub mod group_cli;
 pub mod request_guard;
 pub mod server;
 pub mod session_cli;

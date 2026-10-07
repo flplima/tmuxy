@@ -34,6 +34,7 @@ reqwest = { version = "0.12", default-features = false }
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-tree = { path = "../tmuxy-tree" }
+tmuxy-group = { path = "../tmuxy-group" }
 tmuxy-connect = { path = "../tmuxy-connect" }
 chromiumoxide = "0.9"
 
