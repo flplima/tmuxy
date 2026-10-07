@@ -336,18 +336,29 @@ describe('Scenario 32: Session snapshots', () => {
     //    The sessions on the server going in, and the server's own account,
     //    are what a forget that finds no tmux server left needs to be read
     //    (CI has seen the second forget find the server gone).
-    const sessionsBefore = srv.cli(['run', 'list-sessions -F "#{session_name}"']);
+    //    `##` keeps run-shell from expanding the format in its own session,
+    //    which would print that one name once per session.
+    const sessions = () => {
+      try {
+        return srv.cli(['run', 'list-sessions -F "##{session_name} ##{session_attached}"']);
+      } catch (error) {
+        return `(${error.message})`;
+      }
+    };
+    const sessionsBefore = sessions();
+    let sessionsBetween = '(not reached)';
     const forget = (...args) => {
       try {
         return srv.cli(['session', 'forget', ...args]);
       } catch (error) {
         throw new Error(
-          `${error.message}\nsessions before forgetting: ${sessionsBefore}\nserver: ${srv.serverLog()}`,
+          `${error.message}\nsessions before forgetting: ${sessionsBefore}\nsessions after the first forget: ${sessionsBetween}\nserver: ${srv.serverLog()}`,
         );
       }
     };
     expect(() => srv.cli(['session', 'forget', SESSION])).toThrow();
     forget(SESSION, '--force');
+    sessionsBetween = sessions();
     forget(SPARE, '--force');
     expect(srv.cli(['session', 'snapshots'])).not.toContain(SESSION);
   }, 300000);
