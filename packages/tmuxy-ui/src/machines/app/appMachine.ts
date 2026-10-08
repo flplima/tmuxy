@@ -23,8 +23,9 @@ import {
   fromCallback,
   type AnyActorRef,
 } from 'xstate';
-import type { AppMachineContext, AllAppMachineEvents } from '../types';
+import type { AppMachineContext, AllAppMachineEvents, PaneCellBox } from '../types';
 import { createInitialContext } from './context';
+import { dragCells, resizedBand } from '../resize/limits';
 import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
 import { commandUiState } from './states/commandUi';
@@ -73,28 +74,32 @@ import type { ServersActorEvent } from '../actors/serversActor';
 import { type PaneId, type WindowId, isPlaceholderId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
 
-type ResizeGeom = { tmuxId: PaneId; x: number; y: number; width: number; height: number };
-
 /**
- * Whether the server geometry has caught up to the optimistic resize preview's
- * predicted final size (target + neighbors). After a drag ends the preview is
- * held; clearing it the instant ANY server update lands — even a stale
- * intermediate `%layout-change` still in flight from the drag — makes the pane
- * flash back to that intermediate size before the final resize confirms. So we
- * hold the preview until the server matches the prediction, at which point
- * clearing it is invisible. (A never-matching resize, e.g. driven into a min-
- * size clamp, is cleared by the fallback timer in layout_resizeCompleted.)
+ * Whether the server geometry has caught up to the optimistic resize preview:
+ * the band it draws (`resizedBand`, the same one the selector draws) has
+ * landed. After a drag ends the preview is held; clearing it the instant ANY
+ * server update lands — even a stale intermediate `%layout-change` still in
+ * flight from the drag — makes the pane flash back to that intermediate size
+ * before the final resize confirms. So we hold the preview until the server
+ * matches the prediction, at which point clearing it is invisible. (A
+ * never-matching resize is cleared by the fallback timer in
+ * layout_resizeCompleted.)
  */
 function resizePreviewSettled(
   resize: NonNullable<AppMachineContext['resize']>,
-  panes: ResizeGeom[],
+  panes: ReadonlyArray<PaneCellBox & { tmuxId: PaneId }>,
   charWidth: number,
   charHeight: number,
 ): boolean {
-  const dCols = Math.round(resize.pixelDelta.x / charWidth);
-  const dRows = Math.round(resize.pixelDelta.y / charHeight);
-  const matches = (want: ResizeGeom): boolean => {
-    const got = panes.find((p) => p.tmuxId === want.tmuxId);
+  const band = resizedBand(
+    resize.originalGeometry,
+    resize.paneId,
+    resize.handle,
+    dragCells(resize, charWidth, charHeight),
+  );
+  return (Object.keys(band) as PaneId[]).every((id) => {
+    const want = band[id];
+    const got = panes.find((p) => p.tmuxId === id);
     return (
       got !== undefined &&
       got.x === want.x &&
@@ -102,44 +107,7 @@ function resizePreviewSettled(
       got.width === want.width &&
       got.height === want.height
     );
-  };
-  const op = resize.originalPane;
-  const target: ResizeGeom = {
-    tmuxId: op.tmuxId,
-    x: op.x,
-    y: op.y,
-    width: op.width,
-    height: op.height,
-  };
-  if (resize.handle === 'e') target.width = Math.max(1, op.width + dCols);
-  else if (resize.handle === 'w') {
-    target.x = op.x + dCols;
-    target.width = Math.max(1, op.width - dCols);
-  } else if (resize.handle === 's') target.height = Math.max(1, op.height + dRows);
-  else if (resize.handle === 'n') {
-    target.y = op.y + dRows;
-    target.height = Math.max(1, op.height - dRows);
-  }
-  if (!matches(target)) return false;
-  for (const on of resize.originalNeighbors) {
-    const n: ResizeGeom = {
-      tmuxId: on.tmuxId,
-      x: on.x,
-      y: on.y,
-      width: on.width,
-      height: on.height,
-    };
-    if (resize.handle === 'e') {
-      n.x = on.x + dCols;
-      n.width = Math.max(1, on.width - dCols);
-    } else if (resize.handle === 'w') n.width = Math.max(1, on.width + dCols);
-    else if (resize.handle === 's') {
-      n.y = on.y + dRows;
-      n.height = Math.max(1, on.height - dRows);
-    } else if (resize.handle === 'n') n.height = Math.max(1, on.height + dRows);
-    if (!matches(n)) return false;
-  }
-  return true;
+  });
 }
 
 /**

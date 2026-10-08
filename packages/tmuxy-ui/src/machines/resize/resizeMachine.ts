@@ -94,21 +94,6 @@ export const resizeMachine = setup({
               const pane = event.panes.find((p) => p.tmuxId === event.paneId);
               if (!pane) return {};
 
-              // Find neighbor panes affected by this resize.
-              // Gap between adjacent panes is 1 (real tmux) or 2 (demo: separator + header).
-              const neighbors = event.panes.filter((p) => {
-                if (p.tmuxId === pane.tmuxId) return false;
-                // Horizontal resize affects panes to the east or west
-                if (event.handle === 'e' && p.x === pane.x + pane.width + 1) return true;
-                if (event.handle === 'w' && p.x + p.width + 1 === pane.x) return true;
-                // Vertical resize affects panes to the north or south
-                const gapS = p.y - (pane.y + pane.height);
-                const gapN = pane.y - (p.y + p.height);
-                if (event.handle === 's' && (gapS === 1 || gapS === 2)) return true;
-                if (event.handle === 'n' && (gapN === 1 || gapN === 2)) return true;
-                return false;
-              });
-
               // Only this window's panes: coordinates are per-window, so a
               // pane from another tab sitting at the same x/y would read as a
               // neighbour and give the drag a limit that belongs to a layout
@@ -124,8 +109,6 @@ export const resizeMachine = setup({
                 handle: event.handle,
                 startX: event.startX,
                 startY: event.startY,
-                originalPane: pane,
-                originalNeighbors: neighbors,
                 originalGeometry: geometry,
                 limits: resizeLimits(geometry, event.paneId, event.handle),
                 pixelDelta: { x: 0, y: 0 },

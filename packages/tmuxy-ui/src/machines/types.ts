@@ -122,16 +122,14 @@ export interface ResizeState {
   handle: ResizeHandle;
   startX: number;
   startY: number;
-  originalPane: TmuxPane;
-  /** Original neighbor panes affected by this resize (for stable preview) */
-  originalNeighbors: TmuxPane[];
   /**
    * Every pane's geometry at resize start, keyed by id. A resize moves a whole
    * BAND of panes together (all sharing the dragged edge), and tmux's
    * intermediate %layout-change events during the drag are internally
    * inconsistent (a pane's y flips 0/1 as the border row flickers). The preview
-   * reconstructs the band from this frozen snapshot instead of the live server
-   * panes, so nothing wobbles. See selectPreviewPanesUncached.
+   * and the settled check both rebuild the band from this frozen snapshot
+   * instead of the live server panes (machines/resize/limits.ts), so nothing
+   * wobbles.
    */
   originalGeometry: Record<PaneId, PaneCellBox>;
   /**
