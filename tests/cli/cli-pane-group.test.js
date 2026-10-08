@@ -140,6 +140,19 @@ describe('CLI pane group subcommands', () => {
       });
       expect(stdout).toBe('mock-server-started server group close %5');
     });
+
+    // The v86 guest has no server, only the standalone binary. nav's group
+    // step goes through the same `find_group_cmd`, so it lands here too.
+    test('uses the standalone tmuxy-group binary where one is installed', () => {
+      const { stdout, exitCode } = runGroupScript(
+        'pane-group-next',
+        ['%1'],
+        {},
+        { standalone: true },
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe(`standalone next %1 [scripts=${SCRIPTS_DIR}]`);
+    });
   });
 
   describe('pane group unknown', () => {
