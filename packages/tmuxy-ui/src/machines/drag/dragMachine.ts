@@ -98,7 +98,6 @@ export const dragMachine = setup({
   initial: 'idle',
   context: {
     panes: [],
-    activePaneId: null,
     charWidth: DEFAULT_CHAR_WIDTH,
     charHeight: DEFAULT_CHAR_HEIGHT,
     containerWidth: 0,

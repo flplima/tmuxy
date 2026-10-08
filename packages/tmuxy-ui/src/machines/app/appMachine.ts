@@ -1363,7 +1363,6 @@ export const appMachine = setup({
                 panes: context.activeWindowId
                   ? context.panes.filter((p) => p.windowId === context.activeWindowId)
                   : context.panes,
-                activePaneId: context.activePaneId,
                 charWidth: context.charWidth,
                 charHeight: context.charHeight,
                 containerWidth: context.containerWidth,

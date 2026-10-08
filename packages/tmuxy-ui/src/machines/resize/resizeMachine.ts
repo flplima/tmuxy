@@ -80,7 +80,6 @@ export const resizeMachine = setup({
   id: 'resize',
   initial: 'idle',
   context: {
-    panes: [],
     charWidth: DEFAULT_CHAR_WIDTH,
     charHeight: DEFAULT_CHAR_HEIGHT,
     resize: null,
@@ -136,7 +135,6 @@ export const resizeMachine = setup({
               };
               return {
                 resize,
-                panes: event.panes,
                 charWidth: event.charWidth,
                 charHeight: event.charHeight,
               };

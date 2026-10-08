@@ -561,7 +561,6 @@ export interface AppMachineContext {
 
 export interface DragMachineContext {
   panes: TmuxPane[];
-  activePaneId: PaneId | null;
   charWidth: number;
   charHeight: number;
   containerWidth: number;
@@ -586,7 +585,6 @@ export type DragMachineEvent =
       startX: number;
       startY: number;
       panes: TmuxPane[];
-      activePaneId: PaneId | null;
       charWidth: number;
       charHeight: number;
       containerWidth: number;
@@ -609,7 +607,6 @@ export type DragMachineEvent =
 // ============================================
 
 export interface ResizeMachineContext {
-  panes: TmuxPane[];
   charWidth: number;
   charHeight: number;
   resize: ResizeState | null;
