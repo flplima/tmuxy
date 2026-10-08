@@ -114,37 +114,12 @@ jobs:
       # Same source-built 3.7a and cache key as every other job: the binding
       # set and the run-shell cost this harness measures are version-sensitive,
       # and the baseline has to describe the tmux the gate job runs against.
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
-
-      - name: Confirm tmux version
-        run: tmux -V
+      - uses: ./.github/actions/install-tmux
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       - name: Build frontend
         run: npm run build -w tmuxy-ui
@@ -160,20 +135,7 @@ jobs:
       - name: Start server
         run: |
           ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          node -e "
-            const start = Date.now();
-            const check = async () => {
-              while (Date.now() - start < 30000) {
-                try {
-                  const res = await fetch('http://localhost:9000');
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 500));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server http://localhost:9000
 
       # More samples than the 12 the gate job uses: this number is committed
       # and lived with, so it is worth a steadier p50.
@@ -318,37 +280,12 @@ jobs:
       # The same source-built 3.7a and cache key as every other job: a leak in
       # pane teardown is version-sensitive, and the answer has to be about the
       # tmux the rest of CI runs against.
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
-
-      - name: Confirm tmux version
-        run: tmux -V
+      - uses: ./.github/actions/install-tmux
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       - name: Build frontend
         run: npm run build -w tmuxy-ui
@@ -372,20 +309,7 @@ jobs:
         run: |
           TMUX_SOCKET=tmuxy-soak ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
           echo "TMUXY_SERVER_PID=$!" >> "$GITHUB_ENV"
-          node -e "
-            const start = Date.now();
-            const check = async () => {
-              while (Date.now() - start < 30000) {
-                try {
-                  const res = await fetch('http://localhost:9000');
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 500));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server http://localhost:9000
 
       - name: Soak the session
         run: |

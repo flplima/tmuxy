@@ -83,33 +83,12 @@ jobs:
           npm run fetch:v86-image -w tmuxy-ui
           npm run build:v86-snapshot -w tmuxy-ui
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          node -e "
-            const start = Date.now();
-            const check = async () => {
-              while (Date.now() - start < 180000) {
-                try {
-                  const res = await fetch('http://localhost:6006/index.json');
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 1000));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server http://localhost:6006/index.json 180000
 
       # PROBE_TIMINGS_JSON is the per-story timing record (docs/PERFORMANCE.md
       # Axis A). Nothing collected it before, so the numbers were written to a

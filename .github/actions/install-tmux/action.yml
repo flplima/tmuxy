@@ -1,0 +1,40 @@
+name: Install tmux
+# A source-built tmux, cached by version. Ubuntu's apt tmux is too old for the
+# app (it refuses to launch below 3.3), and 3.7a is what the devcontainer and
+# the v86 guest run — docs/TMUX.md targets it everywhere. The build is ~30-60s,
+# the cache restore ~2s.
+inputs:
+  version:
+    required: false
+    default: '3.7a'
+  # The cache key's namespace. `runner.os` serves one runner image; a job that
+  # builds on several images of one OS (build-app.yml) passes `matrix.os`, so
+  # the 22.04 and arm builds each link their own libevent.
+  cache-key-namespace:
+    required: false
+    default: ${{ runner.os }}
+runs:
+  using: composite
+  steps:
+    - name: Cache tmux ${{ inputs.version }}
+      id: tmux-cache
+      uses: actions/cache@v6
+      with:
+        path: |
+          /usr/local/bin/tmux
+          /usr/local/share/tmux
+        key: ${{ inputs.cache-key-namespace }}-tmux-${{ inputs.version }}-v1
+
+    - name: Build tmux ${{ inputs.version }} (cache miss)
+      if: steps.tmux-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        v='${{ inputs.version }}'
+        curl -sL "https://github.com/tmux/tmux/releases/download/$v/tmux-$v.tar.gz" | tar xz
+        cd "tmux-$v" && ./configure && make -j"$(nproc)" && sudo make install
+        cd .. && rm -rf "tmux-$v"
+
+    - name: Confirm tmux version
+      shell: bash
+      run: tmux -V

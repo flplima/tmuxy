@@ -214,42 +214,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison fzf neovim
 
-      # Cache the tmux binary so we don't recompile from source every run.
-      # Build cost is ~30-60s; cache restore is ~2s. 3.7a matches the
-      # devcontainer and the v86 guest — docs/TMUX.md targets it everywhere.
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
-
-      - name: Confirm tmux version
-        run: tmux -V
+      - uses: ./.github/actions/install-tmux
 
       - name: Install npm dependencies
         run: npm ci
 
-      # The browser download is ~130MB and identical every run; only the apt
-      # side of `--with-deps` still has to happen on a hit.
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       # Only the WebKit suite; every other entry would pay the download for a
       # browser it never launches.
@@ -282,22 +252,7 @@ jobs:
         run: |
           TMUXY_TRACE_LEVEL=labeled ./target/release/tmuxy-server --port "$TMUXY_PORT" \
             --trace "$TMUXY_E2E_TRACE" 2>/tmp/tmuxy-server.log &
-          node -e "
-            const start = Date.now();
-            const timeout = 30000;
-            const url = 'http://localhost:' + process.env.TMUXY_PORT;
-            const check = async () => {
-              while (Date.now() - start < timeout) {
-                try {
-                  const res = await fetch(url);
-                  if (res.ok) { process.exit(0); }
-                } catch {}
-                await new Promise(r => setTimeout(r, 500));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server "http://localhost:$TMUXY_PORT"
 
       # No --forceExit: it masked leaked handles by killing the process before
       # jest could report them.
@@ -359,34 +314,12 @@ jobs:
 
       # Same tmux the e2e job pins — the binding set and the run-shell cost
       # this harness measures are version-sensitive.
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
+      - uses: ./.github/actions/install-tmux
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       - name: Download frontend dist
         uses: actions/download-artifact@v8
@@ -412,20 +345,7 @@ jobs:
       - name: Start server
         run: |
           ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          node -e "
-            const start = Date.now();
-            const check = async () => {
-              while (Date.now() - start < 30000) {
-                try {
-                  const res = await fetch('http://localhost:9000');
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 500));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server http://localhost:9000
 
       - name: Measure interactions
         run: |
@@ -468,15 +388,7 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       # The v86 staticDirs point at gitignored dirs; non-v86 stories never
       # fetch from them, but Storybook refuses to start if they're missing.
@@ -486,20 +398,7 @@ jobs:
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          node -e "
-            const start = Date.now();
-            const check = async () => {
-              while (Date.now() - start < 180000) {
-                try {
-                  const res = await fetch('http://localhost:6006/index.json');
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 1000));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server http://localhost:6006/index.json 180000
 
       - name: Probe deterministic stories
         run: |
@@ -586,33 +485,12 @@ jobs:
           npm run fetch:v86-image -w tmuxy-ui
           npm run build:v86-snapshot -w tmuxy-ui
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          node -e "
-            const start = Date.now();
-            const check = async () => {
-              while (Date.now() - start < 180000) {
-                try {
-                  const res = await fetch('http://localhost:6006/index.json');
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 1000));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server http://localhost:6006/index.json 180000
 
       - name: Gate stories (blocking)
         run: |
@@ -687,24 +565,7 @@ jobs:
       # clobbered by an in-flight list-windows response under the load the
       # Ctx/Tower Tauri path puts on the CC stream at startup. The app also
       # refuses to launch below tmux 3.3.
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
-
-      - name: Confirm tmux version
-        run: tmux -V
+      - uses: ./.github/actions/install-tmux
 
       # `cargo install tauri-driver` compiles from source on every run
       # (~2 min). Pinned so the cache key describes exactly what is in it.

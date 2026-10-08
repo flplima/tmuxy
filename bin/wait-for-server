@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+// Wait until an HTTP server answers a URL with a 2xx, polling every half
+// second; exit 1 once the deadline passes. The CI jobs start a server (or
+// Storybook) in the background and run this before the suite that needs it.
+//
+// Usage: bin/wait-for-server <url> [timeout-ms]   (default 30000)
+
+const [url, timeoutArg] = process.argv.slice(2);
+if (!url) {
+  process.stderr.write('usage: wait-for-server <url> [timeout-ms]\n');
+  process.exit(2);
+}
+const timeoutMs = Number(timeoutArg ?? 30000);
+const start = Date.now();
+
+const check = async () => {
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) process.exit(0);
+    } catch {
+      // not listening yet
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  process.stderr.write(`wait-for-server: ${url} did not answer within ${timeoutMs} ms\n`);
+  process.exit(1);
+};
+
+check();

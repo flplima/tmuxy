@@ -132,24 +132,10 @@ jobs:
       # Released versions are cached exactly like the per-commit jobs cache
       # 3.7a — and the 3.7a entry shares that cache key, so it costs nothing
       # extra. HEAD is a moving target and is deliberately never cached.
-      - name: Cache tmux ${{ matrix.tmux.version }}
-        id: tmux-cache
+      - uses: ./.github/actions/install-tmux
         if: matrix.tmux.version != 'HEAD'
-        uses: actions/cache@v6
         with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-${{ matrix.tmux.version }}-v1
-
-      - name: Build tmux ${{ matrix.tmux.version }} (cache miss)
-        if: matrix.tmux.version != 'HEAD' && steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          v='${{ matrix.tmux.version }}'
-          curl -sL "https://github.com/tmux/tmux/releases/download/$v/tmux-$v.tar.gz" | tar xz
-          cd "tmux-$v" && ./configure && make -j"$(nproc)" && sudo make install
-          cd .. && rm -rf "tmux-$v"
+          version: ${{ matrix.tmux.version }}
 
       # master has no release tarball and no generated configure script.
       - name: Build tmux from master
@@ -164,22 +150,12 @@ jobs:
           make -j"$(nproc)"
           sudo make install
           cd .. && rm -rf tmux-head
-
-      - name: Confirm tmux version
-        run: tmux -V
+          tmux -V
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       - name: Download frontend dist
         uses: actions/download-artifact@v8
@@ -221,21 +197,7 @@ jobs:
         continue-on-error: true
         run: |
           ./target/release/tmuxy-server --port "$TMUXY_PORT" 2>/tmp/tmuxy-server.log &
-          node -e "
-            const start = Date.now();
-            const url = 'http://localhost:' + process.env.TMUXY_PORT;
-            const check = async () => {
-              while (Date.now() - start < 30000) {
-                try {
-                  const res = await fetch(url);
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 500));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server "http://localhost:$TMUXY_PORT"
 
       - name: Snapshot suite
         id: snapshots
