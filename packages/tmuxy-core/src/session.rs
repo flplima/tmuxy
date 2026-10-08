@@ -427,36 +427,12 @@ pub fn config_dir() -> PathBuf {
         .join("tmuxy")
 }
 
-/// Get the path to the tmuxy config file.
-/// Checks: ~/.config/tmuxy/tmuxy.conf, ~/.tmuxy.conf, then .devcontainer/.tmuxy.conf.
+/// The user's `tmuxy.conf` in [`config_dir`], if it exists. Both hosts call
+/// [`ensure_config`] at startup, before any monitor connects, so it is only
+/// absent when that write failed.
 pub fn get_config_path() -> Option<PathBuf> {
-    // XDG-style config location
-    let xdg_config = config_dir().join("tmuxy.conf");
-    if xdg_config.exists() {
-        return Some(xdg_config);
-    }
-
-    let home_config = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".tmuxy.conf");
-    if home_config.exists() {
-        return Some(home_config);
-    }
-
-    // Check .devcontainer/.tmuxy.conf relative to working directory or ancestor
-    if let Ok(mut dir) = std::env::current_dir() {
-        loop {
-            let docker_config = dir.join(".devcontainer/.tmuxy.conf");
-            if docker_config.exists() {
-                return Some(docker_config);
-            }
-            if !dir.pop() {
-                break;
-            }
-        }
-    }
-
-    None
+    let path = config_dir().join("tmuxy.conf");
+    path.exists().then_some(path)
 }
 
 /// The shipped user conf sources its siblings by the default
