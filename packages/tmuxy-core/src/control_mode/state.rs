@@ -139,7 +139,7 @@ fn is_graphics_payload(title: &str) -> bool {
 
 /// Result of processing a control mode event
 #[derive(Debug, Default)]
-pub struct ProcessEventResult {
+pub(crate) struct ProcessEventResult {
     /// Whether state changed in a way that should trigger a UI update
     pub state_changed: bool,
     /// Pane IDs that need their content refreshed via capture-pane
@@ -1555,23 +1555,6 @@ impl StateAggregator {
         }
     }
 
-    /// Enable or disable window/layout emission suppression.
-    /// When suppressed, window/layout events still update internal state
-    /// but `process_event()` returns `state_changed: false` for those events.
-    pub fn set_suppress_window_emissions(&mut self, suppress: bool) {
-        self.suppress_window_emissions = suppress;
-    }
-
-    /// Check if window emissions are currently suppressed.
-    pub fn is_suppressing_window_emissions(&self) -> bool {
-        self.suppress_window_emissions
-    }
-
-    /// Get the current number of windows tracked by the aggregator.
-    pub fn window_count(&self) -> usize {
-        self.windows.len()
-    }
-
     /// Arm settling for a multi-step compound command (e.g. `splitw ; breakp`).
     /// Suppresses window/layout emissions until `tick(now)` fires the
     /// consolidated emit, or until `clear_settling()` is called explicitly.
@@ -2009,7 +1992,7 @@ impl StateAggregator {
 
     /// Process a control mode event.
     /// Returns information about state changes and any panes that need content refresh.
-    pub fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
+    pub(crate) fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
         match event {
             // %output and %extended-output differ only in the extra metadata
             // the parser already discarded — one handler serves both.

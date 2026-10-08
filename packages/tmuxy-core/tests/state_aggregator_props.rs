@@ -6,9 +6,9 @@
 //!
 //! Each property drives the aggregator with synthetic event sequences and
 //! asserts an invariant that *must* hold regardless of input ordering. The
-//! aggregator has no tokio/async dependencies (Phase 3.11 confirmed it as
-//! already-sans-IO), so these properties exercise it purely through
-//! `process_event`.
+//! aggregator has no tokio/async dependencies, so these properties exercise
+//! it purely through `step`/`step_at` and `tick`, the entry points the
+//! runtime uses.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -65,15 +65,15 @@ fn any_event_strategy() -> impl Strategy<Value = ControlModeEvent> {
 }
 
 proptest! {
-    /// `process_event` must never panic on any sequence of synthetic events.
+    /// `step` must never panic on any sequence of synthetic events.
     /// The aggregator wraps vt100 in a panic guard (`safe_process` in
     /// `state.rs`), so even adversarially-malformed payloads should be
     /// contained.
     #[test]
-    fn process_event_never_panics(events in prop::collection::vec(any_event_strategy(), 1..50)) {
+    fn step_never_panics(events in prop::collection::vec(any_event_strategy(), 1..50)) {
         let mut agg = StateAggregator::new();
         for ev in events {
-            let _ = agg.process_event(ev);
+            let _ = agg.step(ev);
         }
     }
 
@@ -90,33 +90,34 @@ proptest! {
         // Apply adds first, then closes — the order matters because closing
         // a non-existent window is a no-op, not an error.
         for w in &adds {
-            agg.process_event(ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() });
+            agg.step(ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() });
         }
-        let after_adds = agg.window_count();
+        let after_adds = agg.to_tmux_state().windows.len();
         for w in &closes {
-            agg.process_event(ControlModeEvent::WindowClose { window_id: w.parse().unwrap() });
+            agg.step(ControlModeEvent::WindowClose { window_id: w.parse().unwrap() });
         }
-        let after_closes = agg.window_count();
+        let after_closes = agg.to_tmux_state().windows.len();
         // Sanity: closes can only ever reduce the window count.
         prop_assert!(after_closes <= after_adds);
     }
 
-    /// Suppression flag is purely a sticky boolean — toggling it on then off
-    /// must always return the aggregator to the unsuppressed state regardless
-    /// of intervening events. Catches accidental state leakage during the
-    /// settling window.
+    /// Settling is a sticky state — arming it and then clearing it must
+    /// always return the aggregator to the unsettled state regardless of
+    /// intervening events, and no event inside the window can end it on its
+    /// own (only `tick` past the deadline, or `clear_settling`, does).
     #[test]
-    fn suppress_flag_round_trips(events in prop::collection::vec(any_event_strategy(), 0..30)) {
+    fn settling_round_trips(events in prop::collection::vec(any_event_strategy(), 0..30)) {
         let mut agg = StateAggregator::new();
-        agg.set_suppress_window_emissions(true);
-        prop_assert!(agg.is_suppressing_window_emissions());
+        let t0 = std::time::Instant::now();
+        agg.arm_settling(t0);
+        prop_assert!(agg.is_settling());
         for ev in events {
-            let _ = agg.process_event(ev);
+            let _ = agg.step_at(ev, t0);
         }
-        // Suppression remains true while events flow.
-        prop_assert!(agg.is_suppressing_window_emissions());
-        agg.set_suppress_window_emissions(false);
-        prop_assert!(!agg.is_suppressing_window_emissions());
+        // Settling remains armed while events flow.
+        prop_assert!(agg.is_settling());
+        agg.clear_settling();
+        prop_assert!(!agg.is_settling());
     }
 
     /// State-delta consistency: every `EmitState` effect must carry a non-None
@@ -210,13 +211,14 @@ proptest! {
         ),
     ) {
         let mut agg = StateAggregator::new();
+        let t0 = std::time::Instant::now();
         // Pre-populate so closes don't get filtered as no-ops.
         for w in &window_ids {
-            agg.step(ControlModeEvent::WindowAdd { window_id: w.clone() });
+            agg.step_at(ControlModeEvent::WindowAdd { window_id: w.clone() }, t0);
         }
-        agg.set_suppress_window_emissions(true);
+        agg.arm_settling(t0);
         for w in &window_ids {
-            let result = agg.step(ControlModeEvent::WindowClose { window_id: w.clone() });
+            let result = agg.step_at(ControlModeEvent::WindowClose { window_id: w.clone() }, t0);
             let has_emit = result.effects.iter().any(|e|
                 matches!(e, SideEffect::EmitState { .. }));
             prop_assert!(!has_emit,
@@ -231,9 +233,9 @@ proptest! {
 
     /// Settling timer end-to-end: regardless of how many window-typed events
     /// arrive inside the settling window, `tick(now)` past the deadline must
-    /// (a) clear suppression, (b) clear `is_settling`, and (c) emit at most
-    /// one consolidated `EmitState`. This is the property that was previously
-    /// untestable because the timing lived on the monitor's `RunState`.
+    /// (a) clear `is_settling` and (b) emit at most one consolidated
+    /// `EmitState`. This is the property that was previously untestable
+    /// because the timing lived on the monitor's `RunState`.
     #[test]
     fn settling_window_emits_at_most_once_and_clears(
         // Up to 12 window-typed events inside the settling window. We seed
@@ -259,21 +261,18 @@ proptest! {
 
         let pairs: Vec<(WindowId, u64)> = window_ids.iter().cloned().zip(offsets).collect();
         for (w, off) in &pairs {
-            // Skip Closes for already-closed windows so process_event stays well-typed.
-            let _ = agg.step_at(
+            // Inside the settling window (offsets ≤ 400ms < the 500ms safety
+            // ceiling), no window event may emit: the consolidated emit comes
+            // from `tick`.
+            let result = agg.step_at(
                 ControlModeEvent::WindowClose { window_id: w.clone() },
                 t0 + std::time::Duration::from_millis(*off),
             );
-        }
-
-        // While inside the settling window, EmitState must NOT have escaped:
-        // we can verify this indirectly by inspecting that suppression is still
-        // active (or already cleared if the safety ceiling expired internally
-        // — but with our fixed offsets ≤ 400ms < 500ms safety max, suppression
-        // should remain armed).
-        if agg.is_settling() {
-            prop_assert!(agg.is_suppressing_window_emissions(),
-                "while settling is armed, suppression must remain set");
+            prop_assert!(
+                !result.effects.iter().any(|e| matches!(e, SideEffect::EmitState { .. })),
+                "a window event inside the settling window escaped: {:?}",
+                result.effects
+            );
         }
 
         // Advance to well past the safety ceiling and tick once.
@@ -282,8 +281,6 @@ proptest! {
 
         prop_assert!(!agg.is_settling(),
             "tick past deadline must clear settling");
-        prop_assert!(!agg.is_suppressing_window_emissions(),
-            "tick past deadline must clear suppression");
 
         let emit_count = effects.iter().filter(|e|
             matches!(e, SideEffect::EmitState { .. })).count();
