@@ -19,8 +19,7 @@ use std::hint::black_box;
 
 use tmuxy_core::control_mode::{ControlModeEvent, Parser, StateAggregator};
 
-/// The initial control-mode stream establishing a 2-pane session — the same
-/// fixture the DeltaProtocol Storybook story feeds the wasm core. The
+/// The initial control-mode stream establishing a 2-pane session. The
 /// aggregator reports this as a FULL state.
 const FULL_SYNC: &str = concat!(
     "%begin 1 1 0\n",
