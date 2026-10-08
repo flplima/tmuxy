@@ -1,40 +1,14 @@
 name: perf measurements
 
-# Two performance measurements, for the numbers the per-commit jobs
-# deliberately do not gate on: one on demand, one nightly. (The file keeps its
-# nightly- name from when both ran on the schedule.)
+# The two perf measurements that hand a human a number rather than gating a
+# merge (docs/PERFORMANCE.md has the reasoning for each):
 #
-# 1. `interaction-baseline` — a manual (workflow_dispatch) run of the Axis-C
-#    interaction harness on `ubuntu-latest` whose only product is a refreshed
-#    `perf/interaction-baseline.json` for a human to review and commit.
-# 2. `soak` — the one job here that IS nightly, because its product is a trend
-#    rather than a number: does a long session degrade? Tens of MB of output
-#    and 200 split/kill cycles, watching heap, DOM nodes, listeners and server
-#    RSS for a plateau. Nothing else in the suite runs long enough to see a
-#    leak, since every other tier measures one interaction and a leak keeps
-#    each individual interaction fast. It writes its table into the run
-#    SUMMARY, not only an artifact — see the note below about why that
-#    matters here.
+#   interaction-baseline  on demand — measures Axis C on ubuntu-latest and
+#                         opens a PR with a refreshed perf/interaction-baseline.json
+#   soak                  nightly — Axis D, does a long session degrade; its
+#                         verdict table goes into the run summary
 #
-# Neither gates anything. Absolute milliseconds from a shared GitHub runner
-# are not a merge signal — the ratio gate in the per-commit
-# `interaction-latency` job is. (The Axis-A criterion bench and its ratio gate
-# run per commit in ci-rust-tests.yml.)
-#
-# So `interaction-baseline` is ON DEMAND. It exists to hand a human a number:
-# the refreshed `perf/interaction-baseline.json` to review and commit. A
-# nightly schedule produced nothing of the kind — it wrote artifacts nobody
-# opened, and the baseline it exists to feed has never been refreshed from
-# one. Run it (Actions → "perf measurements" → Run workflow) when you want
-# the number.
-#
-# `soak` is the exception, and the difference is what it produces. A soak run
-# answers a yes/no question about THAT run — did everything plateau — and the
-# answer is only interesting as a sequence: one night proves nothing, thirty
-# nights show a slope. So it is scheduled, and it prints its verdict table into
-# `$GITHUB_STEP_SUMMARY` where it is readable from the run page. That is the
-# specific failure of the old nightlies this does not repeat: an artifact is
-# only read by someone who already suspects something.
+# The file keeps its nightly- name from when both ran on the schedule.
 
 on:
   schedule:
@@ -63,31 +37,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Axis C — generate a linux baseline for perf/interaction-baseline.json.
-  #
-  # The committed baseline holds only `darwin-arm64`, so the per-commit
-  # `interaction-latency` job (which runs on ubuntu-latest) leaves its absolute
-  # "baseline p50" column blank and rides on the ratio gate alone.
-  #
-  # The missing numbers CANNOT be written by hand: milliseconds only mean
-  # something when they were measured by this harness, on this platform, on a
-  # GitHub runner. So this job measures them where they apply and uploads the
-  # result; a human downloads it, reviews it and commits it. CI never pushes a
-  # baseline, exactly as docs/PERFORMANCE.md requires.
-  #
-  # HOW TO ADD / REFRESH THE LINUX BASELINE:
-  #   1. Actions → "perf measurements" → Run workflow (workflow_dispatch).
-  #   2. It opens a PR with the refreshed perf/interaction-baseline.json — the
-  #      script merges rather than replaces, so `darwin-arm64` is left alone.
-  #   3. READ THE NUMBERS, then merge. A runner having a bad night produces a
-  #      baseline that hides real regressions for as long as it stands.
-  #
-  # A PR rather than a commit, and manual rather than nightly, for the same
-  # reason: a baseline that refreshes itself ratchets to whatever the runner did
-  # last, which is the opposite of a baseline. Uncheck `open_pr` for the
-  # artifact alone.
-  # ---------------------------------------------------------------------------
+  # Axis C on the platform the gate job runs on. Actions → "perf measurements"
+  # → Run workflow; read the numbers in the PR it opens, then merge. Uncheck
+  # `open_pr` for the artifact alone.
   interaction-baseline:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -169,14 +121,8 @@ jobs:
             perf/interaction-report.json
           if-no-files-found: error
 
-      # A PULL REQUEST, not a commit to main. A baseline measured on a runner
-      # having a bad night hides real regressions for as long as it stands, so
-      # it has to be read by a human before it counts — but reading it should
-      # not also mean downloading an artifact and copying a file over by hand,
-      # which is why this baseline has never actually been refreshed. The PR
-      # keeps the review and removes the chore.
-      #
-      # `inputs.open_pr` defaults true; uncheck it to get only the artifact.
+      # A pull request, not a commit to main: the numbers are read before they
+      # count (docs/PERFORMANCE.md, Axis C "Running it").
       - name: Open a PR with the refreshed baseline
         if: inputs.open_pr
         env:
@@ -242,19 +188,8 @@ jobs:
         if: failure()
         run: tail -2000 /tmp/tmuxy-server.log
 
-  # ---------------------------------------------------------------------------
-  # Does a long session degrade?
-  #
-  # Non-blocking on purpose, and `--gate` is deliberately absent: the harness's
-  # plateau tolerances are guesses until there is a corpus of nightly runs to
-  # calibrate them against, and a guessed threshold on a long job produces a
-  # nightly nobody trusts. The step summary carries the numbers every night;
-  # once their shape is known, add `--gate` here and the guesses become budgets.
-  #
-  # Smaller load than the harness defaults: a shared runner is slower than a
-  # dev machine at both halves, and the plateau comparison needs the WINDOWS to
-  # be clean more than it needs them to be large.
-  # ---------------------------------------------------------------------------
+  # Axis D. `--gate` is absent on purpose: the plateau tolerances are guesses
+  # until a corpus of nightly runs calibrates them (docs/PERFORMANCE.md).
   soak:
     if: github.event_name == 'schedule' || inputs.soak
     runs-on: ubuntu-latest
@@ -324,9 +259,6 @@ jobs:
             --out perf/soak-report.json \
             | tee /tmp/soak.log
 
-      # The point of the job: readable from the run page, without downloading
-      # anything. A reader who has to fetch an artifact to find out whether
-      # last night was fine does not find out.
       - name: Summarise
         if: always()
         run: |

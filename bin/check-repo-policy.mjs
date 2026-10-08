@@ -161,8 +161,8 @@ function checkDocsToScriptsConsistency() {
   const commandDocs = [
     'AGENTS.md',
     '.github/copilot-instructions.md',
-    'docs/RUNBOOK.md',
     'docs/CI-TRIAGE.md',
+    'docs/TESTS.md',
   ];
 
   const requiredCanonicalCommands = [

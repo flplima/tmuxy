@@ -56,17 +56,7 @@ Jobs that need tmux build **3.7a** from source and cache it (`e2e`, `interaction
 
 ### Red-Main Policy & Bug-Fix Attribution
 
-**Fix or quarantine within 24 hours.** A broken build on `main` stops everyone. If CI turns red on `main`:
-
-1. **Zero tolerance for stale red**: A failing commit on `main` must either be fixed or quarantined within 24 hours. Do not merge feature branches on top of a red `main`.
-2. **Quarantine protocol**: If an issue or flake cannot be diagnosed within a day, quarantine the failing test using the bounded quarantine lists (`packages/tmuxy-ui/scripts/probe-quarantine.json` or `probe-quarantine-v86.json`) or revert the breaking commit. Every quarantine entry requires an issue ref, rationale, and strict expiration date.
-3. **Re-runs are not fixes**: Simply clicking re-run on a failing job masks races and degrades confidence in CI. Fix the synchronization or wait condition.
-
-**Tag every bug-fix commit with `[missed-by: <layer>]`.** Every bug fix commit (`🐛`) must state which test layer should have caught the defect:
-
-- Pattern: `🐛 <description> [missed-by: <layer>]`
-- Layers: `unit-tests`, `e2e`, `storybook-probe`, `storybook-v86-probe`, `rust-tests`, `cli`, `tauri-e2e`, `desktop-smoke`, `WebKit`, or `none`.
-- `[missed-by: none]` flags an architectural gap in our test coverage (e.g. process lifecycle, OS font rendering) that guides where new test harnesses must be added.
+The rules for a red `main` — fix or quarantine within 24 hours, no features on a red main, quarantine only through the bounded lists — and the `[missed-by: <layer>]` tag every bug-fix commit carries live in `AGENTS.md` (Testing & Bug Fixes). One addition that matters here: **re-runs are not fixes.** Clicking re-run on a failing job masks a race and degrades confidence in CI; fix the synchronization or the wait condition instead.
 
 ### Local Gates
 
@@ -199,7 +189,7 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 | `tests/15-session-snapshot.test.js`    | Session snapshots on a server of the test's own (own socket, port and state dir) — autosave follows split, float, tab, group, sidebar and restore tags; SIGTERM + `kill-server` + restart rebuilds the shape; `forget` needs `--force` |
 | `tests/snapshots/snapshot.test.js`     | Read-only UI ↔ tmux comparison, no interactions                                                                                                                                                                                        |
 
-Helpers live in `tests/helpers/`, one file per domain: `browser.js` (CDP connect or launch), `test-setup.js` (`createTestContext`), `extra-server.js` / `read-only-server.js` / `public-name-proxy.js` (a second server beside the suite's own), `TmuxTestSession.js`, `keyboard.js`, `pane-ops.js`, `window-ops.js`, `pane-groups.js`, `copy-mode.js` / `copy-mode-ui.js`, `mouse-capture.js`, `cell-grid.js`, `layout.js`, `glitch-detector.js`, `snapshot-compare.js`, `content-match.js`, `consistency.js`, `cli.js`, `tmux-socket.js`, `config.js`. Import them through `tests/helpers/index.js`.
+Helpers live in `tests/helpers/`, one file per domain: `browser.js` (CDP connect or launch), `own-browser.js` (a browser context the suite owns — touch, phone width, WebKit), `test-setup.js` (`createTestContext`), `extra-server.js` / `read-only-server.js` / `public-name-proxy.js` (a second server beside the suite's own), `snapshot-server.js` (a server of the test's own that can be stopped and restarted), `server-binary.js` (the newest built `tmuxy-server`), `TmuxTestSession.js`, `tmux-side.js` (what tmux holds for a session, for failure messages), `reap.js` (shells left in the kernel by a torn-down pane), `keyboard.js`, `pane-ops.js`, `window-ops.js`, `pane-groups.js`, `copy-mode.js` / `copy-mode-ui.js`, `selection-drag.js`, `mouse-capture.js` (with the `mouse-capture.py` fixture it runs in a pane), `cell-grid.js`, `layout.js`, `glitch-detector.js`, `snapshot-compare.js`, `content-match.js`, `consistency.js`, `cli.js`, `tmux-socket.js`, `config.js`, and `trace-environment.js` (the Jest environment that stamps a trace marker per test). Import them through `tests/helpers/index.js`.
 
 ### Environment
 
@@ -227,7 +217,7 @@ google-chrome --headless=new --remote-debugging-port=9222 \
 curl -s http://127.0.0.1:9222/json/version   # confirm it answers before running the suite
 ```
 
-**Confirm that Chrome is up first.** Without it the suite does not fail — every test calls `skipIfNotReady()` and reports green in a couple of milliseconds, which looks identical to a real pass. A suite finishing suspiciously fast is the tell. (`CI=1` turns the skip into a hard failure, which is why CI can't be fooled this way.)
+**Confirm that Chrome is up first.** Without it every test fails at `skipIfNotReady()` with the reason (server unreachable, or no CDP on 9222). It used to skip and report green in a couple of milliseconds, which looks identical to a real pass; that is now opt-in with `TMUXY_E2E_ALLOW_SKIP=1`, for running one suite without the full stack.
 
 The suite pins `TMUX_SOCKET` to **`tmuxy-test`** and clears `$TMUX` in `tests/jest.setup.js` (the default lives in `tests/helpers/tmux-socket.js`), so it is safe to run from inside a tmux pane: it creates and kills sessions on a socket of its own, never the `tmuxy` socket a running tmuxy — quite possibly the one you are sitting in — is serving.
 
@@ -335,7 +325,7 @@ Both are in `src/stories/StoryHarness.tsx`.
 ## UI Unit Tests
 
 - Vitest with jsdom, configured in `packages/tmuxy-ui/vite.config.ts`; `src/test/setup.ts` installs jest-dom matchers, an in-memory `localStorage` for Node ≥ 22, and cleans up after each test
-- Tests live beside the code in `__tests__/` directories: `src/utils/`, `src/machines/` (state handlers share `src/machines/app/states/__tests__/testHarness.ts`), `src/tmux/` (adapters, key batching, the store, the demo backend), `src/components/`, `src/hooks/`
+- Tests live beside the code in `__tests__/` directories: `src/utils/`, `src/machines/` (state handlers share `src/machines/app/states/__tests__/testHarness.ts`), `src/domain/` (the command vocabulary, the delta protocol, the store's pure logic), `src/infra/` (the transport service and its drivers — HTTP, Tauri, the demo backend — key batching, the store), `src/components/`, `src/hooks/`
 - Test pure logic: parsers, state transformations, utility functions, adapter protocol handling
 - Component rendering in jsdom is limited to a few mocked-context tests in `src/test/` and the story smoke test. jsdom has no layout, so a jsdom render test can prove "does not throw" and "renders this text", never "is visible" — anything visual belongs in a story or E2E
 - Keep unit tests fast (< 1s per file)

@@ -45,7 +45,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:9100/commands \
 
 curl -s -o /dev/null -w '%{http_code}\n' 'localhost:9100/api/file?path=/etc/hosts' \
   -H 'Host: localhost:9100' -H 'Sec-Fetch-Site: same-origin'
-# 403
+# 404 — a read-only server has no file routes at all
 ```
 
 ## What it deliberately does not do

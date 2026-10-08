@@ -191,9 +191,19 @@ already runs instead of launching one (the devcontainer deliberately does not
 install Playwright's browsers; CI is the reverse and launches). Refresh the
 committed baseline for a platform with `npm run perf:compare -- --report … --update-baseline`
 and commit the result. For the Linux platforms, run the "perf measurements"
-workflow instead: it measures on a runner and opens a PR with the refreshed
-file. Either way a baseline change lands through review — CI never writes one
-straight to `main`.
+workflow (`.github/workflows/nightly-perf.yml`, `interaction-baseline` job)
+instead: it measures on a runner, with more samples than the gate job takes,
+and opens a PR with the refreshed file. Either way a baseline change lands
+through review — CI never writes one straight to `main`.
+
+That job is on demand, not scheduled, and a PR rather than a commit, for one
+reason: a baseline that refreshes itself ratchets to whatever the runner did
+last, which is the opposite of a baseline. A nightly run of it wrote artifacts
+nobody opened, and the file it exists to feed was never once refreshed from
+one — because the review used to mean downloading an artifact and copying a
+file over by hand. The PR keeps the review and removes the chore; read the
+milliseconds before merging, since a runner having a bad night produces a
+baseline that hides real regressions for as long as it stands.
 
 The desktop equivalent needs the app built first, and takes the binary rather
 than a URL:
@@ -408,6 +418,16 @@ command than the one it was given.
 panes in whatever session the server it is pointed at is serving. A server
 started with no `TMUX_SOCKET` serves the default `tmuxy` socket — on a dev
 machine, the session someone is working in.
+
+It is the one perf job that is scheduled, because its product is a trend rather
+than a number: a soak run answers a yes/no question about that run — did
+everything plateau — and the answer is only interesting as a sequence. One
+night proves nothing; thirty nights show a slope. For the same reason it prints
+its verdict table into the run's step summary, where it is readable from the
+run page: an artifact is only read by someone who already suspects something.
+CI runs it with a smaller load than the harness defaults — a shared runner is
+slower at both halves, and the plateau comparison needs its windows to be clean
+more than it needs them to be large.
 
 ## The browser pane's frames
 
