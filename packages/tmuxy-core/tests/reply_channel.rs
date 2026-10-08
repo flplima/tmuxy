@@ -20,7 +20,7 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{
     CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::{executor, StateUpdate};
 
 /// Keeps every emitted state so the test can look at the last full snapshot.
 #[derive(Default)]
@@ -81,7 +81,7 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
         create_session: true,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("a control-mode connection on the scratch socket");
 

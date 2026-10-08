@@ -1559,7 +1559,6 @@ impl StateAggregator {
     /// Arm settling for a multi-step compound command (e.g. `splitw ; breakp`).
     /// Suppresses window/layout emissions until `tick(now)` fires the
     /// consolidated emit, or until `clear_settling()` is called explicitly.
-    /// `now` is sourced from `Ctx::clock` so tests can drive timing.
     pub fn arm_settling(&mut self, now: Instant) {
         self.settling_started = Some(now);
         self.settling_awaiting_first_event = true;
@@ -1820,9 +1819,8 @@ impl StateAggregator {
             .map(|img| (img.data.clone(), img.mime_type.clone()))
     }
 
-    /// Like `step`, but accepts an explicit `now` so callers (the monitor)
-    /// can drive settling extension from `Ctx::clock` and tests can advance
-    /// time deterministically.
+    /// Like `step`, but accepts an explicit `now` so tests can drive the
+    /// settling extension deterministically.
     pub fn step_at(&mut self, event: ControlModeEvent, now: Instant) -> StepResult {
         // A window closing needs the same re-list as one appearing: with
         // renumber-windows on, tmux shifts every later window's index and

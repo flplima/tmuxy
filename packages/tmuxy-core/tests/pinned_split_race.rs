@@ -23,7 +23,7 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{
     CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::{executor, StateUpdate};
 
 #[derive(Default)]
 struct Quiet {
@@ -70,7 +70,7 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
         create_session: true,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("control-mode connection on the scratch socket");
     let runner = tokio::spawn(async move {

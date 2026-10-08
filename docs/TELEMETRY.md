@@ -141,10 +141,8 @@ every `info!`/`warn!`/`error!` — with **zero new call sites**. The work is:
 1. Write the NDJSON `Layer` and add it to the subscriber in `init_logging()`.
 2. **Install the subscriber on every entry path**, including the Tauri GUI path
    that currently skips it (the gap above).
-3. Route timestamps through
-   `Ctx.Clock` (`packages/tmuxy-core/src/ctx.rs`) so the pure core stays pure
-   and tests stay deterministic — the same substitution seam the rest of the
-   core uses.
+3. Take timestamps at the layer, from the system clock, so the pure core
+   stays pure.
 
 The handful of hot-path events that matter for causality but aren't yet spans
 (aggregator `step`, monitor flush decision, emitter dispatch) get one
@@ -429,7 +427,7 @@ local.
   is the model this generalizes and the Axis-B round-trip source.
 - [DATA-FLOW.md](DATA-FLOW.md) — the full user-action path, the seams, and the
   deployment scenarios that decide where the file lives.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — `Ctx` and the `StateEmitter` trait.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — the sans-IO core and the `StateEmitter` trait.
 - [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — the XState actors and typed
   `TmuxOp` vocabulary that make content-free action tracing possible.
 - [SECURITY.md](SECURITY.md) — the threat model that defines the redaction

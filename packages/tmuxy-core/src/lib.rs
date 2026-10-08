@@ -9,8 +9,6 @@ pub mod ids;
 #[cfg(feature = "native")]
 pub mod command_router;
 #[cfg(feature = "native")]
-pub mod ctx;
-#[cfg(feature = "native")]
 pub mod debug_log;
 #[cfg(feature = "native")]
 pub mod executor;
@@ -33,9 +31,6 @@ pub mod trace;
 pub mod transport;
 #[cfg(feature = "native")]
 pub mod worktrees;
-
-#[cfg(feature = "native")]
-pub use ctx::{Clock, Ctx};
 
 pub use command_error::{CommandError, ErrorKind};
 pub use error::{Result as TmuxResult, TmuxError};

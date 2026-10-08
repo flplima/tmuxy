@@ -14,7 +14,6 @@ use tmuxy_core::mime::{
     content_type_for_path, read_served_file, ServeRefusal, FILE_SANDBOX_CSP, MAX_SERVED_FILE_BYTES,
 };
 use tmuxy_core::transport::ImageStore;
-use tmuxy_core::Ctx;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -245,8 +244,6 @@ pub struct AppState {
     /// `tokio::select!` against `shutdown.cancelled()` so it exits its
     /// long-running loop promptly.
     pub shutdown: CancellationToken,
-    /// Execution context threaded into every `TmuxMonitor` this server starts.
-    pub ctx: Arc<Ctx>,
     /// `--read-only`: every client of this server is a viewer. Only the
     /// commands `sse::serve_viewer` names are served, and no client's
     /// viewport is ever recorded, so a viewer cannot resize the session.
@@ -294,7 +291,6 @@ impl Default for AppState {
             image_store: RwLock::new(ImageStore::default()),
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
-            ctx: Ctx::live(),
             read_only: false,
             session_pin: None,
             live_streams: AtomicU64::new(0),

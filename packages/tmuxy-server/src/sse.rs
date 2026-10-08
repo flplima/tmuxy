@@ -1678,7 +1678,7 @@ pub async fn start_monitoring(
             }
         }
 
-        match TmuxMonitor::connect(connect_config, Some(&log_sink), state.ctx.clone()).await {
+        match TmuxMonitor::connect(connect_config, Some(&log_sink)).await {
             Ok((mut monitor, command_tx)) => {
                 // Store command_tx so cleanup_connection can send Shutdown
                 let stored = {

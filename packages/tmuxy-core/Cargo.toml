@@ -8,7 +8,7 @@ description = "Core tmux interaction library for tmuxy"
 
 # The control-mode parser + state aggregator (parser/state/osc/images/octal +
 # the Tmux*/Delta types) are sans-IO and compile to wasm32. The async/pty
-# transport (monitor/connection/executor/session/transport/ctx) lives behind
+# transport (monitor/connection/executor/session/transport) lives behind
 # the default `native` feature so the pure core can build with
 # --no-default-features for the WASM (tmuxy-wasm) crate.
 [dependencies]
@@ -45,7 +45,7 @@ criterion = "0.5"
 [features]
 default = ["native"]
 # Enables the async/pty transport (monitor, connection, executor, session,
-# transport, ctx). Off for the wasm build.
+# transport). Off for the wasm build.
 native = ["dep:tokio", "dep:dirs", "dep:pty-process", "dep:tracing-subscriber"]
 
 [lints]

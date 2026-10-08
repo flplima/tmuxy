@@ -21,7 +21,7 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{
     CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::{executor, StateUpdate};
 
 /// Keeps what the monitor reports so a failure can say what went wrong.
 #[derive(Default)]
@@ -84,7 +84,7 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
         create_session: false,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("control-mode connection on the scratch socket");
     let recorder = std::sync::Arc::new(Recorder::default());

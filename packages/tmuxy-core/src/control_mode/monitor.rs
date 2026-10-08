@@ -11,11 +11,9 @@ use super::state::{
     capture_command, capture_command_range, ChangeType, SideEffect, StateAggregator,
 };
 use crate::constants::tmux_formats;
-use crate::ctx::Ctx;
 use crate::error::TmuxError;
 use crate::{PaneId, StateUpdate, WindowId};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, instrument, trace, warn};
@@ -338,11 +336,9 @@ struct RunState {
 }
 
 impl RunState {
-    /// `now_std` comes from the injected `Ctx::clock` so tests can advance time
-    /// deterministically. `now_async` is the tokio reactor's monotonic clock,
-    /// which is fixed to the real reactor — fakes for it would need
-    /// `tokio::time::pause`, which is a higher-cost test-hook than the std
-    /// clock and is left to follow-up work.
+    /// `now_std` is the std clock the throttle/debounce deadlines are computed
+    /// from (the tests pass explicit instants); `now_async` is the tokio
+    /// reactor's monotonic clock the sync and heartbeat timers sleep against.
     fn new(config: &MonitorConfig, now_std: Instant) -> Self {
         let now_async = tokio::time::Instant::now();
         Self {
@@ -374,7 +370,6 @@ impl RunState {
     /// Compute the sleep duration for the throttle-tick branch.
     /// `Duration::from_secs(3600)` is the "effectively infinite" sentinel; the
     /// `if pending_output_emit` guard on the branch is what actually parks us.
-    /// `now` comes from `Ctx::clock` so tests can drive the deadline math.
     fn compute_throttle_sleep(&self, config: &MonitorConfig, now: Instant) -> Duration {
         if !(self.pending_output_emit && self.throttle_enabled) {
             return LONG_SLEEP;
@@ -486,10 +481,6 @@ pub struct TmuxMonitor {
     /// said once rather than on every sync.
     resize_given_up: HashSet<WindowId>,
 
-    /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
-    /// inside the loop so tests can advance time with `FakeClock`.
-    ctx: Arc<Ctx>,
-
     /// Replies still waiting for their closing marker, by reply id, with the
     /// instant each was sent — the loop fails any that outlive REPLY_TIMEOUT.
     pending_replies: HashMap<u64, (ReplyWaiter, tokio::time::Instant)>,
@@ -507,11 +498,10 @@ impl TmuxMonitor {
     /// `log` receives streaming progress entries (each tmux invocation, its
     /// output, and any retry decisions). Pass `None` if the caller doesn't
     /// surface these to a UI.
-    #[instrument(skip(log, ctx), fields(session = %config.session))]
+    #[instrument(skip(log), fields(session = %config.session))]
     pub async fn connect(
         config: MonitorConfig,
         log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
-        ctx: Arc<Ctx>,
     ) -> Result<(Self, MonitorCommandSender), TmuxError> {
         // Serialize control mode attachment to prevent concurrent operations
         // that crash tmux 3.5a (multiple CC clients racing to attach).
@@ -549,7 +539,6 @@ impl TmuxMonitor {
                 client_size: None,
                 resize_attempts: HashMap::new(),
                 resize_given_up: HashSet::new(),
-                ctx,
                 pending_replies: HashMap::new(),
                 next_reply_id: 0,
                 pending_state_requests: Vec::new(),
@@ -716,14 +705,14 @@ impl TmuxMonitor {
         // SseEmitter uses this to broadcast keybindings with correct prefix key.
         emitter.on_initial_sync_complete();
 
-        let mut rs = RunState::new(&self.config, self.ctx.clock.now());
+        let mut rs = RunState::new(&self.config, Instant::now());
 
         loop {
-            let throttle_sleep = rs.compute_throttle_sleep(&self.config, self.ctx.clock.now());
+            let throttle_sleep = rs.compute_throttle_sleep(&self.config, Instant::now());
             let settling_sleep = self
                 .aggregator
                 .settling_deadline()
-                .map(|d| d.saturating_duration_since(self.ctx.clock.now()))
+                .map(|d| d.saturating_duration_since(Instant::now()))
                 .unwrap_or(LONG_SLEEP);
             let metadata_deadline = rs
                 .metadata_sync_at
@@ -879,7 +868,7 @@ impl TmuxMonitor {
             }
         }
 
-        let step = self.aggregator.step_at(event, self.ctx.clock.now());
+        let step = self.aggregator.step_at(event, Instant::now());
 
         for effect in step.effects {
             match effect {
@@ -1124,7 +1113,7 @@ impl TmuxMonitor {
         change: &ChangeType,
     ) {
         let is_output_event = matches!(change, ChangeType::PaneOutput { .. });
-        let now = self.ctx.clock.now();
+        let now = Instant::now();
 
         // A window coming or going also renumbers every window after it
         // (`renumber-windows on`), and `%window-close` carries no indices — so
@@ -1168,7 +1157,7 @@ impl TmuxMonitor {
         if let Some(update) = self.aggregator.to_state_update() {
             emitter.emit_state(update);
         }
-        rs.mark_emitted(self.ctx.clock.now());
+        rs.mark_emitted(Instant::now());
     }
 
     /// Layout debounce window expired — flush the coalesced layout state.
@@ -1176,7 +1165,7 @@ impl TmuxMonitor {
         if let Some(update) = self.aggregator.to_state_update() {
             emitter.emit_state(update);
         }
-        rs.last_output_emit = self.ctx.clock.now();
+        rs.last_output_emit = Instant::now();
         rs.pending_layout_emit = false;
     }
 
@@ -1184,7 +1173,7 @@ impl TmuxMonitor {
     /// owns settling state now, so the only thing the monitor does is dispatch
     /// the effects (today: at most one immediate `EmitState`).
     fn on_settling_tick<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
-        let effects = self.aggregator.tick(self.ctx.clock.now());
+        let effects = self.aggregator.tick(Instant::now());
         if effects.is_empty() {
             trace!("settling tick: safety timeout or already cleared, no emit");
             return;
@@ -1282,7 +1271,7 @@ impl TmuxMonitor {
         let unescaped = command.replace(" \\; ", " ; ");
         let is_compound = is_multi_step_run_shell(&unescaped);
         if is_compound {
-            self.aggregator.arm_settling(self.ctx.clock.now());
+            self.aggregator.arm_settling(Instant::now());
             debug!("settling armed for multi-step run-shell");
         }
 

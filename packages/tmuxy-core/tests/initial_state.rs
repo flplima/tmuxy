@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use tmuxy_core::control_mode::{LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::{executor, StateUpdate};
 
 struct Quiet;
 impl LogSink for Quiet {}
@@ -50,7 +50,7 @@ async fn the_initial_state_knows_the_modes_a_program_set_before_the_client_attac
         create_session: false,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("control-mode connection on the scratch socket");
     let runner = tokio::spawn(async move { monitor.run(&Quiet).await });

@@ -389,9 +389,6 @@ pub async fn start_monitoring_window(
     // at the top of the loop.
     let mut parked = false;
 
-    // Built once; every reconnect attempt shares it.
-    let ctx = tmuxy_core::Ctx::live();
-
     loop {
         // Parked after giving up: wait for the user to ask for a different
         // server instead of returning. Returning left `request_reconnect`
@@ -429,7 +426,7 @@ pub async fn start_monitoring_window(
         // atomically, so a command issued mid-switch can target the old server
         // with the new session (or vice versa); `set_var` alongside libc
         // `getenv` on another thread is also UB. The real fix is to hold an
-        // explicit ConnectTarget in MonitorState/Ctx that executor calls read,
+        // explicit ConnectTarget in MonitorState that executor calls read,
         // replacing env-var-as-app-state.
         let pending = monitor_state
             .pending_reconnect
@@ -471,7 +468,7 @@ pub async fn start_monitoring_window(
             connect_config.first_window =
                 snapshot.first_window_hint(&tmuxy_core::session_snapshot::fallback_cwd());
         }
-        match TmuxMonitor::connect(connect_config, Some(&log_sink), ctx.clone()).await {
+        match TmuxMonitor::connect(connect_config, Some(&log_sink)).await {
             Ok((mut monitor, cmd_tx)) => {
                 let autosave = if tmuxy_core::session_snapshot::autosave_disabled() {
                     None

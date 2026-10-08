@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use tmuxy_core::control_mode::{LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::{executor, StateUpdate};
 
 /// Keeps what the monitor reports so a failure can say what went wrong.
 #[derive(Default)]
@@ -57,7 +57,7 @@ async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
         create_session: false,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("control-mode connection on the scratch socket");
     let recorder = std::sync::Arc::new(Recorder::default());

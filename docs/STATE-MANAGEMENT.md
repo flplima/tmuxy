@@ -20,7 +20,7 @@ The backend is the **authoritative** owner of tmux state. Everything below is a 
 
 ### AppState
 
-Top-level server state. Holds the per-session connection map, the execution context (`Ctx` — see below), structured-shutdown handles (`JoinSet` + `CancellationToken`), and the shared image store. Handlers reach tmux through the session's monitor, never a subprocess.
+Top-level server state. Holds the per-session connection map, structured-shutdown handles (`JoinSet` + `CancellationToken`), and the shared image store. Handlers reach tmux through the session's monitor, never a subprocess.
 
 See `tmuxy-server/src/state.rs`.
 
@@ -34,7 +34,7 @@ Same file as `AppState`.
 
 The bridge between the sans-IO state machine and a live `tmux -CC` subprocess. Receives control-mode events, drives the aggregator step-by-step, and executes the typed `SideEffect`s the aggregator returns (sending tmux commands, refreshing panes, emitting state). Multiplexes control-mode events, periodic syncs, the settling/throttle/debounce timers, and external commands from the frontend.
 
-Takes an `Arc<Ctx>` so the clock, tmux dispatch, and filesystem are substitutable — tests can drive the loop without spinning a real tmux. The reconnect loop in the server/Tauri paths re-creates the monitor on disconnect with the same ctx.
+The reconnect loop in the server/Tauri paths re-creates the monitor on disconnect. The monitor reads the system clock directly; the time-based policies it applies (`RunState`, the aggregator's `step_at`/`tick`) take an explicit instant, which is how their tests drive time without a tmux.
 
 See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method per `select!` arm is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants.
 
@@ -57,10 +57,6 @@ This separation is what makes the aggregator testable without tokio: drive it wi
 `step(event) -> StepResult` is the public entry point. `tick(now)` drives the time-based transitions: once `now` passes the settling deadline after a burst of structural events, it ends the settling window and returns one consolidated `EmitState` (or nothing, when no event arrived during it).
 
 See `tmuxy-core/src/control_mode/state.rs` and the `SideEffect` enum's docblocks for the ordering invariants the runtime relies on.
-
-### Ctx — execution context
-
-The monitor's substitutable capabilities. Today that is only the `Clock` the settling and throttling deadlines are computed from; production uses `Ctx::live()` (the system clock). There is no tmux capability: every tmux command, mutation or read, goes over the monitor's control-mode connection (`tmuxy-core/src/transport.rs` holds the reads both transports share). See `tmuxy-core/src/ctx.rs`.
 
 ### StateUpdate, TmuxState, TmuxDelta
 
