@@ -215,8 +215,10 @@ Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_
 `AppMachineContext` field to the concern that owns it (the owner names are the `states/` file names, plus `parent` for the machine itself). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
 reads that map out of `context.ts` itself, so there is one copy, and
-enforces it: any `assign({...})` inside a `states/<name>.ts` or
-`actions/<name>.ts` file may only mutate fields owned by `<name>`.
+enforces it: any `assign({...})` (or `assignCtx({...})`, the same builder
+bound to the machine's types in `machines/app/actionTypes.ts`) inside a
+`states/<name>.ts` or `actions/<name>.ts` file may only mutate fields owned
+by `<name>`.
 Cross-cutting handlers that legitimately span states opt out with a
 `// cross-cutting: <reason>` comment on the assign.
 

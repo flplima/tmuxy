@@ -4,6 +4,8 @@
  * Enforces the state-slice ownership invariant: a file under
  * `src/machines/app/states/<name>.ts` or `src/machines/app/actions/<name>.ts`
  * may only `assign(...)` fields whose FIELD_OWNERS entry is `<name>`.
+ * `assignCtx(...)` (src/machines/app/actionTypes.ts) is `assign` bound to the
+ * machine's types, and is read the same way.
  *
  * The map is read from src/machines/app/context.ts, its one source of truth
  * (whose `satisfies` clause keeps it covering every context field).
@@ -32,6 +34,9 @@ function loadFieldOwners() {
 const FIELD_OWNERS = loadFieldOwners();
 
 const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\.ts$/;
+
+/** The callees whose first argument is a context payload. */
+const ASSIGN_CALLEES = new Set(['assign', 'assignCtx']);
 
 /**
  * Walk an arbitrary AST node looking for ObjectExpression children and
@@ -111,7 +116,7 @@ export default {
 
     return {
       CallExpression(node) {
-        if (node.callee.type !== 'Identifier' || node.callee.name !== 'assign') return;
+        if (node.callee.type !== 'Identifier' || !ASSIGN_CALLEES.has(node.callee.name)) return;
         if (node.arguments.length === 0) return;
         const keys = findAssignPayloadKeys(node.arguments[0]);
 

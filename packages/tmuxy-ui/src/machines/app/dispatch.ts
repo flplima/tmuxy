@@ -12,18 +12,11 @@
  * store, which predicts it and sends it.
  */
 
-import { assign, enqueueActions, sendTo } from 'xstate';
+import { assign, sendTo } from 'xstate';
+import { act, type Ctx, type Enqueue } from './actionTypes';
 import { isLayoutChange, isMultiStep, TmuxOp, type TmuxOpOf } from '../../domain/commands';
 import type { PaneId, WindowId } from '../../domain/ids';
 import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
-import type { AllAppMachineEvents, AppMachineContext } from '../types';
-
-type Ctx = AppMachineContext;
-type Evt = AllAppMachineEvents;
-/** The `enqueue` an action receives (xstate does not export it). */
-type Enqueue = Parameters<
-  Parameters<typeof enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>>[0]
->[0]['enqueue'];
 
 /**
  * Fill in the targets an op leaves to "tmux's current one" where the client's
@@ -234,39 +227,35 @@ function expandPaneFormats(command: string, context: Ctx): string {
 
 export const dispatchActions = {
   /** An op the client issues itself. */
-  dispatch_op: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ event, context, enqueue }) => {
-      if (event.type !== 'DISPATCH_OP') return;
-      routeOp(bindActiveTargets(event.op, context), undefined, context, enqueue);
-    },
-  ),
+  dispatch_op: act(({ event, context, enqueue }) => {
+    if (event.type !== 'DISPATCH_OP') return;
+    routeOp(bindActiveTargets(event.op, context), undefined, context, enqueue);
+  }),
 
   /**
    * A command that arrives as a string: resolved against the client's state,
    * parsed into the op it means, and routed like any op — with the resolved
    * string, pin and flags intact, as what goes to tmux.
    */
-  dispatch_command: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ event, context, enqueue }) => {
-      if (event.type !== 'SEND_TMUX_COMMAND') return;
-      const command = resolveWindowTarget(
-        expandPaneFormats(event.command, context),
-        context.activeWindowId,
-      );
+  dispatch_command: act(({ event, context, enqueue }) => {
+    if (event.type !== 'SEND_TMUX_COMMAND') return;
+    const command = resolveWindowTarget(
+      expandPaneFormats(event.command, context),
+      context.activeWindowId,
+    );
 
-      // `select-window -t <N>`: N is the visual tab position, not a tmux index
-      // (chrome windows consume indices), so it names the window by ID —
-      // never its index, which is stale whenever tmux has renumbered.
-      const position = stripPin(command).match(/^select-window\s+-t\s+(\d+)$/);
-      const positioned = position
-        ? context.windows.filter((w) => w.windowType === 'tab')[Number(position[1]) - 1]
-        : undefined;
-      if (positioned) {
-        routeOp(TmuxOp.SelectWindow({ target: positioned.id }), undefined, context, enqueue);
-        return;
-      }
+    // `select-window -t <N>`: N is the visual tab position, not a tmux index
+    // (chrome windows consume indices), so it names the window by ID —
+    // never its index, which is stale whenever tmux has renumbered.
+    const position = stripPin(command).match(/^select-window\s+-t\s+(\d+)$/);
+    const positioned = position
+      ? context.windows.filter((w) => w.windowType === 'tab')[Number(position[1]) - 1]
+      : undefined;
+    if (positioned) {
+      routeOp(TmuxOp.SelectWindow({ target: positioned.id }), undefined, context, enqueue);
+      return;
+    }
 
-      routeOp(parseCommandToOp(command), command, context, enqueue);
-    },
-  ),
+    routeOp(parseCommandToOp(command), command, context, enqueue);
+  }),
 };
