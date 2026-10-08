@@ -35,7 +35,8 @@ tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-tree = { path = "../tmuxy-tree" }
 tmuxy-group = { path = "../tmuxy-group" }
-tmuxy-connect = { path = "../tmuxy-connect" }
+# The `tmuxy connect` form (src/connect.rs).
+ratatui = "0.30"
 chromiumoxide = "0.9"
 
 [target.'cfg(unix)'.dependencies]

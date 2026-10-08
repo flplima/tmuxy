@@ -9,6 +9,7 @@
 mod auth;
 pub mod browser;
 mod command;
+pub mod connect;
 mod dev;
 mod request_guard;
 pub mod server;
@@ -16,7 +17,6 @@ mod session_cli;
 mod sse;
 mod state;
 mod trace_view;
-pub use tmuxy_connect as connect;
 
 pub use command::ClientCommand;
 
