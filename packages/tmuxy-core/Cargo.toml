@@ -7,10 +7,12 @@ license.workspace = true
 description = "Core tmux interaction library for tmuxy"
 
 # The control-mode parser + state aggregator (parser/state/osc/images/octal +
-# the Tmux*/Delta types) are sans-IO and compile to wasm32. The async/pty
-# transport (monitor/connection/executor/session/transport) lives behind
-# the default `native` feature so the pure core can build with
-# --no-default-features for the WASM (tmuxy-wasm) crate.
+# the Tmux*/Delta types) are sans-IO and compile to wasm32. The synchronous
+# tmux-command layer (session/executor/debug_log) is the `cli` feature, and the
+# async/pty transport (monitor/connection/transport) on top of it is the
+# default `native` feature, so the pure core can build with
+# --no-default-features for the WASM (tmuxy-wasm) crate and the v86 guest's
+# tmuxy-group binary can take `cli` without tokio.
 [dependencies]
 # Pure path — always compiled, wasm-safe.
 serde.workspace = true
@@ -29,9 +31,10 @@ png = "0.18"
 # Standards-compliant base64 decoder for kitty/iTerm2 image payloads.
 base64 = "0.22"
 
-# Native transport layer — optional, enabled by the `native` feature.
-tokio = { workspace = true, optional = true }
+# `cli`: the user's config directory.
 dirs = { version = "6.0", optional = true }
+# `native`: the async transport.
+tokio = { workspace = true, optional = true }
 pty-process = { version = "0.5", features = ["async"], optional = true }
 
 # wasm-compatible Instant (performance.now()) for the settling debounce timer.
@@ -44,9 +47,12 @@ criterion = "0.5"
 
 [features]
 default = ["native"]
-# Enables the async/pty transport (monitor, connection, executor, session,
-# transport). Off for the wasm build.
-native = ["dep:tokio", "dep:dirs", "dep:pty-process", "dep:tracing-subscriber"]
+# Running tmux as a subprocess and the user's config directory (session,
+# executor, debug_log): what a CLI verb needs, and all tmuxy-group takes.
+cli = ["dep:dirs"]
+# The async/pty transport (monitor, connection, transport, snapshots, trace)
+# on top of `cli`. Off for the wasm build.
+native = ["cli", "dep:tokio", "dep:pty-process", "dep:tracing-subscriber"]
 
 [lints]
 workspace = true

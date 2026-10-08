@@ -5,19 +5,20 @@ pub mod error;
 pub mod groups;
 pub mod ids;
 
-// Native (non-wasm) transport + tmux-command layer, gated behind `native`.
+// The synchronous tmux-command layer (`cli`), and the native async transport
+// on top of it (`native`, which includes `cli`). Neither builds for wasm.
 #[cfg(feature = "native")]
 pub mod command_router;
-#[cfg(feature = "native")]
+#[cfg(feature = "cli")]
 pub mod debug_log;
-#[cfg(feature = "native")]
+#[cfg(feature = "cli")]
 pub mod executor;
 
 pub mod layout;
 pub mod mime;
 #[cfg(feature = "native")]
 pub mod servers;
-#[cfg(feature = "native")]
+#[cfg(feature = "cli")]
 pub mod session;
 #[cfg(feature = "native")]
 pub mod session_snapshot;
@@ -40,7 +41,7 @@ use serde::{Deserialize, Serialize};
 
 // Re-export the key binding type
 #[cfg(feature = "native")]
-pub use executor::KeyBinding;
+pub use transport::KeyBinding;
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";

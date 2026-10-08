@@ -15,7 +15,9 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-tmuxy-core = { path = "../tmuxy-core" }
+# Only the group rules, the ids and the subprocess helpers: `cli` leaves the
+# async transport (tokio, the pty) out of the i686-musl guest binary.
+tmuxy-core = { path = "../tmuxy-core", default-features = false, features = ["cli"] }
 
 [lints]
 workspace = true
