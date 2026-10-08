@@ -17,7 +17,7 @@ import {
   useIsDragging,
   useIsResizing,
 } from '../machines/AppContext';
-import { useFramedPaneFocus } from '../hooks';
+import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import type { PaneId } from '../domain/ids';
 
 interface WidgetPaneProps {

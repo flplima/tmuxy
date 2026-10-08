@@ -14,7 +14,7 @@ import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
-import { useFramedPaneFocus } from '../hooks';
+import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import { getWidget } from './widgets';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';

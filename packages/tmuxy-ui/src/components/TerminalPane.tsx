@@ -31,7 +31,9 @@ import {
   selectCharSize,
   selectKeyboardElsewhere,
 } from '../machines/AppContext';
-import { usePaneMouse, usePaneTouch, useLatchedContent } from '../hooks';
+import { usePaneMouse } from '../hooks/usePaneMouse';
+import { usePaneTouch } from '../hooks/usePaneTouch';
+import { useLatchedContent } from '../hooks/useLatchedContent';
 import { LogProfiler } from '../utils/renderLog';
 import { RowEdges } from './RowEdges';
 import { AskOverlay } from './AskOverlay';
