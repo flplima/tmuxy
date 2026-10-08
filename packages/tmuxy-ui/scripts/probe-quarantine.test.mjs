@@ -45,18 +45,15 @@ describe('quarantine policy', () => {
 });
 
 // loadQuarantine rejects a bad list by exiting the process, so the committed
-// lists are checked here instead — where a malformed one is a test failure
+// list is checked here instead — where a malformed one is a test failure
 // rather than a probe that dies mid-run in CI.
-describe('the committed quarantine lists', () => {
-  it.each(['probe-quarantine.json', 'probe-quarantine-v86.json'])(
-    '%s satisfies the policy',
-    (name) => {
-      const loaded = list(name);
-      expect(loaded.byId.size).toBeLessThanOrEqual(loaded.max);
-      for (const entry of loaded.byId.values()) {
-        expect(entry.reason.trim()).not.toBe('');
-        expect(entry.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      }
-    },
-  );
+describe('the committed quarantine list', () => {
+  it('probe-quarantine.json satisfies the policy', () => {
+    const loaded = list('probe-quarantine.json');
+    expect(loaded.byId.size).toBeLessThanOrEqual(loaded.max);
+    for (const entry of loaded.byId.values()) {
+      expect(entry.reason.trim()).not.toBe('');
+      expect(entry.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
 });

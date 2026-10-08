@@ -108,7 +108,7 @@ A broken build on `main` stops everyone. If CI turns red on `main`:
 
 1. **Fix or quarantine within 24 hours**: Either land a fix, revert the offending commit, or quarantine the failing test within a day. Never leave `main` red.
 2. **Never build features on a red main**: If `main` is red, fixing CI takes precedence over any new feature work.
-3. **Quarantine is explicit and bounded**: For Storybook probes, use the bounded quarantine files (`packages/tmuxy-ui/scripts/probe-quarantine.json` or `probe-quarantine-v86.json`) with an issue reference and an ISO expiry date. Never skip a test without tracking.
+3. **Quarantine is explicit and bounded**: For Storybook probes, use the bounded quarantine file (`packages/tmuxy-ui/scripts/probe-quarantine.json`) with an issue reference and an ISO expiry date. Never skip a test without tracking.
 
 ### Bug-Fix Commit Tagging: Missed-By Layer
 
