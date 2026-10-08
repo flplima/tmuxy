@@ -778,33 +778,12 @@ export const appMachine = setup({
                 );
               });
 
-            let paneGroups = structurallyChanged
+            // A member vanishing is always structural (the count drops, or a
+            // newcomer with no previous self arrived in its place), so the
+            // rebuild is what drops a group down to one pane.
+            const paneGroups = structurallyChanged
               ? buildGroupsFromPanes(transformed.panes)
               : context.paneGroups;
-
-            // Prune stale groups: if a group references pane IDs that no longer
-            // exist in the updated pane list, remove those IDs. Drop groups that
-            // become empty or have only one pane (no longer a group).
-            if (!structurallyChanged && Object.keys(paneGroups).length > 0) {
-              const paneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
-              const pruned: typeof paneGroups = {};
-              let changed = false;
-              for (const group of Object.values(paneGroups)) {
-                const validIds = group.paneIds.filter((id) => paneIdSet.has(id));
-                if (validIds.length >= 2) {
-                  pruned[group.id] =
-                    validIds.length === group.paneIds.length
-                      ? group
-                      : { ...group, paneIds: validIds };
-                  if (validIds.length !== group.paneIds.length) changed = true;
-                } else {
-                  changed = true;
-                }
-              }
-              if (changed) {
-                paneGroups = pruned;
-              }
-            }
 
             let floatPanes = structurallyChanged
               ? buildFloatPanesFromWindows(
