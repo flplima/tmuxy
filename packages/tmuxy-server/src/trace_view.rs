@@ -111,8 +111,8 @@ pub fn run(args: TraceViewArgs) {
     }
 }
 
-/// Resolve the file to read: the explicit arg, else the default state-dir path
-/// (mirrors `tmuxy_core::trace`'s default location) if it exists.
+/// Resolve the file to read: the explicit arg, else the file the server
+/// writes by default (`tmuxy_core::paths::trace_file`) if it exists.
 fn resolve_path(file: Option<String>) -> Option<PathBuf> {
     if let Some(f) = file {
         return Some(PathBuf::from(f));
@@ -124,13 +124,11 @@ fn resolve_path(file: Option<String>) -> Option<PathBuf> {
 /// The default trace path, creating its directory (used by `--mark`, which may
 /// need to create the file).
 fn default_trace_path() -> PathBuf {
-    let dir = dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("tmuxy");
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("trace.ndjson")
+    let path = tmuxy_core::paths::trace_file();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    path
 }
 
 /// Append a content-free marker line. The label is bounded; serde escaping keeps

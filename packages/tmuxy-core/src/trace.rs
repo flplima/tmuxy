@@ -353,16 +353,11 @@ fn is_truthy(var: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Default trace path under the XDG state dir (`~/.local/state/tmuxy` on Linux,
-/// `~/Library/Application Support/tmuxy` on macOS, which has no state dir) —
-/// deliberately outside any directory served by `/api/browse`. Resolving the path
-/// creates nothing; the directory is made when the writer actually opens it.
+/// Default trace path under the state dir (`crate::paths`) — deliberately
+/// outside any directory served by `/api/browse`. Resolving the path creates
+/// nothing; the directory is made when the writer actually opens it.
 fn default_path() -> Option<PathBuf> {
-    let dir = dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))?
-        .join("tmuxy");
-    Some(dir.join("trace.ndjson"))
+    Some(crate::paths::trace_file())
 }
 
 // =============================================================================

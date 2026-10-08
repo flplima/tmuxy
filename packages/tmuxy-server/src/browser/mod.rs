@@ -20,8 +20,6 @@
 //! Browser Driven From a Pane Changes Whose Network This Is") for what changes
 //! once a page is fetched from the pane's machine instead of by the viewer.
 
-use std::path::PathBuf;
-
 pub mod discover;
 pub mod engine;
 pub mod verbs;
@@ -34,24 +32,3 @@ pub(crate) mod client;
 pub mod pane;
 #[cfg(unix)]
 pub mod session;
-
-/// Where a session's profile and screenshots live.
-///
-/// The same resolution the trace file uses (`tmuxy-core::trace`): the XDG state
-/// dir on Linux, `~/Library/Application Support` on macOS, which has none. A
-/// browser profile is a few hundred MB and must not land anywhere `/api/browse`
-/// serves, which rules out the config dir.
-///
-/// `TMUXY_STATE_DIR` overrides it, matching `bin/dev-server` — a test or a
-/// second server needs somewhere of its own, and two servers sharing a profile
-/// path would fight over the lock.
-pub(crate) fn state_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("TMUXY_STATE_DIR") {
-        return PathBuf::from(dir);
-    }
-    dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))
-        .unwrap_or_else(std::env::temp_dir)
-        .join("tmuxy")
-}

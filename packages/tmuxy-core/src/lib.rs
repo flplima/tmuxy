@@ -17,6 +17,8 @@ pub mod executor;
 pub mod layout;
 pub mod mime;
 #[cfg(feature = "native")]
+pub mod paths;
+#[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]
 pub mod session;

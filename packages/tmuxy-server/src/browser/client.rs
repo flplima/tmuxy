@@ -28,7 +28,7 @@
 //! whole agent protocol, and it needed no API.
 
 use super::session::{Output, Session};
-use super::{pane, state_dir, verbs};
+use super::{pane, verbs};
 
 /// What to do with a browser session, from the command line.
 #[derive(clap::Args, Debug)]
@@ -63,7 +63,12 @@ pub struct BrowserArgs {
 
 /// `tmuxy browser …`.
 pub async fn run(args: BrowserArgs) {
-    let state_dir = state_dir();
+    // A session's profile and screenshots live under the state dir: a profile
+    // is a few hundred MB and must not land anywhere `/api/browse` serves,
+    // which rules out the config dir, and `TMUXY_STATE_DIR` gives a test or a
+    // second server somewhere of its own — two servers sharing a profile path
+    // would fight over the lock.
+    let state_dir = tmuxy_core::paths::state_dir();
 
     // The name becomes a directory name for the profile, so `../` or a slash in
     // it would place a profile somewhere nobody asked for.

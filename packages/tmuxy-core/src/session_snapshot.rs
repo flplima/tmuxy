@@ -1304,23 +1304,10 @@ where
 // Where snapshots live, and when a host is told not to use them
 // =============================================================================
 
-/// The state directory: `TMUXY_STATE_DIR`, else the XDG state dir (macOS has
-/// none, so `~/Library/Application Support`), under `tmuxy` — the same place
-/// the trace and the browser profiles go, and deliberately nowhere any route
-/// serves files from.
-pub fn state_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("TMUXY_STATE_DIR") {
-        return PathBuf::from(dir);
-    }
-    dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))
-        .unwrap_or_else(std::env::temp_dir)
-        .join("tmuxy")
-}
-
+/// Where snapshots live: under the state directory (`crate::paths`), the same
+/// place the trace and the browser profiles go.
 pub fn default_dir() -> PathBuf {
-    snapshot_dir(&state_dir())
+    snapshot_dir(&crate::paths::state_dir())
 }
 
 /// `TMUXY_NO_RESTORE=1`: start a missing session empty even when a snapshot exists.

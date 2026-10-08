@@ -55,9 +55,14 @@ of the plan are implemented; see [§ Using it](#using-it).
 --export out.json` writes a Chrome-trace/Perfetto timeline you open at
   ui.perfetto.dev; `tmuxy trace --mark "<label>"` stamps a "the bug happened
   here" marker into the running trace. All accept an explicit file path.
-- **Where it lives:** `~/.local/state/tmuxy/trace.ndjson` on Linux;
-  **`~/Library/Application Support/tmuxy/trace.ndjson` on macOS**, which has no
-  XDG state dir. Mode `0600`, rotated at 64 MiB with one `.1` backup. The
+- **Where it lives:** `trace.ndjson` in the state directory — `TMUXY_STATE_DIR`
+  when set (the dev server and the test harness point it somewhere of their
+  own), else `~/.local/state/tmuxy` on Linux and
+  **`~/Library/Application Support/tmuxy` on macOS**, which has no XDG state
+  dir. One resolution (`tmuxy-core/src/paths.rs`) serves the writer, `tmuxy
+trace`, the snapshots and the browser profiles, so a `--mark` lands in the
+  file the server is writing. Mode `0600`, rotated at 64 MiB with one `.1`
+  backup. The
   remembered switch/level sit next to the other config, in
   `~/.config/tmuxy/trace.json`.
 
