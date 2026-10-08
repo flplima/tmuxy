@@ -1,11 +1,5 @@
 #!/bin/bash
-# Move a group member to another place in its group's order.
-# Args: $1=pane_id  $2=index (0-based; past the end means last)
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# Put pane $1 at index $2 in its group's order. Rules: tmuxy_core::groups, run by the `group move` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 

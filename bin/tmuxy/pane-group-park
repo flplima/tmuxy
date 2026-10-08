@@ -1,15 +1,5 @@
 #!/bin/bash
-# Park a new pane in a group, out of view — the half of pane-group-add that
-# hides a member, without swapping it into view. Used by a session restore to
-# bring back the members a snapshot found in the stash session.
-# Args: $1=visible member (any tmux target) $2=group id $3=working directory
-#       $4=its place in the group's order (optional; @tmuxy-group-pos)
-# Prints the new pane's id.
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# Park a new member of a group out of view (session restore); prints its pane id. Rules: tmuxy_core::groups, run by the `group park` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 

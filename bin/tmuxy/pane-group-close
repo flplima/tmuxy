@@ -1,15 +1,5 @@
 #!/bin/bash
-# Close a pane from a group
-# Args: $1=pane_id_to_close
-#
-# A visible member with siblings swaps one into view before it goes; a hidden
-# member goes with its stash window; a pane in no group is just killed. A group
-# left with one member is dissolved. Also what a member's pane-died hook runs.
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# Close pane $1; a member on screen hands its place to the next member first. Rules: tmuxy_core::groups, run by the `group close` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 
