@@ -423,52 +423,6 @@ When CI's E2E or latency job fails, its last step prints the tail of the server 
 
 **Reading a failed E2E test.** The server under test writes its action trace (docs/TELEMETRY.md) to `TMUXY_E2E_TRACE` — in CI `/tmp/tmuxy-e2e-trace.ndjson`, locally `trace.ndjson` in the run's scratch state dir — and the suites' Jest environment (`tests/helpers/trace-environment.js`) stamps a marker at each test's start and end. When a test fails, the trace health check for that test's slice is printed after it: silent panes, reconnects, rejected commands. Every CI E2E job runs the same check on the whole run as GitHub annotations, passing or not, and a failed shard uploads the trace, the server log and the Jest output as `e2e-<suite>-attempt-<n>`. Setup helpers fail where they fail: `navigateToSession` and `verifyRoundTrip` throw with what the page showed and what tmux holds for the session (`tests/helpers/tmux-side.js`) rather than letting a later wait report a bare "no prompt". The shared server runs with `TMUXY_NO_SNAPSHOT=1` and `TMUXY_NO_RESTORE=1` and a scratch `TMUXY_STATE_DIR` (`tmuxEnv` in `tests/helpers/tmux-socket.js`, and the CI job's `env`): it neither saves sessions nor rebuilds one from a previous run, so a suite always starts on an empty tab. Session snapshots are tested on a server of the test's own (`tests/helpers/snapshot-server.js`), whose `serverLog()` is what a failed wait there prints.
 
-## Mutation Testing: Does the Suite Actually Bite?
-
-A green suite says the code does what the tests check. It does not say the tests
-check anything — a test that re-states the implementation, or asserts that a
-function was called, passes whatever that function does. Mutation testing asks
-the other question: break the code on purpose (flip a comparison, return a
-default, drop a branch) and see whether any test notices. A mutant that
-**survives** names a line nothing is really testing.
-
-Both runners are scoped to the four modules where a silent wrong answer is
-worst, and neither is a CI gate — the useful output is the list of survivors,
-which someone reads and turns into tests, not a score a build trips over.
-
-|         | Rust                                                              | Frontend                                |
-| ------- | ----------------------------------------------------------------- | --------------------------------------- |
-| Runner  | `cargo-mutants`                                                   | Stryker                                 |
-| Config  | `.cargo/mutants.toml`                                             | `packages/tmuxy-ui/stryker.config.json` |
-| Command | `npm run mutants`                                                 | `npm run mutants:ui`                    |
-| Scope   | `command_router.rs`, `control_mode/parser.rs`, `request_guard.rs` | `src/domain/deltaProtocol.ts`           |
-| Runtime | ~9 min (66 mutants)                                               | ~2 min (613 mutants)                    |
-
-`cargo-mutants` comes from `bin/install-dev-tools --full`; Stryker is a
-devDependency. Output lands in `mutants.out/` (gitignored).
-
-### First-run findings
-
-**Rust: 7 caught, 1 missed, 58 unviable.** The one survivor was real and is
-fixed: `parts.len() < 2` → `<= 2` in `Parser::parse_extended_output`, which —
-because `splitn(2, …)` never yields more than two parts — makes the function
-return `None` for every line tmux can send. A pane whose output arrives as
-`%extended-output` would have gone silent with the whole suite still green,
-because nothing tested that path at all. Three tests now cover it. The high
-unviable count is not a problem: those are mutants the type system rejects
-before a test ever runs.
-
-**Frontend: 24.96% mutation score — 152 killed, 285 survived, 175 not covered.**
-That is the number worth acting on, and it is the answer the audit was looking
-for: `deltaProtocol.ts` applies the server's incremental state updates to the
-client's picture of the session, so everything the user sees is downstream of
-it, and three quarters of its logic can be broken without a test objecting.
-A wrong answer there is not a crash — it is a pane showing something that is no
-longer true. Most survivors are in the conditional-spread guards
-(`...(delta.x !== undefined && { x: delta.x })`), which the property tests
-exercise without asserting on. Turning those survivors into tests is follow-up
-work, tracked separately; the harness exists so the work can be measured.
-
 ## Known Gaps
 
 | Gap                                                 | Evidence                                                                                                                                                                                                                                                                                               |
@@ -478,7 +432,7 @@ work, tracked separately; the harness exists so the work can be measured.
 | macOS WKWebView gets no functional desktop suite    | `tests/tauri/` is Linux-only (`tests/tauri/helpers/xvfb.js`, `tests/tauri/helpers/tauri-driver.js`); macOS only gets `tests/smoke/smoke-test.js`, post-merge.                                                                                                                                          |
 | Output flood tests are light                        | The heaviest is `tests/5-stress-stability.test.js` Scenario 17: `yes \| head -500` and `seq 1 2000`. No sustained, multi-megabyte or backpressure test exists, and the latency gate measures no output throughput.                                                                                     |
 | Uncovered crates and scripts                        | `packages/tmuxy-demo` has no tests and `deploy-demo.yml` deploys without testing.                                                                                                                                                                                                                      |
-| `deltaProtocol.ts` is largely untested in substance | Stryker scores it at 24.96% (285 surviving mutants, 175 lines with no coverage) despite unit and property tests existing for it. See _Mutation Testing_ above.                                                                                                                                         |
+| `deltaProtocol.ts` is largely untested in substance | A one-off Stryker run scored it at 24.96% (285 surviving mutants, 175 lines with no coverage) despite unit and property tests existing for it; most survivors were the conditional-spread guards the property tests exercise without asserting on.                                                     |
 | Clippy is not run over test code                    | CI runs `cargo clippy` without `--tests`, so lints in `#[cfg(test)]` modules and `tests/` go unchecked — `packages/tmuxy-core/tests/control_mode_push_api.rs` is missing the `allow` attribute every sibling has and would fail today.                                                                 |
 
 ## Related
