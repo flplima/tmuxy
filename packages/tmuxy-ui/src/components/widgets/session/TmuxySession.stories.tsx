@@ -135,8 +135,7 @@ export const ConnectingAsksForOneDestination: Story = {
  * widget, hosted by the overlay instead of by a float pane.
  *
  * It lives here rather than beside the other ConnectionOverlay stories because
- * it needs a provider, and the smoke test mounts that file's stories in jsdom
- * (see stories.smoke.test.tsx) where a live machine exhausts the heap.
+ * it needs a provider: that file's stories are pure components.
  */
 export const DetachedOverlayShowsTheSwitcher: Story = {
   render: () => (
