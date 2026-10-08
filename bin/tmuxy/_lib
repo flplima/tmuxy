@@ -122,12 +122,20 @@ find_server_cmd() {
 # directory whose pane-group-close a member's pane-died hook runs.
 # Args: $1=verb, then the script's own arguments
 group_verb() {
-  # The v86 guest ships the operations as their own binary, having no server.
+  find_group_cmd || exit 1
+  TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${GROUP_CMD[@]}" "$@"
+}
+
+# Set GROUP_CMD to the command that runs a pane-group verb: the standalone
+# tmuxy-group binary where it is installed (the v86 guest ships the operations
+# that way, having no server), else the server's `group` subcommand.
+find_group_cmd() {
   if command -v tmuxy-group &>/dev/null; then
-    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec tmuxy-group "$@"
+    GROUP_CMD=(tmuxy-group)
+    return
   fi
-  find_server_cmd || exit 1
-  TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${SERVER_CMD[@]}" group "$@"
+  find_server_cmd || return 1
+  GROUP_CMD=("${SERVER_CMD[@]}" group)
 }
 
 # --- Cross-process mutex ---------------------------------------------------

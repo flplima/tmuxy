@@ -82,8 +82,8 @@ EOF
   if [ -n "$gid" ]; then
     local step=next rc=0
     [ "$edge_dir" = "left" ] && step=prev
-    find_server_cmd
-    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" "${SERVER_CMD[@]}" group "$step" --no-wrap "$PANE_ID" || rc=$?
+    find_group_cmd
+    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" "${GROUP_CMD[@]}" "$step" --no-wrap "$PANE_ID" || rc=$?
     case "$rc" in
       0) return ;;
       3) ;;
