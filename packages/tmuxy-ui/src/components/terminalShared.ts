@@ -11,7 +11,7 @@
  * copy-pasted in both files and had already begun to drift.
  */
 
-import type { CellColor } from '../domain/wire';
+import type { CellColor, CellStyle } from '../domain/wire';
 
 /**
  * CSS variables for the standard 16 ANSI colors.
@@ -137,6 +137,35 @@ export function isWideChar(s: string): boolean {
     (cp >= 0x1f200 && cp <= 0x1f265) || // enclosed ideographic supplement (🈚 🉐)
     (cp >= 0x1f300 && cp <= 0x1faff) || // emoji & pictographs
     (cp >= 0x20000 && cp <= 0x3fffd) // CJK Ext B and beyond
+  );
+}
+
+/** Whether two cell colours paint the same: the same palette index, or the same RGB. */
+export function sameCellColor(a: CellColor | undefined, b: CellColor | undefined): boolean {
+  return (
+    a === b ||
+    (typeof a === 'object' && typeof b === 'object' && a.r === b.r && a.g === b.g && a.b === b.b)
+  );
+}
+
+/**
+ * Whether two cell styles paint the same. An attribute left unset is the same
+ * as one set false, so a cell the backend wrote `{}` for groups with one it
+ * wrote `{ bold: false }` for.
+ */
+export function sameCellStyle(a: CellStyle | undefined, b: CellStyle | undefined): boolean {
+  return (
+    a === b ||
+    (!!a &&
+      !!b &&
+      sameCellColor(a.fg, b.fg) &&
+      sameCellColor(a.bg, b.bg) &&
+      !a.bold === !b.bold &&
+      !a.dim === !b.dim &&
+      !a.italic === !b.italic &&
+      !a.underline === !b.underline &&
+      !a.inverse === !b.inverse &&
+      a.url === b.url)
   );
 }
 

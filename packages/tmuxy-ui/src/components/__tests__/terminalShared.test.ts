@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWideChar } from '../terminalShared';
+import { isWideChar, sameCellColor, sameCellStyle } from '../terminalShared';
 
 describe('isWideChar', () => {
   it('classifies plain ASCII as narrow', () => {
@@ -61,5 +61,29 @@ describe('isWideChar', () => {
     expect(isWideChar('❯')).toBe(false);
     expect(isWideChar('❤')).toBe(false);
     expect(isWideChar('✔')).toBe(false);
+  });
+});
+
+describe('sameCellStyle', () => {
+  it('compares palette colours by index and RGB colours by value', () => {
+    expect(sameCellColor(3, 3)).toBe(true);
+    expect(sameCellColor(3, 4)).toBe(false);
+    expect(sameCellColor({ r: 1, g: 2, b: 3 }, { r: 1, g: 2, b: 3 })).toBe(true);
+    expect(sameCellColor({ r: 1, g: 2, b: 3 }, { r: 1, g: 2, b: 4 })).toBe(false);
+    // A palette index is never the RGB it maps to, and unset is its own value.
+    expect(sameCellColor(1, { r: 205, g: 0, b: 0 })).toBe(false);
+    expect(sameCellColor(undefined, 0)).toBe(false);
+    expect(sameCellColor(undefined, undefined)).toBe(true);
+  });
+
+  it('treats an unset attribute as false, and any other difference as a new style', () => {
+    expect(sameCellStyle({ fg: 2 }, { fg: 2, bold: false, underline: false })).toBe(true);
+    expect(sameCellStyle(undefined, undefined)).toBe(true);
+    // Both renderers group cells by style, so an empty style and no style
+    // must not be the same run as a styled one.
+    expect(sameCellStyle(undefined, {})).toBe(false);
+    expect(sameCellStyle({ fg: 2 }, { fg: 2, bold: true })).toBe(false);
+    expect(sameCellStyle({ bg: { r: 0, g: 0, b: 0 } }, { bg: { r: 0, g: 0, b: 1 } })).toBe(false);
+    expect(sameCellStyle({ url: 'https://a' }, { url: 'https://b' })).toBe(false);
   });
 });
