@@ -79,7 +79,7 @@ import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
 import type { GestureActorEvent } from '../actors/gestureActor';
 import type { ServersActorEvent } from '../actors/serversActor';
-import { type PaneId, type WindowId, isPlaceholderId } from '../../domain/ids';
+import { type PaneId, isPlaceholderId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
 
 /**
@@ -118,35 +118,19 @@ function resizePreviewSettled(
   });
 }
 
+/** `T` without its readonly, arrays included: a store snapshot as the context declares it. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] extends ReadonlyArray<infer U> ? U[] : T[K] };
+
 /**
- * The store's derived snapshot, widened from its readonly types to the
- * mutable shapes the machine context declares, as a local object a model
- * update can adjust before it is assigned.
+ * The store's derived snapshot as a fresh object the model update can adjust
+ * before it is assigned. The arrays pass through by REFERENCE — the store
+ * already preserves identity for unchanged panes and windows, and copying
+ * them would hand every subscriber a fresh identity on every tick — and are
+ * cast, not copied, from the store's readonly types to the mutable ones the
+ * context declares: the handler replaces them, it never mutates them.
  */
-function snapshotFromModel(model: TmuxClientModel): {
-  panes: TmuxSnapshot['panes'][number][];
-  windows: TmuxSnapshot['windows'][number][];
-  activePaneId: PaneId | null;
-  activeWindowId: WindowId | null;
-  totalWidth: number;
-  totalHeight: number;
-  sessionName: string;
-  focusRequest: string;
-} {
-  const d = model.derived;
-  // Pass the derived arrays through by REFERENCE — the store already
-  // preserves identity for unchanged panes/windows/arrays, and spreading
-  // here would hand every subscriber a fresh identity on every tick.
-  return {
-    panes: d.panes as TmuxSnapshot['panes'][number][],
-    windows: d.windows as TmuxSnapshot['windows'][number][],
-    activePaneId: d.activePaneId,
-    activeWindowId: d.activeWindowId,
-    totalWidth: d.totalWidth,
-    totalHeight: d.totalHeight,
-    sessionName: d.sessionName,
-    focusRequest: d.focusRequest,
-  };
+function snapshotFromModel(model: TmuxClientModel): Mutable<TmuxSnapshot> {
+  return { ...model.derived } as Mutable<TmuxSnapshot>;
 }
 
 /** Move a pane ID to the front of the MRU list */
