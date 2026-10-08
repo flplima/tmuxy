@@ -823,7 +823,7 @@ jobs:
               "~/Library/Application Support/com.tmuxy.app",
               "~/Library/Preferences/com.tmuxy.app.plist",
               "~/Library/Saved Application State/com.tmuxy.app.savedState",
-              "~/tmuxy-debug.log",
+              "~/Library/Application Support/tmuxy",
             ]
           end
           CASK

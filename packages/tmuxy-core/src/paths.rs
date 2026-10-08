@@ -22,6 +22,14 @@ pub fn trace_file() -> PathBuf {
     state_dir().join("trace.ndjson")
 }
 
+/// The desktop app's log file: the `tracing` lines it would print to stderr,
+/// kept on disk because an app launched from Finder has no stderr anyone
+/// sees. What a bug report attaches (Help ▸ Reveal Log File) and what the
+/// smoke tests read for a healthy connection lifecycle.
+pub fn log_file() -> PathBuf {
+    state_dir().join("tmuxy.log")
+}
+
 /// [`state_dir`] as a function of the override, so the rule is testable
 /// without touching the process environment.
 fn state_dir_from(override_dir: Option<OsString>) -> PathBuf {

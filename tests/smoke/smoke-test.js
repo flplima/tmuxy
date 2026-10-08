@@ -34,7 +34,20 @@ const DRIVER_PORT = 4444;
 const SESSION_NAME = 'tmuxy'; // default session name
 const APP_READY_TIMEOUT = 60000;
 const COMMAND_TIMEOUT = 30000;
-const DEBUG_LOG = path.join(os.homedir(), 'tmuxy-debug.log');
+// The app's log file lives in its state dir (`tmuxy-core/src/paths.rs`):
+// `~/Library/Application Support/tmuxy` on macOS, `$XDG_STATE_HOME` (else
+// `~/.local/state`) `/tmuxy` elsewhere; `TMUXY_STATE_DIR` moves it.
+function stateDir() {
+  if (process.env.TMUXY_STATE_DIR) return process.env.TMUXY_STATE_DIR;
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'tmuxy');
+  }
+  return path.join(
+    process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'),
+    'tmuxy',
+  );
+}
+const DEBUG_LOG = path.join(stateDir(), 'tmuxy.log');
 
 // --- Helpers ---
 
@@ -51,6 +64,7 @@ function cleanupTmuxSession() {
 function truncateDebugLog() {
   // Start with an empty log so post-run assertions only see this run's output.
   try {
+    fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
     fs.writeFileSync(DEBUG_LOG, '');
   } catch {
     // Log may not exist yet; the app creates it on first write.

@@ -193,17 +193,17 @@ impl TauriEmitter {
 
 impl LogSink for TauriEmitter {
     fn log(&self, kind: LogKind, message: String) {
-        // Mirror to the persistent debug log so the user's "Copy Logs to
-        // Clipboard" capture includes the *reason* a connection died.
-        // Without this, sync_initial_state failures and broken-pipe errors
-        // are only visible to the running UI and disappear on reconnect.
-        let label = match kind {
-            LogKind::Command => "CMD",
-            LogKind::Output => "OUT",
-            LogKind::Info => "INFO",
-            LogKind::Error => "ERR",
-        };
-        tmuxy_core::debug_log::log(&format!("[monitor {}] {}", label, message));
+        // Mirrored to the log file so a bug report carries the *reason* a
+        // connection died, which is otherwise only visible to the running UI
+        // and gone on reconnect. A command or tmux's output is raw content:
+        // `trace`, below the action trace's floor (docs/TELEMETRY.md).
+        match kind {
+            LogKind::Error => tracing::warn!(target: "tmuxy_tauri_app::monitor", "{message}"),
+            LogKind::Info => tracing::info!(target: "tmuxy_tauri_app::monitor", "{message}"),
+            LogKind::Command | LogKind::Output => {
+                tracing::trace!(target: "tmuxy_tauri_app::monitor", ?kind, "{message}")
+            }
+        }
 
         let payload = serde_json::json!({ "kind": kind, "message": message });
         if let Err(e) = self.app.emit_to(self.label.as_str(), "tmux-log", &payload) {
@@ -228,7 +228,7 @@ impl StateEmitter for TauriEmitter {
     }
 
     fn emit_error(&self, error: String) {
-        tmuxy_core::debug_log::log(&format!("[monitor ERR] {}", error));
+        tracing::error!(target: "tmuxy_tauri_app::monitor", "{error}");
         if let Err(e) = self.app.emit_to(self.label.as_str(), "tmux-error", &error) {
             eprintln!("Failed to emit error: {}", e);
         }
@@ -260,10 +260,10 @@ impl StateEmitter for TauriEmitter {
     }
 
     /// Forward an OSC 52 clipboard request to the frontend so it can write the
-    /// payload via the WebView's navigator.clipboard. We could also use the
-    /// tauri-plugin-clipboard-manager directly here, but doing it in the WebView
-    /// keeps focus/transient activation context attached to the renderer, which
-    /// is what some platforms require for clipboard access.
+    /// payload via the WebView's navigator.clipboard. A native clipboard write
+    /// from here would also work, but doing it in the WebView keeps the
+    /// focus/transient activation context attached to the renderer, which is
+    /// what some platforms require for clipboard access.
     fn write_clipboard(&self, pane_id: Option<&tmuxy_core::PaneId>, text: String) {
         if !tmuxy_core::transport::clipboard_write_allowed(&text) {
             tracing::debug!(
@@ -391,7 +391,7 @@ pub async fn start_monitoring_window(
             parked = false;
             consecutive_failures = 0;
             backoff = Duration::from_millis(100);
-            tmuxy_core::debug_log::log("[monitor] reviving parked monitor for a user reconnect");
+            tracing::info!("reviving parked monitor for a user reconnect");
         }
 
         // Apply a pending `tmuxy connect` reconnect before connecting. Because
@@ -425,12 +425,12 @@ pub async fn start_monitoring_window(
             config.session = target.session.clone();
             backoff = Duration::from_millis(100);
             consecutive_failures = 0;
-            tmuxy_core::debug_log::log(&format!(
-                "[monitor] reconnecting to socket '{}' session '{}' ssh '{}'",
-                target.socket,
-                target.session,
-                target.ssh.as_deref().unwrap_or("(local)")
-            ));
+            tracing::info!(
+                socket = %target.socket,
+                session = %target.session,
+                ssh = target.ssh.as_deref().unwrap_or("(local)"),
+                "reconnecting"
+            );
         }
 
         // A session about to be created may have a snapshot to come back
@@ -460,12 +460,12 @@ pub async fn start_monitoring_window(
                     let name = config.session.clone();
                     tokio::spawn(async move {
                         match rebuild.await {
-                            Ok(()) => tmuxy_core::debug_log::log(&format!(
-                                "[monitor] session '{name}' restored from snapshot"
-                            )),
-                            Err(e) => tmuxy_core::debug_log::log(&format!(
-                                "[monitor] session '{name}' restore stopped: {e}"
-                            )),
+                            Ok(()) => {
+                                tracing::info!(session = %name, "session restored from snapshot")
+                            }
+                            Err(e) => {
+                                tracing::warn!(session = %name, %e, "session restore stopped")
+                            }
                         }
                     });
                 }
@@ -498,7 +498,7 @@ pub async fn start_monitoring_window(
                 // revival the session switcher performs.
                 let detached = monitor_state.detached.read().map(|g| *g).unwrap_or(false);
                 if detached {
-                    tmuxy_core::debug_log::log("[monitor] detached by request — parking");
+                    tracing::info!("detached by request — parking");
                     emit_detached(&app, &label);
                     parked = true;
                     continue;
@@ -516,10 +516,7 @@ pub async fn start_monitoring_window(
                     continue;
                 }
 
-                tmuxy_core::debug_log::log(&format!(
-                    "[monitor] run() returned after {:?} (failures so far: {})",
-                    lived, consecutive_failures
-                ));
+                tracing::info!(?lived, consecutive_failures, "monitor run() returned");
 
                 if lived >= MIN_HEALTHY_DURATION {
                     backoff = Duration::from_millis(100);
@@ -530,7 +527,6 @@ pub async fn start_monitoring_window(
                         "tmux connection died after {:?} (attempt {} of {})",
                         lived, consecutive_failures, MAX_CONSECUTIVE_FAILURES
                     );
-                    tmuxy_core::debug_log::log(&format!("[monitor] {}", msg));
                     emitter.emit_error(msg);
 
                     if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
@@ -539,7 +535,8 @@ pub async fn start_monitoring_window(
                             MAX_CONSECUTIVE_FAILURES, lived
                         );
                         emit_fatal(&app, &label, &final_msg);
-                        tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
+                        // "FATAL:" is what the smoke tests look for in the log file.
+                        tracing::error!("FATAL: {final_msg}");
                         parked = true;
                         continue;
                     }
@@ -558,7 +555,7 @@ pub async fn start_monitoring_window(
                         MAX_CONSECUTIVE_FAILURES, e
                     );
                     emit_fatal(&app, &label, &final_msg);
-                    tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
+                    tracing::error!("FATAL: {final_msg}");
                     parked = true;
                     continue;
                 }
@@ -677,7 +674,7 @@ async fn emit_theme_settings(app: &AppHandle, tx: &MonitorCommandSender) {
     let settings = match tmuxy_core::theme::get_theme_settings(tx).await {
         Ok(settings) => settings,
         Err(e) => {
-            tmuxy_core::debug_log::log(&format!("[monitor] theme settings unread: {e}"));
+            tracing::warn!(error = %e, "theme settings unread");
             return;
         }
     };

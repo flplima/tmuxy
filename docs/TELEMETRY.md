@@ -71,7 +71,7 @@ trace`, the snapshots and the browser profiles, so a `--mark` lands in the
 - **One artifact, one clock.** A single append-only file that shows a causal
   chain — keydown → XState → adapter → HTTP/IPC → Rust monitor → tmux → SSE →
   apply → render — on a shared timeline, instead of three unrelated buffers
-  (browser console ring, `~/tmuxy-debug.log`, server stderr) cross-referenced by
+  (browser console ring, the app's log file, server stderr) cross-referenced by
   eye.
 - **Every layer.** Frontend XState transitions, Effect outcomes, adapter round
   trips, and the Rust pipeline all emit into the same stream with the same
@@ -105,7 +105,8 @@ trace`, the snapshots and the browser profiles, so a `--mark` lands in the
 
 The trace is the shared, persisted timeline. The per-layer buffers you reach
 for interactively still exist beside it: `RUST_LOG`-filtered `tracing` on
-stderr, the hand-rolled `~/tmuxy-debug.log` (`tmuxy-core/src/debug_log.rs`),
+stderr (the desktop app also appends its `info`-and-above lines to `tmuxy.log`
+in the state dir, since an app launched from Finder has no stderr anyone sees),
 the in-memory SSE replay ring and control-mode tail, the in-app activity log
 (`LOG_APPEND` → `context.log`, which carries command strings and so never
 leaves the app), and the dev-gated `latencyTracker` + `PerfHud`.
@@ -281,9 +282,10 @@ Structural enforcements, not just discipline:
    **hashed to a stable opaque id** (the way VS Code identifies a folder by a
    hash of its git remote rather than its name), and error strings are
    **path-scrubbed and truncated** (the way VS Code scrubs user paths out of
-   stack traces) or reduced to a typed error code. And the `tmuxy::debug_log`
-   target — which drains raw control-mode output to disk — is excluded outright,
-   so the catch-all subscriber never inherits its content.
+   stack traces) or reduced to a typed error code. And raw control-mode output
+   — tmux's parting words on EOF, the monitor's command/output log — is logged
+   at `trace` level, below the layer's `debug` floor, so the catch-all
+   subscriber never sees its content.
 4. **A test that the tracer never emits a raw command string, grid cell, or
    unhashed name/path.** The redaction boundary is verified, not assumed.
 

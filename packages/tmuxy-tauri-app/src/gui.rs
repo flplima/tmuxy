@@ -609,15 +609,8 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&MenuItem::with_id(
             app,
-            "help-copy-logs",
-            "Copy Logs to Clipboard",
-            true,
-            None::<&str>,
-        )?)
-        .item(&MenuItem::with_id(
-            app,
             "help-reveal-log-file",
-            "Reveal Log File in Finder",
+            "Reveal Log File",
             true,
             None::<&str>,
         )?)
@@ -730,11 +723,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         return;
     }
 
-    // Help: copy / reveal the debug log file
-    if id == "help-copy-logs" {
-        copy_logs_to_clipboard(app_handle);
-        return;
-    }
+    // Help: reveal the log file
     if id == "help-reveal-log-file" {
         reveal_log_file();
         return;
@@ -885,9 +874,7 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
     if !opaque {
         titlebar::install(&window);
     } else {
-        tmuxy_core::debug_log::log(
-            "TMUXY_OPAQUE_WINDOW=1: built window with decorations, no transparency",
-        );
+        tracing::info!("TMUXY_OPAQUE_WINDOW=1: built window with decorations, no transparency");
     }
 
     Ok(window)
@@ -941,57 +928,11 @@ pub(crate) fn refresh_menu(app: &tauri::AppHandle) {
     }
 }
 
-/// Path to the persistent debug log written by tmuxy_core::debug_log.
-fn debug_log_path() -> std::path::PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        std::path::PathBuf::from(home).join("tmuxy-debug.log")
-    } else {
-        std::path::PathBuf::from("/tmp/tmuxy-debug.log")
-    }
-}
-
-/// Read the debug log file and copy its contents (with a small env header)
-/// to the system clipboard. Surfaces a status message in the UI either way.
-fn copy_logs_to_clipboard(app: &tauri::AppHandle) {
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-
-    let path = debug_log_path();
-    let header = build_log_header(&path);
-
-    let body = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(e) => {
-            let msg = format!("Could not read log file at {}: {}", path.display(), e);
-            show_status_message(app, &msg);
-            return;
-        }
-    };
-
-    // Cap to the last ~256 KB so a long-running session's log doesn't
-    // overflow the clipboard or hang the paste target.
-    const MAX_LOG_BYTES: usize = 256 * 1024;
-    let trimmed = if body.len() > MAX_LOG_BYTES {
-        let cut = body.len() - MAX_LOG_BYTES;
-        format!("[…{} earlier bytes truncated]\n{}", cut, &body[cut..])
-    } else {
-        body
-    };
-
-    let payload = format!("{}\n\n{}", header, trimmed);
-
-    match app.clipboard().write_text(payload) {
-        Ok(()) => {
-            show_status_message(app, &format!("Copied {} log to clipboard", path.display()));
-        }
-        Err(e) => {
-            show_status_message(app, &format!("Failed to write clipboard: {}", e));
-        }
-    }
-}
-
-/// Reveal the debug log file in the platform file manager.
+/// Reveal the app's log file (`tmuxy_core::paths::log_file`, the `tracing`
+/// lines stderr would have shown) in the platform file manager: selected in
+/// Finder on macOS, its directory opened elsewhere.
 fn reveal_log_file() {
-    let path = debug_log_path();
+    let path = tmuxy_core::paths::log_file();
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("open")
@@ -1009,34 +950,6 @@ fn reveal_log_file() {
     {
         let _ = path;
     }
-}
-
-fn build_log_header(path: &std::path::Path) -> String {
-    let version = env!("CARGO_PKG_VERSION");
-    let pid = std::process::id();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let env_lines: Vec<String> = ["PATH", "HOME", "SHELL", "TERM", "LANG", "LC_ALL", "USER"]
-        .iter()
-        .map(|k| {
-            format!(
-                "  {}={}",
-                k,
-                std::env::var(k).unwrap_or_else(|_| "(unset)".into())
-            )
-        })
-        .collect();
-    format!(
-        "=== tmuxy log dump ===\nversion: {}\npid: {}\nutc_seconds_since_epoch: {}\nlog_file: {}\nplatform: {}\nenv:\n{}\n--- log file contents below ---",
-        version,
-        pid,
-        now,
-        path.display(),
-        std::env::consts::OS,
-        env_lines.join("\n"),
-    )
 }
 
 /// Forward a transient status banner to the React UI via window.eval.
@@ -1057,11 +970,10 @@ fn show_status_message(app: &tauri::AppHandle, message: &str) {
 
 /// Start the Tauri GUI application.
 pub fn run() {
-    // The desktop GUI previously installed no tracing subscriber, so every
-    // `tracing` event (spans, warns, errors) was silently dropped here — only
-    // the `debug_log` file logger survived. Install it now so the whole Rust
-    // pipeline is observable in the app, and so the NDJSON trace layer is wired.
-    tmuxy_server::init_logging();
+    // The same subscriber as the server's, plus a copy of its lines in the
+    // state dir: an app launched from Finder has no stderr anyone sees, and
+    // the file is what Help ▸ Reveal Log File shows and the smoke tests read.
+    tmuxy_server::init_logging_to_file(&tmuxy_core::paths::log_file());
     tmuxy_core::trace::init(None, cfg!(debug_assertions));
 
     #[allow(unused_mut)]
@@ -1091,8 +1003,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        // Clipboard manager: powers Help > Copy Logs to Clipboard so users
-        // launched from Finder can grab ~/tmuxy-debug.log without a terminal.
+        // Clipboard manager: Debug ▸ Copy Trace Path.
         .plugin(tauri_plugin_clipboard_manager::init())
         // Window state: the window comes back where it was closed — position,
         // size, maximized and fullscreen — from a file in the app's data dir.
@@ -1213,9 +1124,19 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            // Log environment for debugging Finder vs CLI launch differences
-            tmuxy_core::debug_log::log("=== tmuxy starting ===");
-            tmuxy_core::debug_log::log_env();
+            // The environment, for telling a Finder launch from a CLI one.
+            let env = |key: &str| std::env::var(key).unwrap_or_else(|_| "(unset)".to_string());
+            tracing::info!(
+                version = env!("CARGO_PKG_VERSION"),
+                pid = std::process::id(),
+                path = %env("PATH"),
+                home = %env("HOME"),
+                shell = %env("SHELL"),
+                term = %env("TERM"),
+                tmux_socket = %env("TMUX_SOCKET"),
+                tmuxy_session = %env("TMUXY_SESSION"),
+                "tmuxy starting"
+            );
 
             // Materialize the per-user config layout on first run:
             //   ~/.config/tmuxy/tmuxy.conf   — main tmux config (prefix bindings, etc.)
@@ -1233,9 +1154,12 @@ pub fn run() {
             // the `tmuxy <subcommand>` shell wrapper can reach them by an
             // absolute path even when launched from Finder/Spotlight.
             let bin_dir = tmuxy_core::session::ensure_bin_scripts();
-            tmuxy_core::debug_log::log(&format!("config: {:?}", config_path));
-            tmuxy_core::debug_log::log(&format!("themes: {:?}", themes_dir));
-            tmuxy_core::debug_log::log(&format!("bin: {:?}", bin_dir));
+            tracing::info!(
+                config = %config_path.display(),
+                themes = %themes_dir.display(),
+                bin = %bin_dir.display(),
+                "config layout"
+            );
 
             // Patch the parent process PATH so any subprocess we spawn — including
             // executor::* paths that go through `sh -c "tmux ..."` — can resolve
@@ -1273,10 +1197,10 @@ pub fn run() {
                         format!("{}:{}", missing.join(":"), current)
                     };
                     std::env::set_var("PATH", &prefixed);
-                    tmuxy_core::debug_log::log(&format!(
-                        "patched parent PATH for macOS Homebrew: prepended {}",
-                        missing.join(":")
-                    ));
+                    tracing::info!(
+                        prepended = %missing.join(":"),
+                        "patched parent PATH for macOS Homebrew"
+                    );
                 }
             }
 
@@ -1288,9 +1212,7 @@ pub fn run() {
                     tmuxy_core::session::refresh_launcher(&exe);
                 });
             } else {
-                tmuxy_core::debug_log::log(
-                    "current_exe() failed; tmuxy CLI shorthand not refreshed",
-                );
+                tracing::warn!("current_exe() failed; tmuxy CLI shorthand not refreshed");
             }
 
             // Verify tmux is available — the monitor will create the session
@@ -1298,19 +1220,16 @@ pub fn run() {
             // async monitor connection where the session can die in between)
             let tmux_bin = session::tmux_path();
             let session_name = tmuxy_core::session::session_name();
-            tmuxy_core::debug_log::log(&format!("tmux binary: {}", tmux_bin));
-            eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
-            eprintln!("[tmuxy] session name: {}", session_name);
+            tracing::info!(tmux = %tmux_bin, session = %session_name, "tmux");
 
             // No tmux, or one too old, ends here in a dialog that says so and
             // how to fix it — before any window opens. An error returned from
             // setup instead aborts the process, and an app launched from
             // Finder just vanishes.
             match tmuxy_core::tmux_check::check_tmux() {
-                Ok(version) => eprintln!("[tmuxy] {version}"),
+                Ok(version) => tracing::info!(%version, "tmux found"),
                 Err(e) => {
-                    tmuxy_core::debug_log::log(&format!("tmux check failed: {e}"));
-                    eprintln!("[tmuxy] {e}");
+                    tracing::error!(error = %e, "tmux check failed");
                     rfd::MessageDialog::new()
                         .set_level(rfd::MessageLevel::Error)
                         .set_title("tmuxy can't start")

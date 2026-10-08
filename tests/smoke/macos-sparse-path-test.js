@@ -50,7 +50,8 @@ const SANDBOX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-sparse-'));
 // exact file to `tmux -f` and doesn't fall back to ~/.tmux.conf.
 const TMUXY_CONFIG_DIR = path.join(SANDBOX_HOME, '.config', 'tmuxy');
 const TMUX_CONF = path.join(TMUXY_CONFIG_DIR, 'tmuxy.conf');
-const DEBUG_LOG = path.join(SANDBOX_HOME, 'tmuxy-debug.log');
+// The app logs into its state dir, which on macOS is under $HOME — the sandbox.
+const DEBUG_LOG = path.join(SANDBOX_HOME, 'Library', 'Application Support', 'tmuxy', 'tmuxy.log');
 const SESSION_NAME = `tmuxy-sparse-${Date.now()}`;
 const HELPER_BIN = '/opt/homebrew/bin/tmuxy-stay-alive';
 

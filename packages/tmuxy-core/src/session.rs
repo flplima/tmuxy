@@ -861,22 +861,19 @@ exec \"$EXEC_PATH\" \"$@\"
 ///      its content drifts from [`LAUNCHER_WRAPPER`], so we don't churn
 ///      the inode on every launch. The wrapper is `chmod +x`'d.
 ///
-/// Errors are logged to debug_log and otherwise swallowed; this is a
-/// best-effort install convenience, not a hard prerequisite for app use.
+/// Errors are logged and otherwise swallowed; this is a best-effort install
+/// convenience, not a hard prerequisite for app use.
 pub fn refresh_launcher(exe_path: &std::path::Path) {
     let dir = config_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        crate::debug_log::log(&format!("refresh_launcher: mkdir {:?} failed: {}", dir, e));
+        tracing::warn!(dir = %dir.display(), error = %e, "refresh_launcher: mkdir failed");
         return;
     }
 
     let launcher_file = dir.join("launcher");
     let exe_str = exe_path.to_string_lossy();
     if let Err(e) = std::fs::write(&launcher_file, format!("{}\n", exe_str)) {
-        crate::debug_log::log(&format!(
-            "refresh_launcher: writing {:?} failed: {}",
-            launcher_file, e
-        ));
+        tracing::warn!(path = %launcher_file.display(), error = %e, "refresh_launcher: write failed");
         return;
     }
 
@@ -884,10 +881,7 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".local/bin");
     if let Err(e) = std::fs::create_dir_all(&bin_dir) {
-        crate::debug_log::log(&format!(
-            "refresh_launcher: mkdir {:?} failed: {}",
-            bin_dir, e
-        ));
+        tracing::warn!(dir = %bin_dir.display(), error = %e, "refresh_launcher: mkdir failed");
         return;
     }
 
@@ -918,10 +912,7 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
 
     if needs_write {
         if let Err(e) = std::fs::write(&wrapper_path, LAUNCHER_WRAPPER) {
-            crate::debug_log::log(&format!(
-                "refresh_launcher: writing wrapper {:?} failed: {}",
-                wrapper_path, e
-            ));
+            tracing::warn!(path = %wrapper_path.display(), error = %e, "refresh_launcher: wrapper write failed");
             return;
         }
         #[cfg(unix)]
@@ -929,27 +920,16 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755));
         }
-        crate::debug_log::log(&format!(
-            "refresh_launcher: installed shorthand at {:?}",
-            wrapper_path
-        ));
+        tracing::info!(path = %wrapper_path.display(), "refresh_launcher: installed shorthand");
     }
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool> {
-    crate::debug_log::log_cmd(
-        "has-session",
-        tmux_path(),
-        &["has-session", "-t", session_name],
-    );
     let output = tmux_command()
         .args(["has-session", "-t", session_name])
         .output()
         .map_err(|e| format!("Failed to check session: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    crate::debug_log::log_cmd_result("has-session", output.status.code(), &stdout, &stderr);
+    tracing::debug!(session = session_name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())
 }
 

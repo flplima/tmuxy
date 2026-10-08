@@ -10,8 +10,6 @@ pub mod ids;
 #[cfg(feature = "native")]
 pub mod command_router;
 #[cfg(feature = "cli")]
-pub mod debug_log;
-#[cfg(feature = "cli")]
 pub mod executor;
 
 pub mod layout;

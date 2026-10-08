@@ -182,26 +182,19 @@ fn spawn_parser_task(
             buf.clear();
             match buf_reader.read_until(b'\n', &mut buf).await {
                 Ok(0) => {
-                    // EOF — tmux process exited (or PTY was closed). Surface
-                    // the last lines we saw to the persistent debug log so a
-                    // user-collected log capture includes tmux's parting
-                    // words (often a `%error` or `%exit detached` line).
+                    // EOF — tmux process exited (or PTY was closed). tmux's
+                    // parting words (often a `%error` or `%exit detached`
+                    // line) are raw control-mode output, so they are logged at
+                    // `trace`, below the action trace's floor (docs/TELEMETRY.md).
                     let tail: Vec<String> = {
                         let guard = recent_output.lock().await;
                         let n = guard.len();
                         let take_from = n.saturating_sub(20);
                         guard[take_from..].to_vec()
                     };
-                    if tail.is_empty() {
-                        crate::debug_log::log("parser task: EOF on PTY (no output captured)");
-                    } else {
-                        crate::debug_log::log(&format!(
-                            "parser task: EOF on PTY, last {} line(s):",
-                            tail.len()
-                        ));
-                        for line in &tail {
-                            crate::debug_log::log(&format!("  | {}", line));
-                        }
+                    tracing::info!(last_lines = tail.len(), "parser task: EOF on PTY");
+                    for line in &tail {
+                        tracing::trace!("  | {}", line);
                     }
                     break;
                 }
@@ -232,7 +225,7 @@ fn spawn_parser_task(
                     }
                 }
                 Err(e) => {
-                    crate::debug_log::log(&format!("parser task: read error on PTY: {}", e));
+                    tracing::warn!(error = %e, "parser task: read error on PTY");
                     break;
                 }
             }
@@ -291,7 +284,7 @@ impl ControlModeConnection {
         // operators need to see exactly what we spawned.
         let (tmux_args, shell_desc) =
             build_tmux_args(session_name, create_if_missing, group_target, first_window);
-        crate::debug_log::log(&format!("connect(): pty spawn: {}", shell_desc));
+        tracing::info!("connect(): pty spawn: {}", shell_desc);
         log_to(log, LogKind::Command, shell_desc.clone());
 
         let child = Self::spawn_tmux(&tmux_args, pts, working_dir, &shell_desc, log)?;
@@ -331,7 +324,7 @@ impl ControlModeConnection {
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(), TmuxError> {
         let tmux_path = crate::session::tmux_path();
-        crate::debug_log::log(&format!("connect(): checking session '{}'", session_name));
+        tracing::debug!(session = session_name, "connect(): checking session");
         let has_session_cmd = format!("{} has-session -t {}", tmux_path, session_name);
         log_to(log, LogKind::Command, has_session_cmd.clone());
         let check = crate::session::tmux_command()
@@ -485,7 +478,7 @@ impl ControlModeConnection {
         recent_output: &Arc<Mutex<Vec<String>>>,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(), TmuxError> {
-        crate::debug_log::log("connect(): waiting for first control mode event (10s timeout)");
+        tracing::debug!("connect(): waiting for first control mode event (10s timeout)");
         log_to(
             log,
             LogKind::Info,
@@ -494,7 +487,9 @@ impl ControlModeConnection {
 
         match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
             Ok(Ok(())) => {
-                crate::debug_log::log("connect(): control mode connected successfully");
+                // The smoke tests count this line in the desktop app's log
+                // file: more than two in a run is a reconnect loop.
+                tracing::info!("connect(): control mode connected successfully");
                 log_to(log, LogKind::Info, "control mode connected successfully");
                 Ok(())
             }

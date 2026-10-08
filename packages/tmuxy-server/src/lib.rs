@@ -50,22 +50,62 @@ pub const QUIET_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info";
 
 /// `init_logging`, with the default filter named explicitly.
 pub fn init_logging_with(default_filter: &str) {
+    install(default_filter, None);
+}
+
+/// `init_logging`, plus the tmuxy crates' lines at `info` and above appended
+/// to `log_file`, without colour. The desktop app's stderr goes nowhere when
+/// it is launched from Finder; the file is what a bug report attaches
+/// (Help ▸ Reveal Log File) and what the smoke tests read. A file that cannot
+/// be opened costs only the file: stderr and the trace are installed as usual.
+pub fn init_logging_to_file(log_file: &std::path::Path) {
+    let file = log_file
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_file)
+        });
+    match file {
+        Ok(file) => install(DEFAULT_LOG_FILTER, Some(file)),
+        Err(e) => {
+            install(DEFAULT_LOG_FILTER, None);
+            tracing::warn!(path = %log_file.display(), error = %e, "log file not opened");
+        }
+    }
+}
+
+/// What the log file keeps: tmuxy's own lines, never a dependency's.
+const FILE_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info,tmuxy_tauri_app=info";
+
+fn install(default_filter: &str, log_file: Option<std::fs::File>) {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{fmt, EnvFilter};
 
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
-    let fmt_layer = fmt::layer()
+    let stderr_layer = fmt::layer()
         .with_target(true)
         .with_thread_ids(false)
         .with_writer(std::io::stderr);
+    let file_layer = log_file.map(|file| {
+        fmt::layer()
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_ansi(false)
+            .with_writer(std::sync::Arc::new(file))
+            .with_filter(EnvFilter::new(FILE_LOG_FILTER))
+    });
     // The trace layer gets its OWN filter, decoupled from stderr's: it captures
     // DEBUG from the tmuxy crates so the hot-path `debug!` signal events (command
     // verb, emit seq) land in the trace file without spamming stderr. RUST_LOG
     // still controls the stderr fmt layer as before.
     let trace_filter = EnvFilter::new("tmuxy_core=debug,tmuxy_server=debug,tmuxy_tauri_app=debug");
     tracing_subscriber::registry()
-        .with(fmt_layer.with_filter(filter))
+        .with(stderr_layer.with_filter(filter))
+        .with(file_layer)
         .with(tmuxy_core::trace::TraceLayer.with_filter(trace_filter))
         .try_init()
         .ok();

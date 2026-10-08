@@ -8,7 +8,7 @@ description = "Core tmux interaction library for tmuxy"
 
 # The control-mode parser + state aggregator (parser/state/osc/images/octal +
 # the Tmux*/Delta types) are sans-IO and compile to wasm32. The synchronous
-# tmux-command layer (session/executor/debug_log) is the `cli` feature, and the
+# tmux-command layer (session/executor) is the `cli` feature, and the
 # async/pty transport (monitor/connection/transport) on top of it is the
 # default `native` feature, so the pure core can build with
 # --no-default-features for the WASM (tmuxy-wasm) crate and the v86 guest's
@@ -48,7 +48,7 @@ criterion = "0.5"
 [features]
 default = ["native"]
 # Running tmux as a subprocess and the user's config directory (session,
-# executor, debug_log): what a CLI verb needs, and all tmuxy-group takes.
+# executor): what a CLI verb needs, and all tmuxy-group takes.
 cli = ["dep:dirs"]
 # The async/pty transport (monitor, connection, transport, snapshots, trace)
 # on top of `cli`. Off for the wasm build.

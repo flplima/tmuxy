@@ -6,8 +6,8 @@
 //! timing) via a `tracing` `Layer`, never terminal content:
 //!
 //! - a **target allowlist** admits only `tmuxy_core` / `tmuxy_server` /
-//!   `tmuxy_tauri` events and explicitly excludes the `tmuxy::debug_log` target
-//!   (which drains raw control-mode output to `~/tmuxy-debug.log`);
+//!   `tmuxy_tauri` events, and the layer's floor is `debug`: raw control-mode
+//!   output is logged at `trace`, which never reaches it;
 //! - a **field allowlist** keeps only content-free keys verbatim, **hashes**
 //!   name/path-like keys to a stable opaque id, and **scrubs+truncates**
 //!   error/message strings; everything else is dropped.
@@ -717,9 +717,6 @@ struct SpanState {
 }
 
 fn target_allowed(target: &str) -> bool {
-    if target.starts_with("tmuxy::debug_log") {
-        return false;
-    }
     target.starts_with("tmuxy_core")
         || target.starts_with("tmuxy_server")
         || target.starts_with("tmuxy_tauri")
@@ -821,10 +818,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_admits_only_tmuxy_targets_and_excludes_debug_log() {
+    fn allowlist_admits_only_tmuxy_targets() {
         assert!(target_allowed("tmuxy_core::control_mode::monitor"));
         assert!(target_allowed("tmuxy_server::sse"));
-        assert!(!target_allowed("tmuxy::debug_log"));
         assert!(!target_allowed("hyper::proto"));
         assert!(!target_allowed("tower::buffer"));
     }
