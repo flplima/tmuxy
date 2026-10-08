@@ -111,39 +111,12 @@ impl LogSink for SseEmitter {
 
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
-        // Garbage-collect orphaned images when we have a full state snapshot
-        if let StateUpdate::Full { ref state } = update {
+        transport::on_state_update(&update, &self.keeper, |state| {
             if let Ok(mut guard) = self.app_state.image_store.try_write() {
                 guard.retain_live_panes(state);
             }
-        }
-        // The snapshot follows the session's SHAPE, not its output: a split, a
-        // closed pane, a tag, a program starting — never bytes arriving.
-        let structural = match &update {
-            StateUpdate::Full { .. } => true,
-            StateUpdate::Delta { delta } => tmuxy_core::session_snapshot::is_structural(delta),
-        };
-        if structural && !tmuxy_core::session_snapshot::autosave_disabled() {
-            self.keeper.note_change();
-        }
-        // Trace the emit with the *delta* seq + kind so the return leg can be
-        // correlated to the client's applied delta seq (docs/TELEMETRY.md). The
-        // SSE transport id is a different counter; the delta seq is the one the
-        // client tags its `apply` with. Content-free.
-        let kind = if matches!(update, StateUpdate::Full { .. }) {
-            "full"
-        } else {
-            "delta"
-        };
-        let delta_seq = match &update {
-            StateUpdate::Delta { delta } => Some(delta.seq),
-            _ => None,
-        };
+        });
         self.send_event(&SseEvent::StateUpdate(Box::new(update)));
-        match delta_seq {
-            Some(seq) => tracing::debug!(target: "tmuxy_server::emit", seq, kind, "emit state"),
-            None => tracing::debug!(target: "tmuxy_server::emit", kind, "emit state"),
-        }
     }
 
     fn emit_error(&self, error: String) {
@@ -1500,18 +1473,15 @@ pub async fn start_monitoring(
         // tmux 3.5a. Routing through CC avoids this.
         // A session that is about to be CREATED may have a snapshot to come
         // back from. Decided here, once, so both ways of creating it (below)
-        // make the first window the snapshot wants and the rebuild runs onto
-        // it after attach — over control mode, never with a clientless server.
+        // make the first window the snapshot wants.
         let mut restore =
             if connect_config.create_session && !state.read_only && !session_exists(&session).await
             {
-                tmuxy_core::session_snapshot::restorable(&snapshot_dir, &session)
+                transport::restore_plan(&snapshot_dir, &mut connect_config)
             } else {
                 None
             };
         if let Some(snapshot) = &restore {
-            connect_config.first_window =
-                snapshot.first_window_hint(&tmuxy_core::session_snapshot::fallback_cwd());
             info!(%session, saved_at = snapshot.saved_at, "restoring session from snapshot");
         }
         if connect_config.create_session && !session_exists(&session).await {
@@ -1653,32 +1623,20 @@ pub async fn start_monitoring(
 
                 // The rebuild, onto the window `new-session` just made. Queued
                 // on the command channel, so it runs once the monitor is in its
-                // loop — after the initial sync, which is the order it needs.
+                // loop.
                 if let Some(snapshot) = restore.take() {
-                    let tx = command_tx.clone();
+                    let rebuild = transport::restore_after_attach(
+                        snapshot,
+                        keeper.clone(),
+                        command_tx.clone(),
+                    );
                     let name = session.clone();
-                    let keeper = keeper.clone();
-                    // Held from here, not from inside the task: the first
-                    // delta of the fresh session must not race the task's
-                    // start into a save of the placeholder window.
-                    keeper.restore_started();
                     state
                         .spawn(async move {
-                            let options = tmuxy_core::session_snapshot::RestoreOptions {
-                                run: false,
-                                fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
-                                onto_existing_window: true,
-                                existing_window_index: None,
-                            };
-                            match tmuxy_core::session_snapshot::restore_via_monitor(
-                                &snapshot, &options, &tx,
-                            )
-                            .await
-                            {
+                            match rebuild.await {
                                 Ok(()) => info!(session = %name, "session restored from snapshot"),
                                 Err(e) => warn!(session = %name, %e, "session restore stopped"),
                             }
-                            keeper.restore_finished();
                         })
                         .await;
                 }

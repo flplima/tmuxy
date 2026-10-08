@@ -5,7 +5,7 @@ use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
     TmuxMonitor,
 };
-use tmuxy_core::transport::KeyBindings;
+use tmuxy_core::transport::{self, KeyBindings};
 use tmuxy_core::StateUpdate;
 
 use tmuxy_core::session::session_name as get_session;
@@ -214,31 +214,11 @@ impl LogSink for TauriEmitter {
 
 impl StateEmitter for TauriEmitter {
     fn emit_state(&self, update: StateUpdate) {
-        if let StateUpdate::Full { ref state } = update {
+        transport::on_state_update(&update, &self.keeper, |state| {
             if let Ok(mut guard) = self.monitor.images.try_write() {
                 guard.retain_live_panes(state);
             }
-        }
-        let structural = match &update {
-            StateUpdate::Full { .. } => true,
-            StateUpdate::Delta { delta } => tmuxy_core::session_snapshot::is_structural(delta),
-        };
-        if structural && !tmuxy_core::session_snapshot::autosave_disabled() {
-            self.keeper.note_change();
-        }
-        // Trace the emit by delta seq + kind (parity with the web SseEmitter) so
-        // the return leg joins to the client's applied `seq`. Content-free.
-        let kind = if matches!(update, StateUpdate::Full { .. }) {
-            "full"
-        } else {
-            "delta"
-        };
-        match &update {
-            StateUpdate::Delta { delta } => {
-                tracing::debug!(target: "tmuxy_tauri_app::emit", seq = delta.seq, kind, "emit state")
-            }
-            _ => tracing::debug!(target: "tmuxy_tauri_app::emit", kind, "emit state"),
-        }
+        });
         if let Err(e) = self
             .app
             .emit_to(self.label.as_str(), "tmux-state-update", &update)
@@ -454,20 +434,15 @@ pub async fn start_monitoring_window(
         }
 
         // A session about to be created may have a snapshot to come back
-        // from: ask for its first window up front, rebuild onto it after
-        // attach — over control mode, as the web server does (`sse.rs`).
+        // from, as on the web server (`sse.rs`).
         let mut connect_config = config.clone();
         let mut restore = if connect_config.create_session
             && !tmuxy_core::session::session_exists(&connect_config.session).unwrap_or(true)
         {
-            tmuxy_core::session_snapshot::restorable(&snapshot_dir, &connect_config.session)
+            transport::restore_plan(&snapshot_dir, &mut connect_config)
         } else {
             None
         };
-        if let Some(snapshot) = &restore {
-            connect_config.first_window =
-                snapshot.first_window_hint(&tmuxy_core::session_snapshot::fallback_cwd());
-        }
         match TmuxMonitor::connect(connect_config, Some(&log_sink)).await {
             Ok((mut monitor, cmd_tx)) => {
                 let autosave = if tmuxy_core::session_snapshot::autosave_disabled() {
@@ -480,22 +455,11 @@ pub async fn start_monitoring_window(
                     Some(tokio::spawn(async move { keeper.run(name, dir, tx).await }))
                 };
                 if let Some(snapshot) = restore.take() {
-                    let tx = cmd_tx.clone();
+                    let rebuild =
+                        transport::restore_after_attach(snapshot, keeper.clone(), cmd_tx.clone());
                     let name = config.session.clone();
-                    let keeper = keeper.clone();
-                    keeper.restore_started();
                     tokio::spawn(async move {
-                        let options = tmuxy_core::session_snapshot::RestoreOptions {
-                            run: false,
-                            fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
-                            onto_existing_window: true,
-                            existing_window_index: None,
-                        };
-                        match tmuxy_core::session_snapshot::restore_via_monitor(
-                            &snapshot, &options, &tx,
-                        )
-                        .await
-                        {
+                        match rebuild.await {
                             Ok(()) => tmuxy_core::debug_log::log(&format!(
                                 "[monitor] session '{name}' restored from snapshot"
                             )),
@@ -503,7 +467,6 @@ pub async fn start_monitoring_window(
                                 "[monitor] session '{name}' restore stopped: {e}"
                             )),
                         }
-                        keeper.restore_finished();
                     });
                 }
                 // Publish the live command channel so #[tauri::command]

@@ -9,13 +9,93 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::command_router::{route_command, Route};
-use crate::control_mode::{MonitorCommand, MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
+use crate::control_mode::{
+    MonitorCommand, MonitorCommandSender, MonitorConfig, StoredImage, MAX_CLIPBOARD_BYTES,
+};
 use crate::executor::tmux_quote;
-use crate::session_snapshot::{self as snapshot, RestoreOptions};
-use crate::{CommandError, PaneId, TmuxState};
+use crate::session_snapshot::{self as snapshot, RestoreOptions, Snapshot, SnapshotKeeper};
+use crate::{CommandError, PaneId, StateUpdate, TmuxState};
+
+// ============================================
+// The monitor loop
+// ============================================
+
+/// The bookkeeping both emitters do with a state update before handing it to
+/// their client.
+///
+/// `forget_dead_images` is given a full state — the one update that names
+/// every live pane — so the emitter's image store, behind whichever lock it
+/// keeps, can drop the pictures of the rest. The keeper is told of a change
+/// of SHAPE (a split, a closed pane, a tag, a program starting — never bytes
+/// arriving), which is what a snapshot follows. And the emit is traced by the
+/// DELTA seq and kind, so the return leg joins to the client's applied `seq`
+/// (docs/TELEMETRY.md); the transport's own ids are another counter.
+/// Content-free.
+pub fn on_state_update(
+    update: &StateUpdate,
+    keeper: &SnapshotKeeper,
+    forget_dead_images: impl FnOnce(&TmuxState),
+) {
+    match update {
+        StateUpdate::Full { state } => {
+            forget_dead_images(state);
+            if !snapshot::autosave_disabled() {
+                keeper.note_change();
+            }
+            tracing::debug!(target: "tmuxy_core::emit", kind = "full", "emit state");
+        }
+        StateUpdate::Delta { delta } => {
+            if snapshot::is_structural(delta) && !snapshot::autosave_disabled() {
+                keeper.note_change();
+            }
+            tracing::debug!(target: "tmuxy_core::emit", seq = delta.seq, kind = "delta", "emit state");
+        }
+    }
+}
+
+/// A session about to be CREATED may have a snapshot to come back from.
+/// Decided once, before the connect: the first window is made as the snapshot
+/// wants it, and the rebuild runs onto it after attach
+/// ([`restore_after_attach`]) — over control mode, never with a clientless
+/// server. `None` when there is nothing to come back from, or
+/// `TMUXY_NO_RESTORE` says not to.
+pub fn restore_plan(dir: &Path, config: &mut MonitorConfig) -> Option<Snapshot> {
+    let found = snapshot::restorable(dir, &config.session)?;
+    config.first_window = found.first_window_hint(&snapshot::fallback_cwd());
+    Some(found)
+}
+
+/// The rebuild onto the window `new-session` just made, for the caller to
+/// spawn once the monitor is in its loop — after the initial sync, which is
+/// the order it needs.
+///
+/// The keeper is held from HERE, not from inside the task: the first delta of
+/// the fresh session must not race the task's start into a save of the
+/// placeholder window. It is released however the rebuild ends; what stands
+/// then is the shape worth keeping.
+pub fn restore_after_attach(
+    snapshot: Snapshot,
+    keeper: Arc<SnapshotKeeper>,
+    tx: MonitorCommandSender,
+) -> impl Future<Output = Result<(), String>> + Send {
+    keeper.restore_started();
+    async move {
+        let options = RestoreOptions {
+            run: false,
+            fallback_cwd: snapshot::fallback_cwd(),
+            onto_existing_window: true,
+            existing_window_index: None,
+        };
+        let outcome = snapshot::restore_via_monitor(&snapshot, &options, &tx).await;
+        keeper.restore_finished();
+        outcome
+    }
+}
 
 // ============================================
 // A client's first requests
