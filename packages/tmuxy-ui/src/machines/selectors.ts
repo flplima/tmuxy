@@ -107,22 +107,22 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   });
 }
 
+/** Everything the preview panes are computed from: the memo key of every selector built on them. */
+const previewInputs = (ctx: AppMachineContext) => ({
+  panes: ctx.panes,
+  resize: ctx.resize,
+  drag: ctx.drag,
+  charWidth: ctx.charWidth,
+  charHeight: ctx.charHeight,
+  activeWindowId: ctx.activeWindowId,
+  activePaneId: ctx.activePaneId,
+});
+
 /**
  * Memoized version of selectPreviewPanes.
  * Only recomputes when panes, resize state, drag state, char dimensions, or active window change.
  */
-export const selectPreviewPanes = createMemoizedSelector(
-  (ctx: AppMachineContext) => ({
-    panes: ctx.panes,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
-  }),
-  selectPreviewPanesUncached,
-);
+export const selectPreviewPanes = createMemoizedSelector(previewInputs, selectPreviewPanesUncached);
 
 /**
  * Select raw panes (unmodified server state)
@@ -566,6 +566,18 @@ export function getActivePaneInGroup(context: AppMachineContext, group: PaneGrou
   return null;
 }
 
+/** The group members parked out of view: every member but the one in the active window. */
+function hiddenGroupPaneIds(context: AppMachineContext): Set<PaneId> {
+  const hidden = new Set<PaneId>();
+  for (const group of Object.values(context.paneGroups)) {
+    const shown = getActivePaneInGroup(context, group);
+    for (const paneId of group.paneIds) {
+      if (paneId !== shown) hidden.add(paneId);
+    }
+  }
+  return hidden;
+}
+
 /**
  * Select visible panes - filters out hidden group panes
  * For groups, only the pane in the active window is visible.
@@ -581,29 +593,9 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
     previewPanes = previewPanes.filter((p) => !floatPaneIds[p.tmuxId]);
   }
 
-  const groupsArray = Object.values(context.paneGroups);
-
-  let result: TmuxPane[];
-  if (groupsArray.length === 0) {
-    result = previewPanes;
-  } else {
-    // Build a Set of hidden pane IDs for O(1) lookup
-    const hiddenPaneIds = new Set<PaneId>();
-
-    for (const group of groupsArray) {
-      // The active pane is whichever one is in the active window
-      const activePaneId = getActivePaneInGroup(context, group);
-
-      // Hide all group panes except the one in the active window
-      for (const paneId of group.paneIds) {
-        if (paneId !== activePaneId) {
-          hiddenPaneIds.add(paneId);
-        }
-      }
-    }
-
-    result = previewPanes.filter((pane) => !hiddenPaneIds.has(pane.tmuxId));
-  }
+  const hidden = hiddenGroupPaneIds(context);
+  const result =
+    hidden.size === 0 ? previewPanes : previewPanes.filter((pane) => !hidden.has(pane.tmuxId));
 
   // Sort by tmuxId for stable DOM order. Panes are absolutely positioned so
   // DOM order has no visual effect, but a stable sort prevents React from
@@ -662,14 +654,8 @@ export const selectVisibleFloats = createMemoizedSelector(
 
 export const selectVisiblePanes = createMemoizedSelector(
   (ctx: AppMachineContext) => ({
-    panes: ctx.panes,
+    ...previewInputs(ctx),
     paneGroups: ctx.paneGroups,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
     floatPanes: ctx.floatPanes,
   }),
   selectVisiblePanesUncached,
@@ -685,16 +671,10 @@ export const selectVisiblePanes = createMemoizedSelector(
  * rendering paths (floats) or are intentionally suppressed (group siblings).
  */
 function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[] {
-  const { panes, activeWindowId, floatPanes, paneGroups, windows } = context;
+  const { panes, activeWindowId, floatPanes, windows } = context;
   if (!activeWindowId) return [];
 
-  const hiddenGroupPaneIds = new Set<PaneId>();
-  for (const group of Object.values(paneGroups)) {
-    const activeGroupPaneId = getActivePaneInGroup(context, group);
-    for (const id of group.paneIds) {
-      if (id !== activeGroupPaneId) hiddenGroupPaneIds.add(id);
-    }
-  }
+  const hidden = hiddenGroupPaneIds(context);
 
   // A sidebar's pane is drawn by its own column, so the grid must not keep a
   // second copy of it mounted the way it does for another TAB's panes. Two
@@ -709,7 +689,7 @@ function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[]
     if (pane.windowId === activeWindowId) continue;
     if (sidebarWindowIds.has(pane.windowId)) continue;
     if (floatPanes[pane.tmuxId]) continue;
-    if (hiddenGroupPaneIds.has(pane.tmuxId)) continue;
+    if (hidden.has(pane.tmuxId)) continue;
     result.push(pane);
   }
   return result.sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
@@ -764,15 +744,7 @@ export function selectPaneGroupPanes(context: AppMachineContext, group: PaneGrou
  * Memoized Map for O(1) pane lookup from preview panes.
  */
 const selectPreviewPaneMap = createMemoizedSelector(
-  (ctx: AppMachineContext) => ({
-    panes: ctx.panes,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
-  }),
+  previewInputs,
   (context: AppMachineContext): Map<PaneId, TmuxPane> => {
     const previewPanes = selectPreviewPanes(context);
     const map = new Map<PaneId, TmuxPane>();
@@ -784,15 +756,7 @@ const selectPreviewPaneMap = createMemoizedSelector(
 );
 
 export const selectPaneById = createMemoizedSelectorWithArg(
-  (ctx: AppMachineContext, _paneId: PaneId) => ({
-    panes: ctx.panes,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
-  }),
+  (ctx: AppMachineContext, _paneId: PaneId) => previewInputs(ctx),
   (context: AppMachineContext, paneId: PaneId): TmuxPane | undefined => {
     const paneMap = selectPreviewPaneMap(context);
     return paneMap.get(paneId) ?? context.panes.find((p) => p.tmuxId === paneId);
