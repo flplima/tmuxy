@@ -66,8 +66,6 @@ const ModelWindowId = Schema.String.pipe(
 export const isPaneId = Schema.is(PaneId);
 /** `u` is a tmux window id (`@N`). */
 export const isWindowId = Schema.is(WindowId);
-/** `u` is a group id. */
-export const isGroupId = Schema.is(GroupId);
 /** `u` names a pane in the client model: a tmux id or a placeholder (e.g. a DOM `data-pane-id`). */
 export const isModelPaneId = Schema.is(ModelPaneId);
 /** `u` names a window in the client model: a tmux id or a placeholder. */

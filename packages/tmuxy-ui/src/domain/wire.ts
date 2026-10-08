@@ -278,7 +278,6 @@ export const ServerDelta = Schema.Struct({
   total_height: Schema.optional(Schema.Number),
 });
 export type ServerDelta = Schema.Schema.Type<typeof ServerDelta>;
-export type ServerDeltaEncoded = Schema.Schema.Encoded<typeof ServerDelta>;
 
 /** One `state-update`: the whole state, or the changes since the last one. */
 export const StateUpdate = Schema.Union(

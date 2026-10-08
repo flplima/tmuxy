@@ -17,8 +17,6 @@ import {
 import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
 import { loadThemeFromStorage } from '../../utils/themeManager';
 
-export type { AppMachineContext };
-
 /**
  * The name of each state slice (a root-level `on` block under ./states/)
  * plus 'parent' for fields owned by the machine itself (lifecycle,
