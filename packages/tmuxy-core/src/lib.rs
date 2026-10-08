@@ -691,7 +691,7 @@ impl WindowDelta {
 }
 
 /// Delta state update - only includes what changed
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TmuxDelta {
     /// Sequence number for ordering
     pub seq: u64,
@@ -726,21 +726,6 @@ pub struct TmuxDelta {
 }
 
 impl TmuxDelta {
-    pub fn new(seq: u64) -> Self {
-        Self {
-            seq,
-            panes: None,
-            windows: None,
-            new_panes: None,
-            new_windows: None,
-            active_window_id: None,
-            active_pane_id: None,
-            focus_request: None,
-            total_width: None,
-            total_height: None,
-        }
-    }
-
     pub fn is_empty(&self) -> bool {
         self.panes.is_none()
             && self.windows.is_none()

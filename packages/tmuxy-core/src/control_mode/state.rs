@@ -3170,7 +3170,7 @@ impl StateAggregator {
         };
 
         // Compute delta (seq assigned after empty check)
-        let mut delta = crate::TmuxDelta::new(0);
+        let mut delta = crate::TmuxDelta::default();
 
         // Check for dimension changes
         if current.total_width != prev.total_width {
