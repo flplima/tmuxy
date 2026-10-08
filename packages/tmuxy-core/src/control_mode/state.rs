@@ -622,6 +622,18 @@ impl PaneState {
         delta
     }
 
+    /// Replay the `%output` that arrived for this pane before it existed —
+    /// during a split, `%output` often lands before the `%layout-change` or
+    /// list-panes row that creates the pane. Returns how many bytes it was.
+    fn replay_early_output(&mut self, early_output: &mut HashMap<PaneId, Vec<u8>>) -> usize {
+        let Some(early) = early_output.remove(&self.id) else {
+            return 0;
+        };
+        self.output_bytes += early.len() as u64;
+        self.process_output(&early);
+        early.len()
+    }
+
     /// Process new output for this pane (appends to existing buffer)
     pub fn process_output(&mut self, content: &[u8]) {
         self.content_dirty = true;
@@ -2601,11 +2613,7 @@ impl StateAggregator {
                 pane.x = lp.x;
                 pane.y = lp.y;
                 pane.active = active_pane_id.as_ref() == Some(&lp.id);
-                // Replay any %output that arrived before this pane was created.
-                // During split, %output often arrives before %layout-change.
-                if let Some(early) = self.early_output.remove(&lp.id) {
-                    pane.process_output(&early);
-                }
+                pane.replay_early_output(&mut self.early_output);
                 self.panes.insert(lp.id.clone(), pane);
                 // Queue capture for new panes so their content is fetched
                 // authoritatively. Layout dimensions may include the
@@ -2914,16 +2922,8 @@ impl StateAggregator {
             PaneState::new(pane_id.clone(), width, height).with_scrollback_rows(scrollback_rows)
         });
 
-        // Replay any early %output that arrived before this pane was created
         if is_new_pane {
-            let early_bytes = match self.early_output.remove(&pane_id) {
-                Some(early) => {
-                    pane.output_bytes += early.len() as u64;
-                    pane.process_output(&early);
-                    early.len()
-                }
-                None => 0,
-            };
+            let early_bytes = pane.replay_early_output(&mut self.early_output);
             debug!(
                 pane = %pane_id,
                 window = ?window_id,
