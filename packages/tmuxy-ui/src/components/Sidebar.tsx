@@ -4,10 +4,9 @@
  * identity — something `ctrl+hjkl` and `tmuxy nav` can move into, and the
  * backend can size — while staying on screen across every tab.
  *
- * LEFT runs `tmuxy widget tree`: the tabs/panes tree, rendered through the
- * ordinary widget path (`SidebarTree` via the registered `tree` widget).
- * Toggled from the header button or `prefix t`; focused by a click, Ctrl+h from
- * the leftmost pane, or a `tmuxy nav left` focus request.
+ * LEFT runs `tmuxy widget tree`, and draws the tabs/panes tree (`SidebarTree`)
+ * over that pane. Toggled from the header button or `prefix t`; focused by a
+ * click, Ctrl+h from the leftmost pane, or a `tmuxy nav left` focus request.
  *
  * RIGHT is the pinned terminal: created on first open by the same `split-window
  * ; break-pane ; set-option` list a float uses — with no command, so tmux starts

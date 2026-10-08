@@ -27,8 +27,8 @@
 
 import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
-import { getWidget } from './widgets';
-import { useAppSelector, selectCharSize, selectSidebarCellMetrics } from '../machines/AppContext';
+import { SidebarTree } from './SidebarTree';
+import { useAppSelector, selectSidebarCellMetrics } from '../machines/AppContext';
 import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../machines/types';
@@ -179,11 +179,12 @@ const START_COMMAND = { left: 'tmuxy widget tree', right: 'the default shell' } 
 /**
  * Render a sidebar's pane.
  *
- * The LEFT column is the tree widget by definition: a `sidebar-left` window IS
- * the tree, so the registered `tree` component is rendered directly instead of
- * detecting it from the pane's screen text. (Detection depended on the marker
- * line `__TMUXY_WIDGET__:tree` fitting on one row; below 22 columns it wrapped
- * and the column fell back to a raw terminal.)
+ * The LEFT column is the tree by definition: a `sidebar-left` window IS the
+ * tree, so `SidebarTree` is rendered directly instead of detecting the `tree`
+ * widget from the pane's screen text. (Detection depended on the marker line
+ * `__TMUXY_WIDGET__:tree` fitting on one row; below 22 columns it wrapped and
+ * the column fell back to a raw terminal.) The registered widget is for a
+ * `tmuxy widget tree` run in an ordinary pane.
  *
  * The RIGHT column is a terminal pane with the same interaction layer a tiled
  * pane has — wheel and drag enter client-side copy mode, right-click selects a
@@ -203,7 +204,6 @@ function SidebarPane({
   startFailed: boolean;
   onClose: () => void;
 }) {
-  const { charHeight } = useAppSelector(selectCharSize);
   const dock = useAppSelector(selectSidebarCellMetrics);
   const dockCell = useMemo(
     () => ({ width: dock.cellWidth, height: dock.lineHeight }),
@@ -238,17 +238,14 @@ function SidebarPane({
     return <div className="sidebar-placeholder">starting…</div>;
   }
 
-  if (side === 'left') {
-    const Tree = getWidget('tree')!.component;
-    return <Tree paneId={pane.tmuxId} lines={[]} />;
-  }
+  if (side === 'left') return <SidebarTree focused={focused} />;
 
   return (
     // Height is pinned to the row count the backend sized the pane to, so the
     // rendered grid and tmux's idea of the pane can't drift apart.
     <div
       className="sidebar-terminal"
-      style={{ height: pane.height * (side === 'right' ? dock.lineHeight : charHeight) }}
+      style={{ height: pane.height * dock.lineHeight }}
       data-pane-id={pane.tmuxId}
     >
       <TerminalPane paneId={pane.tmuxId} chrome="none" isActive={focused} cellSize={dockCell} />
