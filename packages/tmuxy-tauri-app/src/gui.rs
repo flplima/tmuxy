@@ -1,6 +1,5 @@
 use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::Manager;
-use tmuxy_core::constants::tmux_options;
 use tmuxy_core::session;
 
 use crate::commands;
@@ -8,73 +7,6 @@ use crate::monitor;
 use crate::titlebar;
 use crate::window_style::{self, WindowStyle, WindowStyles};
 use crate::windows;
-
-/// The `@tmuxy-blur` the config files set (default on), for a window that
-/// opens before its monitor has sourced them — the first one opens during
-/// setup, before `monitor::start_monitoring` connects. The files are read in
-/// tmux's source order (defaults first, then the user conf), last assignment
-/// winning, which is what `source-file` resolves to. Once the monitor has
-/// sourced the config, `monitor::emit_config_settings` applies the live value.
-fn configured_blur() -> bool {
-    let dir = session::config_dir();
-    let mut found: Option<String> = None;
-    for filename in ["tmuxy.defaults.conf", "tmuxy.conf"] {
-        if let Ok(content) = std::fs::read_to_string(dir.join(filename)) {
-            if let Some(v) = parse_option_from_config(&content, tmux_options::BLUR) {
-                found = Some(v);
-            }
-        }
-    }
-    found.is_none_or(|value| tmuxy_core::theme::parse_flag(&value, true))
-}
-
-/// Best-effort parser for `set [-g|-ga|-gu|-s|-sg|...] @name value` lines in a
-/// tmux config. Matches the last assignment wins (mirroring tmux) and ignores
-/// comments. The value can be a bare word or a single-/double-quoted string.
-fn parse_option_from_config(content: &str, name: &str) -> Option<String> {
-    let mut found: Option<String> = None;
-    for raw in content.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut tokens = line.split_whitespace();
-        if tokens.next() != Some("set") {
-            continue;
-        }
-        // Skip the flag(s) (`-g`, `-ga`, `-gu`, `-sg`, etc.); the next token
-        // should be the option name.
-        let after_flag = loop {
-            match tokens.next() {
-                Some(tok) if tok.starts_with('-') => continue,
-                Some(tok) => break Some(tok),
-                None => break None,
-            }
-        };
-        if after_flag != Some(name) {
-            continue;
-        }
-        // The remainder of the line is the value (possibly quoted).
-        let rest = tokens.collect::<Vec<&str>>().join(" ");
-        let value = strip_quotes(rest.trim());
-        if !value.is_empty() {
-            found = Some(value.to_string());
-        }
-    }
-    found
-}
-
-fn strip_quotes(s: &str) -> &str {
-    if s.len() >= 2 {
-        let bytes = s.as_bytes();
-        let first = bytes[0];
-        let last = bytes[s.len() - 1];
-        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
-            return &s[1..s.len() - 1];
-        }
-    }
-    s
-}
 
 /// Put the native blur behind the window on or off (`@tmuxy-blur`). macOS
 /// only — the option is accepted and ignored elsewhere. The surface opacities
@@ -884,7 +816,11 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
 /// the platform hint the layout reads, and the menu refresh that keeps the
 /// Window menu describing whichever window has focus.
 pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
-    apply_blur(window, configured_blur());
+    // Blur is on by default (`@tmuxy-blur`). A window opens before its
+    // monitor has sourced the config, so it starts with the default and
+    // `monitor::emit_theme_settings` puts it where the live value says once
+    // the config is read.
+    apply_blur(window, true);
 
     // Tell the frontend which platform we're on so it can adjust layout
     // (e.g., hide hamburger menu on macOS, add traffic light spacing)
@@ -1338,62 +1274,6 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_option_reads_set_g_bare_value() {
-        let cfg = "set -g @tmuxy-opacity 0.8\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-opacity"),
-            Some("0.8".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_reads_set_g_quoted_value() {
-        let cfg = "set -g @tmuxy-blur \"off\"\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-blur"),
-            Some("off".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_ignores_comments() {
-        let cfg = "# set -g @tmuxy-opacity 1.0\nset -g @tmuxy-opacity 0.8\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-opacity"),
-            Some("0.8".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_last_assignment_wins() {
-        let cfg = "set -g @tmuxy-opacity 0.5\nset -g @tmuxy-opacity 0.8\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-opacity"),
-            Some("0.8".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_returns_none_when_missing() {
-        let cfg = "set -g prefix C-a\n";
-        assert_eq!(parse_option_from_config(cfg, "@tmuxy-opacity"), None);
-    }
-
-    #[test]
-    fn parse_option_handles_multi_flag_forms() {
-        let cfg = "set -ga @tmuxy-blur off\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-blur"),
-            Some("off".to_string())
-        );
-    }
 }
 
 /// Whether `origin` is the app's own webview origin.
