@@ -28,12 +28,7 @@
 import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { getWidget } from './widgets';
-import {
-  useAppSend,
-  useAppSelector,
-  selectCharSize,
-  selectSidebarCellMetrics,
-} from '../machines/AppContext';
+import { useAppSelector, selectCharSize, selectSidebarCellMetrics } from '../machines/AppContext';
 import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../machines/types';
@@ -208,7 +203,6 @@ function SidebarPane({
   startFailed: boolean;
   onClose: () => void;
 }) {
-  const send = useAppSend();
   const { charHeight } = useAppSelector(selectCharSize);
   const dock = useAppSelector(selectSidebarCellMetrics);
   const dockCell = useMemo(
@@ -246,18 +240,7 @@ function SidebarPane({
 
   if (side === 'left') {
     const Tree = getWidget('tree')!.component;
-    return (
-      <Tree
-        paneId={pane.tmuxId}
-        widgetName="tree"
-        lines={[]}
-        lastLine=""
-        rawContent={pane.content}
-        writeStdin={(data: string) => send({ type: 'WRITE_TO_PANE', paneId: pane.tmuxId, data })}
-        width={pane.width}
-        height={pane.height}
-      />
-    );
+    return <Tree paneId={pane.tmuxId} lines={[]} />;
   }
 
   return (

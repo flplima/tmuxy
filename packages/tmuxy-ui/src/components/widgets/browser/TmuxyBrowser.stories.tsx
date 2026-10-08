@@ -43,13 +43,7 @@ type FileSrcWindow = { __tmuxyFileSrc?: (path: string) => string | undefined };
 function widgetProps(src: string, colorFilter = false): WidgetProps {
   return {
     paneId: PaneId.make('%0'),
-    widgetName: 'browser',
     lines: [...(colorFilter ? ['__COLOR_FILTER__'] : []), `__SRC__:${src}`],
-    lastLine: `__SRC__:${src}`,
-    rawContent: [],
-    writeStdin: () => {},
-    width: 80,
-    height: 24,
   };
 }
 

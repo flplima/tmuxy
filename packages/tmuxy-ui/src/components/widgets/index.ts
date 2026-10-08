@@ -5,13 +5,8 @@ import type { PaneId } from '../../domain/ids';
 
 export interface WidgetProps {
   paneId: PaneId;
-  widgetName: string;
+  /** The pane's text lines below the widget marker. */
   lines: string[];
-  lastLine: string;
-  rawContent: PaneContent;
-  writeStdin: (data: string) => void;
-  width: number;
-  height: number;
 }
 
 /**
@@ -37,7 +32,6 @@ export interface WidgetMenuItem {
 export interface WidgetKeyContext {
   paneId: PaneId;
   lines: string[];
-  context: AppMachineContext;
   send: (event: AppMachineEvent) => void;
 }
 
