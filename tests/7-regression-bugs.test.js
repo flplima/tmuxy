@@ -61,60 +61,6 @@ describe('Scenario: Tab numbering is sequential', () => {
   });
 });
 
-// ==================== Scenario: Pane group tab label updates on process exit ====================
-
-describe('Scenario: Pane group tab label updates on process exit', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
-  test('Group tab label updates when a program exits', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Step 1: Create a pane group
-    await clickPaneGroupAdd(ctx.page);
-    await delay(DELAYS.SYNC);
-
-    // Step 2: Start a long-running program
-    await typeInTerminal(ctx.page, 'sleep 30');
-    await pressEnter(ctx.page);
-
-    // Step 3: Wait for the tab label to show "sleep" (metadata sync may take up to 2s)
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const info = await getGroupTabInfo(ctx.page);
-        const tab = info.find((t) => t.active);
-        return tab && tab.title.includes('sleep');
-      },
-      5000,
-      'group tab to show "sleep"',
-    );
-
-    // Step 4: Kill the sleep process (Ctrl+C)
-    await ctx.page.keyboard.down('Control');
-    await ctx.page.keyboard.press('c');
-    await ctx.page.keyboard.up('Control');
-
-    // Step 5: Wait for the tab label to update (should show shell, not "sleep")
-    // Metadata sync polls every 2s; after Ctrl+C the process exit + next poll
-    // cycle can take up to 6s in CI, so use 10s timeout.
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const info = await getGroupTabInfo(ctx.page);
-        const tab = info.find((t) => t.active);
-        return tab && !tab.title.includes('sleep');
-      },
-      10000,
-      'group tab to update after process exit',
-    );
-  });
-});
-
 // ==================== Scenario: Copy mode reveals terminal history ====================
 
 describe('Scenario: Copy mode reveals terminal history above visible content', () => {

@@ -155,6 +155,20 @@ describe('Scenario 14: OSC Protocols', () => {
     expect(idle.width).toBeGreaterThan(0);
     expect(idle.height).toBeGreaterThan(0);
 
+    // A program that announces NO title is named by its process: the header
+    // falls back to `pane_current_command`, and follows it back to the shell
+    // when the program exits. A pane-group member's label used to keep saying
+    // `sleep` after Ctrl+C, because the hidden window it lives in was polled
+    // for its metadata and the exit fell between polls. The title is cleared
+    // first so a shell whose rc file sets one does not mask the fallback.
+    await typeInTerminal(ctx.page, 'printf "\\033]2;\\007"; sleep 30');
+    await pressEnter(ctx.page);
+    const running = await waitForHeaderTitle('sleep');
+    expect(running.width).toBeGreaterThan(0);
+    await sendKeyCombo(ctx.page, 'Control', 'c');
+    await waitForShellPrompt(ctx.page);
+    await waitForHeaderTitle(idle.text);
+
     // A long-running program announces its own title over OSC 2 — this is the
     // `claude` case, whose process name is a useless version number.
     await typeInTerminal(ctx.page, 'printf "\\033]2;CLAUDE_SESSION_TITLE\\007"; sleep 30');
