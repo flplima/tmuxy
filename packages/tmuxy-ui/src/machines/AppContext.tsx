@@ -11,6 +11,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
+import type { StateValueFrom } from 'xstate';
 import { appMachine, type AppMachineActor } from './app';
 import type {
   AppMachineContext,
@@ -245,11 +246,10 @@ export function useAppSend(): (event: AppMachineEvent) => void {
   return actor.send;
 }
 
-/** Check if the machine is in a given state (supports nested states) */
-export function useAppState(stateValue: string): boolean {
+/** Whether the machine is in `stateValue`, one of its top-level states. */
+export function useAppState(stateValue: StateValueFrom<typeof appMachine>): boolean {
   const actor = useAppActor();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return useSelector(actor, (snapshot) => snapshot.matches(stateValue as any));
+  return useSelector(actor, (snapshot) => snapshot.matches(stateValue));
 }
 
 /** Check if a drag operation is in progress */
