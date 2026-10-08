@@ -2,55 +2,15 @@
 # Close a pane from a group
 # Args: $1=pane_id_to_close
 #
-# If the pane is the visible member and others exist, swaps a sibling into view
-# before killing it. A hidden member is killed by removing its stash window.
-# When only one member remains, its @tmuxy-group-id is cleared (degrouped).
+# A visible member with siblings swaps one into view before it goes; a hidden
+# member goes with its stash window; a pane in no group is just killed. A group
+# left with one member is dissolved. Also what a member's pane-died hook runs.
+#
+# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
+# `group` verb); this script is their name for the UI, the key bindings and
+# session restore.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-CLOSE_PANE="$1"
-
-GID=$(group_id_of_pane "$CLOSE_PANE")
-
-# Not in a group — just kill the pane.
-if [ -z "$GID" ]; then
-  _tmux kill-pane -t "$CLOSE_PANE"
-  refresh_panes
-  exit 0
-fi
-
-MEMBERS=$(group_members "$GID")
-COUNT=$(printf '%s\n' "$MEMBERS" | grep -c . || true)
-VISIBLE_PANE=$(visible_member "$GID")
-
-if [ "$CLOSE_PANE" = "$VISIBLE_PANE" ] && [ "$COUNT" -gt 1 ]; then
-  # Closing the visible pane: swap a sibling into view, then kill the window
-  # that now holds the closing pane (the sibling's former stash window).
-  NEXT_PANE=$(printf '%s\n' "$MEMBERS" | grep -v "^${CLOSE_PANE}\$" | head -1)
-  NEXT_WIN=$(pane_window "$NEXT_PANE")
-  _tmux swap-pane -s "$CLOSE_PANE" -t "$NEXT_PANE" \; kill-window -t "$NEXT_WIN"
-else
-  CLOSE_WIN=$(pane_window "$CLOSE_PANE")
-  ACTIVE_WIN=$(active_window)
-  if [ "$CLOSE_WIN" != "$ACTIVE_WIN" ]; then
-    # Hidden member — kill its stash window.
-    _tmux kill-window -t "$CLOSE_WIN"
-  else
-    # Visible and last in the group — kill the pane in place.
-    _tmux kill-pane -t "$CLOSE_PANE"
-  fi
-fi
-
-# If one member remains, it is no longer a group — clear its id.
-REMAINING=$(group_members "$GID" | grep -v "^${CLOSE_PANE}\$" || true)
-RCOUNT=$(printf '%s\n' "$REMAINING" | grep -c . || true)
-if [ "$RCOUNT" -le 1 ]; then
-  SURVIVOR=$(printf '%s\n' "$REMAINING" | head -1)
-  [ -n "$SURVIVOR" ] && clear_group_id "$SURVIVOR"
-fi
-
-# Sweep any groups orphaned entirely into the stash.
-gc_groups
-
-refresh_panes
+group_verb close "$@"

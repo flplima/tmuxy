@@ -2,14 +2,11 @@
 # Shared helpers for tmuxy shell scripts.
 #
 # Window typing is sourced from the @tmuxy-window-type window option, with
-# values: float | float-backdrop | sidebar-left | sidebar-right. A window
+# values: float | sidebar-left | sidebar-right. A window
 # without @tmuxy-window-type is a tab.
 #
-# Pane groups are identified by a per-pane @tmuxy-group-id option (e.g. g5) set
-# on every member. The visible member lives in the attached session; the hidden
-# members are parked in the dedicated __tmuxy_stash session (one window each),
-# so a native `tmux attach` never sees them. Membership follows the pane across
-# a cross-session swap-pane, so there is no separate list to keep in sync.
+# Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group-* scripts
+# hand their arguments to the server binary's `group` verb (`group_verb`).
 
 # The session hidden pane-group members are parked in. Kept out of every session
 # picker/tree (matches tmuxy-core `STASH_SESSION`).
@@ -57,8 +54,16 @@ _tmux() {
 # live pane with a control-mode client attached (the UI spawns them in floats),
 # so direct external mutations (new-session, set-environment, …) can crash the
 # tmux server on 3.5a — run-shell executes them in the server's own context.
+# Takes ONE pre-built tmux command string; interpolate user-supplied values
+# with `shquote` so spaces, quotes and `#` survive the trip.
+#
+# The inner tmux is a client of its own, and run-shell hands it no pane: a
+# target-less `send-keys` or `breakp` in there resolves to whichever session
+# tmux touched last, not the caller's. So the caller's pane rides along as the
+# inner client's TMUX_PANE, which tmux reads for an unattached client the way
+# it reads it for a shell in a pane.
 _run_safe() {
-  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+  _tmux run-shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
 }
 
 # Quote arguments for interpolation into a `_run_safe` command string. Each
@@ -78,6 +83,51 @@ shquote() {
     out="$out ${arg//#/##}"
   done
   printf '%s' "${out# }"
+}
+
+# --- The server binary -----------------------------------------------------
+#
+# Sets SERVER_CMD to the command that runs a server verb (`session`, `group`,
+# `tree`, …) of the right build, or fails with a message:
+#   1. TMUXY_SERVER_BIN (+ TMUXY_SERVER_SUBCOMMAND): what the running tmuxy
+#      published to its tmux server's global environment, which run-shell
+#      hands every script — the build actually serving this socket. Without
+#      it the bundled copies under ~/.config/tmuxy/bin, which sit nowhere near
+#      a build tree, could only guess.
+#   2. tmuxy-server on PATH.
+#   3. A cargo build beside these scripts (a checkout's bin/tmuxy).
+#   4. The desktop app the `tmuxy` shorthand launches, whose server verbs are
+#      `tmuxy server <verb>`.
+find_server_cmd() {
+  local root="${SCRIPTS_DIR%/*}/.." launcher
+  launcher="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
+  if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ]; then
+    SERVER_CMD=("$TMUXY_SERVER_BIN" ${TMUXY_SERVER_SUBCOMMAND:+"$TMUXY_SERVER_SUBCOMMAND"})
+  elif command -v tmuxy-server &>/dev/null; then
+    SERVER_CMD=(tmuxy-server)
+  elif [ -x "$root/target/debug/tmuxy-server" ]; then
+    SERVER_CMD=("$root/target/debug/tmuxy-server")
+  elif [ -x "$root/target/release/tmuxy-server" ]; then
+    SERVER_CMD=("$root/target/release/tmuxy-server")
+  elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
+    SERVER_CMD=("$(cat "$launcher")" server)
+  else
+    echo "Error: tmuxy-server binary not found. Run 'cargo build -p tmuxy-server' first." >&2
+    return 1
+  fi
+}
+
+# Run a pane-group operation: the pane-group-* scripts are its names, and keep
+# their arguments, output and exit status. TMUXY_SCRIPTS_DIR names the
+# directory whose pane-group-close a member's pane-died hook runs.
+# Args: $1=verb, then the script's own arguments
+group_verb() {
+  # The v86 guest ships the operations as their own binary, having no server.
+  if command -v tmuxy-group &>/dev/null; then
+    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec tmuxy-group "$@"
+  fi
+  find_server_cmd || exit 1
+  TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${SERVER_CMD[@]}" group "$@"
 }
 
 # --- Cross-process mutex ---------------------------------------------------
@@ -175,7 +225,7 @@ _lock_release() {
 
 # Get the window type set on a window via @tmuxy-window-type.
 # Args: $1=window_id (e.g., @5)
-# Output: float|float-backdrop|sidebar-left|sidebar-right  (empty for a tab)
+# Output: float|sidebar-left|sidebar-right  (empty for a tab)
 window_type() {
   _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
 }
@@ -217,22 +267,6 @@ request_focus() {
   fi
 }
 
-# Ensure the stash session exists, creating it detached if needed.
-# new-session -d (a detached, separate session) is control-mode safe — unlike
-# new-window, which crashes the server — and the core suppresses the resulting
-# %sessions-changed. Idempotent.
-# The payload runs in the stash session's own initial window, which exists only
-# so the session does. `tail -f /dev/null` sleeps in a read; the default
-# interactive shell would instead open its controlling tty, and a shell killed
-# mid-`init_io` hangs in the kernel forever (see `bin/tmuxy/reap-orphan-shells`).
-STASH_PAYLOAD='tail -f /dev/null'
-
-ensure_stash_session() {
-  if ! _tmux has-session -t "$STASH_SESSION" 2>/dev/null; then
-    _tmux new-session -d -s "$STASH_SESSION" -n stash -x 80 -y 24 "$STASH_PAYLOAD" 2>/dev/null || true
-  fi
-}
-
 # SIGKILL any of the given pids that outlived their window and were adopted by
 # pid 1. Still having a real parent means it is exiting in good order; pid 1
 # after the window is gone means nothing will signal it again, and a process
@@ -249,146 +283,6 @@ reap_pids() {
     [ "$ppid" = "1" ] || continue
     kill -9 "$pid" 2>/dev/null || true
   done
-}
-
-# Read a pane's @tmuxy-group-id.
-# Args: $1=pane_id
-# Output: group id (e.g. g5), or empty if the pane is not grouped.
-group_id_of_pane() {
-  _tmux show-options -pqv -t "$1" @tmuxy-group-id 2>/dev/null
-}
-
-# Set a pane's @tmuxy-group-id.
-# Args: $1=pane_id  $2=group_id
-set_group_id() {
-  _tmux set-option -p -t "$1" @tmuxy-group-id "$2"
-}
-
-# Clear a pane's @tmuxy-group-id (degroup a lone survivor) and undo the
-# arming that went with membership.
-# Args: $1=pane_id
-clear_group_id() {
-  _tmux set-option -pu -t "$1" @tmuxy-group-id 2>/dev/null || true
-  group_disarm_pane "$1"
-}
-
-# Make a group member's pane outlive the program running in it, and route its
-# death back through pane-group-close.
-#
-# Without this, a member that ends by ITSELF — `exit`, Ctrl+D, a crashed
-# process — is removed by tmux directly. The visible member's slot disappears
-# with it, the hidden siblings are left with no visible pane, and the whole
-# group vanishes from the UI: the user typed `exit` in one tab of a group and
-# lost all of them. Every other close path goes through pane-group-close, which
-# promotes a sibling; this is the one that did not.
-#
-# `remain-on-exit on` holds the pane open as a dead placeholder so there is
-# still a slot to swap a sibling into, and the pane-scoped `pane-died` hook
-# runs the same promotion the close button does. Both are per-pane, so nothing
-# outside a group changes behaviour, and both travel with the pane across the
-# stash swap.
-# Args: $1=pane_id
-group_arm_pane() {
-  _tmux set-option -p -t "$1" remain-on-exit on 2>/dev/null || true
-  _tmux set-hook -p -t "$1" pane-died \
-    "run-shell \"bash $SCRIPTS_DIR/pane-group-close $1\"" 2>/dev/null || true
-}
-
-# Undo group_arm_pane, so a pane that is no longer a group member closes the
-# way any other pane does.
-# Args: $1=pane_id
-group_disarm_pane() {
-  _tmux set-option -pu -t "$1" remain-on-exit 2>/dev/null || true
-  _tmux set-hook -pu -t "$1" pane-died 2>/dev/null || true
-}
-
-# Mint a fresh group id from an anchor pane id: %5 -> g5. Pane ids are never
-# reused within a server, so this is unique and stable for the group's life.
-# Args: $1=anchor_pane_id
-new_group_id() {
-  echo "g${1#%}"
-}
-
-# List every pane belonging to a group, ordered by pane-id number (stable).
-# Args: $1=group_id
-# Output: pane ids, one per line (e.g. %4\n%6\n%7)
-group_members() {
-  local gid="$1"
-  # In the group's order: by @tmuxy-group-pos where a reorder set one, then by
-  # pane-id number (the whole order of a group nobody rearranged) — the same
-  # rule as buildGroupsFromPanes in the UI.
-  _tmux list-panes -a -F '#{pane_id} #{@tmuxy-group-id} #{@tmuxy-group-pos}' \
-    | awk -v g="$gid" '$2 == g {
-        pos = ($3 == "") ? 999999999 : $3
-        num = substr($1, 2)
-        print pos, num, $1
-      }' \
-    | sort -k1,1n -k2,2n \
-    | awk '{ print $3 }'
-}
-
-# Give each listed pane its place in the group, 0 onwards, in argument order.
-# Args: pane ids
-set_group_order() {
-  local i=0 pane
-  for pane in "$@"; do
-    _tmux set-option -p -t "$pane" @tmuxy-group-pos "$i"
-    i=$((i + 1))
-  done
-}
-
-# Tell the backend a group changed in a way tmux does not announce (an option
-# written, a pane moved into the stash): every pane inherits the global
-# @tmuxy-group-rev, so bumping it fires the monitor's pane-metadata
-# subscription and the panes and stash are listed again within a second.
-announce_groups() {
-  _tmux set-option -g @tmuxy-group-rev "${EPOCHSECONDS:-$(date +%s)}.$$.$RANDOM"
-}
-
-# Leave a group with one member as no group at all.
-# Args: $1=group_id
-dissolve_if_alone() {
-  local remaining
-  remaining=$(group_members "$1")
-  if [ "$(printf '%s\n' "$remaining" | grep -c .)" -le 1 ] && [ -n "$remaining" ]; then
-    clear_group_id "$remaining"
-    _tmux set-option -pu -t "$remaining" @tmuxy-group-pos 2>/dev/null || true
-  fi
-}
-
-# The visible member of a group — the one NOT parked in the stash session.
-# Args: $1=group_id
-# Output: pane id, or empty.
-visible_member() {
-  local gid="$1"
-  _tmux list-panes -a -F '#{session_name} #{pane_id} #{@tmuxy-group-id}' \
-    | awk -v g="$gid" -v stash="$STASH_SESSION" \
-        '$3 == g && $1 != stash { print $2; exit }'
-}
-
-# Kill stash windows for any group that has no visible member left (its tab was
-# closed wholesale, orphaning the hidden members). Idempotent; safe to call
-# after any group mutation.
-gc_groups() {
-  _tmux list-panes -a -F '#{session_name} #{window_id} #{pane_id} #{@tmuxy-group-id}' \
-    | awk -v stash="$STASH_SESSION" '
-        $4 != "" {
-          if ($1 == stash) { stash_win[$4] = stash_win[$4] " " $2 }
-          else { has_visible[$4] = 1 }
-        }
-        END {
-          for (g in stash_win) {
-            if (!(g in has_visible)) print stash_win[g]
-          }
-        }' \
-    | tr ' ' '\n' | sort -u | while read -r wid; do
-        [ -n "$wid" ] && _tmux kill-window -t "$wid" 2>/dev/null || true
-      done
-}
-
-# Get active window ID
-active_window() {
-  _tmux display-message -p '#{window_id}'
 }
 
 # Get a pane's window ID

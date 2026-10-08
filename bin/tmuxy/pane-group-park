@@ -5,29 +5,12 @@
 # Args: $1=visible member (any tmux target) $2=group id $3=working directory
 #       $4=its place in the group's order (optional; @tmuxy-group-pos)
 # Prints the new pane's id.
+#
+# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
+# `group` verb); this script is their name for the UI, the key bindings and
+# session restore.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-ANCHOR="$1"
-GID="$2"
-CWD="$3"
-POS="${4:-}"
-
-ensure_stash_session
-
-ANCHOR_ID=$(_tmux display-message -p -t "$ANCHOR" '#{pane_id}')
-WIDTH=$(_tmux display-message -p -t "$ANCHOR_ID" '#{pane_width}')
-HEIGHT=$(_tmux display-message -p -t "$ANCHOR_ID" '#{pane_height}')
-
-# The anchor is a member too, armed like pane-group-add arms it.
-group_arm_pane "$ANCHOR_ID"
-
-NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}' -t "$ANCHOR_ID" -c "$CWD")
-_tmux break-pane -d -s "$NEW_PANE_ID" -t "${STASH_SESSION}:" \; \
-  set-option -p -t "$NEW_PANE_ID" @tmuxy-group-id "$GID"
-group_arm_pane "$NEW_PANE_ID"
-if [ -n "$POS" ]; then _tmux set-option -p -t "$NEW_PANE_ID" @tmuxy-group-pos "$POS"; fi
-_tmux resize-window -t "$NEW_PANE_ID" -x "$WIDTH" -y "$HEIGHT"
-
-echo "$NEW_PANE_ID"
+group_verb park "$@"

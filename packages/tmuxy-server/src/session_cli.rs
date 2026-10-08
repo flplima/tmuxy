@@ -12,6 +12,8 @@ use std::path::PathBuf;
 
 use tmuxy_core::session_snapshot::{self as snap, RestoreOptions};
 
+use tmuxy_core::session::tmux_output as tmux;
+
 #[derive(clap::Args, Debug)]
 pub struct SessionArgs {
     #[command(subcommand)]
@@ -46,29 +48,8 @@ pub enum SessionVerb {
     },
 }
 
-/// Run one tmux command as a subprocess and return what it printed.
-fn tmux(argv: &[String]) -> Result<String, String> {
-    let output = tmuxy_core::session::tmux_command()
-        .args(argv)
-        .output()
-        .map_err(|e| format!("tmux {}: {e}", argv.join(" ")))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        Err(format!(
-            "tmux {}: {}",
-            argv.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
-}
-
 fn session_exists(name: &str) -> bool {
     tmuxy_core::session::session_exists(name).unwrap_or(false)
-}
-
-fn default_session() -> String {
-    std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string())
 }
 
 fn dir() -> PathBuf {
@@ -83,7 +64,7 @@ fn fail(message: &str) -> ! {
 pub fn run(args: SessionArgs) {
     match args.verb {
         SessionVerb::Save { name, scrollback } => {
-            let name = name.unwrap_or_else(default_session);
+            let name = name.unwrap_or_else(tmuxy_core::session::session_name);
             if !tmuxy_core::session::is_safe_session_name(&name) {
                 fail(&format!("not a usable session name: {name:?}"));
             }

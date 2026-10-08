@@ -5,6 +5,7 @@ use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
     TmuxMonitor,
 };
+use tmuxy_core::transport::KeyBindings;
 use tmuxy_core::StateUpdate;
 
 use tmuxy_core::session::session_name as get_session;
@@ -33,7 +34,7 @@ pub struct ConnectTarget {
 /// up with an empty `prefixBindings` map — which is why the statusline
 /// indicator was missing, prefix C-a + binding key did nothing, and
 /// `Ctrl+hjkl` fell through to the shell instead of triggering nav.
-pub struct KeyBindingsState(pub Arc<RwLock<Option<serde_json::Value>>>);
+pub struct KeyBindingsState(pub Arc<RwLock<Option<KeyBindings>>>);
 
 impl Default for KeyBindingsState {
     fn default() -> Self {
@@ -41,21 +42,8 @@ impl Default for KeyBindingsState {
     }
 }
 
-/// Live handle to the running control-mode monitor.
-///
-/// `cmd_tx` is the channel for issuing tmux mutations through the existing
-/// CC connection. Spawning external `tmux <cmd>` while CC is attached crashes
-/// tmux 3.5a — see AGENTS.md and `docs/TMUX.md`. The SSE server avoids this
-/// by routing every mutation through `MonitorCommand::RunCommand`; the Tauri
-/// app now does the same.
-///
-/// `last_client_size` is the most recent viewport size the frontend reported.
-/// `run_tmux_command` uses it when rewriting `new-window` so the broken-out
-/// window matches the visible viewport instead of inheriting the half-width
-/// post-`splitw` size or the 200x50 control-mode PTY default.
 /// Decoded image bytes keyed by `(pane id, placement id)`.
-pub type ImageStore =
-    Arc<RwLock<std::collections::HashMap<(String, u32), tmuxy_core::control_mode::StoredImage>>>;
+pub type ImageStore = Arc<RwLock<tmuxy_core::transport::ImageStore>>;
 
 /// Look up the picture behind a `tmuxyimg:` request path, which is
 /// `<pane digits>/<placement id>` — the same pair the web build spells
@@ -66,13 +54,23 @@ pub fn lookup_image(
     path: &str,
 ) -> Option<tmuxy_core::control_mode::StoredImage> {
     let (pane, id) = path.trim_matches('/').split_once('/')?;
-    if pane.is_empty() || !pane.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
+    let pane = tmuxy_core::PaneId::parse(&format!("%{pane}")).ok()?;
     let id: u32 = id.parse().ok()?;
-    images.read().ok()?.get(&(format!("%{pane}"), id)).cloned()
+    images.read().ok()?.get(&pane, id).cloned()
 }
 
+/// Live handle to the running control-mode monitor.
+///
+/// `cmd_tx` is the channel every tmux command and read goes through, on the
+/// existing CC connection. Spawning external `tmux <cmd>` while CC is
+/// attached can crash tmux 3.5a — see AGENTS.md and `docs/TMUX.md` — so the
+/// desktop, like the web server, has no other way to reach tmux once
+/// connected.
+///
+/// `last_client_size` is the most recent viewport size the frontend reported.
+/// `run_tmux_command` uses it when rewriting `new-window` so the broken-out
+/// window matches the visible viewport instead of inheriting the half-width
+/// post-`splitw` size or the 200x50 control-mode PTY default.
 #[derive(Clone, Default)]
 pub struct MonitorState {
     pub cmd_tx: Arc<RwLock<Option<MonitorCommandSender>>>,
@@ -94,6 +92,20 @@ pub struct MonitorState {
     pub detached: Arc<RwLock<bool>>,
 }
 
+impl MonitorState {
+    /// The live command channel, or `None` while the monitor is not connected.
+    pub fn tx(&self) -> Option<MonitorCommandSender> {
+        self.cmd_tx.read().ok().and_then(|g| g.clone())
+    }
+
+    /// The live command channel, or the error a command is answered with
+    /// while the monitor is not connected.
+    pub fn connected_tx(&self) -> Result<MonitorCommandSender, tmuxy_core::CommandError> {
+        self.tx()
+            .ok_or_else(|| tmuxy_core::CommandError::unavailable("monitor not connected"))
+    }
+}
+
 /// Ask the running monitor to drop its current connection and reconnect to a
 /// different socket/session. Stores the target and, if a connection is live,
 /// sends a graceful `Shutdown` (detach-client) so `monitor.run()` returns and
@@ -108,7 +120,7 @@ pub async fn request_reconnect(monitor_state: &MonitorState, target: ConnectTarg
     if let Ok(mut guard) = monitor_state.detached.write() {
         *guard = false;
     }
-    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let cmd_tx = monitor_state.tx();
     if let Some(tx) = cmd_tx {
         let _ = tx.send(MonitorCommand::Shutdown).await;
     }
@@ -123,7 +135,7 @@ pub async fn request_detach(monitor_state: &MonitorState) {
     if let Ok(mut guard) = monitor_state.detached.write() {
         *guard = true;
     }
-    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let cmd_tx = monitor_state.tx();
     if let Some(tx) = cmd_tx {
         let _ = tx.send(MonitorCommand::Shutdown).await;
     }
@@ -134,7 +146,7 @@ pub async fn request_detach(monitor_state: &MonitorState) {
 /// closing kills its session this way — where there is no client to report an
 /// error to.
 pub async fn run_on(monitor_state: &MonitorState, command: &str) {
-    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let cmd_tx = monitor_state.tx();
     if let Some(tx) = cmd_tx {
         let _ = tx
             .send(MonitorCommand::RunCommand {
@@ -153,12 +165,11 @@ pub struct TauriEmitter {
     app: AppHandle,
     /// The webview window this monitor feeds (`main` for the first one).
     label: String,
-    /// Decoded picture bytes, keyed by pane and placement id, served back to
-    /// the webview by the `tmuxyimg:` scheme (see `gui.rs`). The web server
-    /// keeps the same map behind `/api/images`; without one here every image
-    /// a pane drew was decoded and then dropped, which is why no image
-    /// protocol ever rendered in the desktop app.
-    images: ImageStore,
+    /// The window's monitor: its picture store, served back to the webview by
+    /// the `tmuxyimg:` scheme (see `gui.rs`) as the web server serves
+    /// `/api/images`, and its command channel, which the reads after the
+    /// config is sourced go back through.
+    monitor: MonitorState,
     /// Told of every change to the session's shape, so a snapshot follows it
     /// (`tmuxy_core::session_snapshot`), the same as the web server's emitter.
     keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
@@ -168,13 +179,13 @@ impl TauriEmitter {
     pub fn new(
         app: AppHandle,
         label: String,
-        images: ImageStore,
+        monitor: MonitorState,
         keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
     ) -> Self {
         Self {
             app,
             label,
-            images,
+            monitor,
             keeper,
         }
     }
@@ -203,6 +214,11 @@ impl LogSink for TauriEmitter {
 
 impl StateEmitter for TauriEmitter {
     fn emit_state(&self, update: StateUpdate) {
+        if let StateUpdate::Full { ref state } = update {
+            if let Ok(mut guard) = self.monitor.images.try_write() {
+                guard.retain_live_panes(state);
+            }
+        }
         let structural = match &update {
             StateUpdate::Full { .. } => true,
             StateUpdate::Delta { delta } => tmuxy_core::session_snapshot::is_structural(delta),
@@ -251,26 +267,33 @@ impl StateEmitter for TauriEmitter {
         }
     }
 
+    fn store_images(
+        &self,
+        pane_id: &tmuxy_core::PaneId,
+        images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
+    ) {
+        // try_write so a contended lock never stalls the monitor loop; a
+        // dropped picture is redrawn by the next frame.
+        if let Ok(mut guard) = self.monitor.images.try_write() {
+            guard.insert(pane_id, images);
+        }
+    }
+
     /// Forward an OSC 52 clipboard request to the frontend so it can write the
     /// payload via the WebView's navigator.clipboard. We could also use the
     /// tauri-plugin-clipboard-manager directly here, but doing it in the WebView
     /// keeps focus/transient activation context attached to the renderer, which
     /// is what some platforms require for clipboard access.
-    fn store_images(
-        &self,
-        pane_id: &str,
-        images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
-    ) {
-        // try_write so a contended lock never stalls the monitor loop; a
-        // dropped picture is redrawn by the next frame.
-        if let Ok(mut guard) = self.images.try_write() {
-            for (id, img) in images {
-                guard.insert((pane_id.to_string(), id), img);
-            }
+    fn write_clipboard(&self, pane_id: Option<&tmuxy_core::PaneId>, text: String) {
+        if !tmuxy_core::transport::clipboard_write_allowed(&text) {
+            tracing::debug!(
+                ?pane_id,
+                bytes = text.len(),
+                "clipboard write over the cap, dropped"
+            );
+            return;
         }
-    }
-
-    fn write_clipboard(&self, pane_id: &str, text: String) {
+        let pane_id = pane_id.map(|p| p.to_string()).unwrap_or_default();
         let payload = serde_json::json!({ "pane_id": pane_id, "text": text });
         if let Err(e) = self
             .app
@@ -282,15 +305,15 @@ impl StateEmitter for TauriEmitter {
 
     /// Re-emit keybindings after sync_initial_state has source-file'd
     /// the user's tmuxy.conf. Without this, the frontend latches the
-    /// prefix it read at start_monitoring time (before the config was
-    /// sourced) — which is the default C-b on a tmux server that
-    /// already existed from a previous tmuxy run, even though our
-    /// source-file just applied `set -g prefix C-a` server-globally.
-    /// SseEmitter does the same thing in tmuxy-server/src/sse.rs.
+    /// prefix it read before the config was sourced — which is the
+    /// default C-b on a tmux server that already existed from a previous
+    /// tmuxy run, even though our source-file just applied
+    /// `set -g prefix C-a` server-globally. SseEmitter does the same thing
+    /// in tmuxy-server/src/sse.rs.
     fn on_initial_sync_complete(&self) {
-        emit_keybindings(&self.app);
         let app = self.app.clone();
-        tauri::async_runtime::spawn(async move { emit_theme_settings(&app).await });
+        let monitor = self.monitor.clone();
+        tauri::async_runtime::spawn(async move { emit_config_settings(&app, &monitor).await });
     }
 }
 
@@ -316,7 +339,7 @@ pub async fn start_monitoring_window(
     let emitter = Arc::new(TauriEmitter::new(
         app.clone(),
         label.clone(),
-        monitor_state.images.clone(),
+        monitor_state.clone(),
         keeper.clone(),
     ));
     let snapshot_dir = tmuxy_core::session_snapshot::default_dir();
@@ -330,17 +353,13 @@ pub async fn start_monitoring_window(
     // `mut` so a `tmuxy connect` reconnect can retarget the session in place.
     let mut config = MonitorConfig {
         session,
-        sync_interval: Duration::from_millis(500),
         create_session: true,
         group_target,
         // Adaptive throttling: emit immediately for low-frequency events (typing),
         // throttle at 16ms (~60fps) when high-frequency output detected
         throttle_interval: Duration::from_millis(16),
-        throttle_threshold: 20,
-        rate_window: Duration::from_millis(100),
         working_dir,
-        observer: false,
-        first_window: None,
+        ..Default::default()
     };
 
     // Reconnect with exponential backoff, bounded by MAX_CONSECUTIVE_FAILURES.
@@ -370,9 +389,7 @@ pub async fn start_monitoring_window(
     // at the top of the loop.
     let mut parked = false;
 
-    // Build once and clone the Arc per reconnect attempt — the live ctx is
-    // cheap to share and lets the Tauri app participate in the same Ctx
-    // substitution that tests use elsewhere.
+    // Built once; every reconnect attempt shares it.
     let ctx = tmuxy_core::Ctx::live();
 
     loop {
@@ -500,16 +517,15 @@ pub async fn start_monitoring_window(
                 if let Ok(mut guard) = monitor_state.cmd_tx.write() {
                     *guard = Some(cmd_tx);
                 }
-                emit_keybindings(&app);
                 let started = std::time::Instant::now();
                 monitor.run(emitter.as_ref()).await;
                 let lived = started.elapsed();
                 if let Some(task) = autosave {
                     task.abort();
                 }
-                // Connection is gone — drop the stale sender so the next
-                // mutation falls back to the external path instead of
-                // sending into a dead channel.
+                // Connection is gone — drop the stale sender so a command
+                // is answered "monitor not connected" instead of being sent
+                // into a dead channel.
                 if let Ok(mut guard) = monitor_state.cmd_tx.write() {
                     *guard = None;
                 }
@@ -596,67 +612,30 @@ pub async fn start_monitoring_window(
 
 /// Watch for `tmuxy connect` requests and reconnect the monitor when one
 /// arrives. `tmuxy connect <socket> [session]` sets the `TMUXY_CONNECT_TO`
-/// (and optional `TMUXY_CONNECT_SESSION`) tmux global env vars on the current
-/// server; this task reads them and, when the target differs from the current
-/// server, clears them and asks the monitor to reconnect. Runs for the app's
-/// lifetime alongside [`start_monitoring`].
+/// (and optional `TMUXY_CONNECT_SESSION` / `TMUXY_CONNECT_SSH`) tmux global env
+/// vars on the current server; this task reads them and, when the target
+/// differs from the current server, clears them and asks the monitor to
+/// reconnect. Runs for the app's lifetime alongside [`start_monitoring`].
 ///
-/// Only polls while a connection is live (`cmd_tx` present) so it never spawns
-/// tmux subprocesses during startup or an in-progress reconnect. The read is
-/// via `show-environment` on the current socket — a read-only external call,
-/// safe alongside control mode on the targeted tmux 3.7a (the app already uses
-/// external executor calls for reads elsewhere).
+/// The reads and the clears ride the first window's control-mode connection,
+/// so the watch only looks while that connection is live — during startup or
+/// a reconnect there is nothing to read from, and nothing it could clear.
 pub async fn poll_connect_requests(monitor_state: MonitorState) {
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     loop {
         tick.tick().await;
-
-        // Skip unless a connection is live — nothing to reconnect from, and we
-        // avoid spawning subprocesses mid-reconnect.
-        if monitor_state
-            .cmd_tx
-            .read()
-            .map(|g| g.is_none())
-            .unwrap_or(true)
-        {
-            continue;
-        }
-
-        let Some(socket) = read_global_env("TMUXY_CONNECT_TO") else {
+        let Some(tx) = monitor_state.tx() else {
             continue;
         };
-        let socket = socket.trim().to_string();
-        if socket.is_empty() {
-            continue;
-        }
 
-        // Clear the request vars on the current server so the switch fires once.
-        let _ = tmuxy_core::executor::execute_tmux_command(&[
-            "set-environment",
-            "-g",
-            "-u",
-            "TMUXY_CONNECT_TO",
-        ]);
-        let session = read_global_env("TMUXY_CONNECT_SESSION")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+        let Some(socket) = take_global_env(&tx, "TMUXY_CONNECT_TO").await else {
+            continue;
+        };
+        let session = take_global_env(&tx, "TMUXY_CONNECT_SESSION")
+            .await
             .unwrap_or_else(get_session);
-        let _ = tmuxy_core::executor::execute_tmux_command(&[
-            "set-environment",
-            "-g",
-            "-u",
-            "TMUXY_CONNECT_SESSION",
-        ]);
         // Optional SSH tunnel for the target (absent → a local server).
-        let ssh = read_global_env("TMUXY_CONNECT_SSH")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let _ = tmuxy_core::executor::execute_tmux_command(&[
-            "set-environment",
-            "-g",
-            "-u",
-            "TMUXY_CONNECT_SSH",
-        ]);
+        let ssh = take_global_env(&tx, "TMUXY_CONNECT_SSH").await;
 
         // No-op if we're already on this exact target (socket + session + ssh).
         let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));
@@ -679,14 +658,18 @@ pub async fn poll_connect_requests(monitor_state: MonitorState) {
     }
 }
 
-/// Read a tmux global environment variable via `show-environment -g <name>`,
-/// returning its value (the part after `NAME=`), or `None` when unset.
-fn read_global_env(name: &str) -> Option<String> {
-    let out = tmuxy_core::executor::execute_tmux_command(&["show-environment", "-g", name]).ok()?;
+/// Read a tmux global environment variable and unset it, so a request fires
+/// once. `None` when it is unset or blank.
+async fn take_global_env(tx: &MonitorCommandSender, name: &str) -> Option<String> {
+    let out = tmuxy_core::transport::query(tx, &format!("show-environment -g {name}"))
+        .await
+        .ok()?;
+    let _ = tmuxy_core::transport::run(tx, &format!("set-environment -g -u {name}")).await;
     let prefix = format!("{name}=");
     out.lines()
         .find_map(|line| line.strip_prefix(&prefix))
-        .map(|v| v.to_string())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// Emit a terminal failure event to the frontend.
@@ -714,38 +697,49 @@ fn emit_detached(app: &AppHandle, label: &str) {
     }
 }
 
-/// Emit keybindings to the frontend after a successful connection.
-///
-/// Also stores the payload in `KeyBindingsState` so a frontend that connects
-/// after the emit can still retrieve them via `get_keybindings_snapshot`.
-/// Push the theme + appearance settings (`tmux-theme-settings`) so the
-/// frontend re-applies them — after the config is sourced, the tmux options
-/// may carry new opacities or a new theme. Mirrors the SSE `theme-settings`
-/// broadcast in tmuxy-server/src/sse.rs.
-pub async fn emit_theme_settings(app: &AppHandle) {
-    let ctx = app.state::<Arc<tmuxy_core::Ctx>>();
-    let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
+/// Push everything a sourced config can change: the key bindings
+/// (`tmux-keybindings`) and the theme + appearance settings
+/// (`tmux-theme-settings`), read through the monitor, and the native blur the
+/// appearance asks for. Mirrors the web server's `keybindings` and
+/// `theme-settings` broadcasts. Called once the monitor has sourced the
+/// config, and again after a client's `source-file`.
+pub async fn emit_config_settings(app: &AppHandle, monitor: &MonitorState) {
+    let Some(tx) = monitor.tx() else {
+        return;
+    };
+    emit_keybindings(app, &tx).await;
+    emit_theme_settings(app, &tx).await;
+}
+
+/// Push the theme + appearance settings so the frontend re-applies them, and
+/// put every window's blur where `@tmuxy-blur` now says.
+async fn emit_theme_settings(app: &AppHandle, tx: &MonitorCommandSender) {
+    let settings = match tmuxy_core::theme::get_theme_settings(tx).await {
+        Ok(settings) => settings,
+        Err(e) => {
+            tmuxy_core::debug_log::log(&format!("[monitor] theme settings unread: {e}"));
+            return;
+        }
+    };
+    let blur = settings["appearance"]["blur"].as_bool().unwrap_or(true);
+    for window in app.webview_windows().values() {
+        crate::gui::apply_blur(window, blur);
+    }
     let _ = app.emit("tmux-theme-settings", settings);
 }
 
-fn emit_keybindings(app: &AppHandle) {
-    let prefix_key = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into());
-    let prefix_bindings = tmuxy_core::get_prefix_bindings().unwrap_or_default();
-    let root_bindings = tmuxy_core::get_root_bindings().unwrap_or_default();
-
-    let payload = serde_json::json!({
-        "prefix_key": prefix_key,
-        "prefix_bindings": prefix_bindings,
-        "root_bindings": root_bindings,
-    });
-
+/// Read the key bindings and emit them to the frontend.
+///
+/// Also stores them in `KeyBindingsState` so a frontend that connects after
+/// the emit can still retrieve them via `get_keybindings_snapshot`.
+async fn emit_keybindings(app: &AppHandle, tx: &MonitorCommandSender) {
+    let bindings = KeyBindings::read(tx).await;
     if let Some(state) = app.try_state::<KeyBindingsState>() {
         if let Ok(mut guard) = state.0.write() {
-            *guard = Some(payload.clone());
+            *guard = Some(bindings.clone());
         }
     }
-
-    if let Err(e) = app.emit("tmux-keybindings", &payload) {
+    if let Err(e) = app.emit("tmux-keybindings", &bindings) {
         eprintln!("Failed to emit keybindings: {}", e);
     }
 }
@@ -758,11 +752,14 @@ mod tests {
     fn store_with(pane: &str, id: u32) -> ImageStore {
         let store: ImageStore = Default::default();
         store.write().unwrap().insert(
-            (pane.to_string(), id),
-            StoredImage {
-                data: vec![1, 2, 3],
-                mime_type: "image/png".to_string(),
-            },
+            &tmuxy_core::PaneId::parse(pane).unwrap(),
+            vec![(
+                id,
+                StoredImage {
+                    data: vec![1, 2, 3],
+                    mime_type: "image/png".to_string(),
+                },
+            )],
         );
         store
     }

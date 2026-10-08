@@ -17,14 +17,17 @@ fn main() {
     #[cfg(target_os = "linux")]
     desktop::ensure_entry();
 
+    // Every server verb this binary runs is `tmuxy server <verb>`; the
+    // monitor publishes that to tmux for the helper scripts.
+    if let Ok(exe) = std::env::current_exe() {
+        tmuxy_core::session::set_server_command(exe, Some("server"));
+    }
+
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     use std::io::IsTerminal;
 
     match args.first().map(|s| s.as_str()) {
-        // Explicit "gui" → Tauri window
-        Some("gui") => gui::run(),
-
         // No args: in terminal or inside tmux session, run CLI info; otherwise GUI
         None => {
             if std::env::var("TMUX").is_ok() || std::io::stdout().is_terminal() {
@@ -33,67 +36,86 @@ fn main() {
                 gui::run();
             }
         }
-
-        // "server" → web server mode (delegates to tmuxy-server)
-        Some("server") => cli::run_server(args),
-
-        // "trace" → inspect/export a local action-trace file (docs/TELEMETRY.md)
-        Some("trace") => cli::run_trace(args),
-
-        // "connect" with no socket → run the add-a-server form TUI in-process
-        // (this binary links it via tmuxy-server); with a socket it's the shell
-        // dispatcher's live-reconnect request. Handling the form here means the
-        // packaged .app needs no separate `tmuxy-connect` binary on PATH.
-        Some("connect") if args.len() == 1 => cli::run_connect_form(),
-
-        // Known CLI nouns and flags → exec the shell dispatcher
-        Some(cmd) if is_cli_subcommand(cmd) => {
-            cli::run_cli(args);
-        }
-
-        // Help and version
-        Some("--help" | "-h" | "help") => cli::print_help(),
-        Some("--version" | "-V" | "version") => cli::print_version(),
-
-        // Unknown command
-        Some(unknown) => {
-            eprintln!("tmuxy: unknown command '{}'\n", unknown);
-            cli::print_help();
-            std::process::exit(1);
-        }
+        Some(_) => match app_command(&args) {
+            Some(AppCommand::Gui) => gui::run(),
+            Some(AppCommand::Server) => cli::run_server(args),
+            Some(AppCommand::Trace) => cli::run_trace(args),
+            Some(AppCommand::ConnectForm) => cli::run_connect_form(),
+            Some(AppCommand::Help) => cli::print_help(),
+            Some(AppCommand::Version) => cli::print_version(),
+            // Every other noun — and an unknown one, which it reports — is the
+            // shell dispatcher's, so a noun added there needs nothing here.
+            None => cli::run_cli(args),
+        },
     }
 }
 
-pub fn is_cli_subcommand(noun: &str) -> bool {
-    matches!(
-        noun,
-        "pane"
-            | "tab"
-            | "session"
-            | "widget"
-            | "nav"
-            | "queue"
-            | "q"
-            | "event"
-            | "run"
-            | "connect"
-            | "info"
-            | "skill"
-            | "--json"
-            | "-j"
-    )
+/// What this binary runs itself rather than handing to the shell dispatcher.
+#[derive(Debug, PartialEq, Eq)]
+enum AppCommand {
+    /// The desktop window.
+    Gui,
+    /// The web server (delegates to tmuxy-server).
+    Server,
+    /// Inspect/export a local action-trace file (docs/TELEMETRY.md).
+    Trace,
+    /// `connect` with no socket: the add-a-server form, run in-process because
+    /// this binary links it (via tmuxy-server), so the packaged app needs no
+    /// separate binary on PATH. With a socket, `connect` is the dispatcher's
+    /// live-reconnect request.
+    ConnectForm,
+    Help,
+    Version,
+}
+
+fn app_command(args: &[String]) -> Option<AppCommand> {
+    Some(match args.first()?.as_str() {
+        "gui" => AppCommand::Gui,
+        "server" => AppCommand::Server,
+        "trace" => AppCommand::Trace,
+        "connect" if args.len() == 1 => AppCommand::ConnectForm,
+        "--help" | "-h" | "help" => AppCommand::Help,
+        "--version" | "-V" | "version" => AppCommand::Version,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| w.to_string()).collect()
+    }
+
+    /// The dispatcher's nouns used to be listed here as well, and the copy
+    /// went stale: `open`, `ask`, `tree`, `browser`, `cleanup` and `config`
+    /// were "unknown command" from the desktop binary.
     #[test]
-    fn cli_subcommands_include_queue_and_q() {
-        assert!(is_cli_subcommand("queue"));
-        assert!(is_cli_subcommand("q"));
-        assert!(is_cli_subcommand("pane"));
-        assert!(is_cli_subcommand("tab"));
-        assert!(!is_cli_subcommand("nonexistent"));
+    fn every_dispatcher_noun_is_forwarded() {
+        for noun in [
+            "pane", "tab", "session", "widget", "nav", "queue", "q", "run", "info", "skill",
+            "open", "ask", "tree", "browser", "cleanup", "config", "--json", "-j",
+        ] {
+            assert_eq!(app_command(&args(&[noun, "x"])), None, "{noun}");
+        }
+        assert_eq!(app_command(&args(&["connect", "other-socket"])), None);
+        assert_eq!(app_command(&args(&["no-such-noun"])), None);
+    }
+
+    #[test]
+    fn the_apps_own_commands_stay_in_the_app() {
+        assert_eq!(app_command(&args(&["gui"])), Some(AppCommand::Gui));
+        assert_eq!(
+            app_command(&args(&["server", "--port", "1"])),
+            Some(AppCommand::Server)
+        );
+        assert_eq!(app_command(&args(&["trace"])), Some(AppCommand::Trace));
+        assert_eq!(
+            app_command(&args(&["connect"])),
+            Some(AppCommand::ConnectForm)
+        );
+        assert_eq!(app_command(&args(&["help"])), Some(AppCommand::Help));
+        assert_eq!(app_command(&args(&["-V"])), Some(AppCommand::Version));
     }
 }
