@@ -8,12 +8,133 @@
 //! control-mode client is attached can crash tmux 3.5a (docs/TMUX.md).
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::time::Duration;
 
+use crate::command_router::{route_command, Route};
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
 use crate::executor::tmux_quote;
 use crate::session_snapshot::{self as snapshot, RestoreOptions};
-use crate::{CommandError, PaneId};
+use crate::{CommandError, PaneId, TmuxState};
+
+// ============================================
+// A client's first requests
+// ============================================
+
+/// How long a client's first request waits for the monitor to come up. The
+/// monitor's own connect gives tmux ten seconds to answer.
+pub const MONITOR_READY_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The monitor's command channel, waiting for a monitor that is still
+/// connecting when the client asks first: the web server starts one on the
+/// SSE connect that precedes the request, the desktop app with the app.
+/// `lookup` is how the caller finds the channel, asked again every 50 ms.
+pub async fn wait_for_monitor<F, Fut>(mut lookup: F) -> Result<MonitorCommandSender, CommandError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<MonitorCommandSender>>,
+{
+    let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
+    loop {
+        if let Some(tx) = lookup().await {
+            return Ok(tx);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(CommandError::unavailable(
+                "tmux monitor did not come up in time",
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A client's initial state: the monitor's own picture of the session, the
+/// same one its `Full` broadcast carries. A client that connects after that
+/// broadcast would otherwise start from a baseline the deltas never correct,
+/// because a delta only carries what changed.
+pub async fn initial_state(tx: &MonitorCommandSender) -> Result<TmuxState, CommandError> {
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    tx.send(MonitorCommand::GetState { reply })
+        .await
+        .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
+    tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
+        .await
+        .map_err(|_| {
+            CommandError::unavailable("tmux monitor did not answer with the initial state")
+        })?
+        .map_err(|_| CommandError::unavailable("monitor went away before answering"))
+}
+
+/// A command's answer as JSON; failing to make it is this side's fault.
+pub fn to_json(
+    value: impl serde::Serialize,
+    what: &str,
+) -> Result<serde_json::Value, CommandError> {
+    serde_json::to_value(value)
+        .map_err(|e| CommandError::unavailable(format!("Failed to serialize {what}: {e}")))
+}
+
+// ============================================
+// Client commands
+// ============================================
+
+/// Decide a client command's route (`command_router`) and record the WHAT as
+/// its tmux verb — the first token, a fixed subcommand name and never the
+/// args; the full command string is admitted only at trace level `full`
+/// (docs/TELEMETRY.md). `size` is the viewport a freshly created window
+/// should be sized to, when a client has reported one.
+pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
+    tracing::debug!(
+        target: "tmuxy_core::transport",
+        verb = command.split_whitespace().next().unwrap_or(""),
+        command,
+        "run command"
+    );
+    route_command(command, session, size)
+}
+
+/// Git worktree context for the sidebar tree, discovered from the cwd of
+/// every pane on the socket — or of one session's panes, for a server pinned
+/// to it, so a viewer does not learn the repo path and branch of every pane
+/// on the tmux server. The cwds come from tmux, never from the request, and
+/// the `git` subprocesses stay off the async runtime.
+pub async fn git_worktrees_json(
+    tx: &MonitorCommandSender,
+    session_pin: Option<&str>,
+) -> Result<serde_json::Value, CommandError> {
+    use crate::worktrees::{list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing};
+    let listing = query(tx, &list_pane_paths_cmd(session_pin)).await?;
+    let repositories = tokio::task::spawn_blocking(move || {
+        list_git_worktrees(paths_from_pane_listing(&listing))
+            .map_err(|e| CommandError::unavailable(e.to_string()))
+    })
+    .await
+    .map_err(|e| CommandError::unavailable(format!("worktree discovery task failed: {e}")))??;
+    to_json(repositories, "worktrees")
+}
+
+/// Everything the Debug menu needs to render itself (docs/TELEMETRY.md): the
+/// switch position, the level, the file it writes to, and whether a
+/// `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switch forbids turning it on at all
+/// (in which case the UI shows the control disabled rather than a switch that
+/// silently does nothing).
+pub fn trace_settings_json() -> serde_json::Value {
+    serde_json::json!({
+        "enabled": crate::trace::is_enabled(),
+        "level": crate::trace::level_name(),
+        "path": crate::trace::trace_path().map(|p| p.display().to_string()),
+        "locked": crate::trace::is_locked_off(),
+    })
+}
+
+/// Set the trace level (`shape` | `labeled` | `full`) and remember it; the
+/// name of the level in force. An unknown name resolves to `shape`, so a bad
+/// argument cannot raise sensitivity.
+pub fn set_trace_level(level: &str) -> &'static str {
+    let level = crate::trace::TraceLevel::parse(level);
+    crate::trace::set_level_persisted(level);
+    level.as_str()
+}
 
 /// Run a command on the monitor's connection and wait for what it printed. An
 /// `%error` from tmux is a `tmux` error carrying tmux's message; a monitor
