@@ -40,7 +40,6 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 - `v86-storybook-log-*`: Storybook startup/runtime logs
 - `e2e-<suite>-attempt-<n>`: a failed E2E shard's action trace (`tmuxy-e2e-trace.ndjson`, read with `tmuxy trace --check --window "<file> › <test> › start" <file>`), server log and Jest output
 - Annotations titled **Silent shell pane** on any E2E job: the trace health check found a shell pane that never showed a byte — even on a green run
-- `flake-ledger-*` (nightly `flake ledger` workflow): failures that passed on a re-run, by test, over the last week
 
 ## Common causes
 
