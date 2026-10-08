@@ -35,7 +35,12 @@ import { notificationsActions } from './actions/notifications';
 import { browserState } from './states/browser';
 import { browserActions } from './actions/browser';
 import { copyModeState } from './states/copyMode';
-import { copyModeActions, copyModeExitTimes, reconcilePaneMode } from './actions/copyMode';
+import {
+  buildScrollbackState,
+  copyModeActions,
+  fetchHistory,
+  reconcilePaneMode,
+} from './actions/copyMode';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
@@ -60,8 +65,6 @@ import {
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
-import type { CopyModeState } from '../../domain/copyMode';
-import type { CellLine } from '../../domain/wire';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
@@ -993,50 +996,16 @@ export const appMachine = setup({
                   break;
                 }
                 case 'enter': {
-                  // Pane just entered copy mode — initialize with pre-populated content
-                  const hs = newPane.historySize ?? 0;
-                  const tl = hs + newPane.height;
-                  const preLines = new Map<number, CellLine>();
-                  for (let i = 0; i < newPane.content.length; i++) {
-                    preLines.set(hs + i, newPane.content[i]);
-                  }
-                  const preRanges: Array<[number, number]> =
-                    newPane.content.length > 0 ? [[hs, hs + newPane.content.length - 1]] : [];
-                  const copyState: CopyModeState = {
-                    // tmux reported `in_mode`, so this is its copy mode, with a
-                    // cursor and vi keys — never the client-only scroll view.
-                    mode: 'copy',
-                    lines: preLines,
-                    totalLines: tl,
-                    historySize: hs,
-                    loadedRanges: preRanges,
-                    loading: true,
-                    width: newPane.width,
-                    height: newPane.height,
-                    cursorRow: hs + newPane.cursorY,
-                    cursorCol: newPane.cursorX,
-                    selectionMode: null,
-                    selectionAnchor: null,
-                    scrollTop: Math.max(0, tl - newPane.height),
-                    tmuxSeen: true,
-                  };
-                  updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
-                  // Match the user-initiated ENTER_COPY_MODE fetch range —
-                  // request the entire live history (capped by tmux's actual
-                  // backlog), not a fixed `height + 200` slab. The narrower
-                  // request silently truncated scrollback for any pane that
-                  // entered copy mode without going through the frontend's
-                  // intercept (CLI `tmuxy run copy-mode`, custom `run-shell`
-                  // bindings, anything that flipped `in_mode` server-side),
-                  // making scrollback above ~200 lines invisible on scroll.
-                  enqueue(
-                    sendTo('tmux', {
-                      type: 'FETCH_SCROLLBACK_CELLS' as const,
-                      paneId: newPane.tmuxId,
-                      start: -hs,
-                      end: newPane.height - 1,
-                    }),
-                  );
+                  // tmux reported `in_mode`, so this is its copy mode, with a
+                  // cursor and vi keys — never the client-only scroll view —
+                  // and tmux has already been seen in it. The same record and
+                  // the same whole-history fetch as a user-initiated
+                  // ENTER_COPY_MODE: a pane that entered copy mode without the
+                  // frontend's intercept (CLI `tmuxy run copy-mode`, a custom
+                  // `run-shell` binding) must not get a truncated backlog.
+                  const record = buildScrollbackState(newPane, 'copy', { tmuxSeen: true });
+                  updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: record };
+                  fetchHistory(enqueue, newPane.tmuxId, record);
                   break;
                 }
                 case 'none':
@@ -1595,16 +1564,7 @@ export const appMachine = setup({
                 return;
               }
               // Nothing selected: just exit copy mode
-              copyModeExitTimes.set(paneId, Date.now());
-              const newStates = { ...context.copyModeStates };
-              delete newStates[paneId];
-              enqueue(assign({ copyModeStates: newStates }));
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_OP' as const,
-                  op: TmuxOp.CancelCopyMode({ paneId }),
-                }),
-              );
+              enqueue.raise({ type: 'EXIT_COPY_MODE', paneId });
               return;
             }
 

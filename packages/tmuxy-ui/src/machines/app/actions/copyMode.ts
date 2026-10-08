@@ -3,15 +3,16 @@
  *
  * Owns context field: copyModeStates (per-pane CopyModeState records).
  *
- * `copyModeExitTimes` and `reconcilePaneMode` are exported because the
- * parent machine's TMUX_MODEL_UPDATE handler in appMachine.ts uses them to
- * suppress re-entering copy mode for a pane that the client just exited —
- * tmux takes time to process the `send-keys -X cancel` so a stale snapshot
- * can still report `in_mode: true`.
+ * `reconcilePaneMode`, `buildScrollbackState` and `fetchHistory` are exported
+ * because the parent machine's TMUX_MODEL_UPDATE handler in appMachine.ts
+ * opens the same record, with the same fetch, for a copy mode tmux entered on
+ * its own — and `reconcilePaneMode` suppresses re-entering one the client just
+ * exited: tmux takes time to process the `send-keys -X cancel`, so a stale
+ * snapshot can still report `in_mode: true`.
  */
 
 import { assign, sendTo } from 'xstate';
-import { act, assignCtx, type Ctx, type Enqueue } from '../actionTypes';
+import { act, assignCtx, type Ctx, type Enqueue, type EnqueueAction } from '../actionTypes';
 import type { CopyModeState, ScrollbackMode } from '../../../domain/copyMode';
 import type { TmuxPane } from '../../../domain/client';
 import type { CellLine } from '../../../domain/wire';
@@ -49,19 +50,15 @@ function selectEveryRow(state: CopyModeState): CopyModeState {
  *
  * Everything here is identical for the two modes — the loaded lines seeded
  * from what is already on screen, the totals, the initial scroll position —
- * so the only thing the callers decide is `mode` and what they tell tmux
- * afterwards. Returns the geometry the caller needs for its fetch, or null
- * when the pane has gone.
+ * so the only thing the callers decide is `mode`, whether tmux has already
+ * been seen in it (`tmuxSeen`, for a copy mode tmux entered on its own) and
+ * what they tell tmux afterwards.
  */
-function buildScrollbackState(
-  context: Ctx,
-  paneId: PaneId,
+export function buildScrollbackState(
+  pane: TmuxPane,
   mode: ScrollbackMode,
-  event: { scrollLines?: number; nativeScrollTop?: number },
-): { state: CopyModeState; historySize: number; height: number } | null {
-  const pane = context.panes.find((p) => p.tmuxId === paneId);
-  if (!pane) return null;
-
+  options: { scrollLines?: number; nativeScrollTop?: number; tmuxSeen?: boolean },
+): CopyModeState {
   const historySize = pane.historySize ?? 0;
   const totalLines = historySize + pane.height;
   const bottom = Math.max(0, totalLines - pane.height);
@@ -75,10 +72,10 @@ function buildScrollbackState(
     pane.content.length > 0 ? [[historySize, historySize + pane.content.length - 1]] : [];
 
   let scrollTop = bottom;
-  if (event.nativeScrollTop !== undefined) {
-    scrollTop = Math.max(0, Math.min(event.nativeScrollTop, bottom));
-  } else if (event.scrollLines) {
-    scrollTop = Math.max(0, bottom + event.scrollLines);
+  if (options.nativeScrollTop !== undefined) {
+    scrollTop = Math.max(0, Math.min(options.nativeScrollTop, bottom));
+  } else if (options.scrollLines) {
+    scrollTop = Math.max(0, bottom + options.scrollLines);
   }
 
   // The cursor is copy mode's alone, but it costs nothing to seed and keeps
@@ -94,24 +91,37 @@ function buildScrollbackState(
   const initCol = initLineText.length > 0 ? Math.min(pane.cursorX, initLineText.length - 1) : 0;
 
   return {
+    mode,
+    lines,
+    totalLines,
     historySize,
+    loadedRanges,
+    loading: true,
+    width: pane.width,
     height: pane.height,
-    state: {
-      mode,
-      lines,
-      totalLines,
-      historySize,
-      loadedRanges,
-      loading: true,
-      width: pane.width,
-      height: pane.height,
-      cursorRow: initRow,
-      cursorCol: initCol,
-      selectionMode: null,
-      selectionAnchor: null,
-      scrollTop,
-    },
+    cursorRow: initRow,
+    cursorCol: initCol,
+    selectionMode: null,
+    selectionAnchor: null,
+    scrollTop,
+    ...(options.tmuxSeen ? { tmuxSeen: true } : {}),
   };
+}
+
+/**
+ * The fetch that backs a view just opened on `record`: the pane's whole
+ * history up to its last row on screen, so nothing is truncated to a fixed
+ * slab and scrolling never finds placeholders above the first page.
+ */
+export function fetchHistory(enqueue: EnqueueAction, paneId: PaneId, record: CopyModeState): void {
+  enqueue(
+    sendTo('tmux', {
+      type: 'FETCH_SCROLLBACK_CELLS' as const,
+      paneId,
+      start: -record.historySize,
+      end: record.height - 1,
+    }),
+  );
 }
 
 export const copyModeExitTimes = new Map<PaneId, number>();
@@ -210,12 +220,13 @@ export const copyModeActions = {
     // A read-only client cannot put the pane in tmux's copy mode, so the
     // same request opens the scroll view, which tells tmux nothing.
     const mode = context.readOnly ? 'scroll' : 'copy';
-    const built = buildScrollbackState(context, event.paneId, mode, event);
-    if (!built) return;
+    const pane = context.panes.find((p) => p.tmuxId === event.paneId);
+    if (!pane) return;
+    const record = buildScrollbackState(pane, mode, event);
 
     enqueue(
       assign({
-        copyModeStates: { ...context.copyModeStates, [event.paneId]: built.state },
+        copyModeStates: { ...context.copyModeStates, [event.paneId]: record },
       }),
     );
 
@@ -228,14 +239,7 @@ export const copyModeActions = {
       );
     }
 
-    enqueue(
-      sendTo('tmux', {
-        type: 'FETCH_SCROLLBACK_CELLS' as const,
-        paneId: event.paneId,
-        start: -built.historySize,
-        end: built.height - 1,
-      }),
-    );
+    fetchHistory(enqueue, event.paneId, record);
   }),
 
   /**
@@ -270,23 +274,17 @@ export const copyModeActions = {
       return;
     }
 
-    const built = buildScrollbackState(context, event.paneId, 'scroll', event);
-    if (!built) return;
+    const pane = context.panes.find((p) => p.tmuxId === event.paneId);
+    if (!pane) return;
+    const record = buildScrollbackState(pane, 'scroll', event);
 
     enqueue(
       assign({
-        copyModeStates: { ...context.copyModeStates, [event.paneId]: built.state },
+        copyModeStates: { ...context.copyModeStates, [event.paneId]: record },
       }),
     );
 
-    enqueue(
-      sendTo('tmux', {
-        type: 'FETCH_SCROLLBACK_CELLS' as const,
-        paneId: event.paneId,
-        start: -built.historySize,
-        end: built.height - 1,
-      }),
-    );
+    fetchHistory(enqueue, event.paneId, record);
   }),
 
   /**
@@ -320,8 +318,7 @@ export const copyModeActions = {
     const pane = context.panes.find((p) => p.tmuxId === event.paneId);
     if (!pane || pane.alternateOn || pane.inMode) return;
 
-    const built = buildScrollbackState(context, event.paneId, 'scroll', {});
-    if (!built) return;
+    const record = buildScrollbackState(pane, 'scroll', {});
 
     enqueue(
       assign({
@@ -329,19 +326,12 @@ export const copyModeActions = {
           ...context.copyModeStates,
           // The whole backlog is on its way; `pendingSelectAll` re-lays the
           // selection over its real extent when it lands.
-          [event.paneId]: { ...selectEveryRow(built.state), pendingSelectAll: true },
+          [event.paneId]: { ...selectEveryRow(record), pendingSelectAll: true },
         },
       }),
     );
 
-    enqueue(
-      sendTo('tmux', {
-        type: 'FETCH_SCROLLBACK_CELLS' as const,
-        paneId: event.paneId,
-        start: -built.historySize,
-        end: built.height - 1,
-      }),
-    );
+    fetchHistory(enqueue, event.paneId, record);
   }),
 
   copyMode_exit: act(({ event, context, enqueue }) => {
@@ -762,16 +752,7 @@ export const copyModeActions = {
     }
 
     if (result.action === 'exit') {
-      copyModeExitTimes.set(paneId, Date.now());
-      const newStates = { ...context.copyModeStates };
-      delete newStates[paneId];
-      enqueue(assign({ copyModeStates: newStates }));
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_OP' as const,
-          op: TmuxOp.CancelCopyMode({ paneId: paneId }),
-        }),
-      );
+      enqueue.raise({ type: 'EXIT_COPY_MODE', paneId });
       return;
     }
 
