@@ -27,12 +27,9 @@
     "lint": "eslint tests/ && npm run lint -w tmuxy-ui",
     "lint:tests": "eslint tests/",
     "prepare": "git config core.hooksPath .github",
-    "preflight": "bash bin/preflight fast",
-    "preflight:full": "bash bin/preflight full",
-    "preflight:tauri": "bash bin/preflight tauri",
     "check:policy": "node bin/check-repo-policy.mjs",
-    "check:fast": "npm run check:policy && npm run preflight && npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
-    "check:full": "npm run check:policy && npm run preflight:full && npm run check:fast && npm run test:cli && TERM=xterm-256color cargo test --workspace"
+    "check:fast": "npm run check:policy && npm run lint && (cd packages/tmuxy-ui && npx tsc --noEmit) && npm test -- --run",
+    "check:full": "npm run check:fast && npm run test:cli && TERM=xterm-256color cargo test --workspace"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",
