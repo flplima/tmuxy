@@ -115,17 +115,17 @@ type SelRange = ReturnType<ReturnType<typeof computeScrollbackSelection>>;
 const sameRange = (a: SelRange, b: SelRange): boolean =>
   a === b || (a !== null && b !== null && a.startCol === b.startCol && a.endCol === b.endCol);
 
-/**
- * Same content, cell for cell. A scrollback chunk that overlaps rows already
- * loaded hands them over as new arrays with the same cells; repainting a row
- * for that alone would replace the nodes a selection endpoint sits in.
- */
 /** Mirror a row's soft-wrap flag onto the element the copy path reads. */
 function setWrapped(el: HTMLElement, wrapped: 'true' | null): void {
   if (wrapped) el.setAttribute('data-wrapped', wrapped);
   else el.removeAttribute('data-wrapped');
 }
 
+/**
+ * Same content, cell for cell. A scrollback chunk that overlaps rows already
+ * loaded hands them over as new arrays with the same cells; repainting a row
+ * for that alone would replace the nodes a selection endpoint sits in.
+ */
 function sameLine(a: CellLine, b: CellLine): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
