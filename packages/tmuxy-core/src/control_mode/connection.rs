@@ -610,11 +610,6 @@ impl ControlModeConnection {
         self.event_rx.recv().await
     }
 
-    /// Kill the control mode connection.
-    pub async fn kill(&mut self) -> Result<(), TmuxError> {
-        self.child.kill().await.map_err(TmuxError::Io)
-    }
-
     /// Gracefully close the control mode connection.
     ///
     /// Sends a detach-client command to cleanly disconnect from the session,
