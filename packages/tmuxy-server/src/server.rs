@@ -349,8 +349,7 @@ pub async fn run(args: ServerArgs) {
 enum Frontend {
     /// The built frontend compiled into this binary.
     Embedded,
-    /// `--dev`: Vite (and the demo site) started as children and proxied, so
-    /// the UI hot-reloads.
+    /// `--dev`: Vite started as a child and proxied, so the UI hot-reloads.
     Dev,
 }
 
@@ -363,26 +362,16 @@ async fn serve(
     read_only: bool,
     session_pin: Option<String>,
 ) {
-    // Vite (strictPort: true, port 9001) and the demo dev server (port 9002)
-    // bind to hard-coded ports. If tmuxy-server is told to bind one of those,
-    // it wins the race; Vite fails silently, and the `/proxy_to_vite` fallback
-    // then loops back to tmuxy-server itself — browser EventSources 404 on
-    // /events while `curl` (different headers/timing) appears to work. Bail
-    // early with an actionable message instead of letting that happen.
-    if frontend == Frontend::Dev && (port == dev::VITE_PORT || port == dev::DEMO_PORT) {
-        let role = if port == dev::VITE_PORT {
-            "Vite"
-        } else {
-            "demo"
-        };
-        error!(
-            port,
-            %role,
-            "FATAL: port collides with the hard-coded dev server port"
-        );
+    // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server is
+    // told to bind that one, it wins the race; Vite fails silently, and the
+    // `proxy_to_vite` fallback then loops back to tmuxy-server itself — browser
+    // EventSources 404 on /events while `curl` (different headers/timing)
+    // appears to work. Bail early with an actionable message instead of
+    // letting that happen.
+    if frontend == Frontend::Dev && port == dev::VITE_PORT {
+        error!(port, "FATAL: port collides with the hard-coded Vite port");
         error!(
             vite_port = dev::VITE_PORT,
-            demo_port = dev::DEMO_PORT,
             "choose a different port (e.g. --port 9000) and restart"
         );
         std::process::exit(1);
@@ -405,26 +394,16 @@ async fn serve(
             .with_session_pin(session_pin.clone()),
     );
 
-    let children = match frontend {
-        Frontend::Embedded => Vec::new(),
+    let vite = match frontend {
+        Frontend::Embedded => None,
         Frontend::Dev => {
             println!(
                 "[dev] Starting Vite dev server on port {}...",
                 dev::VITE_PORT
             );
-            let vite = dev::spawn_dev_server("vite", "tmuxy-ui", &[]).await;
-            println!(
-                "[dev] Starting demo dev server on port {}...",
-                dev::DEMO_PORT
-            );
-            let demo = dev::spawn_dev_server(
-                "demo",
-                "tmuxy-demo",
-                &["--", "--port", "9002", "--hostname", "0.0.0.0"],
-            )
-            .await;
+            let vite = dev::spawn_vite().await;
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            vec![vite, demo]
+            vite
         }
     };
 
@@ -435,18 +414,9 @@ async fn serve(
     let routes = crate::state::api_routes(listen.policy.clone(), read_only);
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),
-        Frontend::Dev => routes
-            .route(
-                "/demo",
-                axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
-            )
-            .route(
-                "/demo/{*path}",
-                axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
-            )
-            .fallback_service(tower::service_fn(|req: Request| async move {
-                Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
-            })),
+        Frontend::Dev => routes.fallback_service(tower::service_fn(|req: Request| async move {
+            Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
+        })),
     }
     .with_state(state.clone());
     let password_set = password.is_some();
@@ -465,11 +435,7 @@ async fn serve(
         }
     }
     if frontend == Frontend::Dev {
-        println!(
-            "[dev] Vite proxied from port {}, demo proxied from port {}",
-            dev::VITE_PORT,
-            dev::DEMO_PORT
-        );
+        println!("[dev] Vite proxied from port {}", dev::VITE_PORT);
     }
 
     let listener = bind_with_retry(addr, 5).await;
@@ -481,7 +447,7 @@ async fn serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal(state, children))
+    .with_graceful_shutdown(shutdown_signal(state, vite))
     .await
     {
         error!(error = %e, "axum serve loop exited with error");
@@ -665,7 +631,7 @@ const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 /// How long the final snapshot of a session may hold up shutdown.
 const FINAL_SNAPSHOT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChild>>) {
+async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::ViteChild>) {
     // Signal handler installation only fails on platforms without sigaction (none we
     // target) or when the process has already taken too many file descriptors —
     // either way, a server that can't react to Ctrl+C is unusable, so panic is
@@ -756,8 +722,8 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
         tracing::info!(tasks = drained, "structured shutdown complete");
     }
 
-    for child in children.into_iter().flatten() {
-        child.kill();
+    if let Some(vite) = vite {
+        vite.kill();
     }
 }
 
