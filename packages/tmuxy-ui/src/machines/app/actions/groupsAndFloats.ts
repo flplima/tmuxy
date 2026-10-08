@@ -9,7 +9,7 @@
  */
 
 import { assign, sendTo } from 'xstate';
-import { act, type Ctx, type Enqueue } from '../actionTypes';
+import { act, type Ctx, type Enqueue, type EnqueueAction } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
 import type { TmuxWindow } from '../../types';
 import {
@@ -93,6 +93,32 @@ function beginSidebarMotion(
   );
   const size = settledTargetSize(next);
   if (size) enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size, force: true });
+}
+
+/** The surfaces that can hold the keyboard away from the tiled panes. */
+export type KeyboardSurface = 'left' | 'right' | 'float';
+
+/**
+ * Take the keyboard back from a surface, when it holds it: the focus flag
+ * here and the keyboard actor's record of it, which is what re-aims the next
+ * keystroke. Exactly one surface holds the keyboard, so whatever takes it —
+ * a pane click, a group tab, the other column — releases the others through
+ * this; a column that vanished or was hidden releases itself the same way.
+ */
+export function releaseKeyboard(context: Ctx, enqueue: EnqueueAction, surface: KeyboardSurface) {
+  if (surface === 'left') {
+    if (!context.leftSidebarFocused) return;
+    enqueue(assign({ leftSidebarFocused: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
+  } else if (surface === 'right') {
+    if (!context.rightSidebarFocused) return;
+    enqueue(assign({ rightSidebarFocused: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
+  } else {
+    if (!context.focusedFloatPaneId) return;
+    enqueue(assign({ focusedFloatPaneId: null }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
+  }
 }
 
 /** Safety net: drop a resize preview the server never confirmed. */
@@ -285,10 +311,7 @@ export const groupsAndFloatsActions = {
         }),
       );
     }
-    if (context.leftSidebarFocused) {
-      enqueue(assign({ leftSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
-    }
+    releaseKeyboard(context, enqueue, 'left');
   }),
 
   /**
@@ -309,21 +332,13 @@ export const groupsAndFloatsActions = {
     enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: true }));
 
     // Exactly one surface holds the keyboard, so taking it blurs the others.
-    if (context.focusedFloatPaneId) {
-      enqueue(assign({ focusedFloatPaneId: null }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
-    }
-    if (context.rightSidebarFocused) {
-      enqueue(assign({ rightSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
-    }
+    releaseKeyboard(context, enqueue, 'float');
+    releaseKeyboard(context, enqueue, 'right');
   }),
 
   /** Return keyboard focus from the sidebar back to the panes (Ctrl+l, or l/→ in the tree). */
   groupsAndFloats_blurLeftSidebar: act(({ context, enqueue }) => {
-    if (!context.leftSidebarFocused) return;
-    enqueue(assign({ leftSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
+    releaseKeyboard(context, enqueue, 'left');
   }),
 
   /**
@@ -390,10 +405,7 @@ export const groupsAndFloatsActions = {
         }),
       );
     }
-    if (context.rightSidebarFocused) {
-      enqueue(assign({ rightSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
-    }
+    releaseKeyboard(context, enqueue, 'right');
   }),
 
   /**
@@ -493,20 +505,12 @@ export const groupsAndFloatsActions = {
       sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: pane.tmuxId }),
     );
     // The two overlays are mutually exclusive keyboard targets.
-    if (context.focusedFloatPaneId) {
-      enqueue(assign({ focusedFloatPaneId: null }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
-    }
-    if (context.leftSidebarFocused) {
-      enqueue(assign({ leftSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
-    }
+    releaseKeyboard(context, enqueue, 'float');
+    releaseKeyboard(context, enqueue, 'left');
   }),
 
   /** Return keyboard focus from the dock to the panes (Ctrl+h, or a click on a pane). */
   groupsAndFloats_blurRightSidebar: act(({ context, enqueue }) => {
-    if (!context.rightSidebarFocused) return;
-    enqueue(assign({ rightSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
+    releaseKeyboard(context, enqueue, 'right');
   }),
 };

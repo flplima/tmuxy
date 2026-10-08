@@ -42,7 +42,7 @@ import {
   reconcilePaneMode,
 } from './actions/copyMode';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
-import { groupsAndFloatsActions } from './actions/groupsAndFloats';
+import { groupsAndFloatsActions, releaseKeyboard } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
 import { askState } from './states/ask';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
@@ -865,32 +865,18 @@ export const appMachine = setup({
               enqueue(
                 assign({
                   leftSidebarOpen: failedStart,
-                  leftSidebarFocused: false,
                   leftSidebarStartFailed: failedStart,
                   leftSidebarStarting: false,
                 }),
               );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                  focused: false,
-                }),
-              );
+              releaseKeyboard(context, enqueue, 'left');
             } else if (
               prevTreePane &&
               nextTreePane &&
               sidebarHidden(context, 'left') !== nextTreeHidden
             ) {
               enqueue(assign({ leftSidebarOpen: !nextTreeHidden }));
-              if (nextTreeHidden && context.leftSidebarFocused) {
-                enqueue(assign({ leftSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                    focused: false,
-                  }),
-                );
-              }
+              if (nextTreeHidden) releaseKeyboard(context, enqueue, 'left');
             }
 
             const prevDockPane = selectRightSidebarPane(context);
@@ -910,32 +896,18 @@ export const appMachine = setup({
               enqueue(
                 assign({
                   rightSidebarOpen: failedStart,
-                  rightSidebarFocused: false,
                   rightSidebarStartFailed: failedStart,
                   rightSidebarStarting: false,
                 }),
               );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                  paneId: null,
-                }),
-              );
+              releaseKeyboard(context, enqueue, 'right');
             } else if (
               prevDockPane &&
               nextDockPane &&
               sidebarHidden(context, 'right') !== nextDockHidden
             ) {
               enqueue(assign({ rightSidebarOpen: !nextDockHidden }));
-              if (nextDockHidden && context.rightSidebarFocused) {
-                enqueue(assign({ rightSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                    paneId: null,
-                  }),
-                );
-              }
+              if (nextDockHidden) releaseKeyboard(context, enqueue, 'right');
             }
 
             // A dragged width the server has now echoed back: the preview has
@@ -1359,15 +1331,7 @@ export const appMachine = setup({
             // Exactly one surface holds the keyboard: taking it for a float or a
             // tiled pane releases the tree column too (its focus used to survive
             // a click on a pane, trapping every key the user typed next).
-            if (context.leftSidebarFocused) {
-              enqueue(assign({ leftSidebarFocused: false }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                  focused: false,
-                }),
-              );
-            }
+            releaseKeyboard(context, enqueue, 'left');
             if (context.floatPanes[event.paneId]) {
               // Float pane: update focus tracking only — never call select-pane for float
               // panes as it would switch the active tmux window and hide background panes.
@@ -1378,37 +1342,13 @@ export const appMachine = setup({
                   paneId: event.paneId,
                 }),
               );
-              if (context.rightSidebarFocused) {
-                enqueue(assign({ rightSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                    paneId: null,
-                  }),
-                );
-              }
+              releaseKeyboard(context, enqueue, 'right');
             } else {
               // Regular pane: clear any overlay focus and select the pane
               // normally. Both overlays hold the keyboard away from the grid,
               // so clicking a tiled pane has to release whichever one had it.
-              if (context.focusedFloatPaneId) {
-                enqueue(assign({ focusedFloatPaneId: null }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_FOCUSED_FLOAT' as const,
-                    paneId: null,
-                  }),
-                );
-              }
-              if (context.rightSidebarFocused) {
-                enqueue(assign({ rightSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                    paneId: null,
-                  }),
-                );
-              }
+              releaseKeyboard(context, enqueue, 'float');
+              releaseKeyboard(context, enqueue, 'right');
               // Only send select-pane if the pane isn't already active and
               // belongs to the active window. Panes in stash windows (e.g. parked
               // group members) must never receive select-pane directly.
@@ -1456,33 +1396,9 @@ export const appMachine = setup({
             }
 
             // Clear any overlay focus so clicking a group tab cleanly targets the grid
-            if (context.leftSidebarFocused) {
-              enqueue(assign({ leftSidebarFocused: false }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                  focused: false,
-                }),
-              );
-            }
-            if (context.focusedFloatPaneId) {
-              enqueue(assign({ focusedFloatPaneId: null }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_FOCUSED_FLOAT' as const,
-                  paneId: null,
-                }),
-              );
-            }
-            if (context.rightSidebarFocused) {
-              enqueue(assign({ rightSidebarFocused: false }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                  paneId: null,
-                }),
-              );
-            }
+            releaseKeyboard(context, enqueue, 'left');
+            releaseKeyboard(context, enqueue, 'float');
+            releaseKeyboard(context, enqueue, 'right');
 
             // Flip the active pane SYNCHRONOUSLY — machine context and keyboard
             // actor both — before any store round-trip. A keystroke fired in the
