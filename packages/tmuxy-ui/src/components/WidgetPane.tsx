@@ -86,9 +86,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
 
       const el = wrapperRef.current;
       if (!el) return;
-      const scrollEl = el.querySelector(
-        '.widget-markdown, .widget-scrollable',
-      ) as HTMLElement | null;
+      const scrollEl = el.querySelector('.widget-markdown') as HTMLElement | null;
       if (!scrollEl) return;
 
       const pageSize = scrollEl.clientHeight;
