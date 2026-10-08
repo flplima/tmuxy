@@ -234,6 +234,20 @@ impl Default for MonitorConfig {
 
 /// Interval for the periodic state sync (list-panes for cursor position).
 const SYNC_INTERVAL: Duration = Duration::from_millis(500);
+/// Idle threshold: heartbeats fire only after this much silence.
+const IDLE_THRESHOLD: Duration = Duration::from_secs(10);
+/// Copy-mode poll interval (cursor needs sub-100ms updates).
+const COPY_MODE_SYNC_INTERVAL: Duration = Duration::from_millis(50);
+/// Heartbeat interval when fully idle.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
+/// Below the throttle threshold, output is debounced by this much silence...
+const LOW_THROUGHPUT_DEBOUNCE: Duration = Duration::from_millis(16);
+/// ...but never held back longer than this after the first pending byte.
+const PENDING_OUTPUT_MAX: Duration = Duration::from_millis(100);
+/// How long after output or a window change the metadata re-sync runs.
+const METADATA_SYNC_DELAY: Duration = Duration::from_millis(500);
+/// Rapid layout changes (a zoom-out cascade) coalesce over this window.
+const LAYOUT_DEBOUNCE: Duration = Duration::from_millis(16);
 
 /// Events within one [`RATE_WINDOW`] above which output is throttled. Below
 /// it, events emit immediately for low latency.
@@ -303,12 +317,6 @@ fn needs_resize(
 /// branch delegating to a small method that mutates `RunState` through a
 /// `&mut`, and lets the throttling/debounce logic be tested without tmux.
 struct RunState {
-    /// Idle threshold: heartbeats fire only after this much silence.
-    idle_threshold: Duration,
-    /// Copy-mode poll interval (cursor needs sub-100ms updates).
-    copy_mode_sync_interval: Duration,
-    /// Heartbeat interval when fully idle.
-    heartbeat_interval: Duration,
     /// Timestamp of the last control-mode event (for idle classification).
     last_event_at: tokio::time::Instant,
     /// Next scheduled sync tick.
@@ -319,20 +327,15 @@ struct RunState {
     pending_output_emit: bool,
     last_output_event_at: Option<Instant>,
     pending_output_first_at: Option<Instant>,
-    low_throughput_debounce: Duration,
-    pending_output_max: Duration,
     rate_window_start: Instant,
     rate_event_count: u32,
-    throttle_enabled: bool,
     in_throttle_mode: bool,
 
     // Metadata sync after output settles
     metadata_sync_at: Option<tokio::time::Instant>,
-    metadata_sync_delay: Duration,
 
     // Layout debouncing
     pending_layout_emit: bool,
-    layout_debounce: Duration,
 }
 
 impl RunState {
@@ -342,9 +345,6 @@ impl RunState {
     fn new(config: &MonitorConfig, now_std: Instant) -> Self {
         let now_async = tokio::time::Instant::now();
         Self {
-            idle_threshold: Duration::from_secs(10),
-            copy_mode_sync_interval: Duration::from_millis(50),
-            heartbeat_interval: Duration::from_secs(15),
             last_event_at: now_async,
             next_sync_at: now_async + SYNC_INTERVAL + Duration::from_secs(1),
 
@@ -352,18 +352,13 @@ impl RunState {
             pending_output_emit: false,
             last_output_event_at: None,
             pending_output_first_at: None,
-            low_throughput_debounce: Duration::from_millis(16),
-            pending_output_max: Duration::from_millis(100),
             rate_window_start: now_std,
             rate_event_count: 0,
-            throttle_enabled: !config.throttle_interval.is_zero(),
             in_throttle_mode: false,
 
             metadata_sync_at: None,
-            metadata_sync_delay: Duration::from_millis(500),
 
             pending_layout_emit: false,
-            layout_debounce: Duration::from_millis(16),
         }
     }
 
@@ -371,7 +366,7 @@ impl RunState {
     /// `Duration::from_secs(3600)` is the "effectively infinite" sentinel; the
     /// `if pending_output_emit` guard on the branch is what actually parks us.
     fn compute_throttle_sleep(&self, config: &MonitorConfig, now: Instant) -> Duration {
-        if !(self.pending_output_emit && self.throttle_enabled) {
+        if !self.pending_output_emit {
             return LONG_SLEEP;
         }
         if self.in_throttle_mode {
@@ -390,10 +385,8 @@ impl RunState {
                 .pending_output_first_at
                 .map(|t| now.duration_since(t))
                 .unwrap_or(Duration::ZERO);
-            let remaining_debounce = self
-                .low_throughput_debounce
-                .saturating_sub(since_last_event);
-            let remaining_max = self.pending_output_max.saturating_sub(since_first_pending);
+            let remaining_debounce = LOW_THROUGHPUT_DEBOUNCE.saturating_sub(since_last_event);
+            let remaining_max = PENDING_OUTPUT_MAX.saturating_sub(since_first_pending);
             remaining_debounce.min(remaining_max)
         }
     }
@@ -738,7 +731,7 @@ impl TmuxMonitor {
                 }
 
                 // Layout debounce timer - coalesce rapid layout changes (zoom-out)
-                _ = tokio::time::sleep(rs.layout_debounce), if rs.pending_layout_emit => {
+                _ = tokio::time::sleep(LAYOUT_DEBOUNCE), if rs.pending_layout_emit => {
                     self.on_layout_debounce(emitter, &mut rs);
                 }
 
@@ -1119,10 +1112,10 @@ impl TmuxMonitor {
         // (`renumber-windows on`), and `%window-close` carries no indices — so
         // schedule the same deferred refresh a window event as for output.
         if is_output_event || matches!(change, ChangeType::Window) {
-            rs.metadata_sync_at = Some(tokio::time::Instant::now() + rs.metadata_sync_delay);
+            rs.metadata_sync_at = Some(tokio::time::Instant::now() + METADATA_SYNC_DELAY);
         }
 
-        if is_output_event && rs.throttle_enabled {
+        if is_output_event {
             rs.update_rate(now);
             if rs.in_throttle_mode {
                 rs.pending_output_emit = true;
@@ -1209,7 +1202,7 @@ impl TmuxMonitor {
     /// otherwise heartbeats (15s) to catch out-of-band tmux mutations.
     async fn on_sync_tick<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
         let in_copy_mode = self.aggregator.has_pane_in_copy_mode();
-        let is_idle = rs.last_event_at.elapsed() > rs.idle_threshold;
+        let is_idle = rs.last_event_at.elapsed() > IDLE_THRESHOLD;
 
         if in_copy_mode {
             let copy_pane_info = self.aggregator.get_copy_mode_pane_info();
@@ -1237,7 +1230,7 @@ impl TmuxMonitor {
             if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                 emitter.emit_error(format!("Failed to sync copy mode: {}", e));
             }
-            rs.next_sync_at = tokio::time::Instant::now() + rs.copy_mode_sync_interval;
+            rs.next_sync_at = tokio::time::Instant::now() + COPY_MODE_SYNC_INTERVAL;
         } else if is_idle {
             let cmds = vec![
                 tmux_formats::LIST_WINDOWS_CMD.to_string(),
@@ -1247,9 +1240,9 @@ impl TmuxMonitor {
             if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                 emitter.emit_error(format!("Failed to heartbeat sync: {}", e));
             }
-            rs.next_sync_at = tokio::time::Instant::now() + rs.heartbeat_interval;
+            rs.next_sync_at = tokio::time::Instant::now() + HEARTBEAT_INTERVAL;
         } else {
-            let time_until_idle = rs.idle_threshold.saturating_sub(rs.last_event_at.elapsed());
+            let time_until_idle = IDLE_THRESHOLD.saturating_sub(rs.last_event_at.elapsed());
             rs.next_sync_at = tokio::time::Instant::now() + time_until_idle;
         }
     }
