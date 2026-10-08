@@ -3,8 +3,8 @@
  *
  * Shows the input→paint round-trip distribution, outstanding (pending) inputs,
  * the applied-update rate, and the worst recent inter-update gap (the stall
- * signal). This is what you watch while driving the app over the
- * latency-injection proxy (scripts/latency-proxy.mjs) to compare transports.
+ * signal). This is what you watch while driving the app over a link to
+ * compare transports.
  *
  * Only mounted when `latencyTracker.isEnabled()` (via `?perf` / localStorage),
  * so it — and the store subscription below — cost nothing in production.

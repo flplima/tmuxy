@@ -4,11 +4,11 @@ How tmuxy tracks speed, and how to run each measurement. There are **two
 independent axes**, they cost in different places, and they need different
 harnesses. Conflating them is the most common way to measure the wrong thing.
 
-| Axis                            | What it costs                                                                 | Harness                                    | Network         |
-| ------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------ | --------------- |
-| **A. Core + client processing** | parse → aggregate → delta → apply → render CPU, render churn, frames-to-paint | v86/wasm probes + native criterion bench   | removed         |
-| **B. Transport**                | wire RTT, head-of-line stalls, reconnect/roaming                              | `latencyTracker` + latency-injection proxy | the whole point |
-| **C. Whole interaction**        | everything one keypress sets off, end to end, per user action                 | `measure-interactions.mjs` in CI           | included        |
+| Axis                            | What it costs                                                                 | Harness                                  | Network         |
+| ------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------- | --------------- |
+| **A. Core + client processing** | parse → aggregate → delta → apply → render CPU, render churn, frames-to-paint | v86/wasm probes + native criterion bench | removed         |
+| **B. Transport**                | wire RTT, head-of-line stalls, reconnect/roaming                              | `latencyTracker` + the `?perf` HUD       | the whole point |
+| **C. Whole interaction**        | everything one keypress sets off, end to end, per user action                 | `measure-interactions.mjs` in CI         | included        |
 
 Axes A and B decompose a single round trip; axis C asks a different question —
 **how much does one thing a user does actually cost**, with every layer, every
@@ -102,20 +102,19 @@ before connect, or `latencyTracker.setEnabled(true)`. When enabled at load, the
 numbers; its store updates are coalesced to one animation frame so it can't
 distort what it measures.
 
-### Controlled comparison — the latency-injection proxy
+### Measuring a link
 
-`packages/tmuxy-ui/scripts/latency-proxy.mjs` sits between the browser and a
-real `tmuxy server`, injecting configurable one-way delay + jitter (and optional
-loss-as-retransmit-stall) on `POST /commands` and the `GET /events` SSE stream,
-while proxying assets transparently. Drive the app through it with the HUD open
-(or read `window.__tmuxyLatency.getSnapshot()`) to get the input→paint
-distribution under a **known synthetic RTT** — the controlled experiment for
-"how much would a faster/roaming transport actually buy us" that the v86/wasm
-harness cannot run.
+Drive the app over the link in question with the HUD open (or read
+`window.__tmuxyLatency.getSnapshot()`) to get the input→paint distribution for
+that transport — the question the v86/wasm harness structurally cannot answer.
+The C1–C4 rows in the results below came from a one-off latency-injection
+proxy that no longer exists; a controlled re-run needs delay injected the same
+way, between the browser and a real server, on `POST /commands` and the
+`GET /events` stream.
 
 Because the transports run over TCP, real packet loss reaches the app as delay
-(head-of-line retransmit), not dropped events; `--loss` models that as a random
-extra stall rather than truly dropping bytes.
+(head-of-line retransmit), not dropped events; the loss condition in that table
+modelled it as a random extra stall rather than truly dropping bytes.
 
 ## Axis C — whole-interaction latency (the CI regression gate)
 
@@ -290,8 +289,8 @@ real work the pipeline must do, and byte parsing itself remains cheap
 
 Release `tmuxy-server` on loopback, 26 keystrokes per condition spaced 400 ms
 apart (clean per-key round trips, no batching), driven headless through the
-real `POST /commands` + `GET /events` path. RTT injected with the latency proxy.
-All latencies in ms.
+real `POST /commands` + `GET /events` path. RTT injected with a one-off
+latency proxy, since removed. All latencies in ms.
 
 | Condition               | Injected 1-way / RTT | p50   | p95   | p99   | max    | pending | added vs C0   |
 | ----------------------- | -------------------- | ----- | ----- | ----- | ------ | ------- | ------------- |
@@ -329,7 +328,7 @@ coalesces to ~one send per frame. Keydown→POST for an isolated key dropped
 from ~17 ms to ~1 ms. The `key-echo` interaction in the Axis-C suite measures
 this dimension now — on every commit, on both targets, and gated — which is
 why the throwaway harness that produced the table above no longer exists.
-`scripts/measure-latency.mjs` remains the transport (send→apply) harness.
+The tracker and HUD remain the transport (send→apply) instrumentation.
 
 **Loss is where the transport model actually hurts (C4).** At the same 150 ms
 base RTT as C2, 5% loss-as-retransmit-stall pushes p99 from 195 ms to 978 ms and
