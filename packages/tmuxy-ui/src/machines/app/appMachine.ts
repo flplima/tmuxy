@@ -304,8 +304,9 @@ export const appMachine = setup({
       actions: assign(({ event }) => ({ restorableSessions: event.restorableSessions })),
     },
     // A rebuild runs through the server's own control-mode client and takes
-    // a moment; the switch follows its answer (SESSION_SWITCH_REQUESTED), not
-    // the click, or the client would attach to a session that is not there yet.
+    // a moment; the switch follows its answer (the actor sends SWITCH_SESSION
+    // once it lands), not the click, or the client would attach to a session
+    // that is not there yet.
     RESTORE_SESSION: {
       guard: notReadOnly,
       actions: sendTo('tmux', ({ event }) => ({
@@ -576,13 +577,6 @@ export const appMachine = setup({
       }),
     },
     // OPEN_CONNECT_FLOAT — handled by groupsAndFloatsGlobalEvents
-    SESSION_SWITCH_REQUESTED: {
-      actions: enqueueActions(({ event, enqueue }) => {
-        enqueue(({ self }) => {
-          self.send({ type: 'SWITCH_SESSION', sessionName: event.sessionName });
-        });
-      }),
-    },
   },
   states: {
     connecting: {

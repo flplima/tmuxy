@@ -1039,10 +1039,6 @@ export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string }
  * pane; the switcher itself is a menu (`components/SessionMenu`).
  */
 export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
-export type SessionSwitchRequestedEvent = {
-  type: 'SESSION_SWITCH_REQUESTED';
-  sessionName: string;
-};
 /** Sidebar sessions tree refreshed by the `serversActor` poll (web+desktop). */
 export type SessionsUpdatedEvent = {
   type: 'SESSIONS_UPDATED';
@@ -1324,7 +1320,6 @@ export type AppMachineEvent =
   | AnswerVisibleAsksEvent
   | SwitchSessionEvent
   | OpenConnectFloatEvent
-  | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
   | SnapshotsUpdatedEvent
   | RestoreSessionEvent

@@ -216,7 +216,7 @@ export function createTmuxActor(runtime: AppRuntime) {
             logPrefix: 'restore_session',
             // The session exists only once the rebuild has answered.
             onSuccess: () =>
-              parent.send({ type: 'SESSION_SWITCH_REQUESTED', sessionName: event.sessionName }),
+              parent.send({ type: 'SWITCH_SESSION', sessionName: event.sessionName }),
           },
         );
       } else if (event.type === 'FETCH_INITIAL_STATE') {
@@ -357,7 +357,7 @@ export function createTmuxActor(runtime: AppRuntime) {
               const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
               if (!match) return;
               const sessionName = match[1].trim();
-              parent.send({ type: 'SESSION_SWITCH_REQUESTED', sessionName });
+              parent.send({ type: 'SWITCH_SESSION', sessionName });
               // Clear the env var (fire-and-forget)
               run(
                 withTransport((t) =>
