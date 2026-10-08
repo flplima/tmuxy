@@ -57,6 +57,17 @@ ratio catches it without anyone having recorded a number first.
 A benchmark named in a budget but missing from a run also fails, so renaming a
 bench cannot silently drop its gate.
 
+**Refreshing `perf/core-pipeline-baseline.json`.** A baseline must be measured
+on the platform it describes, so the file holds an entry per platform and CI
+never writes it — a baseline change is always a reviewed commit, the same rule
+as `perf/interaction-baseline.json`. For your own machine, run `cargo bench -p
+tmuxy-core --bench core_pipeline` and then `node perf/compare-core-bench.mjs
+--update-baseline`, which merges the run under its platform key. For the CI
+platform, take `core-pipeline-report.json` from the `core-pipeline-bench-<sha>`
+artifact of a `rust-tests` run you trust (every commit uploads one) and paste
+it under `platforms["linux-x64"]`. Until someone does, a CI run records its
+numbers and warns about nothing; the ratio budget gates regardless.
+
 ### v86/wasm story probes (integration, relative)
 
 `packages/tmuxy-ui/scripts/probe-spikes.mjs` drives every `v86`-tagged
@@ -458,13 +469,14 @@ measured on, which is why it is opt-in.
   jobs therefore ride on their ratio gates alone and leave the absolute column
   blank. That is the designed fallback, not a failure — but it means a uniform
   slowdown that inflates every number together, keystroke echo included, is
-  currently invisible on CI. Seeding a `linux-x64` baseline is still a human
-  act, but no longer a manual one: run the "perf measurements" workflow
-  (`.github/workflows/nightly-perf.yml`) and it opens a PR with the measured
-  file for you to read and merge. The review is the point — CI must never
-  ratchet a baseline to whatever the runner did last — and it had never happened
-  because the review used to mean downloading an artifact and copying a file
-  over by hand.
+  currently invisible on CI. Seeding a `linux-x64` interaction baseline is
+  still a human act, but no longer a manual one: run the "perf measurements"
+  workflow (`.github/workflows/nightly-perf.yml`) and it opens a PR with the
+  measured file for you to read and merge. The review is the point — CI must
+  never ratchet a baseline to whatever the runner did last — and it had never
+  happened because the review used to mean downloading an artifact and copying
+  a file over by hand. The core bench baseline is seeded from the report
+  `rust-tests` uploads on every commit (see Axis A above).
 - **No Axis B measurement in CI.** The RTT curve and the latency-injection
   proxy are a controlled experiment run by hand, not a gate — injected delay is
   the independent variable, so there is nothing for a runner to regress.

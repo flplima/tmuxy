@@ -1,16 +1,13 @@
 name: perf measurements
 
-# Three performance measurements, for the numbers the per-commit jobs
-# deliberately do not gate on: two on demand, one nightly. (The file keeps its
-# nightly- name from when all of them ran on the schedule.)
+# Two performance measurements, for the numbers the per-commit jobs
+# deliberately do not gate on: one on demand, one nightly. (The file keeps its
+# nightly- name from when both ran on the schedule.)
 #
-# 1. `core-bench` — the criterion `core_pipeline` bench (docs/PERFORMANCE.md
-#    Axis A: parse → aggregate → delta, the exact code tmuxy-wasm runs).
-#    On demand, compared against a stored per-platform baseline, WARN-only.
-# 2. `interaction-baseline` — a manual (workflow_dispatch) run of the Axis-C
+# 1. `interaction-baseline` — a manual (workflow_dispatch) run of the Axis-C
 #    interaction harness on `ubuntu-latest` whose only product is a refreshed
 #    `perf/interaction-baseline.json` for a human to review and commit.
-# 3. `soak` — the one job here that IS nightly, because its product is a trend
+# 2. `soak` — the one job here that IS nightly, because its product is a trend
 #    rather than a number: does a long session degrade? Tens of MB of output
 #    and 200 split/kill cycles, watching heap, DOM nodes, listeners and server
 #    RSS for a plateau. Nothing else in the suite runs long enough to see a
@@ -19,16 +16,17 @@ name: perf measurements
 #    SUMMARY, not only an artifact — see the note below about why that
 #    matters here.
 #
-# None of them gates anything. Absolute milliseconds/nanoseconds from a shared
-# GitHub runner are not a merge signal — the ratio gate in the per-commit
-# `interaction-latency` job is.
+# Neither gates anything. Absolute milliseconds from a shared GitHub runner
+# are not a merge signal — the ratio gate in the per-commit
+# `interaction-latency` job is. (The Axis-A criterion bench and its ratio gate
+# run per commit in ci-rust-tests.yml.)
 #
-# So the first two are ON DEMAND. Both exist to hand a human a number: the
-# bench report to compare against the stored baseline, and the refreshed
-# `perf/interaction-baseline.json` to review and commit. A nightly schedule
-# produced neither — it wrote artifacts nobody opened, and the baseline it
-# exists to feed has never been refreshed from one. Run them (Actions → "perf
-# measurements" → Run workflow) when you want the number.
+# So `interaction-baseline` is ON DEMAND. It exists to hand a human a number:
+# the refreshed `perf/interaction-baseline.json` to review and commit. A
+# nightly schedule produced nothing of the kind — it wrote artifacts nobody
+# opened, and the baseline it exists to feed has never been refreshed from
+# one. Run it (Actions → "perf measurements" → Run workflow) when you want
+# the number.
 #
 # `soak` is the exception, and the difference is what it produces. A soak run
 # answers a yes/no question about THAT run — did everything plateau — and the
@@ -65,75 +63,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Axis A — the criterion core_pipeline bench.
-  #
-  # HOW TO REFRESH THE BASELINE (perf/core-pipeline-baseline.json):
-  #
-  #   1. Run this workflow (Actions → "nightly perf" → Run workflow), or wait
-  #      for a nightly run whose numbers you trust.
-  #   2. Download the `core-pipeline-bench-<run id>` artifact from that run; it
-  #      contains `core-pipeline-report.json`, which is already in baseline
-  #      shape (`{schema, platforms: {<platform>: <report>}}` after merging).
-  #   3. Locally:
-  #        node perf/compare-core-bench.mjs \
-  #          --criterion-dir <dir from the artifact or your own cargo bench run> \
-  #          --update-baseline
-  #      — or, for the CI platform, paste the artifact's report under
-  #      `platforms["linux-x64"]` in perf/core-pipeline-baseline.json.
-  #   4. Commit the file. CI never writes it, so a baseline change is always a
-  #      reviewed one — same rule as perf/interaction-baseline.json.
-  #
-  # The file holds a `darwin-arm64` entry only: a baseline must be MEASURED on
-  # the platform it describes, and nobody has recorded a `linux-x64` one yet.
-  # Until someone does, a CI run simply records its numbers and warns about
-  # nothing. The RATIO budget in compare-core-bench.mjs needs no baseline and
-  # gates regardless — it runs per-commit in ci-rust-tests.yml, not here.
-  # ---------------------------------------------------------------------------
-  core-bench:
-    # On demand only. The schedule above exists for `soak`; a nightly bench
-    # report is the artifact-nobody-opens this workflow's header is about.
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-
-      # `criterion_group!` in the bench already caps measurement_time at 3s per
-      # benchmark, so the whole thing is a couple of minutes.
-      - name: Run the core_pipeline bench
-        run: cargo bench -p tmuxy-core --bench core_pipeline
-
-      # Reads target/criterion/**/new/estimates.json, writes the report, and
-      # prints a table into the job summary. Exits 0 even when a benchmark is
-      # over the threshold — warn, never fail (see the script's header).
-      - name: Compare against the stored baseline (warn at +20%)
-        run: node perf/compare-core-bench.mjs --threshold 20
-
-      - name: Upload bench report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: core-pipeline-bench-${{ github.run_id }}
-          path: perf/core-pipeline-report.json
-          if-no-files-found: error
-
-      # The raw criterion output, so a baseline can be regenerated from a run
-      # after the fact without re-running the bench.
-      - name: Upload raw criterion output
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: core-pipeline-criterion-${{ github.run_id }}
-          path: target/criterion
-          if-no-files-found: error
-          retention-days: 14
-
   # ---------------------------------------------------------------------------
   # Axis C — generate a linux baseline for perf/interaction-baseline.json.
   #

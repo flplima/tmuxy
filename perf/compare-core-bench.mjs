@@ -158,7 +158,7 @@ const lines = [
   '',
   haveBaseline
     ? `Baseline: \`${baseline.commit ?? 'unknown'}\` on \`${report.platform}\`, warning at +${THRESHOLD}%.`
-    : `No \`${report.platform}\` baseline recorded yet — numbers below are for the record only. See .github/workflows/nightly-perf.yml for how to seed one.`,
+    : `No \`${report.platform}\` baseline recorded yet — numbers below are for the record only. See docs/PERFORMANCE.md (Axis A) for how to seed one.`,
   '',
   '| benchmark | mean | baseline | change |',
   '| --- | ---: | ---: | ---: |',
