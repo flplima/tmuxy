@@ -339,7 +339,7 @@ pub async fn run(args: ServerArgs) {
             crate::browser::client::run(browser_args).await;
         }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
-        Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args),
+        Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
     }
 }
