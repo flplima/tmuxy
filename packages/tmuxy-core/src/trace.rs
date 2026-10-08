@@ -355,7 +355,7 @@ fn is_truthy(var: &str) -> bool {
 
 /// Default trace path under the XDG state dir (`~/.local/state/tmuxy` on Linux,
 /// `~/Library/Application Support/tmuxy` on macOS, which has no state dir) —
-/// deliberately outside any directory served by `/api/file`. Resolving the path
+/// deliberately outside any directory served by `/api/browse`. Resolving the path
 /// creates nothing; the directory is made when the writer actually opens it.
 fn default_path() -> Option<PathBuf> {
     let dir = dirs::state_dir()

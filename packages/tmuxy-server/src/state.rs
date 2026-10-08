@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -423,7 +423,6 @@ fn writable_routes() -> Router<Arc<AppState>> {
             "/trace",
             post(crate::sse::trace_handler).layer(axum::extract::DefaultBodyLimit::max(256 * 1024)),
         )
-        .route("/api/file", get(file_handler))
         .route("/api/browse/{*path}", get(browse_handler))
 }
 
@@ -431,12 +430,12 @@ fn writable_routes() -> Router<Arc<AppState>> {
 /// commands (`/commands` refuses the rest before dispatch), and the pictures
 /// that are part of the screen it shows.
 ///
-/// SEC-11. "Read-only" is about the SESSION; the file routes are a different
-/// power — they read any file the server process can, anywhere on the disk —
+/// SEC-11. "Read-only" is about the SESSION; the file route is a different
+/// power — it reads any file the server process can, anywhere on the disk —
 /// and `/trace` writes to it. A read-only server is the one meant to be handed
 /// to people who are not trusted with the machine, so those routes do not
-/// exist on it rather than exist and refuse. Only the browser widget used the
-/// file routes, and a viewer cannot open one (it takes a command).
+/// exist on it rather than exist and refuse. Only the browser widget uses the
+/// file route, and a viewer cannot open one (it takes a command).
 fn viewer_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/events", get(crate::sse::sse_handler))
@@ -448,26 +447,17 @@ fn viewer_routes() -> Router<Arc<AppState>> {
 // Internal Handlers
 // ============================================
 
-#[derive(Debug, serde::Deserialize)]
-struct FileQuery {
-    path: String,
-}
-
-async fn file_handler(Query(query): Query<FileQuery>) -> Response {
-    read_file_offthread(query.path).await
-}
-
 /// Serve a local file at a path-shaped URL: `/api/browse/Users/me/doc/index.html`.
 ///
 /// The browser widget frames this route, and a framed page's relative links
 /// (`./style.css`, `../img/logo.png`) resolve against the URL it was loaded
-/// from — which is why this exists alongside `/api/file?path=`, whose query
-/// string would send every subresource to `/api/style.css`. Axum has already
+/// from — which is why the path lives in the URL rather than a query string,
+/// which would send every subresource to `/api/style.css`. Axum has already
 /// percent-decoded the captured path; the leading `/` it strips is put back so
 /// the absolute path on disk round-trips.
 ///
-/// Like `/api/file` this reads anywhere the server process can, gated by the
-/// optional `--password` Basic auth and absent from a `--read-only` server
+/// This reads anywhere the server process can, gated by the optional
+/// `--password` Basic auth and absent from a `--read-only` server
 /// (`viewer_routes`). See docs/SECURITY.md.
 async fn browse_handler(Path(path): Path<String>) -> Response {
     read_file_offthread(format!("/{}", path.trim_start_matches('/'))).await
@@ -545,7 +535,7 @@ mod file_route_tests {
     use super::*;
 
     /// SEC-02. The path is the client's, and `std::fs::read` on a character
-    /// device never ends: `/api/file?path=/dev/zero` grew the server until the
+    /// device never ends: `/api/browse/dev/zero` grew the server until the
     /// OS killed it. A FIFO is worse — the read blocks a Tokio worker forever.
     #[test]
     fn a_file_that_is_not_a_regular_file_is_refused_rather_than_read() {
@@ -762,30 +752,28 @@ mod api_guard_tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
-    /// A read-only server has no arbitrary-file-read routes.
+    /// A read-only server has no arbitrary-file-read route.
     ///
-    /// They are the reason a read-only server is not automatically safe to
-    /// expose: refusing every non-read COMMAND says nothing about them, and they
-    /// read anything the server process can, anywhere on the disk. SEC-11: the
-    /// viewer's router is built without them (`viewer_routes`), so there is no
+    /// It is the reason a read-only server is not automatically safe to
+    /// expose: refusing every non-read COMMAND says nothing about it, and it
+    /// reads anything the server process can, anywhere on the disk. SEC-11: the
+    /// viewer's router is built without it (`viewer_routes`), so there is no
     /// handler to refuse — the route is not there.
     #[tokio::test]
-    async fn a_read_only_server_has_no_file_routes() {
+    async fn a_read_only_server_has_no_file_route() {
         let state = Arc::new(AppState::new().with_read_only(true));
         let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
 
-        for uri in ["/api/file?path=/etc/hosts", "/api/browse/etc/hosts"] {
-            let request = Request::get(uri)
-                .header("host", "localhost:9000")
-                .header("sec-fetch-site", "same-origin")
-                .body(Body::empty())
-                .unwrap();
-            let response = app.clone().oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
-        }
+        let request = Request::get("/api/browse/etc/hosts")
+            .header("host", "localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
         // ...while the pictures that are part of the screen still have a route
         // (a missing one is a 404 from the handler, not from the router; the
-        // point is that the route answers as itself, not as the file routes).
+        // point is that the route answers as itself, not as the file route).
         let request = Request::get("/api/images/%251/1")
             .header("host", "localhost:9000")
             .header("sec-fetch-site", "same-origin")
@@ -795,11 +783,11 @@ mod api_guard_tests {
         assert_ne!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
-    /// ...and a normal server still serves them, so the guard above is the
+    /// ...and a normal server still serves it, so the guard above is the
     /// read-only flag talking and not a route that stopped working.
     #[tokio::test]
-    async fn a_writable_server_still_serves_the_file_routes() {
-        let request = Request::get("/api/file?path=/etc/hosts")
+    async fn a_writable_server_still_serves_the_file_route() {
+        let request = Request::get("/api/browse/etc/hosts")
             .header("host", "localhost:9000")
             .header("sec-fetch-site", "same-origin")
             .body(Body::empty())
@@ -826,7 +814,7 @@ mod api_guard_tests {
 
     #[tokio::test]
     async fn a_page_on_another_origin_cannot_read_a_file() {
-        let request = Request::get("/api/file?path=/etc/hosts")
+        let request = Request::get("/api/browse/etc/hosts")
             .header("host", "localhost:9000")
             .header("sec-fetch-site", "cross-site")
             .body(Body::empty())
@@ -872,7 +860,6 @@ mod api_guard_tests {
         ("/events", "/events"),
         ("/commands", "/commands"),
         ("/trace", "/trace"),
-        ("/api/file", "/api/file?path=/etc/hosts"),
         ("/api/browse/{*path}", "/api/browse/etc/hosts"),
         ("/api/images/{pane_id}/{image_id}", "/api/images/1/0"),
     ];

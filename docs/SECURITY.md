@@ -68,7 +68,7 @@ What the server does in this mode, in `tmuxy-server/src/sse.rs` and `command.rs`
 - **Announces the mode** in the `connection-info` greeting, which is how the frontend knows to stop offering changes.
 - **Serves fewer open event streams.** A viewer's server is the one whose address gets handed around, so it holds a tighter budget than the one its owner writes through: each `/events` stream is a long-lived task, and past the cap a new one answers 503 rather than being accepted.
 - **Serves one session and creates none.** A name other than the pinned one answers 404, and so does the pinned one while it does not exist — the server's monitor waits for it, where the old shape answered every invented name with `new-session -A`, spawning a live shell per name that outlived the viewer.
-- **Has no `/api/file`, `/api/browse` or `/trace`.** "Read-only" is about the session, and those routes are a different power: the two file routes read any file the server process can, anywhere on the disk, and `/trace` writes to it. A read-only server is the one meant to be handed to people who are not trusted with the machine, so those routes are not built into its router at all (they answer 404, as any unknown path does). Only the browser widget used the file routes, and opening one takes a command a viewer cannot send.
+- **Has no `/api/browse` or `/trace`.** "Read-only" is about the session, and those routes are a different power: the file route reads any file the server process can, anywhere on the disk, and `/trace` writes to it. A read-only server is the one meant to be handed to people who are not trusted with the machine, so those routes are not built into its router at all (they answer 404, as any unknown path does). Only the browser widget uses the file route, and opening one takes a command a viewer cannot send.
 
 What it does not do: it is not confidentiality _within the session it shows_. A viewer reads everything on screen and in scrollback — which is everything the session has printed, including anything a command echoed. The server's own monitor also still applies tmuxy's session options and window tags when it attaches — idempotent next to a writing tmuxy, but not nothing on a session tmuxy has never managed. Pair it with a password and TLS like any other exposed server.
 
@@ -98,9 +98,9 @@ The `Host` rule applies to a routable bind too: the address it bound is a name i
 
 ## Local Files Are Served Sandboxed
 
-`/api/file` and `/api/browse` read any file the server process can read, with a real content type, so an HTML file would render with the server's own origin and could use the API like the app does. Both routes answer with `Content-Security-Policy: sandbox` (without `allow-same-origin`), so the document runs in an opaque origin of its own whether the browser widget frames it or someone opens its URL. The browser widget also frames every local page with the `sandbox` attribute, which covers the desktop app's `tmuxyfile:` scheme too (`tmuxy-ui/src/components/widgets/browser/TmuxyBrowser.tsx`).
+`/api/browse` reads any file the server process can read, with a real content type, so an HTML file would render with the server's own origin and could use the API like the app does. The route answers with `Content-Security-Policy: sandbox` (without `allow-same-origin`), so the document runs in an opaque origin of its own whether the browser widget frames it or someone opens its URL. The browser widget also frames every local page with the `sandbox` attribute, which covers the desktop app's `tmuxyfile:` scheme too (`tmuxy-ui/src/components/widgets/browser/TmuxyBrowser.tsx`).
 
-Markdown is the one thing the widget renders in the app's own origin rather than in that sandbox — it is rendered by the app (react-markdown, no raw HTML) so that mermaid fences can become diagrams. A mermaid SVG therefore lands on this side of the boundary, where anything that executes can drive the API. Mermaid sanitizes its own output (`securityLevel: strict`, DOMPurify) and tmuxy sanitizes it again at the sink (`widgets/browser/sanitizeSvg.ts`): parsed as SVG in an inert document instead of assigned to `innerHTML`, every `on*` attribute removed, `<script>` and `<foreignObject>` removed, and `href` narrowed to `http(s):`, `data:image/` and same-document fragments. Two passes, because mermaid has had bypasses before and the blast radius here is a shell. Relative links and images in the document resolve against the DOCUMENT, not the app, and on the app's own origin only the two file routes (`/api/browse/`, `/api/file`) may be named at all (`widgets/browser/markdownUrls.ts`), so a markdown file cannot aim a subresource at the API through the reader's session whether it writes the path relatively or outright.
+Markdown is the one thing the widget renders in the app's own origin rather than in that sandbox — it is rendered by the app (react-markdown, no raw HTML) so that mermaid fences can become diagrams. A mermaid SVG therefore lands on this side of the boundary, where anything that executes can drive the API. Mermaid sanitizes its own output (`securityLevel: strict`, DOMPurify) and tmuxy sanitizes it again at the sink (`widgets/browser/sanitizeSvg.ts`): parsed as SVG in an inert document instead of assigned to `innerHTML`, every `on*` attribute removed, `<script>` and `<foreignObject>` removed, and `href` narrowed to `http(s):`, `data:image/` and same-document fragments. Two passes, because mermaid has had bypasses before and the blast radius here is a shell. Relative links and images in the document resolve against the DOCUMENT, not the app, and on the app's own origin only the file route (`/api/browse/`) may be named at all (`widgets/browser/markdownUrls.ts`), so a markdown file cannot aim a subresource at the API through the reader's session whether it writes the path relatively or outright.
 
 The desktop webview carries its own `Content-Security-Policy` (`tauri.conf.json`). It is defence in depth rather than a boundary — an XSS from pane output would run with the Tauri IPC behind it, which is `open_url`, the file schemes and CLI exec, so it is worth more here than on the web. The policy names each scheme the app actually loads from (`tauri:`, `asset:`, `tmuxyfile:`, `tmuxyimg:`, and their `http://<scheme>.localhost` forms on Windows) and keeps `frame-src *`, which is the browser widget's whole purpose. **Adding a resource the app loads means adding it here too** — a CSP refuses quietly, and the symptom is a picture or a page that simply does not appear.
 
@@ -206,7 +206,7 @@ its screen. That is a map of what the user was doing, kept on disk.
 Where it is kept follows from that. Snapshots live under the state directory
 (`TMUXY_STATE_DIR`, else the XDG state dir), one directory per tmux socket
 (`sessions/<socket>/`, since a `tmuxy` session on `tmuxy-dev` is not the one
-on `tmuxy`), next to the trace and the browser profiles — deliberately nowhere `/api/file` or `/api/browse` can reach — and
+on `tmuxy`), next to the trace and the browser profiles — deliberately nowhere `/api/browse` can reach — and
 no route serves them. The commands that touch them (`list_snapshots`,
 `restore_session`) are **write** commands: a `--read-only`
 server does not answer them, for the same reason it does not serve the file
@@ -333,11 +333,11 @@ What the server does _not_ do is interpolate a client's command into a shell of 
 
 ### 4. Unrestricted File Access (High)
 
-**Risk:** The `/api/file` and `/api/browse` endpoints read arbitrary files, with no path restrictions beyond Unix file permissions.
+**Risk:** The `/api/browse` endpoint reads arbitrary files, with no path restrictions beyond Unix file permissions.
 
 **Impact:** Information disclosure to any allowed client — SSH keys, configuration files, source code, credentials, and any file readable by the server process. Other origins are refused ([Cross-Origin Requests](#cross-origin-requests)) and a served page is sandboxed ([Local Files Are Served Sandboxed](#local-files-are-served-sandboxed)).
 
-**Mitigation:** The server should run as an unprivileged user. Do not run tmuxy as root. A `--read-only` server refuses both routes outright ([Read-Only Server](#read-only-server)), which is what makes a viewer safe to hand to someone who is not trusted with the machine.
+**Mitigation:** The server should run as an unprivileged user. Do not run tmuxy as root. A `--read-only` server refuses the route outright ([Read-Only Server](#read-only-server)), which is what makes a viewer safe to hand to someone who is not trusted with the machine.
 
 ### 5. `--no-auth` on a Routable Address (Medium)
 
@@ -455,7 +455,7 @@ Not yet implemented, but would improve the security posture:
 - **Command allowlisting** — Restrict which tmux commands clients can execute
 - **Per-client permissions** — writers and viewers on one server, instead of one server per role
 - **Audit logging** — Log all commands and client connections
-- **Path restrictions** — Limit `/api/file` and `/api/browse` to specific directories
+- **Path restrictions** — Limit `/api/browse` to specific directories
 - **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional HTTP Basic Auth](#optional-http-basic-auth))
 
 ## Related

@@ -248,7 +248,7 @@ capability — but only one that excludes content).
 - `%output` and `capture-pane` content — the rendered grid, scrollback, cell
   data
 - OSC 52 clipboard payloads and the `clipboard` SSE event body
-- `/api/file` contents
+- `/api/browse` contents
 
 **Safe to record** (the action's shape): the typed `TmuxOp` / `MonitorCommand` /
 `ClientCommand` variant name; target pane/window ids; session name; connection
@@ -283,7 +283,7 @@ Structural enforcements, not just discipline:
    unhashed name/path.** The redaction boundary is verified, not assumed.
 
 And one deployment rule: the trace file must live **outside** any path served by
-`/api/file` (SECURITY.md Risk #4), or the trace itself becomes a readable secret
+`/api/browse` (SECURITY.md Risk #4), or the trace itself becomes a readable secret
 over the network.
 
 ### Trace levels

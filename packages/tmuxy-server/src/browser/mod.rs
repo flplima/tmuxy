@@ -39,7 +39,7 @@ pub mod session;
 ///
 /// The same resolution the trace file uses (`tmuxy-core::trace`): the XDG state
 /// dir on Linux, `~/Library/Application Support` on macOS, which has none. A
-/// browser profile is a few hundred MB and must not land anywhere `/api/file`
+/// browser profile is a few hundred MB and must not land anywhere `/api/browse`
 /// serves, which rules out the config dir.
 ///
 /// `TMUXY_STATE_DIR` overrides it, matching `bin/dev-server` — a test or a

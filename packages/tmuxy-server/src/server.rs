@@ -999,7 +999,6 @@ mod tests {
         "/events",
         "/commands",
         "/trace",
-        "/api/file?path=/etc/hosts",
         "/api/browse/etc/hosts",
         "/api/images/1/0",
         "/",
@@ -1089,7 +1088,7 @@ mod tests {
     async fn with_no_password_the_layer_is_not_installed() {
         use tower::ServiceExt;
         let response = served_app(None)
-            .oneshot(probe("/api/file?path=/etc/hosts", None))
+            .oneshot(probe("/api/browse/etc/hosts", None))
             .await
             .unwrap();
         assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
