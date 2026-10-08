@@ -54,7 +54,12 @@ import { dispatchActions } from './dispatch';
 import { askActions, pruneAskSelections } from './actions/ask';
 import { isBoxPermutation, samePanes } from './layoutChange';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
-import { selectLeftSidebarPane, selectRightSidebarPane, visibleFloats } from '../selectors';
+import {
+  getActivePaneInGroup,
+  selectLeftSidebarPane,
+  selectRightSidebarPane,
+  visibleFloats,
+} from '../selectors';
 import type { TmuxClientModel, TmuxSnapshot } from '../../domain/store/types';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
@@ -1421,18 +1426,11 @@ export const appMachine = setup({
               g.paneIds.includes(clickedPaneId),
             );
 
-            // Find the pane currently occupying the visible window slot for
-            // this group (if any) — that's the one swap-pane will swap with.
-            const visiblePane = group
-              ? (() => {
-                  const visibleId = group.paneIds.find((id) => {
-                    const p = context.panes.find((pp) => pp.tmuxId === id);
-                    return p?.windowId === context.activeWindowId;
-                  });
-                  return visibleId
-                    ? (context.panes.find((p) => p.tmuxId === visibleId) ?? null)
-                    : null;
-                })()
+            // The pane currently occupying the visible window slot for this
+            // group (if any) — the one swap-pane will swap with.
+            const visibleId = group ? getActivePaneInGroup(context, group) : null;
+            const visiblePane = visibleId
+              ? (context.panes.find((p) => p.tmuxId === visibleId) ?? null)
               : null;
 
             // No group or no visible peer: no swap bookkeeping, just run the

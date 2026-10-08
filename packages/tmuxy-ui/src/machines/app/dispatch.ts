@@ -17,6 +17,7 @@ import { act, type Ctx, type Enqueue } from './actionTypes';
 import { isLayoutChange, isMultiStep, TmuxOp, type TmuxOpOf } from '../../domain/commands';
 import type { PaneId, WindowId } from '../../domain/ids';
 import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
+import { getActivePaneInGroup } from '../selectors';
 
 /**
  * Fill in the targets an op leaves to "tmux's current one" where the client's
@@ -79,9 +80,7 @@ function groupStepTarget(direction: 'next' | 'prev', wrap: boolean, context: Ctx
   if (!focus) return null;
   const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(focus));
   if (!group || group.paneIds.length <= 1) return null;
-  const visibleId = group.paneIds.find(
-    (id) => context.panes.find((p) => p.tmuxId === id)?.windowId === context.activeWindowId,
-  );
+  const visibleId = getActivePaneInGroup(context, group);
   if (!visibleId) return null;
   const count = group.paneIds.length;
   let index = group.paneIds.indexOf(visibleId) + (direction === 'next' ? 1 : -1);
