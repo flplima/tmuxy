@@ -322,6 +322,13 @@ export const appMachine = setup({
         connected: false,
       })),
     },
+    // The backend reports the connection gone: terminal like TMUX_FATAL, and
+    // from the root like it, so a disconnect that lands while still
+    // `connecting` ends the spinner instead of being dropped.
+    TMUX_DISCONNECTED: {
+      target: '.disconnected',
+      actions: assign({ connected: false, enableAnimations: false }),
+    },
     // SSE/Tauri adapter detected the channel dropped and is retrying.
     // Global so the transition fires from any live state.
     // NOTE: `reconnecting` does NOT share idle's handlers — it declares its
@@ -1209,10 +1216,6 @@ export const appMachine = setup({
         TMUX_ERROR: {
           actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),
         },
-        TMUX_DISCONNECTED: {
-          target: 'disconnected',
-          actions: assign({ connected: false, enableAnimations: false }),
-        },
 
         SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
         DISPATCH_OP: { actions: 'dispatch_op' },
@@ -1495,9 +1498,10 @@ export const appMachine = setup({
      * SSE/Tauri channel dropped and the adapter is retrying. Distinct from
      * `connecting` (cold start, no prior state) so the UI can show a "lost
      * connection, retrying…" banner over the stale layout instead of the
-     * full status screen. Only the four handlers below are active: server
-     * state still flows in (so the layout stays fresh), but user input is
-     * dropped for the duration — see the TMUX_RECONNECTING note above.
+     * full status screen. Only the three handlers below (and the root's) are
+     * active: server state still flows in (so the layout stays fresh), but
+     * user input is dropped for the duration — see the TMUX_RECONNECTING note
+     * above.
      * TMUX_RECONNECTED swaps back to idle once a fresh server snapshot
      * lands, and the store's reconciler runs against pending ops then.
      */
@@ -1506,10 +1510,6 @@ export const appMachine = setup({
         TMUX_RECONNECTED: {
           target: 'idle',
           actions: assign({ connected: true, error: null }),
-        },
-        TMUX_DISCONNECTED: {
-          target: 'disconnected',
-          actions: assign({ connected: false, enableAnimations: false }),
         },
         // Still ingest server state during the reconnecting window — when the
         // channel comes back, the first full snapshot triggers reconciliation

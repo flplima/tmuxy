@@ -91,7 +91,7 @@ The tunables are constants in `control_mode/monitor.rs` (only the throttle inter
 
 The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Four top-level states arranged as a connection lifecycle:
 
-- **`connecting`** — Initial. Waiting for the backend handshake. Transitions to `idle` on `TMUX_CONNECTED`.
+- **`connecting`** — Initial. Waiting for the backend handshake. Transitions to `idle` on `TMUX_CONNECTED`. Like every live state it ends in `disconnected` on `TMUX_DISCONNECTED` / `TMUX_FATAL`, both handled at the machine root.
 - **`idle`** — Live and operational. Handles all normal interactions. The "syncing" sub-flavor — connected, but with one or more optimistic ops in flight — is a derived flag (`tmuxStore.model.ops.length > 0`) surfaced to selectors; it does not gate any handlers, so the user never feels a perceptible mode change when an op is pending.
 - **`reconnecting`** — The adapter detected the SSE/Tauri channel dropped and is retrying. Distinct from `connecting` so the UI keeps the last frame of the panes mounted and blurs it under the `ConnectionOverlay` (spinner + "Connecting…"; see `tmuxy-ui/src/components/ConnectionOverlay.tsx`). Transitions to `idle` on `TMUX_RECONNECTED` (next live snapshot) or `disconnected` on `TMUX_DISCONNECTED` / `TMUX_FATAL`.
 - **`disconnected`** — Terminal. Backend gave up or an explicit disconnect happened. The `ConnectionOverlay` reads `fatalError` to show the one-line reason with a Retry button (a reload) and the command/error log behind a collapsed Details disclosure; the dead layout stays underneath as the blurred backdrop. No auto-recovery; an adapter-initiated `TMUX_RECONNECTING` is still accepted, so a server that comes back later can pull the UI out of this state.
