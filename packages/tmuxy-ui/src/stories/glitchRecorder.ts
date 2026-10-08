@@ -1,22 +1,29 @@
 /**
- * In-page glitch recorder for Storybook play functions.
+ * The glitch detector: a MutationObserver finds unintended DOM churn (node
+ * flicker — an element added and removed within a short window — and rapid
+ * attribute rewrites), while a frame sampler catches pane-geometry jumps.
+ * Where `animationObservers.ts` proves the *intended* mutations happened, this
+ * proves no *unintended* ones did.
  *
- * The browser-native counterpart of `tests/helpers/glitch-detector.js` (the
- * Playwright/Jest harness): a MutationObserver detects unintended DOM churn
- * (node flicker — an element added and removed within a short window — and
- * rapid attribute rewrites), while a rAF sampler catches pane-geometry jumps.
- * Where `animationObservers.ts` proves the *intended* mutations happened,
- * this recorder proves no *unintended* ones did.
+ * One implementation serves two harnesses. Storybook play functions use the
+ * `GlitchRecorder` class in-page. The Jest E2E helper
+ * (`tests/helpers/glitch-detector.js`) loads this file through Node's own
+ * loader — Node strips the types itself — serialises `startGlitchCollector`
+ * into the page with Playwright, and runs `analyzeGlitches` on what comes
+ * back. That is why the collector is self-contained and this file uses only
+ * erasable TypeScript syntax (no enums, no parameter properties), and why
+ * the JSON import carries its attribute.
  *
  * Budgets are code, not prose: per-operation thresholds live in
- * `glitch-thresholds.json`, shared with the Jest helper, so loosening one is
- * a reviewable diff.
+ * `glitch-thresholds.json`, so loosening one is a reviewable diff.
  *
  * Pure DOM — no Storybook / testing-library imports — usable from any play
  * function without coupling to a test runner.
  */
 
-import OPERATION_THRESHOLDS from './glitch-thresholds.json';
+import OPERATION_THRESHOLDS from './glitch-thresholds.json' with { type: 'json' };
+
+export { OPERATION_THRESHOLDS };
 
 export type GlitchOperation = keyof typeof OPERATION_THRESHOLDS;
 
@@ -38,15 +45,18 @@ export interface GlitchRecorderOptions {
   churnWindowMs?: number;
   /** Minimum per-frame pane size delta (px) to count as a jump. */
   sizeJumpThreshold?: number;
+  /** Pane rects are sampled every animation frame, or on this interval (ms)
+   *  when set: a background tab stops animation frames but not timers. */
+  sizePollIntervalMs?: number;
 }
 
-interface NodeEvent {
+export interface GlitchNodeEvent {
   readonly type: 'add' | 'remove';
   readonly ts: number;
   readonly element: string;
 }
 
-interface AttrEvent {
+export interface GlitchAttrEvent {
   readonly ts: number;
   readonly attr: string;
   readonly oldValue: string | null;
@@ -54,13 +64,31 @@ interface AttrEvent {
   readonly target: string;
 }
 
-interface PaneRect {
+export interface GlitchPaneRect {
   readonly id: string;
   readonly w: number;
   readonly h: number;
   /** Pane carried an enter/leave/shift lifecycle class at sample time —
    * its rect motion is the deliberate split/kill morph, not a glitch. */
   readonly animating: boolean;
+}
+
+export interface GlitchFrame {
+  readonly ts: number;
+  readonly panes: GlitchPaneRect[];
+}
+
+/** Everything the collector saw, plain data so it survives a page boundary. */
+export interface GlitchRecording {
+  readonly nodes: GlitchNodeEvent[];
+  readonly attrs: GlitchAttrEvent[];
+  readonly frames: GlitchFrame[];
+  readonly durationMs: number;
+}
+
+export interface GlitchCollector {
+  /** Disconnect the observers and hand back what was recorded. */
+  stop(): GlitchRecording;
 }
 
 export interface GlitchFlicker {
@@ -96,87 +124,61 @@ export interface GlitchReport {
   };
 }
 
-const DEFAULTS: Required<GlitchRecorderOptions> = {
+export const GLITCH_DEFAULTS: Required<GlitchRecorderOptions> = {
   ignoreSelectors: ['.terminal-content', '.terminal-cursor', '.terminal-line'],
   attributeFilter: ['class', 'style', 'data-active', 'data-pane-id'],
   flickerWindowMs: 100,
   churnWindowMs: 200,
   sizeJumpThreshold: 20,
+  sizePollIntervalMs: 0,
 };
 
-function elementId(el: Element | null): string {
-  if (!el) return 'null';
-  const tag = el.tagName.toLowerCase();
-  const classes =
-    typeof el.className === 'string'
-      ? el.className.split(' ').filter(Boolean).slice(0, 3).join('.')
-      : '';
-  const paneId =
-    (el as HTMLElement).dataset?.paneId ??
-    (el.closest('[data-pane-id]') as HTMLElement | null)?.dataset?.paneId ??
-    '';
-  return `${tag}${classes ? '.' + classes : ''}${paneId ? `[pane=${paneId}]` : ''}`;
-}
+/**
+ * Start observing `scope` (an element, or a selector resolved in the
+ * document). Returns null when the selector matches nothing.
+ *
+ * SELF-CONTAINED ON PURPOSE: Playwright serialises this function's source
+ * into the page, so it must not reference anything outside its own body.
+ */
+export function startGlitchCollector(
+  scope: Element | string,
+  options: Required<GlitchRecorderOptions>,
+): GlitchCollector | null {
+  const root = typeof scope === 'string' ? document.querySelector(scope) : scope;
+  if (!root) return null;
 
-export class GlitchRecorder {
-  private readonly scope: Element;
-  private readonly opts: Required<GlitchRecorderOptions>;
-  private readonly observer: MutationObserver;
-  private readonly nodes: NodeEvent[] = [];
-  private readonly attrs: AttrEvent[] = [];
-  private readonly frames: Array<{ ts: number; panes: PaneRect[] }> = [];
-  private readonly startTime = performance.now();
-  private rafId = 0;
-  private stopped = false;
+  const elementId = (el: Element | null): string => {
+    if (!el) return 'null';
+    const tag = el.tagName.toLowerCase();
+    const classes =
+      typeof el.className === 'string'
+        ? el.className.split(' ').filter(Boolean).slice(0, 3).join('.')
+        : '';
+    const paneId =
+      (el as HTMLElement).dataset?.paneId ??
+      (el.closest('[data-pane-id]') as HTMLElement | null)?.dataset?.paneId ??
+      '';
+    return `${tag}${classes ? '.' + classes : ''}${paneId ? `[pane=${paneId}]` : ''}`;
+  };
 
-  constructor(scope: Element, options: GlitchRecorderOptions = {}) {
-    this.scope = scope;
-    this.opts = { ...DEFAULTS, ...options };
-    this.observer = new MutationObserver((records) => this.ingest(records));
-    this.observer.observe(scope, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeOldValue: true,
-      attributeFilter: this.opts.attributeFilter,
-    });
-    const sample = (): void => {
-      if (this.stopped) return;
-      const panes = this.scope.querySelectorAll('.pane-layout-item');
-      this.frames.push({
-        ts: performance.now() - this.startTime,
-        panes: Array.from(panes).map((p) => {
-          const r = p.getBoundingClientRect();
-          return {
-            id: (p as HTMLElement).dataset.paneId ?? elementId(p),
-            w: Math.round(r.width),
-            h: Math.round(r.height),
-            animating:
-              p.classList.contains('pane-entering') ||
-              p.classList.contains('pane-shifting') ||
-              p.classList.contains('pane-leaving'),
-          };
-        }),
-      });
-      if (this.frames.length > 600) this.frames.splice(0, this.frames.length - 300);
-      this.rafId = requestAnimationFrame(sample);
-    };
-    this.rafId = requestAnimationFrame(sample);
-  }
-
-  private shouldIgnore(node: Node): boolean {
+  const shouldIgnore = (node: Node): boolean => {
     if (!(node instanceof Element)) return true;
-    return this.opts.ignoreSelectors.some((sel) => {
+    return options.ignoreSelectors.some((sel) => {
       try {
         return node.matches(sel) || node.closest(sel) !== null;
       } catch {
         return false;
       }
     });
-  }
+  };
 
-  private ingest(records: MutationRecord[]): void {
-    const ts = performance.now() - this.startTime;
+  const startTime = performance.now();
+  const nodes: GlitchNodeEvent[] = [];
+  const attrs: GlitchAttrEvent[] = [];
+  const frames: GlitchFrame[] = [];
+
+  const observer = new MutationObserver((records) => {
+    const ts = performance.now() - startTime;
     // Coalesce same-target-same-attribute mutations within ONE observer batch
     // (one microtask flush = at most one paint). React writes style properties
     // individually — a single geometry commit produces left/top/width/height
@@ -189,16 +191,16 @@ export class GlitchRecorder {
       { oldValue: string | null; target: string; attr: string; el: Element }
     >();
     for (const rec of records) {
-      if (this.shouldIgnore(rec.target)) continue;
+      if (shouldIgnore(rec.target)) continue;
       if (rec.type === 'childList') {
         rec.addedNodes.forEach((n) => {
-          if (n instanceof Element && !this.shouldIgnore(n)) {
-            this.nodes.push({ type: 'add', ts, element: elementId(n) });
+          if (n instanceof Element && !shouldIgnore(n)) {
+            nodes.push({ type: 'add', ts, element: elementId(n) });
           }
         });
         rec.removedNodes.forEach((n) => {
-          if (n instanceof Element && !this.shouldIgnore(n)) {
-            this.nodes.push({ type: 'remove', ts, element: elementId(n) });
+          if (n instanceof Element && !shouldIgnore(n)) {
+            nodes.push({ type: 'remove', ts, element: elementId(n) });
           }
         });
       } else if (rec.type === 'attributes' && rec.target instanceof Element) {
@@ -213,7 +215,7 @@ export class GlitchRecorder {
       }
     }
     for (const entry of attrBatch.values()) {
-      this.attrs.push({
+      attrs.push({
         ts,
         attr: entry.attr,
         oldValue: entry.oldValue,
@@ -223,99 +225,226 @@ export class GlitchRecorder {
         target: entry.target,
       });
     }
+  });
+  observer.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeOldValue: true,
+    attributeFilter: options.attributeFilter,
+  });
+
+  // Sample only .pane-layout-item (the geometry owner) — its inner
+  // .pane-wrapper mirrors every rect change, so sampling both would count
+  // each snap twice for the same pane id.
+  const sample = (): void => {
+    const panes = root.querySelectorAll('.pane-layout-item');
+    frames.push({
+      ts: performance.now() - startTime,
+      panes: Array.from(panes).map((p) => {
+        const r = p.getBoundingClientRect();
+        return {
+          id: (p as HTMLElement).dataset.paneId ?? elementId(p),
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+          animating:
+            p.classList.contains('pane-entering') ||
+            p.classList.contains('pane-shifting') ||
+            p.classList.contains('pane-leaving'),
+        };
+      }),
+    });
+    if (frames.length > 600) frames.splice(0, frames.length - 300);
+  };
+  let stopped = false;
+  let rafId = 0;
+  let intervalId: ReturnType<typeof setInterval> | undefined;
+  if (options.sizePollIntervalMs > 0) {
+    intervalId = setInterval(sample, options.sizePollIntervalMs);
+  } else {
+    const tick = (): void => {
+      if (stopped) return;
+      sample();
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+  }
+
+  return {
+    stop: () => {
+      stopped = true;
+      observer.disconnect();
+      cancelAnimationFrame(rafId);
+      if (intervalId !== undefined) clearInterval(intervalId);
+      return { nodes, attrs, frames, durationMs: performance.now() - startTime };
+    },
+  };
+}
+
+/** Classify a recording: flickers, attribute churn and pane size jumps. */
+export function analyzeGlitches(
+  recording: GlitchRecording,
+  options: Pick<
+    Required<GlitchRecorderOptions>,
+    'flickerWindowMs' | 'churnWindowMs' | 'sizeJumpThreshold'
+  >,
+): GlitchReport {
+  const { flickerWindowMs, churnWindowMs, sizeJumpThreshold } = options;
+
+  // Node flicker: the same element identity added and removed (either
+  // order) within the flicker window.
+  const flickers: GlitchFlicker[] = [];
+  const byElement = new Map<string, GlitchNodeEvent[]>();
+  for (const n of recording.nodes) {
+    const list = byElement.get(n.element) ?? [];
+    list.push(n);
+    byElement.set(n.element, list);
+  }
+  for (const [element, events] of byElement) {
+    for (let i = 0; i < events.length - 1; i++) {
+      const curr = events[i];
+      const next = events[i + 1];
+      if (curr.type !== next.type && next.ts - curr.ts < flickerWindowMs) {
+        flickers.push({
+          element,
+          sequence: [curr.type, next.type],
+          windowMs: next.ts - curr.ts,
+        });
+      }
+    }
+  }
+
+  // Attribute churn: the same attribute on the same element rewritten more
+  // than twice in rapid succession.
+  const churn: GlitchChurn[] = [];
+  const byTarget = new Map<string, GlitchAttrEvent[]>();
+  for (const a of recording.attrs) {
+    const key = `${a.target}:${a.attr}`;
+    const list = byTarget.get(key) ?? [];
+    list.push(a);
+    byTarget.set(key, list);
+  }
+  for (const [target, events] of byTarget) {
+    let rapid = 0;
+    for (let i = 1; i < events.length; i++) {
+      if (events[i].ts - events[i - 1].ts < churnWindowMs) rapid++;
+    }
+    if (rapid > 2) {
+      churn.push({ target, changeCount: events.length, rapidChanges: rapid });
+    }
+  }
+
+  // Size jumps: a pane's rect changing by more than the threshold between
+  // two consecutive sampled frames.
+  const jumps: GlitchJump[] = [];
+  for (let i = 1; i < recording.frames.length; i++) {
+    const prev = recording.frames[i - 1];
+    const curr = recording.frames[i];
+    for (const pane of curr.panes) {
+      const prevPane = prev.panes.find((p) => p.id === pane.id);
+      if (!prevPane) continue;
+      // Hide/show transitions (display:none tab switches) pass through
+      // 0x0 by design — only movements between two VISIBLE states count.
+      if (pane.w === 0 || pane.h === 0 || prevPane.w === 0 || prevPane.h === 0) continue;
+      // Split/kill morphs animate rects on purpose — not flicker.
+      if (pane.animating || prevPane.animating) continue;
+      const dw = Math.abs(pane.w - prevPane.w);
+      const dh = Math.abs(pane.h - prevPane.h);
+      if (dw > sizeJumpThreshold || dh > sizeJumpThreshold) {
+        jumps.push({
+          paneId: pane.id,
+          ts: curr.ts,
+          from: { w: prevPane.w, h: prevPane.h },
+          to: { w: pane.w, h: pane.h },
+        });
+      }
+    }
+  }
+
+  return {
+    flickers,
+    churn,
+    jumps,
+    summary: {
+      nodeFlickers: flickers.length,
+      attrChurnEvents: churn.length,
+      sizeJumps: jumps.length,
+      totalNodeMutations: recording.nodes.length,
+      totalAttrMutations: recording.attrs.length,
+      durationMs: recording.durationMs,
+    },
+  };
+}
+
+/**
+ * The budget for an operation: the table's default, the operation's own row
+ * when it has one, then explicit overrides. An operation the table does not
+ * know gets the default.
+ */
+export function glitchThresholds(
+  operation: string,
+  overrides: Partial<GlitchThresholds> = {},
+): GlitchThresholds {
+  const table: Record<string, Partial<GlitchThresholds> | undefined> = OPERATION_THRESHOLDS;
+  return { ...OPERATION_THRESHOLDS.default, ...table[operation], ...overrides };
+}
+
+/** The failure message when a report exceeds its budget, or null within it. */
+export function describeGlitches(
+  operation: string,
+  report: GlitchReport,
+  thresholds: GlitchThresholds,
+): string | null {
+  const failures: string[] = [];
+  if (report.summary.nodeFlickers > thresholds.nodeFlickers) {
+    failures.push(
+      `node flickers: ${report.summary.nodeFlickers} (max ${thresholds.nodeFlickers})\n` +
+        report.flickers
+          .map((f) => `  - ${f.element}: ${f.sequence.join('→')} in ${f.windowMs.toFixed(1)}ms`)
+          .join('\n'),
+    );
+  }
+  if (report.summary.attrChurnEvents > thresholds.attrChurnEvents) {
+    failures.push(
+      `attribute churn: ${report.summary.attrChurnEvents} (max ${thresholds.attrChurnEvents})\n` +
+        report.churn
+          .map((c) => `  - ${c.target}: ${c.changeCount} changes (${c.rapidChanges} rapid)`)
+          .join('\n'),
+    );
+  }
+  if (report.summary.sizeJumps > thresholds.sizeJumps) {
+    failures.push(
+      `size jumps: ${report.summary.sizeJumps} (max ${thresholds.sizeJumps})\n` +
+        report.jumps
+          .slice(0, 10)
+          .map(
+            (j) =>
+              `  - ${j.paneId} at ${j.ts.toFixed(0)}ms: ${j.from.w}x${j.from.h} → ${j.to.w}x${j.to.h}`,
+          )
+          .join('\n'),
+    );
+  }
+  if (failures.length === 0) return null;
+  return (
+    `glitches detected during "${operation}" (${report.summary.durationMs.toFixed(0)}ms, ` +
+    `${report.summary.totalNodeMutations} node / ${report.summary.totalAttrMutations} attr mutations):\n\n` +
+    failures.join('\n\n')
+  );
+}
+
+/** In-page recorder for Storybook play functions. */
+export class GlitchRecorder {
+  private readonly collector: GlitchCollector;
+  private readonly opts: Required<GlitchRecorderOptions>;
+
+  constructor(scope: Element, options: GlitchRecorderOptions = {}) {
+    this.opts = { ...GLITCH_DEFAULTS, ...options };
+    this.collector = startGlitchCollector(scope, this.opts)!;
   }
 
   /** Disconnect observers and analyze what was recorded. */
   stop(): GlitchReport {
-    this.stopped = true;
-    this.observer.disconnect();
-    cancelAnimationFrame(this.rafId);
-
-    const { flickerWindowMs, churnWindowMs, sizeJumpThreshold } = this.opts;
-
-    // Node flicker: the same element identity added and removed (either
-    // order) within the flicker window.
-    const flickers: GlitchFlicker[] = [];
-    const byElement = new Map<string, NodeEvent[]>();
-    for (const n of this.nodes) {
-      const list = byElement.get(n.element) ?? [];
-      list.push(n);
-      byElement.set(n.element, list);
-    }
-    for (const [element, events] of byElement) {
-      for (let i = 0; i < events.length - 1; i++) {
-        const curr = events[i];
-        const next = events[i + 1];
-        if (curr.type !== next.type && next.ts - curr.ts < flickerWindowMs) {
-          flickers.push({
-            element,
-            sequence: [curr.type, next.type],
-            windowMs: next.ts - curr.ts,
-          });
-        }
-      }
-    }
-
-    // Attribute churn: the same attribute on the same element rewritten more
-    // than twice in rapid succession.
-    const churn: GlitchChurn[] = [];
-    const byTarget = new Map<string, AttrEvent[]>();
-    for (const a of this.attrs) {
-      const key = `${a.target}:${a.attr}`;
-      const list = byTarget.get(key) ?? [];
-      list.push(a);
-      byTarget.set(key, list);
-    }
-    for (const [target, events] of byTarget) {
-      let rapid = 0;
-      for (let i = 1; i < events.length; i++) {
-        if (events[i].ts - events[i - 1].ts < churnWindowMs) rapid++;
-      }
-      if (rapid > 2) {
-        churn.push({ target, changeCount: events.length, rapidChanges: rapid });
-      }
-    }
-
-    // Size jumps: a pane's rect changing by more than the threshold between
-    // two consecutive sampled frames.
-    const jumps: GlitchJump[] = [];
-    for (let i = 1; i < this.frames.length; i++) {
-      const prev = this.frames[i - 1];
-      const curr = this.frames[i];
-      for (const pane of curr.panes) {
-        const prevPane = prev.panes.find((p) => p.id === pane.id);
-        if (!prevPane) continue;
-        // Hide/show transitions (display:none tab switches) pass through
-        // 0x0 by design — only movements between two VISIBLE states count.
-        if (pane.w === 0 || pane.h === 0 || prevPane.w === 0 || prevPane.h === 0) continue;
-        // Split/kill morphs animate rects on purpose — not flicker.
-        if (pane.animating || prevPane.animating) continue;
-        const dw = Math.abs(pane.w - prevPane.w);
-        const dh = Math.abs(pane.h - prevPane.h);
-        if (dw > sizeJumpThreshold || dh > sizeJumpThreshold) {
-          jumps.push({
-            paneId: pane.id,
-            ts: curr.ts,
-            from: { w: prevPane.w, h: prevPane.h },
-            to: { w: pane.w, h: pane.h },
-          });
-        }
-      }
-    }
-
-    return {
-      flickers,
-      churn,
-      jumps,
-      summary: {
-        nodeFlickers: flickers.length,
-        attrChurnEvents: churn.length,
-        sizeJumps: jumps.length,
-        totalNodeMutations: this.nodes.length,
-        totalAttrMutations: this.attrs.length,
-        durationMs: performance.now() - this.startTime,
-      },
-    };
+    return analyzeGlitches(this.collector.stop(), this.opts);
   }
 
   /**
@@ -328,48 +457,8 @@ export class GlitchRecorder {
     overrides: Partial<GlitchThresholds> = {},
   ): GlitchReport {
     const report = this.stop();
-    const thresholds: GlitchThresholds = {
-      ...OPERATION_THRESHOLDS.default,
-      ...OPERATION_THRESHOLDS[operation],
-      ...overrides,
-    };
-
-    const failures: string[] = [];
-    if (report.summary.nodeFlickers > thresholds.nodeFlickers) {
-      failures.push(
-        `node flickers: ${report.summary.nodeFlickers} (max ${thresholds.nodeFlickers})\n` +
-          report.flickers
-            .map((f) => `  - ${f.element}: ${f.sequence.join('→')} in ${f.windowMs.toFixed(1)}ms`)
-            .join('\n'),
-      );
-    }
-    if (report.summary.attrChurnEvents > thresholds.attrChurnEvents) {
-      failures.push(
-        `attribute churn: ${report.summary.attrChurnEvents} (max ${thresholds.attrChurnEvents})\n` +
-          report.churn
-            .map((c) => `  - ${c.target}: ${c.changeCount} changes (${c.rapidChanges} rapid)`)
-            .join('\n'),
-      );
-    }
-    if (report.summary.sizeJumps > thresholds.sizeJumps) {
-      failures.push(
-        `size jumps: ${report.summary.sizeJumps} (max ${thresholds.sizeJumps})\n` +
-          report.jumps
-            .slice(0, 10)
-            .map(
-              (j) =>
-                `  - ${j.paneId} at ${j.ts.toFixed(0)}ms: ${j.from.w}x${j.from.h} → ${j.to.w}x${j.to.h}`,
-            )
-            .join('\n'),
-      );
-    }
-    if (failures.length > 0) {
-      throw new Error(
-        `glitches detected during "${operation}" (${report.summary.durationMs.toFixed(0)}ms, ` +
-          `${report.summary.totalNodeMutations} node / ${report.summary.totalAttrMutations} attr mutations):\n\n` +
-          failures.join('\n\n'),
-      );
-    }
+    const failure = describeGlitches(operation, report, glitchThresholds(operation, overrides));
+    if (failure) throw new Error(failure);
     return report;
   }
 }
