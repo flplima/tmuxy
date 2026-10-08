@@ -1,15 +1,4 @@
-use clap::Parser;
 use tmuxy_server::server;
-
-#[derive(Parser)]
-#[command(
-    name = "tmuxy-server",
-    about = "Tmuxy production server with embedded frontend"
-)]
-struct Cli {
-    #[command(flatten)]
-    server: server::ServerArgs,
-}
 
 #[tokio::main]
 async fn main() {
@@ -27,6 +16,5 @@ async fn main() {
         tmuxy_server::DEFAULT_LOG_FILTER
     });
 
-    let cli = Cli::parse();
-    server::run(cli.server).await;
+    server::run_argv(std::env::args_os()).await;
 }

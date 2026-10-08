@@ -276,6 +276,29 @@ fn announce_trace(trace: Option<Option<String>>, dev_mode: bool) {
     }
 }
 
+/// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
+/// and subcommands — and run it. The one clap wrapper around [`ServerArgs`]:
+/// the standalone `tmuxy-server` binary hands over its own argv, and the
+/// desktop binary builds one for `tmuxy server …` and `tmuxy trace …`. A
+/// parse error prints clap's message and exits, as clap does.
+pub async fn run_argv<I, T>(argv: I)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    #[derive(clap::Parser)]
+    #[command(
+        name = "tmuxy-server",
+        about = "Tmuxy production server with embedded frontend"
+    )]
+    struct Cli {
+        #[command(flatten)]
+        server: ServerArgs,
+    }
+    let cli = <Cli as clap::Parser>::parse_from(argv);
+    run(cli.server).await
+}
+
 pub async fn run(args: ServerArgs) {
     let dev_mode = args.dev;
     let password = resolve_password(args.password.clone());
