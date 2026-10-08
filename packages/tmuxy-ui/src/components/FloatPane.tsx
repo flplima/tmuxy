@@ -119,7 +119,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
         containerStyle={containerStyle}
         backdrop={backdrop}
         hideHeader={hideHeader}
-        closeOnEsc={false}
         closable={!readOnly}
       >
         <div
@@ -156,7 +155,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       containerStyle={{ left, top, width: floatWidth, height: floatHeight }}
       backdrop={backdrop}
       hideHeader
-      closeOnEsc={false}
       closable={!readOnly}
     >
       <div

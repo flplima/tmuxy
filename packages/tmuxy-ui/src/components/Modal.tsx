@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import { Tooltip } from './Tooltip';
 
 interface ModalProps {
@@ -8,15 +8,13 @@ interface ModalProps {
   children: React.ReactNode;
   width?: number;
   className?: string;
-  closeOnBackdrop?: boolean;
-  closeOnEsc?: boolean;
   zIndex?: number;
   containerStyle?: React.CSSProperties;
   /** Backdrop style: 'dim' (default), 'blur', or 'none' */
   backdrop?: 'dim' | 'blur' | 'none';
   /** Hide the header bar (title + close button) */
   hideHeader?: boolean;
-  /** Whether it can be dismissed at all: false drops the close button, and the backdrop and Escape do nothing. */
+  /** Whether it can be dismissed at all: false drops the close button, and a click on the backdrop does nothing. */
   closable?: boolean;
 }
 
@@ -27,8 +25,6 @@ export function Modal({
   children,
   width,
   className,
-  closeOnBackdrop = true,
-  closeOnEsc = true,
   zIndex = 1000,
   containerStyle,
   backdrop = 'dim',
@@ -36,23 +32,8 @@ export function Modal({
   closable = true,
 }: ModalProps) {
   const handleBackdropClick = useCallback(() => {
-    if (closable && closeOnBackdrop) onClose();
-  }, [closable, closeOnBackdrop, onClose]);
-
-  useEffect(() => {
-    if (!open || !closable || !closeOnEsc) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [open, closable, closeOnEsc, onClose]);
+    if (closable) onClose();
+  }, [closable, onClose]);
 
   if (!open) return null;
 
