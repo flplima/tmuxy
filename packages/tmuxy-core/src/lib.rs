@@ -677,22 +677,16 @@ pub struct WindowDelta {
 }
 
 impl WindowDelta {
+    /// True when the delta carries no change at all. Read off the serialized
+    /// form for the same reason `PaneDelta::is_empty` is: every field is
+    /// `skip_serializing_if = "Option::is_none"`, so a field added to the
+    /// struct is covered the moment it exists, where a hand-written list
+    /// silently drops the change it forgot.
     pub fn is_empty(&self) -> bool {
-        self.index.is_none()
-            && self.active_pane_id.is_none()
-            && self.name.is_none()
-            && self.active.is_none()
-            && self.window_type.is_none()
-            && self.float_parent.is_none()
-            && self.float_width.is_none()
-            && self.float_height.is_none()
-            && self.float_drawer.is_none()
-            && self.float_bg.is_none()
-            && self.float_noheader.is_none()
-            && self.sidebar_cols.is_none()
-            && self.sidebar_hidden.is_none()
-            && self.collapsible.is_none()
-            && self.zoomed.is_none()
+        match serde_json::to_value(self) {
+            Ok(serde_json::Value::Object(fields)) => fields.is_empty(),
+            _ => false,
+        }
     }
 }
 
@@ -893,6 +887,49 @@ mod tests {
                 "a delta carrying only `{key}` was dropped"
             );
         }
+    }
+
+    /// The window twin of the test above: `WindowDelta::is_empty` reads the
+    /// serialized form too, so every field, alone, is a change that survives.
+    #[test]
+    fn every_window_delta_field_makes_it_non_empty() {
+        assert!(WindowDelta::default().is_empty());
+
+        let all_fields = serde_json::json!({
+            "index": 2,
+            "name": "shell",
+            "active": true,
+            "window_type": "float",
+            "float_parent": "@1",
+            "float_width": 80,
+            "float_height": 24,
+            "float_drawer": "bottom",
+            "float_bg": "dim",
+            "float_noheader": true,
+            "sidebar_cols": 30,
+            "sidebar_hidden": true,
+            "collapsible": true,
+            "zoomed": true,
+            "active_pane_id": "%3",
+        });
+        let fields = all_fields.as_object().unwrap();
+
+        for (key, value) in fields {
+            let one = serde_json::json!({ key.as_str(): value.clone() });
+            let delta: WindowDelta = serde_json::from_value(one).unwrap();
+            assert!(
+                !delta.is_empty(),
+                "a delta carrying only `{key}` was dropped"
+            );
+        }
+
+        // Clearing a nested option is a change too: `float_parent: null` is
+        // how a float that re-docks reaches the client.
+        let cleared = WindowDelta {
+            float_parent: Some(None),
+            ..Default::default()
+        };
+        assert!(!cleared.is_empty(), "clearing a field must be emitted");
     }
 }
 
