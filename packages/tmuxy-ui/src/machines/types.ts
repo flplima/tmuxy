@@ -718,14 +718,8 @@ export type ResizeMoveEvent = { type: 'RESIZE_MOVE'; clientX: number; clientY: n
 export type ResizeEndEvent = { type: 'RESIZE_END' };
 
 // Keyboard events
-export type KeyPressEvent = {
-  type: 'KEY_PRESS';
-  key: string;
-  ctrlKey: boolean;
-  altKey: boolean;
-  shiftKey: boolean;
-  metaKey: boolean;
-};
+/** A key the keyboard actor consumed; the drag and resize machines cancel on Escape. */
+export type KeyPressEvent = { type: 'KEY_PRESS'; key: string };
 export type PrefixModeChangeEvent = { type: 'PREFIX_MODE_CHANGE'; active: boolean };
 
 // UI config events
