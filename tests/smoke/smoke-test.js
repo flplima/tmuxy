@@ -15,13 +15,26 @@
  *   - Linux: tauri-driver running on port 4444, DISPLAY set (Xvfb)
  *   - macOS: tauri-webdriver running on port 4444, tmux installed
  *   - tmux installed and in PATH
+ *
+ * The app is launched by that driver, outside this process, so it attaches to
+ * the socket its own default names — `tmuxy` — unless the workflow set
+ * TMUX_SOCKET for both. This process resolves the same one, so the session it
+ * clears before and after is the one the app will use.
  */
 
-const { remote } = require('webdriverio');
-const { execSync } = require('child_process');
+process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || 'tmuxy';
+
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const {
+  launchApp,
+  killTmuxSession,
+  waitForAppReady,
+  typeKeys,
+  pressKey,
+  waitForTerminalText,
+} = require('../tauri/helpers/wdio-client');
 
 const BINARY = process.argv[2];
 if (!BINARY) {
@@ -30,7 +43,6 @@ if (!BINARY) {
 }
 
 const BINARY_PATH = path.resolve(BINARY);
-const DRIVER_PORT = 4444;
 const SESSION_NAME = 'tmuxy'; // default session name
 const APP_READY_TIMEOUT = 60000;
 const COMMAND_TIMEOUT = 30000;
@@ -50,16 +62,6 @@ function stateDir() {
 const DEBUG_LOG = path.join(stateDir(), 'tmuxy.log');
 
 // --- Helpers ---
-
-function cleanupTmuxSession() {
-  try {
-    execSync(`tmux -L ${process.env.TMUX_SOCKET || 'tmuxy'} kill-session -t ${SESSION_NAME}`, {
-      stdio: 'ignore',
-    });
-  } catch {
-    // Session may not exist
-  }
-}
 
 function truncateDebugLog() {
   // Start with an empty log so post-run assertions only see this run's output.
@@ -114,97 +116,22 @@ async function smokeTest() {
   let driver;
   const launchedAt = Date.now();
   try {
-    driver = await remote({
-      hostname: 'localhost',
-      port: DRIVER_PORT,
-      capabilities: {
-        'tauri:options': {
-          application: BINARY_PATH,
-          env: {
-            DISPLAY: process.env.DISPLAY || ':99',
-          },
-        },
-      },
-      logLevel: 'warn',
-      // Creating the session launches the app and waits for its webview to
-      // register as an automation target. On the Linux CI runners that has
-      // always taken ~26s (the app itself is silent for ~25s between GTK init
-      // and its first log line), so the old 30s cap left about three seconds
-      // of headroom and any startup cost that crossed it turned the whole
-      // workflow red. The wait is bounded by the job timeout either way;
-      // what matters is that the number is not sitting on top of the
-      // measurement. The elapsed time is printed below so the margin stays
-      // visible in the log instead of being rediscovered from a red build.
-      connectionRetryTimeout: 120000,
-      // No retries: WebKitWebDriver serves one session at a time, so a second
-      // attempt after a timeout fails with "Maximum number of active
-      // sessions" and reports that instead of the timeout that caused it.
-      connectionRetryCount: 0,
-    });
+    driver = await launchApp(BINARY_PATH);
     console.warn(`WebDriver session created — app launched (${Date.now() - launchedAt}ms)`);
 
-    // Wait for terminal UI element
-    const terminal = await driver.$('[role="log"]');
-    await terminal.waitForExist({ timeout: APP_READY_TIMEOUT });
-    console.warn('Terminal element found');
-
-    // Wait for shell prompt
-    const promptStart = Date.now();
-    while (Date.now() - promptStart < APP_READY_TIMEOUT) {
-      const hasPrompt = await driver.execute(() => {
-        const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs)
-          .map((l) => l.textContent || '')
-          .join('\n');
-        return content.length > 5 && /[$#%>❯]/.test(content);
-      });
-      if (hasPrompt) break;
-      await driver.pause(500);
-    }
+    await waitForAppReady(driver, APP_READY_TIMEOUT);
     console.warn('Shell prompt detected');
-
-    // Focus and type
-    await terminal.click();
-    await driver.pause(300);
 
     const marker = `SMOKE_${Date.now()}`;
     const command = `echo '${marker}'`;
-    for (const char of command) {
-      await driver.keys(char);
-      await driver.pause(30);
-    }
-    await driver.keys('\uE007'); // Enter
+    await typeKeys(driver, command);
+    await pressKey(driver, 'Enter');
     console.warn(`Typed: ${command}`);
 
-    // Wait for marker in terminal output (twice: command + echo output)
-    const cmdStart = Date.now();
-    while (Date.now() - cmdStart < COMMAND_TIMEOUT) {
-      const content = await driver.execute(() => {
-        const logs = document.querySelectorAll('[role="log"]');
-        return Array.from(logs)
-          .map((l) => l.textContent || '')
-          .join('\n');
-      });
-      const occurrences = content.split(marker).length - 1;
-      if (occurrences >= 2) {
-        console.warn('Command output verified in terminal UI');
-        console.warn('Smoke test passed');
-        return;
-      }
-      await driver.pause(500);
-    }
-
-    const finalContent = await driver.execute(() => {
-      const logs = document.querySelectorAll('[role="log"]');
-      return Array.from(logs)
-        .map((l) => l.textContent || '')
-        .join('\n');
-    });
-    throw new Error(
-      `Command output not visible in terminal within ${COMMAND_TIMEOUT}ms.\n` +
-        `Expected marker "${marker}" to appear twice.\n` +
-        `Terminal content:\n${finalContent.slice(0, 500)}`,
-    );
+    // Twice: once as typed, once as the echo's output.
+    await waitForTerminalText(driver, marker, COMMAND_TIMEOUT, 2);
+    console.warn('Command output verified in terminal UI');
+    console.warn('Smoke test passed');
   } finally {
     if (driver) {
       try {
@@ -224,14 +151,14 @@ async function main() {
 
   // Clean up any leftover session and clear the debug log so the
   // post-run assertions only inspect this run's output.
-  cleanupTmuxSession();
+  killTmuxSession(SESSION_NAME);
   truncateDebugLog();
 
   try {
     await smokeTest();
     assertHealthyDebugLog();
   } finally {
-    cleanupTmuxSession();
+    killTmuxSession(SESSION_NAME);
   }
 }
 

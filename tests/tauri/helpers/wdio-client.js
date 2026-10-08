@@ -7,8 +7,10 @@
  */
 
 const { remote } = require('webdriverio');
+const { execSync } = require('child_process');
 const path = require('path');
 const { DRIVER_PORT } = require('./tauri-driver');
+const { tmuxCmd } = require('../../helpers/tmux-socket');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
 // `npx tauri build --debug` is what a local run produces, so that stays the
@@ -37,6 +39,52 @@ const KEYS = {
   Meta: '\uE03D',
 };
 
+/** Kill the tmux session `sessionName` on the suite's socket, if it exists. */
+function killTmuxSession(sessionName) {
+  try {
+    execSync(`${tmuxCmd()} kill-session -t ${sessionName}`, { stdio: 'ignore' });
+  } catch {
+    // Session may not exist yet
+  }
+}
+
+/**
+ * Launch the app through the WebDriver on {@link DRIVER_PORT} — tauri-driver
+ * on Linux, tauri-webdriver on macOS — and return the session driving it.
+ *
+ * @param {string} [binary] - the app to launch (default: {@link TAURI_BINARY})
+ * @returns {Promise<WebdriverIO.Browser>}
+ */
+async function launchApp(binary = TAURI_BINARY) {
+  return remote({
+    hostname: 'localhost',
+    port: DRIVER_PORT,
+    capabilities: {
+      'tauri:options': {
+        application: binary,
+        env: {
+          DISPLAY: process.env.DISPLAY || ':99',
+        },
+      },
+    },
+    logLevel: 'warn',
+    // Creating the session launches the app and waits for its webview to
+    // register as an automation target. On the Linux CI runners that has
+    // always taken ~26s (the app itself is silent for ~25s between GTK init
+    // and its first log line), so a 30s cap left about three seconds of
+    // headroom and any startup cost that crossed it turned the job red. The
+    // wait is bounded by the job timeout either way; what matters is that
+    // the number is not sitting on top of the measurement. Callers print the
+    // elapsed time so the margin stays visible in the log instead of being
+    // rediscovered from a red build.
+    connectionRetryTimeout: 120000,
+    // No retries: WebKitWebDriver serves one session at a time, so a second
+    // attempt after a timeout fails with "Maximum number of active
+    // sessions" and reports that instead of the timeout that caused it.
+    connectionRetryCount: 0,
+  });
+}
+
 /**
  * Create a new WebdriverIO session connected to tauri-driver.
  * Each session launches a new Tauri app instance with a unique tmux session.
@@ -55,13 +103,7 @@ async function createSession(options = {}) {
   // Pre-create the tmux session. The Tauri binary's built-in session creation
   // can fail when the tmuxy config contains settings (like `window-size manual`)
   // that crash tmux on a fresh start without an attached client.
-  const { execSync } = require('child_process');
-  const { tmuxCmd } = require('../../helpers/tmux-socket');
-  try {
-    execSync(`${tmuxCmd()} kill-session -t ${sessionName}`, { stdio: 'ignore' });
-  } catch {
-    // Session may not exist yet
-  }
+  killTmuxSession(sessionName);
   try {
     execSync(`${tmuxCmd()} new-session -d -s ${sessionName}`, { stdio: 'ignore' });
   } catch {
@@ -70,22 +112,7 @@ async function createSession(options = {}) {
   // The initial window needs no marker — tabs carry none, so an untagged
   // window in the session already surfaces as a 'tab' on first state emission.
 
-  const driver = await remote({
-    hostname: 'localhost',
-    port: DRIVER_PORT,
-    capabilities: {
-      'tauri:options': {
-        application: TAURI_BINARY,
-        env: {
-          DISPLAY: process.env.DISPLAY || ':99',
-        },
-      },
-    },
-    // WebdriverIO config
-    logLevel: 'warn',
-    connectionRetryTimeout: 30000,
-    connectionRetryCount: 3,
-  });
+  const driver = await launchApp();
 
   return { driver, sessionName };
 }
@@ -151,22 +178,24 @@ async function getTerminalText(driver) {
 }
 
 /**
- * Wait for specific text to appear in the terminal.
+ * Wait for specific text to appear in the terminal, `times` times over — two
+ * for a command that echoes its own argument: once as typed, once as output.
  *
  * @param {WebdriverIO.Browser} driver
  * @param {string} text
  * @param {number} timeout
+ * @param {number} times
  */
-async function waitForTerminalText(driver, text, timeout = 15000) {
+async function waitForTerminalText(driver, text, timeout = 15000, times = 1) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const content = await getTerminalText(driver);
-    if (content.includes(text)) return content;
+    if (content.split(text).length - 1 >= times) return content;
     await driver.pause(200);
   }
   const content = await getTerminalText(driver);
   throw new Error(
-    `Timeout waiting for "${text}" in terminal (${timeout}ms). Content: "${content.slice(0, 200)}"`,
+    `Timeout waiting for "${text}" in terminal (${timeout}ms, ${times}x). Content: "${content.slice(0, 500)}"`,
   );
 }
 
@@ -379,6 +408,8 @@ async function waitForRawWindowCount(driver, expected, timeout = 20000) {
 
 module.exports = {
   createSession,
+  killTmuxSession,
+  launchApp,
   waitForAppReady,
   waitForXState,
   getTerminalText,
