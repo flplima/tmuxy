@@ -12,7 +12,6 @@ const {
   typeInTerminal,
   pressEnter,
   waitForTerminalText,
-  createWindowKeyboard,
   clickPaneGroupAdd,
   getGroupTabInfo,
   waitForGroupTabs,
@@ -25,41 +24,6 @@ const {
   DELAYS,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
-
-// ==================== Scenario: Tab numbering is sequential ====================
-
-describe('Scenario: Tab numbering is sequential', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
-  test('Tab labels show sequential indices regardless of internal tmux window IDs', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Step 1: Create a pane group (which uses hidden tmux windows)
-    await clickPaneGroupAdd(ctx.page);
-    await delay(DELAYS.SYNC);
-
-    // Step 2: Create a new visible window
-    await createWindowKeyboard(ctx.page);
-    await waitForWindowCount(ctx.page, 2);
-    await delay(DELAYS.MEDIUM);
-
-    // Step 3: Read tab labels from the UI
-    const tabLabels = await ctx.page.evaluate(() => {
-      const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
-      return Array.from(tabs).map((t) => t.textContent.trim());
-    });
-
-    // Tabs should be "1:name" and "2:name" (sequential), not "1:name" and "5:name"
-    expect(tabLabels.length).toBe(2);
-    expect(tabLabels[0]).toMatch(/^1:/);
-    expect(tabLabels[1]).toMatch(/^2:/);
-  });
-});
 
 // ==================== Scenario: Copy mode reveals terminal history ====================
 

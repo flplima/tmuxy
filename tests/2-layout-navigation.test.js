@@ -1328,8 +1328,65 @@ describe('Scenario 5: Pane Groups', () => {
     // read apart without reading them.
     expect(tabs.find((t) => t.active).background).not.toBe(tabs.find((t) => !t.active).background);
 
+    // Step 4b: The group parks its members in hidden tmux windows, which take
+    // window indices of their own. A tab opened now must still read "2:", by
+    // its position in the strip — it shipped reading "5:", the tmux index.
+    const groupWindowId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activeWindowId ?? null,
+    );
+    expect(groupWindowId).toMatch(/^@\d+$/);
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+    const tabLabels = () =>
+      ctx.page.evaluate(() =>
+        [...document.querySelectorAll('.tab-list .tab-name')].map((el) =>
+          (el.querySelector('.tab-name-label')?.textContent || el.textContent || '').trim(),
+        ),
+      );
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const labels = await tabLabels();
+        return labels.length === 2 && /^1:/.test(labels[0]) && /^2:/.test(labels[1]);
+      },
+      10000,
+      async () => `the tab strip to read 1:, 2: (saw ${JSON.stringify(await tabLabels())})`,
+    );
+    // Back to the group's tab, by its stable id, for the rest of the scenario.
+    await ctx.page.click(`.tab-list .tab-name[data-window-id="${groupWindowId}"]`);
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate(
+          (id) => window.app?.getSnapshot()?.context?.activeWindowId === id,
+          groupWindowId,
+        ),
+      10000,
+      'the group window to be back on screen',
+    );
+    await waitForGroupTabs(ctx.page, 2);
+    // And close that tab the way the strip offers it — right-click → "Close
+    // Tab" — so the rest of the scenario reads one window's group header. A
+    // background tab keeps its panes mounted, and its lone header tab would
+    // otherwise be counted among the group's.
+    await ctx.page.click(
+      `.tab-list .tab-name[data-window-id]:not([data-window-id="${groupWindowId}"])`,
+      { button: 'right' },
+    );
+    await ctx.page.locator('[role="menuitem"]', { hasText: 'Close Tab' }).click({ timeout: 5000 });
+    await waitForWindowCount(ctx.page, 1);
+
     // Step 5: Record the new (BETA) pane ID — it should be different from ALPHA
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate((alpha) => {
+          const id = window.app?.getSnapshot()?.context?.activePaneId || null;
+          return id !== null && id !== alpha;
+        }, alphaPaneId),
+      10000,
+      'the new group member to be the active pane',
+    );
     const betaPaneId = await ctx.page.evaluate(() => {
       return window.app?.getSnapshot()?.context?.activePaneId || null;
     });
