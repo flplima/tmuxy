@@ -1062,15 +1062,7 @@ pub fn run() {
     // the `debug_log` file logger survived. Install it now so the whole Rust
     // pipeline is observable in the app, and so the NDJSON trace layer is wired.
     tmuxy_server::init_logging();
-    if let Some(path) = tmuxy_core::trace::init(None, cfg!(debug_assertions)) {
-        let level = tmuxy_core::trace::level_name();
-        tmuxy_core::debug_log::log(&format!("action tracing ON [{level}] → {}", path.display()));
-        eprintln!(
-            "[tmuxy] action tracing ON [level={level}] → {} (local only, never uploaded; \
-             TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
-            path.display()
-        );
-    }
+    tmuxy_core::trace::init(None, cfg!(debug_assertions));
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();

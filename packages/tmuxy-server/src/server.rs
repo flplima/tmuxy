@@ -262,20 +262,6 @@ pub enum ServerAction {
     Group(tmuxy_group::GroupArgs),
 }
 
-/// Activate action tracing per the gating rules and announce it loudly, so it
-/// is never a surprise (docs/TELEMETRY.md). Only called on the actual
-/// server-start paths — never for stop/status/tree/connect.
-fn announce_trace(trace: Option<Option<String>>, dev_mode: bool) {
-    if let Some(path) = tmuxy_core::trace::init(trace, dev_mode) {
-        println!(
-            "tmuxy: action tracing ON [level={}] → {} (local only, never uploaded; \
-             TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
-            tmuxy_core::trace::level_name(),
-            path.display()
-        );
-    }
-}
-
 /// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
 /// and subcommands — and run it. The one clap wrapper around [`ServerArgs`]:
 /// the standalone `tmuxy-server` binary hands over its own argv, and the
@@ -314,7 +300,10 @@ pub async fn run(args: ServerArgs) {
                     }
                 };
             require_tmux();
-            announce_trace(args.trace.clone(), dev_mode);
+            // Action tracing per the gating rules (docs/TELEMETRY.md), which
+            // announces itself. Only on the actual server-start path — never
+            // for stop/status/tree/connect.
+            tmuxy_core::trace::init(args.trace.clone(), dev_mode);
             if args.no_restore {
                 std::env::set_var("TMUXY_NO_RESTORE", "1");
             }

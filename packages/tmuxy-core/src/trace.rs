@@ -188,8 +188,9 @@ fn salt() -> u64 {
 // =============================================================================
 
 /// Resolve the gating rules from `docs/TELEMETRY.md` and, if tracing should be
-/// on, spawn the writer and start recording. Returns the resolved file path
-/// when enabled, `None` when off.
+/// on, spawn the writer, start recording and say so on stderr — loudly, so a
+/// trace is never a surprise. Returns the resolved file path when enabled,
+/// `None` when off.
 ///
 /// Precedence, highest first:
 /// 1. the `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switches — always off;
@@ -230,6 +231,12 @@ pub fn init(flag: Option<Option<String>>, dev_mode: bool) -> Option<PathBuf> {
     }
     let path = start_writer()?;
     ACTIVE.store(true, Ordering::Relaxed);
+    eprintln!(
+        "tmuxy: action tracing ON [level={}] → {} (local only, never uploaded; \
+         TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
+        level_name(),
+        path.display()
+    );
     Some(path)
 }
 
