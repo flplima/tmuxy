@@ -16,13 +16,20 @@ use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
     TmuxMonitor,
 };
-use tmuxy_core::transport::KeyBindings;
-use tmuxy_core::{executor, CommandError, StateUpdate};
+use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::command::ClientCommand;
 use crate::state::{AppState, SessionConnections};
+
+/// How long to wait after a `source-file` before re-reading keybindings.
+///
+/// `RunCommand` is fire-and-forget into the monitor channel, so there is no
+/// response to key off — this is a settle window, not a guarantee. A slow
+/// `source-file` can still broadcast the pre-source bindings; the correct fix
+/// is to await the command's control-mode response.
+const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
 // ============================================
 // SSE State Emitter (Adapter Pattern)
@@ -74,8 +81,6 @@ fn encode_event<T: Serialize>(event: &T) -> Option<String> {
 pub struct SseEmitter {
     broadcast: Arc<crate::state::SessionBroadcast>,
     app_state: Arc<AppState>,
-    /// The session the monitor feeds, for the reads that go back through it.
-    session: String,
     /// Told of every change to the session's shape, so a snapshot follows it.
     keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
 }
@@ -84,13 +89,11 @@ impl SseEmitter {
     pub fn new(
         broadcast: Arc<crate::state::SessionBroadcast>,
         app_state: Arc<AppState>,
-        session: String,
         keeper: Arc<tmuxy_core::session_snapshot::SnapshotKeeper>,
     ) -> Self {
         Self {
             broadcast,
             app_state,
-            session,
             keeper,
         }
     }
@@ -108,12 +111,59 @@ impl LogSink for SseEmitter {
     }
 }
 
+/// The most a single pane's images may hold in memory.
+///
+/// A pane used to accumulate images forever: the store is only swept when the
+/// PANE goes away, and nothing retires an image whose placement was replaced.
+/// That was survivable while an image meant a picture someone `icat`ed, and is
+/// not survivable now that `tmuxy browser --repl` draws a JPEG of the page
+/// several times a second — the same anchor, a new image id each time, so the
+/// placements stay at one while the bytes behind them grow without limit.
+///
+/// Generous on purpose: this is a backstop against a stream, not a budget for
+/// ordinary use. A pane full of distinct pictures in its scrollback stays
+/// whole, and a page at 30KB a frame has room for several hundred frames
+/// before the oldest is dropped.
+const MAX_PANE_IMAGE_BYTES: usize = 24 * 1024 * 1024;
+
+/// Drop a pane's oldest images until it is back under the cap.
+///
+/// Oldest by image id, which the core assigns increasing per pane, so the one
+/// dropped first is the one least likely to still be placed on screen. An image
+/// whose placement is live is only dropped if a pane is holding 24MB of newer
+/// images, in which case the alternative was unbounded growth.
+fn trim_pane_images(
+    store: &mut HashMap<(String, u32), tmuxy_core::control_mode::StoredImage>,
+    pane_id: &str,
+) {
+    let mut ids: Vec<(u32, usize)> = store
+        .iter()
+        .filter(|((pane, _), _)| pane == pane_id)
+        .map(|((_, id), img)| (*id, img.data.len()))
+        .collect();
+    let mut total: usize = ids.iter().map(|(_, len)| *len).sum();
+    if total <= MAX_PANE_IMAGE_BYTES {
+        return;
+    }
+    ids.sort_unstable_by_key(|(id, _)| *id);
+    for (id, len) in ids {
+        if total <= MAX_PANE_IMAGE_BYTES {
+            break;
+        }
+        if store.remove(&(pane_id.to_string(), id)).is_some() {
+            total = total.saturating_sub(len);
+        }
+    }
+}
+
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
         // Garbage-collect orphaned images when we have a full state snapshot
         if let StateUpdate::Full { ref state } = update {
+            let active_pane_ids: std::collections::HashSet<&str> =
+                state.panes.iter().map(|p| p.tmux_id.as_str()).collect();
             if let Ok(mut guard) = self.app_state.image_store.try_write() {
-                guard.retain_live_panes(state);
+                guard.retain(|(pane_id, _), _| active_pane_ids.contains(pane_id.as_str()));
             }
         }
         // The snapshot follows the session's SHAPE, not its output: a split, a
@@ -154,48 +204,58 @@ impl StateEmitter for SseEmitter {
     }
 
     fn on_initial_sync_complete(&self) {
-        // The config has been sourced and the settings enforced: the bindings
-        // and the theme + appearance options are the ones to show now. Read
-        // off the monitor loop, whose own connection answers them.
-        let state = Arc::clone(&self.app_state);
-        let session = self.session.clone();
+        // Broadcast keybindings now that config has been sourced and settings enforced.
+        let keybindings = KeyBindings::current();
+        self.send_event(&SseEvent::KeyBindings(keybindings));
+        // Same for the theme + appearance options the config may have set.
+        let broadcast = self.broadcast.clone();
+        let ctx = self.app_state.ctx.clone();
         tokio::spawn(async move {
-            refresh_keybindings(&state, &session).await;
-            broadcast_theme_settings(&state, &session).await;
+            let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
+            if let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) {
+                broadcast.broadcast(msg);
+            }
         });
     }
 
     fn store_images(
         &self,
-        pane_id: &tmuxy_core::PaneId,
+        pane_id: &str,
         images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
     ) {
+        let pane_id = pane_id.to_string();
         // Use try_write to avoid blocking the monitor loop; drop images if contended
         if let Ok(mut guard) = self.app_state.image_store.try_write() {
-            guard.insert(pane_id, images);
+            for (id, img) in images {
+                guard.insert((pane_id.clone(), id), img);
+            }
+            trim_pane_images(&mut guard, &pane_id);
         }
     }
 
-    fn write_clipboard(&self, pane_id: Option<&tmuxy_core::PaneId>, text: String) {
+    fn write_clipboard(&self, pane_id: &str, text: String) {
         // SEC-13: a viewer never receives the writer's clipboard. tmux paste
         // buffers are global to the tmux SERVER, so `%paste-buffer-changed`
         // carries a yank from any session — text a viewer was never shown —
         // and every client that receives it writes it to its own system
         // clipboard.
         if self.app_state.read_only {
-            tracing::debug!(?pane_id, "read-only server: clipboard write not forwarded");
+            tracing::debug!(%pane_id, "read-only server: clipboard write not forwarded");
             return;
         }
-        if !tmuxy_core::transport::clipboard_write_allowed(&text) {
+        // SEC-01/SEC-13: the OSC 52 path bounds this at the aggregator, where
+        // the active pane is known; a paste-buffer mirror arrives here with no
+        // pane at all, so the size cap is applied for both on the way out.
+        if text.len() > tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES {
             tracing::debug!(
-                ?pane_id,
+                %pane_id,
                 bytes = text.len(),
                 "clipboard write over the cap, dropped"
             );
             return;
         }
         self.send_event(&SseEvent::Clipboard {
-            pane_id: pane_id.map(|p| p.to_string()).unwrap_or_default(),
+            pane_id: pane_id.to_string(),
             text,
         });
     }
@@ -204,6 +264,58 @@ impl StateEmitter for SseEmitter {
 // ============================================
 // SSE Event Types
 // ============================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBindings {
+    pub prefix_key: String,
+    pub prefix_bindings: Vec<tmuxy_core::KeyBinding>,
+    pub root_bindings: Vec<tmuxy_core::KeyBinding>,
+}
+
+impl KeyBindings {
+    /// `current()` off the async runtime.
+    ///
+    /// SEC-16: it runs three synchronous `tmux` subprocesses and waits on each.
+    /// Called from inside the `/events` stream generator that was a tokio
+    /// worker thread parked in `wait()` — one per connecting client, with no
+    /// cap on clients, and every one of them also another external `tmux`
+    /// process, which docs/TMUX.md says destabilises tmux 3.5a.
+    async fn current_offthread() -> Self {
+        tokio::task::spawn_blocking(Self::current)
+            .await
+            .unwrap_or_else(|_| Self {
+                prefix_key: "C-b".into(),
+                prefix_bindings: Vec::new(),
+                root_bindings: Vec::new(),
+            })
+    }
+
+    /// The bindings to greet a new stream of `state` with: read once and kept
+    /// on a viewer's server (`AppState::viewer_key_bindings`), read afresh on
+    /// a writable one.
+    async fn for_greeting(state: &AppState) -> Self {
+        if state.read_only {
+            state
+                .viewer_key_bindings
+                .get_or_init(Self::current_offthread)
+                .await
+                .clone()
+        } else {
+            Self::current_offthread().await
+        }
+    }
+
+    /// Snapshot the live tmux bindings with the standard fallbacks. The one
+    /// assembly point for the SSE greeting, `on_initial_sync_complete`, and
+    /// `broadcast_keybindings` (previously three identical copies).
+    fn current() -> Self {
+        Self {
+            prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
+            prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
+            root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event", content = "data")]
@@ -250,22 +362,12 @@ enum SseEvent {
 // Command Types
 // ============================================
 
-/// A command's answer. A failure is a `CommandError` instead —
-/// `{ "error", "kind" }` — sent with a 4xx status.
 #[derive(Debug, Serialize)]
 pub struct CommandResponse {
-    result: serde_json::Value,
-}
-
-/// A failed command, as `POST /commands` answers it.
-fn command_failure(status: StatusCode, error: CommandError) -> Response {
-    (status, Json(error)).into_response()
-}
-
-/// A command's answer as JSON; failing to make it is this side's fault.
-fn to_json(value: impl Serialize, what: &str) -> Result<serde_json::Value, CommandError> {
-    serde_json::to_value(value)
-        .map_err(|e| CommandError::unavailable(format!("Failed to serialize {what}: {e}")))
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 // ============================================
@@ -287,34 +389,13 @@ enum SessionRejection {
     NotServed,
 }
 
-impl SessionRejection {
-    fn status(&self) -> StatusCode {
-        match self {
-            Self::Invalid => StatusCode::BAD_REQUEST,
-            Self::NotServed => StatusCode::NOT_FOUND,
-        }
-    }
-
-    fn message(&self) -> &'static str {
-        match self {
-            Self::Invalid => "invalid session name",
-            Self::NotServed => "no such session",
-        }
-    }
-
-    /// The same refusal for `POST /commands`, in its error shape.
-    fn into_command_failure(self) -> Response {
-        let error = match self {
-            Self::Invalid => CommandError::invalid(self.message()),
-            Self::NotServed => CommandError::unavailable(self.message()),
-        };
-        command_failure(self.status(), error)
-    }
-}
-
 impl IntoResponse for SessionRejection {
     fn into_response(self) -> Response {
-        (self.status(), format!("{}\n", self.message())).into_response()
+        match self {
+            Self::Invalid => (StatusCode::BAD_REQUEST, "invalid session name\n"),
+            Self::NotServed => (StatusCode::NOT_FOUND, "no such session\n"),
+        }
+        .into_response()
     }
 }
 
@@ -525,17 +606,13 @@ pub async fn sse_handler(
             yield Ok::<_, std::convert::Infallible>(Event::default().event("connection-info").data(s));
         }
 
-        // A reconnecting client's monitor sourced the config long ago, so the
-        // bindings it last broadcast are the ones in force; a client that
-        // got here before its monitor did is sent them by the monitor's
-        // `on_initial_sync_complete`, on the broadcast it already holds.
-        let known_bindings = state
-            .sessions
-            .read()
-            .await
-            .get(&session)
-            .and_then(|conns| conns.key_bindings.clone());
-        if let Some(s) = known_bindings.and_then(|kb| encode_event(&SseEvent::KeyBindings(kb))) {
+        // Send keybindings to each new SSE client. For reconnecting clients
+        // (monitor already running, config already sourced), this is the only
+        // chance to receive them. The monitor also broadcasts updated keybindings
+        // via on_initial_sync_complete() after sourcing config for the first time.
+        let keybindings = KeyBindings::for_greeting(&state).await;
+        let kb_event = SseEvent::KeyBindings(keybindings);
+        if let Some(s) = encode_event(&kb_event) {
             yield Ok(Event::default().event("keybindings").data(s));
         }
 
@@ -646,7 +723,7 @@ pub async fn commands_handler(
 ) -> Response {
     let session = match query.session(&state) {
         Ok(session) => session,
-        Err(rejection) => return rejection.into_command_failure(),
+        Err(rejection) => return rejection.into_response(),
     };
 
     // Connection ID from the header. Every SSE client is handed its own id in
@@ -666,15 +743,20 @@ pub async fn commands_handler(
         tracing::info!(target: "tmuxy_server::sse", action_id = %action_id, "client command");
     }
 
-    // Decode into the typed enum. A malformed payload — a misspelt field, a
-    // pane id that is not one — is a 400 of kind `invalid`.
+    // Decode into the typed enum. A parse failure still returns 400 with the
+    // serde error in the body — the existing wire contract (`{ "error": ... }`)
+    // is preserved so the TS adapter keeps working.
     let cmd: ClientCommand = match ClientCommand::decode(&body) {
         Ok(c) => c,
         Err(e) => {
-            return command_failure(
+            return (
                 StatusCode::BAD_REQUEST,
-                CommandError::invalid(format!("invalid command payload: {e}")),
-            );
+                Json(CommandResponse {
+                    result: None,
+                    error: Some(format!("invalid command payload: {}", e)),
+                }),
+            )
+                .into_response();
         }
     };
 
@@ -685,10 +767,14 @@ pub async fn commands_handler(
         match serve_viewer(cmd, &session, &state).await {
             Some(result) => result,
             None => {
-                return command_failure(
+                return (
                     StatusCode::FORBIDDEN,
-                    CommandError::forbidden("read-only server"),
-                );
+                    Json(CommandResponse {
+                        result: None,
+                        error: Some("read-only server".to_string()),
+                    }),
+                )
+                    .into_response();
             }
         }
     } else {
@@ -696,8 +782,22 @@ pub async fn commands_handler(
     };
 
     match outcome {
-        Ok(result) => (StatusCode::OK, Json(CommandResponse { result })).into_response(),
-        Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
+        Ok(result) => (
+            StatusCode::OK,
+            Json(CommandResponse {
+                result: Some(result),
+                error: None,
+            }),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(CommandResponse {
+                result: None,
+                error: Some(error),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -753,12 +853,13 @@ async fn serve_viewer(
     cmd: ClientCommand,
     session: &str,
     state: &Arc<AppState>,
-) -> Option<Result<serde_json::Value, CommandError>> {
+) -> Option<Result<serde_json::Value, String>> {
     Some(match cmd {
         // The viewport that arrives with it is ignored, deliberately.
         ClientCommand::GetInitialState { .. } => match initial_state_for_size(state, session).await
         {
-            Ok(snapshot) => to_json(snapshot, "state"),
+            Ok(snapshot) => serde_json::to_value(snapshot)
+                .map_err(|e| format!("Failed to serialize state: {}", e)),
             Err(e) => Err(e),
         },
         // From the monitor's own history, never from tmux.
@@ -766,9 +867,15 @@ async fn serve_viewer(
             pane_id,
             start,
             end,
-        } => viewer_scrollback(state, session, pane_id, start, end).await,
+        } => {
+            if !tmuxy_core::session::is_pane_id(&pane_id) {
+                Err(format!("not a pane id: {pane_id:?}"))
+            } else {
+                viewer_scrollback(state, session, &pane_id, start, end).await
+            }
+        }
         // Read from tmux once per server, not once per request.
-        ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
+        ClientCommand::GetThemeSettings => Ok(theme_settings_for(state).await),
         // A static list compiled in; no tmux, no host.
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
         // A viewer is shown one session's screen, not the working directory of
@@ -783,7 +890,7 @@ async fn handle_command(
     session: &str,
     state: &Arc<AppState>,
     conn_id: Option<u64>,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<serde_json::Value, String> {
     match cmd {
         ClientCommand::GetInitialState { cols, rows } => {
             // Apply client size before capturing state.
@@ -793,7 +900,7 @@ async fn handle_command(
                 }
             }
             let snapshot = initial_state_for_size(state, session).await?;
-            to_json(snapshot, "state")
+            serde_json::to_value(snapshot).map_err(|e| format!("Failed to serialize state: {}", e))
         }
         ClientCommand::SetClientSize { cols, rows } => {
             if cols > 0 && rows > 0 {
@@ -816,7 +923,8 @@ async fn handle_command(
                 tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
             };
 
-            let is_source_file = tmuxy_core::transport::is_source_file(&routed);
+            // Detect source-file commands — keybindings may change
+            let is_source_file = routed.starts_with("source-file") || routed.starts_with("source ");
 
             send_via_control_mode(state, session, &routed).await?;
             trace!(?conn_id, command = %routed, "client sent command via control mode");
@@ -824,8 +932,8 @@ async fn handle_command(
             // After source-file, re-broadcast keybindings (prefix key may have
             // changed) and theme settings (theme/appearance options may have).
             if is_source_file {
-                tokio::time::sleep(tmuxy_core::transport::SOURCE_FILE_SETTLE).await;
-                refresh_keybindings(state, session).await;
+                tokio::time::sleep(SOURCE_FILE_SETTLE).await;
+                broadcast_keybindings(state, session).await;
                 broadcast_theme_settings(state, session).await;
             }
 
@@ -838,11 +946,13 @@ async fn handle_command(
                 new_window_client_size(state, session).await,
             ) {
                 tmuxy_core::command_router::Route::Blocked(reason) => {
-                    return Err(CommandError::forbidden(reason));
+                    return Err(reason.to_string());
                 }
                 tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
             };
-            let output = query_via_control_mode(state, session, &routed).await?;
+            let output = query_via_control_mode(state, session, &routed)
+                .await?
+                .into_result()?;
             Ok(serde_json::json!(output))
         }
         ClientCommand::GetScrollbackCells {
@@ -850,18 +960,106 @@ async fn handle_command(
             start,
             end,
         } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
+            // Route the three queries that build one scrollback response through
+            // the Tower stack — picks up the standard retry policy, a 5s
+            // per-call deadline, and tracing in one place. Capture-pane in
+            // particular sometimes races a pending layout change and returns
+            // transient io::Error; the retry layer absorbs those.
+            let policy = tmuxy_core::RetryPolicy::standard();
+
+            // The pane id is the client's, and it goes into three tmux command
+            // lines as a target: it has to be one (`%N`) before it goes
+            // anywhere.
+            if !tmuxy_core::session::is_pane_id(&pane_id) {
+                return Err(format!("not a pane id: {pane_id:?}"));
+            }
+            let width_output = state
+                .tmux_call_with_policy(
+                    vec![
+                        "display-message".into(),
+                        "-t".into(),
+                        pane_id.clone(),
+                        "-p".into(),
+                        "#{pane_width}".into(),
+                    ],
+                    "scrollback:pane_width",
+                    policy,
+                )
+                .await
+                .map_err(|e| format!("Failed to get pane width: {}", e))?;
+            // Don't fall back to a default: a wrong width silently re-wraps
+            // every captured line at the wrong column. Fail so the client can
+            // retry instead of rendering corrupted scrollback.
+            let width: u32 = width_output.trim().parse().map_err(|_| {
+                format!(
+                    "Failed to parse pane width from tmux: {:?}",
+                    width_output.trim()
+                )
+            })?;
+
+            let history_output = state
+                .tmux_call_with_policy(
+                    vec![
+                        "display-message".into(),
+                        "-t".into(),
+                        pane_id.clone(),
+                        "-p".into(),
+                        "#{history_size}".into(),
+                    ],
+                    "scrollback:history_size",
+                    policy,
+                )
+                .await
+                .map_err(|e| format!("Failed to get history size: {}", e))?;
+            let history_size: u32 = history_output.trim().parse().map_err(|_| {
+                format!(
+                    "Failed to parse history size from tmux: {:?}",
+                    history_output.trim()
+                )
+            })?;
+
+            // capture-pane wants the special `-S start -E end` form built
+            // inline so dispatch directly through the stack rather than the
+            // sync `capture_pane_range` helper.
+            let start_s = start.to_string();
+            let end_s = end.to_string();
+            let raw = state
+                .tmux_call_with_policy(
+                    vec![
+                        "capture-pane".into(),
+                        "-t".into(),
+                        pane_id.clone(),
+                        "-p".into(),
+                        "-e".into(),
+                        "-S".into(),
+                        start_s,
+                        "-E".into(),
+                        end_s,
+                    ],
+                    "scrollback:capture",
+                    policy,
+                )
+                .await
+                .map_err(|e| format!("Failed to capture pane range: {}", e))?;
+
+            // Parse into cells
+            let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
+
+            Ok(serde_json::json!({
+                "cells": cells,
+                "historySize": history_size,
+                "start": start,
+                "end": end,
+                "width": width
+            }))
         }
-        ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
+        ClientCommand::GetThemeSettings => Ok(theme_settings_for(state).await),
         ClientCommand::SetTheme { name, mode } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_theme(&tx, &name, mode.as_deref()).await?;
+            tmuxy_core::theme::set_theme(&state.ctx, &name, mode.as_deref()).await?;
             Ok(serde_json::json!(null))
         }
         ClientCommand::SetCursorBlink { enabled } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_cursor_blink(&tx, enabled).await?;
+            tmuxy_core::theme::set_cursor_blink(&state.ctx, enabled).await?;
             Ok(serde_json::json!(null))
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
@@ -875,33 +1073,76 @@ async fn handle_command(
             // otherwise a viewer learns the repo path and branch of every pane
             // on the tmux server, including the writer's.
             let cmd = list_pane_paths_cmd(state.session_pin.as_deref());
-            let listing = query_via_control_mode(state, session, &cmd).await?;
+            let listing = query_via_control_mode(state, session, &cmd)
+                .await?
+                .into_result()?;
             let repositories = tokio::task::spawn_blocking(move || {
-                list_git_worktrees(paths_from_pane_listing(&listing))
-                    .map_err(|e| CommandError::unavailable(e.to_string()))
+                list_git_worktrees(paths_from_pane_listing(&listing)).map_err(|e| e.to_string())
             })
             .await
-            .map_err(|e| {
-                CommandError::unavailable(format!("worktree discovery task failed: {e}"))
-            })??;
-            to_json(repositories, "worktrees")
+            .map_err(|e| format!("worktree discovery task failed: {e}"))??;
+            serde_json::to_value(repositories)
+                .map_err(|e| format!("failed to serialize worktrees: {e}"))
         }
         ClientCommand::SetThemeMode { mode } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_theme_mode(&tx, &mode).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::ListSnapshots => tmuxy_core::transport::list_snapshots_json().await,
-        // Through THIS session's client: a new session made from inside a
-        // control-mode client is how the server already creates one.
-        ClientCommand::RestoreSession { session: name } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::transport::restore_named(&name, &tx).await?;
+            tmuxy_core::theme::set_theme_mode(&state.ctx, &mode).await?;
             Ok(serde_json::json!(null))
         }
         // Debug menu (docs/TELEMETRY.md). The trace file lives on THIS host, so
         // a browser client can read the switch and the path but cannot open the
         // file — the in-app menu hides that item off the desktop.
+        ClientCommand::ListSnapshots => {
+            let dir = tmuxy_core::session_snapshot::default_dir();
+            let list =
+                tokio::task::spawn_blocking(move || tmuxy_core::session_snapshot::list(&dir))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            Ok(serde_json::json!(list
+                .into_iter()
+                .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
+                .collect::<Vec<_>>()))
+        }
+        ClientCommand::RestoreSession { session: name } => {
+            if !tmuxy_core::session::is_safe_session_name(&name) {
+                return Err(format!("not a usable session name: {name:?}"));
+            }
+            if session_exists(&name).await {
+                return Err(format!("session {name:?} is already running"));
+            }
+            let dir = tmuxy_core::session_snapshot::default_dir();
+            let snapshot = tmuxy_core::session_snapshot::read_latest(&dir, &name)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("no snapshot for {name:?}"))?;
+            // Through THIS session's client: a new session made from inside a
+            // control-mode client is how the server already creates one.
+            let tx = {
+                let sessions = state.sessions.read().await;
+                sessions
+                    .get(session)
+                    .and_then(|s| s.monitor_command_tx.clone())
+            }
+            .ok_or_else(|| "No monitor connection available".to_string())?;
+            let options = tmuxy_core::session_snapshot::RestoreOptions {
+                run: false,
+                fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
+                onto_existing_window: false,
+                existing_window_index: None,
+            };
+            tmuxy_core::session_snapshot::restore_via_monitor(&snapshot, &options, &tx).await?;
+            Ok(serde_json::json!(null))
+        }
+        ClientCommand::ForgetSession { session: name } => {
+            if !tmuxy_core::session::is_safe_session_name(&name) {
+                return Err(format!("not a usable session name: {name:?}"));
+            }
+            let dir = tmuxy_core::session_snapshot::default_dir();
+            let removed = tokio::task::spawn_blocking(move || {
+                tmuxy_core::session_snapshot::forget(&dir, &name)
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(serde_json::json!(removed))
+        }
         ClientCommand::GetTraceSettings => Ok(serde_json::json!({
             "enabled": tmuxy_core::trace::is_enabled(),
             "level": tmuxy_core::trace::level_name(),
@@ -923,55 +1164,36 @@ async fn handle_command(
 // Helper Functions
 // ============================================
 
-/// Read the session's bindings over its monitor, keep them for the next
-/// stream's greeting, and broadcast them to the streams open now.
-async fn refresh_keybindings(state: &Arc<AppState>, session: &str) {
-    let Ok(tx) = state.monitor_tx(session).await else {
+/// Re-fetch keybindings from tmux and broadcast to all SSE clients for a session.
+async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
+    let keybindings = KeyBindings::current_offthread().await;
+    let kb_event = SseEvent::KeyBindings(keybindings);
+    let Some(msg) = encode_event(&kb_event) else {
         return;
     };
-    let bindings = KeyBindings::read(&tx).await;
-    let Some(msg) = encode_event(&SseEvent::KeyBindings(bindings.clone())) else {
-        return;
-    };
-    let mut sessions = state.sessions.write().await;
-    if let Some(conns) = sessions.get_mut(session) {
-        conns.key_bindings = Some(bindings);
-        conns.broadcast.broadcast(msg);
+    let sessions = state.sessions.read().await;
+    if let Some(session_conn) = sessions.get(session) {
+        session_conn.broadcast.broadcast(msg);
         debug!(%session, "broadcast refreshed keybindings");
     }
 }
 
-/// The theme name, mode and appearance to answer a client with, read over the
-/// session's monitor: once and kept on a viewer's server
-/// (`AppState::viewer_theme_settings`), whose monitor is attached before any
-/// viewer is served; afresh on a writable one, whose own `source-file` can
-/// change it, waiting for a monitor that is still connecting.
-async fn theme_settings_for(
-    state: &Arc<AppState>,
-    session: &str,
-) -> Result<serde_json::Value, CommandError> {
+/// The theme name, mode and appearance to answer a client with: read once and
+/// kept on a viewer's server (`AppState::viewer_theme_settings`), read afresh
+/// on a writable one, whose own `source-file` can change it.
+async fn theme_settings_for(state: &Arc<AppState>) -> serde_json::Value {
     if state.read_only {
         return state
             .viewer_theme_settings
-            .get_or_try_init(|| async {
-                let tx = state.monitor_tx(session).await?;
-                tmuxy_core::theme::get_theme_settings(&tx).await
-            })
+            .get_or_init(|| tmuxy_core::theme::get_theme_settings(&state.ctx))
             .await
-            .cloned();
+            .clone();
     }
-    let tx = wait_for_monitor(state, session).await?;
-    tmuxy_core::theme::get_theme_settings(&tx).await
+    tmuxy_core::theme::get_theme_settings(&state.ctx).await
 }
 
 async fn broadcast_theme_settings(state: &Arc<AppState>, session: &str) {
-    let settings = match theme_settings_for(state, session).await {
-        Ok(settings) => settings,
-        Err(e) => {
-            warn!(%session, error = %e, "could not read theme settings");
-            return;
-        }
-    };
+    let settings = theme_settings_for(state).await;
     let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) else {
         return;
     };
@@ -987,7 +1209,7 @@ async fn send_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
     command: &str,
-) -> Result<(), CommandError> {
+) -> Result<(), String> {
     // Record the WHAT of each mutating command as its tmux verb (first token) —
     // content-free (a fixed subcommand name, never the args). The full command
     // string is admitted only at trace level `full` (docs/TELEMETRY.md).
@@ -998,8 +1220,22 @@ async fn send_via_control_mode(
         "run command"
     );
 
-    let tx = state.monitor_tx(session).await?;
-    tmuxy_core::transport::run(&tx, command).await
+    let command_tx = {
+        let sessions = state.sessions.read().await;
+        sessions
+            .get(session)
+            .and_then(|s| s.monitor_command_tx.clone())
+    };
+
+    if let Some(tx) = command_tx {
+        tx.send(MonitorCommand::RunCommand {
+            command: command.to_string(),
+        })
+        .await
+        .map_err(|e| format!("Monitor channel error: {}", e))
+    } else {
+        Err("No monitor connection available".to_string())
+    }
 }
 
 /// How long `get_initial_state` waits for the session's monitor to come up.
@@ -1012,16 +1248,20 @@ const MONITOR_READY_TIMEOUT: Duration = Duration::from_secs(15);
 async fn wait_for_monitor(
     state: &Arc<AppState>,
     session: &str,
-) -> Result<MonitorCommandSender, CommandError> {
+) -> Result<MonitorCommandSender, String> {
     let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
     loop {
-        if let Ok(tx) = state.monitor_tx(session).await {
+        let tx = {
+            let sessions = state.sessions.read().await;
+            sessions
+                .get(session)
+                .and_then(|s| s.monitor_command_tx.clone())
+        };
+        if let Some(tx) = tx {
             return Ok(tx);
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err(CommandError::unavailable(
-                "tmux monitor did not come up in time",
-            ));
+            return Err("tmux monitor did not come up in time".to_string());
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -1033,18 +1273,16 @@ async fn wait_for_monitor(
 async fn initial_state_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
-) -> Result<tmuxy_core::TmuxState, CommandError> {
+) -> Result<tmuxy_core::TmuxState, String> {
     let tx = wait_for_monitor(state, session).await?;
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::GetState { reply })
         .await
-        .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
+        .map_err(|e| format!("Monitor channel error: {}", e))?;
     tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
         .await
-        .map_err(|_| {
-            CommandError::unavailable("tmux monitor did not answer with the initial state")
-        })?
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))
+        .map_err(|_| "tmux monitor did not answer with the initial state".to_string())?
+        .map_err(|_| "monitor went away before answering".to_string())
 }
 
 /// How long a client's first state waits for the resize it just asked for.
@@ -1077,7 +1315,7 @@ const INITIAL_STATE_RESIZE_WAIT: Duration = Duration::from_millis(750);
 async fn initial_state_for_size(
     state: &Arc<AppState>,
     session: &str,
-) -> Result<tmuxy_core::TmuxState, CommandError> {
+) -> Result<tmuxy_core::TmuxState, String> {
     let mut snapshot = initial_state_via_control_mode(state, session).await?;
     let asked = {
         let sessions = state.sessions.read().await;
@@ -1109,15 +1347,31 @@ async fn query_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
     command: &str,
-) -> Result<String, CommandError> {
+) -> Result<tmuxy_core::control_mode::CommandReply, String> {
     tracing::debug!(
         target: "tmuxy_server::sse",
         verb = command.split_whitespace().next().unwrap_or(""),
         command,
         "query"
     );
-    let tx = state.monitor_tx(session).await?;
-    tmuxy_core::transport::query(&tx, command).await
+    let command_tx = {
+        let sessions = state.sessions.read().await;
+        sessions
+            .get(session)
+            .and_then(|s| s.monitor_command_tx.clone())
+    };
+    let Some(tx) = command_tx else {
+        return Err("No monitor connection available".to_string());
+    };
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    tx.send(MonitorCommand::RunCommandWithReply {
+        command: command.to_string(),
+        reply,
+    })
+    .await
+    .map_err(|e| format!("Monitor channel error: {}", e))?;
+    rx.await
+        .map_err(|_| "monitor went away before answering".to_string())
 }
 
 /// Compute the minimum (cols, rows) across all connected clients
@@ -1205,12 +1459,9 @@ async fn set_client_size(
                         trace!("resize command sent via monitor");
                         true
                     }
-                    // The monitor has gone; the next one sizes the session
-                    // from the client sizes it is given, so this one is
-                    // asked for again rather than run behind its back.
                     Err(e) => {
-                        warn!(error = %e, "monitor channel closed, resize not sent");
-                        false
+                        warn!(error = %e, "monitor channel error, falling back to executor");
+                        executor::resize_window(session, min_cols, min_rows).is_ok()
                     }
                 }
             }
@@ -1341,6 +1592,8 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
                     rows: min_rows,
                 })
                 .await;
+        } else {
+            let _ = executor::resize_window(session, min_cols, min_rows);
         }
     }
 }
@@ -1349,13 +1602,16 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
 // Monitoring (Control Mode)
 // ============================================
 
-/// `tmuxy_core::session::session_exists` off the async worker threads (it
-/// runs a synchronous `has-session`, which would otherwise block a tokio
-/// worker). Used by the monitor loop, before its own connection is attached.
+/// `has-session` check run off the async worker threads (it shells a
+/// synchronous tmux subprocess, which would otherwise block a tokio worker).
 async fn session_exists(session: &str) -> bool {
     let session = session.to_string();
     tokio::task::spawn_blocking(move || {
-        tmuxy_core::session::session_exists(&session).unwrap_or(false)
+        tmuxy_core::session::tmux_command()
+            .args(["has-session", "-t", &session])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     })
     .await
     .unwrap_or(false)
@@ -1369,10 +1625,15 @@ async fn session_exists(session: &str) -> bool {
 fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
     MonitorConfig {
         session: session.to_string(),
+        sync_interval: Duration::from_millis(500),
         create_session: !state.read_only,
+        group_target: None,
+        throttle_interval: Duration::from_millis(32),
+        throttle_threshold: 20,
+        rate_window: Duration::from_millis(100),
         working_dir: Some(crate::state::find_workspace_root()),
         observer: state.read_only,
-        ..Default::default()
+        first_window: None,
     }
 }
 
@@ -1391,7 +1652,7 @@ const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
 /// used to cost three in-band control-mode queries, on the connection that
 /// session shares, on every scroll.
 ///
-/// The monitor holds only the
+/// `pane_id` is already known to be a `%N`. The monitor holds only the
 /// session it monitors, so a pane it does not know is a pane this viewer was
 /// never shown, and the request is refused. The range is capped at
 /// `MAX_VIEWER_SCROLLBACK_ROWS` from the end, with the clamped `start`
@@ -1399,27 +1660,34 @@ const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
 async fn viewer_scrollback(
     state: &Arc<AppState>,
     session: &str,
-    pane_id: tmuxy_core::PaneId,
+    pane_id: &str,
     start: i64,
     end: i64,
-) -> Result<serde_json::Value, CommandError> {
-    let tx = state.monitor_tx(session).await?;
+) -> Result<serde_json::Value, String> {
+    let command_tx = {
+        let sessions = state.sessions.read().await;
+        sessions
+            .get(session)
+            .and_then(|s| s.monitor_command_tx.clone())
+    };
+    let Some(tx) = command_tx else {
+        return Err("No monitor connection available".to_string());
+    };
+
     let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::GetScrollback {
-        pane_id: pane_id.clone(),
+        pane_id: pane_id.to_string(),
         start,
         end,
         reply,
     })
     .await
-    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
+    .map_err(|e| format!("Monitor channel error: {}", e))?;
     let chunk = rx
         .await
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?
-        .ok_or_else(|| {
-            CommandError::invalid(format!("pane {pane_id} is not in session {session}"))
-        })?;
+        .map_err(|_| "monitor went away before answering".to_string())?
+        .ok_or_else(|| format!("pane {pane_id} is not in session {session}"))?;
 
     Ok(serde_json::json!({
         "cells": chunk.cells,
@@ -1470,7 +1738,6 @@ pub async fn start_monitoring(
     let emitter = Arc::new(SseEmitter::new(
         broadcast.clone(),
         Arc::clone(&state),
-        session.clone(),
         keeper.clone(),
     ));
     let snapshot_dir = tmuxy_core::session_snapshot::default_dir();
@@ -2008,6 +2275,7 @@ mod tests {
                             windows: Vec::new(),
                             total_width: size.0,
                             total_height: size.1,
+                            status_line: String::new(),
                             focus_request: None,
                         });
                     }
@@ -2176,58 +2444,25 @@ mod tests {
         assert!(conns.monitor_command_tx.is_some());
     }
 
-    /// A session whose monitor answers every query with `output`, counting
-    /// the queries it is asked.
-    async fn session_answering_queries(
-        state: &Arc<AppState>,
-        session: &str,
-        output: &str,
-    ) -> Arc<std::sync::atomic::AtomicUsize> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
-        let queries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let counted = Arc::clone(&queries);
-        let output = output.to_string();
-        tokio::spawn(async move {
-            while let Some(cmd) = rx.recv().await {
-                if let MonitorCommand::RunCommandWithReply { reply, .. } = cmd {
-                    counted.fetch_add(1, Ordering::SeqCst);
-                    let _ = reply.send(tmuxy_core::control_mode::CommandReply {
-                        output: output.clone(),
-                        error: None,
-                    });
-                }
-            }
-        });
-        let mut conns = SessionConnections::new();
-        conns.monitor_command_tx = Some(tx);
-        state
-            .sessions
-            .write()
-            .await
-            .insert(session.to_string(), conns);
-        queries
-    }
-
-    /// SEC-11/SEC-16. The greeting's bindings used to cost three `tmux`
-    /// subprocesses per connecting client. They are read once per monitor
-    /// connection, over the monitor, and every later greeting is served the
-    /// copy the session keeps.
+    /// SEC-11/SEC-16. The greeting's bindings cost three `tmux` subprocesses
+    /// per connecting client; a viewer's server reads them once and keeps
+    /// them, so a flood of viewers is a flood of clones, not of processes.
     #[tokio::test]
-    async fn a_session_keeps_the_bindings_it_last_broadcast() {
-        let state = Arc::new(AppState::new());
-        let queries =
-            session_answering_queries(&state, "s", "C-space\nbind-key -T prefix c new-window\n")
-                .await;
-        let mut stream = state.sessions.read().await["s"].broadcast.subscribe();
-
-        refresh_keybindings(&state, "s").await;
-
-        assert_eq!(queries.load(Ordering::SeqCst), 1);
-        let (_, frame) = stream.try_recv().expect("the open streams are told");
-        assert!(frame.contains("C-space"), "{frame}");
-        let kept = state.sessions.read().await["s"].key_bindings.clone();
+    async fn a_viewers_server_reads_its_key_bindings_once() {
+        let viewer = AppState::new().with_read_only(true);
+        let first = KeyBindings {
+            prefix_key: "C-space".into(),
+            prefix_bindings: Vec::new(),
+            root_bindings: Vec::new(),
+        };
+        viewer.viewer_key_bindings.set(first).unwrap();
+        // Whatever tmux says now, a viewer's server answers with what it read.
         assert_eq!(
-            kept.expect("kept for the next greeting").prefix_key,
+            KeyBindings::for_greeting(&viewer).await.prefix_key,
+            "C-space"
+        );
+        assert_eq!(
+            KeyBindings::for_greeting(&viewer).await.prefix_key,
             "C-space"
         );
     }
@@ -2238,7 +2473,13 @@ mod tests {
     /// writes down how a viewer should be served it.
     #[tokio::test]
     async fn a_viewer_is_served_the_reads_and_refused_everything_else() {
-        let viewer = Arc::new(AppState::new().with_read_only(true));
+        let tmux = Arc::new(tmuxy_core::ctx::MockTmux::new());
+        let ctx = Arc::new(tmuxy_core::ctx::Ctx {
+            tmux,
+            clock: Arc::new(tmuxy_core::ctx::FakeClock::new(std::time::Instant::now())),
+            retry_policy: tmuxy_core::retry::RetryPolicy::none(),
+        });
+        let viewer = Arc::new(AppState::with_ctx(ctx).with_read_only(true));
 
         let parse = |v: serde_json::Value| -> ClientCommand {
             serde_json::from_value(v).expect("should parse")
@@ -2281,28 +2522,30 @@ mod tests {
         }
     }
 
-    /// SEC-11. `GetThemeSettings` read fourteen tmux options per request, and
-    /// a viewer's client asks on every reconnect. A viewer's server sources no
-    /// config, so nothing it serves can change: it reads once, over its
-    /// monitor, and answers every later request from that value.
+    /// SEC-11. `GetThemeSettings` read four tmux options per request, and a
+    /// viewer's client asks on every reconnect. A viewer's server sources no
+    /// config, so nothing it serves can change: it reads once and answers
+    /// every later request from that value, at zero tmux round trips.
     #[tokio::test]
     async fn a_viewers_server_reads_its_theme_settings_once() {
-        let viewer = Arc::new(
-            AppState::new()
-                .with_read_only(true)
-                .with_session_pin(Some("shared".into())),
-        );
-        let queries = session_answering_queries(&viewer, "shared", "nord\nlight\n").await;
+        let tmux = Arc::new(tmuxy_core::ctx::MockTmux::new());
+        let ctx = Arc::new(tmuxy_core::ctx::Ctx {
+            tmux: tmux.clone(),
+            clock: Arc::new(tmuxy_core::ctx::FakeClock::new(std::time::Instant::now())),
+            retry_policy: tmuxy_core::retry::RetryPolicy::none(),
+        });
+        let viewer = Arc::new(AppState::with_ctx(ctx).with_read_only(true));
 
-        let first = theme_settings_for(&viewer, "shared").await.unwrap();
-        let second = theme_settings_for(&viewer, "shared").await.unwrap();
+        let first = theme_settings_for(&viewer).await;
+        let after_first = tmux.calls().len();
+        assert!(after_first > 0, "the first read must reach tmux");
 
+        let second = theme_settings_for(&viewer).await;
         assert_eq!(
-            queries.load(Ordering::SeqCst),
-            1,
+            tmux.calls().len(),
+            after_first,
             "a viewer's second request must cost no tmux call"
         );
-        assert_eq!(first["theme"], "nord");
         assert_eq!(first, second);
     }
 
@@ -2319,11 +2562,10 @@ mod tests {
         let emitter = SseEmitter::new(
             broadcast.clone(),
             viewer,
-            "s".to_string(),
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
-        emitter.write_clipboard(None, "a secret someone yanked elsewhere".into());
+        emitter.write_clipboard("", "a secret someone yanked elsewhere".into());
 
         assert!(rx.try_recv().is_err(), "nothing should have been broadcast");
     }
@@ -2335,11 +2577,10 @@ mod tests {
         let emitter = SseEmitter::new(
             broadcast.clone(),
             Arc::new(AppState::new()),
-            "s".to_string(),
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
-        emitter.write_clipboard(Some(&"%0".parse().unwrap()), "yanked".into());
+        emitter.write_clipboard("%0", "yanked".into());
 
         let (_, message) = rx.try_recv().unwrap();
         assert!(message.contains("yanked"));
@@ -2355,12 +2596,11 @@ mod tests {
         let emitter = SseEmitter::new(
             broadcast.clone(),
             Arc::new(AppState::new()),
-            "s".to_string(),
             Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
         );
 
         emitter.write_clipboard(
-            None,
+            "",
             "x".repeat(tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES + 1),
         );
 
@@ -2478,7 +2718,7 @@ mod tests {
     #[test]
     fn clipboard_event_serializes_with_expected_shape() {
         let evt = SseEvent::Clipboard {
-            pane_id: "%4".parse().unwrap(),
+            pane_id: "%4".to_string(),
             text: "hello world".to_string(),
         };
         let json = serde_json::to_string(&evt).unwrap();
@@ -2693,7 +2933,7 @@ mod tests {
 }
 
 /// Canonical wire-shape fixtures, written by Rust and read back by the
-/// TypeScript decoders (`packages/tmuxy-ui/src/infra/transport/__tests__/`).
+/// TypeScript decoders (`packages/tmuxy-ui/src/tmux/__tests__/`).
 ///
 /// There is no ts-rs/specta/typeshare in this workspace: the Effect schemas
 /// and `deltaProtocol.ts` mirror these Rust types by hand, and a field that
@@ -2778,13 +3018,13 @@ mod protocol_fixtures {
     fn canonical_state() -> TmuxState {
         TmuxState {
             session_name: "tmuxy".to_string(),
-            active_window_id: Some("@1".parse().unwrap()),
-            active_pane_id: Some("%2".parse().unwrap()),
+            active_window_id: Some("@1".to_string()),
+            active_pane_id: Some("%2".to_string()),
             panes: vec![
                 TmuxPane {
                     id: 2,
-                    tmux_id: "%2".parse().unwrap(),
-                    window_id: "@1".parse().unwrap(),
+                    tmux_id: "%2".to_string(),
+                    window_id: "@1".to_string(),
                     content: std::sync::Arc::new(vec![
                         vec![cell("h"), cell("i")],
                         vec![styled_cell("!")],
@@ -2799,7 +3039,7 @@ mod protocol_fixtures {
                     command: "zsh".to_string(),
                     title: "pane title".to_string(),
                     border_title: "border".to_string(),
-                    group_id: Some("g5".parse().unwrap()),
+                    group_id: Some("g5".to_string()),
                     in_mode: true,
                     copy_cursor_x: 3,
                     copy_cursor_y: 4,
@@ -2829,8 +3069,8 @@ mod protocol_fixtures {
                 },
                 TmuxPane {
                     id: 3,
-                    tmux_id: "%3".parse().unwrap(),
-                    window_id: "@1".parse().unwrap(),
+                    tmux_id: "%3".to_string(),
+                    window_id: "@1".to_string(),
                     content: std::sync::Arc::new(vec![vec![]]),
                     cursor_x: 0,
                     cursor_y: 0,
@@ -2866,7 +3106,7 @@ mod protocol_fixtures {
             ],
             windows: vec![
                 TmuxWindow {
-                    id: "@1".parse().unwrap(),
+                    id: "@1".to_string(),
                     index: 0,
                     name: "main".to_string(),
                     active: true,
@@ -2881,15 +3121,15 @@ mod protocol_fixtures {
                     sidebar_hidden: false,
                     collapsible: true,
                     zoomed: true,
-                    active_pane_id: Some("%2".parse().unwrap()),
+                    active_pane_id: Some("%2".to_string()),
                 },
                 TmuxWindow {
-                    id: "@2".parse().unwrap(),
+                    id: "@2".to_string(),
                     index: 1,
                     name: "float".to_string(),
                     active: false,
                     window_type: Some(WindowType::Float),
-                    float_parent: Some("@1".parse().unwrap()),
+                    float_parent: Some("@1".to_string()),
                     float_width: Some(60),
                     float_height: Some(20),
                     float_drawer: Some("bottom".to_string()),
@@ -2904,6 +3144,7 @@ mod protocol_fixtures {
             ],
             total_width: 80,
             total_height: 50,
+            status_line: "[tmuxy] 0:main*".to_string(),
             focus_request: Some("left".to_string()),
         }
     }
@@ -2911,11 +3152,11 @@ mod protocol_fixtures {
     /// A delta touching every field the client merges, including the removal
     /// shapes (`null` pane / window) and the sparse content map.
     fn canonical_delta() -> TmuxDelta {
-        let mut panes: HashMap<tmuxy_core::PaneId, Option<PaneDelta>> = HashMap::new();
+        let mut panes: HashMap<String, Option<PaneDelta>> = HashMap::new();
         panes.insert(
-            "%2".parse().unwrap(),
+            "%2".to_string(),
             Some(PaneDelta {
-                window_id: Some("@2".parse().unwrap()),
+                window_id: Some("@2".to_string()),
                 content: Some(HashMap::from([(1usize, vec![cell("x"), styled_cell("y")])])),
                 cursor_x: Some(5),
                 cursor_y: Some(6),
@@ -2949,11 +3190,11 @@ mod protocol_fixtures {
                 cursor_hidden: Some(false),
             }),
         );
-        panes.insert("%3".parse().unwrap(), None);
+        panes.insert("%3".to_string(), None);
 
-        let mut windows: HashMap<tmuxy_core::WindowId, Option<WindowDelta>> = HashMap::new();
+        let mut windows: HashMap<String, Option<WindowDelta>> = HashMap::new();
         windows.insert(
-            "@1".parse().unwrap(),
+            "@1".to_string(),
             Some(WindowDelta {
                 index: Some(1),
                 name: Some("renamed".to_string()),
@@ -2969,10 +3210,10 @@ mod protocol_fixtures {
                 sidebar_hidden: Some(true),
                 collapsible: Some(false),
                 zoomed: Some(false),
-                active_pane_id: Some(Some("%4".parse().unwrap())),
+                active_pane_id: Some(Some("%4".to_string())),
             }),
         );
-        windows.insert("@2".parse().unwrap(), None);
+        windows.insert("@2".to_string(), None);
 
         TmuxDelta {
             seq: 42,
@@ -2980,8 +3221,8 @@ mod protocol_fixtures {
             windows: Some(windows),
             new_panes: Some(vec![TmuxPane {
                 id: 4,
-                tmux_id: "%4".parse().unwrap(),
-                window_id: "@1".parse().unwrap(),
+                tmux_id: "%4".to_string(),
+                window_id: "@1".to_string(),
                 content: std::sync::Arc::new(vec![vec![cell("n")]]),
                 cursor_x: 1,
                 cursor_y: 0,
@@ -3015,12 +3256,12 @@ mod protocol_fixtures {
                 group_pos: None,
             }]),
             new_windows: Some(vec![TmuxWindow {
-                id: "@3".parse().unwrap(),
+                id: "@3".to_string(),
                 index: 2,
                 name: "added".to_string(),
                 active: false,
-                window_type: Some(WindowType::Float),
-                float_parent: Some("@2".parse().unwrap()),
+                window_type: Some(WindowType::FloatBackdrop),
+                float_parent: Some("@2".to_string()),
                 float_width: None,
                 float_height: None,
                 float_drawer: None,
@@ -3032,8 +3273,9 @@ mod protocol_fixtures {
                 zoomed: false,
                 active_pane_id: None,
             }]),
-            active_window_id: Some("@2".parse().unwrap()),
-            active_pane_id: Some("%4".parse().unwrap()),
+            active_window_id: Some("@2".to_string()),
+            active_pane_id: Some("%4".to_string()),
+            status_line: Some("[tmuxy] 1:renamed*".to_string()),
             focus_request: Some(String::new()),
             total_width: Some(100),
             total_height: Some(60),
@@ -3045,7 +3287,8 @@ mod protocol_fixtures {
     #[test]
     fn get_initial_state_response_matches_its_fixture() {
         let response = CommandResponse {
-            result: serde_json::to_value(canonical_state()).unwrap(),
+            result: Some(serde_json::to_value(canonical_state()).unwrap()),
+            error: None,
         };
         assert_fixture(
             "get_initial_state.json",
@@ -3121,7 +3364,7 @@ mod protocol_fixtures {
                 reason: Some("detached".to_string()),
             },
             SseEvent::Clipboard {
-                pane_id: "%2".parse().unwrap(),
+                pane_id: "%2".to_string(),
                 text: "copied".to_string(),
             },
         ]
@@ -3138,18 +3381,23 @@ mod protocol_fixtures {
         assert_fixture("sse_frames.json", &serde_json::Value::Array(frames));
     }
 
-    /// The `/commands` error bodies a client has to render: one of each kind.
+    /// The `/commands` error bodies a client has to render.
     #[test]
     fn command_error_responses_match_their_fixture() {
         let bodies: Vec<serde_json::Value> = [
-            CommandError::tmux("can't find pane: %99"),
-            CommandError::invalid("invalid command payload: unknown variant `frobnicate`"),
-            CommandError::forbidden("read-only server"),
-            CommandError::unavailable("No monitor connection available"),
-            CommandError::unavailable("tmux monitor did not answer with the initial state"),
+            "invalid command payload: unknown variant `frobnicate`",
+            "read-only server",
+            "No monitor connection available",
+            "tmux monitor did not answer with the initial state",
         ]
-        .iter()
-        .map(|error| serde_json::to_value(error).unwrap())
+        .into_iter()
+        .map(|error| {
+            serde_json::to_value(CommandResponse {
+                result: None,
+                error: Some(error.to_string()),
+            })
+            .unwrap()
+        })
         .collect();
         assert_fixture("command_errors.json", &serde_json::Value::Array(bodies));
     }
@@ -3195,193 +3443,85 @@ mod protocol_fixtures {
             "duplicate SSE event names: {names:?}"
         );
     }
-}
+    /// A pane that keeps producing frames must not grow without limit, and a
+    /// pane with a screenful of ordinary pictures must not be trimmed at all.
+    ///
+    /// The frame case is the one that bit: `browser --repl` draws at the same
+    /// anchor, so the PLACEMENTS stay at one while every frame adds a new image
+    /// id — and the store is otherwise only swept when the pane goes away.
+    #[test]
+    fn a_pane_streaming_frames_stops_growing_but_keeps_the_newest() {
+        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
+            HashMap::new();
+        let frame = |len: usize| tmuxy_core::control_mode::StoredImage {
+            data: vec![0u8; len],
+            mime_type: "image/jpeg".to_string(),
+        };
 
-/// What a failed `POST /commands` says: `{ error, kind }`, the status code
-/// unchanged, one kind per cause.
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod command_error_tests {
-    use super::*;
+        // A megabyte a frame, far past the cap.
+        for id in 0..40u32 {
+            store.insert(("%1".to_string(), id), frame(1024 * 1024));
+            trim_pane_images(&mut store, "%1");
+        }
 
-    /// POST `body` to `/commands` for `session` and return the status and the
-    /// decoded body.
-    async fn post(
-        state: &Arc<AppState>,
-        session: Option<&str>,
-        body: serde_json::Value,
-    ) -> (StatusCode, serde_json::Value) {
-        let response = commands_handler(
-            State(Arc::clone(state)),
-            Query(SessionQuery {
-                session: session.map(str::to_string),
-            }),
-            HeaderMap::new(),
-            axum::body::Bytes::from(body.to_string()),
-        )
-        .await;
-        let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap())
-    }
-
-    /// A session whose monitor answers every query with tmux's `%error`.
-    async fn session_where_tmux_refuses(state: &Arc<AppState>, session: &str) {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
-        tokio::spawn(async move {
-            while let Some(cmd) = rx.recv().await {
-                if let MonitorCommand::RunCommandWithReply { reply, .. } = cmd {
-                    let _ = reply.send(tmuxy_core::control_mode::CommandReply {
-                        output: String::new(),
-                        error: Some("can't find pane: %99".to_string()),
-                    });
-                }
-            }
-        });
-        let mut conns = SessionConnections::new();
-        conns.monitor_command_tx = Some(tx);
-        state
-            .sessions
-            .write()
-            .await
-            .insert(session.to_string(), conns);
-    }
-
-    fn assert_failure(
-        (status, body): (StatusCode, serde_json::Value),
-        want_status: StatusCode,
-        kind: &str,
-    ) {
-        assert_eq!(status, want_status, "{body}");
-        assert_eq!(body["kind"], kind, "{body}");
+        let total: usize = store.values().map(|img| img.data.len()).sum();
         assert!(
-            body["error"].as_str().is_some_and(|e| !e.is_empty()),
-            "{body}"
+            total <= MAX_PANE_IMAGE_BYTES,
+            "a streaming pane must stay under the cap, held {total}"
         );
-        assert_eq!(body.as_object().unwrap().len(), 2, "{body}");
-    }
-
-    #[tokio::test]
-    async fn tmux_rejecting_a_query_is_kind_tmux() {
-        let state = Arc::new(AppState::new());
-        session_where_tmux_refuses(&state, "s").await;
-        let (status, body) = post(
-            &state,
-            Some("s"),
-            serde_json::json!({ "cmd": "query_tmux", "args": { "command": "display -p -t %99 x" } }),
-        )
-        .await;
-        assert_failure((status, body.clone()), StatusCode::BAD_REQUEST, "tmux");
-        assert_eq!(body["error"], "can't find pane: %99");
-    }
-
-    #[tokio::test]
-    async fn no_monitor_is_kind_unavailable() {
-        let state = Arc::new(AppState::new());
-        assert_failure(
-            post(
-                &state,
-                Some("s"),
-                serde_json::json!({ "cmd": "query_tmux", "args": { "command": "list-panes" } }),
-            )
-            .await,
-            StatusCode::BAD_REQUEST,
-            "unavailable",
+        assert!(
+            store.contains_key(&("%1".to_string(), 39)),
+            "the newest frame is the one on screen and must survive"
+        );
+        assert!(
+            !store.contains_key(&("%1".to_string(), 0)),
+            "the oldest frame is the one to drop"
         );
     }
 
-    #[tokio::test]
-    async fn a_malformed_payload_or_argument_is_kind_invalid() {
-        let state = Arc::new(AppState::new());
-        assert_failure(
-            post(
-                &state,
-                Some("s"),
-                serde_json::json!({ "cmd": "no_such_command" }),
-            )
-            .await,
-            StatusCode::BAD_REQUEST,
-            "invalid",
-        );
-        // A pane id that is not one is refused at the door.
-        assert_failure(
-            post(
-                &state,
-                Some("s"),
-                serde_json::json!({ "cmd": "get_scrollback_cells", "args": { "paneId": "{last}" } }),
-            )
-            .await,
-            StatusCode::BAD_REQUEST,
-            "invalid",
-        );
-        assert_failure(
-            post(
-                &state,
-                Some("a;b"),
-                serde_json::json!({ "cmd": "get_themes_list" }),
-            )
-            .await,
-            StatusCode::BAD_REQUEST,
-            "invalid",
-        );
+    #[test]
+    fn an_ordinary_pane_of_pictures_is_left_alone() {
+        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
+            HashMap::new();
+        for id in 0..50u32 {
+            store.insert(
+                ("%1".to_string(), id),
+                tmuxy_core::control_mode::StoredImage {
+                    data: vec![0u8; 200 * 1024],
+                    mime_type: "image/png".to_string(),
+                },
+            );
+        }
+        trim_pane_images(&mut store, "%1");
+        assert_eq!(store.len(), 50, "10MB of pictures is under the cap");
     }
 
-    #[tokio::test]
-    async fn a_read_only_server_or_a_blocked_query_is_kind_forbidden() {
-        let viewer = Arc::new(AppState::new().with_read_only(true));
-        assert_failure(
-            post(
-                &viewer,
-                Some("s"),
-                serde_json::json!({ "cmd": "run_tmux_command", "args": { "command": "kill-server" } }),
-            )
-            .await,
-            StatusCode::FORBIDDEN,
-            "forbidden",
+    /// One pane's flood must not evict another pane's pictures: the cap is per
+    /// pane, and a browser pane beside an editor would otherwise empty it.
+    #[test]
+    fn the_cap_is_per_pane() {
+        let mut store: HashMap<(String, u32), tmuxy_core::control_mode::StoredImage> =
+            HashMap::new();
+        store.insert(
+            ("%2".to_string(), 1),
+            tmuxy_core::control_mode::StoredImage {
+                data: vec![0u8; 1024],
+                mime_type: "image/png".to_string(),
+            },
         );
-
-        let state = Arc::new(AppState::new());
-        session_where_tmux_refuses(&state, "s").await;
-        assert_failure(
-            post(
-                &state,
-                Some("s"),
-                serde_json::json!({ "cmd": "query_tmux", "args": { "command": "resizew -x 10" } }),
-            )
-            .await,
-            StatusCode::BAD_REQUEST,
-            "forbidden",
+        for id in 0..40u32 {
+            store.insert(
+                ("%1".to_string(), id),
+                tmuxy_core::control_mode::StoredImage {
+                    data: vec![0u8; 1024 * 1024],
+                    mime_type: "image/jpeg".to_string(),
+                },
+            );
+            trim_pane_images(&mut store, "%1");
+        }
+        assert!(
+            store.contains_key(&("%2".to_string(), 1)),
+            "the neighbouring pane's picture is untouched"
         );
-    }
-
-    #[tokio::test]
-    async fn a_session_this_server_does_not_serve_is_kind_unavailable() {
-        let pinned = Arc::new(AppState::new().with_session_pin(Some("mine".into())));
-        assert_failure(
-            post(
-                &pinned,
-                Some("other"),
-                serde_json::json!({ "cmd": "get_themes_list" }),
-            )
-            .await,
-            StatusCode::NOT_FOUND,
-            "unavailable",
-        );
-    }
-
-    #[tokio::test]
-    async fn success_is_still_a_bare_result() {
-        let state = Arc::new(AppState::new());
-        let (status, body) = post(
-            &state,
-            Some("s"),
-            serde_json::json!({ "cmd": "get_themes_list" }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(body["result"].is_array(), "{body}");
-        assert!(body.get("error").is_none());
     }
 }

@@ -75,20 +75,26 @@ EOF
   esac
 
   # Step 1: a grouped pane steps to the neighbouring member first, in the
-  # group's order (as its tabs are drawn). No wrap: from the last member
-  # Ctrl+l falls through to the pane on the right, and from the first Ctrl+h
-  # to the pane on the left — `--no-wrap` exits 3 when there is no member that
-  # way.
+  # group's order (by pane number, as its tabs are drawn). No wrap: from the
+  # last member Ctrl+l falls through to the pane on the right, and from the
+  # first Ctrl+h to the pane on the left.
   if [ -n "$gid" ]; then
-    local step=next rc=0
-    [ "$edge_dir" = "left" ] && step=prev
-    find_server_cmd
-    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" "${SERVER_CMD[@]}" group "$step" --no-wrap "$PANE_ID" || rc=$?
-    case "$rc" in
-      0) return ;;
-      3) ;;
-      *) exit "$rc" ;;
-    esac
+    local visible_pane target
+    visible_pane=$(visible_member "$gid")
+    if [ -n "$visible_pane" ]; then
+      target=$(group_members "$gid" | awk -v v="$visible_pane" -v dir="$edge_dir" '
+        { m[NR] = $0 }
+        END {
+          for (i = 1; i <= NR; i++) if (m[i] == v) {
+            j = (dir == "right") ? i + 1 : i - 1
+            if (j >= 1 && j <= NR) print m[j]
+            exit
+          }
+        }')
+      if [ -n "$target" ]; then
+        exec "$SCRIPTS_DIR/pane-group-switch" "$target"
+      fi
+    fi
   fi
 
   # Step 2: at the grid's edge already? tmux said so in the probe above.

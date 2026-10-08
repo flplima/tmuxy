@@ -1,7 +1,8 @@
 use serde_json::Value;
+use std::sync::Arc;
 use tauri::{Manager, State};
 use tmuxy_core::control_mode::MonitorCommand;
-use tmuxy_core::CommandError;
+use tmuxy_core::{executor, Ctx};
 
 use crate::monitor::{KeyBindingsState, MonitorState};
 use crate::titlebar;
@@ -14,7 +15,7 @@ pub async fn get_initial_state(
     window: tauri::WebviewWindow,
     cols: Option<u32>,
     rows: Option<u32>,
-) -> Result<Value, CommandError> {
+) -> Result<Value, String> {
     let state = windows::monitor_for(&window)?;
     // Resize if dimensions provided
     if let (Some(c), Some(r)) = (cols, rows) {
@@ -40,19 +41,12 @@ pub async fn get_initial_state(
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::GetState { reply })
         .await
-        .map_err(|e| CommandError::unavailable(format!("monitor channel error: {e}")))?;
+        .map_err(|e| format!("monitor channel error: {e}"))?;
     let snapshot = tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
         .await
-        .map_err(|_| {
-            CommandError::unavailable("tmux monitor did not answer with the initial state")
-        })?
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?;
-    to_json(snapshot)
-}
-
-/// A command's answer as JSON; failing to make it is this side's fault.
-fn to_json(value: impl serde::Serialize) -> Result<Value, CommandError> {
-    serde_json::to_value(value).map_err(|e| CommandError::unavailable(e.to_string()))
+        .map_err(|_| "tmux monitor did not answer with the initial state".to_string())?
+        .map_err(|_| "monitor went away before answering".to_string())?;
+    serde_json::to_value(snapshot).map_err(|e| e.to_string())
 }
 
 /// How long `get_initial_state` waits for the monitor to come up. The
@@ -63,16 +57,14 @@ const MONITOR_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// connecting if the webview asked first.
 async fn wait_for_monitor(
     state: &MonitorState,
-) -> Result<tmuxy_core::control_mode::MonitorCommandSender, CommandError> {
+) -> Result<tmuxy_core::control_mode::MonitorCommandSender, String> {
     let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
     loop {
-        if let Some(tx) = state.tx() {
+        if let Some(tx) = state.cmd_tx.read().ok().and_then(|g| g.clone()) {
             return Ok(tx);
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err(CommandError::unavailable(
-                "tmux monitor did not come up in time",
-            ));
+            return Err("tmux monitor did not come up in time".to_string());
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
@@ -83,7 +75,7 @@ pub async fn set_client_size(
     window: tauri::WebviewWindow,
     cols: u32,
     rows: u32,
-) -> Result<(), CommandError> {
+) -> Result<(), String> {
     let state = windows::monitor_for(&window)?;
     // Cache the size so the next run_tmux_command("new-window") can size
     // the broken-out window to match the viewport. Without this the new
@@ -100,7 +92,7 @@ pub async fn set_client_size(
 /// connected there is nothing to size yet; it replays the client size once
 /// the window list lands (see `TmuxMonitor::apply_client_size`).
 async fn resize_via_monitor(state: &MonitorState, cols: u32, rows: u32) {
-    let cmd_tx = state.tx();
+    let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
     match cmd_tx {
         Some(tx) => {
             if let Err(e) = tx.send(MonitorCommand::ResizeWindow { cols, rows }).await {
@@ -118,21 +110,27 @@ pub async fn run_tmux_command(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     command: String,
-) -> Result<(), CommandError> {
+) -> Result<(), String> {
     let entry = windows::entry_for(&window)?;
     let session = entry.session();
     let state = entry.monitor;
-    // `source-file` may change the prefix, the bindings, the theme or the
-    // appearance options: push fresh copies once tmux has applied it, as the
-    // web server re-broadcasts them.
-    let is_source_file = tmuxy_core::transport::is_source_file(&command);
-    let Some(routed) = route(&state, &session, &command) else {
+    // `source-file` may change the prefix, the theme or the appearance options:
+    // push the fresh settings once tmux has applied it (same settle delay as
+    // the SSE server's re-broadcast).
+    let is_source_file = {
+        let trimmed = command.trim_start();
+        trimmed.starts_with("source-file") || trimmed.starts_with("source ")
+    };
+    let Some(routed) = route(&state, &session, &command)? else {
         return Ok(());
     };
     send_via_monitor(&state, MonitorCommand::RunCommand { command: routed }).await?;
     if is_source_file {
-        tokio::time::sleep(tmuxy_core::transport::SOURCE_FILE_SETTLE).await;
-        crate::monitor::emit_config_settings(&app, &state).await;
+        tokio::time::sleep(SOURCE_FILE_SETTLE).await;
+        crate::monitor::emit_theme_settings(&app).await;
+        for window in app.webview_windows().values() {
+            crate::gui::apply_blur(window);
+        }
     }
     Ok(())
 }
@@ -140,29 +138,39 @@ pub async fn run_tmux_command(
 /// Run a tmux command and return what it printed — the one way the frontend
 /// reads from tmux. Same route as a mutation, same connection; the reply is
 /// the command's own output (`RunCommandWithReply`), and an `%error` from
-/// tmux comes back as an error of kind `tmux`; a blocked command as
-/// `forbidden`.
+/// tmux comes back as the Err.
 #[tauri::command]
-pub async fn query_tmux(
-    window: tauri::WebviewWindow,
-    command: String,
-) -> Result<String, CommandError> {
+pub async fn query_tmux(window: tauri::WebviewWindow, command: String) -> Result<String, String> {
     let entry = windows::entry_for(&window)?;
-    let Some(routed) = route(&entry.monitor, &entry.session(), &command) else {
-        return Err(CommandError::forbidden("command not allowed"));
+    let Some(routed) = route(&entry.monitor, &entry.session(), &command)? else {
+        return Err("command not allowed".to_string());
     };
     query_via_monitor(&entry.monitor, &routed).await
 }
 
 /// Run a command through the monitor and wait for what it printed. An
 /// `%error` from tmux is the Err, carrying tmux's message.
-async fn query_via_monitor(state: &MonitorState, command: &str) -> Result<String, CommandError> {
-    tmuxy_core::transport::query(&state.connected_tx()?, command).await
+async fn query_via_monitor(state: &MonitorState, command: &str) -> Result<String, String> {
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    send_via_monitor(
+        state,
+        MonitorCommand::RunCommandWithReply {
+            command: command.to_string(),
+            reply,
+        },
+    )
+    .await?;
+    rx.await
+        .map_err(|_| "monitor went away before answering".to_string())?
+        .into_result()
 }
+
+/// How long to wait after a `source-file` before re-reading tmux options.
+const SOURCE_FILE_SETTLE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// The shared policy (`tmuxy_core::command_router`): `None` for a blocked
 /// command (logged, not an error — the web server answers those with null).
-fn route(state: &MonitorState, session: &str, command: &str) -> Option<String> {
+fn route(state: &MonitorState, session: &str, command: &str) -> Result<Option<String>, String> {
     // Record the WHAT as the tmux verb (content-free; args only at trace level
     // `full`) — parity with the web server's send_via_control_mode.
     tracing::debug!(
@@ -175,80 +183,112 @@ fn route(state: &MonitorState, session: &str, command: &str) -> Option<String> {
     match tmuxy_core::command_router::route_command(command, session, size) {
         tmuxy_core::command_router::Route::Blocked(reason) => {
             tracing::warn!(target: "tmuxy_tauri_app::commands", command, reason, "blocked command");
-            None
+            Ok(None)
         }
-        tmuxy_core::command_router::Route::ControlMode(cmd) => Some(cmd),
+        tmuxy_core::command_router::Route::ControlMode(cmd) => Ok(Some(cmd)),
     }
 }
 
-/// Write to the monitor's command channel. Once connected, the desktop
-/// reaches tmux only over this channel — here, and through
-/// `tmuxy_core::transport` for its reads: an external `tmux` while the
-/// control-mode client is attached can crash tmux 3.5a, and a client-less
-/// command has no current session to act on, which is how a pinned split used
-/// to land on the wrong tab. Before the monitor connects there is nothing to
-/// write to; the frontend only sends once connected, so reaching this without
-/// a channel is a bug worth surfacing.
-async fn send_via_monitor(state: &MonitorState, cmd: MonitorCommand) -> Result<(), CommandError> {
-    state
-        .connected_tx()?
-        .send(cmd)
+/// Write to the monitor's command channel. Every tmux command the app runs
+/// after connecting goes through here — there is no subprocess path: an
+/// external `tmux` while the control-mode client is attached can crash tmux
+/// 3.5a, and a client-less command has no current session to act on, which
+/// is how a pinned split used to land on the wrong tab. Before the monitor
+/// connects there is nothing to write to; the frontend only sends once
+/// connected, so reaching this without a channel is a bug worth surfacing.
+async fn send_via_monitor(state: &MonitorState, cmd: MonitorCommand) -> Result<(), String> {
+    let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let Some(tx) = cmd_tx else {
+        return Err("monitor not connected".to_string());
+    };
+    tx.send(cmd)
         .await
-        .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))
+        .map_err(|e| format!("Monitor channel error: {}", e))
 }
 
-/// Fetch a range of scrollback cells for copy mode — the web server's
-/// `get_scrollback_cells`, through this window's monitor.
+/// Fetch a range of scrollback cells for copy mode.
+///
+/// Matches the SSE server's `get_scrollback_cells` command shape so the
+/// frontend can use the same FETCH_SCROLLBACK_CELLS path under Tauri.
+/// Without this command, copy mode in the Tauri build silently fails to
+/// load anything beyond the already-visible pane content.
 #[tauri::command]
 pub async fn get_scrollback_cells(
-    window: tauri::WebviewWindow,
+    ctx: State<'_, Arc<Ctx>>,
     pane_id: String,
     start: i64,
     end: i64,
-) -> Result<Value, CommandError> {
-    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
+) -> Result<Value, String> {
+    let width_output = ctx
+        .tmux_call(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.clone(),
+                "-p".into(),
+                "#{pane_width}".into(),
+            ],
+            "get_pane_width",
+        )
+        .await
+        .map_err(|e| format!("Failed to get pane width: {}", e))?;
+    let width: u32 = width_output.trim().parse().unwrap_or(80);
+
+    let history_output = ctx
+        .tmux_call(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.clone(),
+                "-p".into(),
+                "#{history_size}".into(),
+            ],
+            "get_history_size",
+        )
+        .await
+        .map_err(|e| format!("Failed to get history size: {}", e))?;
+    let history_size: u32 = history_output.trim().parse().unwrap_or(0);
+
+    let raw = executor::capture_pane_range(&pane_id, start, end)
+        .map_err(|e| format!("Failed to capture pane range: {}", e))?;
+
+    let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
+
+    Ok(serde_json::json!({
+        "cells": cells,
+        "historySize": history_size,
+        "start": start,
+        "end": end,
+        "width": width,
+    }))
 }
 
-/// The theme name, mode and appearance, read over this window's monitor —
-/// waiting for one that is still connecting, since the webview asks at start.
 #[tauri::command]
-pub async fn get_theme_settings(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
-    let tx = wait_for_monitor(&windows::monitor_for(&window)?).await?;
-    tmuxy_core::theme::get_theme_settings(&tx).await
+pub async fn get_theme_settings(ctx: State<'_, Arc<Ctx>>) -> Result<Value, String> {
+    Ok(tmuxy_core::theme::get_theme_settings(&ctx).await)
 }
 
 #[tauri::command]
 pub async fn set_theme(
-    window: tauri::WebviewWindow,
+    ctx: State<'_, Arc<Ctx>>,
     name: String,
     mode: Option<String>,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_theme(&tx, &name, mode.as_deref()).await
+) -> Result<(), String> {
+    tmuxy_core::theme::set_theme(&ctx, &name, mode.as_deref()).await
 }
 
 #[tauri::command]
-pub async fn set_cursor_blink(
-    window: tauri::WebviewWindow,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_cursor_blink(&tx, enabled).await
+pub async fn set_cursor_blink(ctx: State<'_, Arc<Ctx>>, enabled: bool) -> Result<(), String> {
+    tmuxy_core::theme::set_cursor_blink(&ctx, enabled).await
 }
 
 #[tauri::command]
-pub async fn set_theme_mode(
-    window: tauri::WebviewWindow,
-    mode: String,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_theme_mode(&tx, &mode).await
+pub async fn set_theme_mode(ctx: State<'_, Arc<Ctx>>, mode: String) -> Result<(), String> {
+    tmuxy_core::theme::set_theme_mode(&ctx, &mode).await
 }
 
 #[tauri::command]
-pub async fn get_themes_list() -> Result<Value, CommandError> {
+pub async fn get_themes_list() -> Result<Value, String> {
     Ok(tmuxy_core::theme::get_themes_list())
 }
 
@@ -256,7 +296,7 @@ pub async fn get_themes_list() -> Result<Value, CommandError> {
 /// every pane on the socket (read through tmux, never supplied by the page).
 /// The git subprocesses stay off Tauri's async runtime.
 #[tauri::command]
-pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
+pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, String> {
     use tmuxy_core::worktrees::{list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing};
     let state = windows::monitor_for(&window)?;
     let listing = query_via_monitor(&state, &list_pane_paths_cmd(None)).await?;
@@ -264,9 +304,9 @@ pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, C
         list_git_worktrees(paths_from_pane_listing(&listing))
     })
     .await
-    .map_err(|e| CommandError::unavailable(format!("worktree discovery task failed: {e}")))?
-    .map_err(|e| CommandError::unavailable(e.to_string()))?;
-    to_json(repositories)
+    .map_err(|e| format!("worktree discovery task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+    serde_json::to_value(repositories).map_err(|e| e.to_string())
 }
 
 /// The status bar is the window's title bar; it reports its rendered height
@@ -283,9 +323,18 @@ pub fn set_titlebar_height(window: tauri::WebviewWindow, height: f64, action_id:
 pub fn titlebar_double_click(
     window: tauri::WebviewWindow,
     action_id: Option<String>,
-) -> Result<(), CommandError> {
-    titlebar::double_click(&window, action_id.as_deref())
-        .map_err(|e| CommandError::unavailable(e.to_string()))
+) -> Result<(), String> {
+    titlebar::double_click(&window, action_id.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_key_bindings() -> Result<Value, String> {
+    let bindings = tmuxy_core::get_prefix_bindings()?;
+    let prefix = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".to_string());
+    Ok(serde_json::json!({
+        "prefix": prefix,
+        "bindings": bindings
+    }))
 }
 
 /// Return the most recent `tmux-keybindings` payload, or null if the monitor
@@ -293,9 +342,7 @@ pub fn titlebar_double_click(
 /// from the race where the backend emits before the WebView's listener is
 /// attached.
 #[tauri::command]
-pub fn get_keybindings_snapshot(
-    state: State<'_, KeyBindingsState>,
-) -> Option<tmuxy_core::transport::KeyBindings> {
+pub fn get_keybindings_snapshot(state: State<'_, KeyBindingsState>) -> Option<Value> {
     state.0.read().ok().and_then(|guard| guard.clone())
 }
 
@@ -304,7 +351,7 @@ pub fn get_keybindings_snapshot(
 /// the app is currently attached to. Powers the sidebar server picker — a
 /// desktop-only surface; the web build always uses its launch socket.
 #[tauri::command]
-pub async fn list_servers() -> Result<Value, CommandError> {
+pub async fn list_servers() -> Result<Value, String> {
     let servers = tmuxy_core::servers::read_servers();
     let current = tmuxy_core::servers::current_server_id();
     Ok(serde_json::json!({
@@ -315,20 +362,58 @@ pub async fn list_servers() -> Result<Value, CommandError> {
 
 /// The sessions that have a snapshot to be rebuilt from (`session_snapshot`).
 #[tauri::command]
-pub async fn list_snapshots() -> Result<Value, CommandError> {
-    tmuxy_core::transport::list_snapshots_json().await
+pub async fn list_snapshots() -> Result<Value, String> {
+    let dir = tmuxy_core::session_snapshot::default_dir();
+    let list = tokio::task::spawn_blocking(move || tmuxy_core::session_snapshot::list(&dir))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!(list
+        .into_iter()
+        .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
+        .collect::<Vec<_>>()))
 }
 
 /// Rebuild a session from its latest snapshot through this window's
 /// control-mode client, the way the web server does. Refused when the session
 /// is already running.
 #[tauri::command]
-pub async fn restore_session(
-    window: tauri::WebviewWindow,
-    session: String,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::transport::restore_named(&session, &tx).await
+pub async fn restore_session(window: tauri::WebviewWindow, session: String) -> Result<(), String> {
+    if !tmuxy_core::session::is_safe_session_name(&session) {
+        return Err(format!("not a usable session name: {session:?}"));
+    }
+    if tmuxy_core::session::session_exists(&session).unwrap_or(false) {
+        return Err(format!("session {session:?} is already running"));
+    }
+    let dir = tmuxy_core::session_snapshot::default_dir();
+    let snapshot = tmuxy_core::session_snapshot::read_latest(&dir, &session)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no snapshot for {session:?}"))?;
+    let state = windows::monitor_for(&window)?;
+    let tx = state
+        .cmd_tx
+        .read()
+        .map_err(|_| "monitor state poisoned".to_string())?
+        .clone()
+        .ok_or_else(|| "No monitor connection available".to_string())?;
+    let options = tmuxy_core::session_snapshot::RestoreOptions {
+        run: false,
+        fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
+        onto_existing_window: false,
+        existing_window_index: None,
+    };
+    tmuxy_core::session_snapshot::restore_via_monitor(&snapshot, &options, &tx).await
+}
+
+/// Delete a session's snapshots; a running session is untouched.
+#[tauri::command]
+pub async fn forget_session(session: String) -> Result<usize, String> {
+    if !tmuxy_core::session::is_safe_session_name(&session) {
+        return Err(format!("not a usable session name: {session:?}"));
+    }
+    let dir = tmuxy_core::session_snapshot::default_dir();
+    tokio::task::spawn_blocking(move || tmuxy_core::session_snapshot::forget(&dir, &session))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Reconnect the desktop app to a saved server by id: resolve it from
@@ -338,10 +423,10 @@ pub async fn restore_session(
 ///
 /// [`request_reconnect`]: crate::monitor::request_reconnect
 #[tauri::command]
-pub async fn connect_server(window: tauri::WebviewWindow, id: String) -> Result<(), CommandError> {
+pub async fn connect_server(window: tauri::WebviewWindow, id: String) -> Result<(), String> {
     let state = windows::monitor_for(&window)?;
-    let server = tmuxy_core::servers::find_server(&id)
-        .ok_or_else(|| CommandError::invalid(format!("unknown server '{id}'")))?;
+    let server =
+        tmuxy_core::servers::find_server(&id).ok_or_else(|| format!("unknown server '{id}'"))?;
     let (socket, ssh) = server.connect_env();
     let session = server.session.clone().unwrap_or_else(get_session);
     crate::monitor::request_reconnect(
@@ -366,12 +451,10 @@ pub async fn connect_server(window: tauri::WebviewWindow, id: String) -> Result<
 /// Parsing lives in `tmuxy_core::servers` rather than in the frontend so the
 /// widget and the `tmuxy connect` TUI mint identical ids for the same host.
 #[tauri::command]
-pub async fn add_server(dest: String, socket: Option<String>) -> Result<String, CommandError> {
-    let server = tmuxy_core::servers::Server::from_destination(&dest, socket.as_deref())
-        .map_err(CommandError::invalid)?;
+pub async fn add_server(dest: String, socket: Option<String>) -> Result<String, String> {
+    let server = tmuxy_core::servers::Server::from_destination(&dest, socket.as_deref())?;
     let id = server.id.clone();
-    tmuxy_core::servers::add_server(server)
-        .map_err(|e| CommandError::unavailable(format!("could not save server: {e}")))?;
+    tmuxy_core::servers::add_server(server).map_err(|e| format!("could not save server: {e}"))?;
     Ok(id)
 }
 
@@ -381,7 +464,7 @@ pub async fn add_server(dest: String, socket: Option<String>) -> Result<String, 
 /// or its loop treats the ended connection as a flap and reattaches, dropping
 /// the user back into the session they just left.
 #[tauri::command]
-pub async fn detach_client(window: tauri::WebviewWindow) -> Result<(), CommandError> {
+pub async fn detach_client(window: tauri::WebviewWindow) -> Result<(), String> {
     let state = windows::monitor_for(&window)?;
     crate::monitor::request_detach(&state).await;
     Ok(())
@@ -393,10 +476,8 @@ pub async fn detach_client(window: tauri::WebviewWindow) -> Result<(), CommandEr
 /// with this one but keeps its own current tab, so two tabs of one session can be
 /// on screen at once. See `windows.rs`.
 #[tauri::command]
-pub fn new_window(app: tauri::AppHandle) -> Result<(), CommandError> {
-    crate::windows::open(&app)
-        .map(|_| ())
-        .map_err(CommandError::unavailable)
+pub fn new_window(app: tauri::AppHandle) -> Result<(), String> {
+    crate::windows::open(&app).map(|_| ())
 }
 
 /// Bring the GUI window at `index` to the front (Window ▸ the window list, and
@@ -427,11 +508,10 @@ pub fn list_gui_windows(app: tauri::AppHandle) -> Vec<Value> {
 /// (`full-width-top`, `no-title-bar`, …). Unknown slugs are refused rather than
 /// silently ignored, so a typo in the UI shows up as a snackbar.
 #[tauri::command]
-pub fn set_window_style(window: tauri::WebviewWindow, style: String) -> Result<(), CommandError> {
+pub fn set_window_style(window: tauri::WebviewWindow, style: String) -> Result<(), String> {
     let style = crate::window_style::WindowStyle::from_id(&format!("window-style-{style}"))
-        .ok_or_else(|| CommandError::invalid(format!("unknown window style '{style}'")))?;
-    crate::window_style::apply(&window, style)
-        .map_err(|e| CommandError::unavailable(e.to_string()))?;
+        .ok_or_else(|| format!("unknown window style '{style}'"))?;
+    crate::window_style::apply(&window, style).map_err(|e| e.to_string())?;
     crate::gui::refresh_menu(&window.app_handle().clone());
     Ok(())
 }
@@ -494,14 +574,10 @@ pub fn set_trace_level(level: String) -> String {
 /// Open the trace file in the OS default handler. Desktop-only by nature: the
 /// file lives on the machine running the backend.
 #[tauri::command]
-pub fn open_trace_file() -> Result<(), CommandError> {
-    let path = tmuxy_core::trace::trace_path()
-        .ok_or_else(|| CommandError::unavailable("no trace file path could be resolved"))?;
+pub fn open_trace_file() -> Result<(), String> {
+    let path = tmuxy_core::trace::trace_path().ok_or("no trace file path could be resolved")?;
     if !path.exists() {
-        return Err(CommandError::unavailable(format!(
-            "{} does not exist yet",
-            path.display()
-        )));
+        return Err(format!("{} does not exist yet", path.display()));
     }
     open_path(&path)
 }
@@ -514,12 +590,12 @@ pub fn open_trace_file() -> Result<(), CommandError> {
 /// here instead. Only web schemes are accepted: a pane can print any text, so
 /// `file:` and custom schemes stay out.
 #[tauri::command]
-pub fn open_url(url: String) -> Result<(), CommandError> {
+pub fn open_url(url: String) -> Result<(), String> {
     let url = url.trim();
     if !is_openable_url(url) {
-        return Err(CommandError::forbidden(format!(
+        return Err(format!(
             "refusing to open {url:?}: only http(s) and mailto links"
-        )));
+        ));
     }
     #[cfg(target_os = "macos")]
     let mut cmd = std::process::Command::new("open");
@@ -534,7 +610,7 @@ pub fn open_url(url: String) -> Result<(), CommandError> {
     cmd.arg(url)
         .spawn()
         .map(|_| ())
-        .map_err(|e| CommandError::unavailable(format!("could not open {url}: {e}")))
+        .map_err(|e| format!("could not open {url}: {e}"))
 }
 
 /// Whether a link a pane printed may be handed to the browser.
@@ -546,19 +622,7 @@ pub(crate) fn is_openable_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod open_url_tests {
-    use super::{is_openable_url, open_url};
-
-    /// A desktop command rejects with `{ error, kind }`, the shape the web
-    /// server's `/commands` failures have.
-    #[test]
-    fn a_refused_link_rejects_with_kind_forbidden() {
-        let err = open_url("file:///etc/passwd".to_string()).unwrap_err();
-        let json = serde_json::to_value(&err).unwrap_or_default();
-        assert_eq!(json["kind"], "forbidden");
-        assert!(json["error"]
-            .as_str()
-            .is_some_and(|e| e.starts_with("refusing to open")));
-    }
+    use super::is_openable_url;
 
     #[test]
     fn only_web_links_are_openable() {
@@ -574,7 +638,7 @@ mod open_url_tests {
 }
 
 /// Hand a path to the desktop's default opener.
-fn open_path(path: &std::path::Path) -> Result<(), CommandError> {
+fn open_path(path: &std::path::Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let program = "open";
     #[cfg(target_os = "linux")]
@@ -585,7 +649,7 @@ fn open_path(path: &std::path::Path) -> Result<(), CommandError> {
         .arg(path)
         .spawn()
         .map(|_| ())
-        .map_err(|e| CommandError::unavailable(format!("could not open {}: {e}", path.display())))
+        .map_err(|e| format!("could not open {}: {e}", path.display()))
 }
 
 /// Ingest a batch of client trace events into the shared NDJSON file. **Fails

@@ -3,16 +3,11 @@
 //! The SSE server and the Tauri app used to carry near-verbatim copies of
 //! these handlers — which had already drifted (one used the
 //! `tmux_options::THEME` constants, the other hardcoded `"@tmuxy-theme"`
-//! strings). One implementation over the monitor's command channel keeps them
-//! in lockstep, and keeps every read and write on the control-mode connection
-//! (an external `tmux` while it is attached can crash tmux 3.5a).
+//! strings). One implementation over `&Ctx` keeps them in lockstep.
 
 use crate::constants::tmux_options;
-use crate::control_mode::MonitorCommandSender;
-use crate::executor::tmux_quote;
+use crate::ctx::Ctx;
 use crate::session;
-use crate::transport::query;
-use crate::CommandError;
 
 /// Fallbacks when the tmux options are unset (fresh server, never themed).
 const DEFAULT_THEME: &str = "default";
@@ -104,103 +99,119 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
         .map_or(default, |v| v.min(max))
 }
 
-/// Every option the theme settings are read from, in the order the query
-/// prints them.
-const SETTINGS_OPTIONS: [&str; 14] = [
-    tmux_options::THEME,
-    tmux_options::THEME_MODE,
-    tmux_options::OPACITY,
-    tmux_options::ACTIVE_PANE_OPACITY,
-    tmux_options::INACTIVE_PANE_OPACITY,
-    tmux_options::ACTIVE_TEXT_OPACITY,
-    tmux_options::INACTIVE_TEXT_OPACITY,
-    tmux_options::BLUR,
-    tmux_options::ANIMATIONS,
-    tmux_options::CURSOR_BLINK,
-    tmux_options::TAB_OVERVIEW_COLS,
-    tmux_options::GESTURE_SWIPE_TABS,
-    tmux_options::GESTURE_PINCH_ZOOM,
-    tmux_options::GESTURE_PINCH_OVERVIEW,
-];
-
-/// One command list printing every settings option, a line each. An unset
-/// option prints an empty line, which the parsers below read as "use the
-/// default".
-fn settings_query() -> String {
-    SETTINGS_OPTIONS
-        .iter()
-        .map(|option| format!("display-message -p '#{{{option}}}'"))
-        .collect::<Vec<_>>()
-        .join(" ; ")
+async fn read_option(ctx: &Ctx, option: &'static str, op: &'static str) -> String {
+    ctx.tmux_call(
+        vec!["show-options".into(), "-gqv".into(), option.into()],
+        op,
+    )
+    .await
+    .map(|s| s.trim().to_string())
+    .unwrap_or_default()
 }
 
-/// The settings from what [`settings_query`] printed, with the defaults for
-/// anything unset or malformed. Returns `{ "theme", "mode", "appearance" }`.
-fn parse_settings(output: &str) -> serde_json::Value {
-    let mut fields = output.lines().map(str::trim);
-    let mut next = || fields.next().unwrap_or("");
-    let theme = next();
-    let mode = next();
+/// Read the appearance options from tmux, applying [`Appearance::default`]
+/// for any that are unset or malformed.
+pub async fn get_appearance(ctx: &Ctx) -> Appearance {
     let defaults = Appearance::default();
-    let appearance = Appearance {
-        opacity: parse_opacity(next(), defaults.opacity),
-        active_pane_opacity: parse_opacity(next(), defaults.active_pane_opacity),
-        inactive_pane_opacity: parse_opacity(next(), defaults.inactive_pane_opacity),
-        active_text_opacity: parse_opacity(next(), defaults.active_text_opacity),
-        inactive_text_opacity: parse_opacity(next(), defaults.inactive_text_opacity),
-        blur: parse_flag(next(), defaults.blur),
-        animations: parse_flag(next(), defaults.animations),
-        cursor_blink: parse_flag(next(), defaults.cursor_blink),
-        tab_overview_cols: parse_count(next(), defaults.tab_overview_cols, MAX_TAB_OVERVIEW_COLS),
-        gesture_swipe_tabs: parse_flag(next(), defaults.gesture_swipe_tabs),
-        gesture_pinch_zoom: parse_flag(next(), defaults.gesture_pinch_zoom),
-        gesture_pinch_overview: parse_flag(next(), defaults.gesture_pinch_overview),
+    let opacity = |option, op, default| async move {
+        parse_opacity(&read_option(ctx, option, op).await, default)
     };
+    Appearance {
+        opacity: opacity(
+            tmux_options::OPACITY,
+            "appearance:opacity",
+            defaults.opacity,
+        )
+        .await,
+        active_pane_opacity: opacity(
+            tmux_options::ACTIVE_PANE_OPACITY,
+            "appearance:active-pane",
+            defaults.active_pane_opacity,
+        )
+        .await,
+        inactive_pane_opacity: opacity(
+            tmux_options::INACTIVE_PANE_OPACITY,
+            "appearance:inactive-pane",
+            defaults.inactive_pane_opacity,
+        )
+        .await,
+        active_text_opacity: opacity(
+            tmux_options::ACTIVE_TEXT_OPACITY,
+            "appearance:active-text",
+            defaults.active_text_opacity,
+        )
+        .await,
+        inactive_text_opacity: opacity(
+            tmux_options::INACTIVE_TEXT_OPACITY,
+            "appearance:inactive-text",
+            defaults.inactive_text_opacity,
+        )
+        .await,
+        blur: parse_flag(
+            &read_option(ctx, tmux_options::BLUR, "appearance:blur").await,
+            defaults.blur,
+        ),
+        animations: parse_flag(
+            &read_option(ctx, tmux_options::ANIMATIONS, "appearance:animations").await,
+            defaults.animations,
+        ),
+        cursor_blink: parse_flag(
+            &read_option(ctx, tmux_options::CURSOR_BLINK, "appearance:cursor-blink").await,
+            defaults.cursor_blink,
+        ),
+        tab_overview_cols: parse_count(
+            &read_option(
+                ctx,
+                tmux_options::TAB_OVERVIEW_COLS,
+                "appearance:tab-overview-cols",
+            )
+            .await,
+            defaults.tab_overview_cols,
+            MAX_TAB_OVERVIEW_COLS,
+        ),
+        gesture_swipe_tabs: parse_flag(
+            &read_option(
+                ctx,
+                tmux_options::GESTURE_SWIPE_TABS,
+                "appearance:gesture-swipe",
+            )
+            .await,
+            defaults.gesture_swipe_tabs,
+        ),
+        gesture_pinch_zoom: parse_flag(
+            &read_option(
+                ctx,
+                tmux_options::GESTURE_PINCH_ZOOM,
+                "appearance:gesture-zoom",
+            )
+            .await,
+            defaults.gesture_pinch_zoom,
+        ),
+        gesture_pinch_overview: parse_flag(
+            &read_option(
+                ctx,
+                tmux_options::GESTURE_PINCH_OVERVIEW,
+                "appearance:gesture-overview",
+            )
+            .await,
+            defaults.gesture_pinch_overview,
+        ),
+    }
+}
+
+/// Read the active theme name + mode and the appearance from tmux, applying
+/// the defaults. Returns `{ "theme", "mode", "appearance" }` — the wire shape
+/// the `get_theme_settings` Tauri command, the `GetThemeSettings` SSE command
+/// and the `theme-settings` push (after the config is sourced) all share.
+pub async fn get_theme_settings(ctx: &Ctx) -> serde_json::Value {
+    let theme = read_option(ctx, tmux_options::THEME, "theme:get").await;
+    let mode = read_option(ctx, tmux_options::THEME_MODE, "theme-mode:get").await;
+    let appearance = get_appearance(ctx).await;
     serde_json::json!({
-        "theme": if theme.is_empty() { DEFAULT_THEME } else { theme },
-        "mode": if mode.is_empty() { DEFAULT_MODE } else { mode },
+        "theme": if theme.is_empty() { DEFAULT_THEME.to_string() } else { theme },
+        "mode": if mode.is_empty() { DEFAULT_MODE.to_string() } else { mode },
         "appearance": appearance,
     })
-}
-
-/// Read the active theme name + mode and the appearance from tmux in one
-/// round trip, applying the defaults. Returns `{ "theme", "mode",
-/// "appearance" }` — the wire shape the `get_theme_settings` Tauri command,
-/// the `GetThemeSettings` SSE command and the `theme-settings` push (after the
-/// config is sourced) all share.
-pub async fn get_theme_settings(
-    tx: &MonitorCommandSender,
-) -> Result<serde_json::Value, CommandError> {
-    let output = query(tx, &settings_query()).await?;
-    Ok(parse_settings(&output))
-}
-
-/// A value written into a control-mode command line. Quoting keeps `;` and
-/// spaces literal; a control character would end the line and start another
-/// command, so it is refused.
-fn option_value(value: &str) -> Result<String, CommandError> {
-    if value.chars().any(char::is_control) {
-        return Err(CommandError::invalid(format!(
-            "not a usable option value: {value:?}"
-        )));
-    }
-    Ok(tmux_quote(value))
-}
-
-/// Set global options in one command list.
-async fn set_options(
-    tx: &MonitorCommandSender,
-    options: &[(&str, &str)],
-    what: &str,
-) -> Result<(), CommandError> {
-    let mut commands = Vec::with_capacity(options.len());
-    for (option, value) in options {
-        commands.push(format!("set-option -g {option} {}", option_value(value)?));
-    }
-    query(tx, &commands.join(" ; "))
-        .await
-        .map(|_| ())
-        .map_err(|e| e.context(&format!("Failed to set {what}")))
 }
 
 /// Turn the cursor's blink on or off, and remember the choice.
@@ -209,12 +220,18 @@ async fn set_options(
 /// makes it survive a tmux server restart. A `@tmuxy-cursor-blink` line in
 /// the user's own `tmuxy.conf` is the default this starts from — set it
 /// there and the app never has to be told.
-pub async fn set_cursor_blink(
-    tx: &MonitorCommandSender,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    let value = if enabled { "on" } else { "off" };
-    set_options(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
+pub async fn set_cursor_blink(ctx: &Ctx, enabled: bool) -> Result<(), String> {
+    ctx.tmux_call(
+        vec![
+            "set-option".into(),
+            "-g".into(),
+            tmux_options::CURSOR_BLINK.into(),
+            if enabled { "on".into() } else { "off".into() },
+        ],
+        "cursor-blink:set",
+    )
+    .await
+    .map_err(|e| format!("Failed to set cursor blink: {}", e))?;
     if let Err(e) = session::write_managed_state(None, None, Some(enabled), None) {
         tracing::warn!(error = %e, "could not persist the cursor blink to tmuxy.state.json");
     }
@@ -224,16 +241,31 @@ pub async fn set_cursor_blink(
 /// Set the theme (and optionally the mode) in tmux and persist the choice so
 /// it survives a tmux server restart. Persistence failure is non-fatal — the
 /// live option is already set — and is logged, not returned.
-pub async fn set_theme(
-    tx: &MonitorCommandSender,
-    name: &str,
-    mode: Option<&str>,
-) -> Result<(), CommandError> {
-    let mut options = vec![(tmux_options::THEME, name)];
+pub async fn set_theme(ctx: &Ctx, name: &str, mode: Option<&str>) -> Result<(), String> {
+    ctx.tmux_call(
+        vec![
+            "set-option".into(),
+            "-g".into(),
+            tmux_options::THEME.into(),
+            name.to_string(),
+        ],
+        "theme:set",
+    )
+    .await
+    .map_err(|e| format!("Failed to set theme: {}", e))?;
     if let Some(m) = mode {
-        options.push((tmux_options::THEME_MODE, m));
+        ctx.tmux_call(
+            vec![
+                "set-option".into(),
+                "-g".into(),
+                tmux_options::THEME_MODE.into(),
+                m.to_string(),
+            ],
+            "theme-mode:set",
+        )
+        .await
+        .map_err(|e| format!("Failed to set theme mode: {}", e))?;
     }
-    set_options(tx, &options, "theme").await?;
     if let Err(e) = session::write_managed_state(Some(name), mode, None, None) {
         tracing::warn!(error = %e, "could not persist theme to tmuxy.state.json");
     }
@@ -241,8 +273,18 @@ pub async fn set_theme(
 }
 
 /// Set only the mode (dark/light) and persist it.
-pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
-    set_options(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
+pub async fn set_theme_mode(ctx: &Ctx, mode: &str) -> Result<(), String> {
+    ctx.tmux_call(
+        vec![
+            "set-option".into(),
+            "-g".into(),
+            tmux_options::THEME_MODE.into(),
+            mode.to_string(),
+        ],
+        "theme-mode:set",
+    )
+    .await
+    .map_err(|e| format!("Failed to set theme mode: {}", e))?;
     if let Err(e) = session::write_managed_state(None, Some(mode), None, None) {
         tracing::warn!(error = %e, "could not persist theme mode to tmuxy.state.json");
     }
@@ -288,53 +330,6 @@ mod tests {
         assert_eq!(display_theme_name("tokyo-night"), "Tokyo Night");
         assert_eq!(display_theme_name("default"), "Default");
         assert_eq!(display_theme_name(""), "");
-    }
-
-    /// One round trip reads every option; an unset one is the default.
-    #[test]
-    fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
-        let query = settings_query();
-        for option in SETTINGS_OPTIONS {
-            assert!(
-                query.contains(&format!("display-message -p '#{{{option}}}'")),
-                "{option}"
-            );
-        }
-
-        let mut printed = vec![""; SETTINGS_OPTIONS.len()];
-        printed[0] = "nord";
-        printed[2] = "0.5";
-        printed[7] = "off";
-        printed[10] = "40";
-        let settings = parse_settings(&format!("{}\n", printed.join("\n")));
-        assert_eq!(settings["theme"], "nord");
-        assert_eq!(settings["mode"], DEFAULT_MODE);
-        assert_eq!(settings["appearance"]["opacity"], 0.5);
-        assert_eq!(settings["appearance"]["blur"], false);
-        assert_eq!(
-            settings["appearance"]["tabOverviewCols"],
-            MAX_TAB_OVERVIEW_COLS
-        );
-        assert_eq!(settings["appearance"]["animations"], true);
-
-        let empty = parse_settings("");
-        assert_eq!(empty["theme"], DEFAULT_THEME);
-        assert_eq!(
-            empty["appearance"],
-            serde_json::to_value(Appearance::default()).unwrap()
-        );
-    }
-
-    /// The value goes into a control-mode command line: quoted so `;` stays
-    /// literal, and refused if it carries a line break.
-    #[test]
-    fn an_option_value_cannot_end_the_command_line() {
-        assert_eq!(option_value("nord").unwrap(), "'nord'");
-        assert_eq!(
-            option_value("a ; kill-server").unwrap(),
-            "'a ; kill-server'"
-        );
-        assert!(option_value("a\nkill-server").is_err());
     }
 
     #[test]

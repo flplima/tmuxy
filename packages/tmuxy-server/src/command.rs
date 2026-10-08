@@ -1,23 +1,24 @@
 //! Typed wire schema for client → server commands.
 //!
 //! `ClientCommand` is the canonical Rust mirror of the JSON payload the
-//! frontend POSTs to `/commands`, decoded once at the door so a misspelt
-//! field or a changed signature is a 400 rather than a silent `None` deep in
-//! a handler.
+//! frontend POSTs to `/commands`. The old code parsed each branch by
+//! reaching into `serde_json::Value` (`args.get("paneId").and_then(...)`),
+//! which made every typo silent and every signature change a runtime hunt
+//! through the SSE handler.
 //!
-//! The wire shape:
+//! The wire shape is preserved exactly:
 //!
 //! ```json
-//! { "cmd": "run_tmux_command", "args": { "command": "splitw -h" } }
+//! { "cmd": "send_keys_to_tmux", "args": { "keys": "ls Enter" } }
 //! ```
 //!
 //! `#[serde(tag = "cmd", content = "args", rename_all = "snake_case")]`
-//! matches the frontend's existing format. A field the TS adapter sends in
-//! camelCase (`paneId`) is remapped explicitly with `#[serde(rename = "...")]`.
+//! matches the frontend's existing format. Field names that the TS adapter
+//! sends in camelCase (`paneId`, `eventType`) are remapped explicitly with
+//! `#[serde(rename = "...")]`.
 //!
-//! Adding a command is a variant here and an arm in `handle_command`; the
-//! compiler enforces the rest. A viewer's server refuses it until
-//! `serve_viewer` names it.
+//! Adding a new command becomes a single-place change: add a variant here,
+//! match it in `handle_command`. The compiler enforces the rest.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -52,7 +53,7 @@ pub enum ClientCommand {
     },
     GetScrollbackCells {
         #[serde(rename = "paneId")]
-        pane_id: tmuxy_core::PaneId,
+        pane_id: String,
         #[serde(default = "default_scrollback_start")]
         start: i64,
         #[serde(default = "default_scrollback_end")]
@@ -78,6 +79,10 @@ pub enum ClientCommand {
     RestoreSession {
         session: String,
     },
+    /// Delete a session's snapshots. The running session, if any, is untouched.
+    ForgetSession {
+        session: String,
+    },
     SetThemeMode {
         mode: String,
     },
@@ -100,7 +105,7 @@ impl ClientCommand {
     ///
     /// The TS adapter always sends `{ "cmd": ..., "args": ... }`, defaulting
     /// `args` to an empty object `{}` even for commands that take no
-    /// arguments (`get_theme_settings`, `get_themes_list`, …). serde's
+    /// arguments (`get_theme_settings`, `get_themes_list`, `ping`, …). serde's
     /// adjacently-tagged representation rejects an empty map where a unit
     /// variant is expected ("invalid type: map, expected unit variant"), which
     /// broke those commands on the wire.
@@ -212,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn scrollback_defaults_to_the_last_two_hundred_rows() {
+    fn scrollback_defaults_match_legacy_handler() {
         let cmd = parse(json!({
             "cmd": "get_scrollback_cells",
             "args": { "paneId": "%0" }

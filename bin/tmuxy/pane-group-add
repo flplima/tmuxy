@@ -2,15 +2,47 @@
 # Create a new pane in a group
 # Args: $1=pane_id $2=pane_width $3=pane_height
 #
-# If the pane is already in a group, adds to that group; otherwise opens a new
-# group with the pane and the new one. The new pane becomes the visible member;
-# the old visible member is parked in the stash session.
+# If the active pane is already in a group, adds to that group.
+# Otherwise creates a new group with the active pane + new pane.
 #
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
+# The new pane becomes the visible member (in the attached session); the old
+# visible member is parked in the stash session. Membership is carried by the
+# per-pane @tmuxy-group-id option, which follows each pane across the swap.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-group_verb add "$@"
+PANE_ID="$1"
+PANE_WIDTH="$2"
+PANE_HEIGHT="$3"
+
+ensure_stash_session
+
+# Reap any hidden members orphaned by an earlier wholesale tab-kill before
+# adding more — bounds stash accumulation without a separate GC trigger.
+gc_groups
+
+# Reuse the anchor's group id, or mint one and tag the anchor to open a group.
+GID=$(group_id_of_pane "$PANE_ID")
+if [ -z "$GID" ]; then
+  GID=$(new_group_id "$PANE_ID")
+  set_group_id "$PANE_ID" "$GID"
+  # The anchor becomes a member too, so it needs the same arming — a group
+  # opened from a pane running a shell loses the whole group when that shell
+  # exits otherwise.
+  group_arm_pane "$PANE_ID"
+fi
+
+# Create the new pane in the current window, then atomically break it into its
+# own window in the stash session AND tag its group id — a single command list
+# so the option is set by the time the monitor processes the move.
+NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}')
+_tmux break-pane -d -s "$NEW_PANE_ID" -t "${STASH_SESSION}:" \; \
+  set-option -p -t "$NEW_PANE_ID" @tmuxy-group-id "$GID"
+group_arm_pane "$NEW_PANE_ID"
+
+# Size the stash window to the visible slot, then swap the new pane into view.
+_tmux resize-window -t "$NEW_PANE_ID" -x "$PANE_WIDTH" -y "$PANE_HEIGHT"
+_tmux swap-pane -s "$NEW_PANE_ID" -t "$PANE_ID"
+
+refresh_panes

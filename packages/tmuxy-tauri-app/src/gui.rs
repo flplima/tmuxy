@@ -1,7 +1,7 @@
 use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::Manager;
 use tmuxy_core::constants::tmux_options;
-use tmuxy_core::session;
+use tmuxy_core::{executor, session};
 
 use crate::commands;
 use crate::monitor;
@@ -9,23 +9,46 @@ use crate::titlebar;
 use crate::window_style::{self, WindowStyle, WindowStyles};
 use crate::windows;
 
-/// The `@tmuxy-blur` the config files set (default on), for a window that
-/// opens before its monitor has sourced them — the first one opens during
-/// setup, before `monitor::start_monitoring` connects. The files are read in
-/// tmux's source order (defaults first, then the user conf), last assignment
-/// winning, which is what `source-file` resolves to. Once the monitor has
-/// sourced the config, `monitor::emit_config_settings` applies the live value.
-fn configured_blur() -> bool {
+/// Read a tmuxy user-option, preferring the live tmux server but falling back
+/// to parsing `~/.config/tmuxy/tmuxy.conf` directly when the server isn't up
+/// yet. The initial `apply_blur` call runs during Tauri setup — before
+/// `monitor::start_monitoring` connects and sources the config — so
+/// `show-options` would otherwise return empty and the macOS window would
+/// open without its blur on first launch.
+fn read_tmuxy_option(name: &str) -> Option<String> {
+    if let Ok(s) = executor::execute_tmux_command(&["show-options", "-gqv", name]) {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    // Fall back to parsing the config files in tmux's source order
+    // (defaults first, then user conf) — last assignment wins, matching what
+    // `source-file` would resolve to. App-managed state lives in
+    // tmuxy.state.json and is applied via set-option at session-init time,
+    // so it wins over both files at runtime; check it last here so the
+    // fallback matches that ordering for the not-yet-connected path.
     let dir = session::config_dir();
     let mut found: Option<String> = None;
     for filename in ["tmuxy.defaults.conf", "tmuxy.conf"] {
         if let Ok(content) = std::fs::read_to_string(dir.join(filename)) {
-            if let Some(v) = parse_option_from_config(&content, tmux_options::BLUR) {
+            if let Some(v) = parse_option_from_config(&content, name) {
                 found = Some(v);
             }
         }
     }
-    found.is_none_or(|value| tmuxy_core::theme::parse_flag(&value, true))
+    // tmuxy.state.json overrides — translate known keys to their @tmuxy-* option.
+    let state = session::read_managed_state();
+    let state_value = match name {
+        "@tmuxy-theme" => state.theme,
+        "@tmuxy-theme-mode" => state.theme_mode,
+        _ => None,
+    };
+    if state_value.is_some() {
+        found = state_value;
+    }
+    found
 }
 
 /// Best-effort parser for `set [-g|-ga|-gu|-s|-sg|...] @name value` lines in a
@@ -76,12 +99,20 @@ fn strip_quotes(s: &str) -> &str {
     s
 }
 
-/// Put the native blur behind the window on or off (`@tmuxy-blur`). macOS
-/// only — the option is accepted and ignored elsewhere. The surface opacities
-/// the blur shows through are the frontend's business (`theme::Appearance`,
-/// applied as CSS variables).
+/// Apply the native blur behind the window from `@tmuxy-blur` (default on).
+/// macOS only — the option is accepted and ignored elsewhere. Called at setup
+/// and again whenever the user's config is (re)sourced, so flipping the flag
+/// takes effect live. The surface opacities the blur shows through are the
+/// frontend's business (`theme::Appearance`, applied as CSS variables).
+pub(crate) fn apply_blur(window: &tauri::WebviewWindow) {
+    let blur = read_tmuxy_option(tmux_options::BLUR)
+        .map(|value| tmuxy_core::theme::parse_flag(&value, true))
+        .unwrap_or(true);
+    set_native_blur(window, blur);
+}
+
 #[cfg(target_os = "macos")]
-pub(crate) fn apply_blur(window: &tauri::WebviewWindow, blur: bool) {
+fn set_native_blur(window: &tauri::WebviewWindow, blur: bool) {
     let target = window.clone();
     let _ = window.run_on_main_thread(move || {
         // Every apply adds a fresh NSVisualEffectView under the webview and
@@ -110,8 +141,12 @@ pub(crate) fn apply_blur(window: &tauri::WebviewWindow, blur: bool) {
 /// No native window material on this platform; the option is read for parity
 /// and has nothing to drive.
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn apply_blur(_window: &tauri::WebviewWindow, _blur: bool) {}
+fn set_native_blur(_window: &tauri::WebviewWindow, _blur: bool) {}
 
+/// Build the native macOS application menu bar.
+///
+/// Mirrors the web hamburger menu (Pane, Tab, Session, View, Help) plus
+/// standard macOS menus (tmuxy app menu, Edit, Window).
 /// Handles for the Debug menu's trace controls, kept so a click can re-render
 /// the whole group: the switch enables/disables everything below it, and
 /// picking a level has to uncheck its siblings (a native menu has no radio
@@ -142,10 +177,6 @@ fn sync_trace_menu(app: &tauri::AppHandle) {
     }
 }
 
-/// Build the native macOS application menu bar.
-///
-/// Mirrors the web hamburger menu (Pane, Tab, Session, View, Help) plus
-/// standard macOS menus (tmuxy app menu, Edit, Window).
 fn build_app_menu<M: Manager<tauri::Wry>>(
     app: &M,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
@@ -776,7 +807,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         "restart-app" => app_handle.restart(),
         "trace-open" => {
             if let Err(e) = commands::open_trace_file() {
-                show_status_message(app_handle, &e.error);
+                show_status_message(app_handle, &e);
             }
             return;
         }
@@ -897,7 +928,7 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
 /// the platform hint the layout reads, and the menu refresh that keeps the
 /// Window menu describing whichever window has focus.
 pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
-    apply_blur(window, configured_blur());
+    apply_blur(window);
 
     // Tell the frontend which platform we're on so it can adjust layout
     // (e.g., hide hamburger menu on macOS, add traffic light spacing)
@@ -1220,6 +1251,10 @@ pub fn run() {
                 }
             }
         })
+        // Shared execution context — handed to TmuxMonitor on connect AND used
+        // by async Tauri commands for retried+timed-out tmux dispatch via the
+        // Tower stack. Mirrors AppState::ctx on the server side.
+        .manage(tmuxy_core::Ctx::live())
         .setup(|app| {
             // Log environment for debugging Finder vs CLI launch differences
             tmuxy_core::debug_log::log("=== tmuxy starting ===");
@@ -1379,9 +1414,12 @@ pub fn run() {
             // Core commands
             commands::get_initial_state,
             commands::set_client_size,
-            // Every tmux command and read the frontend makes
+            // Pane/window operations exercised by the Tauri webdriver test
+            // (the production UI drives these through run_tmux_command).
+            // General
             commands::run_tmux_command,
             commands::query_tmux,
+            commands::get_key_bindings,
             commands::get_keybindings_snapshot,
             // Copy mode + themes (mirrors the SSE server's invoke surface so
             // the React frontend's INVOKE / FETCH_SCROLLBACK_CELLS paths work
@@ -1401,6 +1439,7 @@ pub fn run() {
             commands::list_servers,
             commands::list_snapshots,
             commands::restore_session,
+            commands::forget_session,
             commands::connect_server,
             commands::add_server,
             commands::detach_client,

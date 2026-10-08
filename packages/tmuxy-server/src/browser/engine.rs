@@ -3,8 +3,7 @@
 //! The flags here are the security posture in executable form: the throwaway
 //! profile, headless, no extensions, and a debugging port that is loopback-only
 //! and kernel-assigned. Each one is load-bearing and the reasoning is in
-//! `docs/SECURITY.md` ("A Real Browser Driven From a Pane Changes Whose Network
-//! This Is");
+//! `docs/SECURITY.md` ("A Server-Side Browser Changes Whose Network This Is");
 //! this module is where it is applied, so the comments say which property each
 //! flag buys rather than restating the section.
 

@@ -9,12 +9,8 @@ use axum::{
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tmuxy_core::control_mode::MonitorCommandSender;
-use tmuxy_core::mime::{
-    content_type_for_path, read_served_file, ServeRefusal, FILE_SANDBOX_CSP, MAX_SERVED_FILE_BYTES,
-};
-use tmuxy_core::transport::ImageStore;
-use tmuxy_core::Ctx;
+use tmuxy_core::control_mode::{MonitorCommandSender, StoredImage};
+use tmuxy_core::{Ctx, RetryPolicy};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -197,9 +193,6 @@ pub struct SessionConnections {
     /// The autosave for this session's snapshots (`session_snapshot`), told
     /// of every shape change by the emitter; `None` until the monitor is up.
     pub snapshot_keeper: Option<Arc<tmuxy_core::session_snapshot::SnapshotKeeper>>,
-    /// The bindings the session's monitor last broadcast: what a new stream
-    /// is greeted with, at no tmux round trip.
-    pub key_bindings: Option<tmuxy_core::transport::KeyBindings>,
     /// Broadcast channel + sequence id + replay buffer for this session.
     /// Wrapped in `Arc` so `SseEmitter` can clone a handle and call
     /// `broadcast()` without holding the `sessions` write lock.
@@ -216,7 +209,6 @@ impl Default for SessionConnections {
             last_resize: None,
             monitor_command_tx: None,
             snapshot_keeper: None,
-            key_bindings: None,
             broadcast: Arc::new(SessionBroadcast::new()),
             monitor_handle: None,
         }
@@ -234,8 +226,8 @@ pub struct AppState {
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
     /// Counter for generating unique connection IDs
     pub next_conn_id: AtomicU64,
-    /// Pictures decoded out of pane output, served by `/api/images`.
-    pub image_store: RwLock<ImageStore>,
+    /// Shared image store: (pane_id, image_id) -> StoredImage
+    pub image_store: RwLock<HashMap<(String, u32), StoredImage>>,
     /// Structured shutdown: every background task spawned by the server lives
     /// in this `JoinSet`. `server::shutdown_signal` calls
     /// `join_set.shutdown().await` after firing `shutdown.cancel()` so we drain
@@ -245,10 +237,12 @@ pub struct AppState {
     /// `tokio::select!` against `shutdown.cancelled()` so it exits its
     /// long-running loop promptly.
     pub shutdown: CancellationToken,
-    /// Execution context threaded into every `TmuxMonitor` this server starts.
+    /// Execution context (`tmux`/`clock`/`fs` capabilities behind trait objects).
+    /// Threaded into `TmuxMonitor` and reused for ad-hoc tmux dispatch via the
+    /// Tower stack. Production uses `Ctx::live()`; tests substitute a mock ctx.
     pub ctx: Arc<Ctx>,
     /// `--read-only`: every client of this server is a viewer. Only the
-    /// commands `sse::serve_viewer` names are served, and no client's
+    /// commands `ClientCommand::is_read` names are served, and no client's
     /// viewport is ever recorded, so a viewer cannot resize the session.
     pub read_only: bool,
     /// The one session this server is allowed to show, if it is pinned.
@@ -265,13 +259,22 @@ pub struct AppState {
     /// place in the `sessions` map, and nothing counted them. A connection
     /// flood grew both without bound.
     pub live_streams: AtomicU64,
+    /// The key bindings a viewer's server greets every stream with, read from
+    /// tmux once.
+    ///
+    /// SEC-11/SEC-16: the greeting ran three `tmux` subprocesses per connecting
+    /// client. A writable server re-reads them because its own monitor sources
+    /// the config and may change them; a viewer's server changes nothing, so
+    /// the first read is the last.
+    pub viewer_key_bindings: tokio::sync::OnceCell<crate::sse::KeyBindings>,
     /// The theme name, mode and appearance a viewer's server answers
     /// `GetThemeSettings` with, read from tmux once.
     ///
     /// SEC-11: the command ran four `read_option` round trips per request, and
     /// a viewer's client asks on every reconnect. The value can only change
     /// when a config is sourced, which is a writer's act on a writer's server —
-    /// a viewer's server sources nothing, so the first read is the last.
+    /// a viewer's server sources nothing, so the first read is the last, the
+    /// same bargain `viewer_key_bindings` already makes.
     pub viewer_theme_settings: tokio::sync::OnceCell<serde_json::Value>,
 }
 
@@ -288,24 +291,31 @@ impl Drop for StreamSlot {
 
 impl Default for AppState {
     fn default() -> Self {
-        Self {
-            sessions: RwLock::new(HashMap::new()),
-            next_conn_id: AtomicU64::new(1),
-            image_store: RwLock::new(ImageStore::default()),
-            join_set: Mutex::new(JoinSet::new()),
-            shutdown: CancellationToken::new(),
-            ctx: Ctx::live(),
-            read_only: false,
-            session_pin: None,
-            live_streams: AtomicU64::new(0),
-            viewer_theme_settings: tokio::sync::OnceCell::new(),
-        }
+        Self::with_ctx(Ctx::live())
     }
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Construct with an explicit context. Used by tests that want to swap in
+    /// `MockTmux`/`FakeClock` while keeping the same server wiring otherwise.
+    pub fn with_ctx(ctx: Arc<Ctx>) -> Self {
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            next_conn_id: AtomicU64::new(1),
+            image_store: RwLock::new(HashMap::new()),
+            join_set: Mutex::new(JoinSet::new()),
+            shutdown: CancellationToken::new(),
+            ctx,
+            read_only: false,
+            session_pin: None,
+            live_streams: AtomicU64::new(0),
+            viewer_key_bindings: tokio::sync::OnceCell::new(),
+            viewer_theme_settings: tokio::sync::OnceCell::new(),
+        }
     }
 
     /// Serve every client of this state as a viewer (`--read-only`).
@@ -361,20 +371,6 @@ impl AppState {
         }
     }
 
-    /// The session's monitor command channel, or the error a client is
-    /// answered with while its monitor is not connected.
-    pub async fn monitor_tx(
-        &self,
-        session: &str,
-    ) -> Result<MonitorCommandSender, tmuxy_core::CommandError> {
-        self.sessions
-            .read()
-            .await
-            .get(session)
-            .and_then(|s| s.monitor_command_tx.clone())
-            .ok_or_else(|| tmuxy_core::CommandError::unavailable("No monitor connection available"))
-    }
-
     /// Whether `name` is a session this server will serve.
     pub fn serves_session(&self, name: &str) -> bool {
         match &self.session_pin {
@@ -393,6 +389,27 @@ impl AppState {
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         self.join_set.lock().await.spawn(fut);
+    }
+
+    /// Thin wrapper around `Ctx::tmux_call`. Kept for handler ergonomics —
+    /// SSE handlers grab `AppState` from axum and would otherwise need to
+    /// thread `state.ctx` explicitly into every call site.
+    pub async fn tmux_call(
+        &self,
+        args: Vec<String>,
+        op_name: &str,
+    ) -> Result<String, tmuxy_core::TmuxError> {
+        self.ctx.tmux_call(args, op_name).await
+    }
+
+    /// Thin wrapper around `Ctx::tmux_call_with_policy`.
+    pub async fn tmux_call_with_policy(
+        &self,
+        args: Vec<String>,
+        op_name: &str,
+        policy: RetryPolicy,
+    ) -> Result<String, tmuxy_core::TmuxError> {
+        self.ctx.tmux_call_with_policy(args, op_name, policy).await
     }
 }
 
@@ -492,11 +509,13 @@ async fn read_file_offthread(path: String) -> Response {
     }
 }
 
+/// The Content-Security-Policy every file route answers with: the document
+/// renders sandboxed — its scripts run, in an opaque origin of their own and
+/// never the server's.
+const FILE_SANDBOX_CSP: &str =
+    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
+
 /// A local file, served so the browser widget can frame it in any build.
-///
-/// The checks before the read are `tmuxy_core::mime::read_served_file`'s,
-/// shared with the desktop app's `tmuxyfile:` scheme; each refusal maps to
-/// its status here.
 ///
 /// The Vite dev server serves the app cross-origin-isolated (COOP
 /// `same-origin`, COEP `require-corp`), and under that policy a framed
@@ -506,41 +525,99 @@ async fn read_file_offthread(path: String) -> Response {
 /// cross-origin scripts and images still load, just without credentials — and
 /// `Cross-Origin-Resource-Policy` lets the file itself be embedded. Outside an
 /// isolated parent both headers change nothing.
-fn read_file_response(path: &str) -> Response {
-    let content = match read_served_file(path) {
-        Ok(content) => content,
-        Err(refusal) => {
-            let (status, error) = match refusal {
-                ServeRefusal::NotFound(e) => (StatusCode::NOT_FOUND, e),
-                ServeRefusal::NotRegular => {
-                    (StatusCode::BAD_REQUEST, "not a regular file".to_string())
-                }
-                ServeRefusal::TooLarge { .. } => (
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    format!("file is larger than {MAX_SERVED_FILE_BYTES} bytes"),
-                ),
-            };
-            return json_response(status, &serde_json::json!({ "error": error }));
-        }
+/// The largest file the browser widget will be served.
+///
+/// The widget frames documents — HTML, markdown, an image — so this is well
+/// above anything it legitimately opens. Without it, `/api/file` pointed at a
+/// multi-gigabyte log (or at `/dev/zero`, which has no end at all) grows the
+/// server until the OS kills it.
+const MAX_SERVED_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Read a file for the browser widget, or say why not.
+///
+/// Three refusals before the read, because the path is the client's:
+/// - **Not a regular file.** `/dev/zero` never ends; a FIFO blocks its reader
+///   until someone writes, and this runs on a Tokio worker thread, so one
+///   request would park a worker for the life of the process. `symlink_metadata`
+///   asks about the link itself, so a symlink to a device is refused too.
+/// - **Over the cap.** See `MAX_SERVED_FILE_BYTES`.
+///
+/// The realistic failure is accidental rather than hostile — only a client that
+/// already has a shell can reach these routes — but it takes the whole server
+/// down either way.
+fn read_file_checked(path: &str) -> Result<Vec<u8>, Box<Response>> {
+    let meta = std::fs::symlink_metadata(path).map_err(|e| {
+        Box::new(json_response(
+            StatusCode::NOT_FOUND,
+            &serde_json::json!({ "error": format!("{}", e) }),
+        ))
+    })?;
+
+    // A symlink's own metadata says "symlink", so follow it once and ask about
+    // the target — a symlink to a regular file is ordinary and still served.
+    let meta = if meta.file_type().is_symlink() {
+        std::fs::metadata(path).map_err(|e| {
+            Box::new(json_response(
+                StatusCode::NOT_FOUND,
+                &serde_json::json!({ "error": format!("{}", e) }),
+            ))
+        })?
+    } else {
+        meta
     };
-    let mut response = build_response(StatusCode::OK, content_type_for_path(path), content);
-    let headers = response.headers_mut();
-    headers.insert(
-        axum::http::header::HeaderName::from_static("cross-origin-embedder-policy"),
-        axum::http::HeaderValue::from_static("credentialless"),
-    );
-    headers.insert(
-        axum::http::header::HeaderName::from_static("cross-origin-resource-policy"),
-        axum::http::HeaderValue::from_static("cross-origin"),
-    );
-    // Rendered with the server's origin, an HTML file could POST tmux commands
-    // like the app does. `sandbox` gives it an opaque origin of its own,
-    // whether the browser widget frames it or someone opens its URL directly.
-    headers.insert(
-        axum::http::header::CONTENT_SECURITY_POLICY,
-        axum::http::HeaderValue::from_static(FILE_SANDBOX_CSP),
-    );
-    response
+
+    if !meta.is_file() {
+        return Err(Box::new(json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({ "error": "not a regular file" }),
+        )));
+    }
+    if meta.len() > MAX_SERVED_FILE_BYTES {
+        return Err(Box::new(json_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &serde_json::json!({
+                "error": format!("file is larger than {MAX_SERVED_FILE_BYTES} bytes"),
+            }),
+        )));
+    }
+
+    std::fs::read(path).map_err(|e| {
+        Box::new(json_response(
+            StatusCode::NOT_FOUND,
+            &serde_json::json!({ "error": format!("{}", e) }),
+        ))
+    })
+}
+
+fn read_file_response(path: &str) -> Response {
+    match read_file_checked(path) {
+        Ok(content) => {
+            let mut response = build_response(
+                StatusCode::OK,
+                tmuxy_core::mime::content_type_for_path(path),
+                content,
+            );
+            let headers = response.headers_mut();
+            headers.insert(
+                axum::http::header::HeaderName::from_static("cross-origin-embedder-policy"),
+                axum::http::HeaderValue::from_static("credentialless"),
+            );
+            headers.insert(
+                axum::http::header::HeaderName::from_static("cross-origin-resource-policy"),
+                axum::http::HeaderValue::from_static("cross-origin"),
+            );
+            // Rendered with the server's origin, an HTML file could POST tmux
+            // commands like the app does. `sandbox` gives it an opaque origin
+            // of its own, whether the browser widget frames it or someone
+            // opens its URL directly.
+            headers.insert(
+                axum::http::header::CONTENT_SECURITY_POLICY,
+                axum::http::HeaderValue::from_static(FILE_SANDBOX_CSP),
+            );
+            response
+        }
+        Err(refusal) => *refusal,
+    }
 }
 
 #[cfg(test)]
@@ -636,10 +713,8 @@ async fn image_handler(
     Path((pane_id, image_id)): Path<(String, u32)>,
 ) -> Response {
     let store = state.image_store.read().await;
-    let image = tmuxy_core::PaneId::parse(&format!("%{pane_id}"))
-        .ok()
-        .and_then(|pane_id| store.get(&pane_id, image_id));
-    match image {
+    let key = (format!("%{}", pane_id), image_id);
+    match store.get(&key) {
         Some(img) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", &img.mime_type)

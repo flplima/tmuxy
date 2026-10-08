@@ -163,18 +163,19 @@ pub fn base_session(app: &AppHandle) -> String {
 /// Every tmux mutation, query and scrollback fetch resolves its monitor this
 /// way, so a command from window 2 runs on window 2's client — targeting the
 /// first window's would move the wrong window's current tab.
-pub fn monitor_for(window: &WebviewWindow) -> Result<MonitorState, tmuxy_core::CommandError> {
+pub fn monitor_for(window: &WebviewWindow) -> Result<MonitorState, String> {
     entry_for(window).map(|w| w.monitor)
 }
 
 /// The registry entry for the window a command arrived from — its monitor and
 /// the session that monitor is attached to, which is the session a command is
 /// routed against.
-pub fn entry_for(window: &WebviewWindow) -> Result<GuiWindow, tmuxy_core::CommandError> {
+pub fn entry_for(window: &WebviewWindow) -> Result<GuiWindow, String> {
     let label = window.label();
-    window.state::<GuiWindows>().get(label).ok_or_else(|| {
-        tmuxy_core::CommandError::unavailable(format!("no tmux monitor for window '{label}'"))
-    })
+    window
+        .state::<GuiWindows>()
+        .get(label)
+        .ok_or_else(|| format!("no tmux monitor for window '{label}'"))
 }
 
 /// Register the first window and start its monitor on the base session.
