@@ -97,6 +97,39 @@ async function waitForFloatModal(page, timeout = 10000) {
   await page.waitForSelector('.modal-overlay', { timeout });
 }
 
+async function waitForNoModal(page) {
+  await page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
+    timeout: 10000,
+    polling: 100,
+  });
+}
+
+const focusedFloatPaneId = (page) =>
+  page.evaluate(() => window.app?.getSnapshot()?.context?.focusedFloatPaneId ?? null);
+
+/**
+ * Open a float the way a user does — `tmuxy pane float` typed at the prompt —
+ * and return once it is on screen with a real size and holds the keyboard
+ * focus. Returns the focused float's pane id.
+ */
+async function openFloatFromCli(ctx) {
+  await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
+  await pressEnter(ctx.page);
+  // Extended timeout for the CLI → run-shell → control mode chain.
+  await waitForFloatModal(ctx.page, 20000);
+  // float-create.sh routes its tmux commands through run-shell, synchronously,
+  // so it finishes shortly after the modal appears and the prompt returns.
+  await delay(DELAYS.SYNC);
+  await verifyFloatVisible(ctx.page);
+  await waitForCondition(
+    ctx.page,
+    async () => (await focusedFloatPaneId(ctx.page)) !== null,
+    5000,
+    'focusedFloatPaneId to be set after float appears',
+  );
+  return focusedFloatPaneId(ctx.page);
+}
+
 // ==================== Scenario 4d: Marked pane ====================
 
 describe('Scenario 4d: Marked pane', () => {
@@ -1641,7 +1674,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('CLI float → visually visible → header structure → auto-focus → type command → output visible → input isolation → close → background restored', async () => {
+  test('CLI float → visually visible → header structure → auto-focus → type command → output visible → input isolation → close button → background restored → Escape and backdrop close too', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -1652,22 +1685,12 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     // Step 1: Verify background pane is operational
     await runCommand(ctx.page, 'echo BG_PRE_FLOAT', 'BG_PRE_FLOAT');
 
-    // Step 2: Open interactive float via CLI
-    await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
-    await pressEnter(ctx.page);
+    // Step 2: Open an interactive float via the CLI; it is on screen with a
+    // real size and XState auto-focuses it.
+    const focusedFloatId = await openFloatFromCli(ctx);
+    expect(focusedFloatId).toMatch(/^%\d+$/);
 
-    // Step 3: Float modal appears (extended timeout for CLI → run-shell → control mode chain)
-    await waitForFloatModal(ctx.page, 20000);
-
-    // Wait for float-create.sh to finish. The script routes all tmux commands
-    // through run-shell (synchronous), so it completes shortly after the float
-    // modal appears. A brief delay ensures the shell prompt returns.
-    await delay(DELAYS.SYNC);
-
-    // Step 4: Float is visually present with non-trivial dimensions
-    const floatInfo = await verifyFloatVisible(ctx.page);
-
-    // Step 5: Float header has close button but NO group-add (+) button
+    // Step 3: Float header has close button but NO group-add (+) button
     const headerInfo = await ctx.page.evaluate(() => {
       const fc =
         document.querySelector('.float-container') || document.querySelector('.modal-container');
@@ -1683,24 +1706,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     expect(headerInfo.hasCloseButton).toBe(true);
     expect(headerInfo.hasMenuButton).toBe(true);
 
-    // Step 6: XState auto-focus — focusedFloatPaneId is set
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const id = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
-        );
-        return id !== null && id !== undefined;
-      },
-      5000,
-      'focusedFloatPaneId to be set after float appears',
-    );
-    const focusedFloatId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
-    );
-    expect(focusedFloatId).toMatch(/^%\d+$/);
-
-    // Step 6a: Background pane should NOT be active when float is focused.
+    // Step 3a: Background pane should NOT be active when float is focused.
     // The element may not be in the DOM (null) when the float overlay covers it.
     const bgActiveState = await ctx.page.evaluate((id) => {
       const el = document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`);
@@ -1708,7 +1714,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     }, bgPaneId);
     expect(bgActiveState).not.toBe(true);
 
-    // Step 6b: Float has all 4 borders and drop shadow
+    // Step 3b: Float has all 4 borders and drop shadow
     const floatStyle = await ctx.page.evaluate(() => {
       const mc = document.querySelector('.float-modal .modal-container');
       if (!mc) return null;
@@ -1728,7 +1734,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     expect(parseFloat(floatStyle.borderLeft)).toBeGreaterThanOrEqual(1);
     expect(floatStyle.boxShadow).not.toBe('none');
 
-    // Step 6c: Float pane header icon is NOT a button (no role="button")
+    // Step 3c: Float pane header icon is NOT a button (no role="button")
     const iconIsStatic = await ctx.page.evaluate(() => {
       const fc = document.querySelector('.float-container');
       const icon = fc?.querySelector('.pane-tab-icon');
@@ -1743,7 +1749,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       expect(iconIsStatic.hasButtonRole).toBe(false);
     }
 
-    // Step 7: Type command in float and verify output
+    // Step 4: Type command in float and verify output
     // Wait for float pane shell prompt to render
     await waitForCondition(
       ctx.page,
@@ -1775,7 +1781,6 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       await delay(30);
     }
     await ctx.page.keyboard.press('Enter');
-    await delay(DELAYS.SYNC);
 
     // Verify typed text appears in the float's DOM
     await waitForCondition(
@@ -1794,7 +1799,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       'typed output in float DOM',
     );
 
-    // Step 8: Input-focus isolation. Full DOM-level isolation (token must
+    // Step 5: Input-focus isolation. Full DOM-level isolation (token must
     // NOT appear in the background pane) cannot be asserted under CDP:
     // headless keyboard events can race UPDATE_FOCUSED_FLOAT and leak to
     // activePaneId — a harness artifact, not a product bug. What IS stable
@@ -1809,7 +1814,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     expect(focusAfterTyping.focusedFloat).not.toBeNull();
     expect(focusAfterTyping.floatIds).toContain(focusAfterTyping.focusedFloat);
 
-    // Step 9: Background pane still visible while float is open
+    // Step 6: Background pane still visible while float is open
     const bgVisible = await ctx.page.evaluate((id) => {
       const el = document.querySelector(`[data-pane-id="${id}"]`);
       if (!el) return false;
@@ -1818,7 +1823,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     }, bgPaneId);
     expect(bgVisible).toBe(true);
 
-    // Step 10: Close float via close button
+    // Step 7: Close float via close button
     const closeClicked = await ctx.page.evaluate(() => {
       const fc =
         document.querySelector('.float-container') || document.querySelector('.modal-container');
@@ -1830,131 +1835,46 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       return false;
     });
     expect(closeClicked).toBe(true);
+    await waitForNoModal(ctx.page);
 
-    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
-      timeout: 10000,
-      polling: 100,
-    });
-
-    // Step 11: focusedFloatPaneId cleared, background pane interactive
-    const focusedAfterClose = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    // Step 8: focusedFloatPaneId cleared, and the background pane wears the
+    // active marker again — the one visual cue that says where typing goes.
+    expect(await focusedFloatPaneId(ctx.page)).toBeNull();
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate(
+          (id) => !!document.querySelector(`.pane-layout-item.pane-active[data-pane-id="${id}"]`),
+          bgPaneId,
+        ),
+      10000,
+      'the background pane to be active again after the float closes',
     );
-    expect(focusedAfterClose).toBeNull();
-
-    // Step 12: Background pane should be active again after float closes.
-    // Wait briefly for state to propagate, then verify the pane is interactive
-    // (the runCommand below is the definitive test of restored input).
-    await delay(1000);
 
     // Background pane still works
     const BG_TOKEN = 'BG_AFTER_CLOSE_' + Date.now();
     await runCommand(ctx.page, `echo ${BG_TOKEN}`, BG_TOKEN);
-  }, 180000);
-});
 
-// ==================== Scenario 6b: Float Escape Close ====================
-
-describe('Scenario 6b: Float Escape Close', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
-  test('Open float → Escape closes float → background pane interactive', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Record background pane for prompt check
-    const bgPaneId = await ctx.session.getActivePaneId();
-
-    // Step 1: Open float via CLI
-    await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
-    await pressEnter(ctx.page);
-    await waitForFloatModal(ctx.page, 20000);
-
-    // Wait for float-create.sh to finish
-    await delay(DELAYS.SYNC);
-
-    // Step 2: Float is visually present
-    await verifyFloatVisible(ctx.page);
-
-    // Step 3: Wait for auto-focus
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const id = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
-        );
-        return id !== null && id !== undefined;
-      },
-      5000,
-      'focusedFloatPaneId to be set',
-    );
-
-    // Step 4: Press Escape — should close the float
+    // Step 9: Escape closes a float too — the key goes to the modal, not to
+    // the program in the background pane — and focus comes back with it.
+    await openFloatFromCli(ctx);
     await ctx.page.keyboard.press('Escape');
+    await waitForNoModal(ctx.page);
+    expect(await focusedFloatPaneId(ctx.page)).toBeNull();
+    const ESC_TOKEN = 'ESC_CLOSE_' + Date.now();
+    await runCommand(ctx.page, `echo ${ESC_TOKEN}`, ESC_TOKEN);
 
-    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
-      timeout: 10000,
-      polling: 100,
-    });
-
-    // Step 5: Float is gone, focus restored
-    const focusedAfter = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
-    );
-    expect(focusedAfter).toBeNull();
-
-    // Step 6: Background pane accepts input
-    const TOKEN = 'ESC_CLOSE_' + Date.now();
-    await runCommand(ctx.page, `echo ${TOKEN}`, TOKEN);
-  }, 180000);
-});
-
-// ==================== Scenario 6c: Float Backdrop Close ====================
-
-describe('Scenario 6c: Float Backdrop Close', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
-  test('Open float → backdrop click closes float → background pane interactive', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Record background pane for prompt check
-    const bgPaneId = await ctx.session.getActivePaneId();
-
-    // Step 1: Open float via CLI
-    await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
-    await pressEnter(ctx.page);
-    await waitForFloatModal(ctx.page, 20000);
-
-    // Wait for float-create.sh to finish
-    await delay(DELAYS.SYNC);
-
-    // Step 2: Float is visually present
-    await verifyFloatVisible(ctx.page);
-
-    // Step 3: Click backdrop (far from center to avoid hitting the float)
+    // Step 10: and so does a click on the backdrop (far from the center, so
+    // it cannot land on the float itself).
+    await openFloatFromCli(ctx);
     const backdrop = await ctx.page.$('.modal-backdrop');
     expect(backdrop).not.toBeNull();
     const box = await backdrop.boundingBox();
     await ctx.page.mouse.click(box.x + 5, box.y + 5);
-
-    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
-      timeout: 10000,
-      polling: 100,
-    });
-
-    // Step 4: Background pane accepts input
-    const TOKEN = 'BACKDROP_CLOSE_' + Date.now();
-    await runCommand(ctx.page, `echo ${TOKEN}`, TOKEN);
-  }, 180000);
+    await waitForNoModal(ctx.page);
+    const BACKDROP_TOKEN = 'BACKDROP_CLOSE_' + Date.now();
+    await runCommand(ctx.page, `echo ${BACKDROP_TOKEN}`, BACKDROP_TOKEN);
+  }, 240000);
 });
 
 // ============ Scenario 6f: A float belongs to the tab it was opened over ============
