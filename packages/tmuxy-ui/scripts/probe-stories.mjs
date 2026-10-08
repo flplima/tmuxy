@@ -32,31 +32,30 @@
  * not gate, each with an expiry date. See the `_policy` block in that file.
  */
 
-import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve as resolvePath } from 'node:path';
+import { resolve as resolvePath } from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import {
   a11yShield as shieldFor,
   loadQuarantine,
   quarantineStatus as statusFor,
 } from './probe-quarantine.mjs';
+import {
+  ARTIFACT_DIR,
+  SCRIPT_DIR,
+  fetchStoryIds,
+  launchChromium,
+  parseProbeArgs,
+  printFailures,
+  writeArtifacts,
+} from './lib/probe-common.mjs';
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_DIR = resolvePath(SCRIPT_DIR, '..');
-
-const args = process.argv.slice(2);
-const PORT = /^\d+$/.test(args[0] ?? '') ? Number(args.shift()) : 6006;
-const FILTERS = args;
-const STORYBOOK_URL = `http://localhost:${PORT}`;
+const { filters: FILTERS, storybookUrl: STORYBOOK_URL } = parseProbeArgs(process.argv.slice(2));
 const PER_STORY_TIMEOUT_MS = 60000;
 const CONCURRENCY = Math.max(1, Number(process.env.PROBE_CONCURRENCY || 3));
 const REPEAT = Math.max(1, Number(process.env.PROBE_REPEAT || 1));
 // CI runners are far slower than a dev machine, which is where these play
 // functions fall over. Throttling the renderer reproduces that here.
 const CPU_THROTTLE = Math.max(1, Number(process.env.PROBE_CPU_THROTTLE || 1));
-const ARTIFACT_DIR = resolvePath(PACKAGE_DIR, process.env.PROBE_ARTIFACT_DIR || 'probe-artifacts');
 const RUN_A11Y = process.env.PROBE_A11Y !== '0';
 /** Impact levels that turn the job red; the rest are reported only. */
 const BLOCKING_IMPACTS = new Set(['critical', 'serious']);
@@ -125,54 +124,6 @@ async function runAxe(page, storyId) {
     blocking: BLOCKING_IMPACTS.has(v.impact) && !a11yShield(storyId, v.id),
     shield: a11yShield(storyId, v.id),
   }));
-}
-
-async function fetchIndex() {
-  const res = await fetch(`${STORYBOOK_URL}/index.json`);
-  if (!res.ok) throw new Error(`storybook /index.json: ${res.status}`);
-  const json = await res.json();
-  const ids = Object.keys(json.entries).filter((id) => {
-    const entry = json.entries[id];
-    // `v86` stories (real tmux in the x86 emulator) are slow, network-dependent,
-    // and nondeterministic — they run via probe-spikes.mjs on a single shared
-    // engine page instead of this one-page-per-story probe.
-    return entry.type === 'story' && !(entry.tags ?? []).includes('v86');
-  });
-  if (FILTERS.length === 0) return ids;
-  return ids.filter((id) => FILTERS.some((f) => id.includes(f)));
-}
-
-async function writeArtifacts(page, label, result) {
-  mkdirSync(ARTIFACT_DIR, { recursive: true });
-  const base = resolvePath(ARTIFACT_DIR, label.replace(/[^a-z0-9._-]/gi, '_'));
-  try {
-    await page.screenshot({ path: `${base}.png`, fullPage: false });
-  } catch (err) {
-    result.artifactError = err.message;
-  }
-  const lines = [
-    `story:   ${result.id}`,
-    `reason:  ${result.reason}`,
-    `name:    ${result.name ?? '(none)'}`,
-    `message: ${result.message ?? '(none)'}`,
-    '',
-    'stack:',
-    result.stack ?? '(none)',
-    '',
-    `page errors (${(result.pageErrors ?? []).length}):`,
-    ...(result.pageErrors ?? []).map((e) => `  ${e}`),
-    '',
-    `console errors (${(result.consoleErrors ?? []).length}):`,
-    ...(result.consoleErrors ?? []).map((e) => `  ${e}`),
-  ];
-  writeFileSync(`${base}.txt`, `${lines.join('\n')}\n`);
-  try {
-    writeFileSync(`${base}.html`, await page.content());
-  } catch {
-    // The page can already be gone (a crashed renderer); the text report and
-    // whatever screenshot landed are still worth keeping.
-  }
-  return `${base}.png`;
 }
 
 async function probeStory(browser, id, attempt) {
@@ -388,7 +339,7 @@ async function runPool(items, n, fn) {
   return results;
 }
 
-const ids = await fetchIndex();
+const ids = await fetchStoryIds({ storybookUrl: STORYBOOK_URL, filters: FILTERS, v86: false });
 if (ids.length === 0) {
   console.error('no stories matched');
   process.exit(1);
@@ -401,13 +352,7 @@ console.log(
 );
 console.log(`artifacts for failures → ${ARTIFACT_DIR}`);
 
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  // Use the system chromium (always installed in the devcontainer); arm64 has
-  // no Playwright-bundled build. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH overrides.
-  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium',
-});
+const browser = await launchChromium();
 
 let results;
 try {
@@ -424,31 +369,12 @@ console.log(
   `results: ${results.length - failed.length} passed, ${blocking.length} failed, ${shielded.length} quarantined-failure`,
 );
 
-const report = (list, heading) => {
-  if (list.length === 0) return;
-  console.log(`\n${heading}:`);
-  for (const f of list) {
-    const status = quarantineStatus(f.id);
-    console.log(`  - ${f.id}${f.attempt > 1 ? ` (attempt ${f.attempt})` : ''}: ${f.reason}`);
-    if (f.message) console.log(`      ${f.message.split('\n').join('\n      ')}`);
-    if (f.stack) {
-      for (const line of f.stack.split('\n').slice(0, 12)) console.log(`      ${line}`);
-    }
-    for (const e of (f.pageErrors ?? []).slice(0, 2)) {
-      console.log(`      pageerror: ${e.split('\n')[0]}`);
-    }
-    for (const e of (f.consoleErrors ?? []).slice(0, 3)) {
-      console.log(`      console: ${e.slice(0, 300)}`);
-    }
-    if (f.artifact) console.log(`      screenshot: ${f.artifact}`);
-    if (status.entry) {
-      console.log(`      quarantined until ${status.entry.expires}: ${status.entry.reason}`);
-    }
-  }
+const shieldNote = (f) => {
+  const { entry } = quarantineStatus(f.id);
+  return entry && `quarantined until ${entry.expires}: ${entry.reason}`;
 };
-
-report(blocking, 'failures');
-report(shielded, 'quarantined failures (reported, not blocking)');
+printFailures(blocking, 'failures', shieldNote);
+printFailures(shielded, 'quarantined failures (reported, not blocking)', shieldNote);
 
 // Every a11y violation is printed, whatever its impact — the ones that gate
 // are already in the failure report above, and the rest are the backlog.
