@@ -1,15 +1,22 @@
-pub mod auth;
+//! The tmuxy web server, and the verbs `tmuxy server <verb>` runs.
+//!
+//! The public surface is what the desktop binary (`tmuxy-tauri-app`) links:
+//! `server` to run the CLI, `connect` for the add-a-server form, and the
+//! logging setup. `browser` is public for the engine's integration tests
+//! (`tests/browser_engine.rs`). Everything else is this crate's own, so that
+//! rustc's dead-code lint can see what nothing uses any more.
+
+mod auth;
 pub mod browser;
-pub mod command;
+mod command;
 mod dev;
-pub mod request_guard;
+mod request_guard;
 pub mod server;
-pub mod session_cli;
-pub mod sse;
-pub mod state;
-pub mod trace_view;
+mod session_cli;
+mod sse;
+mod state;
+mod trace_view;
 pub use tmuxy_connect as connect;
-pub use tmuxy_tree as tree;
 
 pub use command::ClientCommand;
 

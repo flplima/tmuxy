@@ -20,11 +20,11 @@ fn tmux(argv: Vec<String>) -> std::future::Ready<Result<String, String>> {
 #[derive(clap::Args, Debug)]
 pub struct SessionArgs {
     #[command(subcommand)]
-    pub verb: SessionVerb,
+    verb: SessionVerb,
 }
 
 #[derive(clap::Subcommand, Debug)]
-pub enum SessionVerb {
+enum SessionVerb {
     /// Snapshot a running session now (the autosave does this on every change).
     Save {
         /// The session. Defaults to `TMUXY_SESSION`, then `tmuxy`.

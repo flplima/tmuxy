@@ -321,7 +321,7 @@ pub async fn run(args: ServerArgs) {
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
         Some(ServerAction::Tree) => {
-            if let Err(e) = crate::tree::run_tree_tui() {
+            if let Err(e) = tmuxy_tree::run_tree_tui() {
                 eprintln!("tmuxy tree: {e}");
                 std::process::exit(1);
             }

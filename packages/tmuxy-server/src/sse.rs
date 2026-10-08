@@ -253,7 +253,7 @@ enum SseEvent {
 /// A command's answer. A failure is a `CommandError` instead —
 /// `{ "error", "kind" }` — sent with a 4xx status.
 #[derive(Debug, Serialize)]
-pub struct CommandResponse {
+struct CommandResponse {
     result: serde_json::Value,
 }
 

@@ -42,7 +42,7 @@ pub struct TraceViewArgs {
 }
 
 /// A shell pane younger than this has not had a fair chance to print.
-pub const SILENT_PANE_MIN_MS: u64 = 10_000;
+const SILENT_PANE_MIN_MS: u64 = 10_000;
 
 pub fn run(args: TraceViewArgs) {
     if let Some(label) = args.mark {
@@ -176,7 +176,7 @@ fn parse_lines(content: &str) -> Vec<Map<String, Value>> {
 /// Build a Chrome Trace Event Format document. Each layer becomes a thread;
 /// spans (`phase == "span"`) become complete (`X`) events with a duration,
 /// point events become instant (`i`) events. Timestamps are microseconds.
-pub fn to_chrome_trace(events: &[Map<String, Value>]) -> Value {
+fn to_chrome_trace(events: &[Map<String, Value>]) -> Value {
     let mut tids: BTreeMap<String, u64> = BTreeMap::new();
     let mut next_tid = 1u64;
     let mut out: Vec<Value> = Vec::with_capacity(events.len());
@@ -248,7 +248,7 @@ fn event_ts_us(ev: &Map<String, Value>) -> f64 {
 
 /// Human-readable summary: event counts by layer, and the actions correlated by
 /// `action_id` with the layer chain each one touched.
-pub fn summarize(events: &[Map<String, Value>]) -> String {
+fn summarize(events: &[Map<String, Value>]) -> String {
     let mut by_layer: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_action: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let (mut min_ts, mut max_ts) = (u64::MAX, 0u64);
@@ -305,7 +305,7 @@ struct SessionHealth {
 
 /// Field health check: reports reconnects, rejected commands, errors, and session counts
 /// across real usage recorded in the trace.
-pub fn health_check(events: &[Map<String, Value>]) -> String {
+fn health_check(events: &[Map<String, Value>]) -> String {
     let mut by_session: BTreeMap<String, SessionHealth> = BTreeMap::new();
     let mut total_reconnects = 0;
     let mut total_rejected = 0;
@@ -428,7 +428,7 @@ pub fn window(events: &[Map<String, Value>], label: &str) -> Vec<Map<String, Val
 /// A shell pane that never showed anything: no `%output`, nothing replayed
 /// when it was first listed, and every capture of it empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SilentPane {
+struct SilentPane {
     pub session: String,
     pub pane: String,
     /// How long it was alive and silent, in ms.
@@ -470,7 +470,7 @@ impl SilentPane {
 /// "a pane that never shows a prompt". Built from the aggregator's pane
 /// lifecycle events (`pane appeared`, `pane first output`, `pane captured`,
 /// `pane resized`, `pane gone`).
-pub fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> Vec<SilentPane> {
+fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> Vec<SilentPane> {
     struct Live {
         shell: bool,
         spoke: bool,
@@ -567,7 +567,7 @@ pub fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> Vec<Sil
 /// The health check's findings as GitHub Actions annotations, then one plain
 /// line saying what was read — so a clean check is told apart from a missing
 /// or empty trace in the job log.
-pub fn github_annotations(events: &[Map<String, Value>]) -> String {
+fn github_annotations(events: &[Map<String, Value>]) -> String {
     let mut out = String::new();
     let silent = silent_panes(events, SILENT_PANE_MIN_MS);
     let marks = events

@@ -29,7 +29,7 @@ pub mod verbs;
 // off the pty, neither of which has a Windows equivalent here. The engine and
 // the verbs are portable; driving a pane is not.
 #[cfg(unix)]
-pub mod client;
+pub(crate) mod client;
 #[cfg(unix)]
 pub mod pane;
 #[cfg(unix)]
@@ -45,7 +45,7 @@ pub mod session;
 /// `TMUXY_STATE_DIR` overrides it, matching `bin/dev-server` — a test or a
 /// second server needs somewhere of its own, and two servers sharing a profile
 /// path would fight over the lock.
-pub fn state_dir() -> PathBuf {
+pub(crate) fn state_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("TMUXY_STATE_DIR") {
         return PathBuf::from(dir);
     }

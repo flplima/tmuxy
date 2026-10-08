@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 /// path, a build nobody has heard of, or simply a second Chrome the user wants
 /// used instead. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is honoured too, because
 /// anyone who has run the E2E suite already has it set to a working binary.
-pub const CHROME_ENV: &str = "TMUXY_CHROME";
+const CHROME_ENV: &str = "TMUXY_CHROME";
 const PLAYWRIGHT_ENV: &str = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH";
 
 /// Why no engine could be used, in the terms the user needs to fix it.
@@ -167,7 +167,7 @@ pub fn find_browser() -> Result<PathBuf, DiscoveryError> {
 /// installed, a real `/Applications`, or a mutated process environment — the
 /// last of which is a global, and a test that writes it breaks whichever other
 /// test happens to be running beside it.
-pub fn find_browser_with(
+fn find_browser_with(
     candidates: &[PathBuf],
     usable: impl Fn(&Path) -> bool,
     env: impl Fn(&'static str) -> Option<PathBuf>,

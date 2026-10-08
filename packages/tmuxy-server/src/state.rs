@@ -30,7 +30,7 @@ pub const EVENT_BUFFER_SIZE: usize = 100;
 /// A broadcast message tagged with its monotonic per-session sequence id.
 /// The id is mirrored as the SSE `id:` field so the browser persists it
 /// across reconnects via the `Last-Event-Id` request header.
-pub type TaggedEvent = (u64, String);
+type TaggedEvent = (u64, String);
 
 /// Wraps a `broadcast::Sender` with the monotonic `seq` counter and the
 /// recent-events ring buffer needed for `Last-Event-Id` resync.
