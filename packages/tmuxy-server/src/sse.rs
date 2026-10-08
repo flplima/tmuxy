@@ -1141,14 +1141,12 @@ async fn new_window_client_size(state: &Arc<AppState>, session: &str) -> Option<
     })
 }
 
-/// Store a client's viewport size and resize the tmux session.
-/// Skips the resize command if the computed minimum is the same as the last resize
-/// to prevent feedback loops when multiple clients have different viewport sizes.
-#[instrument(skip(state), fields(%session))]
 /// Apply a client's viewport: record it, and resize tmux to the minimum across
-/// every client watching. What reached tmux is remembered as `last_resize`,
-/// which is also what a client's first state is held back for
-/// (`initial_state_for_size`).
+/// every client watching. The resize is skipped when that minimum is what was
+/// sent last, which stops a feedback loop between clients of different sizes.
+/// What reached tmux is remembered as `last_resize`, which is also what a
+/// client's first state is held back for (`initial_state_for_size`).
+#[instrument(skip(state), fields(%session))]
 async fn set_client_size(
     state: &Arc<AppState>,
     session: &str,
