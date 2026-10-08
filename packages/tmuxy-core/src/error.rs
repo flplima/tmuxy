@@ -12,7 +12,6 @@
 //!     PTY EOF'd.
 //!   - `Timeout { operation, after }` — an operation exceeded its deadline.
 //!   - `SessionNotFound { name }` — the named session does not exist.
-//!   - `PaneNotFound { id }` — a referenced pane id no longer exists.
 //!   - `Io(std::io::Error)` — anything from the OS (PTY allocation, file
 //!     reads). `#[from]` makes `?` propagation natural.
 //!   - `ControlMode(String)` — tmux-reported error text that fits no more
@@ -41,10 +40,6 @@ pub enum TmuxError {
     /// `has-session` (or equivalent) reports the named session doesn't exist.
     #[error("tmux session '{name}' does not exist")]
     SessionNotFound { name: String },
-
-    /// A command referenced a pane id tmux no longer knows about.
-    #[error("tmux pane '{id}' does not exist")]
-    PaneNotFound { id: String },
 
     /// Underlying I/O error (PTY, file system, signals, etc.).
     #[error("io error: {0}")]

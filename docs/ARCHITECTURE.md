@@ -29,7 +29,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 └─────────────────────────────────────────────────────────┘
 ```
 
-**tmuxy-core** — Rust library that manages tmux control mode connections. Owns the sans-IO state aggregator, the `TmuxMonitor` runtime that drives it against a live `tmux -CC` subprocess, and the tmux reads both transports share (`transport.rs`: scrollback, key bindings, theme, snapshots), all of which go over the control-mode connection. Synchronous subprocess helpers in `executor` remain for CLI paths that run with no client attached. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for details.
+**tmuxy-core** — Rust library that manages tmux control mode connections. Owns the sans-IO state aggregator, the `TmuxMonitor` runtime that drives it against a live `tmux -CC` subprocess, and the tmux reads both transports share (`transport.rs`: scrollback, key bindings, theme, snapshots), all of which go over the control-mode connection. `executor` holds the command-string helpers (quoting, the `new-window` rewrite, `list-keys` parsing); the only subprocesses left are the session preflight and creation in `session.rs`, before any client is attached. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for details.
 
 **tmuxy-server** — Axum HTTP server providing SSE streaming (with `Last-Event-Id` resync), HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and structured shutdown. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 

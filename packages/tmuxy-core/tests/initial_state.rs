@@ -18,7 +18,9 @@
 use std::time::Duration;
 
 use tmuxy_core::control_mode::{LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
-use tmuxy_core::{executor, StateUpdate};
+use tmuxy_core::StateUpdate;
+
+mod common;
 
 struct Quiet;
 impl LogSink for Quiet {}
@@ -36,7 +38,7 @@ async fn the_initial_state_knows_the_modes_a_program_set_before_the_client_attac
 
     // A full-screen, mouse-tracking program is already running when the
     // monitor attaches — the way Claude Code is when the desktop app restarts.
-    executor::execute_tmux_command(&[
+    common::tmux(&[
         "new-session",
         "-d",
         "-s",
@@ -70,5 +72,5 @@ async fn the_initial_state_knows_the_modes_a_program_set_before_the_client_attac
 
     tx.send(MonitorCommand::Shutdown).await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = executor::execute_tmux_command(&["kill-server"]);
+    let _ = common::tmux(&["kill-server"]);
 }

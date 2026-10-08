@@ -115,25 +115,24 @@ user instead of being lost in the stream. Nothing a client sends reaches a shell
 per-command `tmux` process is spawned on either transport. The policy for what goes
 where lives once, in `tmuxy-core/src/command_router.rs`, and both transports call it.
 
-The subprocess calls that remain are in `tmuxy-core/src/executor.rs` and `session.rs`, and
-each is either needed before any control-mode client exists or is a read the migration
-has not reached yet:
+The subprocess calls that remain are in `tmuxy-core/src/session.rs` and
+`control_mode/connection.rs`, and each is needed before any control-mode client exists
+(`session::tmux_output` also serves the CLI's own verbs, which tmux runs inside
+`run-shell`). The paste-buffer mirror is not among them: a copy-mode yank is read back
+in-band, by the aggregator, on both hosts.
 
-| Command           | Location                       | Justification                                                                                                                                                                                                                                      |
-| ----------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `has-session`     | `session.rs`, `connection.rs`  | Check if session exists **before** connecting control mode                                                                                                                                                                                         |
-| `new-session`     | `session.rs`                   | Create session **before** control mode attaches                                                                                                                                                                                                    |
-| `source-file`     | `session.rs`, `monitor.rs`     | Source config during session creation and initial state sync                                                                                                                                                                                       |
-| `kill-session`    | `session.rs`                   | Destroy session (no control mode attached)                                                                                                                                                                                                         |
-| `show-options`    | `gui.rs` (desktop setup)       | The window's blur/appearance is read before the monitor starts                                                                                                                                                                                     |
-| `capture-pane`    | `executor.rs`                  | The scrollback fetch — read-only; moving in-band next                                                                                                                                                                                              |
-| `display-message` | `executor.rs`                  | Pane metadata for the scrollback fetch — read-only; moving in-band next                                                                                                                                                                            |
-| `list-keys`       | `executor.rs`                  | Read keybindings from tmux config (sync callers)                                                                                                                                                                                                   |
-| `list-windows`    | `executor.rs`                  | `resize_window` pre-connect fallback                                                                                                                                                                                                               |
-| `load-buffer -`   | `bin/tmuxy-cli` (`pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
+| Command         | Location                       | Justification                                                                                                                                                                                                                                      |
+| --------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `has-session`   | `session.rs`, `connection.rs`  | Check if session exists **before** connecting control mode                                                                                                                                                                                         |
+| `new-session`   | `session.rs`                   | Create session **before** control mode attaches                                                                                                                                                                                                    |
+| `source-file`   | `session.rs`, `monitor.rs`     | Source config during session creation and initial state sync                                                                                                                                                                                       |
+| `kill-session`  | `session.rs`                   | Destroy session (no control mode attached)                                                                                                                                                                                                         |
+| `show-options`  | `gui.rs` (desktop setup)       | The window's blur/appearance is read before the monitor starts                                                                                                                                                                                     |
+| `load-buffer -` | `bin/tmuxy-cli` (`pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
 
-These are safe because they either run **before** control mode connects or are read-only
-queries. Do not add to this table: a read a client needs goes through `query_tmux`.
+These are safe because they run **before** control mode connects. Do not add to this
+table: a read a client needs goes through `query_tmux`, and a read the core needs while
+attached goes through the aggregator's in-band path.
 
 ### Shell Scripts and `run-shell`
 

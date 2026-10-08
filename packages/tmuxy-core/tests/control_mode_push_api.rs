@@ -78,8 +78,11 @@ fn copy_mode_yank_mirrors_paste_buffer_to_clipboard() {
         }
     }
 
-    // A copy-mode yank fires %paste-buffer-changed: the aggregator must ask for
-    // the buffer over the control channel, wrapped in sentinel lines.
+    // A yank happens in copy mode (%pane-mode-changed first) and fires
+    // %paste-buffer-changed: the aggregator must ask for the buffer over the
+    // control channel, wrapped in sentinel lines.
+    let event = parser.parse_line("%pane-mode-changed %0").unwrap();
+    agg.step(event);
     let event = parser.parse_line("%paste-buffer-changed buffer0").unwrap();
     let effects = agg.step(event).effects;
     let cmd = effects

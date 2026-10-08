@@ -828,32 +828,6 @@ impl TmuxMonitor {
             }
         }
 
-        // tmux does not forward OSC 52 to a control-mode client, so a copy-mode
-        // yank never reaches the per-pane OSC parser. Instead tmux fires
-        // %paste-buffer-changed; read the buffer (read-only) and mirror it to the
-        // web clipboard through the same emitter path as application OSC 52.
-        if let ControlModeEvent::PasteBufferChanged { buffer_name } = &event {
-            // SEC-13: paste buffers are global to the tmux SERVER, and the
-            // event names no origin — so a `load-buffer secret.txt` or a yank
-            // in someone else's session would otherwise be mirrored to every
-            // client of this one. The documented fallback for "did this come
-            // from here?" is the only signal available: a pane of THIS
-            // session is in copy mode, which is what a yank leaves behind.
-            if !self.aggregator.has_pane_in_copy_mode() {
-                debug!(
-                    buffer = %buffer_name,
-                    "paste buffer changed with no pane of this session in copy mode; not mirrored"
-                );
-                return true;
-            }
-            match crate::executor::show_buffer_named(buffer_name) {
-                Ok(text) if !text.is_empty() => emitter.write_clipboard(None, text),
-                Ok(_) => {}
-                Err(e) => debug!(buffer = %buffer_name, error = %e, "show-buffer failed"),
-            }
-            return true;
-        }
-
         match &event {
             ControlModeEvent::Output { .. } | ControlModeEvent::CommandResponse { .. } => {}
             other => {
@@ -897,10 +871,9 @@ impl TmuxMonitor {
                 SideEffect::EmitState { change } => {
                     self.handle_state_change(emitter, rs, &change);
                 }
-                // Emitted by the aggregator's in-band paths (e.g. the
-                // paste-buffer read). The native monitor mostly routes raw
-                // commands through dedicated channels, so this arm fires
-                // rarely — the wasm host is the primary consumer.
+                // The aggregator's own in-band reads — the marker-wrapped
+                // `show-buffer` that mirrors a copy-mode yank to the clipboard
+                // — go over the same connection as everything else.
                 SideEffect::SendTmuxCommand(cmd) => {
                     if let Err(e) = self.connection.send_command(&cmd).await {
                         emitter.emit_error(format!("Failed to send command: {}", e));

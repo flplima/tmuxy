@@ -2077,11 +2077,24 @@ impl StateAggregator {
             ControlModeEvent::PasteBufferChanged { buffer_name } => {
                 // tmux does not forward OSC 52 to control-mode clients, so a
                 // copy-mode yank only surfaces as %paste-buffer-changed. The
-                // native monitor reads the buffer out-of-band via a subprocess;
-                // the push-based (wasm) path has only the control channel, so we
-                // read it in-band, wrapped in sentinel lines that make the
-                // response unambiguously identifiable among interleaved
-                // capture-pane replies.
+                // buffer is read in-band over the control channel, wrapped in
+                // sentinel lines that make the response unambiguously
+                // identifiable among interleaved capture-pane replies; the
+                // reply becomes a clipboard write on the same path as OSC 52.
+                //
+                // SEC-13: paste buffers are global to the tmux SERVER, and the
+                // event names no origin — so a `load-buffer secret.txt` or a
+                // yank in someone else's session would otherwise be mirrored
+                // to every client of this one. The only available signal for
+                // "did this come from here?" is a pane of THIS session being
+                // in copy mode, which is what a yank leaves behind.
+                if !self.has_pane_in_copy_mode() {
+                    debug!(
+                        buffer = %buffer_name,
+                        "paste buffer changed with no pane of this session in copy mode; not mirrored"
+                    );
+                    return ProcessEventResult::default();
+                }
                 self.pending_buffer_reads.push_back(buffer_name.clone());
                 ProcessEventResult {
                     commands: vec![format!(
@@ -4008,6 +4021,41 @@ mod tests {
         let earlier = Instant::now() - MIN_CLIPBOARD_INTERVAL;
         agg.panes.get_mut("%0").unwrap().last_clipboard_write = Some(earlier);
         assert_eq!(agg.process_event(write()).clipboard_writes.len(), 1);
+    }
+
+    /// SEC-13. A paste buffer is server-global and `%paste-buffer-changed`
+    /// names no origin, so it is read (in-band, marker-wrapped) only while a
+    /// pane of this session is in copy mode — the trace a yank leaves. Both
+    /// hosts share this arm, so both have the gate.
+    #[test]
+    fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
+        let mut agg = StateAggregator::new();
+        seed_active_pane(&mut agg, "%0", "@0");
+        let changed = || ControlModeEvent::PasteBufferChanged {
+            buffer_name: "buffer0".to_string(),
+        };
+
+        let outside = agg.step(changed());
+        assert!(
+            !outside
+                .effects
+                .iter()
+                .any(|e| matches!(e, SideEffect::SendTmuxCommand(_))),
+            "no pane in copy mode: the buffer is not read ({:?})",
+            outside.effects
+        );
+
+        agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+        let inside = agg.step(changed());
+        let read = inside
+            .effects
+            .iter()
+            .find_map(|e| match e {
+                SideEffect::SendTmuxCommand(cmd) => Some(cmd.as_str()),
+                _ => None,
+            })
+            .expect("a pane in copy mode: the buffer is read over the control channel");
+        assert!(read.contains("TMUXY_BUF_BEGIN") && read.contains("show-buffer -b 'buffer0'"));
     }
 
     #[test]
