@@ -51,7 +51,7 @@ import {
 import { TabContextMenu } from './TabContextMenu';
 import { haptics } from '../utils/haptics';
 import { LogProfiler } from '../utils/renderLog';
-import { DRAG_THRESHOLD_PX, LONG_PRESS_MS, capturePointer, dropIndex } from '../utils/tabOverview';
+import { useReorderDrag } from '../hooks/useReorderDrag';
 import type { TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
@@ -82,20 +82,6 @@ interface TabContextMenuState {
   morphFrom: DOMRect | null;
 }
 
-interface DragState {
-  windowId: WindowId;
-  fromIndex: number;
-  pointerId: number;
-  startX: number;
-  startY: number;
-  /** Current horizontal pointer offset from the press, for the tab's transform. */
-  dx: number;
-  /** Index among the OTHER tabs the dragged one would be inserted at. */
-  overIndex: number;
-  /** True once the threshold / long-press turned the press into a drag. */
-  active: boolean;
-}
-
 /**
  * Memoized (no props): context.windows gets a fresh array identity on every
  * model tick; the shallow selectors below keep re-renders to actual window
@@ -108,9 +94,7 @@ export const WindowTabs = memo(function WindowTabs() {
   const tabDrop = useAppSelector(selectTabDrop);
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const listRef = useRef<HTMLDivElement>(null);
-  const longPressRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
-  const [drag, setDrag] = useState<DragState | null>(null);
   // The tab being renamed, if any: the field takes the label's place.
   const [renamingId, setRenamingId] = useState<WindowId | null>(null);
   // The tab whose picture is showing, and the timer waiting to show the first.
@@ -319,20 +303,17 @@ export const WindowTabs = memo(function WindowTabs() {
 
   // ---- pointer: drag to reorder --------------------------------------------
   // The strip is one row, so only the x axis decides where a tab lands.
-  const centersExcluding = (windowId: WindowId) =>
-    Array.from(listRef.current?.querySelectorAll<HTMLElement>('.tab-name[data-window-id]') ?? [])
-      .filter((t) => t.dataset.windowId !== windowId)
-      .map((t) => {
-        const r = t.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: 0 };
-      });
-
-  const clearLongPress = () => {
-    if (longPressRef.current !== null) {
-      window.clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
-  };
+  const reorder = useReorderDrag({
+    containerRef: listRef,
+    cardSelector: '.tab-name[data-window-id]',
+    axis: 'x',
+    readOnly,
+    onReorder: (windowId, toIndex) => {
+      haptics.trigger(10);
+      send({ type: 'REORDER_TAB', windowId, toIndex });
+    },
+  });
+  const { dragging, dropMarkerAt } = reorder;
 
   const handlePointerDown = (e: React.PointerEvent<HTMLSpanElement>, index: number) => {
     // Before the card goes: a right-click turns it into the menu, and the menu
@@ -352,77 +333,14 @@ export const WindowTabs = memo(function WindowTabs() {
     // A tab being renamed is a field, not a thing to drag.
     if (renamingId === tab.id) return;
     if ((e.target as HTMLElement).closest('button')) return;
-    capturePointer(e.currentTarget, e.pointerId);
-    const state: DragState = {
-      windowId: tab.id,
-      fromIndex: index,
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      dx: 0,
-      overIndex: index,
-      active: false,
-    };
-    setDrag(state);
-    if (e.pointerType === 'touch') {
-      clearLongPress();
-      longPressRef.current = window.setTimeout(() => {
-        longPressRef.current = null;
-        setDrag((d) => (d && d.windowId === state.windowId ? { ...d, active: true } : d));
-      }, LONG_PRESS_MS);
-    }
+    reorder.handlePointerDown(e, tab.id, index);
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLSpanElement>) => {
-    if (!drag || e.pointerId !== drag.pointerId) return;
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    let active = drag.active;
-    if (!active) {
-      if (e.pointerType === 'touch') {
-        // A finger that moves before the long press fires is scrolling the strip.
-        if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX * 2) {
-          clearLongPress();
-          setDrag(null);
-        }
-        return;
-      }
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-      active = true;
-    }
-    const overIndex = dropIndex(centersExcluding(drag.windowId), { x: e.clientX, y: 0 });
-    setDrag({ ...drag, dx, overIndex, active });
-  };
-
+  // A drop never doubles as a select: the click the browser fires after it is
+  // swallowed by `handleWindowClick`.
   const handlePointerUp = (e: React.PointerEvent<HTMLSpanElement>) => {
-    clearLongPress();
-    if (!drag || e.pointerId !== drag.pointerId) return;
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    const d = drag;
-    setDrag(null);
-    if (!d.active) return;
-    suppressClickRef.current = true;
-    if (d.overIndex !== d.fromIndex) {
-      haptics.trigger(10);
-      send({ type: 'REORDER_TAB', windowId: d.windowId, toIndex: d.overIndex });
-    }
+    if (reorder.handlePointerUp(e)?.active) suppressClickRef.current = true;
   };
-
-  const handlePointerCancel = () => {
-    clearLongPress();
-    setDrag(null);
-  };
-
-  const dragging = drag?.active ? drag : null;
-  // Strip index of the tab the dragged one would be inserted before; equal to
-  // the tab count when it would land at the end.
-  const dropMarkerAt = dragging
-    ? dragging.overIndex >= dragging.fromIndex
-      ? dragging.overIndex + 1
-      : dragging.overIndex
-    : -1;
 
   const menuWindowId = contextMenu.visible ? contextMenu.windowId : null;
 
@@ -456,9 +374,9 @@ export const WindowTabs = memo(function WindowTabs() {
               className={className}
               style={isDragged ? { transform: `translateX(${dragging!.dx}px)` } : undefined}
               onPointerDown={(e) => handlePointerDown(e, idx)}
-              onPointerMove={handlePointerMove}
+              onPointerMove={reorder.handlePointerMove}
               onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerCancel}
+              onPointerCancel={reorder.handlePointerCancel}
               onPointerEnter={(e) => handleTabEnter(e, window.id)}
               onClick={() => handleWindowClick(window)}
               onContextMenu={(e) => handleContextMenu(e, window.id)}

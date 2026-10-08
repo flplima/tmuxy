@@ -23,13 +23,8 @@ import { InlineRename } from './InlineRename';
 import type { TmuxPane } from '../domain/client';
 import { Tooltip } from './Tooltip';
 import { measureTabStrip } from '../utils/tabStripDrop';
+import { DRAG_THRESHOLD_PX, LONG_PRESS_MS } from '../utils/tabOverview';
 import { isModelPaneId, type PaneId } from '../domain/ids';
-
-/** Minimum pixels of movement before a mousedown becomes a drag */
-const DRAG_THRESHOLD = 5;
-
-/** Long-press duration in ms to initiate drag on touch devices */
-const LONG_PRESS_MS = 400;
 
 /** Maximum touch movement in px before cancelling long-press */
 const LONG_PRESS_MOVE_THRESHOLD = 10;
@@ -290,7 +285,7 @@ export function PaneHeader({
       if (!pendingDragRef.current) return;
       const dx = Math.abs(moveEvt.clientX - pendingDragRef.current.x);
       const dy = Math.abs(moveEvt.clientY - pendingDragRef.current.y);
-      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+      if (dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX) {
         pendingDragRef.current = null;
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
