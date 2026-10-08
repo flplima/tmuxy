@@ -1017,104 +1017,32 @@ struct LayoutPane {
     height: u32,
 }
 
-/// Parse a tmux layout string (after checksum removal) into pane geometries.
-///
-/// The format is recursive:
-/// - Leaf: `WxH,x,y,pane_index`
-/// - Vertical split: `WxH,x,y[child,child,...]`
-/// - Horizontal split: `WxH,x,y{child,child,...}`
-///
-/// Positions (x,y) in the layout are absolute (relative to window origin).
+/// The leaves of a tmux layout string, in order, as pane geometries. The
+/// tree itself is `layout::parse`'s; positions are absolute (relative to the
+/// window origin). A layout that does not parse yields no panes.
 fn parse_layout_panes(layout: &str) -> Vec<LayoutPane> {
-    let bytes = layout.as_bytes();
-    let mut pos = 0;
+    fn leaves(node: &crate::layout::Node, out: &mut Vec<LayoutPane>) {
+        match node {
+            crate::layout::Node::Leaf { w, h, x, y, pane } => out.push(LayoutPane {
+                id: PaneId::from_number(*pane),
+                index: *pane,
+                x: *x,
+                y: *y,
+                width: *w,
+                height: *h,
+            }),
+            crate::layout::Node::Split { children, .. } => {
+                for child in children {
+                    leaves(child, out);
+                }
+            }
+        }
+    }
     let mut panes = Vec::new();
-    parse_layout_node(bytes, &mut pos, &mut panes);
+    if let Some(root) = crate::layout::parse(layout) {
+        leaves(&root, &mut panes);
+    }
     panes
-}
-
-fn parse_layout_u32(bytes: &[u8], pos: &mut usize) -> Option<u32> {
-    let start = *pos;
-    while *pos < bytes.len() && bytes[*pos].is_ascii_digit() {
-        *pos += 1;
-    }
-    if *pos == start {
-        return None;
-    }
-    std::str::from_utf8(&bytes[start..*pos]).ok()?.parse().ok()
-}
-
-fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>) {
-    // Parse WxH
-    let width = match parse_layout_u32(bytes, pos) {
-        Some(w) => w,
-        None => return,
-    };
-    if *pos >= bytes.len() || bytes[*pos] != b'x' {
-        return;
-    }
-    *pos += 1; // skip 'x'
-    let height = match parse_layout_u32(bytes, pos) {
-        Some(h) => h,
-        None => return,
-    };
-
-    // Skip comma before x
-    if *pos < bytes.len() && bytes[*pos] == b',' {
-        *pos += 1;
-    }
-    let x = match parse_layout_u32(bytes, pos) {
-        Some(v) => v,
-        None => return,
-    };
-
-    // Skip comma before y
-    if *pos < bytes.len() && bytes[*pos] == b',' {
-        *pos += 1;
-    }
-    let y = match parse_layout_u32(bytes, pos) {
-        Some(v) => v,
-        None => return,
-    };
-
-    // What follows determines node type:
-    // '[' or '{' → container with children
-    // ','        → leaf with pane index
-    if *pos < bytes.len() && (bytes[*pos] == b'[' || bytes[*pos] == b'{') {
-        // Container node
-        let open = bytes[*pos];
-        let close = if open == b'[' { b']' } else { b'}' };
-        *pos += 1; // skip open bracket
-
-        loop {
-            if *pos >= bytes.len() {
-                break;
-            }
-            if bytes[*pos] == close {
-                *pos += 1; // skip close bracket
-                break;
-            }
-            parse_layout_node(bytes, pos, panes);
-            // Skip child separator comma
-            if *pos < bytes.len() && bytes[*pos] == b',' {
-                *pos += 1;
-            }
-        }
-    } else if *pos < bytes.len() && bytes[*pos] == b',' {
-        // Leaf node: ,pane_index
-        *pos += 1; // skip comma
-        if let Some(pane_idx) = parse_layout_u32(bytes, pos) {
-            panes.push(LayoutPane {
-                id: PaneId::from_number(pane_idx),
-                index: pane_idx,
-                x,
-                y,
-                width,
-                height,
-            });
-        }
-    }
-    // else: end of input or unexpected char — return gracefully
 }
 
 /// Aggregates control mode events into coherent state
@@ -3617,6 +3545,42 @@ mod tests {
         assert!(agg.pane_scrollback(&pid("%99"), -10, 0).is_none());
     }
     use super::*;
+
+    /// The geometry walk over `layout::parse` yields the same panes, in the
+    /// same order, as the parser it replaced (output captured from the old
+    /// one before it was deleted). Only the body is passed: the call sites
+    /// strip the checksum first.
+    #[test]
+    fn layout_panes_match_the_previous_parser() {
+        fn dump(layout: &str) -> Vec<(String, u32, u32, u32, u32, u32)> {
+            parse_layout_panes(layout)
+                .iter()
+                .map(|p| (p.id.to_string(), p.index, p.x, p.y, p.width, p.height))
+                .collect()
+        }
+        let nested = "200x50,0,0{100x50,0,0,1,99x50,101,0[99x25,101,0,2,99x24,101,26{49x24,101,26,3,49x24,151,26,4}]}";
+        assert_eq!(
+            dump(nested),
+            vec![
+                ("%1".to_string(), 1, 0, 0, 100, 50),
+                ("%2".to_string(), 2, 101, 0, 99, 25),
+                ("%3".to_string(), 3, 101, 26, 49, 24),
+                ("%4".to_string(), 4, 151, 26, 49, 24),
+            ]
+        );
+        assert_eq!(
+            dump("80x24,0,0,7"),
+            vec![("%7".to_string(), 7, 0, 0, 80, 24)]
+        );
+        assert_eq!(
+            dump("80x24,0,0[80x11,0,0,1,80x12,0,12,2]"),
+            vec![
+                ("%1".to_string(), 1, 0, 0, 80, 11),
+                ("%2".to_string(), 2, 0, 12, 80, 12),
+            ]
+        );
+        assert!(dump("garbage").is_empty());
+    }
     use crate::ids::test_ids::{gid, pid, wid};
 
     /// A pane as the client sees it, placed in window `@0`.
