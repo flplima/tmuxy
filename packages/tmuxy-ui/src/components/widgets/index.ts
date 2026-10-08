@@ -54,8 +54,8 @@ export interface WidgetDefinition {
   /** Nerd-font glyph for the pane tab, in place of the process icon. */
   icon?: string;
   /**
-   * Pane tab title. Falls back to the generic `__TITLE__`/URL sniffing in
-   * getWidgetTitle when absent or when it returns undefined.
+   * Pane tab title. When absent, or when it returns undefined, the tab shows
+   * the pane's own title the way a terminal pane does.
    */
   selectTitle?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => string | undefined;
   /** The widget's own section of the pane menu, above the generic pane items. */

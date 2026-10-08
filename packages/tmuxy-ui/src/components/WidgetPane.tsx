@@ -8,7 +8,6 @@
 import { useRef, useEffect } from 'react';
 import { PaneHeader } from './PaneHeader';
 import { getWidget } from './widgets';
-import { getWidgetTitle } from './widgets/getWidgetTitle';
 import {
   useAppActor,
   useAppSelector,
@@ -46,11 +45,9 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   const gestureInFlight = dragging || resizing;
 
   // The widget's own title when it declares one — a browser pane names itself
-  // after the page it is showing — else the generic `__TITLE__`/URL sniffing.
-  const widgetTitle = useAppSelector(
-    (context) =>
-      definition?.selectTitle?.(context, paneId, widgetInfo.contentLines) ??
-      getWidgetTitle(widgetInfo.contentLines),
+  // after the page it is showing; without one the header shows the pane's.
+  const widgetTitle = useAppSelector((context) =>
+    definition.selectTitle?.(context, paneId, widgetInfo.contentLines),
   );
 
   // Vi-key navigation: capture-phase window listener that fires BEFORE
