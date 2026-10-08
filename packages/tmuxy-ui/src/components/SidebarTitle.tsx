@@ -14,20 +14,15 @@
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
-import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { useAppSend, useAppSelector, selectRightSidebarPane } from '../machines/AppContext';
+import { sidebarShellTitle } from './paneTabDisplay';
 import { Tooltip } from './Tooltip';
 import { SessionMenu } from './SessionMenu';
 
-export const SidebarTitle = memo(function SidebarTitle({
-  side,
-  title,
-}: {
-  side: 'left' | 'right';
-  /** Overrides the derived label (the right column passes its pane's title). */
-  title?: string;
-}) {
+export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' | 'right' }) {
   const send = useAppSend();
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
+  const rightPane = useAppSelector(selectRightSidebarPane);
   const focused = useAppSelector((ctx) =>
     side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
   );
@@ -46,7 +41,7 @@ export const SidebarTitle = memo(function SidebarTitle({
     [send, side],
   );
 
-  const label = title ?? (side === 'left' ? sessionName : 'shell');
+  const label = side === 'left' ? sessionName : sidebarShellTitle(rightPane);
 
   return (
     <span

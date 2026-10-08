@@ -46,9 +46,6 @@ vi.mock('../components/Sidebar', () => ({
 vi.mock('../components/SidebarBackdrop', () => ({
   SidebarBackdrop: () => null,
 }));
-vi.mock('../components/RightSidebar', () => ({
-  RightSidebar: () => null,
-}));
 vi.mock('../components/Snackbar', () => ({
   Snackbar: () => null,
 }));

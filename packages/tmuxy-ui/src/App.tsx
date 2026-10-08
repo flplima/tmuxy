@@ -14,7 +14,6 @@ import { Pane } from './components/Pane';
 import { FloatContainer } from './components/FloatPane';
 import { Sidebar } from './components/Sidebar';
 import { SidebarBackdrop } from './components/SidebarBackdrop';
-import { RightSidebar } from './components/RightSidebar';
 import { TabOverview } from './components/TabOverview';
 import { GestureStage } from './components/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
@@ -148,7 +147,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             share, `selectSidebarLayout` switches them to overlaying the panes
             over this backdrop instead. */}
         {showLayout && <SidebarBackdrop />}
-        {showLayout && <Sidebar />}
+        {showLayout && <Sidebar side="left" />}
         <div
           ref={containerRef}
           // While the Tab Overview is open the live pane grid is FLIP-scaled
@@ -187,7 +186,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             </ConnectionOverlay>
           )}
         </div>
-        {showLayout && <RightSidebar />}
+        {showLayout && <Sidebar side="right" />}
       </div>
       <TmuxStatusBar />
       {/* First run: what this is and what it can do, before anything is typed. */}
