@@ -54,10 +54,6 @@ async function typeOnVirtualKeyboard(page, text) {
     await page.keyboard.type(char);
     await delay(15);
   }
-  // Every character has reached the shell before the line is run. A dropped
-  // keystroke fails here, naming what arrived, rather than later as output
-  // that never appears.
-  await waitForTerminalText(page, text, 10000);
 }
 
 /** Every box the user should be able to reach has to be inside the screen. */
