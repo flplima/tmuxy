@@ -176,7 +176,7 @@ describe('Scenario 20: Glitch Detection', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Split H + detect → split V + detect → resize + detect → click focus + detect', async () => {
+  test('Split H + detect → split V + detect → resize + detect → click focus + detect [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 

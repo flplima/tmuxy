@@ -193,7 +193,7 @@ describe('Scenario 12b: Connection overlay', () => {
   // backoff used to belong to the page rather than to the outage, so it only
   // climbed: a few drops in, every reconnect waited out the 30s cap, and
   // nothing told the sleeping retry that the network was back.
-  test('six drops in a row → each reconnects within seconds of the network returning → "Retry now" retries on the spot', async () => {
+  test('six drops in a row → each reconnects within seconds of the network returning → "Retry now" retries on the spot [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
@@ -355,7 +355,7 @@ describe('Scenario 22b: Other origins cannot drive tmux', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('a page on another origin posts a command → tmux never runs it → the app itself still can', async () => {
+  test('a page on another origin posts a command → tmux never runs it → the app itself still can [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -456,7 +456,7 @@ describe('Scenario 22c: Published under another name by a reverse proxy', () => 
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('a name the server was not told about → the page says why instead of "Connecting…" forever → with --allowed-host the same name works', async () => {
+  test('a name the server was not told about → the page says why instead of "Connecting…" forever → with --allowed-host the same name works [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const session = encodeURIComponent(ctx.session.name);
@@ -510,7 +510,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
   // and panes. This exercises that full chain on the real HTTP/SSE transport,
   // which the unit + storybook tests can't (they mock the poll and never
   // reconnect the stream).
-  test('a sibling session is offered in the switcher, not the tree, and picking it switches the web client', async () => {
+  test('a sibling session is offered in the switcher, not the tree, and picking it switches the web client [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
 
     // Bounding-rect probe: a row or menu item must be visually present, not

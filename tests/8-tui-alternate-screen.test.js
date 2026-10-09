@@ -111,7 +111,7 @@ describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('after a reload the pane is known to track the mouse and the wheel arrives as SGR reports', async () => {
+  test('after a reload the pane is known to track the mouse and the wheel arrives as SGR reports [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await focusPage(ctx.page);

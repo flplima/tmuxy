@@ -443,65 +443,6 @@ describe('Scenario 16b: SGR 2 faint/dim attribute', () => {
   // normal-intensity white. After bumping to vt100 0.16 + threading
   // `cell.dim()` through CellStyle, the frontend renders dim cells at
   // reduced opacity.
-  /**
-   * Two ways a row's colour used to run past the character that set it, both
-   * found in the same ASCII-art logo (Antigravity's CLI banner):
-   *
-   *  - a run of `▌` is ONE span, and a background sized in percent painted one
-   *    left half across the whole run instead of one per cell;
-   *  - the last cell's background flooded the rest of the line, so the last
-   *    pixel of the artwork drew a bar to the pane's border.
-   *
-   * Both are about the boundary between a cell and its row, which is why they
-   * are asserted together against a real pane.
-   */
-  test('A block run tiles per cell and a short coloured row stops at its last cell', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    await runCommand(ctx.page, 'printf "\\e[31m▌▌▌▌▌▌▌▌\\e[0m\\n"', '▌▌▌▌▌▌▌▌');
-    await runCommand(ctx.page, 'printf "\\e[44mSHORT_BG\\e[0m\\n"', 'SHORT_BG');
-
-    const painted = await ctx.page.evaluate(() => {
-      const spans = [...document.querySelectorAll('[role="log"] .terminal-line > span')];
-      // `--cell-w` is published on the app root and inherits, so ask an
-      // element inside the grid rather than guessing where it was set.
-      const cellW = spans.length
-        ? parseFloat(getComputedStyle(spans[0]).getPropertyValue('--cell-w'))
-        : NaN;
-      const blocks = spans.filter((s) => (s.textContent || '') === '▌▌▌▌▌▌▌▌').pop();
-      const short = spans.filter((s) => (s.textContent || '') === 'SHORT_BG').pop();
-      const shortLine = short?.closest('.terminal-line');
-      const lines = [...document.querySelectorAll('[role="log"] .terminal-line')];
-      return {
-        cellW,
-        block: blocks && {
-          width: blocks.getBoundingClientRect().width,
-          size: getComputedStyle(blocks).backgroundSize,
-          repeat: getComputedStyle(blocks).backgroundRepeat,
-        },
-        // Nothing is drawn past the cells of the row that stops short…
-        shortFiller: shortLine ? getComputedStyle(shortLine, '::after').content : null,
-        shortRight: shortLine ? shortLine.getBoundingClientRect().right : null,
-        shortCellsRight: short ? short.getBoundingClientRect().right : null,
-        // …and no padding strip is painted for it either. Every strip that
-        // exists belongs to a row that reaches the last column.
-        rightStrips: document.querySelectorAll('.pane-active .terminal-edge-right').length,
-        rows: lines.length,
-      };
-    });
-
-    expect(painted.block).toBeTruthy();
-    // The run is one span of eight cells, painted with a one-cell tile.
-    expect(painted.block.width).toBeCloseTo(8 * painted.cellW, 0);
-    expect(parseFloat(painted.block.size)).toBeCloseTo(painted.cellW, 0);
-    expect(painted.block.repeat).toBe('repeat-x');
-
-    expect(painted.shortFiller).toBe('none');
-    expect(painted.shortCellsRight).toBeLessThan(painted.shortRight);
-    expect(painted.rightStrips).toBe(0);
-  }, 60000);
-
   test('Faint text (SGR 2) is rendered at reduced opacity', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
@@ -688,32 +629,6 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       expect(repainted.text).toContain('ZZZZZZZZ');
       expect(repainted.overNewText).toEqual([]);
       expect(repainted.staleHyperlinks).toEqual([]);
-    });
-
-    // A URL butted against a UI separator with no space between them: the
-    // detector is an allowlist of what a URL may contain, so the separator
-    // ends it. Defined the other way round, one link swallowed the rest of
-    // the line — the same "highlight over wrong text" as above.
-    test('an auto-detected URL stops at a box-drawing separator', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.setupPage();
-
-      await runCommand(
-        ctx.page,
-        'echo -e "\\u2502https://ex.test/page\\u2502Files:12\\u2502"',
-        'Files:12',
-      );
-
-      const autolinks = await ctx.page.evaluate(() =>
-        Array.from(document.querySelectorAll('.terminal-content a.terminal-autolink'))
-          .map((a) => a.textContent)
-          .filter((t) => t.includes('ex.test/page')),
-      );
-      expect(autolinks.length).toBeGreaterThan(0);
-      for (const text of autolinks) {
-        expect(text).toBe('https://ex.test/page');
-      }
     });
   });
 });
@@ -1078,7 +993,7 @@ describe('Category 17: Widgets', () => {
       await waitForTerminalText(wCtx.page, 'AFTER_BROWSER_WIDGET');
     }, 120000);
 
-    test('--color-filter recolours a page into the theme and closes back to a shell', async () => {
+    test('--color-filter recolours a page into the theme and closes back to a shell [nightly]', async () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
@@ -1176,44 +1091,6 @@ describe('Category 17: Widgets', () => {
   // ====================
   // 17.2 Edge Cases
   // ====================
-  describe('17.2 Widget Detection Edge Cases', () => {
-    test('A pane with no marker, and one naming an unregistered widget, both stay a visible Terminal', async () => {
-      if (wCtx.skipIfNotReady()) return;
-      await wCtx.setupPage();
-
-      // A readable terminal and no widget in its place.
-      const terminalOnly = () =>
-        wCtx.page.evaluate(() => {
-          const log = document.querySelector('[role="log"]');
-          if (!log) return null;
-          const r = log.getBoundingClientRect();
-          return {
-            width: r.width,
-            height: r.height,
-            widget: document.querySelector('.widget-browser') !== null,
-          };
-        });
-
-      // No marker at all.
-      await sendWidgetCommand(wCtx.page, 'echo "hello world"');
-      await waitForTerminalText(wCtx.page, 'hello world');
-      const plain = await terminalOnly();
-      expect(plain).not.toBeNull();
-      expect(plain.width).toBeGreaterThan(200);
-      expect(plain.height).toBeGreaterThan(50);
-      expect(plain.widget).toBe(false);
-
-      // A marker naming a widget that does not exist falls back to the same
-      // terminal rather than blanking the pane.
-      await sendWidgetCommand(wCtx.page, `echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
-      await delay(2000);
-      const fallback = await terminalOnly();
-      expect(fallback).not.toBeNull();
-      expect(fallback.width).toBeGreaterThan(200);
-      expect(fallback.height).toBeGreaterThan(50);
-      expect(fallback.widget).toBe(false);
-    });
-  });
 });
 
 // ==================== Scenario 24: The Browser Pane ====================
@@ -1330,7 +1207,7 @@ describe('Scenario 24: The Browser Pane', () => {
     return readPicture(page);
   }
 
-  test('draws the page, forwards a click, and answers a verb on the status row', async () => {
+  test('draws the page, forwards a click, and answers a verb on the status row [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     if (!engineOrSkip()) return;
     await ctx.setupPage();

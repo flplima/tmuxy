@@ -88,6 +88,18 @@ Pick the cheapest layer that can still fail for the bug you care about. If the b
 
 Whatever the layer, the rules below apply: assert what the user sees, drive it through the user's path, and keep one feature in one test. A unit or story test does not replace an E2E test for a user path — it catches the bug earlier and cheaper.
 
+## Tiers: per commit, nightly, and before a release
+
+Not every E2E test earns a runner on every push. A test whose logic a cheaper layer already holds — a zoom whose geometry `zoomIdentity.test.ts` and a story both check, a context menu every `PaneContextMenu` story opens, a backoff schedule `disconnected.test.ts` times — still has value against the real server and real tmux, but a regression there is not something a push has to wait for. Those tests carry **`[nightly]`** at the end of their name, and run in three places:
+
+| Run                                          | What runs                               | How                                                                                                                                                                                                      |
+| -------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| every push and PR (`lint-and-tests.yml`)     | every E2E test **without** the tag      | `bin/e2e-plan.mjs commit` builds the matrix from `tests/e2e-suites.json`, with a jest name pattern that skips `[nightly]`; a file marked `tier: nightly` there (every test tagged) gets no runner at all |
+| nightly (`nightly-tmux-matrix.yml`, on 3.7a) | every test **with** the tag, every file | `npx jest tests/ --testNamePattern '\[nightly\]'` on the runner that already has the server up; a failure opens the nightly tracking issue                                                               |
+| a tag build (`build-app.yml`)                | everything                              | it calls `lint-and-tests.yml` with `e2e-tier: full`, so the release is gated on the whole suite, the nightly tier included                                                                               |
+
+So the tag is the one source of truth: adding it to a test moves it out of the push and into the nightly and the release gate; nothing else needs listing. The per-commit matrix is still the one that fails a push, and a test in it is one the push cannot do without — moving a test to the nightly tier is a claim that a cheaper layer covers its logic, and the test's doc comment should name that layer. A test that only matters for packaging or a deployment shape (a reverse proxy, a sparse launchd `PATH`) belongs in the nightly tier too: the tag build runs it before anything ships.
+
 ## Core Principle: Test What the User Sees
 
 A test passes when a real user would say "this works." A test that checks internal state while the feature is visually broken is worse than no test — it creates false confidence.

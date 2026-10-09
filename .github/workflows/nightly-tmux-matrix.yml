@@ -209,6 +209,22 @@ jobs:
         continue-on-error: true
         run: npx jest tests/8-tui-alternate-screen.test.js
 
+      # The [nightly] E2E tier (docs/TESTS.md § Tiers): tests a push skips
+      # because a cheaper layer already holds their logic, run once a day
+      # against the real server and tmux. On the one tmux version the
+      # per-commit jobs pin, since that is the tier's whole point; the other
+      # versions are what the two suites above are for. Every file is given
+      # to jest, which skips what the pattern leaves out, so a file whose
+      # every test is tagged needs no listing anywhere.
+      - name: Nightly E2E tier
+        id: nightly-tier
+        if: matrix.tmux.version == '3.7a'
+        continue-on-error: true
+        env:
+          TMUXY_NO_SNAPSHOT: '1'
+          TMUXY_NO_RESTORE: '1'
+        run: npx jest tests/ --testNamePattern '\[nightly\]'
+
       - name: Server logs (debug)
         if: always()
         run: tail -2000 /tmp/tmuxy-server.log || true
@@ -233,13 +249,14 @@ jobs:
             echo "| server start | ${{ steps.server.outcome }} |"
             echo "| snapshots | ${{ steps.snapshots.outcome }} |"
             echo "| 8-tui-alternate-screen | ${{ steps.tui.outcome }} |"
+            echo "| nightly E2E tier | ${{ steps.nightly-tier.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # One issue is kept open and commented on, the same pattern as
       # nightly-v86.yml. Reported from inside the job because a HEAD failure
       # must reach someone WITHOUT the job (or the workflow) going red.
       - name: Open or update the tracking issue
-        if: always() && github.event_name == 'schedule' && (steps.core.outcome == 'failure' || steps.server.outcome == 'failure' || steps.snapshots.outcome == 'failure' || steps.tui.outcome == 'failure')
+        if: always() && github.event_name == 'schedule' && (steps.core.outcome == 'failure' || steps.server.outcome == 'failure' || steps.snapshots.outcome == 'failure' || steps.tui.outcome == 'failure' || steps.nightly-tier.outcome == 'failure')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -264,6 +281,7 @@ jobs:
           | server start | ${{ steps.server.outcome }} |
           | snapshots | ${{ steps.snapshots.outcome }} |
           | 8-tui-alternate-screen | ${{ steps.tui.outcome }} |
+          | nightly E2E tier (3.7a only) | ${{ steps.nightly-tier.outcome }} |
 
           Run: $RUN_URL
           Commit: ${{ github.sha }}
@@ -290,6 +308,7 @@ jobs:
           if [ "${{ steps.server.outcome }}" = "failure" ]; then failed="$failed server"; fi
           if [ "${{ steps.snapshots.outcome }}" = "failure" ]; then failed="$failed snapshots"; fi
           if [ "${{ steps.tui.outcome }}" = "failure" ]; then failed="$failed 8-tui"; fi
+          if [ "${{ steps.nightly-tier.outcome }}" = "failure" ]; then failed="$failed nightly-tier"; fi
 
           if [ -z "$failed" ]; then
             echo "all suites passed on tmux ${{ matrix.tmux.name }}"

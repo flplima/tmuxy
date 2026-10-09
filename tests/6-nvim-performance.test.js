@@ -57,7 +57,7 @@ async function waitForCursorClass(page, expectedClass, timeout = 10000) {
 // ==================== Tests ====================
 
 describe('Nvim Rendering & Interaction', () => {
-  test('Scenario 6: nvim renders a long file, swaps cursor shape per mode, echoes typing and pages', async () => {
+  test('Scenario 6: nvim renders a long file, swaps cursor shape per mode, echoes typing and pages [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 

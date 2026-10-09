@@ -7,8 +7,15 @@ on:
     branches: [main]
   # Callable as a job, so another workflow can make a real `needs:` dependency
   # on this suite. `Build App` calls it on the TAG ref: the artifacts that
-  # become a release are then gated on the same tests, for the same ref.
+  # become a release are then gated on the same tests, for the same ref —
+  # every test, including the [nightly] tier a push skips (docs/TESTS.md
+  # § Tiers).
   workflow_call:
+    inputs:
+      e2e-tier:
+        description: "'commit' skips the [nightly] E2E tier; 'full' runs everything"
+        type: string
+        default: commit
 
 # No job here writes to the repository: nothing uses GITHUB_TOKEN, and
 # uploading an artifact does not need write access to the contents.
@@ -153,48 +160,33 @@ jobs:
   rust-tests:
     uses: ./.github/workflows/ci-rust-tests.yml
 
+  # The E2E matrix for this run's tier, from tests/e2e-suites.json: on a push
+  # the suites a [nightly] test does not fill, each with a jest name pattern
+  # that skips the tagged tests; on a tag build (`e2e-tier: full`) every suite
+  # and every test. A tiny job of its own so the list is data a script can
+  # test, and so the list and the patterns are composed in one place
+  # (bin/e2e-plan.mjs) rather than once per matrix entry here.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      suites: ${{ steps.plan.outputs.suites }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        run: echo "suites=$(node bin/e2e-plan.mjs '${{ inputs.e2e-tier || 'commit' }}')" >> "$GITHUB_OUTPUT"
+
   # E2E + snapshot suites run in parallel — one matrix entry per suite,
   # one runner per suite. Previously these were serial inside a single
   # job (~10 min total); matrix puts walltime at max-of-suites.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: build-server
+    needs: [plan, build-server]
     strategy:
       fail-fast: false
       matrix:
-        # `filter` (jest -t) splits one oversized file across two runners.
-        # 2-layout is the largest file and the longest suite here once
-        # the v86 job stops being the critical path. jest's own --shard only
-        # divides at FILE granularity, so it cannot split a single file;
-        # a name filter on the top-level `Scenario N:` describes can.
-        # The second half is a negative lookahead on the first, so a newly
-        # added scenario always lands in a shard instead of silently
-        # running nowhere.
-        suite:
-          - { name: snapshots, path: 'tests/snapshots/' }
-          - { name: '1-input', path: 'tests/1-input-interaction.test.js' }
-          - name: '2-layout-a'
-            path: 'tests/2-layout-navigation.test.js'
-            filter: '^Scenario (4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):'
-          - name: '2-layout-b'
-            path: 'tests/2-layout-navigation.test.js'
-            filter: '^Scenario (?!(4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):)'
-          - { name: '3-rendering', path: 'tests/3-rendering-protocols.test.js' }
-          - { name: '4-session', path: 'tests/4-session-connectivity.test.js' }
-          - { name: '5-stress', path: 'tests/5-stress-stability.test.js' }
-          - { name: '6-nvim', path: 'tests/6-nvim-performance.test.js' }
-          - { name: '7-regression', path: 'tests/7-regression-bugs.test.js' }
-          - { name: '8-tui', path: 'tests/8-tui-alternate-screen.test.js' }
-          - { name: '10-read-only', path: 'tests/10-read-only.test.js' }
-          # WebKit is the only proxy CI has for WKWebView, where the selection
-          # and focus bugs escaped. It needs its own browser download, so only
-          # this entry pays for it.
-          - { name: '11-webkit', path: 'tests/11-webkit.test.js', webkit: true }
-          - { name: '12-touch', path: 'tests/12-touch.test.js' }
-          - { name: '13-ask-confirmation', path: 'tests/13-ask-confirmation.test.js' }
-          - { name: '14-widget-pane-pointer', path: 'tests/14-widget-pane-pointer.test.js' }
-          - { name: '15-session-snapshot', path: 'tests/15-session-snapshot.test.js' }
+        suite: ${{ fromJSON(needs.plan.outputs.suites) }}
     name: e2e (${{ matrix.suite.name }})
 
     # The suite's own tmux socket, for the server started below as much as for
@@ -281,9 +273,14 @@ jobs:
       # No --forceExit: it masked leaked handles by killing the process before
       # jest could report them.
       - name: Run ${{ matrix.suite.name }}
+        env:
+          SUITE_PATH: ${{ matrix.suite.path }}
+          # The tier's lookahead plus this suite's shard filter, composed by
+          # bin/e2e-plan.mjs; empty when every test in the file is wanted.
+          SUITE_PATTERN: ${{ matrix.suite.pattern }}
         run: |
           set -o pipefail
-          npx jest ${{ matrix.suite.path }} ${{ matrix.suite.filter && format('--testNamePattern={0}', toJSON(matrix.suite.filter)) || '' }} 2>&1 | tee /tmp/jest-output.log
+          npx jest "$SUITE_PATH" ${SUITE_PATTERN:+--testNamePattern "$SUITE_PATTERN"} 2>&1 | tee /tmp/jest-output.log
 
       # On every job, passing or not: a pane that never spoke is a fault even
       # in a test that never waited on it, and a shard that went green on a

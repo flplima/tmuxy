@@ -345,7 +345,7 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Clicking three pane-group tabs in rapid succession never flashes a non-target pane in the visible slot', async () => {
+  test('Clicking three pane-group tabs in rapid succession never flashes a non-target pane in the visible slot [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -568,7 +568,7 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
     expect(`${label}: ${state.activePaneWindow}`).toBe(`${label}: ${truth}`);
   };
 
-  test('Creating tabs then switching keeps the rendered tab in sync with tmux', async () => {
+  test('Creating tabs then switching keeps the rendered tab in sync with tmux [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -746,7 +746,7 @@ describe('Scenario: a rejected tmux command is reported in the snackbar', () => 
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('tmux’s message appears top-right, off the status line, and the close button dismisses it', async () => {
+  test('tmux’s message appears top-right, off the status line, and the close button dismisses it [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;

@@ -246,7 +246,7 @@ const BLIND_WAIT_CEILING = {
   // the helper, so this is the number that matters most.
   'tests/helpers': 21,
   // Test bodies. Each one affects a single test.
-  tests: 158,
+  tests: 157,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */

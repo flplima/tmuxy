@@ -145,7 +145,7 @@ describe('Scenario 4d: Marked pane', () => {
   // theme's accent over its content — so it reads from across the screen and
   // not only by a 1px edge. The context menu can swap another pane with it,
   // and clearing the mark (`select-pane -M`) removes all of it.
-  test('prefix m flags the pane → swap with marked from the menu → prefix M clears', async () => {
+  test('prefix m flags the pane → swap with marked from the menu → prefix M clears [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -788,7 +788,7 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
   // does. Zooming the top-left pane therefore hid it and left the bottom-right
   // pane sitting in its quarter slot. The zoomed pane must be the one that
   // spans the whole grid, whichever pane it is.
-  test('zooming the top-left pane shows that pane full size and hides the others; unzoom restores all four', async () => {
+  test('zooming the top-left pane shows that pane full size and hides the others; unzoom restores all four [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -1676,7 +1676,7 @@ describe('Scenario 5b: Pane group order and membership by drag', () => {
     }
   };
 
-  test('drag a member along the header to reorder it, drop a pane on the header to join, drag a parked member out', async () => {
+  test('drag a member along the header to reorder it, drop a pane on the header to join, drag a parked member out [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
@@ -2050,7 +2050,7 @@ describe('Scenario 6f: Float Tab Scope', () => {
     throw new Error('no inactive tab button to click');
   }
 
-  test('Float over tab 1 → backdrop covers the tab content only → other tab is clear → back again', async () => {
+  test('Float over tab 1 → backdrop covers the tab content only → other tab is clear → back again [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -2235,7 +2235,7 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
       async () => `${label}\nlast seen: ${JSON.stringify(await where(ctx.page))}`,
     );
 
-  test('nav right shows the next group member, then the pane on the right, then the dock; nav left walks back', async () => {
+  test('nav right shows the next group member, then the pane on the right, then the dock; nav left walks back [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -2367,7 +2367,7 @@ describe('Scenario 6j: Pane header context menu', () => {
   const marked = (paneId) =>
     ctx.session.runCommand(`display-message -p -t ${paneId} '#{pane_marked}'`).trim() === '1';
 
-  test('the ⋮, the MARKED badge, a hidden group member and a float header each open the menu for their pane', async () => {
+  test('the ⋮, the MARKED badge, a hidden group member and a float header each open the menu for their pane [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await splitPaneKeyboard(ctx.page, 'vertical');
@@ -2469,7 +2469,7 @@ describe('Scenario 6i: Cursor motion across tabs and group members', () => {
         }),
     );
 
-  test('moving between panes glides; switching group member or tab draws the cursor in place', async () => {
+  test('moving between panes glides; switching group member or tab draws the cursor in place [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -2714,7 +2714,7 @@ describe('Scenario 24: Tab Switch No Blink', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Clicking an inactive tab transitions the active highlight exactly once (no A→B→A→B blink)', async () => {
+  test('Clicking an inactive tab transitions the active highlight exactly once (no A→B→A→B blink) [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -2817,7 +2817,7 @@ describe('Scenario 24: Tab Switch No Blink', () => {
     expect(transitions).toBe(1);
   }, 60000);
 
-  test('Switching to a tab whose active pane is not its first lands on that pane at once (no first-pane hop)', async () => {
+  test('Switching to a tab whose active pane is not its first lands on that pane at once (no first-pane hop) [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
@@ -2919,7 +2919,7 @@ describe('Scenario 22: Float fzf Workflow', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Float opens fzf → user selects item → result returned to shell', async () => {
+  test('Float opens fzf → user selects item → result returned to shell [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 

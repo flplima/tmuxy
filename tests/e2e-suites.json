@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "The web E2E matrix: one runner per entry in lint-and-tests.yml, read by bin/e2e-plan.mjs.",
+    "`filter` is a jest name regex (no leading ^) that splits one oversized file across runners;",
+    "the second half is a negative lookahead on the first, so a new scenario always lands somewhere.",
+    "`tier: nightly` marks a file whose every test is tagged [nightly]: it leaves the per-commit",
+    "matrix rather than spend a runner on a suite that would skip everything. docs/TESTS.md § Tiers."
+  ],
+  "suites": [
+    { "name": "snapshots", "path": "tests/snapshots/" },
+    { "name": "1-input", "path": "tests/1-input-interaction.test.js" },
+    {
+      "name": "2-layout-a",
+      "path": "tests/2-layout-navigation.test.js",
+      "filter": "Scenario (4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):"
+    },
+    {
+      "name": "2-layout-b",
+      "path": "tests/2-layout-navigation.test.js",
+      "filter": "Scenario (?!(4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):)"
+    },
+    { "name": "3-rendering", "path": "tests/3-rendering-protocols.test.js" },
+    { "name": "4-session", "path": "tests/4-session-connectivity.test.js" },
+    { "name": "5-stress", "path": "tests/5-stress-stability.test.js" },
+    { "name": "6-nvim", "path": "tests/6-nvim-performance.test.js", "tier": "nightly" },
+    { "name": "7-regression", "path": "tests/7-regression-bugs.test.js" },
+    { "name": "8-tui", "path": "tests/8-tui-alternate-screen.test.js" },
+    { "name": "10-read-only", "path": "tests/10-read-only.test.js" },
+    { "name": "11-webkit", "path": "tests/11-webkit.test.js", "webkit": true },
+    { "name": "12-touch", "path": "tests/12-touch.test.js" },
+    { "name": "13-ask-confirmation", "path": "tests/13-ask-confirmation.test.js" },
+    { "name": "14-widget-pane-pointer", "path": "tests/14-widget-pane-pointer.test.js" },
+    {
+      "name": "15-session-snapshot",
+      "path": "tests/15-session-snapshot.test.js",
+      "tier": "nightly"
+    }
+  ]
+}

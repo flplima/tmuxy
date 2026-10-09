@@ -130,7 +130,7 @@ describe('Scenario 32: Session snapshots', () => {
     return p;
   }
 
-  test('the shape survives kill-server: split, float, tab, group, sidebar, browser pane, offered commands', async () => {
+  test('the shape survives kill-server: split, float, tab, group, sidebar, browser pane, offered commands [nightly]', async () => {
     page = await openPage();
 
     // 1. Build the session the way a user does: through the CLI and the keys.

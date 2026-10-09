@@ -1113,7 +1113,7 @@ describe('Scenario 21: Touch Scrolling', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation', async () => {
+  test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await assertContentMatch(ctx.page, 'Scenario 21 setup');
@@ -1289,7 +1289,7 @@ describe('Scenario 23: Multi-Viewport Layout', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('3 panes → layout invariants at 3 viewport sizes', async () => {
+  test('3 panes → layout invariants at 3 viewport sizes [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 

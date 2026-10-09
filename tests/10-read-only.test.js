@@ -286,7 +286,7 @@ describe('Scenario 30: Read-only viewer', () => {
    * when it appears, answers "nothing to show" while it is gone, and attaches
    * again when it is re-made — and none of that is a viewer's doing.
    */
-  test('the viewer server waits for its session, survives it being killed, and picks it up again', async () => {
+  test('the viewer server waits for its session, survives it being killed, and picks it up again [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     // The viewer's server first, pinned to a session nobody has made.
     await viewerServer();
@@ -423,7 +423,7 @@ describe('Scenario 30: Read-only viewer', () => {
    * it — a remote site would learn who is watching, and a local file the
    * read-only server refuses anyway. The viewer sees the address, not the page.
    */
-  test('a viewer sees which page a widget pane shows, and does not load it', async () => {
+  test('a viewer sees which page a widget pane shows, and does not load it [nightly]', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const writer = ctx.page;
