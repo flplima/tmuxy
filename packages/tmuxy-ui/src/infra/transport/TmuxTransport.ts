@@ -14,13 +14,9 @@
 
 import { Context, Effect, PubSub, Schema, type Scope, Stream } from 'effect';
 import type { TmuxAdapter } from './driver';
-import {
-  type AdapterError,
-  ProtocolError,
-  TransportError,
-  classifyAdapterError,
-} from './AdapterError';
+import { type AdapterError, TransportError, classifyAdapterError } from './AdapterError';
 import type { DriverEvent, TransportEvent } from './events';
+import { decodeWire } from './wireDecode';
 
 export interface TmuxTransportService {
   /** Open the connection; resolves once the backend has greeted this client. */
@@ -101,15 +97,9 @@ export function serviceOver(
       schema: Schema.Schema<A, I>,
       args?: Record<string, unknown>,
     ) => {
-      const decode = Schema.decodeUnknown(schema, { errors: 'all' });
+      const decode = decodeWire(schema, cmd);
       return attempt(cmd, () => driver.invoke<unknown>(cmd, args)).pipe(
-        Effect.flatMap((raw) =>
-          decode(raw).pipe(
-            Effect.mapError(
-              (parseError) => new ProtocolError({ reason: `${cmd}: ${parseError.message}`, raw }),
-            ),
-          ),
-        ),
+        Effect.flatMap((raw) => decode(raw)),
       );
     },
     query: (command: string) =>
