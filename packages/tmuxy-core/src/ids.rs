@@ -45,9 +45,6 @@ macro_rules! tmux_id {
         pub struct $name(String);
 
         impl $name {
-            /// The sigil every id of this kind starts with.
-            pub const SIGIL: char = $sigil;
-
             /// Check `value` and take it as an id.
             pub fn parse(value: &str) -> Result<Self, IdError> {
                 if is_canonical(value, $sigil) {

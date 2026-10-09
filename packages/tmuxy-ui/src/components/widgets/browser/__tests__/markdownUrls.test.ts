@@ -31,12 +31,9 @@ describe('a markdown document resolves its own URLs', () => {
     expect(resolve('http://localhost:9000/api/images/0/1')).toBeUndefined();
   });
 
-  it('keeps the two routes that serve files, which is how local images arrive', () => {
+  it('keeps the route that serves files, which is how local images arrive', () => {
     expect(resolve('/api/browse/Users/felipe/pic.png')).toBe(
       'http://localhost:9000/api/browse/Users/felipe/pic.png',
-    );
-    expect(resolve('/api/file?path=/Users/felipe/pic.png')).toBe(
-      'http://localhost:9000/api/file?path=/Users/felipe/pic.png',
     );
   });
 

@@ -22,11 +22,17 @@ use crate::{GroupId, PaneId, WindowId};
 
 /// What every group operation reads: one row per pane on the server, the
 /// stash included. `session_name` is last because it is the one free-text
-/// field.
+/// field: it may hold the separator, and the parser keeps everything after
+/// the sixth one. The separator is a space, not a tab: tmux 3.4 prints a
+/// control character in a format as `_`, and a row with no separators is no
+/// row at all.
 pub const LIST_PANES_FORMAT: &str = concat!(
-    "#{pane_id}\t#{window_id}\t#{@tmuxy-group-id}\t#{@tmuxy-group-pos}\t",
-    "#{pane_width}\t#{pane_height}\t#{session_name}"
+    "#{pane_id} #{window_id} #{@tmuxy-group-id} #{@tmuxy-group-pos} ",
+    "#{pane_width} #{pane_height} #{session_name}"
 );
+
+/// The field separator in [`LIST_PANES_FORMAT`].
+const FIELD_SEPARATOR: char = ' ';
 
 /// The program the stash session's own first window runs. The window exists
 /// only so the session does; `tail -f /dev/null` sleeps in a read, where the
@@ -78,7 +84,7 @@ impl Panes {
         let rows = output
             .lines()
             .filter_map(|line| {
-                let mut f = line.splitn(7, '\t');
+                let mut f = line.splitn(7, FIELD_SEPARATOR);
                 Some(PaneRow {
                     pane: PaneId::parse(f.next()?).ok()?,
                     window: WindowId::parse(f.next()?).ok()?,
@@ -899,9 +905,7 @@ mod tests {
 
     #[test]
     fn a_read_parses_into_rows() {
-        let panes = Panes::parse(
-            "%1\t@1\tg1\t2\t80\t24\twork\n%2\t@1\t\t\t40\t12\tmy session\nnot a row\n",
-        );
+        let panes = Panes::parse("%1 @1 g1 2 80 24 work\n%2 @1   40 12 my session\nnot a row\n");
         assert_eq!(panes.rows.len(), 2);
         assert_eq!(panes.rows[0].group, Some(gid("g1")));
         assert_eq!(panes.rows[0].pos, Some(2));

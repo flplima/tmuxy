@@ -23,8 +23,9 @@ import {
   fromCallback,
   type AnyActorRef,
 } from 'xstate';
-import type { AppMachineContext, AllAppMachineEvents } from '../types';
+import type { AppMachineContext, AllAppMachineEvents, PaneCellBox } from '../types';
 import { createInitialContext } from './context';
+import { dragCells, resizedBand } from '../resize/limits';
 import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
 import { commandUiState } from './states/commandUi';
@@ -34,9 +35,14 @@ import { notificationsActions } from './actions/notifications';
 import { browserState } from './states/browser';
 import { browserActions } from './actions/browser';
 import { copyModeState } from './states/copyMode';
-import { copyModeActions, copyModeExitTimes, reconcilePaneMode } from './actions/copyMode';
+import {
+  buildScrollbackState,
+  copyModeActions,
+  fetchHistory,
+  reconcilePaneMode,
+} from './actions/copyMode';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
-import { groupsAndFloatsActions } from './actions/groupsAndFloats';
+import { groupsAndFloatsActions, releaseKeyboard } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
 import { askState } from './states/ask';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
@@ -48,7 +54,12 @@ import { dispatchActions } from './dispatch';
 import { askActions, pruneAskSelections } from './actions/ask';
 import { isBoxPermutation, samePanes } from './layoutChange';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
-import { selectLeftSidebarPane, selectRightSidebarPane, visibleFloats } from '../selectors';
+import {
+  getActivePaneInGroup,
+  selectLeftSidebarPane,
+  selectRightSidebarPane,
+  visibleFloats,
+} from '../selectors';
 import type { TmuxClientModel, TmuxSnapshot } from '../../domain/store/types';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
@@ -59,8 +70,6 @@ import {
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
-import type { CopyModeState } from '../../domain/copyMode';
-import type { CellLine } from '../../domain/wire';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
@@ -70,31 +79,35 @@ import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
 import type { GestureActorEvent } from '../actors/gestureActor';
 import type { ServersActorEvent } from '../actors/serversActor';
-import { type PaneId, type WindowId, isPlaceholderId } from '../../domain/ids';
+import { type PaneId, isPlaceholderId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
 
-type ResizeGeom = { tmuxId: PaneId; x: number; y: number; width: number; height: number };
-
 /**
- * Whether the server geometry has caught up to the optimistic resize preview's
- * predicted final size (target + neighbors). After a drag ends the preview is
- * held; clearing it the instant ANY server update lands — even a stale
- * intermediate `%layout-change` still in flight from the drag — makes the pane
- * flash back to that intermediate size before the final resize confirms. So we
- * hold the preview until the server matches the prediction, at which point
- * clearing it is invisible. (A never-matching resize, e.g. driven into a min-
- * size clamp, is cleared by the fallback timer in layout_resizeCompleted.)
+ * Whether the server geometry has caught up to the optimistic resize preview:
+ * the band it draws (`resizedBand`, the same one the selector draws) has
+ * landed. After a drag ends the preview is held; clearing it the instant ANY
+ * server update lands — even a stale intermediate `%layout-change` still in
+ * flight from the drag — makes the pane flash back to that intermediate size
+ * before the final resize confirms. So we hold the preview until the server
+ * matches the prediction, at which point clearing it is invisible. (A
+ * never-matching resize is cleared by the fallback timer in
+ * layout_resizeCompleted.)
  */
 function resizePreviewSettled(
   resize: NonNullable<AppMachineContext['resize']>,
-  panes: ResizeGeom[],
+  panes: ReadonlyArray<PaneCellBox & { tmuxId: PaneId }>,
   charWidth: number,
   charHeight: number,
 ): boolean {
-  const dCols = Math.round(resize.pixelDelta.x / charWidth);
-  const dRows = Math.round(resize.pixelDelta.y / charHeight);
-  const matches = (want: ResizeGeom): boolean => {
-    const got = panes.find((p) => p.tmuxId === want.tmuxId);
+  const band = resizedBand(
+    resize.originalGeometry,
+    resize.paneId,
+    resize.handle,
+    dragCells(resize, charWidth, charHeight),
+  );
+  return (Object.keys(band) as PaneId[]).every((id) => {
+    const want = band[id];
+    const got = panes.find((p) => p.tmuxId === id);
     return (
       got !== undefined &&
       got.x === want.x &&
@@ -102,75 +115,22 @@ function resizePreviewSettled(
       got.width === want.width &&
       got.height === want.height
     );
-  };
-  const op = resize.originalPane;
-  const target: ResizeGeom = {
-    tmuxId: op.tmuxId,
-    x: op.x,
-    y: op.y,
-    width: op.width,
-    height: op.height,
-  };
-  if (resize.handle === 'e') target.width = Math.max(1, op.width + dCols);
-  else if (resize.handle === 'w') {
-    target.x = op.x + dCols;
-    target.width = Math.max(1, op.width - dCols);
-  } else if (resize.handle === 's') target.height = Math.max(1, op.height + dRows);
-  else if (resize.handle === 'n') {
-    target.y = op.y + dRows;
-    target.height = Math.max(1, op.height - dRows);
-  }
-  if (!matches(target)) return false;
-  for (const on of resize.originalNeighbors) {
-    const n: ResizeGeom = {
-      tmuxId: on.tmuxId,
-      x: on.x,
-      y: on.y,
-      width: on.width,
-      height: on.height,
-    };
-    if (resize.handle === 'e') {
-      n.x = on.x + dCols;
-      n.width = Math.max(1, on.width - dCols);
-    } else if (resize.handle === 'w') n.width = Math.max(1, on.width + dCols);
-    else if (resize.handle === 's') {
-      n.y = on.y + dRows;
-      n.height = Math.max(1, on.height - dRows);
-    } else if (resize.handle === 'n') n.height = Math.max(1, on.height + dRows);
-    if (!matches(n)) return false;
-  }
-  return true;
+  });
 }
 
+/** `T` without its readonly, arrays included: a store snapshot as the context declares it. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] extends ReadonlyArray<infer U> ? U[] : T[K] };
+
 /**
- * The store's derived snapshot, widened from its readonly types to the
- * mutable shapes the machine context declares, as a local object a model
- * update can adjust before it is assigned.
+ * The store's derived snapshot as a fresh object the model update can adjust
+ * before it is assigned. The arrays pass through by REFERENCE — the store
+ * already preserves identity for unchanged panes and windows, and copying
+ * them would hand every subscriber a fresh identity on every tick — and are
+ * cast, not copied, from the store's readonly types to the mutable ones the
+ * context declares: the handler replaces them, it never mutates them.
  */
-function snapshotFromModel(model: TmuxClientModel): {
-  panes: TmuxSnapshot['panes'][number][];
-  windows: TmuxSnapshot['windows'][number][];
-  activePaneId: PaneId | null;
-  activeWindowId: WindowId | null;
-  totalWidth: number;
-  totalHeight: number;
-  sessionName: string;
-  focusRequest: string;
-} {
-  const d = model.derived;
-  // Pass the derived arrays through by REFERENCE — the store already
-  // preserves identity for unchanged panes/windows/arrays, and spreading
-  // here would hand every subscriber a fresh identity on every tick.
-  return {
-    panes: d.panes as TmuxSnapshot['panes'][number][],
-    windows: d.windows as TmuxSnapshot['windows'][number][],
-    activePaneId: d.activePaneId,
-    activeWindowId: d.activeWindowId,
-    totalWidth: d.totalWidth,
-    totalHeight: d.totalHeight,
-    sessionName: d.sessionName,
-    focusRequest: d.focusRequest,
-  };
+function snapshotFromModel(model: TmuxClientModel): Mutable<TmuxSnapshot> {
+  return { ...model.derived } as Mutable<TmuxSnapshot>;
 }
 
 /** Move a pane ID to the front of the MRU list */
@@ -304,8 +264,9 @@ export const appMachine = setup({
       actions: assign(({ event }) => ({ restorableSessions: event.restorableSessions })),
     },
     // A rebuild runs through the server's own control-mode client and takes
-    // a moment; the switch follows its answer (SESSION_SWITCH_REQUESTED), not
-    // the click, or the client would attach to a session that is not there yet.
+    // a moment; the switch follows its answer (the actor sends SWITCH_SESSION
+    // once it lands), not the click, or the client would attach to a session
+    // that is not there yet.
     RESTORE_SESSION: {
       guard: notReadOnly,
       actions: sendTo('tmux', ({ event }) => ({
@@ -360,6 +321,13 @@ export const appMachine = setup({
         fatalError: event.message,
         connected: false,
       })),
+    },
+    // The backend reports the connection gone: terminal like TMUX_FATAL, and
+    // from the root like it, so a disconnect that lands while still
+    // `connecting` ends the spinner instead of being dropped.
+    TMUX_DISCONNECTED: {
+      target: '.disconnected',
+      actions: assign({ connected: false, enableAnimations: false }),
     },
     // SSE/Tauri adapter detected the channel dropped and is retrying.
     // Global so the transition fires from any live state.
@@ -576,13 +544,6 @@ export const appMachine = setup({
       }),
     },
     // OPEN_CONNECT_FLOAT — handled by groupsAndFloatsGlobalEvents
-    SESSION_SWITCH_REQUESTED: {
-      actions: enqueueActions(({ event, enqueue }) => {
-        enqueue(({ self }) => {
-          self.send({ type: 'SWITCH_SESSION', sessionName: event.sessionName });
-        });
-      }),
-    },
   },
   states: {
     connecting: {
@@ -784,33 +745,12 @@ export const appMachine = setup({
                 );
               });
 
-            let paneGroups = structurallyChanged
+            // A member vanishing is always structural (the count drops, or a
+            // newcomer with no previous self arrived in its place), so the
+            // rebuild is what drops a group down to one pane.
+            const paneGroups = structurallyChanged
               ? buildGroupsFromPanes(transformed.panes)
               : context.paneGroups;
-
-            // Prune stale groups: if a group references pane IDs that no longer
-            // exist in the updated pane list, remove those IDs. Drop groups that
-            // become empty or have only one pane (no longer a group).
-            if (!structurallyChanged && Object.keys(paneGroups).length > 0) {
-              const paneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
-              const pruned: typeof paneGroups = {};
-              let changed = false;
-              for (const group of Object.values(paneGroups)) {
-                const validIds = group.paneIds.filter((id) => paneIdSet.has(id));
-                if (validIds.length >= 2) {
-                  pruned[group.id] =
-                    validIds.length === group.paneIds.length
-                      ? group
-                      : { ...group, paneIds: validIds };
-                  if (validIds.length !== group.paneIds.length) changed = true;
-                } else {
-                  changed = true;
-                }
-              }
-              if (changed) {
-                paneGroups = pruned;
-              }
-            }
 
             let floatPanes = structurallyChanged
               ? buildFloatPanesFromWindows(
@@ -921,32 +861,18 @@ export const appMachine = setup({
               enqueue(
                 assign({
                   leftSidebarOpen: failedStart,
-                  leftSidebarFocused: false,
                   leftSidebarStartFailed: failedStart,
                   leftSidebarStarting: false,
                 }),
               );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                  focused: false,
-                }),
-              );
+              releaseKeyboard(context, enqueue, 'left');
             } else if (
               prevTreePane &&
               nextTreePane &&
               sidebarHidden(context, 'left') !== nextTreeHidden
             ) {
               enqueue(assign({ leftSidebarOpen: !nextTreeHidden }));
-              if (nextTreeHidden && context.leftSidebarFocused) {
-                enqueue(assign({ leftSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                    focused: false,
-                  }),
-                );
-              }
+              if (nextTreeHidden) releaseKeyboard(context, enqueue, 'left');
             }
 
             const prevDockPane = selectRightSidebarPane(context);
@@ -966,32 +892,18 @@ export const appMachine = setup({
               enqueue(
                 assign({
                   rightSidebarOpen: failedStart,
-                  rightSidebarFocused: false,
                   rightSidebarStartFailed: failedStart,
                   rightSidebarStarting: false,
                 }),
               );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                  paneId: null,
-                }),
-              );
+              releaseKeyboard(context, enqueue, 'right');
             } else if (
               prevDockPane &&
               nextDockPane &&
               sidebarHidden(context, 'right') !== nextDockHidden
             ) {
               enqueue(assign({ rightSidebarOpen: !nextDockHidden }));
-              if (nextDockHidden && context.rightSidebarFocused) {
-                enqueue(assign({ rightSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                    paneId: null,
-                  }),
-                );
-              }
+              if (nextDockHidden) releaseKeyboard(context, enqueue, 'right');
             }
 
             // A dragged width the server has now echoed back: the preview has
@@ -1052,50 +964,16 @@ export const appMachine = setup({
                   break;
                 }
                 case 'enter': {
-                  // Pane just entered copy mode — initialize with pre-populated content
-                  const hs = newPane.historySize ?? 0;
-                  const tl = hs + newPane.height;
-                  const preLines = new Map<number, CellLine>();
-                  for (let i = 0; i < newPane.content.length; i++) {
-                    preLines.set(hs + i, newPane.content[i]);
-                  }
-                  const preRanges: Array<[number, number]> =
-                    newPane.content.length > 0 ? [[hs, hs + newPane.content.length - 1]] : [];
-                  const copyState: CopyModeState = {
-                    // tmux reported `in_mode`, so this is its copy mode, with a
-                    // cursor and vi keys — never the client-only scroll view.
-                    mode: 'copy',
-                    lines: preLines,
-                    totalLines: tl,
-                    historySize: hs,
-                    loadedRanges: preRanges,
-                    loading: true,
-                    width: newPane.width,
-                    height: newPane.height,
-                    cursorRow: hs + newPane.cursorY,
-                    cursorCol: newPane.cursorX,
-                    selectionMode: null,
-                    selectionAnchor: null,
-                    scrollTop: Math.max(0, tl - newPane.height),
-                    tmuxSeen: true,
-                  };
-                  updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
-                  // Match the user-initiated ENTER_COPY_MODE fetch range —
-                  // request the entire live history (capped by tmux's actual
-                  // backlog), not a fixed `height + 200` slab. The narrower
-                  // request silently truncated scrollback for any pane that
-                  // entered copy mode without going through the frontend's
-                  // intercept (CLI `tmuxy run copy-mode`, custom `run-shell`
-                  // bindings, anything that flipped `in_mode` server-side),
-                  // making scrollback above ~200 lines invisible on scroll.
-                  enqueue(
-                    sendTo('tmux', {
-                      type: 'FETCH_SCROLLBACK_CELLS' as const,
-                      paneId: newPane.tmuxId,
-                      start: -hs,
-                      end: newPane.height - 1,
-                    }),
-                  );
+                  // tmux reported `in_mode`, so this is its copy mode, with a
+                  // cursor and vi keys — never the client-only scroll view —
+                  // and tmux has already been seen in it. The same record and
+                  // the same whole-history fetch as a user-initiated
+                  // ENTER_COPY_MODE: a pane that entered copy mode without the
+                  // frontend's intercept (CLI `tmuxy run copy-mode`, a custom
+                  // `run-shell` binding) must not get a truncated backlog.
+                  const record = buildScrollbackState(newPane, 'copy', { tmuxSeen: true });
+                  updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: record };
+                  fetchHistory(enqueue, newPane.tmuxId, record);
                   break;
                 }
                 case 'none':
@@ -1338,10 +1216,6 @@ export const appMachine = setup({
         TMUX_ERROR: {
           actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),
         },
-        TMUX_DISCONNECTED: {
-          target: 'disconnected',
-          actions: assign({ connected: false, enableAnimations: false }),
-        },
 
         SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
         DISPATCH_OP: { actions: 'dispatch_op' },
@@ -1390,7 +1264,6 @@ export const appMachine = setup({
                 panes: context.activeWindowId
                   ? context.panes.filter((p) => p.windowId === context.activeWindowId)
                   : context.panes,
-                activePaneId: context.activePaneId,
                 charWidth: context.charWidth,
                 charHeight: context.charHeight,
                 containerWidth: context.containerWidth,
@@ -1450,15 +1323,7 @@ export const appMachine = setup({
             // Exactly one surface holds the keyboard: taking it for a float or a
             // tiled pane releases the tree column too (its focus used to survive
             // a click on a pane, trapping every key the user typed next).
-            if (context.leftSidebarFocused) {
-              enqueue(assign({ leftSidebarFocused: false }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                  focused: false,
-                }),
-              );
-            }
+            releaseKeyboard(context, enqueue, 'left');
             if (context.floatPanes[event.paneId]) {
               // Float pane: update focus tracking only — never call select-pane for float
               // panes as it would switch the active tmux window and hide background panes.
@@ -1469,37 +1334,13 @@ export const appMachine = setup({
                   paneId: event.paneId,
                 }),
               );
-              if (context.rightSidebarFocused) {
-                enqueue(assign({ rightSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                    paneId: null,
-                  }),
-                );
-              }
+              releaseKeyboard(context, enqueue, 'right');
             } else {
               // Regular pane: clear any overlay focus and select the pane
               // normally. Both overlays hold the keyboard away from the grid,
               // so clicking a tiled pane has to release whichever one had it.
-              if (context.focusedFloatPaneId) {
-                enqueue(assign({ focusedFloatPaneId: null }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_FOCUSED_FLOAT' as const,
-                    paneId: null,
-                  }),
-                );
-              }
-              if (context.rightSidebarFocused) {
-                enqueue(assign({ rightSidebarFocused: false }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                    paneId: null,
-                  }),
-                );
-              }
+              releaseKeyboard(context, enqueue, 'float');
+              releaseKeyboard(context, enqueue, 'right');
               // Only send select-pane if the pane isn't already active and
               // belongs to the active window. Panes in stash windows (e.g. parked
               // group members) must never receive select-pane directly.
@@ -1547,33 +1388,9 @@ export const appMachine = setup({
             }
 
             // Clear any overlay focus so clicking a group tab cleanly targets the grid
-            if (context.leftSidebarFocused) {
-              enqueue(assign({ leftSidebarFocused: false }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
-                  focused: false,
-                }),
-              );
-            }
-            if (context.focusedFloatPaneId) {
-              enqueue(assign({ focusedFloatPaneId: null }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_FOCUSED_FLOAT' as const,
-                  paneId: null,
-                }),
-              );
-            }
-            if (context.rightSidebarFocused) {
-              enqueue(assign({ rightSidebarFocused: false }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
-                  paneId: null,
-                }),
-              );
-            }
+            releaseKeyboard(context, enqueue, 'left');
+            releaseKeyboard(context, enqueue, 'float');
+            releaseKeyboard(context, enqueue, 'right');
 
             // Flip the active pane SYNCHRONOUSLY — machine context and keyboard
             // actor both — before any store round-trip. A keystroke fired in the
@@ -1596,18 +1413,11 @@ export const appMachine = setup({
               g.paneIds.includes(clickedPaneId),
             );
 
-            // Find the pane currently occupying the visible window slot for
-            // this group (if any) — that's the one swap-pane will swap with.
-            const visiblePane = group
-              ? (() => {
-                  const visibleId = group.paneIds.find((id) => {
-                    const p = context.panes.find((pp) => pp.tmuxId === id);
-                    return p?.windowId === context.activeWindowId;
-                  });
-                  return visibleId
-                    ? (context.panes.find((p) => p.tmuxId === visibleId) ?? null)
-                    : null;
-                })()
+            // The pane currently occupying the visible window slot for this
+            // group (if any) — the one swap-pane will swap with.
+            const visibleId = group ? getActivePaneInGroup(context, group) : null;
+            const visiblePane = visibleId
+              ? (context.panes.find((p) => p.tmuxId === visibleId) ?? null)
               : null;
 
             // No group or no visible peer: no swap bookkeeping, just run the
@@ -1655,16 +1465,7 @@ export const appMachine = setup({
                 return;
               }
               // Nothing selected: just exit copy mode
-              copyModeExitTimes.set(paneId, Date.now());
-              const newStates = { ...context.copyModeStates };
-              delete newStates[paneId];
-              enqueue(assign({ copyModeStates: newStates }));
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_OP' as const,
-                  op: TmuxOp.CancelCopyMode({ paneId }),
-                }),
-              );
+              enqueue.raise({ type: 'EXIT_COPY_MODE', paneId });
               return;
             }
 
@@ -1697,9 +1498,10 @@ export const appMachine = setup({
      * SSE/Tauri channel dropped and the adapter is retrying. Distinct from
      * `connecting` (cold start, no prior state) so the UI can show a "lost
      * connection, retrying…" banner over the stale layout instead of the
-     * full status screen. Only the four handlers below are active: server
-     * state still flows in (so the layout stays fresh), but user input is
-     * dropped for the duration — see the TMUX_RECONNECTING note above.
+     * full status screen. Only the three handlers below (and the root's) are
+     * active: server state still flows in (so the layout stays fresh), but
+     * user input is dropped for the duration — see the TMUX_RECONNECTING note
+     * above.
      * TMUX_RECONNECTED swaps back to idle once a fresh server snapshot
      * lands, and the store's reconciler runs against pending ops then.
      */
@@ -1708,10 +1510,6 @@ export const appMachine = setup({
         TMUX_RECONNECTED: {
           target: 'idle',
           actions: assign({ connected: true, error: null }),
-        },
-        TMUX_DISCONNECTED: {
-          target: 'disconnected',
-          actions: assign({ connected: false, enableAnimations: false }),
         },
         // Still ingest server state during the reconnecting window — when the
         // channel comes back, the first full snapshot triggers reconciliation

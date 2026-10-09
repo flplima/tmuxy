@@ -8,9 +8,10 @@
  * fields (panes, activePaneId) during optimistic group swaps.
  */
 
-import { assign, enqueueActions, sendTo } from 'xstate';
+import { assign, sendTo } from 'xstate';
+import { act, type Ctx, type Enqueue, type EnqueueAction } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
-import type { AppMachineContext, AllAppMachineEvents, TmuxWindow } from '../../types';
+import type { TmuxWindow } from '../../types';
 import {
   selectLeftSidebarPane,
   selectRightSidebarPane,
@@ -20,13 +21,6 @@ import {
 } from '../../selectors';
 import { calculateTargetSize } from '../../../utils/layout';
 import { SIDEBAR_MOTION_SETTLE_MS } from '../../constants';
-
-type Ctx = AppMachineContext;
-type Evt = AllAppMachineEvents;
-/** The `enqueue` an action in this file receives (xstate does not export it). */
-type Enqueue = Parameters<
-  Parameters<typeof enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>>[0]
->[0]['enqueue'];
 
 /**
  * The lowest window index the session isn't using, scanning up from its lowest
@@ -101,21 +95,37 @@ function beginSidebarMotion(
   if (size) enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size, force: true });
 }
 
+/** The surfaces that can hold the keyboard away from the tiled panes. */
+export type KeyboardSurface = 'left' | 'right' | 'float';
+
+/**
+ * Take the keyboard back from a surface, when it holds it: the focus flag
+ * here and the keyboard actor's record of it, which is what re-aims the next
+ * keystroke. Exactly one surface holds the keyboard, so whatever takes it —
+ * a pane click, a group tab, the other column — releases the others through
+ * this; a column that vanished or was hidden releases itself the same way.
+ */
+export function releaseKeyboard(context: Ctx, enqueue: EnqueueAction, surface: KeyboardSurface) {
+  if (surface === 'left') {
+    if (!context.leftSidebarFocused) return;
+    enqueue(assign({ leftSidebarFocused: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
+  } else if (surface === 'right') {
+    if (!context.rightSidebarFocused) return;
+    enqueue(assign({ rightSidebarFocused: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
+  } else {
+    if (!context.focusedFloatPaneId) return;
+    enqueue(assign({ focusedFloatPaneId: null }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
+  }
+}
+
 /** Safety net: drop a resize preview the server never confirmed. */
 const SIDEBAR_PREVIEW_TIMEOUT_MS = 5000;
 
 export const groupsAndFloatsActions = {
-  groupsAndFloats_openConnectFloat: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_openConnectFloat: act(({ context, enqueue }) => {
     enqueue(
       sendTo('tmux', {
         type: 'SEND_OP' as const,
@@ -140,17 +150,7 @@ export const groupsAndFloatsActions = {
    * update arrives, the float on the new tab no longer looks like one that just
    * came into view.
    */
-  groupsAndFloats_syncFloatFocus: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_syncFloatFocus: act(({ context, enqueue }) => {
     const floats = visibleFloats(context.floatPanes, context.windows, context.activeWindowId);
     const next = floats.length > 0 ? floats[floats.length - 1].paneId : null;
     if (next === context.focusedFloatPaneId) return;
@@ -158,17 +158,7 @@ export const groupsAndFloatsActions = {
     enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: next }));
   }),
 
-  groupsAndFloats_closeFloat: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, context, enqueue }) => {
+  groupsAndFloats_closeFloat: act(({ event, context, enqueue }) => {
     if (event.type !== 'CLOSE_FLOAT') return;
     enqueue(
       sendTo('tmux', {
@@ -191,17 +181,7 @@ export const groupsAndFloatsActions = {
     }
   }),
 
-  groupsAndFloats_closeTopFloat: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_closeTopFloat: act(({ context, enqueue }) => {
     // Only a float on the tab in front of the user: Escape must never kill one
     // sitting over another tab.
     const floats = visibleFloats(context.floatPanes, context.windows, context.activeWindowId);
@@ -248,17 +228,7 @@ export const groupsAndFloatsActions = {
    * backend sizes the pane from it — and only then, so the poll is not poked
    * on every state update.
    */
-  groupsAndFloats_syncDockRows: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_syncDockRows: act(({ context, enqueue }) => {
     if (context.readOnly) return;
     const dock = context.windows.find((w) => w.windowType === 'sidebar-right');
     const rows = selectDockRows(context);
@@ -281,17 +251,7 @@ export const groupsAndFloatsActions = {
    * that goes away takes its entry with it — a tmux window id is never reused
    * within a session.
    */
-  groupsAndFloats_toggleTabCollapse: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, event, enqueue }) => {
+  groupsAndFloats_toggleTabCollapse: act(({ context, event, enqueue }) => {
     if (event.type !== 'TOGGLE_TAB_COLLAPSE') return;
     const { windowId } = event;
     const collapsedTabIds = context.collapsedTabIds.includes(windowId)
@@ -300,17 +260,7 @@ export const groupsAndFloatsActions = {
     enqueue(assign({ collapsedTabIds }));
   }),
 
-  groupsAndFloats_toggleLeftSidebar: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_toggleLeftSidebar: act(({ context, enqueue }) => {
     const willOpen = !context.leftSidebarOpen;
     enqueue(assign({ leftSidebarOpen: willOpen, leftSidebarStartFailed: false }));
     beginSidebarMotion(context, enqueue, 'left', willOpen);
@@ -361,10 +311,7 @@ export const groupsAndFloatsActions = {
         }),
       );
     }
-    if (context.leftSidebarFocused) {
-      enqueue(assign({ leftSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
-    }
+    releaseKeyboard(context, enqueue, 'left');
   }),
 
   /**
@@ -373,17 +320,7 @@ export const groupsAndFloatsActions = {
    * widget (j/k/Enter/l/q) via its capture-phase listener; the keyboard actor
    * stops forwarding to tmux.
    */
-  groupsAndFloats_focusLeftSidebar: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_focusLeftSidebar: act(({ context, enqueue }) => {
     // Nothing to focus until the column's pane exists; the toggle creates it and
     // the lifecycle re-raises this once it lands.
     if (!selectLeftSidebarPane(context)) {
@@ -395,31 +332,13 @@ export const groupsAndFloatsActions = {
     enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: true }));
 
     // Exactly one surface holds the keyboard, so taking it blurs the others.
-    if (context.focusedFloatPaneId) {
-      enqueue(assign({ focusedFloatPaneId: null }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
-    }
-    if (context.rightSidebarFocused) {
-      enqueue(assign({ rightSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
-    }
+    releaseKeyboard(context, enqueue, 'float');
+    releaseKeyboard(context, enqueue, 'right');
   }),
 
   /** Return keyboard focus from the sidebar back to the panes (Ctrl+l, or l/→ in the tree). */
-  groupsAndFloats_blurLeftSidebar: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
-    if (!context.leftSidebarFocused) return;
-    enqueue(assign({ leftSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
+  groupsAndFloats_blurLeftSidebar: act(({ context, enqueue }) => {
+    releaseKeyboard(context, enqueue, 'left');
   }),
 
   /**
@@ -434,17 +353,7 @@ export const groupsAndFloatsActions = {
    * running in it stay alive, so reopening — on any tab, after a reconnect, or
    * from another client — lands back on the same session-wide terminal.
    */
-  groupsAndFloats_toggleRightSidebar: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_toggleRightSidebar: act(({ context, enqueue }) => {
     const willOpen = !context.rightSidebarOpen;
     enqueue(assign({ rightSidebarOpen: willOpen, rightSidebarStartFailed: false }));
     beginSidebarMotion(context, enqueue, 'right', willOpen);
@@ -496,10 +405,7 @@ export const groupsAndFloatsActions = {
         }),
       );
     }
-    if (context.rightSidebarFocused) {
-      enqueue(assign({ rightSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
-    }
+    releaseKeyboard(context, enqueue, 'right');
   }),
 
   /**
@@ -513,17 +419,7 @@ export const groupsAndFloatsActions = {
    * apply the grid's measured size — the same the toggle predicted, so this
    * is a no-op unless the body changed under the slide.
    */
-  groupsAndFloats_sidebarMotionSettled: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_sidebarMotionSettled: act(({ context, enqueue }) => {
     enqueue(
       assign({ sidebarMotion: false, leftSidebarClosing: false, rightSidebarClosing: false }),
     );
@@ -537,17 +433,7 @@ export const groupsAndFloatsActions = {
     }
   }),
 
-  groupsAndFloats_sidebarStartTimeout: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, event, enqueue }) => {
+  groupsAndFloats_sidebarStartTimeout: act(({ context, event, enqueue }) => {
     if (event.type !== 'SIDEBAR_START_TIMEOUT') return;
     if (event.side === 'left') {
       enqueue(assign({ leftSidebarStarting: false }));
@@ -563,17 +449,7 @@ export const groupsAndFloatsActions = {
   }),
 
   /** Draw a sidebar column at the width under the pointer while its divider is dragged. */
-  groupsAndFloats_sidebarResizePreview: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, enqueue }) => {
+  groupsAndFloats_sidebarResizePreview: act(({ event, enqueue }) => {
     if (event.type !== 'SIDEBAR_RESIZE_PREVIEW') return;
     enqueue(assign({ sidebarColsPreview: { side: event.side, cols: event.cols } }));
   }),
@@ -585,17 +461,7 @@ export const groupsAndFloatsActions = {
    * so the column never snaps to the old size while the round trip is in
    * flight; a safety timer drops it if the write was rejected.
    */
-  groupsAndFloats_sidebarResizeCommit: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, event, enqueue }) => {
+  groupsAndFloats_sidebarResizeCommit: act(({ context, event, enqueue }) => {
     if (event.type !== 'SIDEBAR_RESIZE_COMMIT') return;
     const pane =
       event.side === 'left' ? selectLeftSidebarPane(context) : selectRightSidebarPane(context);
@@ -618,17 +484,7 @@ export const groupsAndFloatsActions = {
   }),
 
   /** The server never echoed a committed width: stop drawing the preview and show what it has. */
-  groupsAndFloats_sidebarPreviewExpire: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, event, enqueue }) => {
+  groupsAndFloats_sidebarPreviewExpire: act(({ context, event, enqueue }) => {
     if (event.type !== 'SIDEBAR_PREVIEW_EXPIRE') return;
     if (context.sidebarColsPreview?.side === event.side) {
       enqueue(assign({ sidebarColsPreview: null }));
@@ -640,17 +496,7 @@ export const groupsAndFloatsActions = {
    * Keys route to its pane the same way a focused float's do — never via
    * `select-pane`, which would switch the active window and blank the tab.
    */
-  groupsAndFloats_focusRightSidebar: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  groupsAndFloats_focusRightSidebar: act(({ context, enqueue }) => {
     const pane = selectRightSidebarPane(context);
     if (!pane) return;
     if (!context.rightSidebarOpen) enqueue(assign({ rightSidebarOpen: true }));
@@ -659,30 +505,12 @@ export const groupsAndFloatsActions = {
       sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: pane.tmuxId }),
     );
     // The two overlays are mutually exclusive keyboard targets.
-    if (context.focusedFloatPaneId) {
-      enqueue(assign({ focusedFloatPaneId: null }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
-    }
-    if (context.leftSidebarFocused) {
-      enqueue(assign({ leftSidebarFocused: false }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
-    }
+    releaseKeyboard(context, enqueue, 'float');
+    releaseKeyboard(context, enqueue, 'left');
   }),
 
   /** Return keyboard focus from the dock to the panes (Ctrl+h, or a click on a pane). */
-  groupsAndFloats_blurRightSidebar: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
-    if (!context.rightSidebarFocused) return;
-    enqueue(assign({ rightSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
+  groupsAndFloats_blurRightSidebar: act(({ context, enqueue }) => {
+    releaseKeyboard(context, enqueue, 'right');
   }),
 };

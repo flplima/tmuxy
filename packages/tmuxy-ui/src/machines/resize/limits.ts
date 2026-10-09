@@ -1,5 +1,12 @@
 /**
- * How far a divider can actually be dragged.
+ * The band a divider drag moves, and how far it can be dragged.
+ *
+ * Dragging one divider moves a BAND of panes: every pane ending on the dragged
+ * edge grows or shrinks with it, and every pane starting just past the edge is
+ * pushed along and resized the other way; nothing else moves. That one rule
+ * is what the preview draws (`selectPreviewPanes`), what the model handler
+ * waits for before it lets the preview go (`resizePreviewSettled`), and what
+ * bounds the drag here.
  *
  * tmux will not shrink a pane below one cell, so a drag that asks for more
  * than the panes on the far side can give up is simply refused — and until it
@@ -9,13 +16,13 @@
  * each pane keeps the whole band consistent, so what is drawn is what tmux
  * will do, and the divider simply stops where tmux would stop it.
  *
- * The limits are computed once, from the geometry frozen at the start of the
- * drag (`ResizeState.originalGeometry`), for the same reason the preview is:
- * tmux's intermediate `%layout-change` events mid-resize are internally
- * inconsistent, and limits recomputed from them would drift.
+ * Everything is computed from the geometry frozen at the start of the drag
+ * (`ResizeState.originalGeometry`): tmux's intermediate `%layout-change`
+ * events mid-resize are internally inconsistent, and a band or a limit
+ * recomputed from them would drift.
  */
 
-import type { ResizeHandle, ResizeLimits, PaneCellBox } from '../types';
+import type { ResizeHandle, ResizeLimits, ResizeState, PaneCellBox } from '../types';
 import type { PaneId } from '../../domain/ids';
 
 /**
@@ -29,47 +36,93 @@ export const PANE_MIN_CELLS = 1;
 export const LOCKED_LIMITS: ResizeLimits = { min: 0, max: 0 };
 
 /**
- * Which panes a drag on this handle grows, and which it shrinks.
- *
- * "Grow" and "shrink" are with respect to a POSITIVE delta, i.e. the pointer
- * moving right or down. A `w`/`n` handle moves the pane's own leading edge, so
- * there the pane itself is the one that shrinks.
+ * Which side of the dragged edge a pane is on: `before` panes end on the edge
+ * and grow with a positive delta, `after` panes start just past it and are
+ * pushed along and shrunk. "Positive" is the pointer moving right or down. A
+ * `w`/`n` handle drags the pane's own leading edge, so there the pane itself
+ * is on the `after` side.
  */
-function bands(
-  geometry: Record<PaneId, PaneCellBox>,
-  edge: number,
-  handle: ResizeHandle,
-): { grows: PaneCellBox[]; shrinks: PaneCellBox[] } {
-  const grows: PaneCellBox[] = [];
-  const shrinks: PaneCellBox[] = [];
-  for (const box of Object.values(geometry)) {
-    const right = box.x + box.width;
-    const bottom = box.y + box.height;
-    if (handle === 'e') {
-      if (right === edge) grows.push(box);
-      else if (box.x === edge + 1) shrinks.push(box);
-    } else if (handle === 'w') {
-      if (box.x === edge) shrinks.push(box);
-      else if (right === edge - 1) grows.push(box);
-    } else if (handle === 's') {
-      // The gap below a pane is one row of separator in tmux, two in the demo
-      // engine (separator plus the header the next pane draws).
-      if (bottom === edge) grows.push(box);
-      else if (box.y === edge + 1 || box.y === edge + 2) shrinks.push(box);
-    } else {
-      if (box.y === edge) shrinks.push(box);
-      else if (bottom === edge - 1 || bottom === edge - 2) grows.push(box);
-    }
-  }
-  return { grows, shrinks };
-}
+export type BandSide = 'before' | 'after';
+
+const isVertical = (handle: ResizeHandle) => handle === 's' || handle === 'n';
 
 /** The coordinate of the edge a handle drags, in cells. */
-export function draggedEdge(box: PaneCellBox, handle: ResizeHandle): number {
+function draggedEdge(box: PaneCellBox, handle: ResizeHandle): number {
   if (handle === 'e') return box.x + box.width;
   if (handle === 'w') return box.x;
   if (handle === 's') return box.y + box.height;
   return box.y;
+}
+
+/** The side of `edge` a pane touches it from, or null for a pane the drag leaves alone. */
+export function bandSide(box: PaneCellBox, edge: number, handle: ResizeHandle): BandSide | null {
+  const vertical = isVertical(handle);
+  const near = vertical ? box.y : box.x;
+  const far = near + (vertical ? box.height : box.width);
+  // The gap between the two panes is one separator cell in tmux, and two rows
+  // in the demo engine (the separator plus the header the next pane draws).
+  const gaps = vertical ? [1, 2] : [1];
+  if (handle === 'e' || handle === 's') {
+    if (far === edge) return 'before';
+    return gaps.some((gap) => near === edge + gap) ? 'after' : null;
+  }
+  if (near === edge) return 'after';
+  return gaps.some((gap) => far === edge - gap) ? 'before' : null;
+}
+
+/** `box` once the edge it touches on `side` has moved `delta` cells. */
+function shifted(
+  box: PaneCellBox,
+  side: BandSide,
+  handle: ResizeHandle,
+  delta: number,
+): PaneCellBox {
+  if (isVertical(handle)) {
+    return side === 'before'
+      ? { ...box, height: Math.max(PANE_MIN_CELLS, box.height + delta) }
+      : { ...box, y: box.y + delta, height: Math.max(PANE_MIN_CELLS, box.height - delta) };
+  }
+  return side === 'before'
+    ? { ...box, width: Math.max(PANE_MIN_CELLS, box.width + delta) }
+    : { ...box, x: box.x + delta, width: Math.max(PANE_MIN_CELLS, box.width - delta) };
+}
+
+/**
+ * The cells a drag has moved its divider: its pixel delta along the handle's
+ * axis, held inside the limits. The one number the drawn band, the settled
+ * check and the commands all derive from.
+ */
+export function dragCells(
+  resize: Pick<ResizeState, 'handle' | 'pixelDelta' | 'limits'>,
+  charWidth: number,
+  charHeight: number,
+): number {
+  const cells = isVertical(resize.handle)
+    ? Math.round(resize.pixelDelta.y / charHeight)
+    : Math.round(resize.pixelDelta.x / charWidth);
+  return clampDelta(cells, resize.limits);
+}
+
+/**
+ * The boxes that move once `paneId`'s `handle` edge has travelled `delta`
+ * cells, keyed by pane. Panes the drag leaves alone are not listed; nothing is
+ * when the pane is not in the geometry, since then there is no edge to drag.
+ */
+export function resizedBand(
+  geometry: Record<PaneId, PaneCellBox>,
+  paneId: PaneId,
+  handle: ResizeHandle,
+  delta: number,
+): Record<PaneId, PaneCellBox> {
+  const target = geometry[paneId];
+  if (!target) return {};
+  const edge = draggedEdge(target, handle);
+  const band: Record<PaneId, PaneCellBox> = {};
+  for (const id of Object.keys(geometry) as PaneId[]) {
+    const side = bandSide(geometry[id], edge, handle);
+    if (side) band[id] = shifted(geometry[id], side, handle, delta);
+  }
+  return band;
 }
 
 /**
@@ -87,8 +140,15 @@ export function resizeLimits(
 ): ResizeLimits {
   const target = geometry[paneId];
   if (!target) return LOCKED_LIMITS;
-  const axis = handle === 'e' || handle === 'w' ? 'width' : 'height';
-  const { grows, shrinks } = bands(geometry, draggedEdge(target, handle), handle);
+  const axis = isVertical(handle) ? 'height' : 'width';
+  const edge = draggedEdge(target, handle);
+  const grows: PaneCellBox[] = [];
+  const shrinks: PaneCellBox[] = [];
+  for (const box of Object.values(geometry)) {
+    const side = bandSide(box, edge, handle);
+    if (side === 'before') grows.push(box);
+    else if (side === 'after') shrinks.push(box);
+  }
   if (grows.length === 0 || shrinks.length === 0) return LOCKED_LIMITS;
   const room = (boxes: PaneCellBox[]) =>
     Math.max(0, Math.min(...boxes.map((b) => b[axis] - PANE_MIN_CELLS)));

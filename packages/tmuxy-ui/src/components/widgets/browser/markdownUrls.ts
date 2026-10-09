@@ -12,12 +12,12 @@
 const ALLOWED_PROTOCOLS = ['http:', 'https:', 'data:', 'blob:', 'tmuxyfile:'];
 
 /**
- * The only paths on the app's own origin a document may reach: the two routes
- * that serve files, which is how a local document's own images arrive. Every
+ * The only path on the app's own origin a document may reach: the route that
+ * serves files, which is how a local document's own images arrive. Every
  * other same-origin path is the app itself — its API, its event stream — and
  * a document has no business aiming the reader's browser at it.
  */
-const SAME_ORIGIN_FILE_ROUTES = ['/api/browse/', '/api/file'];
+const SAME_ORIGIN_FILE_ROUTE = '/api/browse/';
 
 /**
  * Resolve a URL a markdown document wrote against the DOCUMENT, not the app.
@@ -46,5 +46,5 @@ export function resolveAgainstDocument(
 }
 
 function isFileRoute(pathname: string): boolean {
-  return SAME_ORIGIN_FILE_ROUTES.some((route) => pathname === route || pathname.startsWith(route));
+  return pathname.startsWith(SAME_ORIGIN_FILE_ROUTE);
 }

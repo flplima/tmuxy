@@ -8,9 +8,7 @@
 import { useRef, useEffect } from 'react';
 import { PaneHeader } from './PaneHeader';
 import { getWidget } from './widgets';
-import { getWidgetTitle } from './widgets/getWidgetTitle';
 import {
-  useAppActor,
   useAppSelector,
   useAppSend,
   usePane,
@@ -19,7 +17,7 @@ import {
   useIsDragging,
   useIsResizing,
 } from '../machines/AppContext';
-import { useFramedPaneFocus } from '../hooks';
+import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import type { PaneId } from '../domain/ids';
 
 interface WidgetPaneProps {
@@ -29,7 +27,6 @@ interface WidgetPaneProps {
 
 export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   const send = useAppSend();
-  const actor = useAppActor();
   const pane = usePane(paneId);
   const definition = getWidget(widgetInfo.widgetName)!;
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
@@ -46,18 +43,16 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   const gestureInFlight = dragging || resizing;
 
   // The widget's own title when it declares one — a browser pane names itself
-  // after the page it is showing — else the generic `__TITLE__`/URL sniffing.
-  const widgetTitle = useAppSelector(
-    (context) =>
-      definition?.selectTitle?.(context, paneId, widgetInfo.contentLines) ??
-      getWidgetTitle(widgetInfo.contentLines),
+  // after the page it is showing; without one the header shows the pane's.
+  const widgetTitle = useAppSelector((context) =>
+    definition.selectTitle?.(context, paneId, widgetInfo.contentLines),
   );
 
   // Vi-key navigation: capture-phase window listener that fires BEFORE
   // the keyboard actor's bubble-phase window listener.
   const isActiveWidget = !!pane?.active && isInActiveWindow;
-  const widgetKeyRef = useRef({ send, paneId, isActiveWidget, definition, actor, widgetInfo });
-  widgetKeyRef.current = { send, paneId, isActiveWidget, definition, actor, widgetInfo };
+  const widgetKeyRef = useRef({ send, paneId, isActiveWidget, definition, widgetInfo });
+  widgetKeyRef.current = { send, paneId, isActiveWidget, definition, widgetInfo };
 
   useEffect(() => {
     const LINE_HEIGHT = 24;
@@ -65,7 +60,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
     const handler = (e: KeyboardEvent) => {
       if (!widgetKeyRef.current.isActiveWidget) return;
 
-      const { send: s, paneId: pid, definition: def, actor: act } = widgetKeyRef.current;
+      const { send: s, paneId: pid, definition: def } = widgetKeyRef.current;
 
       // The widget's own keys come first — it is the thing on screen, so its
       // bindings outrank both the generic scrolling below and tmux.
@@ -73,7 +68,6 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
         def.onKeyDown?.(e, {
           paneId: pid,
           lines: widgetKeyRef.current.widgetInfo.contentLines,
-          context: act.getSnapshot().context,
           send: s,
         })
       ) {
@@ -92,9 +86,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
 
       const el = wrapperRef.current;
       if (!el) return;
-      const scrollEl = el.querySelector(
-        '.widget-markdown, .widget-scrollable',
-      ) as HTMLElement | null;
+      const scrollEl = el.querySelector('.widget-markdown') as HTMLElement | null;
       if (!scrollEl) return;
 
       const pageSize = scrollEl.clientHeight;
@@ -155,10 +147,6 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   if (!pane) return null;
 
   const WidgetComponent = definition.component;
-  const lastLine = widgetInfo.contentLines.filter((l) => l.trim()).pop() || '';
-  const writeStdin = (data: string) => {
-    send({ type: 'WRITE_TO_PANE', paneId, data });
-  };
 
   return (
     <div
@@ -189,16 +177,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
           pointerEvents: gestureInFlight ? 'none' : undefined,
         }}
       >
-        <WidgetComponent
-          paneId={paneId}
-          widgetName={widgetInfo.widgetName}
-          lines={widgetInfo.contentLines}
-          lastLine={lastLine}
-          rawContent={pane.content}
-          writeStdin={writeStdin}
-          width={pane.width}
-          height={pane.height}
-        />
+        <WidgetComponent paneId={paneId} lines={widgetInfo.contentLines} />
       </div>
     </div>
   );

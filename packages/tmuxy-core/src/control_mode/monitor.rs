@@ -11,11 +11,9 @@ use super::state::{
     capture_command, capture_command_range, ChangeType, SideEffect, StateAggregator,
 };
 use crate::constants::tmux_formats;
-use crate::ctx::Ctx;
 use crate::error::TmuxError;
 use crate::{PaneId, StateUpdate, WindowId};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, instrument, trace, warn};
@@ -236,6 +234,20 @@ impl Default for MonitorConfig {
 
 /// Interval for the periodic state sync (list-panes for cursor position).
 const SYNC_INTERVAL: Duration = Duration::from_millis(500);
+/// Idle threshold: heartbeats fire only after this much silence.
+const IDLE_THRESHOLD: Duration = Duration::from_secs(10);
+/// Copy-mode poll interval (cursor needs sub-100ms updates).
+const COPY_MODE_SYNC_INTERVAL: Duration = Duration::from_millis(50);
+/// Heartbeat interval when fully idle.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
+/// Below the throttle threshold, output is debounced by this much silence...
+const LOW_THROUGHPUT_DEBOUNCE: Duration = Duration::from_millis(16);
+/// ...but never held back longer than this after the first pending byte.
+const PENDING_OUTPUT_MAX: Duration = Duration::from_millis(100);
+/// How long after output or a window change the metadata re-sync runs.
+const METADATA_SYNC_DELAY: Duration = Duration::from_millis(500);
+/// Rapid layout changes (a zoom-out cascade) coalesce over this window.
+const LAYOUT_DEBOUNCE: Duration = Duration::from_millis(16);
 
 /// Events within one [`RATE_WINDOW`] above which output is throttled. Below
 /// it, events emit immediately for low latency.
@@ -305,12 +317,6 @@ fn needs_resize(
 /// branch delegating to a small method that mutates `RunState` through a
 /// `&mut`, and lets the throttling/debounce logic be tested without tmux.
 struct RunState {
-    /// Idle threshold: heartbeats fire only after this much silence.
-    idle_threshold: Duration,
-    /// Copy-mode poll interval (cursor needs sub-100ms updates).
-    copy_mode_sync_interval: Duration,
-    /// Heartbeat interval when fully idle.
-    heartbeat_interval: Duration,
     /// Timestamp of the last control-mode event (for idle classification).
     last_event_at: tokio::time::Instant,
     /// Next scheduled sync tick.
@@ -321,34 +327,24 @@ struct RunState {
     pending_output_emit: bool,
     last_output_event_at: Option<Instant>,
     pending_output_first_at: Option<Instant>,
-    low_throughput_debounce: Duration,
-    pending_output_max: Duration,
     rate_window_start: Instant,
     rate_event_count: u32,
-    throttle_enabled: bool,
     in_throttle_mode: bool,
 
     // Metadata sync after output settles
     metadata_sync_at: Option<tokio::time::Instant>,
-    metadata_sync_delay: Duration,
 
     // Layout debouncing
     pending_layout_emit: bool,
-    layout_debounce: Duration,
 }
 
 impl RunState {
-    /// `now_std` comes from the injected `Ctx::clock` so tests can advance time
-    /// deterministically. `now_async` is the tokio reactor's monotonic clock,
-    /// which is fixed to the real reactor — fakes for it would need
-    /// `tokio::time::pause`, which is a higher-cost test-hook than the std
-    /// clock and is left to follow-up work.
+    /// `now_std` is the std clock the throttle/debounce deadlines are computed
+    /// from (the tests pass explicit instants); `now_async` is the tokio
+    /// reactor's monotonic clock the sync and heartbeat timers sleep against.
     fn new(config: &MonitorConfig, now_std: Instant) -> Self {
         let now_async = tokio::time::Instant::now();
         Self {
-            idle_threshold: Duration::from_secs(10),
-            copy_mode_sync_interval: Duration::from_millis(50),
-            heartbeat_interval: Duration::from_secs(15),
             last_event_at: now_async,
             next_sync_at: now_async + SYNC_INTERVAL + Duration::from_secs(1),
 
@@ -356,27 +352,21 @@ impl RunState {
             pending_output_emit: false,
             last_output_event_at: None,
             pending_output_first_at: None,
-            low_throughput_debounce: Duration::from_millis(16),
-            pending_output_max: Duration::from_millis(100),
             rate_window_start: now_std,
             rate_event_count: 0,
-            throttle_enabled: !config.throttle_interval.is_zero(),
             in_throttle_mode: false,
 
             metadata_sync_at: None,
-            metadata_sync_delay: Duration::from_millis(500),
 
             pending_layout_emit: false,
-            layout_debounce: Duration::from_millis(16),
         }
     }
 
     /// Compute the sleep duration for the throttle-tick branch.
     /// `Duration::from_secs(3600)` is the "effectively infinite" sentinel; the
     /// `if pending_output_emit` guard on the branch is what actually parks us.
-    /// `now` comes from `Ctx::clock` so tests can drive the deadline math.
     fn compute_throttle_sleep(&self, config: &MonitorConfig, now: Instant) -> Duration {
-        if !(self.pending_output_emit && self.throttle_enabled) {
+        if !self.pending_output_emit {
             return LONG_SLEEP;
         }
         if self.in_throttle_mode {
@@ -395,10 +385,8 @@ impl RunState {
                 .pending_output_first_at
                 .map(|t| now.duration_since(t))
                 .unwrap_or(Duration::ZERO);
-            let remaining_debounce = self
-                .low_throughput_debounce
-                .saturating_sub(since_last_event);
-            let remaining_max = self.pending_output_max.saturating_sub(since_first_pending);
+            let remaining_debounce = LOW_THROUGHPUT_DEBOUNCE.saturating_sub(since_last_event);
+            let remaining_max = PENDING_OUTPUT_MAX.saturating_sub(since_first_pending);
             remaining_debounce.min(remaining_max)
         }
     }
@@ -486,10 +474,6 @@ pub struct TmuxMonitor {
     /// said once rather than on every sync.
     resize_given_up: HashSet<WindowId>,
 
-    /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
-    /// inside the loop so tests can advance time with `FakeClock`.
-    ctx: Arc<Ctx>,
-
     /// Replies still waiting for their closing marker, by reply id, with the
     /// instant each was sent — the loop fails any that outlive REPLY_TIMEOUT.
     pending_replies: HashMap<u64, (ReplyWaiter, tokio::time::Instant)>,
@@ -507,11 +491,10 @@ impl TmuxMonitor {
     /// `log` receives streaming progress entries (each tmux invocation, its
     /// output, and any retry decisions). Pass `None` if the caller doesn't
     /// surface these to a UI.
-    #[instrument(skip(log, ctx), fields(session = %config.session))]
+    #[instrument(skip(log), fields(session = %config.session))]
     pub async fn connect(
         config: MonitorConfig,
         log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
-        ctx: Arc<Ctx>,
     ) -> Result<(Self, MonitorCommandSender), TmuxError> {
         // Serialize control mode attachment to prevent concurrent operations
         // that crash tmux 3.5a (multiple CC clients racing to attach).
@@ -549,7 +532,6 @@ impl TmuxMonitor {
                 client_size: None,
                 resize_attempts: HashMap::new(),
                 resize_given_up: HashSet::new(),
-                ctx,
                 pending_replies: HashMap::new(),
                 next_reply_id: 0,
                 pending_state_requests: Vec::new(),
@@ -716,14 +698,14 @@ impl TmuxMonitor {
         // SseEmitter uses this to broadcast keybindings with correct prefix key.
         emitter.on_initial_sync_complete();
 
-        let mut rs = RunState::new(&self.config, self.ctx.clock.now());
+        let mut rs = RunState::new(&self.config, Instant::now());
 
         loop {
-            let throttle_sleep = rs.compute_throttle_sleep(&self.config, self.ctx.clock.now());
+            let throttle_sleep = rs.compute_throttle_sleep(&self.config, Instant::now());
             let settling_sleep = self
                 .aggregator
                 .settling_deadline()
-                .map(|d| d.saturating_duration_since(self.ctx.clock.now()))
+                .map(|d| d.saturating_duration_since(Instant::now()))
                 .unwrap_or(LONG_SLEEP);
             let metadata_deadline = rs
                 .metadata_sync_at
@@ -749,7 +731,7 @@ impl TmuxMonitor {
                 }
 
                 // Layout debounce timer - coalesce rapid layout changes (zoom-out)
-                _ = tokio::time::sleep(rs.layout_debounce), if rs.pending_layout_emit => {
+                _ = tokio::time::sleep(LAYOUT_DEBOUNCE), if rs.pending_layout_emit => {
                     self.on_layout_debounce(emitter, &mut rs);
                 }
 
@@ -846,32 +828,6 @@ impl TmuxMonitor {
             }
         }
 
-        // tmux does not forward OSC 52 to a control-mode client, so a copy-mode
-        // yank never reaches the per-pane OSC parser. Instead tmux fires
-        // %paste-buffer-changed; read the buffer (read-only) and mirror it to the
-        // web clipboard through the same emitter path as application OSC 52.
-        if let ControlModeEvent::PasteBufferChanged { buffer_name } = &event {
-            // SEC-13: paste buffers are global to the tmux SERVER, and the
-            // event names no origin — so a `load-buffer secret.txt` or a yank
-            // in someone else's session would otherwise be mirrored to every
-            // client of this one. The documented fallback for "did this come
-            // from here?" is the only signal available: a pane of THIS
-            // session is in copy mode, which is what a yank leaves behind.
-            if !self.aggregator.has_pane_in_copy_mode() {
-                debug!(
-                    buffer = %buffer_name,
-                    "paste buffer changed with no pane of this session in copy mode; not mirrored"
-                );
-                return true;
-            }
-            match crate::executor::show_buffer_named(buffer_name) {
-                Ok(text) if !text.is_empty() => emitter.write_clipboard(None, text),
-                Ok(_) => {}
-                Err(e) => debug!(buffer = %buffer_name, error = %e, "show-buffer failed"),
-            }
-            return true;
-        }
-
         match &event {
             ControlModeEvent::Output { .. } | ControlModeEvent::CommandResponse { .. } => {}
             other => {
@@ -879,7 +835,7 @@ impl TmuxMonitor {
             }
         }
 
-        let step = self.aggregator.step_at(event, self.ctx.clock.now());
+        let step = self.aggregator.step_at(event, Instant::now());
 
         for effect in step.effects {
             match effect {
@@ -915,10 +871,9 @@ impl TmuxMonitor {
                 SideEffect::EmitState { change } => {
                     self.handle_state_change(emitter, rs, &change);
                 }
-                // Emitted by the aggregator's in-band paths (e.g. the
-                // paste-buffer read). The native monitor mostly routes raw
-                // commands through dedicated channels, so this arm fires
-                // rarely — the wasm host is the primary consumer.
+                // The aggregator's own in-band reads — the marker-wrapped
+                // `show-buffer` that mirrors a copy-mode yank to the clipboard
+                // — go over the same connection as everything else.
                 SideEffect::SendTmuxCommand(cmd) => {
                     if let Err(e) = self.connection.send_command(&cmd).await {
                         emitter.emit_error(format!("Failed to send command: {}", e));
@@ -1124,16 +1079,16 @@ impl TmuxMonitor {
         change: &ChangeType,
     ) {
         let is_output_event = matches!(change, ChangeType::PaneOutput { .. });
-        let now = self.ctx.clock.now();
+        let now = Instant::now();
 
         // A window coming or going also renumbers every window after it
         // (`renumber-windows on`), and `%window-close` carries no indices — so
         // schedule the same deferred refresh a window event as for output.
         if is_output_event || matches!(change, ChangeType::Window) {
-            rs.metadata_sync_at = Some(tokio::time::Instant::now() + rs.metadata_sync_delay);
+            rs.metadata_sync_at = Some(tokio::time::Instant::now() + METADATA_SYNC_DELAY);
         }
 
-        if is_output_event && rs.throttle_enabled {
+        if is_output_event {
             rs.update_rate(now);
             if rs.in_throttle_mode {
                 rs.pending_output_emit = true;
@@ -1168,7 +1123,7 @@ impl TmuxMonitor {
         if let Some(update) = self.aggregator.to_state_update() {
             emitter.emit_state(update);
         }
-        rs.mark_emitted(self.ctx.clock.now());
+        rs.mark_emitted(Instant::now());
     }
 
     /// Layout debounce window expired — flush the coalesced layout state.
@@ -1176,7 +1131,7 @@ impl TmuxMonitor {
         if let Some(update) = self.aggregator.to_state_update() {
             emitter.emit_state(update);
         }
-        rs.last_output_emit = self.ctx.clock.now();
+        rs.last_output_emit = Instant::now();
         rs.pending_layout_emit = false;
     }
 
@@ -1184,7 +1139,7 @@ impl TmuxMonitor {
     /// owns settling state now, so the only thing the monitor does is dispatch
     /// the effects (today: at most one immediate `EmitState`).
     fn on_settling_tick<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
-        let effects = self.aggregator.tick(self.ctx.clock.now());
+        let effects = self.aggregator.tick(Instant::now());
         if effects.is_empty() {
             trace!("settling tick: safety timeout or already cleared, no emit");
             return;
@@ -1220,7 +1175,7 @@ impl TmuxMonitor {
     /// otherwise heartbeats (15s) to catch out-of-band tmux mutations.
     async fn on_sync_tick<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
         let in_copy_mode = self.aggregator.has_pane_in_copy_mode();
-        let is_idle = rs.last_event_at.elapsed() > rs.idle_threshold;
+        let is_idle = rs.last_event_at.elapsed() > IDLE_THRESHOLD;
 
         if in_copy_mode {
             let copy_pane_info = self.aggregator.get_copy_mode_pane_info();
@@ -1248,7 +1203,7 @@ impl TmuxMonitor {
             if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                 emitter.emit_error(format!("Failed to sync copy mode: {}", e));
             }
-            rs.next_sync_at = tokio::time::Instant::now() + rs.copy_mode_sync_interval;
+            rs.next_sync_at = tokio::time::Instant::now() + COPY_MODE_SYNC_INTERVAL;
         } else if is_idle {
             let cmds = vec![
                 tmux_formats::LIST_WINDOWS_CMD.to_string(),
@@ -1258,9 +1213,9 @@ impl TmuxMonitor {
             if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                 emitter.emit_error(format!("Failed to heartbeat sync: {}", e));
             }
-            rs.next_sync_at = tokio::time::Instant::now() + rs.heartbeat_interval;
+            rs.next_sync_at = tokio::time::Instant::now() + HEARTBEAT_INTERVAL;
         } else {
-            let time_until_idle = rs.idle_threshold.saturating_sub(rs.last_event_at.elapsed());
+            let time_until_idle = IDLE_THRESHOLD.saturating_sub(rs.last_event_at.elapsed());
             rs.next_sync_at = tokio::time::Instant::now() + time_until_idle;
         }
     }
@@ -1282,7 +1237,7 @@ impl TmuxMonitor {
         let unescaped = command.replace(" \\; ", " ; ");
         let is_compound = is_multi_step_run_shell(&unescaped);
         if is_compound {
-            self.aggregator.arm_settling(self.ctx.clock.now());
+            self.aggregator.arm_settling(Instant::now());
             debug!("settling armed for multi-step run-shell");
         }
 

@@ -13,15 +13,12 @@
  * invents a second path to the server.
  */
 
-import { assign, enqueueActions, sendTo } from 'xstate';
+import { assign, sendTo } from 'xstate';
+import { act, type Ctx } from '../actionTypes';
 import { isPlaceholderId } from '../../../domain/ids';
-import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import { selectVisibleWindows } from '../../selectors';
 import { reorderOp } from '../../../utils/tabOverview';
 import { TmuxOp } from '../../../domain/commands';
-
-type Ctx = AppMachineContext;
-type Evt = AllAppMachineEvents;
 
 /** Slot count including the trailing "+" slot — which a read-only client, with nothing to create, does not have. */
 const slotCount = (context: Ctx) =>
@@ -36,71 +33,53 @@ const activeSlot = (context: Ctx) => {
 const closed = { tabOverviewOpen: false } as const;
 
 export const tabOverviewActions = {
-  tabOverview_toggle: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, enqueue }) => {
-      if (context.tabOverviewOpen) {
-        enqueue(assign(closed));
-      } else {
-        enqueue(
-          assign({
-            tabOverviewOpen: true,
-            tabOverviewSelected: activeSlot(context),
-          }),
-        );
-      }
-    },
-  ),
+  tabOverview_toggle: act(({ context, enqueue }) => {
+    if (context.tabOverviewOpen) {
+      enqueue(assign(closed));
+    } else {
+      enqueue(
+        assign({
+          tabOverviewOpen: true,
+          tabOverviewSelected: activeSlot(context),
+        }),
+      );
+    }
+  }),
 
-  tabOverview_close: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, enqueue }) => {
-      if (context.tabOverviewOpen) enqueue(assign(closed));
-    },
-  ),
+  tabOverview_close: act(({ context, enqueue }) => {
+    if (context.tabOverviewOpen) enqueue(assign(closed));
+  }),
 
   /** Move the keyboard cursor; the grid wraps at the ends. */
-  tabOverview_move: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, event, enqueue }) => {
-      if (event.type !== 'TAB_OVERVIEW_MOVE' || !context.tabOverviewOpen) return;
-      const count = slotCount(context);
-      const next = (((context.tabOverviewSelected + event.delta) % count) + count) % count;
-      enqueue(assign({ tabOverviewSelected: next }));
-    },
-  ),
+  tabOverview_move: act(({ context, event, enqueue }) => {
+    if (event.type !== 'TAB_OVERVIEW_MOVE' || !context.tabOverviewOpen) return;
+    const count = slotCount(context);
+    const next = (((context.tabOverviewSelected + event.delta) % count) + count) % count;
+    enqueue(assign({ tabOverviewSelected: next }));
+  }),
 
   /**
    * Open the slot under the cursor (or the one given): a tab becomes current,
    * the "+" slot creates a tab. Either way the overview closes — the zoom-in
    * is the component's FLIP back to the full grid.
    */
-  tabOverview_activate: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, event, enqueue }) => {
-      if (event.type !== 'TAB_OVERVIEW_ACTIVATE') return;
-      const visible = selectVisibleWindows(context);
-      const index = event.index ?? context.tabOverviewSelected;
-      enqueue(assign(closed));
-      const target = visible[index];
-      if (target) {
-        if (target.id !== context.activeWindowId) {
-          enqueue.raise({ type: 'SELECT_TAB', windowId: target.id });
-        }
-        return;
+  tabOverview_activate: act(({ context, event, enqueue }) => {
+    if (event.type !== 'TAB_OVERVIEW_ACTIVATE') return;
+    const visible = selectVisibleWindows(context);
+    const index = event.index ?? context.tabOverviewSelected;
+    enqueue(assign(closed));
+    const target = visible[index];
+    if (target) {
+      if (target.id !== context.activeWindowId) {
+        enqueue.raise({ type: 'SELECT_TAB', windowId: target.id });
       }
-      if (index === visible.length) enqueue.raise({ type: 'CREATE_TAB' });
-    },
-  ),
+      return;
+    }
+    if (index === visible.length) enqueue.raise({ type: 'CREATE_TAB' });
+  }),
 
   /** ctrl+1…9: the Nth tab as the strip shows it, whatever its tmux index. */
-  tabOverview_selectByPosition: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, event, enqueue }) => {
+  tabOverview_selectByPosition: act(({ context, event, enqueue }) => {
     if (event.type !== 'SELECT_TAB_BY_POSITION') return;
     const target = selectVisibleWindows(context)[event.position - 1];
     if (!target || target.id === context.activeWindowId) return;
@@ -108,34 +87,30 @@ export const tabOverviewActions = {
   }),
 
   /** Drag-and-drop in the overview: put the tab at a new strip position. */
-  tabOverview_reorder: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, event, enqueue }) => {
-      if (event.type !== 'REORDER_TAB') return;
-      const visible = selectVisibleWindows(context);
-      const op = reorderOp(visible, event.windowId, event.toIndex);
-      if (!op) return;
-      enqueue(sendTo('tmux', { type: 'SEND_OP' as const, op }));
-      // The cursor follows the tab the user just moved.
-      enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
-    },
-  ),
+  tabOverview_reorder: act(({ context, event, enqueue }) => {
+    if (event.type !== 'REORDER_TAB') return;
+    const visible = selectVisibleWindows(context);
+    const op = reorderOp(visible, event.windowId, event.toIndex);
+    if (!op) return;
+    enqueue(sendTo('tmux', { type: 'SEND_OP' as const, op }));
+    // The cursor follows the tab the user just moved.
+    enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
+  }),
 
   /** The slot's ✕ (and the tab strip's): close that tab, not the current one. */
-  tabOverview_closeTab: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, event, enqueue }) => {
-      // A tab tmux has not confirmed yet has no id to kill; the ✕ waits.
-      if (event.type !== 'CLOSE_TAB' || isPlaceholderId(event.windowId)) return;
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_OP' as const,
-          op: TmuxOp.KillWindow({ windowId: event.windowId }),
-        }),
-      );
-      // Keep the cursor on a slot that still exists once the tab is gone.
-      const count = Math.max(1, slotCount(context) - 1);
-      if (context.tabOverviewSelected >= count) {
-        enqueue(assign({ tabOverviewSelected: count - 1 }));
-      }
-    },
-  ),
+  tabOverview_closeTab: act(({ context, event, enqueue }) => {
+    // A tab tmux has not confirmed yet has no id to kill; the ✕ waits.
+    if (event.type !== 'CLOSE_TAB' || isPlaceholderId(event.windowId)) return;
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_OP' as const,
+        op: TmuxOp.KillWindow({ windowId: event.windowId }),
+      }),
+    );
+    // Keep the cursor on a slot that still exists once the tab is gone.
+    const count = Math.max(1, slotCount(context) - 1);
+    if (context.tabOverviewSelected >= count) {
+      enqueue(assign({ tabOverviewSelected: count - 1 }));
+    }
+  }),
 };

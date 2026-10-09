@@ -69,17 +69,17 @@ const REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Terminal control sequences, named so the call sites read as intent.
 mod term {
-    pub const ALT_SCREEN_ON: &str = "\x1b[?1049h";
-    pub const ALT_SCREEN_OFF: &str = "\x1b[?1049l";
+    pub(super) const ALT_SCREEN_ON: &str = "\x1b[?1049h";
+    pub(super) const ALT_SCREEN_OFF: &str = "\x1b[?1049l";
     /// Button-event tracking (press, release, drag) plus SGR coordinates. 1002
     /// rather than 1003: motion with no button down would be a report per cell
     /// crossed, which is a lot of traffic for hover alone.
-    pub const MOUSE_ON: &str = "\x1b[?1002h\x1b[?1006h";
-    pub const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1002l";
-    pub const HIDE_CURSOR: &str = "\x1b[?25l";
-    pub const SHOW_CURSOR: &str = "\x1b[?25h";
+    pub(super) const MOUSE_ON: &str = "\x1b[?1002h\x1b[?1006h";
+    pub(super) const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1002l";
+    pub(super) const HIDE_CURSOR: &str = "\x1b[?25l";
+    pub(super) const SHOW_CURSOR: &str = "\x1b[?25h";
     pub const HOME: &str = "\x1b[H";
-    pub const CLEAR: &str = "\x1b[2J";
+    pub(super) const CLEAR: &str = "\x1b[2J";
 }
 
 /// The pane's size, in cells and in the pixels a page should lay out against.
@@ -93,7 +93,7 @@ pub struct PaneSize {
 
 impl PaneSize {
     /// The rows the picture occupies: everything but the status row.
-    pub fn image_rows(&self) -> u16 {
+    fn image_rows(&self) -> u16 {
         self.rows.saturating_sub(1).max(1)
     }
 
@@ -110,7 +110,7 @@ impl PaneSize {
 ///
 /// `TIOCGWINSZ` is the only thing that knows, and its pixel fields are usually
 /// zero under tmux — hence the fallback and the override.
-pub fn pane_size() -> PaneSize {
+fn pane_size() -> PaneSize {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     // SAFETY: `ws` is a winsize, which is what TIOCGWINSZ writes.
     let ok = unsafe { libc::ioctl(std::io::stdout().as_raw_fd(), libc::TIOCGWINSZ, &mut ws) } == 0;
@@ -158,7 +158,7 @@ fn parse_cell_px(raw: &str) -> Option<(u16, u16)> {
 /// The cursor goes home first. That is what makes the redraw REPLACE rather than
 /// accumulate: tmuxy anchors a placement at the cursor and swaps whatever was
 /// already anchored there.
-pub fn draw_frame(frame: &[u8], size: PaneSize) -> Vec<u8> {
+fn draw_frame(frame: &[u8], size: PaneSize) -> Vec<u8> {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(frame);
     format!(
@@ -232,7 +232,7 @@ pub enum Input {
 /// buffer for the next one — the same rule the control-mode parser follows, and
 /// for the same reason: half a mouse report read as keys types garbage into the
 /// page.
-pub fn take_inputs(buffer: &mut Vec<u8>) -> Vec<Input> {
+fn take_inputs(buffer: &mut Vec<u8>) -> Vec<Input> {
     let mut out = Vec::new();
     loop {
         if buffer.is_empty() {
@@ -309,7 +309,7 @@ fn utf8_len(lead: u8) -> usize {
 /// in the middle of the cell the user pointed at. Cells are the resolution tmux
 /// reports — this is the ceiling on how precisely a click can land, and why
 /// `:click <selector>` exists for anything smaller than a cell.
-pub fn cell_to_page(col: u16, row: u16, size: PaneSize) -> (f64, f64) {
+fn cell_to_page(col: u16, row: u16, size: PaneSize) -> (f64, f64) {
     let x = (f64::from(col.saturating_sub(1)) + 0.5) * f64::from(size.cell_w);
     let y = (f64::from(row.saturating_sub(1)) + 0.5) * f64::from(size.cell_h);
     (x, y)
@@ -319,7 +319,7 @@ pub fn cell_to_page(col: u16, row: u16, size: PaneSize) -> (f64, f64) {
 ///
 /// The low two bits are the button, bit 5 (32) marks motion, and 64 marks a
 /// wheel event where the low bits become the direction.
-pub fn decode_button(code: u16) -> ButtonMeaning {
+fn decode_button(code: u16) -> ButtonMeaning {
     if code & 64 != 0 {
         return match code & 3 {
             0 => ButtonMeaning::Wheel { up: true },
@@ -340,7 +340,7 @@ pub fn decode_button(code: u16) -> ButtonMeaning {
 
 /// What an SGR button code meant.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ButtonMeaning {
+enum ButtonMeaning {
     Button { button: MouseButton, dragging: bool },
     Wheel { up: bool },
     Release,
@@ -358,7 +358,7 @@ const WHEEL_STEP: f64 = 120.0;
 /// The CLI, never tmux directly: a mutating tmux command from inside a pane
 /// while control mode is attached crashes tmux 3.5a (docs/TMUX.md), and the
 /// CLI is the one place that knows to wrap it in `run-shell`.
-pub fn restore_tag_args(pane: &str, session: &str, url: Option<&str>) -> Vec<String> {
+fn restore_tag_args(pane: &str, session: &str, url: Option<&str>) -> Vec<String> {
     let mut line = format!("tmuxy browser --repl --session {}", shell_quote(session));
     if let Some(url) = url {
         line.push_str(" --goto ");
@@ -823,7 +823,7 @@ pub async fn forward_key(session: &mut Session, key: &[u8]) {
 /// `text` is what decides whether a key TYPES or only moves the caret, and it
 /// must be absent for a named key: sending `text: "ArrowLeft"` inserts that word
 /// into whatever has focus.
-pub fn key_name(key: &str) -> (String, Option<String>) {
+fn key_name(key: &str) -> (String, Option<String>) {
     match key {
         "\x1b[A" => ("ArrowUp".into(), None),
         "\x1b[B" => ("ArrowDown".into(), None),

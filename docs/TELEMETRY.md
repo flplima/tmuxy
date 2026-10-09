@@ -55,9 +55,14 @@ of the plan are implemented; see [§ Using it](#using-it).
 --export out.json` writes a Chrome-trace/Perfetto timeline you open at
   ui.perfetto.dev; `tmuxy trace --mark "<label>"` stamps a "the bug happened
   here" marker into the running trace. All accept an explicit file path.
-- **Where it lives:** `~/.local/state/tmuxy/trace.ndjson` on Linux;
-  **`~/Library/Application Support/tmuxy/trace.ndjson` on macOS**, which has no
-  XDG state dir. Mode `0600`, rotated at 64 MiB with one `.1` backup. The
+- **Where it lives:** `trace.ndjson` in the state directory — `TMUXY_STATE_DIR`
+  when set (the dev server and the test harness point it somewhere of their
+  own), else `~/.local/state/tmuxy` on Linux and
+  **`~/Library/Application Support/tmuxy` on macOS**, which has no XDG state
+  dir. One resolution (`tmuxy-core/src/paths.rs`) serves the writer, `tmuxy
+trace`, the snapshots and the browser profiles, so a `--mark` lands in the
+  file the server is writing. Mode `0600`, rotated at 64 MiB with one `.1`
+  backup. The
   remembered switch/level sit next to the other config, in
   `~/.config/tmuxy/trace.json`.
 
@@ -66,7 +71,7 @@ of the plan are implemented; see [§ Using it](#using-it).
 - **One artifact, one clock.** A single append-only file that shows a causal
   chain — keydown → XState → adapter → HTTP/IPC → Rust monitor → tmux → SSE →
   apply → render — on a shared timeline, instead of three unrelated buffers
-  (browser console ring, `~/tmuxy-debug.log`, server stderr) cross-referenced by
+  (browser console ring, the app's log file, server stderr) cross-referenced by
   eye.
 - **Every layer.** Frontend XState transitions, Effect outcomes, adapter round
   trips, and the Rust pipeline all emit into the same stream with the same
@@ -100,7 +105,8 @@ of the plan are implemented; see [§ Using it](#using-it).
 
 The trace is the shared, persisted timeline. The per-layer buffers you reach
 for interactively still exist beside it: `RUST_LOG`-filtered `tracing` on
-stderr, the hand-rolled `~/tmuxy-debug.log` (`tmuxy-core/src/debug_log.rs`),
+stderr (the desktop app also appends its `info`-and-above lines to `tmuxy.log`
+in the state dir, since an app launched from Finder has no stderr anyone sees),
 the in-memory SSE replay ring and control-mode tail, the in-app activity log
 (`LOG_APPEND` → `context.log`, which carries command strings and so never
 leaves the app), and the dev-gated `latencyTracker` + `PerfHud`.
@@ -141,10 +147,8 @@ every `info!`/`warn!`/`error!` — with **zero new call sites**. The work is:
 1. Write the NDJSON `Layer` and add it to the subscriber in `init_logging()`.
 2. **Install the subscriber on every entry path**, including the Tauri GUI path
    that currently skips it (the gap above).
-3. Route timestamps through
-   `Ctx.Clock` (`packages/tmuxy-core/src/ctx.rs`) so the pure core stays pure
-   and tests stay deterministic — the same substitution seam the rest of the
-   core uses.
+3. Take timestamps at the layer, from the system clock, so the pure core
+   stays pure.
 
 The handful of hot-path events that matter for causality but aren't yet spans
 (aggregator `step`, monitor flush decision, emitter dispatch) get one
@@ -197,22 +201,22 @@ One flat object per line. Content-free by construction.
 
 Each seam already exists in the code; the tracer emits at it.
 
-| Layer   | Seam (file)                                                                    | What it records                                                                                                                                                                                                                                                                                     |
-| ------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| xstate  | `send` tap, `machines/AppContext.tsx`                                          | app-machine transition (event name only); the derived `TMUX_MODEL_UPDATE` firehose is coalesced to a periodic `phase:'count'`                                                                                                                                                                       |
-| store   | dispatch, `machines/actors/tmuxStoreActor.ts` (via `parseCommandToOp`)         | `TmuxOp` variant (Split, SelectPane, KillWindow, ZoomToggle, …) + target ids — the WHAT, args discarded                                                                                                                                                                                             |
-| effect  | `Effect.runPromiseExit`, `tmuxActor.ts` / `tmuxStoreActor.ts`                  | adapter/op **failures** by typed `code` (`AdapterError` / `OpError` tag)                                                                                                                                                                                                                            |
-| adapter | `markInput`/`recordUpdate`, `HttpAdapter.ts` / `adapters.ts`                   | send (kind, `action_id`) and apply (delta `seq`) boundaries + latency                                                                                                                                                                                                                               |
-| http    | `POST /commands` header, `sse.rs`                                              | `action_id` (`X-Action-Id`) → the exact request-leg join                                                                                                                                                                                                                                            |
-| server  | `send_via_control_mode`, `sse.rs`                                              | the mutating ingress by command **verb** (first token; args only at `full`)                                                                                                                                                                                                                         |
-| emitter | `emit_state`, `sse.rs`                                                         | each state emit by delta `seq` + kind, joinable to the client `apply`                                                                                                                                                                                                                               |
-| tmux    | the in-band reads in `tmuxy-core/src/transport.rs`                             | read op name + argc                                                                                                                                                                                                                                                                                 |
-| tauri   | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none)                           |
-| tauri   | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none)                               |
-| marker  | `tmuxy trace --mark`, `trace_view.rs`                                          | a user-stamped "bug happened here" label                                                                                                                                                                                                                                                            |
-| pane    | aggregator, `control_mode/state.rs`                                            | each pane's life, content-free: `pane appeared` (window, size, `shell`, `bytes` replayed from before it was listed), `pane first output` (`bytes`), `capture requested`, `pane captured` (non-blank `lines`), `pane resized`, `pane gone`. The session comes from the monitor's `run{session}` span |
-| server  | session creation, `sse.rs`                                                     | `session creation path`: `via` `courier` (through another session's control client, with its `viewers`) or `direct`                                                                                                                                                                                 |
-| test    | `tests/helpers/trace-environment.js`                                           | an E2E run's markers: `<file> › <test> › start` and `› pass`/`› fail`, so one test's slice can be read with `--window`                                                                                                                                                                              |
+| Layer   | Seam (file)                                                                                            | What it records                                                                                                                                                                                                                                                                                     |
+| ------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| xstate  | `send` tap, `machines/AppContext.tsx`                                                                  | app-machine transition (event name only); the derived `TMUX_MODEL_UPDATE` firehose is coalesced to a periodic `phase:'count'`                                                                                                                                                                       |
+| store   | dispatch, `machines/actors/tmuxStoreActor.ts` (via `parseCommandToOp`)                                 | `TmuxOp` variant (Split, SelectPane, KillWindow, ZoomToggle, …) + target ids — the WHAT, args discarded                                                                                                                                                                                             |
+| effect  | `Effect.runPromiseExit`, `tmuxActor.ts` / `tmuxStoreActor.ts`                                          | adapter/op **failures** by typed `code` (`AdapterError` / `OpError` tag)                                                                                                                                                                                                                            |
+| adapter | `markInput` in `drivers/HttpAdapter.ts` / `drivers/TauriAdapter.ts`, `recordApplied` in `stateFeed.ts` | send (kind, `action_id`) and apply (delta `seq`) boundaries + latency                                                                                                                                                                                                                               |
+| http    | `POST /commands` header, `sse.rs`                                                                      | `action_id` (`X-Action-Id`) → the exact request-leg join                                                                                                                                                                                                                                            |
+| server  | `send_via_control_mode`, `sse.rs`                                                                      | the mutating ingress by command **verb** (first token; args only at `full`)                                                                                                                                                                                                                         |
+| emitter | `emit_state`, `sse.rs`                                                                                 | each state emit by delta `seq` + kind, joinable to the client `apply`                                                                                                                                                                                                                               |
+| tmux    | the in-band reads in `tmuxy-core/src/transport.rs`                                                     | read op name + argc                                                                                                                                                                                                                                                                                 |
+| tauri   | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs`                         | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none)                           |
+| tauri   | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs`                         | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none)                               |
+| marker  | `tmuxy trace --mark`, `trace_view.rs`                                                                  | a user-stamped "bug happened here" label                                                                                                                                                                                                                                                            |
+| pane    | aggregator, `control_mode/state.rs`                                                                    | each pane's life, content-free: `pane appeared` (window, size, `shell`, `bytes` replayed from before it was listed), `pane first output` (`bytes`), `capture requested`, `pane captured` (non-blank `lines`), `pane resized`, `pane gone`. The session comes from the monitor's `run{session}` span |
+| server  | session creation, `sse.rs`                                                                             | `session creation path`: `via` `courier` (through another session's control client, with its `viewers`) or `direct`                                                                                                                                                                                 |
+| test    | `tests/helpers/trace-environment.js`                                                                   | an E2E run's markers: `<file> › <test> › start` and `› pass`/`› fail`, so one test's slice can be read with `--window`                                                                                                                                                                              |
 
 The durable contract from [DATA-FLOW.md](DATA-FLOW.md) maps cleanly to spans:
 the **aggregator** decides _what_ (delta kind), the **monitor** decides _when_
@@ -250,7 +254,7 @@ capability — but only one that excludes content).
 - `%output` and `capture-pane` content — the rendered grid, scrollback, cell
   data
 - OSC 52 clipboard payloads and the `clipboard` SSE event body
-- `/api/file` contents
+- `/api/browse` contents
 
 **Safe to record** (the action's shape): the typed `TmuxOp` / `MonitorCommand` /
 `ClientCommand` variant name; target pane/window ids; session name; connection
@@ -278,14 +282,15 @@ Structural enforcements, not just discipline:
    **hashed to a stable opaque id** (the way VS Code identifies a folder by a
    hash of its git remote rather than its name), and error strings are
    **path-scrubbed and truncated** (the way VS Code scrubs user paths out of
-   stack traces) or reduced to a typed error code. And the `tmuxy::debug_log`
-   target — which drains raw control-mode output to disk — is excluded outright,
-   so the catch-all subscriber never inherits its content.
+   stack traces) or reduced to a typed error code. And raw control-mode output
+   — tmux's parting words on EOF, the monitor's command/output log — is logged
+   at `trace` level, below the layer's `debug` floor, so the catch-all
+   subscriber never sees its content.
 4. **A test that the tracer never emits a raw command string, grid cell, or
    unhashed name/path.** The redaction boundary is verified, not assumed.
 
 And one deployment rule: the trace file must live **outside** any path served by
-`/api/file` (SECURITY.md Risk #4), or the trace itself becomes a readable secret
+`/api/browse` (SECURITY.md Risk #4), or the trace itself becomes a readable secret
 over the network.
 
 ### Trace levels
@@ -429,7 +434,7 @@ local.
   is the model this generalizes and the Axis-B round-trip source.
 - [DATA-FLOW.md](DATA-FLOW.md) — the full user-action path, the seams, and the
   deployment scenarios that decide where the file lives.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — `Ctx` and the `StateEmitter` trait.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — the sans-IO core and the `StateEmitter` trait.
 - [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — the XState actors and typed
   `TmuxOp` vocabulary that make content-free action tracing possible.
 - [SECURITY.md](SECURITY.md) — the threat model that defines the redaction

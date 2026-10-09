@@ -15,12 +15,10 @@ const Demo = ({
   title,
   backdrop,
   hideHeader,
-  closeOnBackdrop = true,
 }: {
   title?: string;
   backdrop?: 'dim' | 'blur' | 'none';
   hideHeader?: boolean;
-  closeOnBackdrop?: boolean;
 }) => {
   const [open, setOpen] = useState(true);
   return (
@@ -32,11 +30,10 @@ const Demo = ({
         title={title}
         backdrop={backdrop}
         hideHeader={hideHeader}
-        closeOnBackdrop={closeOnBackdrop}
         width={420}
       >
         <div style={{ padding: 20, color: 'var(--text-default)' }}>
-          <p>This is modal body content. Press Esc, click outside, or hit ×.</p>
+          <p>This is modal body content. Click outside, or hit ×.</p>
         </div>
       </Modal>
     </div>
@@ -86,27 +83,5 @@ export const HeaderHidden: Story = {
     expect(document.querySelector('.modal-close')).toBeNull();
     expect(document.querySelector('.modal-container')).not.toBeNull();
     expect(document.querySelector('.modal-header')).toBeNull();
-  },
-};
-
-export const StickyBackdrop: Story = {
-  render: () => <Demo title="Click outside is ignored" closeOnBackdrop={false} />,
-  parameters: {
-    docs: {
-      description: {
-        story: 'closeOnBackdrop=false keeps the modal open even if the user clicks the dim layer.',
-      },
-    },
-  },
-  play: async () => {
-    const body = within(document.body);
-    expect(body.getByText('Click outside is ignored')).toBeInTheDocument();
-
-    const backdrop = document.querySelector('.modal-backdrop') as HTMLElement | null;
-    expect(backdrop).not.toBeNull();
-    await userEvent.click(backdrop!);
-
-    // After a click, the modal must STILL be open.
-    expect(body.getByText('Click outside is ignored')).toBeInTheDocument();
   },
 };

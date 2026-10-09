@@ -37,35 +37,14 @@ import {
   selectTabOverviewCols,
   useReadOnly,
 } from '../machines/AppContext';
-import {
-  DRAG_THRESHOLD_PX,
-  LONG_PRESS_MS,
-  capturePointer,
-  dropIndex,
-  overviewSlots,
-  stillPanes,
-} from '../utils/tabOverview';
+import { overviewSlots, stillPanes } from '../utils/tabOverview';
 import { LogProfiler } from '../utils/renderLog';
 import { TabShot } from './TabShot';
 import { useTabStill } from '../hooks/useTabStill';
+import { useReorderDrag } from '../hooks/useReorderDrag';
 import { nudgeCursorAnchor } from './cursorAnchor';
 import { Tooltip } from './Tooltip';
 import type { WindowId } from '../domain/ids';
-
-interface DragState {
-  windowId: WindowId;
-  fromIndex: number;
-  pointerId: number;
-  startX: number;
-  startY: number;
-  /** Current pointer offset from the press, for the dragged card's transform. */
-  dx: number;
-  dy: number;
-  /** Where the card would land, as an index among the OTHER tabs. */
-  overIndex: number;
-  /** True once the threshold / long-press turned the press into a drag. */
-  active: boolean;
-}
 
 export const TabOverview = memo(function TabOverview() {
   const open = useAppSelector((ctx) => ctx.tabOverviewOpen);
@@ -114,12 +93,20 @@ function TabOverviewInner() {
 
   const rootRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
+  // The grid wraps, so a drop reads the nearest row first; the drop goes to
+  // tmux as a `move-window`.
+  const reorder = useReorderDrag({
+    containerRef: gridRef,
+    cardSelector: '.tab-overview-slot[data-window-id]',
+    axis: 'xy',
+    readOnly,
+    onReorder: (windowId, toIndex) => send({ type: 'REORDER_TAB', windowId, toIndex }),
+  });
+  const { dragging, dropMarkerAt } = reorder;
   // The grid's scroll offset: the current tab's frame moves with it, so the
   // live grid has to be re-aimed on every scroll.
   const [scrollTop, setScrollTop] = useState(0);
   const measuredScrollRef = useRef(0);
-  const longPressRef = useRef<number | null>(null);
 
   // ---- keep the keyboard cursor's card on screen ------------------------------
   // It starts on the current tab, which in a long grid can sit below the fold.
@@ -145,7 +132,7 @@ function TabOverviewInner() {
   // with it: the frame's measured box already includes the card's drag
   // translate, so re-measuring on every drag move is enough — with the
   // grid's own 200ms transition switched off, or it would trail the pointer.
-  const draggingActive = drag?.active && drag.windowId === activeWindowId ? drag : null;
+  const draggingActive = dragging?.windowId === activeWindowId ? dragging : null;
   const dragOffset = draggingActive ? `${draggingActive.dx},${draggingActive.dy}` : '';
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -348,103 +335,21 @@ function TabOverviewInner() {
   }, []);
 
   // ---- pointer: click to open, drag to reorder ------------------------------
-  const centersExcluding = useCallback((windowId: WindowId) => {
-    const cards = Array.from(
-      gridRef.current?.querySelectorAll<HTMLElement>('.tab-overview-slot[data-window-id]') ?? [],
-    ).filter((c) => c.dataset.windowId !== windowId);
-    return cards.map((c) => {
-      const r = c.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    });
-  }, []);
-
-  const clearLongPress = () => {
-    if (longPressRef.current !== null) {
-      window.clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
-  };
-
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
     const slot = slots[index];
     if (!slot || e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button')) return;
-    capturePointer(e.currentTarget, e.pointerId);
-    const state: DragState = {
-      windowId: slot.window.id,
-      fromIndex: index,
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      dx: 0,
-      dy: 0,
-      overIndex: index,
-      active: false,
-    };
-    setDrag(state);
-    if (e.pointerType === 'touch' && !readOnly) {
-      clearLongPress();
-      longPressRef.current = window.setTimeout(() => {
-        longPressRef.current = null;
-        setDrag((d) => (d && d.windowId === state.windowId ? { ...d, active: true } : d));
-      }, LONG_PRESS_MS);
-    }
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drag || readOnly || e.pointerId !== drag.pointerId) return;
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    let active = drag.active;
-    if (!active) {
-      if (e.pointerType === 'touch') {
-        // A finger that moves before the long press fires is scrolling.
-        if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX * 2) {
-          clearLongPress();
-          setDrag(null);
-        }
-        return;
-      }
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-      active = true;
-    }
-    const overIndex = dropIndex(centersExcluding(drag.windowId), { x: e.clientX, y: e.clientY });
-    setDrag({ ...drag, dx, dy, overIndex, active });
+    reorder.handlePointerDown(e, slot.window.id, index);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
-    clearLongPress();
-    if (!drag || e.pointerId !== drag.pointerId) return;
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    const d = drag;
-    setDrag(null);
-    if (d.active) {
-      if (d.overIndex !== d.fromIndex) {
-        send({ type: 'REORDER_TAB', windowId: d.windowId, toIndex: d.overIndex });
-      }
-      return;
-    }
+    const press = reorder.handlePointerUp(e);
     // A press that never became a drag is a click: open that tab.
-    activateSlot(index);
-  };
-
-  const handlePointerCancel = () => {
-    clearLongPress();
-    setDrag(null);
+    if (press && !press.active) activateSlot(index);
   };
 
   const aspect =
     containerWidth > 0 && containerHeight > 0 ? containerWidth / containerHeight : 16 / 9;
-  const dragging = drag?.active ? drag : null;
-  // Index (among the other tabs) that the dragged card would be inserted
-  // before; the card at that strip index shows the drop marker.
-  const dropMarkerAt = dragging
-    ? dragging.overIndex >= dragging.fromIndex
-      ? dragging.overIndex + 1
-      : dragging.overIndex
-    : -1;
 
   return (
     <div
@@ -502,9 +407,9 @@ function TabOverviewInner() {
               data-window-id={slot.window.id}
               data-testid={`tab-overview-slot-${slot.window.id}`}
               onPointerDown={(e) => handlePointerDown(e, index)}
-              onPointerMove={handlePointerMove}
+              onPointerMove={reorder.handlePointerMove}
               onPointerUp={(e) => handlePointerUp(e, index)}
-              onPointerCancel={handlePointerCancel}
+              onPointerCancel={reorder.handlePointerCancel}
             >
               <div className="tab-overview-slot-header">
                 <span className="tab-overview-slot-label">

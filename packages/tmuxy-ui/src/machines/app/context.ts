@@ -17,8 +17,6 @@ import {
 import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
 import { loadThemeFromStorage } from '../../utils/themeManager';
 
-export type { AppMachineContext };
-
 /**
  * The name of each state slice (a root-level `on` block under ./states/)
  * plus 'parent' for fields owned by the machine itself (lifecycle,
@@ -41,9 +39,10 @@ export type StateName =
  * Maps every AppMachineContext field to the state slice that owns it.
  *
  * The tmuxy/state-field-ownership ESLint rule reads this map from this file
- * (keep it one `field: 'owner',` entry per line) — any `assign({...})` in
- * states/<name>.ts or actions/<name>.ts may only mutate fields whose owner
- * is `<name>` ('parent' fields are written by appMachine.ts only).
+ * (keep it one `field: 'owner',` entry per line) — any `assign({...})` or
+ * `assignCtx({...})` in states/<name>.ts or actions/<name>.ts may only mutate
+ * fields whose owner is `<name>` ('parent' fields are written by
+ * appMachine.ts only).
  *
  * The `satisfies` clause guarantees every context field is covered;
  * removing one or adding a new one without updating this map is a type error.

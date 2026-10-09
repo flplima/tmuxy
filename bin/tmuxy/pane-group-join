@@ -1,13 +1,5 @@
 #!/bin/bash
-# Make a pane a member of another pane's group, out of view.
-# Args: $1=pane_id (an ungrouped pane)  $2=a member of the group, or any pane
-#       (it becomes a group with $1)  $3=index in the group's order (optional;
-#       last when omitted)
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# Make pane $1 a member of $2's group, out of view. Rules: tmuxy_core::groups, run by the `group join` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 

@@ -116,6 +116,14 @@ export function getTabText(pane: TmuxPane, titleOverride?: string): string {
 }
 
 /**
+ * The pinned terminal column's title: what its pane is running, or the shell
+ * it is about to start while the pane is still being broken out.
+ */
+export function sidebarShellTitle(pane: TmuxPane | null): string {
+  return pane ? getTabText(pane) : 'shell';
+}
+
+/**
  * The pane's title with any icon the application prefixed to it removed, so
  * the icon is drawn once — in the icon's place — rather than twice.
  */

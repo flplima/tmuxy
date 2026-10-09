@@ -1019,5 +1019,3 @@ function AnimatedPaneWrapper({
     </div>
   );
 }
-
-export default PaneLayout;

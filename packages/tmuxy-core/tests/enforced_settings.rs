@@ -21,7 +21,9 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{
     CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::StateUpdate;
+
+mod common;
 
 /// Keeps what the monitor reports so a failure can say what went wrong.
 #[derive(Default)]
@@ -62,7 +64,7 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
     let socket = format!("tmuxy-enforced-settings-{}", std::process::id());
     std::env::set_var("TMUX_SOCKET", &socket);
 
-    executor::execute_tmux_command(&["new-session", "-d", "-s", "app", "sleep", "60"]).unwrap();
+    common::tmux(&["new-session", "-d", "-s", "app", "sleep", "60"]).unwrap();
 
     // A session configured exactly the wrong way round, the way a user's
     // tmux.conf leaves it. Every one of these must be overridden on connect.
@@ -74,17 +76,16 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
         ("allow-rename", "off"),
         ("set-titles", "off"),
     ] {
-        executor::execute_tmux_command(&["set-option", "-t", "app", key, value]).unwrap();
+        common::tmux(&["set-option", "-t", "app", key, value]).unwrap();
     }
-    executor::execute_tmux_command(&["set-window-option", "-t", "app", "aggressive-resize", "on"])
-        .unwrap();
+    common::tmux(&["set-window-option", "-t", "app", "aggressive-resize", "on"]).unwrap();
 
     let config = MonitorConfig {
         session: "app".to_string(),
         create_session: false,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("control-mode connection on the scratch socket");
     let recorder = std::sync::Arc::new(Recorder::default());
@@ -129,5 +130,5 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
 
     tx.send(MonitorCommand::Shutdown).await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = executor::execute_tmux_command(&["kill-server"]);
+    let _ = common::tmux(&["kill-server"]);
 }

@@ -41,7 +41,6 @@ This directory contains architectural and design documentation for the tmuxy pro
 | [TESTS.md](TESTS.md)             | Every test layer and the CI job that runs it, where a new test belongs, known coverage gaps, and the guidelines for each test type          | Writing, placing or debugging tests; reading a CI failure    |
 | [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each             | Benchmarking, profiling, or investigating latency            |
 | [TELEMETRY.md](TELEMETRY.md)     | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: schema, instrumentation seams, redaction boundary | Debugging complex cross-layer issues; adding instrumentation |
-| [RUNBOOK.md](RUNBOOK.md)         | Task-to-command matrix and practical execution order                                                                                        | Choosing the right command set for a specific change         |
 | [CI-TRIAGE.md](CI-TRIAGE.md)     | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points                                                | Investigating red GitHub Actions runs                        |
 
 ### Protocols & Rendering

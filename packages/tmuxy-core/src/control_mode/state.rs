@@ -139,7 +139,7 @@ fn is_graphics_payload(title: &str) -> bool {
 
 /// Result of processing a control mode event
 #[derive(Debug, Default)]
-pub struct ProcessEventResult {
+pub(crate) struct ProcessEventResult {
     /// Whether state changed in a way that should trigger a UI update
     pub state_changed: bool,
     /// Pane IDs that need their content refreshed via capture-pane
@@ -622,6 +622,18 @@ impl PaneState {
         delta
     }
 
+    /// Replay the `%output` that arrived for this pane before it existed —
+    /// during a split, `%output` often lands before the `%layout-change` or
+    /// list-panes row that creates the pane. Returns how many bytes it was.
+    fn replay_early_output(&mut self, early_output: &mut HashMap<PaneId, Vec<u8>>) -> usize {
+        let Some(early) = early_output.remove(&self.id) else {
+            return 0;
+        };
+        self.output_bytes += early.len() as u64;
+        self.process_output(&early);
+        early.len()
+    }
+
     /// Process new output for this pane (appends to existing buffer)
     pub fn process_output(&mut self, content: &[u8]) {
         self.content_dirty = true;
@@ -938,9 +950,13 @@ pub struct WindowState {
 }
 
 impl WindowState {
-    pub fn new(id: WindowId) -> Self {
+    /// `index` is the window's positional index, which is independent of the
+    /// number in its id: `%window-add` carries only the id, so callers pass a
+    /// provisional index (see `next_window_index`) until list-windows reports
+    /// the real one.
+    pub fn new(id: WindowId, index: u32) -> Self {
         Self {
-            index: id.number(),
+            index,
             id,
             name: String::new(),
             active: false,
@@ -1001,104 +1017,32 @@ struct LayoutPane {
     height: u32,
 }
 
-/// Parse a tmux layout string (after checksum removal) into pane geometries.
-///
-/// The format is recursive:
-/// - Leaf: `WxH,x,y,pane_index`
-/// - Vertical split: `WxH,x,y[child,child,...]`
-/// - Horizontal split: `WxH,x,y{child,child,...}`
-///
-/// Positions (x,y) in the layout are absolute (relative to window origin).
+/// The leaves of a tmux layout string, in order, as pane geometries. The
+/// tree itself is `layout::parse`'s; positions are absolute (relative to the
+/// window origin). A layout that does not parse yields no panes.
 fn parse_layout_panes(layout: &str) -> Vec<LayoutPane> {
-    let bytes = layout.as_bytes();
-    let mut pos = 0;
+    fn leaves(node: &crate::layout::Node, out: &mut Vec<LayoutPane>) {
+        match node {
+            crate::layout::Node::Leaf { w, h, x, y, pane } => out.push(LayoutPane {
+                id: PaneId::from_number(*pane),
+                index: *pane,
+                x: *x,
+                y: *y,
+                width: *w,
+                height: *h,
+            }),
+            crate::layout::Node::Split { children, .. } => {
+                for child in children {
+                    leaves(child, out);
+                }
+            }
+        }
+    }
     let mut panes = Vec::new();
-    parse_layout_node(bytes, &mut pos, &mut panes);
+    if let Some(root) = crate::layout::parse(layout) {
+        leaves(&root, &mut panes);
+    }
     panes
-}
-
-fn parse_layout_u32(bytes: &[u8], pos: &mut usize) -> Option<u32> {
-    let start = *pos;
-    while *pos < bytes.len() && bytes[*pos].is_ascii_digit() {
-        *pos += 1;
-    }
-    if *pos == start {
-        return None;
-    }
-    std::str::from_utf8(&bytes[start..*pos]).ok()?.parse().ok()
-}
-
-fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>) {
-    // Parse WxH
-    let width = match parse_layout_u32(bytes, pos) {
-        Some(w) => w,
-        None => return,
-    };
-    if *pos >= bytes.len() || bytes[*pos] != b'x' {
-        return;
-    }
-    *pos += 1; // skip 'x'
-    let height = match parse_layout_u32(bytes, pos) {
-        Some(h) => h,
-        None => return,
-    };
-
-    // Skip comma before x
-    if *pos < bytes.len() && bytes[*pos] == b',' {
-        *pos += 1;
-    }
-    let x = match parse_layout_u32(bytes, pos) {
-        Some(v) => v,
-        None => return,
-    };
-
-    // Skip comma before y
-    if *pos < bytes.len() && bytes[*pos] == b',' {
-        *pos += 1;
-    }
-    let y = match parse_layout_u32(bytes, pos) {
-        Some(v) => v,
-        None => return,
-    };
-
-    // What follows determines node type:
-    // '[' or '{' → container with children
-    // ','        → leaf with pane index
-    if *pos < bytes.len() && (bytes[*pos] == b'[' || bytes[*pos] == b'{') {
-        // Container node
-        let open = bytes[*pos];
-        let close = if open == b'[' { b']' } else { b'}' };
-        *pos += 1; // skip open bracket
-
-        loop {
-            if *pos >= bytes.len() {
-                break;
-            }
-            if bytes[*pos] == close {
-                *pos += 1; // skip close bracket
-                break;
-            }
-            parse_layout_node(bytes, pos, panes);
-            // Skip child separator comma
-            if *pos < bytes.len() && bytes[*pos] == b',' {
-                *pos += 1;
-            }
-        }
-    } else if *pos < bytes.len() && bytes[*pos] == b',' {
-        // Leaf node: ,pane_index
-        *pos += 1; // skip comma
-        if let Some(pane_idx) = parse_layout_u32(bytes, pos) {
-            panes.push(LayoutPane {
-                id: PaneId::from_number(pane_idx),
-                index: pane_idx,
-                x,
-                y,
-                width,
-                height,
-            });
-        }
-    }
-    // else: end of input or unexpected char — return gracefully
 }
 
 /// Aggregates control mode events into coherent state
@@ -1539,27 +1483,9 @@ impl StateAggregator {
         }
     }
 
-    /// Enable or disable window/layout emission suppression.
-    /// When suppressed, window/layout events still update internal state
-    /// but `process_event()` returns `state_changed: false` for those events.
-    pub fn set_suppress_window_emissions(&mut self, suppress: bool) {
-        self.suppress_window_emissions = suppress;
-    }
-
-    /// Check if window emissions are currently suppressed.
-    pub fn is_suppressing_window_emissions(&self) -> bool {
-        self.suppress_window_emissions
-    }
-
-    /// Get the current number of windows tracked by the aggregator.
-    pub fn window_count(&self) -> usize {
-        self.windows.len()
-    }
-
     /// Arm settling for a multi-step compound command (e.g. `splitw ; breakp`).
     /// Suppresses window/layout emissions until `tick(now)` fires the
     /// consolidated emit, or until `clear_settling()` is called explicitly.
-    /// `now` is sourced from `Ctx::clock` so tests can drive timing.
     pub fn arm_settling(&mut self, now: Instant) {
         self.settling_started = Some(now);
         self.settling_awaiting_first_event = true;
@@ -1678,9 +1604,9 @@ impl StateAggregator {
 
     /// Provisional positional index for a brand-new window: one past the
     /// current highest. tmux window IDs (`@N`, monotonic allocation) and
-    /// window indices (positional) are independent, so `WindowState::new`'s
-    /// fallback of parsing the index out of the id is wrong the moment they
-    /// diverge (any window close/create churn). `%window-add`/`%window-renamed`
+    /// window indices (positional) are independent, so an index parsed out of
+    /// the id is wrong the moment they diverge (any window close/create
+    /// churn). `%window-add`/`%window-renamed`
     /// carry only the id; a correct index otherwise waits for the follow-up
     /// list-windows. A new window is almost always appended at the end, so
     /// max+1 is right immediately; list-windows corrects the rare
@@ -1820,9 +1746,8 @@ impl StateAggregator {
             .map(|img| (img.data.clone(), img.mime_type.clone()))
     }
 
-    /// Like `step`, but accepts an explicit `now` so callers (the monitor)
-    /// can drive settling extension from `Ctx::clock` and tests can advance
-    /// time deterministically.
+    /// Like `step`, but accepts an explicit `now` so tests can drive the
+    /// settling extension deterministically.
     pub fn step_at(&mut self, event: ControlModeEvent, now: Instant) -> StepResult {
         // A window closing needs the same re-list as one appearing: with
         // renumber-windows on, tmux shifts every later window's index and
@@ -1995,7 +1920,7 @@ impl StateAggregator {
 
     /// Process a control mode event.
     /// Returns information about state changes and any panes that need content refresh.
-    pub fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
+    pub(crate) fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
         match event {
             // %output and %extended-output differ only in the extra metadata
             // the parser already discarded — one handler serves both.
@@ -2062,14 +1987,12 @@ impl StateAggregator {
             ControlModeEvent::WindowAdd { window_id } => {
                 // Assign a provisional positional index now (see
                 // next_window_index) — `%window-add` carries only the id, and
-                // WindowState::new's id-derived index is wrong once ids and
-                // indices diverge (e.g. `tmuxy tab create` makes @1 at index 2).
+                // an index read out of the id is wrong once ids and indices
+                // diverge (e.g. `tmuxy tab create` makes @1 at index 2).
                 let provisional_index = self.next_window_index();
-                self.windows.entry(window_id.clone()).or_insert_with(|| {
-                    let mut w = WindowState::new(window_id.clone());
-                    w.index = provisional_index;
-                    w
-                });
+                self.windows
+                    .entry(window_id.clone())
+                    .or_insert_with(|| WindowState::new(window_id.clone(), provisional_index));
                 // Don't emit state yet - wait for WindowRenamed or list-windows
                 // to populate the window name. This prevents brief flashes of
                 // windows appearing with empty names (which breaks stack detection).
@@ -2092,14 +2015,13 @@ impl StateAggregator {
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
                 // Create window if it doesn't exist yet (rename can arrive before
-                // add). Provisional positional index (see next_window_index) —
-                // don't inherit WindowState::new's wrong id-derived index.
+                // add), with a provisional positional index (see
+                // next_window_index).
                 let provisional_index = self.next_window_index();
-                let window = self.windows.entry(window_id.clone()).or_insert_with(|| {
-                    let mut w = WindowState::new(window_id.clone());
-                    w.index = provisional_index;
-                    w
-                });
+                let window = self
+                    .windows
+                    .entry(window_id.clone())
+                    .or_insert_with(|| WindowState::new(window_id.clone(), provisional_index));
                 window.name = name;
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
@@ -2155,15 +2077,29 @@ impl StateAggregator {
             ControlModeEvent::PasteBufferChanged { buffer_name } => {
                 // tmux does not forward OSC 52 to control-mode clients, so a
                 // copy-mode yank only surfaces as %paste-buffer-changed. The
-                // native monitor reads the buffer out-of-band via a subprocess;
-                // the push-based (wasm) path has only the control channel, so we
-                // read it in-band, wrapped in sentinel lines that make the
-                // response unambiguously identifiable among interleaved
-                // capture-pane replies.
+                // buffer is read in-band over the control channel, wrapped in
+                // sentinel lines that make the response unambiguously
+                // identifiable among interleaved capture-pane replies; the
+                // reply becomes a clipboard write on the same path as OSC 52.
+                //
+                // SEC-13: paste buffers are global to the tmux SERVER, and the
+                // event names no origin — so a `load-buffer secret.txt` or a
+                // yank in someone else's session would otherwise be mirrored
+                // to every client of this one. The only available signal for
+                // "did this come from here?" is a pane of THIS session being
+                // in copy mode, which is what a yank leaves behind.
+                if !self.has_pane_in_copy_mode() {
+                    debug!(
+                        buffer = %buffer_name,
+                        "paste buffer changed with no pane of this session in copy mode; not mirrored"
+                    );
+                    return ProcessEventResult::default();
+                }
                 self.pending_buffer_reads.push_back(buffer_name.clone());
                 ProcessEventResult {
                     commands: vec![format!(
-                        "display-message -p 'TMUXY_BUF_BEGIN' ; show-buffer -b '{buffer_name}' ; display-message -p 'TMUXY_BUF_END'"
+                        "display-message -p 'TMUXY_BUF_BEGIN' ; show-buffer -b {} ; display-message -p 'TMUXY_BUF_END'",
+                        crate::tmux_quote(&buffer_name)
                     )],
                     ..Default::default()
                 }
@@ -2602,11 +2538,7 @@ impl StateAggregator {
                 pane.x = lp.x;
                 pane.y = lp.y;
                 pane.active = active_pane_id.as_ref() == Some(&lp.id);
-                // Replay any %output that arrived before this pane was created.
-                // During split, %output often arrives before %layout-change.
-                if let Some(early) = self.early_output.remove(&lp.id) {
-                    pane.process_output(&early);
-                }
+                pane.replay_early_output(&mut self.early_output);
                 self.panes.insert(lp.id.clone(), pane);
                 // Queue capture for new panes so their content is fetched
                 // authoritatively. Layout dimensions may include the
@@ -2915,16 +2847,8 @@ impl StateAggregator {
             PaneState::new(pane_id.clone(), width, height).with_scrollback_rows(scrollback_rows)
         });
 
-        // Replay any early %output that arrived before this pane was created
         if is_new_pane {
-            let early_bytes = match self.early_output.remove(&pane_id) {
-                Some(early) => {
-                    pane.output_bytes += early.len() as u64;
-                    pane.process_output(&early);
-                    early.len()
-                }
-                None => 0,
-            };
+            let early_bytes = pane.replay_early_output(&mut self.early_output);
             debug!(
                 pane = %pane_id,
                 window = ?window_id,
@@ -3062,7 +2986,7 @@ impl StateAggregator {
         let window = self
             .windows
             .entry(window_id.clone())
-            .or_insert_with(|| WindowState::new(window_id.clone()));
+            .or_insert_with(|| WindowState::new(window_id.clone(), index));
 
         window.index = index;
         window.name = name;
@@ -3171,7 +3095,7 @@ impl StateAggregator {
         };
 
         // Compute delta (seq assigned after empty check)
-        let mut delta = crate::TmuxDelta::new(0);
+        let mut delta = crate::TmuxDelta::default();
 
         // Check for dimension changes
         if current.total_width != prev.total_width {
@@ -3635,6 +3559,42 @@ mod tests {
         assert!(agg.pane_scrollback(&pid("%99"), -10, 0).is_none());
     }
     use super::*;
+
+    /// The geometry walk over `layout::parse` yields the same panes, in the
+    /// same order, as the parser it replaced (output captured from the old
+    /// one before it was deleted). Only the body is passed: the call sites
+    /// strip the checksum first.
+    #[test]
+    fn layout_panes_match_the_previous_parser() {
+        fn dump(layout: &str) -> Vec<(String, u32, u32, u32, u32, u32)> {
+            parse_layout_panes(layout)
+                .iter()
+                .map(|p| (p.id.to_string(), p.index, p.x, p.y, p.width, p.height))
+                .collect()
+        }
+        let nested = "200x50,0,0{100x50,0,0,1,99x50,101,0[99x25,101,0,2,99x24,101,26{49x24,101,26,3,49x24,151,26,4}]}";
+        assert_eq!(
+            dump(nested),
+            vec![
+                ("%1".to_string(), 1, 0, 0, 100, 50),
+                ("%2".to_string(), 2, 101, 0, 99, 25),
+                ("%3".to_string(), 3, 101, 26, 49, 24),
+                ("%4".to_string(), 4, 151, 26, 49, 24),
+            ]
+        );
+        assert_eq!(
+            dump("80x24,0,0,7"),
+            vec![("%7".to_string(), 7, 0, 0, 80, 24)]
+        );
+        assert_eq!(
+            dump("80x24,0,0[80x11,0,0,1,80x12,0,12,2]"),
+            vec![
+                ("%1".to_string(), 1, 0, 0, 80, 11),
+                ("%2".to_string(), 2, 0, 12, 80, 12),
+            ]
+        );
+        assert!(dump("garbage").is_empty());
+    }
     use crate::ids::test_ids::{gid, pid, wid};
 
     /// A pane as the client sees it, placed in window `@0`.
@@ -3656,7 +3616,7 @@ mod tests {
     /// clipboard gate asks about.
     fn seed_active_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
         seed_pane(agg, pane_id, window_id);
-        let mut window = WindowState::new(wid(window_id));
+        let mut window = WindowState::new(wid(window_id), 0);
         window.active_pane_id = Some(pid(pane_id));
         agg.windows.insert(wid(window_id), window);
         agg.active_window_id = Some(wid(window_id));
@@ -4062,6 +4022,66 @@ mod tests {
         let earlier = Instant::now() - MIN_CLIPBOARD_INTERVAL;
         agg.panes.get_mut("%0").unwrap().last_clipboard_write = Some(earlier);
         assert_eq!(agg.process_event(write()).clipboard_writes.len(), 1);
+    }
+
+    /// SEC-13. A paste buffer is server-global and `%paste-buffer-changed`
+    /// names no origin, so it is read (in-band, marker-wrapped) only while a
+    /// pane of this session is in copy mode — the trace a yank leaves. Both
+    /// hosts share this arm, so both have the gate.
+    #[test]
+    fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
+        let mut agg = StateAggregator::new();
+        seed_active_pane(&mut agg, "%0", "@0");
+        let changed = || ControlModeEvent::PasteBufferChanged {
+            buffer_name: "buffer0".to_string(),
+        };
+
+        let outside = agg.step(changed());
+        assert!(
+            !outside
+                .effects
+                .iter()
+                .any(|e| matches!(e, SideEffect::SendTmuxCommand(_))),
+            "no pane in copy mode: the buffer is not read ({:?})",
+            outside.effects
+        );
+
+        agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+        let inside = agg.step(changed());
+        let read = inside
+            .effects
+            .iter()
+            .find_map(|e| match e {
+                SideEffect::SendTmuxCommand(cmd) => Some(cmd.as_str()),
+                _ => None,
+            })
+            .expect("a pane in copy mode: the buffer is read over the control channel");
+        assert!(read.contains("TMUXY_BUF_BEGIN") && read.contains("show-buffer -b 'buffer0'"));
+    }
+
+    /// A buffer is named by whoever ran `set-buffer -b`, so the name is quoted
+    /// into the read: a quote in it must neither break the read nor end the
+    /// argument and run the rest as a command of its own.
+    #[test]
+    fn a_paste_buffer_name_is_quoted_into_its_read() {
+        let mut agg = StateAggregator::new();
+        seed_active_pane(&mut agg, "%0", "@0");
+        agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+        let read = agg
+            .step(ControlModeEvent::PasteBufferChanged {
+                buffer_name: "x' ; run-shell 'touch /tmp/pwned".to_string(),
+            })
+            .effects
+            .into_iter()
+            .find_map(|e| match e {
+                SideEffect::SendTmuxCommand(cmd) => Some(cmd),
+                _ => None,
+            })
+            .expect("a pane in copy mode: the buffer is read");
+        assert!(
+            read.contains(r"show-buffer -b 'x'\'' ; run-shell '\''touch /tmp/pwned' ;"),
+            "{read}"
+        );
     }
 
     #[test]
@@ -4919,9 +4939,8 @@ mod tests {
         // The tmuxy guest snapshot already has window id and index diverged:
         // root @0 sits at positional index 1.
         let mut agg = StateAggregator::new();
-        let mut root = WindowState::new(wid("@0"));
-        root.index = 1;
-        agg.windows.insert(wid("@0"), root);
+        agg.windows
+            .insert(wid("@0"), WindowState::new(wid("@0"), 1));
 
         // `tmuxy tab create` allocates window @1; %window-add carries only the
         // id. The new window must land at index 2 (one past the highest), NOT
@@ -4938,9 +4957,8 @@ mod tests {
     #[test]
     fn window_renamed_creating_a_window_also_gets_provisional_index() {
         let mut agg = StateAggregator::new();
-        let mut root = WindowState::new(wid("@0"));
-        root.index = 1;
-        agg.windows.insert(wid("@0"), root);
+        agg.windows
+            .insert(wid("@0"), WindowState::new(wid("@0"), 1));
 
         // A rename can arrive before the add and creates the window; it must
         // get the same provisional index, not the id-derived guess.
@@ -4962,7 +4980,8 @@ mod tests {
     fn metadata_delta_shares_content_and_omits_grids() {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
-        agg.windows.insert(wid("@0"), WindowState::new(wid("@0")));
+        agg.windows
+            .insert(wid("@0"), WindowState::new(wid("@0"), 0));
         agg.step(ControlModeEvent::Output {
             pane_id: pid("%0"),
             content: b"hello world\r\n".to_vec(),
@@ -5012,9 +5031,8 @@ mod tests {
         // Provisional is just a good default for the gap; the authoritative
         // list-windows must always win (e.g. an insert-in-the-middle case).
         let mut agg = StateAggregator::new();
-        let mut root = WindowState::new(wid("@0"));
-        root.index = 1;
-        agg.windows.insert(wid("@0"), root);
+        agg.windows
+            .insert(wid("@0"), WindowState::new(wid("@0"), 1));
         agg.step(ControlModeEvent::WindowAdd {
             window_id: wid("@1"),
         });

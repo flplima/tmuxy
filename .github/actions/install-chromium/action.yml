@@ -1,0 +1,17 @@
+name: Install Chromium
+# Playwright's Chromium, with its browser download cached. The download is
+# ~130MB and identical for one lockfile; only the apt side of `--with-deps`
+# still happens on a cache hit.
+runs:
+  using: composite
+  steps:
+    - name: Cache Playwright browsers
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+        restore-keys: ${{ runner.os }}-playwright-
+
+    - name: Install Chromium
+      shell: bash
+      run: npx playwright install chromium --with-deps

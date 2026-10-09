@@ -6,8 +6,8 @@
 //! timing) via a `tracing` `Layer`, never terminal content:
 //!
 //! - a **target allowlist** admits only `tmuxy_core` / `tmuxy_server` /
-//!   `tmuxy_tauri` events and explicitly excludes the `tmuxy::debug_log` target
-//!   (which drains raw control-mode output to `~/tmuxy-debug.log`);
+//!   `tmuxy_tauri` events, and the layer's floor is `debug`: raw control-mode
+//!   output is logged at `trace`, which never reaches it;
 //! - a **field allowlist** keeps only content-free keys verbatim, **hashes**
 //!   name/path-like keys to a stable opaque id, and **scrubs+truncates**
 //!   error/message strings; everything else is dropped.
@@ -188,8 +188,9 @@ fn salt() -> u64 {
 // =============================================================================
 
 /// Resolve the gating rules from `docs/TELEMETRY.md` and, if tracing should be
-/// on, spawn the writer and start recording. Returns the resolved file path
-/// when enabled, `None` when off.
+/// on, spawn the writer, start recording and say so on stderr — loudly, so a
+/// trace is never a surprise. Returns the resolved file path when enabled,
+/// `None` when off.
 ///
 /// Precedence, highest first:
 /// 1. the `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switches — always off;
@@ -230,6 +231,12 @@ pub fn init(flag: Option<Option<String>>, dev_mode: bool) -> Option<PathBuf> {
     }
     let path = start_writer()?;
     ACTIVE.store(true, Ordering::Relaxed);
+    eprintln!(
+        "tmuxy: action tracing ON [level={}] → {} (local only, never uploaded; \
+         TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
+        level_name(),
+        path.display()
+    );
     Some(path)
 }
 
@@ -353,16 +360,11 @@ fn is_truthy(var: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Default trace path under the XDG state dir (`~/.local/state/tmuxy` on Linux,
-/// `~/Library/Application Support/tmuxy` on macOS, which has no state dir) —
-/// deliberately outside any directory served by `/api/file`. Resolving the path
-/// creates nothing; the directory is made when the writer actually opens it.
+/// Default trace path under the state dir (`crate::paths`) — deliberately
+/// outside any directory served by `/api/browse`. Resolving the path creates
+/// nothing; the directory is made when the writer actually opens it.
 fn default_path() -> Option<PathBuf> {
-    let dir = dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))?
-        .join("tmuxy");
-    Some(dir.join("trace.ndjson"))
+    Some(crate::paths::trace_file())
 }
 
 // =============================================================================
@@ -715,9 +717,6 @@ struct SpanState {
 }
 
 fn target_allowed(target: &str) -> bool {
-    if target.starts_with("tmuxy::debug_log") {
-        return false;
-    }
     target.starts_with("tmuxy_core")
         || target.starts_with("tmuxy_server")
         || target.starts_with("tmuxy_tauri")
@@ -819,10 +818,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_admits_only_tmuxy_targets_and_excludes_debug_log() {
+    fn allowlist_admits_only_tmuxy_targets() {
         assert!(target_allowed("tmuxy_core::control_mode::monitor"));
         assert!(target_allowed("tmuxy_server::sse"));
-        assert!(!target_allowed("tmuxy::debug_log"));
         assert!(!target_allowed("hyper::proto"));
         assert!(!target_allowed("tower::buffer"));
     }

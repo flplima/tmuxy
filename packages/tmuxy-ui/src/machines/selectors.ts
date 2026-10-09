@@ -16,7 +16,7 @@ import type {
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 import type { TabDrop } from '../utils/tabStripDrop';
 import type { GroupDrop } from '../utils/groupDrop';
-import { clampDelta } from './resize/limits';
+import { dragCells, resizedBand } from './resize/limits';
 import { CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../constants';
 import {
   DEFAULT_CHAR_WIDTH,
@@ -83,7 +83,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // resizing briefly reports y=0, which computePaneBox turns into a dropped
   // header row and a 1-row content jump — so rendering them is what caused the
   // wobble. Rebuilding from the snapshot keeps everything stable and monotonic.
-  const { paneId, handle, pixelDelta, originalPane, originalGeometry } = resize;
+  const { paneId, handle, originalGeometry } = resize;
 
   if (!activePanes.some((p) => p.tmuxId === paneId)) {
     return activePanes;
@@ -93,75 +93,36 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // the layout tmux is being asked for are the same thing. Without it the
   // pane on the near side kept growing under the pointer while the one across
   // the line bottomed out at a single cell, and they overlapped.
-  const deltaCols = clampDelta(Math.round(pixelDelta.x / charWidth), resize.limits);
-  const deltaRows = clampDelta(Math.round(pixelDelta.y / charHeight), resize.limits);
-  const og = originalGeometry;
-  const t = og[paneId] ?? {
-    x: originalPane.x,
-    y: originalPane.y,
-    width: originalPane.width,
-    height: originalPane.height,
-  };
-  // The coordinate of the dragged edge at the start of the resize.
-  const edge =
-    handle === 'e' ? t.x + t.width : handle === 'w' ? t.x : handle === 's' ? t.y + t.height : t.y; // 'n'
+  const band = resizedBand(
+    originalGeometry,
+    paneId,
+    handle,
+    dragCells(resize, charWidth, charHeight),
+  );
 
   return activePanes.map((pane) => {
-    const o = og[pane.tmuxId];
-    if (!o) return pane; // pane appeared mid-resize; leave as-is
-    const p = { ...pane, x: o.x, y: o.y, width: o.width, height: o.height };
-    const right = o.x + o.width;
-    const bottom = o.y + o.height;
-
-    if (handle === 'e') {
-      if (right === edge)
-        p.width = Math.max(1, o.width + deltaCols); // grower
-      else if (o.x === edge + 1) {
-        p.x = o.x + deltaCols; // shrinker to the right
-        p.width = Math.max(1, o.width - deltaCols);
-      }
-    } else if (handle === 'w') {
-      if (o.x === edge) {
-        p.x = o.x + deltaCols; // grower (moves right edge = left, shrinks)
-        p.width = Math.max(1, o.width - deltaCols);
-      } else if (right === edge - 1) {
-        p.width = Math.max(1, o.width + deltaCols); // shrinker to the left
-      }
-    } else if (handle === 's') {
-      if (bottom === edge)
-        p.height = Math.max(1, o.height + deltaRows); // grower row
-      else if (o.y === edge + 1 || o.y === edge + 2) {
-        p.y = o.y + deltaRows; // shrinker row below
-        p.height = Math.max(1, o.height - deltaRows);
-      }
-    } else if (handle === 'n') {
-      if (o.y === edge) {
-        p.y = o.y + deltaRows; // grower (top edge moves, shrinks)
-        p.height = Math.max(1, o.height - deltaRows);
-      } else if (bottom === edge - 1 || bottom === edge - 2) {
-        p.height = Math.max(1, o.height + deltaRows); // shrinker row above
-      }
-    }
-    return p;
+    const frozen = originalGeometry[pane.tmuxId];
+    if (!frozen) return pane; // pane appeared mid-resize; leave as-is
+    return { ...pane, ...(band[pane.tmuxId] ?? frozen) };
   });
 }
+
+/** Everything the preview panes are computed from: the memo key of every selector built on them. */
+const previewInputs = (ctx: AppMachineContext) => ({
+  panes: ctx.panes,
+  resize: ctx.resize,
+  drag: ctx.drag,
+  charWidth: ctx.charWidth,
+  charHeight: ctx.charHeight,
+  activeWindowId: ctx.activeWindowId,
+  activePaneId: ctx.activePaneId,
+});
 
 /**
  * Memoized version of selectPreviewPanes.
  * Only recomputes when panes, resize state, drag state, char dimensions, or active window change.
  */
-export const selectPreviewPanes = createMemoizedSelector(
-  (ctx: AppMachineContext) => ({
-    panes: ctx.panes,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
-  }),
-  selectPreviewPanesUncached,
-);
+export const selectPreviewPanes = createMemoizedSelector(previewInputs, selectPreviewPanesUncached);
 
 /**
  * Select raw panes (unmodified server state)
@@ -605,6 +566,18 @@ export function getActivePaneInGroup(context: AppMachineContext, group: PaneGrou
   return null;
 }
 
+/** The group members parked out of view: every member but the one in the active window. */
+function hiddenGroupPaneIds(context: AppMachineContext): Set<PaneId> {
+  const hidden = new Set<PaneId>();
+  for (const group of Object.values(context.paneGroups)) {
+    const shown = getActivePaneInGroup(context, group);
+    for (const paneId of group.paneIds) {
+      if (paneId !== shown) hidden.add(paneId);
+    }
+  }
+  return hidden;
+}
+
 /**
  * Select visible panes - filters out hidden group panes
  * For groups, only the pane in the active window is visible.
@@ -620,29 +593,9 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
     previewPanes = previewPanes.filter((p) => !floatPaneIds[p.tmuxId]);
   }
 
-  const groupsArray = Object.values(context.paneGroups);
-
-  let result: TmuxPane[];
-  if (groupsArray.length === 0) {
-    result = previewPanes;
-  } else {
-    // Build a Set of hidden pane IDs for O(1) lookup
-    const hiddenPaneIds = new Set<PaneId>();
-
-    for (const group of groupsArray) {
-      // The active pane is whichever one is in the active window
-      const activePaneId = getActivePaneInGroup(context, group);
-
-      // Hide all group panes except the one in the active window
-      for (const paneId of group.paneIds) {
-        if (paneId !== activePaneId) {
-          hiddenPaneIds.add(paneId);
-        }
-      }
-    }
-
-    result = previewPanes.filter((pane) => !hiddenPaneIds.has(pane.tmuxId));
-  }
+  const hidden = hiddenGroupPaneIds(context);
+  const result =
+    hidden.size === 0 ? previewPanes : previewPanes.filter((pane) => !hidden.has(pane.tmuxId));
 
   // Sort by tmuxId for stable DOM order. Panes are absolutely positioned so
   // DOM order has no visual effect, but a stable sort prevents React from
@@ -701,14 +654,8 @@ export const selectVisibleFloats = createMemoizedSelector(
 
 export const selectVisiblePanes = createMemoizedSelector(
   (ctx: AppMachineContext) => ({
-    panes: ctx.panes,
+    ...previewInputs(ctx),
     paneGroups: ctx.paneGroups,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
     floatPanes: ctx.floatPanes,
   }),
   selectVisiblePanesUncached,
@@ -724,16 +671,10 @@ export const selectVisiblePanes = createMemoizedSelector(
  * rendering paths (floats) or are intentionally suppressed (group siblings).
  */
 function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[] {
-  const { panes, activeWindowId, floatPanes, paneGroups, windows } = context;
+  const { panes, activeWindowId, floatPanes, windows } = context;
   if (!activeWindowId) return [];
 
-  const hiddenGroupPaneIds = new Set<PaneId>();
-  for (const group of Object.values(paneGroups)) {
-    const activeGroupPaneId = getActivePaneInGroup(context, group);
-    for (const id of group.paneIds) {
-      if (id !== activeGroupPaneId) hiddenGroupPaneIds.add(id);
-    }
-  }
+  const hidden = hiddenGroupPaneIds(context);
 
   // A sidebar's pane is drawn by its own column, so the grid must not keep a
   // second copy of it mounted the way it does for another TAB's panes. Two
@@ -748,7 +689,7 @@ function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[]
     if (pane.windowId === activeWindowId) continue;
     if (sidebarWindowIds.has(pane.windowId)) continue;
     if (floatPanes[pane.tmuxId]) continue;
-    if (hiddenGroupPaneIds.has(pane.tmuxId)) continue;
+    if (hidden.has(pane.tmuxId)) continue;
     result.push(pane);
   }
   return result.sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
@@ -803,15 +744,7 @@ export function selectPaneGroupPanes(context: AppMachineContext, group: PaneGrou
  * Memoized Map for O(1) pane lookup from preview panes.
  */
 const selectPreviewPaneMap = createMemoizedSelector(
-  (ctx: AppMachineContext) => ({
-    panes: ctx.panes,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
-  }),
+  previewInputs,
   (context: AppMachineContext): Map<PaneId, TmuxPane> => {
     const previewPanes = selectPreviewPanes(context);
     const map = new Map<PaneId, TmuxPane>();
@@ -823,15 +756,7 @@ const selectPreviewPaneMap = createMemoizedSelector(
 );
 
 export const selectPaneById = createMemoizedSelectorWithArg(
-  (ctx: AppMachineContext, _paneId: PaneId) => ({
-    panes: ctx.panes,
-    resize: ctx.resize,
-    drag: ctx.drag,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-    activeWindowId: ctx.activeWindowId,
-    activePaneId: ctx.activePaneId,
-  }),
+  (ctx: AppMachineContext, _paneId: PaneId) => previewInputs(ctx),
   (context: AppMachineContext, paneId: PaneId): TmuxPane | undefined => {
     const paneMap = selectPreviewPaneMap(context);
     return paneMap.get(paneId) ?? context.panes.find((p) => p.tmuxId === paneId);

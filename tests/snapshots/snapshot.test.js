@@ -5,8 +5,10 @@
  * and tmux CLI, then compares them to find mismatches. Read-only — no interactions,
  * no mutations.
  *
- * Structural comparison (windows, panes, content, groups, floats), then the
- * visual invariants: layout geometry, the tab strip, and the active-pane marker.
+ * One test: the structural comparison (windows, panes, content, groups,
+ * floats), then the tab strip against the windows tmux has. It is also the
+ * nightly tmux-matrix smoke (nightly-tmux-matrix.yml), so it stays a file of
+ * its own. Layout geometry is 1-input Scenario 23's, at three viewports.
  */
 
 const { getBrowser, waitForServer, delay } = require('../helpers/browser');
@@ -16,7 +18,6 @@ const {
   extractTmuxState,
   compareSnapshots,
 } = require('../helpers/snapshot-compare');
-const { assertLayoutInvariants } = require('../helpers/layout');
 
 let browser, page;
 // Track whether we own the page (created it) vs borrowed an existing one
@@ -179,9 +180,9 @@ function findExistingTmuxyPage(browser) {
   return null;
 }
 
-// ==================== Structural Checks ====================
+// ==================== Structure and tab strip ====================
 
-test('structural snapshot: UI matches tmux state', async () => {
+test('UI matches tmux: structure, then the tab strip against the visible windows', async () => {
   const sessionName = await page.evaluate(() => window.app?.getSnapshot()?.context?.sessionName);
   expect(sessionName).toBeTruthy();
 
@@ -224,17 +225,9 @@ test('structural snapshot: UI matches tmux state', async () => {
   console.warn(`  Snapshot: ${passed}/${total} checks passed`);
 
   expect(result.pass).toBe(true);
-});
 
-// ==================== Visual/DOM Checks ====================
-
-test('layout invariants: no overlap, centering, padding, gaps', async () => {
-  // assertLayoutInvariants throws on failure with detailed messages
-  await assertLayoutInvariants(page, { label: 'snapshot' });
-});
-
-test('tab bar matches visible windows', async () => {
-  const result = await page.evaluate(() => {
+  // The tab strip, against the windows the state says are tabs.
+  const strip = await page.evaluate(() => {
     const snap = window.app?.getSnapshot();
     if (!snap?.context) return null;
     const { windows } = snap.context;
@@ -257,50 +250,22 @@ test('tab bar matches visible windows', async () => {
     return { visibleWindows, domTabs };
   });
 
-  expect(result).not.toBeNull();
-  expect(result.domTabs.length).toBe(result.visibleWindows.length);
+  expect(strip).not.toBeNull();
+  expect(strip.domTabs.length).toBe(strip.visibleWindows.length);
 
   // Every tab — a lone one included — carries the active marker exactly when
   // tmux says it is active (WindowTabs.tsx keeps the active style on a sole
   // tab so the strip reads the same however many tabs there are).
-  for (let i = 0; i < result.visibleWindows.length; i++) {
-    const win = result.visibleWindows[i];
+  for (let i = 0; i < strip.visibleWindows.length; i++) {
+    const win = strip.visibleWindows[i];
     // DOM tabs show "visualIndex:name" where visualIndex = position + 1
     const visualIndex = i + 1;
     const expectedTabName = `${visualIndex}:${win.name}`;
-    expect(result.domTabs[i].name).toBe(expectedTabName);
-    expect(result.domTabs[i].active).toBe(win.active);
+    expect(strip.domTabs[i].name).toBe(expectedTabName);
+    expect(strip.domTabs[i].active).toBe(win.active);
   }
 
   // ...and exactly one of them is marked — a strip with two highlights (or
   // none) means the active flag and the class have drifted.
-  expect(result.domTabs.filter((t) => t.active).length).toBe(1);
-});
-
-// ==================== Active Pane Check ====================
-
-test('active pane has visual indicator in DOM', async () => {
-  const result = await page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context) return null;
-    const { activePaneId, focusedFloatPaneId } = snap.context;
-
-    // When a float is focused, tiled panes are all inactive — skip
-    if (focusedFloatPaneId) return { skip: true };
-
-    const activeEls = Array.from(document.querySelectorAll('.pane-layout-item.pane-active'));
-    const activeIds = activeEls.map((el) => el.getAttribute('data-pane-id'));
-
-    return {
-      skip: false,
-      activePaneId,
-      domActiveIds: activeIds,
-    };
-  });
-
-  expect(result).not.toBeNull();
-  if (result.skip) return;
-
-  expect(result.domActiveIds.length).toBe(1);
-  expect(result.domActiveIds[0]).toBe(result.activePaneId);
+  expect(strip.domTabs.filter((t) => t.active).length).toBe(1);
 });

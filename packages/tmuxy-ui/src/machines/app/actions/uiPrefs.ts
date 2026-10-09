@@ -10,8 +10,8 @@
  * where DOM/localStorage write happen synchronously with state mutation.
  */
 
-import { assign, enqueueActions, sendTo } from 'xstate';
-import type { AppMachineContext, AllAppMachineEvents } from '../../types';
+import { assign, sendTo } from 'xstate';
+import { act, assignCtx } from '../actionTypes';
 import {
   applyTheme,
   applyThemeMode,
@@ -28,41 +28,26 @@ import {
 import { isTauri } from '../../../utils/platform';
 import { applyAppearance } from '../../../utils/appearanceManager';
 
-type Ctx = AppMachineContext;
-type Evt = AllAppMachineEvents;
-
 export const uiPrefsActions = {
-  uiPrefs_applyTheme: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ event, context, enqueue }) => {
-      if (event.type !== 'SET_THEME') return;
-      applyTheme(event.name, context.themeMode);
-      saveThemeToStorage(event.name, context.themeMode);
-      enqueue(assign({ themeName: event.name }));
-      // Only persist to server in Tauri — web clients use localStorage only
-      // so multiple users on the same session each keep their own theme.
-      if (isTauri()) {
-        enqueue(
-          sendTo('tmux', {
-            type: 'INVOKE' as const,
-            cmd: 'set_theme',
-            args: { name: event.name },
-          }),
-        );
-      }
-    },
-  ),
+  uiPrefs_applyTheme: act(({ event, context, enqueue }) => {
+    if (event.type !== 'SET_THEME') return;
+    applyTheme(event.name, context.themeMode);
+    saveThemeToStorage(event.name, context.themeMode);
+    enqueue(assign({ themeName: event.name }));
+    // Only persist to server in Tauri — web clients use localStorage only
+    // so multiple users on the same session each keep their own theme.
+    if (isTauri()) {
+      enqueue(
+        sendTo('tmux', {
+          type: 'INVOKE' as const,
+          cmd: 'set_theme',
+          args: { name: event.name },
+        }),
+      );
+    }
+  }),
 
-  uiPrefs_applyThemeMode: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, context, enqueue }) => {
+  uiPrefs_applyThemeMode: act(({ event, context, enqueue }) => {
     if (event.type !== 'SET_THEME_MODE') return;
     applyThemeMode(event.mode);
     saveThemeToStorage(context.themeName, event.mode);
@@ -86,17 +71,7 @@ export const uiPrefsActions = {
     }
   }),
 
-  uiPrefs_acceptThemeSettings: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, enqueue }) => {
+  uiPrefs_acceptThemeSettings: act(({ event, enqueue }) => {
     if (event.type !== 'THEME_SETTINGS_RECEIVED') return;
     // The appearance has no client-side setting: the config is its only
     // source, so it always applies (and re-applies after a source-file).
@@ -125,17 +100,7 @@ export const uiPrefsActions = {
   // The blinking cursor is one setting for the machine, not one per client:
   // it lives in the tmux options the config seeds, so the flip goes to the
   // backend on every transport and comes back through THEME_SETTINGS_RECEIVED.
-  uiPrefs_toggleCursorBlink: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, context, enqueue }) => {
+  uiPrefs_toggleCursorBlink: act(({ event, context, enqueue }) => {
     if (event.type !== 'TOGGLE_CURSOR_BLINK') return;
     const enabled = !context.cursorBlink;
     enqueue(assign({ cursorBlink: enabled }));
@@ -148,7 +113,7 @@ export const uiPrefsActions = {
     );
   }),
 
-  uiPrefs_setAvailableThemes: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
+  uiPrefs_setAvailableThemes: assignCtx(({ event }) => {
     if (event.type !== 'THEMES_LIST_RECEIVED') return {};
     return { availableThemes: event.themes };
   }),
@@ -158,80 +123,30 @@ export const uiPrefsActions = {
   // the request took: a kill switch can refuse an enable, and the level is
   // normalised server-side, so the menu must render the backend's answer.
 
-  uiPrefs_fetchTraceSettings: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ enqueue }) => {
+  uiPrefs_fetchTraceSettings: act(({ enqueue }) => {
     enqueue(sendTo('tmux', { type: 'FETCH_TRACE_SETTINGS' as const }));
   }),
 
-  uiPrefs_acceptTraceSettings: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
+  uiPrefs_acceptTraceSettings: assignCtx(({ event }) => {
     if (event.type !== 'TRACE_SETTINGS_RECEIVED') return {};
     return { traceSettings: event.settings };
   }),
 
-  uiPrefs_setTraceEnabled: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, enqueue }) => {
+  uiPrefs_setTraceEnabled: act(({ event, enqueue }) => {
     if (event.type !== 'SET_TRACE_ENABLED') return;
     enqueue(sendTo('tmux', { type: 'SET_TRACE_ENABLED' as const, enabled: event.enabled }));
   }),
 
-  uiPrefs_setTraceLevel: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, enqueue }) => {
+  uiPrefs_setTraceLevel: act(({ event, enqueue }) => {
     if (event.type !== 'SET_TRACE_LEVEL') return;
     enqueue(sendTo('tmux', { type: 'SET_TRACE_LEVEL' as const, level: event.level }));
   }),
 
-  uiPrefs_openTraceFile: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ enqueue }) => {
+  uiPrefs_openTraceFile: act(({ enqueue }) => {
     enqueue(sendTo('tmux', { type: 'OPEN_TRACE_FILE' as const }));
   }),
 
-  uiPrefs_increaseFontSize: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  uiPrefs_increaseFontSize: act(({ context, enqueue }) => {
     const newSize = increaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
     saveFontSizeToStorage(newSize);
@@ -239,17 +154,7 @@ export const uiPrefsActions = {
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),
 
-  uiPrefs_decreaseFontSize: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ context, enqueue }) => {
+  uiPrefs_decreaseFontSize: act(({ context, enqueue }) => {
     const newSize = decreaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
     saveFontSizeToStorage(newSize);
@@ -257,17 +162,7 @@ export const uiPrefsActions = {
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),
 
-  uiPrefs_resetFontSize: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ enqueue }) => {
+  uiPrefs_resetFontSize: act(({ enqueue }) => {
     applyFontSize(DEFAULT_FONT_SIZE);
     saveFontSizeToStorage(DEFAULT_FONT_SIZE);
     enqueue(assign({ baseFontSize: DEFAULT_FONT_SIZE }));

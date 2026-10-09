@@ -18,6 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use crate::constants::tmux_options;
@@ -811,22 +812,27 @@ pub fn fill(argv: &[String], answers: &BTreeMap<String, String>) -> TmuxArgv {
         .collect()
 }
 
-/// Run every step of `steps`, threading answers into the steps after them.
+/// Run every step of `steps` through `run`, threading answers into the steps
+/// after them.
 ///
-/// `runner` is the only thing that touches tmux, which is what lets a plan be
-/// tested by reading it back and the executor be tested with a fake.
-pub fn run_steps<F>(steps: &[Step], mut runner: F) -> Result<(), String>
+/// `run` is the only thing that touches tmux — a monitor's reply channel
+/// (`via_monitor`), a subprocess from the CLI, or a fake in a test — which is
+/// what lets a plan be tested by reading it back and the executor be tested
+/// without tmux. It takes one tmux command as argv (without `tmux`) and
+/// returns what the command printed.
+pub async fn run_steps<F, Fut>(steps: &[Step], mut run: F) -> Result<(), String>
 where
-    F: FnMut(&[String]) -> Result<String, String>,
+    F: FnMut(Vec<String>) -> Fut,
+    Fut: Future<Output = Result<String, String>>,
 {
     let mut answers = BTreeMap::new();
     for step in steps {
         match step {
             Step::Run(argv) => {
-                runner(&fill(argv, &answers))?;
+                run(fill(argv, &answers)).await?;
             }
             Step::Ask { key, argv } => {
-                let answer = runner(&fill(argv, &answers))?.trim().to_string();
+                let answer = run(fill(argv, &answers)).await?.trim().to_string();
                 answers.insert(key.clone(), answer);
             }
         }
@@ -834,12 +840,17 @@ where
     Ok(())
 }
 
-/// Plan and run a restore through `runner`.
-pub fn apply<F>(snapshot: &Snapshot, options: &RestoreOptions, runner: F) -> Result<(), String>
+/// Plan and run a restore through `run` (see `run_steps`).
+pub async fn apply<F, Fut>(
+    snapshot: &Snapshot,
+    options: &RestoreOptions,
+    run: F,
+) -> Result<(), String>
 where
-    F: FnMut(&[String]) -> Result<String, String>,
+    F: FnMut(Vec<String>) -> Fut,
+    Fut: Future<Output = Result<String, String>>,
 {
-    run_steps(&plan(snapshot, options), runner)
+    run_steps(&plan(snapshot, options), run).await
 }
 
 fn target(session: &str, window_index: u32) -> String {
@@ -1217,22 +1228,28 @@ pub struct Taken {
 }
 
 /// Take a snapshot of `session` through `run`, which runs one tmux command
-/// (as argv, without `tmux`) and returns its output.
-pub fn take<F>(session: &str, mut run: F) -> Result<Taken, String>
+/// (as argv, without `tmux`) and returns its output — see `run_steps` for
+/// what `run` may be.
+pub async fn take<F, Fut>(session: &str, mut run: F) -> Result<Taken, String>
 where
-    F: FnMut(&[String]) -> Result<String, String>,
+    F: FnMut(Vec<String>) -> Fut,
+    Fut: Future<Output = Result<String, String>>,
 {
     let (qw, qp) = queries_for(session);
-    let windows_out = run(&split_query(&qw))?;
-    let panes_out = run(&split_query(&qp))?;
+    let windows_out = run(split_query(&qw)).await?;
+    let panes_out = run(split_query(&qp)).await?;
     // No stash session (no group was ever made) is the usual case, not an error.
-    let stash = run(&split_query(QUERY_STASH_PANES))
+    let stash = run(split_query(QUERY_STASH_PANES))
+        .await
         .map(|out| parse_panes(&out))
         .unwrap_or_default();
     let windows = parse_windows(&windows_out);
     let panes = parse_panes(&panes_out);
     let all: Vec<PaneRecord> = panes.iter().chain(&stash).cloned().collect();
-    let found = discover_commands(&all);
+    // `ps` is a subprocess; off the async runtime like the other reads.
+    let found = tokio::task::spawn_blocking(move || discover_commands(&all))
+        .await
+        .map_err(|e| e.to_string())?;
     let mut snapshot = assemble(session, now(), windows, panes, &found.commands);
     snapshot.hidden = hidden_members(&snapshot, &stash, &found.commands);
     Ok(Taken {
@@ -1252,10 +1269,12 @@ fn split_query(query: &str) -> Vec<String> {
     argv
 }
 
-/// Attach the last `lines` of each pane's screen to a snapshot, through `run`.
-pub fn attach_scrollback<F>(snapshot: &mut Snapshot, lines: u32, mut run: F)
+/// Attach the last `lines` of each pane's screen to a snapshot, through `run`
+/// (see `run_steps`).
+pub async fn attach_scrollback<F, Fut>(snapshot: &mut Snapshot, lines: u32, mut run: F)
 where
-    F: FnMut(&[String]) -> Result<String, String>,
+    F: FnMut(Vec<String>) -> Fut,
+    Fut: Future<Output = Result<String, String>>,
 {
     let s = snapshot.session.clone();
     for w in &mut snapshot.windows {
@@ -1268,7 +1287,7 @@ where
                 "-S".to_string(),
                 format!("-{lines}"),
             ];
-            if let Ok(text) = run(&argv) {
+            if let Ok(text) = run(argv).await {
                 let captured: Vec<String> = text.lines().map(str::to_string).collect();
                 // Trailing blank rows are the empty bottom of the screen.
                 let end = captured
@@ -1285,23 +1304,10 @@ where
 // Where snapshots live, and when a host is told not to use them
 // =============================================================================
 
-/// The state directory: `TMUXY_STATE_DIR`, else the XDG state dir (macOS has
-/// none, so `~/Library/Application Support`), under `tmuxy` — the same place
-/// the trace and the browser profiles go, and deliberately nowhere any route
-/// serves files from.
-pub fn state_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("TMUXY_STATE_DIR") {
-        return PathBuf::from(dir);
-    }
-    dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))
-        .unwrap_or_else(std::env::temp_dir)
-        .join("tmuxy")
-}
-
+/// Where snapshots live: under the state directory (`crate::paths`), the same
+/// place the trace and the browser profiles go.
 pub fn default_dir() -> PathBuf {
-    snapshot_dir(&state_dir())
+    snapshot_dir(&crate::paths::state_dir())
 }
 
 /// `TMUXY_NO_RESTORE=1`: start a missing session empty even when a snapshot exists.
@@ -1358,8 +1364,9 @@ pub fn is_structural(delta: &crate::TmuxDelta) -> bool {
 
 use crate::control_mode::MonitorCommandSender;
 
-/// Run one tmux command through a monitor's control-mode connection.
-async fn via_monitor(tx: &MonitorCommandSender, argv: &[String]) -> Result<String, String> {
+/// Run one tmux command through a monitor's control-mode connection: the
+/// hosts' `run` for `take`, `run_steps` and `attach_scrollback`.
+async fn via_monitor(tx: &MonitorCommandSender, argv: Vec<String>) -> Result<String, String> {
     let command = argv
         .iter()
         .map(|a| tmux_word(a))
@@ -1401,31 +1408,6 @@ pub fn tmux_word(word: &str) -> String {
     out
 }
 
-/// Take a snapshot of the monitor's session through its connection.
-pub async fn take_via_monitor(session: &str, tx: &MonitorCommandSender) -> Result<Taken, String> {
-    let (qw, qp) = queries_for(session);
-    let windows_out = via_monitor(tx, &split_query(&qw)).await?;
-    let panes_out = via_monitor(tx, &split_query(&qp)).await?;
-    // No stash session (no group was ever made) is the usual case, not an error.
-    let stash = via_monitor(tx, &split_query(QUERY_STASH_PANES))
-        .await
-        .map(|out| parse_panes(&out))
-        .unwrap_or_default();
-    let windows = parse_windows(&windows_out);
-    let panes = parse_panes(&panes_out);
-    let all: Vec<PaneRecord> = panes.iter().chain(&stash).cloned().collect();
-    // `ps` is a subprocess; off the async runtime like the other reads.
-    let found = tokio::task::spawn_blocking(move || discover_commands(&all))
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut snapshot = assemble(session, now(), windows, panes, &found.commands);
-    snapshot.hidden = hidden_members(&snapshot, &stash, &found.commands);
-    Ok(Taken {
-        snapshot,
-        unsettled: found.unsettled,
-    })
-}
-
 /// Rebuild a snapshot through a monitor's connection, step by step.
 pub async fn restore_via_monitor(
     snapshot: &Snapshot,
@@ -1438,7 +1420,7 @@ pub async fn restore_via_monitor(
         // `base-index` made it.
         let first = via_monitor(
             tx,
-            &[
+            vec![
                 "display-message".to_string(),
                 "-p".to_string(),
                 "-t".to_string(),
@@ -1449,20 +1431,7 @@ pub async fn restore_via_monitor(
         .await?;
         options.existing_window_index = first.trim().parse().ok();
     }
-    let options = &options;
-    let mut answers = BTreeMap::new();
-    for step in plan(snapshot, options) {
-        match step {
-            Step::Run(argv) => {
-                via_monitor(tx, &fill(&argv, &answers)).await?;
-            }
-            Step::Ask { key, argv } => {
-                let answer = via_monitor(tx, &fill(&argv, &answers)).await?;
-                answers.insert(key, answer.trim().to_string());
-            }
-        }
-    }
-    Ok(())
+    apply(snapshot, &options, |argv| via_monitor(tx, argv)).await
 }
 
 /// How long a burst of structural changes settles before it is written.
@@ -1558,7 +1527,7 @@ impl SnapshotKeeper {
 /// that could not happen must not take anything else down with it. Says
 /// whether a pane was still settling (see `Discovery::unsettled`).
 pub async fn save_now(session: &str, dir: &Path, tx: &MonitorCommandSender) -> bool {
-    match take_via_monitor(session, tx).await {
+    match take(session, |argv| via_monitor(tx, argv)).await {
         Ok(taken) => {
             if let Err(e) = write(dir, &taken.snapshot) {
                 tracing::warn!(target: "tmuxy_core::snapshot", %session, %e, "snapshot not written");
@@ -2247,33 +2216,35 @@ mod tests {
     }
 
     /// The executor threads each answer into the following step.
-    #[test]
-    fn apply_feeds_an_answer_into_the_next_step() {
+    #[tokio::test]
+    async fn apply_feeds_an_answer_into_the_next_step() {
         let mut seen = Vec::new();
         apply(&fixture(), &RestoreOptions::default(), |argv| {
             seen.push(argv.join(" "));
-            Ok(if argv[0] == "split-window" {
+            std::future::ready(Ok(if argv[0] == "split-window" {
                 "%9\n".into()
             } else if argv[0] == "display-message" {
                 "@7\n".into()
             } else {
                 String::new()
-            })
+            }))
         })
+        .await
         .unwrap();
         assert!(seen.contains(&"break-pane -d -s %9 -t work:2 -n notes".to_string()));
         assert!(seen.contains(&"set-option -w -t work:2 @tmuxy-float-parent @7".to_string()));
     }
 
-    #[test]
-    fn apply_stops_at_the_first_failure() {
+    #[tokio::test]
+    async fn apply_stops_at_the_first_failure() {
         let result = apply(&fixture(), &RestoreOptions::default(), |argv| {
-            if argv[0] == "new-session" {
+            std::future::ready(if argv[0] == "new-session" {
                 Err("no".into())
             } else {
                 Ok(String::new())
-            }
-        });
+            })
+        })
+        .await;
         assert_eq!(result, Err("no".to_string()));
     }
 

@@ -18,7 +18,9 @@
 use std::time::Duration;
 
 use tmuxy_core::control_mode::{LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::StateUpdate;
+
+mod common;
 
 /// Keeps what the monitor reports so a failure can say what went wrong.
 #[derive(Default)]
@@ -40,7 +42,7 @@ async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
 
     // Far more lines than any window is tall, so tmux has real history to
     // report, and the pane stays alive afterwards.
-    executor::execute_tmux_command(&[
+    common::tmux(&[
         "new-session",
         "-d",
         "-s",
@@ -57,7 +59,7 @@ async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
         create_session: false,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("control-mode connection on the scratch socket");
     let recorder = std::sync::Arc::new(Recorder::default());
@@ -96,5 +98,5 @@ async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
 
     tx.send(MonitorCommand::Shutdown).await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = executor::execute_tmux_command(&["kill-server"]);
+    let _ = common::tmux(&["kill-server"]);
 }

@@ -159,7 +159,7 @@ pub enum ServeRefusal {
 ///   is accidental — the widget pointed at a multi-gigabyte log — and it takes
 ///   the process down either way.
 ///
-/// Shared by the web server's `/api/file` + `/api/browse` and the desktop
+/// Shared by the web server's `/api/browse` and the desktop
 /// app's `tmuxyfile:` scheme, so the two cannot drift.
 pub fn read_served_file(path: &str) -> Result<Vec<u8>, ServeRefusal> {
     let meta =

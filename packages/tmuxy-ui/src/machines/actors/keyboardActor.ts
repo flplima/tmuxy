@@ -363,6 +363,11 @@ export function createKeyboardActor() {
       },
     };
 
+    // Every consumed key is reported to the machine: the drag and resize
+    // machines cancel on Escape, and read nothing but the key.
+    const notifyKeyPress = (event: KeyboardEvent) =>
+      input.parent.send({ type: 'KEY_PRESS', key: event.key });
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!enabled) return;
 
@@ -765,14 +770,7 @@ export function createKeyboardActor() {
           prefixMode.enter();
         }
 
-        input.parent.send({
-          type: 'KEY_PRESS',
-          key: event.key,
-          ctrlKey: event.ctrlKey,
-          altKey: event.altKey,
-          shiftKey: event.shiftKey,
-          metaKey: event.metaKey,
-        });
+        notifyKeyPress(event);
         return;
       }
 
@@ -821,14 +819,7 @@ export function createKeyboardActor() {
                   : 'TOGGLE_TAB_OVERVIEW',
           });
           prefixMode.exit();
-          input.parent.send({
-            type: 'KEY_PRESS',
-            key: event.key,
-            ctrlKey: event.ctrlKey,
-            altKey: event.altKey,
-            shiftKey: event.shiftKey,
-            metaKey: event.metaKey,
-          });
+          notifyKeyPress(event);
           return;
         }
 
@@ -855,27 +846,13 @@ export function createKeyboardActor() {
             prefixMode.exit();
           }
 
-          input.parent.send({
-            type: 'KEY_PRESS',
-            key: event.key,
-            ctrlKey: event.ctrlKey,
-            altKey: event.altKey,
-            shiftKey: event.shiftKey,
-            metaKey: event.metaKey,
-          });
+          notifyKeyPress(event);
           return;
         }
 
         // Unknown binding - just ignore (like tmux does)
         prefixMode.exit();
-        input.parent.send({
-          type: 'KEY_PRESS',
-          key: event.key,
-          ctrlKey: event.ctrlKey,
-          altKey: event.altKey,
-          shiftKey: event.shiftKey,
-          metaKey: event.metaKey,
-        });
+        notifyKeyPress(event);
         return;
       }
 
@@ -889,14 +866,7 @@ export function createKeyboardActor() {
         } else {
           input.parent.send({ type: 'SELECT_TAB_BY_POSITION', position: Number(event.key) });
         }
-        input.parent.send({
-          type: 'KEY_PRESS',
-          key: event.key,
-          ctrlKey: event.ctrlKey,
-          altKey: event.altKey,
-          shiftKey: event.shiftKey,
-          metaKey: event.metaKey,
-        });
+        notifyKeyPress(event);
         return;
       }
 
@@ -913,14 +883,7 @@ export function createKeyboardActor() {
           command,
         });
 
-        input.parent.send({
-          type: 'KEY_PRESS',
-          key: event.key,
-          ctrlKey: event.ctrlKey,
-          altKey: event.altKey,
-          shiftKey: event.shiftKey,
-          metaKey: event.metaKey,
-        });
+        notifyKeyPress(event);
         return;
       }
 
@@ -958,14 +921,7 @@ export function createKeyboardActor() {
       }
       input.parent.send({ type: 'DISPATCH_OP', op });
 
-      input.parent.send({
-        type: 'KEY_PRESS',
-        key: event.key,
-        ctrlKey: event.ctrlKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-        metaKey: event.metaKey,
-      });
+      notifyKeyPress(event);
     };
 
     // A composition inside a real form control belongs to the browser.

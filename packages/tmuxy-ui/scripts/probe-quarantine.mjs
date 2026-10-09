@@ -1,5 +1,5 @@
 /**
- * The quarantine policy shared by both story probes.
+ * The quarantine policy of the deterministic story probe.
  *
  * A quarantined story still RUNS and is still REPORTED, its failure just does
  * not turn the job red. Quarantine is a stopgap for a failure that is
@@ -9,8 +9,8 @@
  * has to fix, delete or consciously renew it.
  *
  * scripts/probe-stories.mjs reads probe-quarantine.json (the deterministic
- * stories, plus a11y rules); scripts/probe-spikes.mjs reads
- * probe-quarantine-v86.json (stories run against the real tmux in the guest).
+ * stories, plus a11y rules). The v86 sweep (scripts/probe-spikes.mjs) has no
+ * list: a story that cannot pass against the guest's real tmux is deleted.
  */
 import { readFileSync } from 'node:fs';
 
@@ -52,8 +52,8 @@ export function loadQuarantine(path) {
   }
 
   // a11y entries shield ONE axe rule, on one story or (with id "*") on all of
-  // them. Same policy: capped, dated, and each says why. Only the
-  // deterministic probe has them; a list without the section is fine.
+  // them. Same policy: capped, dated, and each says why. A list without the
+  // section is fine.
   const hasA11y = file.a11yEntries !== undefined || file.maxA11yEntries !== undefined;
   const a11yMax = file.maxA11yEntries;
   const a11yEntries = file.a11yEntries ?? [];

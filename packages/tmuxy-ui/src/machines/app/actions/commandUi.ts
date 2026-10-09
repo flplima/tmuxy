@@ -7,31 +7,18 @@
  * user typed, parsed and routed like a binding (see ../dispatch.ts).
  */
 
-import { assign, cancel, enqueueActions, raise } from 'xstate';
-import type { AppMachineContext, AllAppMachineEvents } from '../../types';
+import { assign, cancel, raise } from 'xstate';
+import { act, assignCtx } from '../actionTypes';
 import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
 import { READ_ONLY_NOTICE } from '../../../domain/readOnly';
 
-type Ctx = AppMachineContext;
-type Evt = AllAppMachineEvents;
-
 export const commandUiActions = {
-  commandUi_setPrefixActive: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
+  commandUi_setPrefixActive: assignCtx(({ event }) => {
     if (event.type !== 'PREFIX_MODE_CHANGE') return {};
     return { prefixActive: event.active };
   }),
 
-  commandUi_openCommandPrompt: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, context, enqueue }) => {
+  commandUi_openCommandPrompt: act(({ event, context, enqueue }) => {
     if (event.type !== 'OPEN_COMMAND_PROMPT') return;
     if (context.readOnly) {
       enqueue.raise({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
@@ -51,17 +38,7 @@ export const commandUiActions = {
     );
   }),
 
-  commandUi_submitCommandMode: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, context, enqueue }) => {
+  commandUi_submitCommandMode: act(({ event, context, enqueue }) => {
     if (event.type !== 'COMMAND_MODE_SUBMIT') return;
     const mode = context.commandMode;
     if (!mode) return;
@@ -78,21 +55,11 @@ export const commandUiActions = {
     enqueue(raise({ type: 'SEND_TMUX_COMMAND', command: finalCommand }));
   }),
 
-  commandUi_cancelCommandMode: assign<Ctx, Evt, undefined, Evt, never>({
+  commandUi_cancelCommandMode: assignCtx({
     commandMode: null,
   }),
 
-  commandUi_showStatusMessage: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, enqueue }) => {
+  commandUi_showStatusMessage: act(({ event, enqueue }) => {
     if (event.type !== 'SHOW_STATUS_MESSAGE') return;
     enqueue(
       assign({
@@ -111,7 +78,7 @@ export const commandUiActions = {
   // The delayed CLEAR_STATUS_MESSAGE raise is cancelled and re-scheduled by id
   // whenever a new message is shown, so whatever reaches here is the current
   // message's own expiry — no timestamp guard needed.
-  commandUi_clearStatusMessage: assign<Ctx, Evt, undefined, Evt, never>({
+  commandUi_clearStatusMessage: assignCtx({
     statusMessage: null,
   }),
 };

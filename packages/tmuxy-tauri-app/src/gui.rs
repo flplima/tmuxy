@@ -1,6 +1,5 @@
 use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::Manager;
-use tmuxy_core::constants::tmux_options;
 use tmuxy_core::session;
 
 use crate::commands;
@@ -8,73 +7,6 @@ use crate::monitor;
 use crate::titlebar;
 use crate::window_style::{self, WindowStyle, WindowStyles};
 use crate::windows;
-
-/// The `@tmuxy-blur` the config files set (default on), for a window that
-/// opens before its monitor has sourced them — the first one opens during
-/// setup, before `monitor::start_monitoring` connects. The files are read in
-/// tmux's source order (defaults first, then the user conf), last assignment
-/// winning, which is what `source-file` resolves to. Once the monitor has
-/// sourced the config, `monitor::emit_config_settings` applies the live value.
-fn configured_blur() -> bool {
-    let dir = session::config_dir();
-    let mut found: Option<String> = None;
-    for filename in ["tmuxy.defaults.conf", "tmuxy.conf"] {
-        if let Ok(content) = std::fs::read_to_string(dir.join(filename)) {
-            if let Some(v) = parse_option_from_config(&content, tmux_options::BLUR) {
-                found = Some(v);
-            }
-        }
-    }
-    found.is_none_or(|value| tmuxy_core::theme::parse_flag(&value, true))
-}
-
-/// Best-effort parser for `set [-g|-ga|-gu|-s|-sg|...] @name value` lines in a
-/// tmux config. Matches the last assignment wins (mirroring tmux) and ignores
-/// comments. The value can be a bare word or a single-/double-quoted string.
-fn parse_option_from_config(content: &str, name: &str) -> Option<String> {
-    let mut found: Option<String> = None;
-    for raw in content.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut tokens = line.split_whitespace();
-        if tokens.next() != Some("set") {
-            continue;
-        }
-        // Skip the flag(s) (`-g`, `-ga`, `-gu`, `-sg`, etc.); the next token
-        // should be the option name.
-        let after_flag = loop {
-            match tokens.next() {
-                Some(tok) if tok.starts_with('-') => continue,
-                Some(tok) => break Some(tok),
-                None => break None,
-            }
-        };
-        if after_flag != Some(name) {
-            continue;
-        }
-        // The remainder of the line is the value (possibly quoted).
-        let rest = tokens.collect::<Vec<&str>>().join(" ");
-        let value = strip_quotes(rest.trim());
-        if !value.is_empty() {
-            found = Some(value.to_string());
-        }
-    }
-    found
-}
-
-fn strip_quotes(s: &str) -> &str {
-    if s.len() >= 2 {
-        let bytes = s.as_bytes();
-        let first = bytes[0];
-        let last = bytes[s.len() - 1];
-        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
-            return &s[1..s.len() - 1];
-        }
-    }
-    s
-}
 
 /// Put the native blur behind the window on or off (`@tmuxy-blur`). macOS
 /// only — the option is accepted and ignored elsewhere. The surface opacities
@@ -609,15 +541,8 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&MenuItem::with_id(
             app,
-            "help-copy-logs",
-            "Copy Logs to Clipboard",
-            true,
-            None::<&str>,
-        )?)
-        .item(&MenuItem::with_id(
-            app,
             "help-reveal-log-file",
-            "Reveal Log File in Finder",
+            "Reveal Log File",
             true,
             None::<&str>,
         )?)
@@ -730,11 +655,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         return;
     }
 
-    // Help: copy / reveal the debug log file
-    if id == "help-copy-logs" {
-        copy_logs_to_clipboard(app_handle);
-        return;
-    }
+    // Help: reveal the log file
     if id == "help-reveal-log-file" {
         reveal_log_file();
         return;
@@ -885,9 +806,7 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
     if !opaque {
         titlebar::install(&window);
     } else {
-        tmuxy_core::debug_log::log(
-            "TMUXY_OPAQUE_WINDOW=1: built window with decorations, no transparency",
-        );
+        tracing::info!("TMUXY_OPAQUE_WINDOW=1: built window with decorations, no transparency");
     }
 
     Ok(window)
@@ -897,7 +816,11 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
 /// the platform hint the layout reads, and the menu refresh that keeps the
 /// Window menu describing whichever window has focus.
 pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
-    apply_blur(window, configured_blur());
+    // Blur is on by default (`@tmuxy-blur`). A window opens before its
+    // monitor has sourced the config, so it starts with the default and
+    // `monitor::emit_theme_settings` puts it where the live value says once
+    // the config is read.
+    apply_blur(window, true);
 
     // Tell the frontend which platform we're on so it can adjust layout
     // (e.g., hide hamburger menu on macOS, add traffic light spacing)
@@ -941,57 +864,11 @@ pub(crate) fn refresh_menu(app: &tauri::AppHandle) {
     }
 }
 
-/// Path to the persistent debug log written by tmuxy_core::debug_log.
-fn debug_log_path() -> std::path::PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        std::path::PathBuf::from(home).join("tmuxy-debug.log")
-    } else {
-        std::path::PathBuf::from("/tmp/tmuxy-debug.log")
-    }
-}
-
-/// Read the debug log file and copy its contents (with a small env header)
-/// to the system clipboard. Surfaces a status message in the UI either way.
-fn copy_logs_to_clipboard(app: &tauri::AppHandle) {
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-
-    let path = debug_log_path();
-    let header = build_log_header(&path);
-
-    let body = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(e) => {
-            let msg = format!("Could not read log file at {}: {}", path.display(), e);
-            show_status_message(app, &msg);
-            return;
-        }
-    };
-
-    // Cap to the last ~256 KB so a long-running session's log doesn't
-    // overflow the clipboard or hang the paste target.
-    const MAX_LOG_BYTES: usize = 256 * 1024;
-    let trimmed = if body.len() > MAX_LOG_BYTES {
-        let cut = body.len() - MAX_LOG_BYTES;
-        format!("[…{} earlier bytes truncated]\n{}", cut, &body[cut..])
-    } else {
-        body
-    };
-
-    let payload = format!("{}\n\n{}", header, trimmed);
-
-    match app.clipboard().write_text(payload) {
-        Ok(()) => {
-            show_status_message(app, &format!("Copied {} log to clipboard", path.display()));
-        }
-        Err(e) => {
-            show_status_message(app, &format!("Failed to write clipboard: {}", e));
-        }
-    }
-}
-
-/// Reveal the debug log file in the platform file manager.
+/// Reveal the app's log file (`tmuxy_core::paths::log_file`, the `tracing`
+/// lines stderr would have shown) in the platform file manager: selected in
+/// Finder on macOS, its directory opened elsewhere.
 fn reveal_log_file() {
-    let path = debug_log_path();
+    let path = tmuxy_core::paths::log_file();
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("open")
@@ -1009,34 +886,6 @@ fn reveal_log_file() {
     {
         let _ = path;
     }
-}
-
-fn build_log_header(path: &std::path::Path) -> String {
-    let version = env!("CARGO_PKG_VERSION");
-    let pid = std::process::id();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let env_lines: Vec<String> = ["PATH", "HOME", "SHELL", "TERM", "LANG", "LC_ALL", "USER"]
-        .iter()
-        .map(|k| {
-            format!(
-                "  {}={}",
-                k,
-                std::env::var(k).unwrap_or_else(|_| "(unset)".into())
-            )
-        })
-        .collect();
-    format!(
-        "=== tmuxy log dump ===\nversion: {}\npid: {}\nutc_seconds_since_epoch: {}\nlog_file: {}\nplatform: {}\nenv:\n{}\n--- log file contents below ---",
-        version,
-        pid,
-        now,
-        path.display(),
-        std::env::consts::OS,
-        env_lines.join("\n"),
-    )
 }
 
 /// Forward a transient status banner to the React UI via window.eval.
@@ -1057,20 +906,11 @@ fn show_status_message(app: &tauri::AppHandle, message: &str) {
 
 /// Start the Tauri GUI application.
 pub fn run() {
-    // The desktop GUI previously installed no tracing subscriber, so every
-    // `tracing` event (spans, warns, errors) was silently dropped here — only
-    // the `debug_log` file logger survived. Install it now so the whole Rust
-    // pipeline is observable in the app, and so the NDJSON trace layer is wired.
-    tmuxy_server::init_logging();
-    if let Some(path) = tmuxy_core::trace::init(None, cfg!(debug_assertions)) {
-        let level = tmuxy_core::trace::level_name();
-        tmuxy_core::debug_log::log(&format!("action tracing ON [{level}] → {}", path.display()));
-        eprintln!(
-            "[tmuxy] action tracing ON [level={level}] → {} (local only, never uploaded; \
-             TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
-            path.display()
-        );
-    }
+    // The same subscriber as the server's, plus a copy of its lines in the
+    // state dir: an app launched from Finder has no stderr anyone sees, and
+    // the file is what Help ▸ Reveal Log File shows and the smoke tests read.
+    tmuxy_server::init_logging_to_file(&tmuxy_core::paths::log_file());
+    tmuxy_core::trace::init(None, cfg!(debug_assertions));
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
@@ -1099,8 +939,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        // Clipboard manager: powers Help > Copy Logs to Clipboard so users
-        // launched from Finder can grab ~/tmuxy-debug.log without a terminal.
+        // Clipboard manager: Debug ▸ Copy Trace Path.
         .plugin(tauri_plugin_clipboard_manager::init())
         // Window state: the window comes back where it was closed — position,
         // size, maximized and fullscreen — from a file in the app's data dir.
@@ -1221,9 +1060,19 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            // Log environment for debugging Finder vs CLI launch differences
-            tmuxy_core::debug_log::log("=== tmuxy starting ===");
-            tmuxy_core::debug_log::log_env();
+            // The environment, for telling a Finder launch from a CLI one.
+            let env = |key: &str| std::env::var(key).unwrap_or_else(|_| "(unset)".to_string());
+            tracing::info!(
+                version = env!("CARGO_PKG_VERSION"),
+                pid = std::process::id(),
+                path = %env("PATH"),
+                home = %env("HOME"),
+                shell = %env("SHELL"),
+                term = %env("TERM"),
+                tmux_socket = %env("TMUX_SOCKET"),
+                tmuxy_session = %env("TMUXY_SESSION"),
+                "tmuxy starting"
+            );
 
             // Materialize the per-user config layout on first run:
             //   ~/.config/tmuxy/tmuxy.conf   — main tmux config (prefix bindings, etc.)
@@ -1241,9 +1090,12 @@ pub fn run() {
             // the `tmuxy <subcommand>` shell wrapper can reach them by an
             // absolute path even when launched from Finder/Spotlight.
             let bin_dir = tmuxy_core::session::ensure_bin_scripts();
-            tmuxy_core::debug_log::log(&format!("config: {:?}", config_path));
-            tmuxy_core::debug_log::log(&format!("themes: {:?}", themes_dir));
-            tmuxy_core::debug_log::log(&format!("bin: {:?}", bin_dir));
+            tracing::info!(
+                config = %config_path.display(),
+                themes = %themes_dir.display(),
+                bin = %bin_dir.display(),
+                "config layout"
+            );
 
             // Patch the parent process PATH so any subprocess we spawn — including
             // executor::* paths that go through `sh -c "tmux ..."` — can resolve
@@ -1281,10 +1133,10 @@ pub fn run() {
                         format!("{}:{}", missing.join(":"), current)
                     };
                     std::env::set_var("PATH", &prefixed);
-                    tmuxy_core::debug_log::log(&format!(
-                        "patched parent PATH for macOS Homebrew: prepended {}",
-                        missing.join(":")
-                    ));
+                    tracing::info!(
+                        prepended = %missing.join(":"),
+                        "patched parent PATH for macOS Homebrew"
+                    );
                 }
             }
 
@@ -1296,9 +1148,7 @@ pub fn run() {
                     tmuxy_core::session::refresh_launcher(&exe);
                 });
             } else {
-                tmuxy_core::debug_log::log(
-                    "current_exe() failed; tmuxy CLI shorthand not refreshed",
-                );
+                tracing::warn!("current_exe() failed; tmuxy CLI shorthand not refreshed");
             }
 
             // Verify tmux is available — the monitor will create the session
@@ -1306,19 +1156,16 @@ pub fn run() {
             // async monitor connection where the session can die in between)
             let tmux_bin = session::tmux_path();
             let session_name = tmuxy_core::session::session_name();
-            tmuxy_core::debug_log::log(&format!("tmux binary: {}", tmux_bin));
-            eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
-            eprintln!("[tmuxy] session name: {}", session_name);
+            tracing::info!(tmux = %tmux_bin, session = %session_name, "tmux");
 
             // No tmux, or one too old, ends here in a dialog that says so and
             // how to fix it — before any window opens. An error returned from
             // setup instead aborts the process, and an app launched from
             // Finder just vanishes.
             match tmuxy_core::tmux_check::check_tmux() {
-                Ok(version) => eprintln!("[tmuxy] {version}"),
+                Ok(version) => tracing::info!(%version, "tmux found"),
                 Err(e) => {
-                    tmuxy_core::debug_log::log(&format!("tmux check failed: {e}"));
-                    eprintln!("[tmuxy] {e}");
+                    tracing::error!(error = %e, "tmux check failed");
                     rfd::MessageDialog::new()
                         .set_level(rfd::MessageLevel::Error)
                         .set_title("tmuxy can't start")
@@ -1427,62 +1274,6 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_option_reads_set_g_bare_value() {
-        let cfg = "set -g @tmuxy-opacity 0.8\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-opacity"),
-            Some("0.8".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_reads_set_g_quoted_value() {
-        let cfg = "set -g @tmuxy-blur \"off\"\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-blur"),
-            Some("off".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_ignores_comments() {
-        let cfg = "# set -g @tmuxy-opacity 1.0\nset -g @tmuxy-opacity 0.8\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-opacity"),
-            Some("0.8".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_last_assignment_wins() {
-        let cfg = "set -g @tmuxy-opacity 0.5\nset -g @tmuxy-opacity 0.8\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-opacity"),
-            Some("0.8".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_option_returns_none_when_missing() {
-        let cfg = "set -g prefix C-a\n";
-        assert_eq!(parse_option_from_config(cfg, "@tmuxy-opacity"), None);
-    }
-
-    #[test]
-    fn parse_option_handles_multi_flag_forms() {
-        let cfg = "set -ga @tmuxy-blur off\n";
-        assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-blur"),
-            Some("off".to_string())
-        );
-    }
 }
 
 /// Whether `origin` is the app's own webview origin.

@@ -47,11 +47,6 @@ case "$CMD" in
       _tmux set-option -w -t "$WID" "$COLLAPSIBLE_OPT" 1
     fi
     ;;
-  relayout)
-    # A tmux server that loaded the previous config still runs this from its
-    # after-select-pane hook until it re-sources the config. The backend does
-    # the reshaping now, so there is nothing left to do here.
-    ;;
   *)
     echo "usage: stack new <pane_id> | stack off <window_id> | stack toggle <window_id>" >&2
     exit 1

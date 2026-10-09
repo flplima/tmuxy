@@ -472,6 +472,35 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     aligned = await rowAlignment();
     expect(aligned.offset).toBeCloseTo(0, 5);
 
+    // Step 2b: keep wheeling, without a pause, all the way to the top. The
+    // rows drawn there must be the OLDEST history, loaded by the view's first
+    // fetch: a user who grabs the trackpad and goes used to see only the band
+    // that had been on screen, with blanks above it, because the fetch asked
+    // for the visible rows alone and the follow-up chunks were suppressed
+    // while it was in flight.
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const cs = await getCopyModeState(ctx.page);
+        if (cs?.mode === 'scroll' && cs.scrollTop === 0 && !cs.loading) return true;
+        await ctx.page.mouse.wheel(0, -400);
+        return false;
+      },
+      15000,
+      'the wheel to reach the top of the scrollback',
+    );
+    const topOfHistory = await ctx.page.evaluate(() => {
+      const box = document.querySelector('.pane-scroll-container').getBoundingClientRect();
+      return [...document.querySelectorAll('[data-scroll-mode="true"] .terminal-line')]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.height > 0 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+        })
+        .map((el) => (el.textContent || '').trim());
+    });
+    expect(topOfHistory.some((line) => line.includes('click_test'))).toBe(true);
+    expect(topOfHistory).not.toContain('100');
+
     // tmux is untouched: the pane never entered copy mode, so the application
     // in it carries on and no mode is advertised to the user.
     const duringScroll = await ctx.page.evaluate(() => {
@@ -857,6 +886,80 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     // ScrollbackTerminal should be rendered
     const scrollbackEl = await ctx.page.$('[data-copy-mode="true"]');
     expect(scrollbackEl).not.toBeNull();
+
+    // Step 5b: wheel up through the history until the render window has
+    // cleared the bottom row. Every row drawn must hold the content of the
+    // row it stands for, in order: the renderer used to reuse its divs across
+    // scroll positions and skip the redraw, leaving div 9 on row 107 and div
+    // 10 on row 127. `seq` gives every row a number, so the rendered numbers
+    // must form one consecutive run that reflects the scrolled-up position
+    // rather than the band that was on screen.
+    const paneBox = await ctx.page.evaluate(() => {
+      const r = document.querySelector('[data-pane-id]').getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await ctx.page.mouse.move(paneBox.x, paneBox.y);
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const cs = await getCopyModeState(ctx.page);
+        if (cs && !cs.loading && cs.scrollTop + 3 * cs.height < cs.totalLines - 1) return true;
+        await ctx.page.mouse.wheel(0, -200);
+        return false;
+      },
+      15000,
+      'the wheel to carry the render window clear of the bottom row',
+    );
+    const renderedRows = () =>
+      ctx.page.evaluate(() =>
+        [...document.querySelectorAll('[data-copy-mode="true"] .terminal-line')].map((el) => {
+          const text = (el.textContent || '').trim();
+          return /^\d+$/.test(text) ? Number(text) : null;
+        }),
+      );
+    const runsOf = (rows) => {
+      const runs = [];
+      let run = [];
+      for (const n of rows) {
+        if (n === null) {
+          if (run.length) runs.push(run);
+          run = [];
+        } else run.push(n);
+      }
+      if (run.length) runs.push(run);
+      return runs.sort((a, b) => b.length - a.length);
+    };
+    const longest = runsOf(await renderedRows())[0] || [];
+    expect(longest.length).toBeGreaterThanOrEqual(20);
+    for (let i = 1; i < longest.length; i++) expect(longest[i]).toBe(longest[i - 1] + 1);
+    expect(longest).not.toContain(200);
+    expect(longest[0]).toBeLessThan(170);
+
+    // Step 5c: `gg` to the very top. The oldest line is drawn there, on
+    // screen, from the full history — not a placeholder, and not the newest
+    // rows the fetch used to be capped to.
+    await ctx.page.keyboard.press('g');
+    await ctx.page.keyboard.press('g');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const cs = await getCopyModeState(ctx.page);
+        return !!cs && cs.scrollTop === 0 && !cs.loading;
+      },
+      15000,
+      'gg to scroll the view to the top of the history',
+    );
+    const topOfHistory = await ctx.page.evaluate(() => {
+      const box = document.querySelector('.pane-scroll-container').getBoundingClientRect();
+      return [...document.querySelectorAll('[data-copy-mode="true"] .terminal-line')]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.height > 0 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+        })
+        .map((el) => (el.textContent || '').trim());
+    });
+    expect(topOfHistory).toContain('1');
+    expect(topOfHistory).not.toContain('200');
 
     // Step 6: Exit with 'q'
     await ctx.page.keyboard.press('q');

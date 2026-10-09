@@ -22,24 +22,7 @@ jobs:
         with:
           profile: rust
 
-      - name: Cache tmux 3.7a
-        id: tmux-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/bin/tmux
-            /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.7a-v1
-
-      - name: Build tmux 3.7a (cache miss)
-        if: steps.tmux-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
-          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.7a
-
-      - name: Confirm tmux version
-        run: tmux -V
+      - uses: ./.github/actions/install-tmux
 
       - name: Frontend dist placeholder
         run: mkdir -p packages/tmuxy-ui/dist
@@ -52,12 +35,11 @@ jobs:
       # 3s per benchmark, so the measuring is well under a minute on top of the
       # release compile.
       #
-      # It runs here, per commit, rather than only in the on-demand perf
-      # workflow, because the thing it guards is structural: the ratio budget
-      # in compare-core-bench.mjs fails if a metadata-only delta ever costs
-      # like a full snapshot again. That needs no baseline and is immune to
-      # runner load, so it is a legitimate merge gate — unlike the absolute
-      # nanoseconds, which stay warn-only.
+      # It runs here, per commit, because the thing it guards is structural:
+      # the ratio budget in compare-core-bench.mjs fails if a metadata-only
+      # delta ever costs like a full snapshot again. That needs no baseline and
+      # is immune to runner load, so it is a legitimate merge gate — unlike the
+      # absolute nanoseconds, which stay warn-only.
       - name: Core pipeline bench
         run: cargo bench -p tmuxy-core --bench core_pipeline
 

@@ -4,8 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "[bootstrap] Preflight checks"
-bash "$ROOT_DIR/bin/preflight" bootstrap
+for cmd in node npm cargo rustup; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "[bootstrap] missing command: $cmd"
+    exit 1
+  fi
+done
 
 echo "[bootstrap] Installing npm dependencies"
 npm ci

@@ -135,8 +135,9 @@ pub fn tmux_argv(pty: bool) -> Vec<String> {
 /// Create a `Command` for tmux targeting the resolved socket (and SSH tunnel,
 /// if any). Used for one-off reads/writes — no remote tty (`pty = false`).
 ///
-/// **When the arguments come from a client, use [`tmux_command_with`]** —
-/// appending them to this yourself is safe locally and is not over ssh.
+/// Nothing a client sends may be appended to this: over ssh the trailing
+/// arguments are joined into one remote shell command line. A client's
+/// command rides the control-mode connection instead.
 pub fn tmux_command() -> Command {
     let argv = tmux_argv(false);
     let mut cmd = Command::new(&argv[0]);
@@ -164,38 +165,6 @@ pub fn tmux_output(argv: &[String]) -> std::result::Result<String, String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
-}
-
-/// Shell-quote a value for a remote command line.
-fn ssh_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
-}
-
-/// A tmux `Command` carrying `args`, safe on both transports.
-///
-/// SEC-17: locally, argv elements are passed to `execvp` and a value with a
-/// space or a `;` in it is simply that value. Over ssh they are not: ssh JOINS
-/// its trailing arguments with spaces and hands the result to the remote login
-/// SHELL, so a pane id of `%0;touch x` — which a client can send, and which a
-/// read-only server accepts for `get_scrollback_cells` — becomes two remote
-/// commands. Quoting per argument, only when tunnelling, keeps the local path
-/// byte-for-byte unchanged.
-pub fn tmux_command_with<I, S>(args: I) -> Command
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    let tunnelled = ssh_target().is_some();
-    let mut cmd = tmux_command();
-    for arg in args {
-        let arg = arg.as_ref();
-        if tunnelled {
-            cmd.arg(ssh_quote(arg));
-        } else {
-            cmd.arg(arg);
-        }
-    }
-    cmd
 }
 
 /// Build the tmux shell command string with the socket flag for use in shell
@@ -427,36 +396,12 @@ pub fn config_dir() -> PathBuf {
         .join("tmuxy")
 }
 
-/// Get the path to the tmuxy config file.
-/// Checks: ~/.config/tmuxy/tmuxy.conf, ~/.tmuxy.conf, then .devcontainer/.tmuxy.conf.
+/// The user's `tmuxy.conf` in [`config_dir`], if it exists. Both hosts call
+/// [`ensure_config`] at startup, before any monitor connects, so it is only
+/// absent when that write failed.
 pub fn get_config_path() -> Option<PathBuf> {
-    // XDG-style config location
-    let xdg_config = config_dir().join("tmuxy.conf");
-    if xdg_config.exists() {
-        return Some(xdg_config);
-    }
-
-    let home_config = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".tmuxy.conf");
-    if home_config.exists() {
-        return Some(home_config);
-    }
-
-    // Check .devcontainer/.tmuxy.conf relative to working directory or ancestor
-    if let Ok(mut dir) = std::env::current_dir() {
-        loop {
-            let docker_config = dir.join(".devcontainer/.tmuxy.conf");
-            if docker_config.exists() {
-                return Some(docker_config);
-            }
-            if !dir.pop() {
-                break;
-            }
-        }
-    }
-
-    None
+    let path = config_dir().join("tmuxy.conf");
+    path.exists().then_some(path)
 }
 
 /// The shipped user conf sources its siblings by the default
@@ -916,22 +861,19 @@ exec \"$EXEC_PATH\" \"$@\"
 ///      its content drifts from [`LAUNCHER_WRAPPER`], so we don't churn
 ///      the inode on every launch. The wrapper is `chmod +x`'d.
 ///
-/// Errors are logged to debug_log and otherwise swallowed; this is a
-/// best-effort install convenience, not a hard prerequisite for app use.
+/// Errors are logged and otherwise swallowed; this is a best-effort install
+/// convenience, not a hard prerequisite for app use.
 pub fn refresh_launcher(exe_path: &std::path::Path) {
     let dir = config_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        crate::debug_log::log(&format!("refresh_launcher: mkdir {:?} failed: {}", dir, e));
+        tracing::warn!(dir = %dir.display(), error = %e, "refresh_launcher: mkdir failed");
         return;
     }
 
     let launcher_file = dir.join("launcher");
     let exe_str = exe_path.to_string_lossy();
     if let Err(e) = std::fs::write(&launcher_file, format!("{}\n", exe_str)) {
-        crate::debug_log::log(&format!(
-            "refresh_launcher: writing {:?} failed: {}",
-            launcher_file, e
-        ));
+        tracing::warn!(path = %launcher_file.display(), error = %e, "refresh_launcher: write failed");
         return;
     }
 
@@ -939,10 +881,7 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".local/bin");
     if let Err(e) = std::fs::create_dir_all(&bin_dir) {
-        crate::debug_log::log(&format!(
-            "refresh_launcher: mkdir {:?} failed: {}",
-            bin_dir, e
-        ));
+        tracing::warn!(dir = %bin_dir.display(), error = %e, "refresh_launcher: mkdir failed");
         return;
     }
 
@@ -973,10 +912,7 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
 
     if needs_write {
         if let Err(e) = std::fs::write(&wrapper_path, LAUNCHER_WRAPPER) {
-            crate::debug_log::log(&format!(
-                "refresh_launcher: writing wrapper {:?} failed: {}",
-                wrapper_path, e
-            ));
+            tracing::warn!(path = %wrapper_path.display(), error = %e, "refresh_launcher: wrapper write failed");
             return;
         }
         #[cfg(unix)]
@@ -984,27 +920,16 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755));
         }
-        crate::debug_log::log(&format!(
-            "refresh_launcher: installed shorthand at {:?}",
-            wrapper_path
-        ));
+        tracing::info!(path = %wrapper_path.display(), "refresh_launcher: installed shorthand");
     }
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool> {
-    crate::debug_log::log_cmd(
-        "has-session",
-        tmux_path(),
-        &["has-session", "-t", session_name],
-    );
     let output = tmux_command()
         .args(["has-session", "-t", session_name])
         .output()
         .map_err(|e| format!("Failed to check session: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    crate::debug_log::log_cmd_result("has-session", output.status.code(), &stdout, &stderr);
+    tracing::debug!(session = session_name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())
 }
 
@@ -1024,26 +949,6 @@ pub fn on_users_own_server() -> bool {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
 
-    /// SEC-17. Locally an argv element is that element; over ssh the trailing
-    /// arguments are joined and handed to the remote login SHELL, so a value a
-    /// client chose becomes remote shell syntax. A read-only server accepts a
-    /// client's `paneId` for `get_scrollback_cells`, which is the concrete way
-    /// in.
-    #[test]
-    fn a_pane_id_carrying_a_semicolon_is_quoted_for_a_remote_shell() {
-        assert_eq!(
-            super::ssh_quote("%0;touch /tmp/pwned"),
-            "'%0;touch /tmp/pwned'"
-        );
-        assert_eq!(super::ssh_quote("%0"), "'%0'");
-    }
-
-    #[test]
-    fn a_value_containing_a_quote_is_escaped_not_terminated() {
-        // The closing quote, an escaped literal quote, then the quote reopens —
-        // the standard POSIX idiom, so the value survives whole.
-        assert_eq!(super::ssh_quote("it's"), r"'it'\''s'");
-    }
     use super::*;
 
     #[test]

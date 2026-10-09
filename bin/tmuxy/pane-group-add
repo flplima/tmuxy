@@ -1,15 +1,5 @@
 #!/bin/bash
-# Create a new pane in a group
-# Args: $1=pane_id $2=pane_width $3=pane_height
-#
-# If the pane is already in a group, adds to that group; otherwise opens a new
-# group with the pane and the new one. The new pane becomes the visible member;
-# the old visible member is parked in the stash session.
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# A new pane in $1's group (a new group when it has none), shown in its place. Rules: tmuxy_core::groups, run by the `group add` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 

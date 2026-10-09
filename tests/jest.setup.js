@@ -20,8 +20,7 @@ process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || DEFAULT_SOCKET;
 delete process.env.TMUX;
 delete process.env.TMUX_PANE;
 
-// Increase timeout for all tests
-// Hook and test timeout is set by testTimeout in jest.config.js (240000ms)
+// The per-test timeout is `testTimeout` in jest.config.js.
 
 // Global error handler
 process.on('unhandledRejection', (reason, promise) => {

@@ -1,16 +1,5 @@
 #!/bin/bash
-# Take a member out of its group.
-# Args: $1=pane_id
-#       then either nothing / --tab   : it becomes a tab of its own
-#       or --beside <pane> <left|right|up|down> : it is split in next to <pane>
-#
-# A member on screen first hands its place to the next member in the order, so
-# the group keeps showing something; a group left with one member is no group.
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# Take pane $1 out of its group, to a tab of its own or beside another pane. Rules: tmuxy_core::groups, run by the `group leave` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 

@@ -8,12 +8,10 @@ name: nightly v86 sweep
 #
 # The three blocking gate stories still run per commit in lint-and-tests.yml.
 #
-# The stories that do not pass against the guest's real tmux are quarantined
-# in packages/tmuxy-ui/scripts/probe-quarantine-v86.json — same capped, dated,
-# reasoned policy as the deterministic probe's list. They still run and are
-# still reported; they just do not turn this job red, so a NEW failure is
-# visible instead of buried. Before that, the sweep was red every night with
-# the same 13 failures, which is the same as having no nightly at all.
+# There is no quarantine list for this sweep: every failure turns it red and
+# opens the issue. The stories that never passed against the guest's real tmux
+# were deleted rather than shielded — a sweep that is red every night with the
+# same known set is the same as having no nightly at all.
 
 on:
   schedule:
@@ -83,33 +81,12 @@ jobs:
           npm run fetch:v86-image -w tmuxy-ui
           npm run build:v86-snapshot -w tmuxy-ui
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+      - uses: ./.github/actions/install-chromium
 
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          node -e "
-            const start = Date.now();
-            const check = async () => {
-              while (Date.now() - start < 180000) {
-                try {
-                  const res = await fetch('http://localhost:6006/index.json');
-                  if (res.ok) process.exit(0);
-                } catch {}
-                await new Promise(r => setTimeout(r, 1000));
-              }
-              process.exit(1);
-            };
-            check();
-          "
+          bin/wait-for-server http://localhost:6006/index.json 180000
 
       # PROBE_TIMINGS_JSON is the per-story timing record (docs/PERFORMANCE.md
       # Axis A). Nothing collected it before, so the numbers were written to a
@@ -163,7 +140,7 @@ jobs:
           TITLE="Nightly v86 sweep is failing"
           BODY="The nightly full v86 story sweep failed.
 
-          A story failed that is NOT quarantined in \`packages/tmuxy-ui/scripts/probe-quarantine-v86.json\` — the run log lists them under 'failures that are NOT quarantined'. The log also names quarantined stories that have started passing (remove them) and entries that have expired.
+          The run log lists the failing stories under 'failures', each with its error and the first lines of its stack.
 
           Run: $RUN_URL
           Commit: ${{ github.sha }}

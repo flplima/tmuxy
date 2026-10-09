@@ -17,13 +17,7 @@
 
 import { memo, useCallback } from 'react';
 import type { RenderTabline } from '../App';
-import {
-  useAppSelector,
-  selectSidebarLayout,
-  selectRightSidebarPane,
-  useReadOnly,
-} from '../machines/AppContext';
-import { getTabText } from './paneTabDisplay';
+import { useAppSelector, selectSidebarLayout, useReadOnly } from '../machines/AppContext';
 import { CONTAINER_PADDING_X } from '../constants';
 import { isTauri } from '../utils/platform';
 import {
@@ -64,9 +58,7 @@ export const StatusBar = memo(function StatusBar({
 }) {
   const { leftOpen, rightOpen, overlay, leftWidth, rightWidth } =
     useAppSelector(selectSidebarLayout);
-  const rightPane = useAppSelector(selectRightSidebarPane);
   const readOnly = useReadOnly();
-  const rightTitle = rightPane ? getTabText(rightPane) : 'shell';
 
   // On the desktop, mousedown on empty bar space hands the click to the OS as
   // a window drag via startDragging(). That swallows the native dblclick before
@@ -129,7 +121,7 @@ export const StatusBar = memo(function StatusBar({
         className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}`}
         style={dockedRight ? { flex: `0 0 ${rightCluster}px`, width: rightCluster } : undefined}
       >
-        {dockedRight && <SidebarTitle side="right" title={rightTitle} />}
+        {dockedRight && <SidebarTitle side="right" />}
         <SidebarToggle side="right" />
       </div>
     </>

@@ -108,15 +108,43 @@ function checkWorkflowInvariants() {
       addError(`[workflow] ${wf.name} must define top-level contents permissions.`);
     }
 
-    const keyLines = wf.content.match(/^[ \t]*key:\s*.+$/gm) || [];
-    for (const keyLine of keyLines) {
-      if (!keyLine.includes('runner.os') && !keyLine.includes('matrix.os')) {
+    for (const keyLine of cacheKeyLines(wf.content)) {
+      if (!namespacesByOs([keyLine])) {
         addError(
           `[workflow] ${wf.name} cache key must include runner/matrix OS namespace: ${keyLine.trim()}`,
         );
       }
     }
   }
+
+  // The same rule for the composite actions the workflows share their cache
+  // steps through. A key there may take its namespace from an input, in which
+  // case the input's default is what has to name the OS.
+  const actionsDir = path.join(root, '.github/actions');
+  for (const entry of fs.readdirSync(actionsDir)) {
+    const file = path.join(actionsDir, entry, 'action.yml');
+    if (!fs.existsSync(file)) continue;
+    const content = fs.readFileSync(file, 'utf8');
+    const inputDefault = (name) =>
+      content.match(new RegExp(`^  ${name}:\\n(?:    .*\\n)*?    default:\\s*(.+)$`, 'm'))?.[1] ??
+      '';
+    for (const keyLine of cacheKeyLines(content)) {
+      const defaults = [...keyLine.matchAll(/inputs\.([\w-]+)/g)].map((m) => inputDefault(m[1]));
+      if (!namespacesByOs([keyLine, ...defaults])) {
+        addError(
+          `[workflow] .github/actions/${entry} cache key must include runner/matrix OS namespace: ${keyLine.trim()}`,
+        );
+      }
+    }
+  }
+}
+
+function cacheKeyLines(content) {
+  return content.match(/^[ \t]*key:\s*.+$/gm) || [];
+}
+
+function namespacesByOs(texts) {
+  return texts.some((text) => text.includes('runner.os') || text.includes('matrix.os'));
 }
 
 function checkDocsToScriptsConsistency() {
@@ -133,8 +161,8 @@ function checkDocsToScriptsConsistency() {
   const commandDocs = [
     'AGENTS.md',
     '.github/copilot-instructions.md',
-    'docs/RUNBOOK.md',
     'docs/CI-TRIAGE.md',
+    'docs/TESTS.md',
   ];
 
   const requiredCanonicalCommands = [
@@ -218,7 +246,7 @@ const BLIND_WAIT_CEILING = {
   // the helper, so this is the number that matters most.
   'tests/helpers': 21,
   // Test bodies. Each one affects a single test.
-  tests: 177,
+  tests: 160,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */

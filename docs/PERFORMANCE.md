@@ -4,11 +4,11 @@ How tmuxy tracks speed, and how to run each measurement. There are **two
 independent axes**, they cost in different places, and they need different
 harnesses. Conflating them is the most common way to measure the wrong thing.
 
-| Axis                            | What it costs                                                                 | Harness                                    | Network         |
-| ------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------ | --------------- |
-| **A. Core + client processing** | parse → aggregate → delta → apply → render CPU, render churn, frames-to-paint | v86/wasm probes + native criterion bench   | removed         |
-| **B. Transport**                | wire RTT, head-of-line stalls, reconnect/roaming                              | `latencyTracker` + latency-injection proxy | the whole point |
-| **C. Whole interaction**        | everything one keypress sets off, end to end, per user action                 | `measure-interactions.mjs` in CI           | included        |
+| Axis                            | What it costs                                                                 | Harness                                  | Network         |
+| ------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------- | --------------- |
+| **A. Core + client processing** | parse → aggregate → delta → apply → render CPU, render churn, frames-to-paint | v86/wasm probes + native criterion bench | removed         |
+| **B. Transport**                | wire RTT, head-of-line stalls, reconnect/roaming                              | `latencyTracker` + the `?perf` HUD       | the whole point |
+| **C. Whole interaction**        | everything one keypress sets off, end to end, per user action                 | `measure-interactions.mjs` in CI         | included        |
 
 Axes A and B decompose a single round trip; axis C asks a different question —
 **how much does one thing a user does actually cost**, with every layer, every
@@ -57,6 +57,17 @@ ratio catches it without anyone having recorded a number first.
 A benchmark named in a budget but missing from a run also fails, so renaming a
 bench cannot silently drop its gate.
 
+**Refreshing `perf/core-pipeline-baseline.json`.** A baseline must be measured
+on the platform it describes, so the file holds an entry per platform and CI
+never writes it — a baseline change is always a reviewed commit, the same rule
+as `perf/interaction-baseline.json`. For your own machine, run `cargo bench -p
+tmuxy-core --bench core_pipeline` and then `node perf/compare-core-bench.mjs
+--update-baseline`, which merges the run under its platform key. For the CI
+platform, take `core-pipeline-report.json` from the `core-pipeline-bench-<sha>`
+artifact of a `rust-tests` run you trust (every commit uploads one) and paste
+it under `platforms["linux-x64"]`. Until someone does, a CI run records its
+numbers and warns about nothing; the ratio budget gates regardless.
+
 ### v86/wasm story probes (integration, relative)
 
 `packages/tmuxy-ui/scripts/probe-spikes.mjs` drives every `v86`-tagged
@@ -91,20 +102,19 @@ before connect, or `latencyTracker.setEnabled(true)`. When enabled at load, the
 numbers; its store updates are coalesced to one animation frame so it can't
 distort what it measures.
 
-### Controlled comparison — the latency-injection proxy
+### Measuring a link
 
-`packages/tmuxy-ui/scripts/latency-proxy.mjs` sits between the browser and a
-real `tmuxy server`, injecting configurable one-way delay + jitter (and optional
-loss-as-retransmit-stall) on `POST /commands` and the `GET /events` SSE stream,
-while proxying assets transparently. Drive the app through it with the HUD open
-(or read `window.__tmuxyLatency.getSnapshot()`) to get the input→paint
-distribution under a **known synthetic RTT** — the controlled experiment for
-"how much would a faster/roaming transport actually buy us" that the v86/wasm
-harness cannot run.
+Drive the app over the link in question with the HUD open (or read
+`window.__tmuxyLatency.getSnapshot()`) to get the input→paint distribution for
+that transport — the question the v86/wasm harness structurally cannot answer.
+The C1–C4 rows in the results below came from a one-off latency-injection
+proxy that no longer exists; a controlled re-run needs delay injected the same
+way, between the browser and a real server, on `POST /commands` and the
+`GET /events` stream.
 
 Because the transports run over TCP, real packet loss reaches the app as delay
-(head-of-line retransmit), not dropped events; `--loss` models that as a random
-extra stall rather than truly dropping bytes.
+(head-of-line retransmit), not dropped events; the loss condition in that table
+modelled it as a random extra stall rather than truly dropping bytes.
 
 ## Axis C — whole-interaction latency (the CI regression gate)
 
@@ -180,9 +190,19 @@ already runs instead of launching one (the devcontainer deliberately does not
 install Playwright's browsers; CI is the reverse and launches). Refresh the
 committed baseline for a platform with `npm run perf:compare -- --report … --update-baseline`
 and commit the result. For the Linux platforms, run the "perf measurements"
-workflow instead: it measures on a runner and opens a PR with the refreshed
-file. Either way a baseline change lands through review — CI never writes one
-straight to `main`.
+workflow (`.github/workflows/nightly-perf.yml`, `interaction-baseline` job)
+instead: it measures on a runner, with more samples than the gate job takes,
+and opens a PR with the refreshed file. Either way a baseline change lands
+through review — CI never writes one straight to `main`.
+
+That job is on demand, not scheduled, and a PR rather than a commit, for one
+reason: a baseline that refreshes itself ratchets to whatever the runner did
+last, which is the opposite of a baseline. A nightly run of it wrote artifacts
+nobody opened, and the file it exists to feed was never once refreshed from
+one — because the review used to mean downloading an artifact and copying a
+file over by hand. The PR keeps the review and removes the chore; read the
+milliseconds before merging, since a runner having a bad night produces a
+baseline that hides real regressions for as long as it stands.
 
 The desktop equivalent needs the app built first, and takes the binary rather
 than a URL:
@@ -269,8 +289,8 @@ real work the pipeline must do, and byte parsing itself remains cheap
 
 Release `tmuxy-server` on loopback, 26 keystrokes per condition spaced 400 ms
 apart (clean per-key round trips, no batching), driven headless through the
-real `POST /commands` + `GET /events` path. RTT injected with the latency proxy.
-All latencies in ms.
+real `POST /commands` + `GET /events` path. RTT injected with a one-off
+latency proxy, since removed. All latencies in ms.
 
 | Condition               | Injected 1-way / RTT | p50   | p95   | p99   | max    | pending | added vs C0   |
 | ----------------------- | -------------------- | ----- | ----- | ----- | ------ | ------- | ------------- |
@@ -308,7 +328,7 @@ coalesces to ~one send per frame. Keydown→POST for an isolated key dropped
 from ~17 ms to ~1 ms. The `key-echo` interaction in the Axis-C suite measures
 this dimension now — on every commit, on both targets, and gated — which is
 why the throwaway harness that produced the table above no longer exists.
-`scripts/measure-latency.mjs` remains the transport (send→apply) harness.
+The tracker and HUD remain the transport (send→apply) instrumentation.
 
 **Loss is where the transport model actually hurts (C4).** At the same 150 ms
 base RTT as C2, 5% loss-as-retransmit-stall pushes p99 from 195 ms to 978 ms and
@@ -398,6 +418,16 @@ panes in whatever session the server it is pointed at is serving. A server
 started with no `TMUX_SOCKET` serves the default `tmuxy` socket — on a dev
 machine, the session someone is working in.
 
+It is the one perf job that is scheduled, because its product is a trend rather
+than a number: a soak run answers a yes/no question about that run — did
+everything plateau — and the answer is only interesting as a sequence. One
+night proves nothing; thirty nights show a slope. For the same reason it prints
+its verdict table into the run's step summary, where it is readable from the
+run page: an artifact is only read by someone who already suspects something.
+CI runs it with a smaller load than the harness defaults — a shared runner is
+slower at both halves, and the plateau comparison needs its windows to be clean
+more than it needs them to be large.
+
 ## The browser pane's frames
 
 `tmuxy browser --repl` draws the page as an inline JPEG written to the pty
@@ -458,13 +488,14 @@ measured on, which is why it is opt-in.
   jobs therefore ride on their ratio gates alone and leave the absolute column
   blank. That is the designed fallback, not a failure — but it means a uniform
   slowdown that inflates every number together, keystroke echo included, is
-  currently invisible on CI. Seeding a `linux-x64` baseline is still a human
-  act, but no longer a manual one: run the "perf measurements" workflow
-  (`.github/workflows/nightly-perf.yml`) and it opens a PR with the measured
-  file for you to read and merge. The review is the point — CI must never
-  ratchet a baseline to whatever the runner did last — and it had never happened
-  because the review used to mean downloading an artifact and copying a file
-  over by hand.
+  currently invisible on CI. Seeding a `linux-x64` interaction baseline is
+  still a human act, but no longer a manual one: run the "perf measurements"
+  workflow (`.github/workflows/nightly-perf.yml`) and it opens a PR with the
+  measured file for you to read and merge. The review is the point — CI must
+  never ratchet a baseline to whatever the runner did last — and it had never
+  happened because the review used to mean downloading an artifact and copying
+  a file over by hand. The core bench baseline is seeded from the report
+  `rust-tests` uploads on every commit (see Axis A above).
 - **No Axis B measurement in CI.** The RTT curve and the latency-injection
   proxy are a controlled experiment run by hand, not a gate — injected delay is
   the independent variable, so there is nothing for a runner to regress.

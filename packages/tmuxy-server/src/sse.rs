@@ -12,11 +12,12 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
+use tmuxy_core::command_router::Route;
 use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
     TmuxMonitor,
 };
-use tmuxy_core::transport::KeyBindings;
+use tmuxy_core::transport::{self, to_json, KeyBindings};
 use tmuxy_core::{executor, CommandError, StateUpdate};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -110,39 +111,12 @@ impl LogSink for SseEmitter {
 
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
-        // Garbage-collect orphaned images when we have a full state snapshot
-        if let StateUpdate::Full { ref state } = update {
+        transport::on_state_update(&update, &self.keeper, |state| {
             if let Ok(mut guard) = self.app_state.image_store.try_write() {
                 guard.retain_live_panes(state);
             }
-        }
-        // The snapshot follows the session's SHAPE, not its output: a split, a
-        // closed pane, a tag, a program starting — never bytes arriving.
-        let structural = match &update {
-            StateUpdate::Full { .. } => true,
-            StateUpdate::Delta { delta } => tmuxy_core::session_snapshot::is_structural(delta),
-        };
-        if structural && !tmuxy_core::session_snapshot::autosave_disabled() {
-            self.keeper.note_change();
-        }
-        // Trace the emit with the *delta* seq + kind so the return leg can be
-        // correlated to the client's applied delta seq (docs/TELEMETRY.md). The
-        // SSE transport id is a different counter; the delta seq is the one the
-        // client tags its `apply` with. Content-free.
-        let kind = if matches!(update, StateUpdate::Full { .. }) {
-            "full"
-        } else {
-            "delta"
-        };
-        let delta_seq = match &update {
-            StateUpdate::Delta { delta } => Some(delta.seq),
-            _ => None,
-        };
+        });
         self.send_event(&SseEvent::StateUpdate(Box::new(update)));
-        match delta_seq {
-            Some(seq) => tracing::debug!(target: "tmuxy_server::emit", seq, kind, "emit state"),
-            None => tracing::debug!(target: "tmuxy_server::emit", kind, "emit state"),
-        }
     }
 
     fn emit_error(&self, error: String) {
@@ -186,7 +160,7 @@ impl StateEmitter for SseEmitter {
             tracing::debug!(?pane_id, "read-only server: clipboard write not forwarded");
             return;
         }
-        if !tmuxy_core::transport::clipboard_write_allowed(&text) {
+        if !transport::clipboard_write_allowed(&text) {
             tracing::debug!(
                 ?pane_id,
                 bytes = text.len(),
@@ -253,19 +227,13 @@ enum SseEvent {
 /// A command's answer. A failure is a `CommandError` instead —
 /// `{ "error", "kind" }` — sent with a 4xx status.
 #[derive(Debug, Serialize)]
-pub struct CommandResponse {
+struct CommandResponse {
     result: serde_json::Value,
 }
 
 /// A failed command, as `POST /commands` answers it.
 fn command_failure(status: StatusCode, error: CommandError) -> Response {
     (status, Json(error)).into_response()
-}
-
-/// A command's answer as JSON; failing to make it is this side's fault.
-fn to_json(value: impl Serialize, what: &str) -> Result<serde_json::Value, CommandError> {
-    serde_json::to_value(value)
-        .map_err(|e| CommandError::unavailable(format!("Failed to serialize {what}: {e}")))
 }
 
 // ============================================
@@ -802,21 +770,21 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::RunTmuxCommand { command } => {
-            // Policy lives in tmuxy-core (`route_command`) and is shared with
-            // the desktop app; only the channel write is ours.
-            let routed = match tmuxy_core::command_router::route_command(
+            // Policy lives in tmuxy-core (`transport::route`) and is shared
+            // with the desktop app; only the channel write is ours.
+            let routed = match transport::route(
                 &command,
                 session,
                 new_window_client_size(state, session).await,
             ) {
-                tmuxy_core::command_router::Route::Blocked(reason) => {
+                Route::Blocked(reason) => {
                     warn!(?conn_id, %command, reason, "blocked command");
                     return Ok(serde_json::json!(null));
                 }
-                tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
+                Route::ControlMode(cmd) => cmd,
             };
 
-            let is_source_file = tmuxy_core::transport::is_source_file(&routed);
+            let is_source_file = transport::is_source_file(&routed);
 
             send_via_control_mode(state, session, &routed).await?;
             trace!(?conn_id, command = %routed, "client sent command via control mode");
@@ -824,7 +792,7 @@ async fn handle_command(
             // After source-file, re-broadcast keybindings (prefix key may have
             // changed) and theme settings (theme/appearance options may have).
             if is_source_file {
-                tokio::time::sleep(tmuxy_core::transport::SOURCE_FILE_SETTLE).await;
+                tokio::time::sleep(transport::SOURCE_FILE_SETTLE).await;
                 refresh_keybindings(state, session).await;
                 broadcast_theme_settings(state, session).await;
             }
@@ -832,15 +800,15 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::QueryTmux { command } => {
-            let routed = match tmuxy_core::command_router::route_command(
+            let routed = match transport::route(
                 &command,
                 session,
                 new_window_client_size(state, session).await,
             ) {
-                tmuxy_core::command_router::Route::Blocked(reason) => {
+                Route::Blocked(reason) => {
                     return Err(CommandError::forbidden(reason));
                 }
-                tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
+                Route::ControlMode(cmd) => cmd,
             };
             let output = query_via_control_mode(state, session, &routed).await?;
             Ok(serde_json::json!(output))
@@ -851,7 +819,7 @@ async fn handle_command(
             end,
         } => {
             let tx = state.monitor_tx(session).await?;
-            tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
+            transport::scrollback_cells(&tx, &pane_id, start, end).await
         }
         ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
         ClientCommand::SetTheme { name, mode } => {
@@ -865,56 +833,35 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
+        // A pinned server reports only its own session's repositories —
+        // otherwise a viewer learns the repo path and branch of every pane
+        // on the tmux server, including the writer's.
         ClientCommand::ListGitWorktrees => {
-            // The pane cwds come from tmux, not the request (see the variant),
-            // and git runs off the async runtime like the other subprocess reads.
-            use tmuxy_core::worktrees::{
-                list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing,
-            };
-            // A pinned server reports only its own session's repositories —
-            // otherwise a viewer learns the repo path and branch of every pane
-            // on the tmux server, including the writer's.
-            let cmd = list_pane_paths_cmd(state.session_pin.as_deref());
-            let listing = query_via_control_mode(state, session, &cmd).await?;
-            let repositories = tokio::task::spawn_blocking(move || {
-                list_git_worktrees(paths_from_pane_listing(&listing))
-                    .map_err(|e| CommandError::unavailable(e.to_string()))
-            })
-            .await
-            .map_err(|e| {
-                CommandError::unavailable(format!("worktree discovery task failed: {e}"))
-            })??;
-            to_json(repositories, "worktrees")
+            let tx = state.monitor_tx(session).await?;
+            transport::git_worktrees_json(&tx, state.session_pin.as_deref()).await
         }
         ClientCommand::SetThemeMode { mode } => {
             let tx = state.monitor_tx(session).await?;
             tmuxy_core::theme::set_theme_mode(&tx, &mode).await?;
             Ok(serde_json::json!(null))
         }
-        ClientCommand::ListSnapshots => tmuxy_core::transport::list_snapshots_json().await,
+        ClientCommand::ListSnapshots => transport::list_snapshots_json().await,
         // Through THIS session's client: a new session made from inside a
         // control-mode client is how the server already creates one.
         ClientCommand::RestoreSession { session: name } => {
             let tx = state.monitor_tx(session).await?;
-            tmuxy_core::transport::restore_named(&name, &tx).await?;
+            transport::restore_named(&name, &tx).await?;
             Ok(serde_json::json!(null))
         }
         // Debug menu (docs/TELEMETRY.md). The trace file lives on THIS host, so
         // a browser client can read the switch and the path but cannot open the
         // file — the in-app menu hides that item off the desktop.
-        ClientCommand::GetTraceSettings => Ok(serde_json::json!({
-            "enabled": tmuxy_core::trace::is_enabled(),
-            "level": tmuxy_core::trace::level_name(),
-            "path": tmuxy_core::trace::trace_path().map(|p| p.display().to_string()),
-            "locked": tmuxy_core::trace::is_locked_off(),
-        })),
+        ClientCommand::GetTraceSettings => Ok(transport::trace_settings_json()),
         ClientCommand::SetTraceEnabled { enabled } => {
             Ok(serde_json::json!(tmuxy_core::trace::set_enabled(enabled)))
         }
         ClientCommand::SetTraceLevel { level } => {
-            let level = tmuxy_core::trace::TraceLevel::parse(&level);
-            tmuxy_core::trace::set_level_persisted(level);
-            Ok(serde_json::json!(level.as_str()))
+            Ok(serde_json::json!(transport::set_trace_level(&level)))
         }
     }
 }
@@ -982,30 +929,15 @@ async fn broadcast_theme_settings(state: &Arc<AppState>, session: &str) {
     }
 }
 
-/// Send a tmux command through control mode
+/// Send a tmux command through control mode.
 async fn send_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
     command: &str,
 ) -> Result<(), CommandError> {
-    // Record the WHAT of each mutating command as its tmux verb (first token) —
-    // content-free (a fixed subcommand name, never the args). The full command
-    // string is admitted only at trace level `full` (docs/TELEMETRY.md).
-    tracing::debug!(
-        target: "tmuxy_server::sse",
-        verb = command.split_whitespace().next().unwrap_or(""),
-        command,
-        "run command"
-    );
-
     let tx = state.monitor_tx(session).await?;
-    tmuxy_core::transport::run(&tx, command).await
+    transport::run(&tx, command).await
 }
-
-/// How long `get_initial_state` waits for the session's monitor to come up.
-/// The monitor is started by the SSE connect that precedes the request, and
-/// its own connect gives tmux ten seconds to answer.
-const MONITOR_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The session's monitor command channel, waiting for the monitor to finish
 /// connecting if the request got here first.
@@ -1013,38 +945,16 @@ async fn wait_for_monitor(
     state: &Arc<AppState>,
     session: &str,
 ) -> Result<MonitorCommandSender, CommandError> {
-    let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
-    loop {
-        if let Ok(tx) = state.monitor_tx(session).await {
-            return Ok(tx);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(CommandError::unavailable(
-                "tmux monitor did not come up in time",
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    transport::wait_for_monitor(|| async { state.monitor_tx(session).await.ok() }).await
 }
 
-/// A client's initial state: the monitor's own picture of the session, the
-/// same one its `Full` broadcast carries. A client that connects after that
-/// broadcast would otherwise start from a baseline the deltas never correct.
+/// A client's initial state, from a monitor that may still be connecting.
 async fn initial_state_via_control_mode(
     state: &Arc<AppState>,
     session: &str,
 ) -> Result<tmuxy_core::TmuxState, CommandError> {
     let tx = wait_for_monitor(state, session).await?;
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::GetState { reply })
-        .await
-        .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
-    tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
-        .await
-        .map_err(|_| {
-            CommandError::unavailable("tmux monitor did not answer with the initial state")
-        })?
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))
+    transport::initial_state(&tx).await
 }
 
 /// How long a client's first state waits for the resize it just asked for.
@@ -1117,7 +1027,7 @@ async fn query_via_control_mode(
         "query"
     );
     let tx = state.monitor_tx(session).await?;
-    tmuxy_core::transport::query(&tx, command).await
+    transport::query(&tx, command).await
 }
 
 /// Compute the minimum (cols, rows) across all connected clients
@@ -1141,14 +1051,12 @@ async fn new_window_client_size(state: &Arc<AppState>, session: &str) -> Option<
     })
 }
 
-/// Store a client's viewport size and resize the tmux session.
-/// Skips the resize command if the computed minimum is the same as the last resize
-/// to prevent feedback loops when multiple clients have different viewport sizes.
-#[instrument(skip(state), fields(%session))]
 /// Apply a client's viewport: record it, and resize tmux to the minimum across
-/// every client watching. What reached tmux is remembered as `last_resize`,
-/// which is also what a client's first state is held back for
-/// (`initial_state_for_size`).
+/// every client watching. The resize is skipped when that minimum is what was
+/// sent last, which stops a feedback loop between clients of different sizes.
+/// What reached tmux is remembered as `last_resize`, which is also what a
+/// client's first state is held back for (`initial_state_for_size`).
+#[instrument(skip(state), fields(%session))]
 async fn set_client_size(
     state: &Arc<AppState>,
     session: &str,
@@ -1565,18 +1473,15 @@ pub async fn start_monitoring(
         // tmux 3.5a. Routing through CC avoids this.
         // A session that is about to be CREATED may have a snapshot to come
         // back from. Decided here, once, so both ways of creating it (below)
-        // make the first window the snapshot wants and the rebuild runs onto
-        // it after attach — over control mode, never with a clientless server.
+        // make the first window the snapshot wants.
         let mut restore =
             if connect_config.create_session && !state.read_only && !session_exists(&session).await
             {
-                tmuxy_core::session_snapshot::restorable(&snapshot_dir, &session)
+                transport::restore_plan(&snapshot_dir, &mut connect_config)
             } else {
                 None
             };
         if let Some(snapshot) = &restore {
-            connect_config.first_window =
-                snapshot.first_window_hint(&tmuxy_core::session_snapshot::fallback_cwd());
             info!(%session, saved_at = snapshot.saved_at, "restoring session from snapshot");
         }
         if connect_config.create_session && !session_exists(&session).await {
@@ -1678,7 +1583,7 @@ pub async fn start_monitoring(
             }
         }
 
-        match TmuxMonitor::connect(connect_config, Some(&log_sink), state.ctx.clone()).await {
+        match TmuxMonitor::connect(connect_config, Some(&log_sink)).await {
             Ok((mut monitor, command_tx)) => {
                 // Store command_tx so cleanup_connection can send Shutdown
                 let stored = {
@@ -1718,32 +1623,20 @@ pub async fn start_monitoring(
 
                 // The rebuild, onto the window `new-session` just made. Queued
                 // on the command channel, so it runs once the monitor is in its
-                // loop — after the initial sync, which is the order it needs.
+                // loop.
                 if let Some(snapshot) = restore.take() {
-                    let tx = command_tx.clone();
+                    let rebuild = transport::restore_after_attach(
+                        snapshot,
+                        keeper.clone(),
+                        command_tx.clone(),
+                    );
                     let name = session.clone();
-                    let keeper = keeper.clone();
-                    // Held from here, not from inside the task: the first
-                    // delta of the fresh session must not race the task's
-                    // start into a save of the placeholder window.
-                    keeper.restore_started();
                     state
                         .spawn(async move {
-                            let options = tmuxy_core::session_snapshot::RestoreOptions {
-                                run: false,
-                                fallback_cwd: tmuxy_core::session_snapshot::fallback_cwd(),
-                                onto_existing_window: true,
-                                existing_window_index: None,
-                            };
-                            match tmuxy_core::session_snapshot::restore_via_monitor(
-                                &snapshot, &options, &tx,
-                            )
-                            .await
-                            {
+                            match rebuild.await {
                                 Ok(()) => info!(session = %name, "session restored from snapshot"),
                                 Err(e) => warn!(session = %name, %e, "session restore stopped"),
                             }
-                            keeper.restore_finished();
                         })
                         .await;
                 }

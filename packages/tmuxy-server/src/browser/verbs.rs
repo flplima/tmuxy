@@ -183,7 +183,7 @@ pub fn parse(line: &str) -> Result<Verb, ParseError> {
 /// widget's argument, so `goto localhost:3000` means in the REPL what
 /// `tmuxy open localhost:3000` means at a shell. A person typing at a prompt
 /// does not type a scheme, and refusing the line over it would be pedantry.
-pub fn normalise_url(target: &str) -> String {
+fn normalise_url(target: &str) -> String {
     // An explicit scheme is respected, whatever it is: `data:`, `file:`,
     // `about:blank` are all legitimate things to ask for.
     if target.contains("://") || target.starts_with("about:") || target.starts_with("data:") {

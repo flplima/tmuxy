@@ -1,6 +1,8 @@
 use serde_json::Value;
 use tauri::{Manager, State};
+use tmuxy_core::command_router::Route;
 use tmuxy_core::control_mode::MonitorCommand;
+use tmuxy_core::transport::{self, to_json};
 use tmuxy_core::CommandError;
 
 use crate::monitor::{KeyBindingsState, MonitorState};
@@ -33,49 +35,17 @@ pub async fn get_initial_state(
 
     // The monitor's own picture of the session — the same state its `Full`
     // broadcast carries. The monitor starts with the app, before the webview
-    // can listen, so that broadcast is gone by the time the frontend asks; a
-    // baseline built any other way stays wrong wherever it disagrees with
-    // the monitor, because a delta only carries what changed.
+    // can listen, so that broadcast is gone by the time the frontend asks.
     let tx = wait_for_monitor(&state).await?;
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::GetState { reply })
-        .await
-        .map_err(|e| CommandError::unavailable(format!("monitor channel error: {e}")))?;
-    let snapshot = tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
-        .await
-        .map_err(|_| {
-            CommandError::unavailable("tmux monitor did not answer with the initial state")
-        })?
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?;
-    to_json(snapshot)
+    to_json(transport::initial_state(&tx).await?, "state")
 }
-
-/// A command's answer as JSON; failing to make it is this side's fault.
-fn to_json(value: impl serde::Serialize) -> Result<Value, CommandError> {
-    serde_json::to_value(value).map_err(|e| CommandError::unavailable(e.to_string()))
-}
-
-/// How long `get_initial_state` waits for the monitor to come up. The
-/// monitor's own connect gives tmux ten seconds to answer.
-const MONITOR_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The monitor's command channel, waiting for the monitor to finish
 /// connecting if the webview asked first.
 async fn wait_for_monitor(
     state: &MonitorState,
 ) -> Result<tmuxy_core::control_mode::MonitorCommandSender, CommandError> {
-    let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
-    loop {
-        if let Some(tx) = state.tx() {
-            return Ok(tx);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(CommandError::unavailable(
-                "tmux monitor did not come up in time",
-            ));
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    transport::wait_for_monitor(|| std::future::ready(state.tx())).await
 }
 
 #[tauri::command]
@@ -125,13 +95,13 @@ pub async fn run_tmux_command(
     // `source-file` may change the prefix, the bindings, the theme or the
     // appearance options: push fresh copies once tmux has applied it, as the
     // web server re-broadcasts them.
-    let is_source_file = tmuxy_core::transport::is_source_file(&command);
+    let is_source_file = transport::is_source_file(&command);
     let Some(routed) = route(&state, &session, &command) else {
         return Ok(());
     };
     send_via_monitor(&state, MonitorCommand::RunCommand { command: routed }).await?;
     if is_source_file {
-        tokio::time::sleep(tmuxy_core::transport::SOURCE_FILE_SETTLE).await;
+        tokio::time::sleep(transport::SOURCE_FILE_SETTLE).await;
         crate::monitor::emit_config_settings(&app, &state).await;
     }
     Ok(())
@@ -157,27 +127,19 @@ pub async fn query_tmux(
 /// Run a command through the monitor and wait for what it printed. An
 /// `%error` from tmux is the Err, carrying tmux's message.
 async fn query_via_monitor(state: &MonitorState, command: &str) -> Result<String, CommandError> {
-    tmuxy_core::transport::query(&state.connected_tx()?, command).await
+    transport::query(&state.connected_tx()?, command).await
 }
 
-/// The shared policy (`tmuxy_core::command_router`): `None` for a blocked
+/// The shared policy (`tmuxy_core::transport::route`): `None` for a blocked
 /// command (logged, not an error — the web server answers those with null).
 fn route(state: &MonitorState, session: &str, command: &str) -> Option<String> {
-    // Record the WHAT as the tmux verb (content-free; args only at trace level
-    // `full`) — parity with the web server's send_via_control_mode.
-    tracing::debug!(
-        target: "tmuxy_tauri_app::commands",
-        verb = command.split_whitespace().next().unwrap_or(""),
-        command,
-        "run command"
-    );
     let size = state.last_client_size.read().ok().and_then(|g| *g);
-    match tmuxy_core::command_router::route_command(command, session, size) {
-        tmuxy_core::command_router::Route::Blocked(reason) => {
+    match transport::route(command, session, size) {
+        Route::Blocked(reason) => {
             tracing::warn!(target: "tmuxy_tauri_app::commands", command, reason, "blocked command");
             None
         }
-        tmuxy_core::command_router::Route::ControlMode(cmd) => Some(cmd),
+        Route::ControlMode(cmd) => Some(cmd),
     }
 }
 
@@ -208,7 +170,7 @@ pub async fn get_scrollback_cells(
 ) -> Result<Value, CommandError> {
     let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::transport::scrollback_cells(&tx, &pane_id, start, end).await
+    transport::scrollback_cells(&tx, &pane_id, start, end).await
 }
 
 /// The theme name, mode and appearance, read over this window's monitor —
@@ -254,19 +216,10 @@ pub async fn get_themes_list() -> Result<Value, CommandError> {
 
 /// Git worktree context for the sidebar tree, discovered from the cwd of
 /// every pane on the socket (read through tmux, never supplied by the page).
-/// The git subprocesses stay off Tauri's async runtime.
 #[tauri::command]
 pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
-    use tmuxy_core::worktrees::{list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing};
-    let state = windows::monitor_for(&window)?;
-    let listing = query_via_monitor(&state, &list_pane_paths_cmd(None)).await?;
-    let repositories = tauri::async_runtime::spawn_blocking(move || {
-        list_git_worktrees(paths_from_pane_listing(&listing))
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(format!("worktree discovery task failed: {e}")))?
-    .map_err(|e| CommandError::unavailable(e.to_string()))?;
-    to_json(repositories)
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    transport::git_worktrees_json(&tx, None).await
 }
 
 /// The status bar is the window's title bar; it reports its rendered height
@@ -295,7 +248,7 @@ pub fn titlebar_double_click(
 #[tauri::command]
 pub fn get_keybindings_snapshot(
     state: State<'_, KeyBindingsState>,
-) -> Option<tmuxy_core::transport::KeyBindings> {
+) -> Option<transport::KeyBindings> {
     state.0.read().ok().and_then(|guard| guard.clone())
 }
 
@@ -316,7 +269,7 @@ pub async fn list_servers() -> Result<Value, CommandError> {
 /// The sessions that have a snapshot to be rebuilt from (`session_snapshot`).
 #[tauri::command]
 pub async fn list_snapshots() -> Result<Value, CommandError> {
-    tmuxy_core::transport::list_snapshots_json().await
+    transport::list_snapshots_json().await
 }
 
 /// Rebuild a session from its latest snapshot through this window's
@@ -328,7 +281,7 @@ pub async fn restore_session(
     session: String,
 ) -> Result<(), CommandError> {
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::transport::restore_named(&session, &tx).await
+    transport::restore_named(&session, &tx).await
 }
 
 /// Reconnect the desktop app to a saved server by id: resolve it from
@@ -460,18 +413,11 @@ pub fn trace_enabled() -> bool {
     tmuxy_core::trace::is_enabled()
 }
 
-/// Everything the Debug menu needs to render itself: the switch position, the
-/// level, the file it writes to, and whether a `DO_NOT_TRACK` / `TMUXY_NO_TRACE`
-/// kill switch forbids turning it on at all (in which case the UI shows the
-/// control disabled rather than a switch that silently does nothing).
+/// Everything the Debug menu needs to render itself
+/// (`transport::trace_settings_json`).
 #[tauri::command]
 pub fn get_trace_settings() -> Value {
-    serde_json::json!({
-        "enabled": tmuxy_core::trace::is_enabled(),
-        "level": tmuxy_core::trace::level_name(),
-        "path": tmuxy_core::trace::trace_path().map(|p| p.display().to_string()),
-        "locked": tmuxy_core::trace::is_locked_off(),
-    })
+    transport::trace_settings_json()
 }
 
 /// Turn tracing on or off and remember the choice. Returns the state actually
@@ -482,13 +428,11 @@ pub fn set_trace_enabled(enabled: bool) -> bool {
     tmuxy_core::trace::set_enabled(enabled)
 }
 
-/// Set the level (`shape` | `labeled` | `full`) and remember it. An unknown
-/// name resolves to `shape`, so a bad argument cannot raise sensitivity.
+/// Set the level (`shape` | `labeled` | `full`) and remember it; the level in
+/// force.
 #[tauri::command]
 pub fn set_trace_level(level: String) -> String {
-    let level = tmuxy_core::trace::TraceLevel::parse(&level);
-    tmuxy_core::trace::set_level_persisted(level);
-    level.as_str().to_string()
+    transport::set_trace_level(&level).to_string()
 }
 
 /// Open the trace file in the OS default handler. Desktop-only by nature: the

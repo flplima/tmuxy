@@ -122,16 +122,14 @@ export interface ResizeState {
   handle: ResizeHandle;
   startX: number;
   startY: number;
-  originalPane: TmuxPane;
-  /** Original neighbor panes affected by this resize (for stable preview) */
-  originalNeighbors: TmuxPane[];
   /**
    * Every pane's geometry at resize start, keyed by id. A resize moves a whole
    * BAND of panes together (all sharing the dragged edge), and tmux's
    * intermediate %layout-change events during the drag are internally
    * inconsistent (a pane's y flips 0/1 as the border row flickers). The preview
-   * reconstructs the band from this frozen snapshot instead of the live server
-   * panes, so nothing wobbles. See selectPreviewPanesUncached.
+   * and the settled check both rebuild the band from this frozen snapshot
+   * instead of the live server panes (machines/resize/limits.ts), so nothing
+   * wobbles.
    */
   originalGeometry: Record<PaneId, PaneCellBox>;
   /**
@@ -561,7 +559,6 @@ export interface AppMachineContext {
 
 export interface DragMachineContext {
   panes: TmuxPane[];
-  activePaneId: PaneId | null;
   charWidth: number;
   charHeight: number;
   containerWidth: number;
@@ -586,7 +583,6 @@ export type DragMachineEvent =
       startX: number;
       startY: number;
       panes: TmuxPane[];
-      activePaneId: PaneId | null;
       charWidth: number;
       charHeight: number;
       containerWidth: number;
@@ -609,7 +605,6 @@ export type DragMachineEvent =
 // ============================================
 
 export interface ResizeMachineContext {
-  panes: TmuxPane[];
   charWidth: number;
   charHeight: number;
   resize: ResizeState | null;
@@ -718,14 +713,8 @@ export type ResizeMoveEvent = { type: 'RESIZE_MOVE'; clientX: number; clientY: n
 export type ResizeEndEvent = { type: 'RESIZE_END' };
 
 // Keyboard events
-export type KeyPressEvent = {
-  type: 'KEY_PRESS';
-  key: string;
-  ctrlKey: boolean;
-  altKey: boolean;
-  shiftKey: boolean;
-  metaKey: boolean;
-};
+/** A key the keyboard actor consumed; the drag and resize machines cancel on Escape. */
+export type KeyPressEvent = { type: 'KEY_PRESS'; key: string };
 export type PrefixModeChangeEvent = { type: 'PREFIX_MODE_CHANGE'; active: boolean };
 
 // UI config events
@@ -1039,10 +1028,6 @@ export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string }
  * pane; the switcher itself is a menu (`components/SessionMenu`).
  */
 export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
-export type SessionSwitchRequestedEvent = {
-  type: 'SESSION_SWITCH_REQUESTED';
-  sessionName: string;
-};
 /** Sidebar sessions tree refreshed by the `serversActor` poll (web+desktop). */
 export type SessionsUpdatedEvent = {
   type: 'SESSIONS_UPDATED';
@@ -1324,7 +1309,6 @@ export type AppMachineEvent =
   | AnswerVisibleAsksEvent
   | SwitchSessionEvent
   | OpenConnectFloatEvent
-  | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
   | SnapshotsUpdatedEvent
   | RestoreSessionEvent

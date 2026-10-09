@@ -35,7 +35,7 @@ pub fn profile_dir(state_dir: &Path, session: &str) -> PathBuf {
 /// Separate from the builder so they can be asserted on: these are a security
 /// boundary, and a flag quietly lost in a refactor is the kind of regression
 /// that leaves the feature working.
-pub fn engine_args() -> Vec<String> {
+fn engine_args() -> Vec<String> {
     [
         // Nothing of the user's browser comes along: no extension can see the
         // pages tmuxy opens, and no extension's own permissions apply.

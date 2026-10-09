@@ -1,11 +1,6 @@
 import type { NextConfig } from 'next';
 
-// In dev the Rust server proxies /demo/* → Next.js, so we need basePath.
-// In production (GitHub Pages static export) the site lives at root — no basePath.
-const isDev = process.env.NODE_ENV === 'development';
-
 const nextConfig: NextConfig = {
-  basePath: isDev ? '/demo' : '',
   output: 'export',
   reactStrictMode: false,
   transpilePackages: ['tmuxy-ui'],
@@ -23,7 +18,10 @@ const nextConfig: NextConfig = {
       : [existingExternals];
     config.externals = [
       ...externalsArray,
-      ({ request }: { request?: string }, callback: (err?: Error | null, result?: string) => void) => {
+      (
+        { request }: { request?: string },
+        callback: (err?: Error | null, result?: string) => void,
+      ) => {
         // @lifo-sh/core conditionally imports these Node.js modules and @lifo-sh/ui
         // for its terminal attach feature, which we never call in browser mode.
         if (request === 'node:module' || request === '@lifo-sh/ui') {

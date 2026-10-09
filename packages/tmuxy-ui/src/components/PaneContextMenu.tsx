@@ -11,7 +11,7 @@ import {
   useAppSend,
   useAppSelector,
   selectKeyBindings,
-  selectVisiblePanes,
+  selectIsSinglePane,
   selectMarkedPaneId,
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
@@ -32,8 +32,7 @@ interface PaneContextMenuProps {
 export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
-  const visiblePanes = useAppSelector(selectVisiblePanes);
-  const isSinglePane = visiblePanes.length <= 1;
+  const isSinglePane = useAppSelector(selectIsSinglePane);
   const markedPaneId = useAppSelector(selectMarkedPaneId);
   const inGroup = useAppSelector((ctx) =>
     Object.values(ctx.paneGroups).some((g) => g.paneIds.length > 1 && g.paneIds.includes(paneId)),

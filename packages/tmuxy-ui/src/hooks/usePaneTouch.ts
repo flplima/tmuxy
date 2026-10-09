@@ -90,19 +90,10 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     }
   }, []);
 
-  // Unmount cleanup: interrupt any in-flight momentum fiber. TerminalPane
-  // consumes the hook without wiring cancelMomentum() to unmount, so without
-  // this a flick that unmounts the pane (tmux kills it) keeps the loop
-  // mutating scrollTop / sending into a dead pane until velocity decays.
-  useEffect(() => {
-    const fiber = momentumFiberRef;
-    return () => {
-      if (fiber.current !== null) {
-        Effect.runFork(Fiber.interrupt(fiber.current));
-        fiber.current = null;
-      }
-    };
-  }, []);
+  // Unmount cleanup: a flick that unmounts the pane (tmux kills it) would
+  // otherwise keep the momentum loop mutating scrollTop / sending into a dead
+  // pane until the velocity decays.
+  useEffect(() => cancelMomentum, [cancelMomentum]);
 
   // Process a pixel delta: accumulate into lines and dispatch
   // Returns unconsumed pixel remainder via the ref.
@@ -268,6 +259,5 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,
-    cancelMomentum,
   };
 }

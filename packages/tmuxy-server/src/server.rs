@@ -262,18 +262,27 @@ pub enum ServerAction {
     Group(tmuxy_group::GroupArgs),
 }
 
-/// Activate action tracing per the gating rules and announce it loudly, so it
-/// is never a surprise (docs/TELEMETRY.md). Only called on the actual
-/// server-start paths — never for stop/status/tree/connect.
-fn announce_trace(trace: Option<Option<String>>, dev_mode: bool) {
-    if let Some(path) = tmuxy_core::trace::init(trace, dev_mode) {
-        println!(
-            "tmuxy: action tracing ON [level={}] → {} (local only, never uploaded; \
-             TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
-            tmuxy_core::trace::level_name(),
-            path.display()
-        );
+/// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
+/// and subcommands — and run it. The one clap wrapper around [`ServerArgs`]:
+/// the standalone `tmuxy-server` binary hands over its own argv, and the
+/// desktop binary builds one for `tmuxy server …` and `tmuxy trace …`. A
+/// parse error prints clap's message and exits, as clap does.
+pub async fn run_argv<I, T>(argv: I)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    #[derive(clap::Parser)]
+    #[command(
+        name = "tmuxy-server",
+        about = "Tmuxy production server with embedded frontend"
+    )]
+    struct Cli {
+        #[command(flatten)]
+        server: ServerArgs,
     }
+    let cli = <Cli as clap::Parser>::parse_from(argv);
+    run(cli.server).await
 }
 
 pub async fn run(args: ServerArgs) {
@@ -291,7 +300,10 @@ pub async fn run(args: ServerArgs) {
                     }
                 };
             require_tmux();
-            announce_trace(args.trace.clone(), dev_mode);
+            // Action tracing per the gating rules (docs/TELEMETRY.md), which
+            // announces itself. Only on the actual server-start path — never
+            // for stop/status/tree/connect.
+            tmuxy_core::trace::init(args.trace.clone(), dev_mode);
             if args.no_restore {
                 std::env::set_var("TMUXY_NO_RESTORE", "1");
             }
@@ -321,7 +333,7 @@ pub async fn run(args: ServerArgs) {
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
         Some(ServerAction::Tree) => {
-            if let Err(e) = crate::tree::run_tree_tui() {
+            if let Err(e) = tmuxy_tree::run_tree_tui() {
                 eprintln!("tmuxy tree: {e}");
                 std::process::exit(1);
             }
@@ -339,7 +351,7 @@ pub async fn run(args: ServerArgs) {
             crate::browser::client::run(browser_args).await;
         }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
-        Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args),
+        Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
     }
 }
@@ -349,8 +361,7 @@ pub async fn run(args: ServerArgs) {
 enum Frontend {
     /// The built frontend compiled into this binary.
     Embedded,
-    /// `--dev`: Vite (and the demo site) started as children and proxied, so
-    /// the UI hot-reloads.
+    /// `--dev`: Vite started as a child and proxied, so the UI hot-reloads.
     Dev,
 }
 
@@ -363,26 +374,16 @@ async fn serve(
     read_only: bool,
     session_pin: Option<String>,
 ) {
-    // Vite (strictPort: true, port 9001) and the demo dev server (port 9002)
-    // bind to hard-coded ports. If tmuxy-server is told to bind one of those,
-    // it wins the race; Vite fails silently, and the `/proxy_to_vite` fallback
-    // then loops back to tmuxy-server itself — browser EventSources 404 on
-    // /events while `curl` (different headers/timing) appears to work. Bail
-    // early with an actionable message instead of letting that happen.
-    if frontend == Frontend::Dev && (port == dev::VITE_PORT || port == dev::DEMO_PORT) {
-        let role = if port == dev::VITE_PORT {
-            "Vite"
-        } else {
-            "demo"
-        };
-        error!(
-            port,
-            %role,
-            "FATAL: port collides with the hard-coded dev server port"
-        );
+    // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server is
+    // told to bind that one, it wins the race; Vite fails silently, and the
+    // `proxy_to_vite` fallback then loops back to tmuxy-server itself — browser
+    // EventSources 404 on /events while `curl` (different headers/timing)
+    // appears to work. Bail early with an actionable message instead of
+    // letting that happen.
+    if frontend == Frontend::Dev && port == dev::VITE_PORT {
+        error!(port, "FATAL: port collides with the hard-coded Vite port");
         error!(
             vite_port = dev::VITE_PORT,
-            demo_port = dev::DEMO_PORT,
             "choose a different port (e.g. --port 9000) and restart"
         );
         std::process::exit(1);
@@ -405,26 +406,16 @@ async fn serve(
             .with_session_pin(session_pin.clone()),
     );
 
-    let children = match frontend {
-        Frontend::Embedded => Vec::new(),
+    let vite = match frontend {
+        Frontend::Embedded => None,
         Frontend::Dev => {
             println!(
                 "[dev] Starting Vite dev server on port {}...",
                 dev::VITE_PORT
             );
-            let vite = dev::spawn_dev_server("vite", "tmuxy-ui", &[]).await;
-            println!(
-                "[dev] Starting demo dev server on port {}...",
-                dev::DEMO_PORT
-            );
-            let demo = dev::spawn_dev_server(
-                "demo",
-                "tmuxy-demo",
-                &["--", "--port", "9002", "--hostname", "0.0.0.0"],
-            )
-            .await;
+            let vite = dev::spawn_vite().await;
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            vec![vite, demo]
+            vite
         }
     };
 
@@ -435,18 +426,9 @@ async fn serve(
     let routes = crate::state::api_routes(listen.policy.clone(), read_only);
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),
-        Frontend::Dev => routes
-            .route(
-                "/demo",
-                axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
-            )
-            .route(
-                "/demo/{*path}",
-                axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
-            )
-            .fallback_service(tower::service_fn(|req: Request| async move {
-                Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
-            })),
+        Frontend::Dev => routes.fallback_service(tower::service_fn(|req: Request| async move {
+            Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
+        })),
     }
     .with_state(state.clone());
     let password_set = password.is_some();
@@ -465,11 +447,7 @@ async fn serve(
         }
     }
     if frontend == Frontend::Dev {
-        println!(
-            "[dev] Vite proxied from port {}, demo proxied from port {}",
-            dev::VITE_PORT,
-            dev::DEMO_PORT
-        );
+        println!("[dev] Vite proxied from port {}", dev::VITE_PORT);
     }
 
     let listener = bind_with_retry(addr, 5).await;
@@ -481,7 +459,7 @@ async fn serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal(state, children))
+    .with_graceful_shutdown(shutdown_signal(state, vite))
     .await
     {
         error!(error = %e, "axum serve loop exited with error");
@@ -665,7 +643,7 @@ const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 /// How long the final snapshot of a session may hold up shutdown.
 const FINAL_SNAPSHOT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChild>>) {
+async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::ViteChild>) {
     // Signal handler installation only fails on platforms without sigaction (none we
     // target) or when the process has already taken too many file descriptors —
     // either way, a server that can't react to Ctrl+C is unusable, so panic is
@@ -756,36 +734,14 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
         tracing::info!(tasks = drained, "structured shutdown complete");
     }
 
-    for child in children.into_iter().flatten() {
-        child.kill();
+    if let Some(vite) = vite {
+        vite.kill();
     }
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    /// Version skew, case 3 (see `tests/version_skew.rs`): two servers running
-    /// at once must not share a pid file.
-    ///
-    /// They are the normal state of a dev machine — a released build on
-    /// `tmuxy`, the dev server on `tmuxy-dev`, the test suite on `tmuxy-test`
-    /// — and each writes its pid so `tmuxy server stop` and `status` can find
-    /// it. One shared file would mean the second server's write silently
-    /// replaces the first's, after which `stop` signals whichever pid was
-    /// written last, on whatever port the user asked about.
-    #[test]
-    fn two_servers_on_different_ports_do_not_share_a_pid_file() {
-        let default = super::pid_file_path(super::DEFAULT_PORT);
-        let other = super::pid_file_path(super::DEFAULT_PORT + 1);
-        let third = super::pid_file_path(9999);
-
-        assert_ne!(default, other);
-        assert_ne!(other, third);
-        assert_ne!(default, third);
-        // Stable, or a server cannot find the file it wrote itself.
-        assert_eq!(default, super::pid_file_path(super::DEFAULT_PORT));
-    }
-
     use super::*;
 
     /// A scratch pid-file path unique to this test, cleaned up on drop.
@@ -870,13 +826,24 @@ mod tests {
         assert!(!file.0.exists(), "the owning pid did not remove the file");
     }
 
-    /// Two servers on two ports must not share a pid file, or stopping the
-    /// second stops the first.
+    /// Version skew, case 3 (see `tests/version_skew.rs`): two servers running
+    /// at once must not share a pid file, or stopping the second stops the
+    /// first.
+    ///
+    /// They are the normal state of a dev machine — a released build on
+    /// `tmuxy`, the dev server on `tmuxy-dev`, the test suite on `tmuxy-test`
+    /// — and each writes its pid so `tmuxy server stop` and `status` can find
+    /// it. One shared file would mean the second server's write silently
+    /// replaces the first's, after which `stop` signals whichever pid was
+    /// written last, on whatever port the user asked about.
     #[test]
     fn each_port_owns_its_own_pid_file() {
         let default = pid_file_path(DEFAULT_PORT);
         let other = pid_file_path(DEFAULT_PORT + 1);
         assert_ne!(default, other);
+        assert_ne!(other, pid_file_path(9999));
+        // Stable, or a server cannot find the file it wrote itself.
+        assert_eq!(default, pid_file_path(DEFAULT_PORT));
         // The default port keeps the historical name, which `stop` and every
         // existing install already look for.
         assert_eq!(default.file_name().unwrap(), "tmuxy.pid");
@@ -999,7 +966,6 @@ mod tests {
         "/events",
         "/commands",
         "/trace",
-        "/api/file?path=/etc/hosts",
         "/api/browse/etc/hosts",
         "/api/images/1/0",
         "/",
@@ -1089,7 +1055,7 @@ mod tests {
     async fn with_no_password_the_layer_is_not_installed() {
         use tower::ServiceExt;
         let response = served_app(None)
-            .oneshot(probe("/api/file?path=/etc/hosts", None))
+            .oneshot(probe("/api/browse/etc/hosts", None))
             .await
             .unwrap();
         assert_ne!(response.status(), StatusCode::UNAUTHORIZED);

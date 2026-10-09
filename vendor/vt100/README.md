@@ -1,36 +1,12 @@
-# vt100
+# vt100 (tmuxy fork)
 
-This crate parses a terminal byte stream and provides an in-memory
-representation of the rendered contents.
+A fork of the `vt100` terminal-emulation crate, version 0.16.2, that
+`tmuxy-core` uses to re-emulate each pane's output. The root `Cargo.toml`
+patches `vt100` to this directory, so `tmuxy-core` still depends on
+`vt100 = "0.16"` and resolves here.
 
-## Overview
+Upstream: https://github.com/doy/vt100-rust (MIT, see `LICENSE`).
 
-This is essentially the terminal parser component of a graphical terminal
-emulator pulled out into a separate crate. Although you can use this crate
-to build a graphical terminal emulator, it also contains functionality
-necessary for implementing terminal applications that want to run other
-terminal applications - programs like `screen` or `tmux` for example.
-
-## Synopsis
-
-```rust
-let mut parser = vt100::Parser::new(24, 80, 0);
-
-let screen = parser.screen().clone();
-parser.process(b"this text is \x1b[31mRED\x1b[m");
-assert_eq!(
-    parser.screen().cell(0, 13).unwrap().fgcolor(),
-    vt100::Color::Idx(1),
-);
-
-let screen = parser.screen().clone();
-parser.process(b"\x1b[3D\x1b[32mGREEN");
-assert_eq!(
-    parser.screen().contents_formatted(),
-    &b"\x1b[?25h\x1b[m\x1b[H\x1b[Jthis text is \x1b[32mGREEN"[..],
-);
-assert_eq!(
-    parser.screen().contents_diff(&screen),
-    &b"\x1b[1;14H\x1b[32mGREEN"[..],
-);
-```
+What this fork changes, and why, is in `PATCHES.md`. Keep that file current
+when `src/` changes: it is the only record of the delta, and the only way to
+rebase onto a newer upstream.

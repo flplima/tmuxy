@@ -7,8 +7,14 @@
  * Groups consecutive cells by style into <span> elements for efficiency.
  */
 
-import type { CellLine, CellStyle, CellColor } from '../domain/wire';
-import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
+import type { CellLine, CellStyle } from '../domain/wire';
+import {
+  cellColorToCss,
+  cellsToCss,
+  isWideChar,
+  sameCellColor,
+  sameCellStyle,
+} from './terminalShared';
 import { detectUrls } from '../utils/urlDetect';
 import { safeHref } from '../utils/openUrl';
 
@@ -62,32 +68,6 @@ function applyStyleToElement(
   }
 }
 
-function stylesMatch(a: CellStyle | undefined, b: CellStyle | undefined): boolean {
-  if (a === b) return true;
-  if (!a && !b) return true;
-  if (!a || !b) return false;
-  return (
-    colorEqual(a.fg, b.fg) &&
-    colorEqual(a.bg, b.bg) &&
-    (a.bold ?? false) === (b.bold ?? false) &&
-    (a.dim ?? false) === (b.dim ?? false) &&
-    (a.italic ?? false) === (b.italic ?? false) &&
-    (a.underline ?? false) === (b.underline ?? false) &&
-    (a.inverse ?? false) === (b.inverse ?? false) &&
-    a.url === b.url
-  );
-}
-
-function colorEqual(a: CellColor | undefined, b: CellColor | undefined): boolean {
-  if (a === b) return true;
-  if (a === undefined || b === undefined) return false;
-  if (typeof a === 'number') return a === b;
-  if (typeof a === 'object' && typeof b === 'object') {
-    return a.r === b.r && a.g === b.g && a.b === b.b;
-  }
-  return false;
-}
-
 // ============================================
 // Line rendering
 // ============================================
@@ -114,7 +94,7 @@ function detectLineBg(line: CellLine): string | null {
   // syntax highlighting putting bg on just a few cells)
   let count = 0;
   for (let i = 0; i < line.length; i++) {
-    if (colorEqual(line[i].s?.bg, firstBg)) count++;
+    if (sameCellColor(line[i].s?.bg, firstBg)) count++;
   }
   if (count > line.length / 2) {
     return cellColorToCss(firstBg);
@@ -241,7 +221,7 @@ export function renderLineToDOM(
     if (
       wide ||
       groupWide ||
-      !stylesMatch(cell.s, groupStyle) ||
+      !sameCellStyle(cell.s, groupStyle) ||
       selected !== groupSelected ||
       cellUrlIdx !== groupUrlIdx
     ) {

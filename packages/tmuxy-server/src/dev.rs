@@ -11,10 +11,7 @@ use tracing::{error, warn};
 /// Port for Vite dev server
 pub const VITE_PORT: u16 = 9001;
 
-/// Port for Next.js demo dev server
-pub const DEMO_PORT: u16 = 9002;
-
-/// A dev child's process group, killed with the server.
+/// Vite's process group, killed with the server.
 pub struct ViteChild {
     #[cfg_attr(not(unix), allow(dead_code))]
     pgid: i32,
@@ -55,13 +52,13 @@ fn without_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
     headers
 }
 
-async fn proxy_to_port(port: u16, req: Request) -> Response {
+pub async fn proxy_to_vite(req: Request) -> Response {
     let path_and_query = req
         .uri()
         .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
-    let target_url = format!("http://localhost:{port}{path_and_query}");
+    let target_url = format!("http://localhost:{VITE_PORT}{path_and_query}");
 
     match PROXY_CLIENT
         .request(req.method().clone(), &target_url)
@@ -88,26 +85,14 @@ async fn proxy_to_port(port: u16, req: Request) -> Response {
     }
 }
 
-pub async fn proxy_to_vite(req: Request) -> Response {
-    proxy_to_port(VITE_PORT, req).await
-}
-
-pub async fn proxy_to_demo(req: Request) -> Response {
-    proxy_to_port(DEMO_PORT, req).await
-}
-
-pub async fn spawn_dev_server(
-    label: &str,
-    npm_workspace: &str,
-    extra_args: &[&str],
-) -> Option<ViteChild> {
+/// Start Vite (`npm run dev -w tmuxy-ui`) from the workspace root, its output
+/// relayed line by line under the `[vite]` label.
+pub async fn spawn_vite() -> Option<ViteChild> {
+    let label = "vite";
     let workspace_root = crate::state::find_workspace_root();
 
-    let mut args = vec!["run", "dev", "-w", npm_workspace];
-    args.extend_from_slice(extra_args);
-
     let mut cmd = Command::new("npm");
-    cmd.args(&args)
+    cmd.args(["run", "dev", "-w", "tmuxy-ui"])
         .current_dir(&workspace_root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

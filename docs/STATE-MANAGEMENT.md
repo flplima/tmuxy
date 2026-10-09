@@ -20,7 +20,7 @@ The backend is the **authoritative** owner of tmux state. Everything below is a 
 
 ### AppState
 
-Top-level server state. Holds the per-session connection map, the execution context (`Ctx` — see below), structured-shutdown handles (`JoinSet` + `CancellationToken`), and the shared image store. Handlers reach tmux through the session's monitor, never a subprocess.
+Top-level server state. Holds the per-session connection map, structured-shutdown handles (`JoinSet` + `CancellationToken`), and the shared image store. Handlers reach tmux through the session's monitor, never a subprocess.
 
 See `tmuxy-server/src/state.rs`.
 
@@ -34,7 +34,7 @@ Same file as `AppState`.
 
 The bridge between the sans-IO state machine and a live `tmux -CC` subprocess. Receives control-mode events, drives the aggregator step-by-step, and executes the typed `SideEffect`s the aggregator returns (sending tmux commands, refreshing panes, emitting state). Multiplexes control-mode events, periodic syncs, the settling/throttle/debounce timers, and external commands from the frontend.
 
-Takes an `Arc<Ctx>` so the clock, tmux dispatch, and filesystem are substitutable — tests can drive the loop without spinning a real tmux. The reconnect loop in the server/Tauri paths re-creates the monitor on disconnect with the same ctx.
+The reconnect loop in the server/Tauri paths re-creates the monitor on disconnect. The monitor reads the system clock directly; the time-based policies it applies (`RunState`, the aggregator's `step_at`/`tick`) take an explicit instant, which is how their tests drive time without a tmux.
 
 See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method per `select!` arm is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants.
 
@@ -57,10 +57,6 @@ This separation is what makes the aggregator testable without tokio: drive it wi
 `step(event) -> StepResult` is the public entry point. `tick(now)` drives the time-based transitions: once `now` passes the settling deadline after a burst of structural events, it ends the settling window and returns one consolidated `EmitState` (or nothing, when no event arrived during it).
 
 See `tmuxy-core/src/control_mode/state.rs` and the `SideEffect` enum's docblocks for the ordering invariants the runtime relies on.
-
-### Ctx — execution context
-
-The monitor's substitutable capabilities. Today that is only the `Clock` the settling and throttling deadlines are computed from; production uses `Ctx::live()` (the system clock). There is no tmux capability: every tmux command, mutation or read, goes over the monitor's control-mode connection (`tmuxy-core/src/transport.rs` holds the reads both transports share). See `tmuxy-core/src/ctx.rs`.
 
 ### StateUpdate, TmuxState, TmuxDelta
 
@@ -95,7 +91,7 @@ The tunables are constants in `control_mode/monitor.rs` (only the throttle inter
 
 The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Four top-level states arranged as a connection lifecycle:
 
-- **`connecting`** — Initial. Waiting for the backend handshake. Transitions to `idle` on `TMUX_CONNECTED`.
+- **`connecting`** — Initial. Waiting for the backend handshake. Transitions to `idle` on `TMUX_CONNECTED`. Like every live state it ends in `disconnected` on `TMUX_DISCONNECTED` / `TMUX_FATAL`, both handled at the machine root.
 - **`idle`** — Live and operational. Handles all normal interactions. The "syncing" sub-flavor — connected, but with one or more optimistic ops in flight — is a derived flag (`tmuxStore.model.ops.length > 0`) surfaced to selectors; it does not gate any handlers, so the user never feels a perceptible mode change when an op is pending.
 - **`reconnecting`** — The adapter detected the SSE/Tauri channel dropped and is retrying. Distinct from `connecting` so the UI keeps the last frame of the panes mounted and blurs it under the `ConnectionOverlay` (spinner + "Connecting…"; see `tmuxy-ui/src/components/ConnectionOverlay.tsx`). Transitions to `idle` on `TMUX_RECONNECTED` (next live snapshot) or `disconnected` on `TMUX_DISCONNECTED` / `TMUX_FATAL`.
 - **`disconnected`** — Terminal. Backend gave up or an explicit disconnect happened. The `ConnectionOverlay` reads `fatalError` to show the one-line reason with a Retry button (a reload) and the command/error log behind a collapsed Details disclosure; the dead layout stays underneath as the blurred backdrop. No auto-recovery; an adapter-initiated `TMUX_RECONNECTING` is still accepted, so a server that comes back later can pull the UI out of this state.
@@ -219,8 +215,10 @@ Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_
 `AppMachineContext` field to the concern that owns it (the owner names are the `states/` file names, plus `parent` for the machine itself). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
 reads that map out of `context.ts` itself, so there is one copy, and
-enforces it: any `assign({...})` inside a `states/<name>.ts` or
-`actions/<name>.ts` file may only mutate fields owned by `<name>`.
+enforces it: any `assign({...})` (or `assignCtx({...})`, the same builder
+bound to the machine's types in `machines/app/actionTypes.ts`) inside a
+`states/<name>.ts` or `actions/<name>.ts` file may only mutate fields owned
+by `<name>`.
 Cross-cutting handlers that legitimately span states opt out with a
 `// cross-cutting: <reason>` comment on the assign.
 

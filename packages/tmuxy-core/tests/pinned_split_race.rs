@@ -23,7 +23,9 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{
     CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::StateUpdate;
+
+mod common;
 
 #[derive(Default)]
 struct Quiet {
@@ -70,7 +72,7 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
         create_session: true,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("control-mode connection on the scratch socket");
     let runner = tokio::spawn(async move {
@@ -102,7 +104,7 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     // Another client — the way tmuxy's own monitor, or a user switching tabs,
     // does all the time — moves the session's current window.
-    executor::execute_tmux_command(&["select-window", "-t", first_window]).unwrap();
+    common::tmux(&["select-window", "-t", first_window]).unwrap();
 
     // Let the stalled list finish.
     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -120,5 +122,5 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
 
     tx.send(MonitorCommand::Shutdown).await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = executor::execute_tmux_command(&["kill-server"]);
+    let _ = common::tmux(&["kill-server"]);
 }

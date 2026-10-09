@@ -124,66 +124,30 @@ pub fn run_connect_form() {
 
 /// Run the web server mode (delegates to tmuxy-server).
 pub fn run_server(args: Vec<String>) {
-    use clap::Parser;
-    use tmuxy_server::server;
-
-    /// Wrapper to parse ServerArgs from the command line.
-    #[derive(Parser)]
-    #[command(name = "tmuxy server", about = "Tmuxy web server")]
-    struct ServerCli {
-        #[command(flatten)]
-        server: server::ServerArgs,
-    }
-
     // Match the standalone `tmuxy-server` binary: without a subscriber, every
     // server log — including the fatal dev-mode port-collision message — is
     // silently dropped, so `tmuxy server` would exit with no diagnostic output.
     tmuxy_server::init_logging();
-
-    // Build synthetic argv: "tmuxy-server" + everything after "server"
-    let mut argv = vec!["tmuxy-server".to_string()];
-    argv.extend(args.into_iter().skip(1)); // skip "server"
-
-    let cli = match ServerCli::try_parse_from(&argv) {
-        Ok(a) => a,
-        Err(e) => e.exit(),
-    };
-
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(server::run(cli.server));
+    // Everything after the `server` noun is the server's own command line.
+    run_server_argv(args.into_iter().skip(1));
 }
 
-/// Run `tmuxy trace ...` (inspect/export a local action-trace file). Reuses the
-/// server's `Trace` subcommand parser; unlike `run_server`, it keeps the noun
-/// token so clap sees `trace` as the subcommand.
+/// Run `tmuxy trace ...` (inspect/export a local action-trace file). The
+/// server's `Trace` subcommand; unlike `run_server`, the noun is kept so clap
+/// sees `trace` as the subcommand.
 pub fn run_trace(args: Vec<String>) {
-    use clap::Parser;
-    use tmuxy_server::server;
+    run_server_argv(args);
+}
 
-    #[derive(Parser)]
-    #[command(name = "tmuxy", about = "Tmuxy trace inspector")]
-    struct TraceCli {
-        #[command(flatten)]
-        server: server::ServerArgs,
-    }
-
-    // "tmuxy-server" + ["trace", ...] — keep "trace" so it parses as the subcommand.
-    let mut argv = vec!["tmuxy-server".to_string()];
-    argv.extend(args);
-
-    let cli = match TraceCli::try_parse_from(&argv) {
-        Ok(a) => a,
-        Err(e) => e.exit(),
-    };
-
+/// `tmuxy-server <args>`, parsed and run by the server crate on a runtime of
+/// this binary's own.
+fn run_server_argv(args: impl IntoIterator<Item = String>) {
+    let argv = std::iter::once("tmuxy-server".to_string()).chain(args);
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(server::run(cli.server));
+        .block_on(tmuxy_server::server::run_argv(argv));
 }
 
 /// The dispatcher's own help, which lists every noun it serves — a copy kept

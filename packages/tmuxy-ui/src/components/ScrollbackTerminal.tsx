@@ -15,9 +15,10 @@ import { useRef, useLayoutEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
 import { useAppSelector, selectCharSize } from '../machines/AppContext';
 import { renderLineToDOM } from './terminalRendering';
+import { sameCellStyle } from './terminalShared';
 import { isRowLoaded, isWrappedRow } from '../utils/copyMode';
 import type { CopyModeState } from '../domain/copyMode';
-import type { CellLine, CellColor, CellStyle } from '../domain/wire';
+import type { CellLine } from '../domain/wire';
 
 interface ScrollbackTerminalProps {
   copyState: CopyModeState;
@@ -114,39 +115,22 @@ type SelRange = ReturnType<ReturnType<typeof computeScrollbackSelection>>;
 const sameRange = (a: SelRange, b: SelRange): boolean =>
   a === b || (a !== null && b !== null && a.startCol === b.startCol && a.endCol === b.endCol);
 
-const sameColor = (a: CellColor | undefined, b: CellColor | undefined): boolean =>
-  a === b ||
-  (typeof a === 'object' && typeof b === 'object' && a.r === b.r && a.g === b.g && a.b === b.b);
-
-const sameStyle = (a: CellStyle | undefined, b: CellStyle | undefined): boolean =>
-  a === b ||
-  (!!a &&
-    !!b &&
-    sameColor(a.fg, b.fg) &&
-    sameColor(a.bg, b.bg) &&
-    !a.bold === !b.bold &&
-    !a.dim === !b.dim &&
-    !a.italic === !b.italic &&
-    !a.underline === !b.underline &&
-    !a.inverse === !b.inverse &&
-    a.url === b.url);
-
-/**
- * Same content, cell for cell. A scrollback chunk that overlaps rows already
- * loaded hands them over as new arrays with the same cells; repainting a row
- * for that alone would replace the nodes a selection endpoint sits in.
- */
 /** Mirror a row's soft-wrap flag onto the element the copy path reads. */
 function setWrapped(el: HTMLElement, wrapped: 'true' | null): void {
   if (wrapped) el.setAttribute('data-wrapped', wrapped);
   else el.removeAttribute('data-wrapped');
 }
 
+/**
+ * Same content, cell for cell. A scrollback chunk that overlaps rows already
+ * loaded hands them over as new arrays with the same cells; repainting a row
+ * for that alone would replace the nodes a selection endpoint sits in.
+ */
 function sameLine(a: CellLine, b: CellLine): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].c !== b[i].c || !sameStyle(a[i].s, b[i].s)) return false;
+    if (a[i].c !== b[i].c || !sameCellStyle(a[i].s, b[i].s)) return false;
   }
   return true;
 }

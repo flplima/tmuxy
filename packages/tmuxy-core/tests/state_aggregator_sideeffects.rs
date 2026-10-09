@@ -104,14 +104,21 @@ fn step_never_returns_empty_variant_pattern_for_known_events() {
 fn change_type_is_surfaced_even_when_emission_is_suppressed() {
     // Pre-condition: a window exists so close can suppress-but-still-flag.
     let mut agg = StateAggregator::new();
-    agg.step(ControlModeEvent::WindowAdd {
-        window_id: "@9".parse().unwrap(),
-    });
-    // Arming suppression mirrors the monitor's compound-command settling.
-    agg.set_suppress_window_emissions(true);
-    let result = agg.step(ControlModeEvent::WindowClose {
-        window_id: "@9".parse().unwrap(),
-    });
+    let t0 = std::time::Instant::now();
+    agg.step_at(
+        ControlModeEvent::WindowAdd {
+            window_id: "@9".parse().unwrap(),
+        },
+        t0,
+    );
+    // Arming settling is what the monitor does around a compound command.
+    agg.arm_settling(t0);
+    let result = agg.step_at(
+        ControlModeEvent::WindowClose {
+            window_id: "@9".parse().unwrap(),
+        },
+        t0,
+    );
     assert!(
         !result
             .effects
@@ -150,7 +157,6 @@ fn arm_settling_suppresses_window_emissions() {
     );
     agg.arm_settling(t0);
     assert!(agg.is_settling());
-    assert!(agg.is_suppressing_window_emissions());
     let result = agg.step_at(
         ControlModeEvent::WindowClose {
             window_id: "@9".parse().unwrap(),
@@ -199,7 +205,6 @@ fn tick_after_deadline_emits_and_clears_when_events_observed() {
         }]
     ));
     assert!(!agg.is_settling(), "tick after deadline clears settling");
-    assert!(!agg.is_suppressing_window_emissions());
 }
 
 #[test]
@@ -214,17 +219,37 @@ fn tick_safety_timeout_clears_silently_when_no_events() {
         "safety timeout must not emit when no events were observed"
     );
     assert!(!agg.is_settling());
-    assert!(!agg.is_suppressing_window_emissions());
 }
 
 #[test]
 fn clear_settling_unsuppresses_without_emitting() {
     let mut agg = StateAggregator::new();
     let t0 = std::time::Instant::now();
+    agg.step_at(
+        ControlModeEvent::WindowAdd {
+            window_id: "@9".parse().unwrap(),
+        },
+        t0,
+    );
     agg.arm_settling(t0);
     agg.clear_settling();
     assert!(!agg.is_settling());
-    assert!(!agg.is_suppressing_window_emissions());
+    // A window event after the clear emits again: the suppression went with
+    // the settling state.
+    let result = agg.step_at(
+        ControlModeEvent::WindowClose {
+            window_id: "@9".parse().unwrap(),
+        },
+        t0,
+    );
+    assert!(
+        result
+            .effects
+            .iter()
+            .any(|e| matches!(e, SideEffect::EmitState { .. })),
+        "clear_settling must lift the suppression: {:?}",
+        result.effects
+    );
 }
 
 #[test]

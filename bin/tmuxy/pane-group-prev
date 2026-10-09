@@ -1,11 +1,5 @@
 #!/bin/bash
-# Navigate to the previous tab in a pane group (wraps)
-# Args: $1=active_pane_id
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# Show the member before the one on screen (wraps). Rules: tmuxy_core::groups, run by the `group prev` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 

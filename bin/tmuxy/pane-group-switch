@@ -1,14 +1,5 @@
 #!/bin/bash
-# Switch to a target pane within a group
-# Args: $1=target_pane_id
-#
-# Sizes the target's stash window to the visible member's slot, then swaps the
-# target into view.
-#
-# The rules are tmuxy-core's (`tmuxy_core::groups`, run by the server binary's
-# `group` verb); this script is their name for the UI, the key bindings and
-# session restore.
-
+# Show pane $1 in its group's slot. Rules: tmuxy_core::groups, run by the `group switch` verb (packages/tmuxy-group has the arguments).
 set -euo pipefail
 source "${0%/*}/_lib"
 

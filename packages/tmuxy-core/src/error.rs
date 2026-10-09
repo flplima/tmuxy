@@ -1,9 +1,8 @@
 //! Typed errors for tmuxy-core.
 //!
 //! A typed error lets a caller act on the variant instead of matching on
-//! message text: the retry layer (`retry.rs`) backs off only on what
-//! [`TmuxError::is_retryable`] calls transient, and the server tells a
-//! missing session apart from everything else.
+//! message text: the server tells a missing session apart from everything
+//! else.
 //!
 //! `TmuxError` is `#[non_exhaustive]`, so matchers outside the crate keep a
 //! `_` arm and a new variant breaks none of them.
@@ -13,7 +12,6 @@
 //!     PTY EOF'd.
 //!   - `Timeout { operation, after }` — an operation exceeded its deadline.
 //!   - `SessionNotFound { name }` — the named session does not exist.
-//!   - `PaneNotFound { id }` — a referenced pane id no longer exists.
 //!   - `Io(std::io::Error)` — anything from the OS (PTY allocation, file
 //!     reads). `#[from]` makes `?` propagation natural.
 //!   - `ControlMode(String)` — tmux-reported error text that fits no more
@@ -43,10 +41,6 @@ pub enum TmuxError {
     #[error("tmux session '{name}' does not exist")]
     SessionNotFound { name: String },
 
-    /// A command referenced a pane id tmux no longer knows about.
-    #[error("tmux pane '{id}' does not exist")]
-    PaneNotFound { id: String },
-
     /// Underlying I/O error (PTY, file system, signals, etc.).
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -65,16 +59,6 @@ impl TmuxError {
     pub fn other(msg: impl Into<String>) -> Self {
         TmuxError::ControlMode(msg.into())
     }
-
-    /// True when the error is plausibly transient and worth retrying.
-    /// Retry policies in the retry layer consult this to decide whether to back off
-    /// or surface.
-    pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            TmuxError::Timeout { .. } | TmuxError::Io(_) | TmuxError::ProcessExited { .. }
-        )
-    }
 }
 
 /// Lets `?` lift a `String` error into the `ControlMode` variant, erasing any
@@ -82,12 +66,6 @@ impl TmuxError {
 impl From<String> for TmuxError {
     fn from(s: String) -> Self {
         TmuxError::ControlMode(s)
-    }
-}
-
-impl From<&str> for TmuxError {
-    fn from(s: &str) -> Self {
-        TmuxError::ControlMode(s.to_string())
     }
 }
 
@@ -111,19 +89,6 @@ mod tests {
             name: "foo".to_string(),
         };
         assert_eq!(e.to_string(), "tmux session 'foo' does not exist");
-    }
-
-    #[test]
-    fn retryable_classifications() {
-        assert!(TmuxError::Timeout {
-            operation: "x".into(),
-            after: std::time::Duration::from_secs(1),
-        }
-        .is_retryable());
-        assert!(TmuxError::ProcessExited { reason: "y".into() }.is_retryable());
-        assert!(!TmuxError::SessionNotFound { name: "z".into() }.is_retryable());
-        assert!(!TmuxError::PaneNotFound { id: "%0".into() }.is_retryable());
-        assert!(!TmuxError::other("misc").is_retryable());
     }
 
     #[test]

@@ -19,11 +19,8 @@
  * A failing story's screenshot and error text land in PROBE_ARTIFACT_DIR
  * (default `probe-artifacts/` beside package.json), for CI to upload.
  *
- * Quarantine: scripts/probe-quarantine-v86.json lists stories whose failures
- * are reported but do not turn the run red — capped, dated, and each with its
- * reason (scripts/probe-quarantine.mjs enforces the policy, the same one the
- * deterministic probe uses). Without it the sweep is red every night with the
- * same known failures, which buries a real regression instead of showing it.
+ * Every failure turns the run red: this sweep has no quarantine list. A story
+ * that cannot pass against the guest's real tmux is deleted, not shielded.
  *
  * Set PROBE_TIMINGS_JSON=<path> to also write a machine-readable per-story
  * timings report ({ generatedAt, storybookPort, stories: [{id, ok, retried,
@@ -32,55 +29,38 @@
  * (shared-engine, runner-load-sensitive), useful for trend, not absolutes.
  */
 
-import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve as resolvePath } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { loadQuarantine, quarantineStatus as statusFor } from './probe-quarantine.mjs';
+import { writeFileSync } from 'node:fs';
+import {
+  fetchStoryIds,
+  launchChromium,
+  parseProbeArgs,
+  printFailures,
+  writeArtifacts,
+} from './lib/probe-common.mjs';
 
-const args = process.argv.slice(2);
-const PORT = /^\d+$/.test(args[0] ?? '') ? Number(args.shift()) : 6006;
-const FILTERS = args;
-const STORYBOOK_URL = `http://localhost:${PORT}`;
+const {
+  port: PORT,
+  filters: FILTERS,
+  storybookUrl: STORYBOOK_URL,
+} = parseProbeArgs(process.argv.slice(2));
 const PER_STORY_TIMEOUT_MS = 240000;
-const PACKAGE_DIR = resolvePath(dirname(fileURLToPath(import.meta.url)), '..');
-const ARTIFACT_DIR = resolvePath(PACKAGE_DIR, process.env.PROBE_ARTIFACT_DIR || 'probe-artifacts');
-const SCRIPT_DIR = resolvePath(PACKAGE_DIR, 'scripts');
-const quarantine = loadQuarantine(resolvePath(SCRIPT_DIR, 'probe-quarantine-v86.json'));
-const quarantineStatus = (id) => statusFor(quarantine, id);
 
-async function fetchIndex() {
-  const res = await fetch(`${STORYBOOK_URL}/index.json`);
-  if (!res.ok) throw new Error(`storybook /index.json: ${res.status}`);
-  const json = await res.json();
-  const ids = Object.keys(json.entries).filter((id) => {
-    const entry = json.entries[id];
-    return entry.type === 'story' && (entry.tags ?? []).includes('v86');
-  });
-  if (FILTERS.length === 0) return ids;
-  return ids.filter((id) => FILTERS.some((f) => id.includes(f)));
-}
-
-const ids = await fetchIndex();
+const ids = await fetchStoryIds({ storybookUrl: STORYBOOK_URL, filters: FILTERS, v86: true });
 if (ids.length === 0) {
   console.error('no v86 stories matched');
   process.exit(1);
 }
 console.log(`probing ${ids.length} v86 stories on ${STORYBOOK_URL} in a single shared page…`);
 
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium',
-});
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.message));
 
-// Console-error accounting (parity with probe-stories.mjs). The shared page
-// spans every story, so errors are attributed to whichever story is on screen
-// when they fire — good enough to point a human at the culprit.
+// Console-error accounting. The shared page spans every story, so errors are
+// attributed to whichever story is on screen when they fire — good enough to
+// point a human at the culprit.
 let currentStoryId = ids[0];
 const consoleErrorsByStory = new Map();
 page.on('console', (msg) => {
@@ -151,35 +131,6 @@ async function awaitOutcome(id) {
   return { id, ok: true };
 }
 
-/** A failing story's screenshot and error text, for CI to upload. */
-async function writeArtifacts(result) {
-  mkdirSync(ARTIFACT_DIR, { recursive: true });
-  const base = resolvePath(ARTIFACT_DIR, `v86-${result.id.replace(/[^a-z0-9._-]/gi, '_')}`);
-  try {
-    await page.screenshot({ path: `${base}.png` });
-  } catch {
-    // A crashed renderer has no screenshot to give; the text report still does.
-  }
-  writeFileSync(
-    `${base}.txt`,
-    [
-      `story:   ${result.id}`,
-      `reason:  ${result.reason}`,
-      `message: ${result.message ?? '(none)'}`,
-      '',
-      'stack:',
-      result.stack ?? '(none)',
-      '',
-      `page errors so far (${pageErrors.length}):`,
-      ...pageErrors.map((e) => `  ${e}`),
-      '',
-      `console errors for this story:`,
-      ...(consoleErrorsByStory.get(result.id) ?? []).map((e) => `  ${e}`),
-    ].join('\n') + '\n',
-  );
-  return `${base}.png`;
-}
-
 // channel.emit only sends OUTBOUND (to a manager that doesn't exist on
 // iframe.html) — drive the preview's own selection handler directly.
 const selectStory = (storyId) =>
@@ -202,19 +153,17 @@ for (let i = 0; i < ids.length; i++) {
   const id = ids[i];
   currentStoryId = id;
   if (i > 0) {
-    {
-      // Let the finished story's teardown/trailing engine traffic settle
-      // before rewinding the shared machine — switching at storyRendered+0ms
-      // leaves the next mount racing the previous story's outbound bytes.
-      // (A periodic full page reload was tried to clear accumulated engine
-      // drift, but it wiped document-level singletons like the injected
-      // `#tmuxy-theme` stylesheet mid-run; the core provisional-window-index
-      // fix removed the biggest accumulation source — tab-create stories no
-      // longer take tens of seconds — so a snapshot reset between stories is
-      // enough. A cold boot still happens on a failing story's retry below.)
-      await new Promise((r) => setTimeout(r, 1500));
-      await selectStory(id);
-    }
+    // Let the finished story's teardown/trailing engine traffic settle
+    // before rewinding the shared machine — switching at storyRendered+0ms
+    // leaves the next mount racing the previous story's outbound bytes.
+    // (A periodic full page reload was tried to clear accumulated engine
+    // drift, but it wiped document-level singletons like the injected
+    // `#tmuxy-theme` stylesheet mid-run; the core provisional-window-index
+    // fix removed the biggest accumulation source — tab-create stories no
+    // longer take tens of seconds — so a snapshot reset between stories is
+    // enough. A cold boot still happens on a failing story's retry below.)
+    await new Promise((r) => setTimeout(r, 1500));
+    await selectStory(id);
   }
   const started = Date.now();
   let result = await awaitOutcome(id);
@@ -230,53 +179,27 @@ for (let i = 0; i < ids.length; i++) {
     retried = true;
   }
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
-  if (!result.ok) result.artifact = await writeArtifacts(result);
-  const shielded = !result.ok && quarantineStatus(id).shielded;
-  const label = result.ok ? 'PASS' : shielded ? 'QUARANTINED' : 'FAIL';
+  if (!result.ok) {
+    // The page errors so far and this story's console errors travel with the
+    // result, into its artifacts and the report at the end.
+    result.pageErrors = [...pageErrors];
+    result.consoleErrors = consoleErrorsByStory.get(id) ?? [];
+    result.artifact = await writeArtifacts(page, `v86-${id}`, result);
+  }
   console.log(
-    `${label}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
+    `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
       result.ok ? '' : ` — ${result.reason}${result.message ? `: ${result.message}` : ''}`
     }`,
   );
-  if (!result.ok) {
-    if (result.stack)
-      for (const line of result.stack.split('\n').slice(0, 12)) console.log(`    ${line}`);
-    console.log(`    screenshot: ${result.artifact}`);
-  }
   results.push({ ...result, retried, secs });
 }
 
 await browser.close();
 
 const failed = results.filter((r) => !r.ok);
-const blocking = failed.filter((r) => !quarantineStatus(r.id).shielded);
-const shieldedFailures = failed.filter((r) => quarantineStatus(r.id).shielded);
 console.log('');
-console.log(
-  `results: ${results.length - failed.length} passed, ${blocking.length} failed, ` +
-    `${shieldedFailures.length} quarantined-failure`,
-);
-if (blocking.length > 0) {
-  console.log('');
-  console.log(`failures that are NOT quarantined (${blocking.length}):`);
-  for (const r of blocking) console.log(`  ${r.id} — ${r.message ?? r.reason}`);
-}
-// A quarantined story that never failed has earned its way out of the list.
-const ready = [...quarantine.byId.values()].filter(
-  (e) => results.some((r) => r.id === e.id) && !failed.some((r) => r.id === e.id),
-);
-if (ready.length > 0) {
-  console.log('');
-  console.log('quarantined stories that PASSED — remove them from probe-quarantine-v86.json');
-  console.log('and lower maxEntries in the same commit:');
-  for (const e of ready) console.log(`  ${e.id}`);
-}
-const expired = [...quarantine.byId.values()].filter((e) => e.expires <= quarantine.today);
-if (expired.length > 0) {
-  console.log('');
-  console.log('quarantine entries that have EXPIRED and no longer shield anything:');
-  for (const e of expired) console.log(`  ${e.id} (expired ${e.expires})`);
-}
+console.log(`results: ${results.length - failed.length} passed, ${failed.length} failed`);
+printFailures(failed, 'failures');
 if (pageErrors.length > 0) {
   console.log(`pageerrors during run: ${pageErrors.length}`);
   for (const e of pageErrors.slice(0, 5)) console.log(`  ${e.slice(0, 200)}`);
@@ -308,9 +231,7 @@ if (timingsPath) {
       count: results.length,
       passed: results.length - failed.length,
       failed: failed.length,
-      blocking: blocking.length,
-      quarantined: shieldedFailures.length,
-      blockingIds: blocking.map((r) => r.id),
+      failedIds: failed.map((r) => r.id),
       totalSecs: Number(total.toFixed(1)),
       slowest: slowest.map((r) => ({ id: r.id, secs: r.secs })),
     },
@@ -319,4 +240,4 @@ if (timingsPath) {
   console.log(`wrote timings report → ${timingsPath}`);
 }
 
-process.exit(blocking.length === 0 ? 0 : 1);
+process.exit(failed.length === 0 ? 0 : 1);

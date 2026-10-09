@@ -14,7 +14,7 @@ import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
-import { useFramedPaneFocus } from '../hooks';
+import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import { getWidget } from './widgets';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
@@ -62,16 +62,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
-
-  // A widget in a float writes to its pane the same way one in a tiled pane
-  // does (see WidgetPane) — the browser widget's forms need it, and a widget
-  // should not care which surface is hosting it.
-  const writeStdin = useCallback(
-    (data: string) => {
-      send({ type: 'WRITE_TO_PANE', paneId: floatState.paneId, data });
-    },
-    [send, floatState.paneId],
-  );
 
   // A float showing the browser widget has the same hole a tiled one does:
   // a click inside the frame never reaches `handleClick`, so the float would
@@ -129,7 +119,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
         containerStyle={containerStyle}
         backdrop={backdrop}
         hideHeader={hideHeader}
-        closeOnEsc={false}
         closable={!readOnly}
       >
         <div
@@ -142,7 +131,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
             widgetInfo={widgetInfo}
             isFocused={isFocused}
             terminalRows={terminalRows}
-            onWriteStdin={writeStdin}
           />
         </div>
       </Modal>
@@ -167,7 +155,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       containerStyle={{ left, top, width: floatWidth, height: floatHeight }}
       backdrop={backdrop}
       hideHeader
-      closeOnEsc={false}
       closable={!readOnly}
     >
       <div
@@ -189,7 +176,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
             widgetInfo={widgetInfo}
             isFocused={isFocused}
             terminalRows={terminalRows}
-            onWriteStdin={writeStdin}
           />
           {/* A float is a pane like any other, so `tmuxy ask` can hang a
               question on it — and it is drawn over the tab, so leaving it out
@@ -215,29 +201,16 @@ function FloatBody({
   widgetInfo,
   isFocused,
   terminalRows,
-  onWriteStdin,
 }: {
   pane: TmuxPane;
   widgetInfo: PaneWidgetInfo;
   isFocused: boolean;
   terminalRows: number;
-  onWriteStdin: (data: string) => void;
 }) {
   const definition = widgetInfo ? getWidget(widgetInfo.widgetName) : undefined;
   if (widgetInfo && definition) {
     const WidgetComponent = definition.component;
-    return (
-      <WidgetComponent
-        paneId={pane.tmuxId}
-        widgetName={widgetInfo.widgetName}
-        lines={widgetInfo.contentLines}
-        lastLine={widgetInfo.contentLines.filter((l) => l.trim()).pop() || ''}
-        rawContent={pane.content}
-        writeStdin={onWriteStdin}
-        width={pane.width}
-        height={pane.height}
-      />
-    );
+    return <WidgetComponent paneId={pane.tmuxId} lines={widgetInfo.contentLines} />;
   }
   return (
     <Terminal

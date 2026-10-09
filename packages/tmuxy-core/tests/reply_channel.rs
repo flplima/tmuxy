@@ -20,7 +20,9 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{
     CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
-use tmuxy_core::{executor, Ctx, StateUpdate};
+use tmuxy_core::StateUpdate;
+
+mod common;
 
 /// Keeps every emitted state so the test can look at the last full snapshot.
 #[derive(Default)]
@@ -81,15 +83,15 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
         create_session: true,
         ..Default::default()
     };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None, Ctx::live())
+    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
         .await
         .expect("a control-mode connection on the scratch socket");
 
     // A second session with more panes than ours: the rows a `list-panes -a`
     // query prints for it are the ones that must not leak into our state.
-    executor::execute_tmux_command(&["new-session", "-d", "-s", "other"]).unwrap();
-    executor::execute_tmux_command(&["split-window", "-t", "other"]).unwrap();
-    executor::execute_tmux_command(&["split-window", "-t", "other"]).unwrap();
+    common::tmux(&["new-session", "-d", "-s", "other"]).unwrap();
+    common::tmux(&["split-window", "-t", "other"]).unwrap();
+    common::tmux(&["split-window", "-t", "other"]).unwrap();
 
     let recorder = Arc::new(Recorder::default());
     let runner = {
@@ -172,5 +174,5 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
 
     tx.send(MonitorCommand::Shutdown).await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = executor::execute_tmux_command(&["kill-server"]);
+    let _ = common::tmux(&["kill-server"]);
 }

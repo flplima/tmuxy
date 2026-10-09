@@ -8,12 +8,213 @@
 //! control-mode client is attached can crash tmux 3.5a (docs/TMUX.md).
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::control_mode::{MonitorCommand, MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
-use crate::executor::{parse_bindings, tmux_quote, KeyBinding};
-use crate::session_snapshot::{self as snapshot, RestoreOptions};
-use crate::{CommandError, PaneId};
+use crate::command_router::{route_command, Route};
+use crate::control_mode::{
+    MonitorCommand, MonitorCommandSender, MonitorConfig, StoredImage, MAX_CLIPBOARD_BYTES,
+};
+use crate::executor::tmux_quote;
+use crate::session_snapshot::{self as snapshot, RestoreOptions, Snapshot, SnapshotKeeper};
+use crate::{CommandError, PaneId, StateUpdate, TmuxState};
+
+// ============================================
+// The monitor loop
+// ============================================
+
+/// The bookkeeping both emitters do with a state update before handing it to
+/// their client.
+///
+/// `forget_dead_images` is given a full state — the one update that names
+/// every live pane — so the emitter's image store, behind whichever lock it
+/// keeps, can drop the pictures of the rest. The keeper is told of a change
+/// of SHAPE (a split, a closed pane, a tag, a program starting — never bytes
+/// arriving), which is what a snapshot follows. And the emit is traced by the
+/// DELTA seq and kind, so the return leg joins to the client's applied `seq`
+/// (docs/TELEMETRY.md); the transport's own ids are another counter.
+/// Content-free.
+pub fn on_state_update(
+    update: &StateUpdate,
+    keeper: &SnapshotKeeper,
+    forget_dead_images: impl FnOnce(&TmuxState),
+) {
+    match update {
+        StateUpdate::Full { state } => {
+            forget_dead_images(state);
+            if !snapshot::autosave_disabled() {
+                keeper.note_change();
+            }
+            tracing::debug!(target: "tmuxy_core::emit", kind = "full", "emit state");
+        }
+        StateUpdate::Delta { delta } => {
+            if snapshot::is_structural(delta) && !snapshot::autosave_disabled() {
+                keeper.note_change();
+            }
+            tracing::debug!(target: "tmuxy_core::emit", seq = delta.seq, kind = "delta", "emit state");
+        }
+    }
+}
+
+/// A session about to be CREATED may have a snapshot to come back from.
+/// Decided once, before the connect: the first window is made as the snapshot
+/// wants it, and the rebuild runs onto it after attach
+/// ([`restore_after_attach`]) — over control mode, never with a clientless
+/// server. `None` when there is nothing to come back from, or
+/// `TMUXY_NO_RESTORE` says not to.
+pub fn restore_plan(dir: &Path, config: &mut MonitorConfig) -> Option<Snapshot> {
+    let found = snapshot::restorable(dir, &config.session)?;
+    config.first_window = found.first_window_hint(&snapshot::fallback_cwd());
+    Some(found)
+}
+
+/// The rebuild onto the window `new-session` just made, for the caller to
+/// spawn once the monitor is in its loop — after the initial sync, which is
+/// the order it needs.
+///
+/// The keeper is held from HERE, not from inside the task: the first delta of
+/// the fresh session must not race the task's start into a save of the
+/// placeholder window. It is released however the rebuild ends; what stands
+/// then is the shape worth keeping.
+pub fn restore_after_attach(
+    snapshot: Snapshot,
+    keeper: Arc<SnapshotKeeper>,
+    tx: MonitorCommandSender,
+) -> impl Future<Output = Result<(), String>> + Send {
+    keeper.restore_started();
+    async move {
+        let options = RestoreOptions {
+            run: false,
+            fallback_cwd: snapshot::fallback_cwd(),
+            onto_existing_window: true,
+            existing_window_index: None,
+        };
+        let outcome = snapshot::restore_via_monitor(&snapshot, &options, &tx).await;
+        keeper.restore_finished();
+        outcome
+    }
+}
+
+// ============================================
+// A client's first requests
+// ============================================
+
+/// How long a client's first request waits for the monitor to come up. The
+/// monitor's own connect gives tmux ten seconds to answer.
+pub const MONITOR_READY_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The monitor's command channel, waiting for a monitor that is still
+/// connecting when the client asks first: the web server starts one on the
+/// SSE connect that precedes the request, the desktop app with the app.
+/// `lookup` is how the caller finds the channel, asked again every 50 ms.
+pub async fn wait_for_monitor<F, Fut>(mut lookup: F) -> Result<MonitorCommandSender, CommandError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<MonitorCommandSender>>,
+{
+    let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
+    loop {
+        if let Some(tx) = lookup().await {
+            return Ok(tx);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(CommandError::unavailable(
+                "tmux monitor did not come up in time",
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A client's initial state: the monitor's own picture of the session, the
+/// same one its `Full` broadcast carries. A client that connects after that
+/// broadcast would otherwise start from a baseline the deltas never correct,
+/// because a delta only carries what changed.
+pub async fn initial_state(tx: &MonitorCommandSender) -> Result<TmuxState, CommandError> {
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    tx.send(MonitorCommand::GetState { reply })
+        .await
+        .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
+    tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
+        .await
+        .map_err(|_| {
+            CommandError::unavailable("tmux monitor did not answer with the initial state")
+        })?
+        .map_err(|_| CommandError::unavailable("monitor went away before answering"))
+}
+
+/// A command's answer as JSON; failing to make it is this side's fault.
+pub fn to_json(
+    value: impl serde::Serialize,
+    what: &str,
+) -> Result<serde_json::Value, CommandError> {
+    serde_json::to_value(value)
+        .map_err(|e| CommandError::unavailable(format!("Failed to serialize {what}: {e}")))
+}
+
+// ============================================
+// Client commands
+// ============================================
+
+/// Decide a client command's route (`command_router`) and record the WHAT as
+/// its tmux verb — the first token, a fixed subcommand name and never the
+/// args; the full command string is admitted only at trace level `full`
+/// (docs/TELEMETRY.md). `size` is the viewport a freshly created window
+/// should be sized to, when a client has reported one.
+pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
+    tracing::debug!(
+        target: "tmuxy_core::transport",
+        verb = command.split_whitespace().next().unwrap_or(""),
+        command,
+        "run command"
+    );
+    route_command(command, session, size)
+}
+
+/// Git worktree context for the sidebar tree, discovered from the cwd of
+/// every pane on the socket — or of one session's panes, for a server pinned
+/// to it, so a viewer does not learn the repo path and branch of every pane
+/// on the tmux server. The cwds come from tmux, never from the request, and
+/// the `git` subprocesses stay off the async runtime.
+pub async fn git_worktrees_json(
+    tx: &MonitorCommandSender,
+    session_pin: Option<&str>,
+) -> Result<serde_json::Value, CommandError> {
+    use crate::worktrees::{list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing};
+    let listing = query(tx, &list_pane_paths_cmd(session_pin)).await?;
+    let repositories = tokio::task::spawn_blocking(move || {
+        list_git_worktrees(paths_from_pane_listing(&listing))
+            .map_err(|e| CommandError::unavailable(e.to_string()))
+    })
+    .await
+    .map_err(|e| CommandError::unavailable(format!("worktree discovery task failed: {e}")))??;
+    to_json(repositories, "worktrees")
+}
+
+/// Everything the Debug menu needs to render itself (docs/TELEMETRY.md): the
+/// switch position, the level, the file it writes to, and whether a
+/// `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switch forbids turning it on at all
+/// (in which case the UI shows the control disabled rather than a switch that
+/// silently does nothing).
+pub fn trace_settings_json() -> serde_json::Value {
+    serde_json::json!({
+        "enabled": crate::trace::is_enabled(),
+        "level": crate::trace::level_name(),
+        "path": crate::trace::trace_path().map(|p| p.display().to_string()),
+        "locked": crate::trace::is_locked_off(),
+    })
+}
+
+/// Set the trace level (`shape` | `labeled` | `full`) and remember it; the
+/// name of the level in force. An unknown name resolves to `shape`, so a bad
+/// argument cannot raise sensitivity.
+pub fn set_trace_level(level: &str) -> &'static str {
+    let level = crate::trace::TraceLevel::parse(level);
+    crate::trace::set_level_persisted(level);
+    level.as_str()
+}
 
 /// Run a command on the monitor's connection and wait for what it printed. An
 /// `%error` from tmux is a `tmux` error carrying tmux's message; a monitor
@@ -184,6 +385,105 @@ pub fn clipboard_write_allowed(text: &str) -> bool {
 // Key bindings
 // ============================================
 
+/// One binding of a key table, as `list-keys` prints it
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct KeyBinding {
+    pub key: String,
+    pub command: String,
+    pub description: String,
+    /// Whether this binding has the `-r` (repeat) flag.
+    /// Repeat bindings auto-re-enter prefix mode after execution.
+    #[serde(default)]
+    pub repeat: bool,
+}
+
+/// Parse `tmux list-keys -T <table>` output into `KeyBinding`s.
+///
+/// One parser for every table — the prefix and root paths used to carry
+/// separate copies, and the root copy computed the `-r` indices but then
+/// hardcoded `repeat: false`, silently losing repeat bindings.
+pub(crate) fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
+    let mut bindings = Vec::new();
+
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+
+        // tmux list-keys output format:
+        //   bind-key    -T <table> KEY command...
+        //   bind-key -r -T <table> KEY command...
+        // The -r flag shifts all subsequent indices by 1.
+        let (key_idx, cmd_idx, is_repeat) = if parts.len() >= 6
+            && parts[0] == "bind-key"
+            && parts[1] == "-r"
+            && parts[3] == table
+        {
+            (4, 5, true)
+        } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == table {
+            (3, 4, false)
+        } else {
+            continue;
+        };
+
+        if cmd_idx >= parts.len() {
+            continue;
+        }
+
+        let bound_key = parts[key_idx];
+
+        // Unescape the key
+        let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
+            bound_key[1..].to_string()
+        } else {
+            bound_key.to_string()
+        };
+
+        // Get the command (everything after the key)
+        let command = parts[cmd_idx..].join(" ");
+        let description = describe_binding(parts[cmd_idx], &command);
+
+        bindings.push(KeyBinding {
+            key,
+            command,
+            description,
+            repeat: is_repeat,
+        });
+    }
+
+    bindings
+}
+
+/// Human description for the common commands the menus surface.
+fn describe_binding(command_name: &str, command: &str) -> String {
+    match command_name {
+        "split-window" => {
+            if command.contains("-h") {
+                "Split pane vertically".to_string()
+            } else {
+                "Split pane horizontally".to_string()
+            }
+        }
+        "resize-pane" => {
+            if command.contains("-Z") {
+                "Toggle pane fullscreen".to_string()
+            } else {
+                "Resize pane".to_string()
+            }
+        }
+        "select-pane" => "Select pane".to_string(),
+        "last-pane" => "Switch to last active pane".to_string(),
+        "next-layout" => "Cycle through pane layouts".to_string(),
+        "break-pane" => "Convert pane to window".to_string(),
+        "copy-mode" => "Enter copy mode".to_string(),
+        "command-prompt" => "Enter command mode".to_string(),
+        "new-window" => "Create new window".to_string(),
+        "kill-window" => "Close window".to_string(),
+        "next-window" => "Next window".to_string(),
+        "previous-window" => "Previous window".to_string(),
+        "select-window" => "Select window".to_string(),
+        _ => command.to_string(),
+    }
+}
+
 /// The prefix key and the prefix/root tables, as the client's keyboard
 /// handling reads them. The wire shape of the SSE `keybindings` frame and the
 /// desktop's `tmux-keybindings` event.
@@ -310,6 +610,31 @@ async fn session_running(tx: &MonitorCommandSender, name: &str) -> bool {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_bindings_handles_plain_and_repeat_forms() {
+        let output = "\
+bind-key    -T prefix % split-window -h
+bind-key -r -T prefix h resize-pane -L 5
+bind-key    -T root C-Left select-pane -L
+bind-key    -T prefix \\% send-keys %";
+        let prefix = parse_bindings("prefix", output);
+        assert_eq!(prefix.len(), 3);
+        assert_eq!(prefix[0].key, "%");
+        assert_eq!(prefix[0].description, "Split pane vertically");
+        assert!(!prefix[0].repeat);
+        // -r bindings keep their repeat flag (the old root copy hardcoded
+        // repeat: false — this drift is what the shared parser fixes).
+        assert_eq!(prefix[1].key, "h");
+        assert!(prefix[1].repeat);
+        // Escaped keys are unescaped.
+        assert_eq!(prefix[2].key, "%");
+
+        let root = parse_bindings("root", output);
+        assert_eq!(root.len(), 1);
+        assert_eq!(root[0].key, "C-Left");
+        assert_eq!(root[0].description, "Select pane");
+    }
     use crate::ids::test_ids::pid;
 
     /// A monitor that answers every query with `answer`, recording what it

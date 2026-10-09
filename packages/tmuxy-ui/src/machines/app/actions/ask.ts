@@ -14,15 +14,12 @@
  * end of it.
  */
 
-import { assign, enqueueActions, sendTo } from 'xstate';
-import type { AppMachineContext, AllAppMachineEvents } from '../../types';
+import { sendTo } from 'xstate';
+import { act, assignCtx, type Ctx } from '../actionTypes';
 import { paneAskFor, type AskAnswer } from '../../../utils/paneAsk';
 import { TmuxOp } from '../../../domain/commands';
 import { visibleFloats } from '../../selectors';
 import type { PaneId } from '../../../domain/ids';
-
-type Ctx = AppMachineContext;
-type Evt = AllAppMachineEvents;
 
 /** The highlighted option for a pane — `yes` until the user moves it. */
 export function askSelectionFor(context: Ctx, paneId: PaneId): AskAnswer {
@@ -43,55 +40,51 @@ export function pruneAskSelections(context: Ctx): Record<PaneId, AskAnswer> {
 }
 
 export const askActions = {
-  ask_moveSelection: assign<Ctx, Evt, undefined, Evt, never>(({ context, event }) => {
+  ask_moveSelection: assignCtx(({ context, event }) => {
     if (event.type !== 'MOVE_ASK_SELECTION') return {};
     if (askSelectionFor(context, event.paneId) === event.to) return {};
     return { askSelections: { ...context.askSelections, [event.paneId]: event.to } };
   }),
 
-  ask_answer: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, event, enqueue }) => {
-      if (event.type !== 'ANSWER_ASK') return;
-      const pane = context.panes.find((p) => p.tmuxId === event.paneId);
-      const ask = paneAskFor(pane);
-      // No question means there is nothing to answer: the user clicked as the
-      // asker withdrew it, or a second client answered first.
-      if (!ask) return;
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_OP' as const,
-          op: TmuxOp.AnswerAsk({ paneId: event.paneId, token: ask.token, answer: event.answer }),
-        }),
-      );
-      enqueue.assign(({ context: ctx }) => {
-        const { [event.paneId]: _answered, ...rest } = ctx.askSelections;
-        return { askSelections: rest };
-      });
-    },
-  ),
+  ask_answer: act(({ context, event, enqueue }) => {
+    if (event.type !== 'ANSWER_ASK') return;
+    const pane = context.panes.find((p) => p.tmuxId === event.paneId);
+    const ask = paneAskFor(pane);
+    // No question means there is nothing to answer: the user clicked as the
+    // asker withdrew it, or a second client answered first.
+    if (!ask) return;
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_OP' as const,
+        op: TmuxOp.AnswerAsk({ paneId: event.paneId, token: ask.token, answer: event.answer }),
+      }),
+    );
+    enqueue.assign(({ context: ctx }) => {
+      const { [event.paneId]: _answered, ...rest } = ctx.askSelections;
+      return { askSelections: rest };
+    });
+  }),
 
-  ask_answerVisible: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ context, event, enqueue }) => {
-      if (event.type !== 'ANSWER_VISIBLE_ASKS') return;
-      // What the user can SEE: the active tab's panes, plus the floats drawn
-      // over it (a float lives in a window of its own, so a windowId test
-      // alone would skip one the user is looking straight at). A shortcut
-      // that reached questions in other tabs would answer things off screen,
-      // which is the one thing the confirmation exists to prevent.
-      const onScreen = new Set(
-        visibleFloats(context.floatPanes, context.windows, context.activeWindowId).map(
-          (float) => float.paneId,
-        ),
-      );
-      for (const pane of context.panes) {
-        if (pane.windowId !== context.activeWindowId && !onScreen.has(pane.tmuxId)) continue;
-        if (!paneAskFor(pane)) continue;
-        enqueue.raise({
-          type: 'ANSWER_ASK' as const,
-          paneId: pane.tmuxId,
-          answer: event.answer,
-        });
-      }
-    },
-  ),
+  ask_answerVisible: act(({ context, event, enqueue }) => {
+    if (event.type !== 'ANSWER_VISIBLE_ASKS') return;
+    // What the user can SEE: the active tab's panes, plus the floats drawn
+    // over it (a float lives in a window of its own, so a windowId test
+    // alone would skip one the user is looking straight at). A shortcut
+    // that reached questions in other tabs would answer things off screen,
+    // which is the one thing the confirmation exists to prevent.
+    const onScreen = new Set(
+      visibleFloats(context.floatPanes, context.windows, context.activeWindowId).map(
+        (float) => float.paneId,
+      ),
+    );
+    for (const pane of context.panes) {
+      if (pane.windowId !== context.activeWindowId && !onScreen.has(pane.tmuxId)) continue;
+      if (!paneAskFor(pane)) continue;
+      enqueue.raise({
+        type: 'ANSWER_ASK' as const,
+        paneId: pane.tmuxId,
+        answer: event.answer,
+      });
+    }
+  }),
 };
