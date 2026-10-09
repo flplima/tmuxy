@@ -450,7 +450,7 @@ async fn serve(
         println!("[dev] Vite proxied from port {}", dev::VITE_PORT);
     }
 
-    let listener = bind_with_retry(addr, 5).await;
+    let listener = bind_with_retry(addr, BIND_RETRIES).await;
 
     // `into_make_service_with_connect_info` rather than the plain router: the
     // auth layer reads the peer address to rate-limit failed passwords per
@@ -613,6 +613,13 @@ fn server_status(port: u16) {
         None => println!("Server is not running"),
     }
 }
+
+/// How many seconds a server waits for its port to come free. A server told
+/// to stop keeps the port until its shutdown is done, which can take a final
+/// snapshot per session and a bounded drain (`FINAL_SNAPSHOT_TIMEOUT`,
+/// `SHUTDOWN_DRAIN_TIMEOUT`); an upgrade starts the new server straight after
+/// the `stop`, so the wait has to outlast the old one's slowest exit.
+const BIND_RETRIES: u32 = 15;
 
 /// Bind to addr, retrying up to `max_retries` times with 1s delay if port is in use.
 async fn bind_with_retry(addr: std::net::SocketAddr, max_retries: u32) -> tokio::net::TcpListener {

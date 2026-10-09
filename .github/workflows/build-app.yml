@@ -592,21 +592,14 @@ jobs:
           grep -q 'Sent SIGTERM' "${RUNNER_TEMP}/stop.txt" \
             || { echo "the new build did not recognise the running server"; exit 1; }
           "$NEW" server --port "$PORT" > "${RUNNER_TEMP}/new-server.log" 2>&1 &
-          wait_for_page || { echo "the new build never served the page"; \
-            cat "${RUNNER_TEMP}/new-server.log"; exit 1; }
-
-          # 4. The takeover is complete: status names the NEW server, not a
-          #    stale or deleted pid file (f1905d7).
-          "$NEW" server --port "$PORT" status | tee "${RUNNER_TEMP}/new-status.txt"
-          grep -q 'Server is running' "${RUNNER_TEMP}/new-status.txt" \
-            || { echo "the replacement server reports itself as not running"; exit 1; }
           OLD_PID=$(sed -n 's/.*pid \([0-9]*\).*/\1/p' "${RUNNER_TEMP}/old-status.txt")
-          NEW_PID=$(sed -n 's/.*pid \([0-9]*\).*/\1/p' "${RUNNER_TEMP}/new-status.txt")
-          [ -n "$NEW_PID" ] && [ "$OLD_PID" != "$NEW_PID" ] \
-            || { echo "pid file still names the old server ($OLD_PID)"; exit 1; }
-          # Whether the OLD process also exits is a property of the already
-          # published binary, which this branch cannot change, so it is
-          # reported and not asserted. Step 6 asserts it of the new build.
+
+          # The old server keeps the port, and keeps answering on it, until
+          # its shutdown is done; the new one waits for the port meanwhile.
+          # So the page proves nothing until the old process is gone.
+          # Whether it goes on its own is a property of the already published
+          # binary, which this branch cannot change, so it is reported and not
+          # asserted. Step 6 asserts it of the new build.
           # A zombie counts as gone: the old server is a child of this shell,
           # so it stays in the table until the shell reaps it.
           for _ in $(seq 1 30); do
@@ -627,6 +620,18 @@ jobs:
               kill -9 "$OLD_PID" 2>/dev/null || true
               ;;
           esac
+
+          wait_for_page || { echo "the new build never served the page"; \
+            cat "${RUNNER_TEMP}/new-server.log"; exit 1; }
+
+          # 4. The takeover is complete: status names the NEW server, not a
+          #    stale or deleted pid file (f1905d7).
+          "$NEW" server --port "$PORT" status | tee "${RUNNER_TEMP}/new-status.txt"
+          grep -q 'Server is running' "${RUNNER_TEMP}/new-status.txt" \
+            || { echo "the replacement server reports itself as not running"; exit 1; }
+          NEW_PID=$(sed -n 's/.*pid \([0-9]*\).*/\1/p' "${RUNNER_TEMP}/new-status.txt")
+          [ -n "$NEW_PID" ] && [ "$OLD_PID" != "$NEW_PID" ] \
+            || { echo "pid file still names the old server ($OLD_PID)"; exit 1; }
 
           # 5. The open tab recovers: the stream it reconnects to delivers a
           #    fresh snapshot rather than hanging on "Connecting…" (722bd14).
