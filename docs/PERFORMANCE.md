@@ -63,8 +63,8 @@ never writes it — a baseline change is always a reviewed commit, the same rule
 as `perf/interaction-baseline.json`. For your own machine, run `cargo bench -p
 tmuxy-core --bench core_pipeline` and then `node perf/compare-core-bench.mjs
 --update-baseline`, which merges the run under its platform key. For the CI
-platform, take `core-pipeline-report.json` from the `core-pipeline-bench-<sha>`
-artifact of a `rust-tests` run you trust (every commit uploads one) and paste
+platform, take `core-pipeline-report.json` from the `core-pipeline-bench-<run>`
+artifact of a nightly `perf measurements` run you trust and paste
 it under `platforms["linux-x64"]`. Until someone does, a CI run records its
 numbers and warns about nothing; the ratio budget gates regardless.
 
@@ -214,17 +214,21 @@ npm run perf:interactions:tauri -- --samples 12 --label local \
 npm run perf:compare -- --report perf/interaction-report-tauri.json
 ```
 
-CI runs both, each in the job that already has what it needs, uploading the
-report as an artifact and writing the table into the job summary:
+CI runs both nightly, in `nightly-perf.yml` ("perf measurements"), uploading
+the report as an artifact; the ratio budgets fail the run there, so a
+regression shows as a red nightly the next morning:
 
-| Job                   | Workflow             | Measures        | Reuses                                                                                |
-| --------------------- | -------------------- | --------------- | ------------------------------------------------------------------------------------- |
-| `interaction-latency` | `lint-and-tests.yml` | Axis C, web     | the release server + frontend dist from `build-artifacts`                             |
-| `desktop`             | `lint-and-tests.yml` | Axis C, desktop | the release Tauri binary, Xvfb and `tauri-driver` it already builds for the E2E suite |
-| `rust-tests`          | `ci-rust-tests.yml`  | Axis A bench    | the Rust toolchain and cache it already has                                           |
+| Job                           | Measures        | Builds                                       |
+| ----------------------------- | --------------- | -------------------------------------------- |
+| `interaction-latency`         | Axis C, web     | the frontend and the release server          |
+| `interaction-latency-desktop` | Axis C, desktop | the release Tauri binary, under Xvfb         |
+| `core-bench`                  | Axis A bench    | tmuxy-core under the bench (release) profile |
 
-Neither perf job builds anything of its own — that was the condition for adding
-them per-commit rather than leaving them on demand.
+They ran per commit until the per-commit `desktop` job switched to a debug
+build: the desktop measurement needs the release binary, and that build was the
+longest step on every push's critical path. With no branch protection the
+per-commit gates were informational anyway. `workflow_dispatch` with `gates`
+checked runs all three on demand.
 
 ### Measured
 
@@ -389,14 +393,14 @@ while the heap, the DOM and the server's memory climb underneath it, and no
 suite runs long enough for the climb to matter. Axis D is the question nothing
 else asks — **does a long session degrade?**
 
-|          |                                                                                           |
-| -------- | ----------------------------------------------------------------------------------------- |
-| Harness  | `packages/tmuxy-ui/scripts/measure-soak.mjs` (`npm run perf:soak`)                        |
-| Load     | Tens of MB of output through one pane, then hundreds of split/close cycles                |
-| Measures | JS heap, DOM nodes, JS event listeners (CDP `Performance.getMetrics`), server RSS         |
+|          |                                                                                                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Harness  | `packages/tmuxy-ui/scripts/measure-soak.mjs` (`npm run perf:soak`)                                                                                      |
+| Load     | Tens of MB of output through one pane, then hundreds of split/close cycles                                                                              |
+| Measures | JS heap, DOM nodes, JS event listeners (CDP `Performance.getMetrics`), server RSS                                                                       |
 | Verdict  | A **plateau**, not a ceiling: each measure's second-half mean against its first-half mean, counted as growth only while it is still climbing at the end |
-| Where    | `soak` job in `.github/workflows/nightly-perf.yml` — nightly, table in the run summary    |
-| Gating   | Not yet. `--gate` turns it on once the nightly numbers have a known shape                 |
+| Where    | `soak` job in `.github/workflows/nightly-perf.yml` — nightly, table in the run summary                                                                  |
+| Gating   | Not yet. `--gate` turns it on once the nightly numbers have a known shape                                                                               |
 
 Three things about it are deliberate and worth not undoing:
 

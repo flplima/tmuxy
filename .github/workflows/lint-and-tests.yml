@@ -293,83 +293,6 @@ jobs:
   # what survives GitHub's noise. The raw milliseconds are uploaded as an
   # artifact and diffed against the committed per-platform baseline for trend
   # only; they never fail the build. See docs/PERFORMANCE.md.
-  interaction-latency:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: build-artifacts
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison
-
-      # Same tmux the e2e job pins — the binding set and the run-shell cost
-      # this harness measures are version-sensitive.
-      - uses: ./.github/actions/install-tmux
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - uses: ./.github/actions/install-chromium
-
-      - name: Download frontend dist
-        uses: actions/download-artifact@v8
-        with:
-          name: frontend-dist
-          path: packages/tmuxy-ui/dist
-
-      # Release, not debug: a debug server's own slowness would swamp the
-      # differences between interactions this harness exists to see. Built
-      # once in `build-artifacts` with the same release profile.
-      - name: Download server binary
-        uses: actions/download-artifact@v8
-        with:
-          name: tmuxy-server-release
-          path: target/release
-
-      - name: Make the server executable
-        run: chmod +x target/release/tmuxy-server
-
-      - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
-
-      - name: Start server
-        run: |
-          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          bin/wait-for-server http://localhost:9000
-
-      - name: Measure interactions
-        run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
-          npm run perf:interactions -- \
-            --url http://localhost:9000 \
-            --samples 12 \
-            --label ci \
-            --out perf/interaction-report.json
-
-      - name: Compare against budgets and baseline
-        run: npm run perf:compare -- --report perf/interaction-report.json
-
-      - name: Upload interaction report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: interaction-latency-${{ github.sha }}
-          path: perf/interaction-report.json
-
-      - name: Server logs (debug)
-        if: failure()
-        run: tail -2000 /tmp/tmuxy-server.log
-
   # Storybook probes. Both jobs drive stories in a real Chromium against a
   # `storybook dev` server — dev (not static) on purpose: no build step, and
   # stories compile on demand.
@@ -589,10 +512,15 @@ jobs:
           name: frontend-dist
           path: packages/tmuxy-ui/dist
 
-      # Without the bundlers — both suites run the raw executable.
+      # Without the bundlers — both suites run the raw executable — and in the
+      # debug profile: the release profile's LTO link alone is a minute or
+      # more, and neither the smoke test nor the Tauri E2E depends on it. The
+      # release build is still exercised daily and on every tag by
+      # build-app.yml, and the desktop latency measurement that does need it
+      # lives in nightly-perf.yml.
       # Reuses the frontend-dist artifact from build-artifacts instead of rebuilding.
-      - name: Build Tauri app (release)
-        run: npx tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
+      - name: Build Tauri app (debug)
+        run: npx tauri build --debug --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
         working-directory: packages/tmuxy-tauri-app
 
       - name: Start Xvfb
@@ -612,7 +540,7 @@ jobs:
           DRIVER_PID=$!
           sleep 2
 
-          node tests/smoke/smoke-test.js target/release/tmuxy
+          node tests/smoke/smoke-test.js target/debug/tmuxy
           RESULT=$?
 
           kill $DRIVER_PID 2>/dev/null || true
@@ -621,41 +549,8 @@ jobs:
       - name: Tauri E2E tests
         env:
           DISPLAY: ':99'
-          TAURI_BINARY: ${{ github.workspace }}/target/release/tmuxy
+          TAURI_BINARY: ${{ github.workspace }}/target/debug/tmuxy
         run: npm run test:tauri
-
-      # The same interactions the `interaction-latency` job measures over the
-      # web transport, measured here against the release desktop binary this
-      # job already built. The desktop app reaches the same Rust core over
-      # Tauri IPC instead of POST + SSE, so it is a different transport with a
-      # different cost — and until this step there was no number for it at all.
-      #
-      # Its own tmux socket (`tmuxy-perf`, set by the harness), so it cannot
-      # collide with the session the E2E suite just finished with.
-      - name: Measure interaction latency (desktop)
-        env:
-          DISPLAY: ':99'
-        run: |
-          npm run perf:interactions:tauri -- \
-            --binary "$GITHUB_WORKSPACE/target/release/tmuxy" \
-            --samples 12 \
-            --label ci-desktop \
-            --out perf/interaction-report-tauri.json
-
-      # Gates on the ratio to this run's own keystroke echo, exactly as the web
-      # job does. A desktop-only regression — an IPC round trip added to a
-      # predicted op, say — fails here and nowhere else.
-      - name: Compare against budgets and baseline (desktop)
-        run: npm run perf:compare -- --report perf/interaction-report-tauri.json
-
-      # Also the source a human promotes into perf/interaction-baseline.json
-      # for the `linux-x64/tauri` key; CI never writes a baseline itself.
-      - name: Upload desktop interaction report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: interaction-latency-desktop-${{ github.sha }}
-          path: perf/interaction-report-tauri.json
 
       - name: Stop Xvfb
         if: always()

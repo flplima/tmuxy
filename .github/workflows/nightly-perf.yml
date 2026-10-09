@@ -1,14 +1,21 @@
 name: perf measurements
 
-# The two perf measurements that hand a human a number rather than gating a
-# merge (docs/PERFORMANCE.md has the reasoning for each):
+# The perf measurements (docs/PERFORMANCE.md has the reasoning for each):
 #
 #   interaction-baseline  on demand — measures Axis C on ubuntu-latest and
 #                         opens a PR with a refreshed perf/interaction-baseline.json
+#   interaction-latency   nightly — Axis C, web and desktop: the ratio budgets
+#                         in compare-interactions.mjs fail the run
+#   core-bench            nightly — Axis A: the parse → aggregate → delta
+#                         pipeline bench; its ratio budget fails the run
 #   soak                  nightly — Axis D, does a long session degrade; its
 #                         verdict table goes into the run summary
 #
-# The file keeps its nightly- name from when both ran on the schedule.
+# The latency gates and the bench used to run per commit. With no branch
+# protection a per-commit gate was informational anyway, and together they
+# cost ~6 runner minutes per push, 3 of them on the critical path (the desktop
+# measurement needs the release Tauri build). A regression now shows the next
+# morning, as a red nightly, instead of on the commit.
 
 on:
   schedule:
@@ -23,6 +30,10 @@ on:
         default: true
       soak:
         description: 'Also run the soak job (it is otherwise nightly-only)'
+        type: boolean
+        default: false
+      gates:
+        description: 'Also run the nightly gates (interaction latency, core bench)'
         type: boolean
         default: false
 
@@ -187,6 +198,207 @@ jobs:
       - name: Server logs (debug)
         if: failure()
         run: tail -2000 /tmp/tmuxy-server.log
+
+  # Axis C, web. Gates on the ratio of each interaction to this run's own
+  # keystroke echo (compare-interactions.mjs); absolute milliseconds only warn.
+  interaction-latency:
+    if: github.event_name == 'schedule' || inputs.gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison
+
+      # Same tmux the e2e job pins — the binding set and the run-shell cost
+      # this harness measures are version-sensitive.
+      - uses: ./.github/actions/install-tmux
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - uses: ./.github/actions/install-chromium
+
+      - name: Build frontend
+        run: npm run build -w tmuxy-ui
+
+      # Release, not debug: a debug server's own slowness would swamp the
+      # differences between interactions this harness exists to see.
+      - name: Build server (release)
+        run: cargo build --release -p tmuxy-server
+
+      - name: Link tmuxy CLI onto PATH
+        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+
+      - name: Start server
+        run: |
+          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
+          bin/wait-for-server http://localhost:9000
+
+      - name: Measure interactions
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run perf:interactions -- \
+            --url http://localhost:9000 \
+            --samples 12 \
+            --label ci \
+            --out perf/interaction-report.json
+
+      - name: Compare against budgets and baseline
+        run: npm run perf:compare -- --report perf/interaction-report.json
+
+      - name: Upload interaction report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: interaction-latency-${{ github.run_id }}
+          path: perf/interaction-report.json
+
+      - name: Server logs (debug)
+        if: failure()
+        run: tail -2000 /tmp/tmuxy-server.log
+
+  # Axis C, desktop: the same interactions over Tauri IPC instead of POST +
+  # SSE — a different transport with a different cost. Needs the release
+  # Tauri binary (a debug build's own slowness would swamp the signal), which
+  # is why this is not in the per-commit `desktop` job any more: that job
+  # builds in debug now and is the critical path of every push.
+  #
+  # Its own tmux socket (`tmuxy-perf`, set by the harness).
+  interaction-latency-desktop:
+    if: github.event_name == 'schedule' || inputs.gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev \
+            webkit2gtk-driver xvfb x11-utils
+
+      - uses: ./.github/actions/install-tmux
+
+      - name: Cache tauri-driver
+        id: tauri-driver-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: ${{ runner.os }}-tauri-driver-2.0.6
+
+      - name: Install tauri-driver (cache miss)
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version 2.0.6 --locked --force
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build -w tmuxy-ui
+
+      - name: Build Tauri app (release)
+        run: npx tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
+        working-directory: packages/tmuxy-tauri-app
+
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
+          echo "XVFB_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 20); do
+            xdpyinfo -display :99 >/dev/null 2>&1 && break
+            sleep 0.25
+          done
+
+      - name: Measure interaction latency (desktop)
+        env:
+          DISPLAY: ':99'
+        run: |
+          npm run perf:interactions:tauri -- \
+            --binary "$GITHUB_WORKSPACE/target/release/tmuxy" \
+            --samples 12 \
+            --label ci-desktop \
+            --out perf/interaction-report-tauri.json
+
+      - name: Compare against budgets and baseline (desktop)
+        run: npm run perf:compare -- --report perf/interaction-report-tauri.json
+
+      # Also the source a human promotes into perf/interaction-baseline.json
+      # for the `linux-x64/tauri` key; CI never writes a baseline itself.
+      - name: Upload desktop interaction report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: interaction-latency-desktop-${{ github.run_id }}
+          path: perf/interaction-report-tauri.json
+
+      - name: Stop Xvfb
+        if: always()
+        run: kill "$XVFB_PID" 2>/dev/null || true
+
+  # Axis A: the parse → aggregate → delta pipeline, the exact code tmuxy-wasm
+  # runs. The ratio budget in compare-core-bench.mjs fails the run if a
+  # metadata-only delta ever costs like a full snapshot again; the absolute
+  # nanoseconds only warn against perf/core-pipeline-baseline.json.
+  core-bench:
+    if: github.event_name == 'schedule' || inputs.gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          install-npm: 'false'
+
+      - uses: ./.github/actions/install-linux-deps
+        with:
+          profile: rust
+
+      - name: Frontend dist placeholder
+        run: mkdir -p packages/tmuxy-ui/dist
+
+      - name: Core pipeline bench
+        run: cargo bench -p tmuxy-core --bench core_pipeline
+
+      - name: Compare bench ratios and baseline
+        run: node perf/compare-core-bench.mjs --threshold 20
+
+      - name: Upload bench report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-pipeline-bench-${{ github.run_id }}
+          path: perf/core-pipeline-report.json
+          if-no-files-found: error
 
   # Axis D. `--gate` is absent on purpose: the plateau tolerances are guesses
   # until a corpus of nightly runs calibrates them (docs/PERFORMANCE.md).
