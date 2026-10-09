@@ -119,16 +119,17 @@ describe('the state feed stage', () => {
     feed.push(full());
     feed.push(delta(1));
     feed.push(delta(3));
-    // The stream carries on from the next delta; a second gap while the first
-    // refetch is out asks for nothing more.
-    feed.push(delta(4));
-    feed.push(delta(6));
+    // Deltas while the refetch is out would apply to the wrong state: none is
+    // published, and none asks for a second refetch.
+    feed.push(delta(4, { active_pane_id: '%7' }));
+    feed.push(delta(5));
     await vi.waitFor(() => expect(feed.fetches).toHaveLength(1));
     expect(feed.fetches[0]).toEqual({ cols: 120, rows: 40 });
 
     feed.answer(state('%1', ['@1', '@5']));
     await vi.waitFor(() => expect(feed.last()?.windows.map((w) => w.id)).toEqual(['@1', '@5']));
-    expect(feed.states().map((s) => s.seq)).toEqual([null, 1, 4, null]);
+    expect(feed.states().map((s) => s.seq)).toEqual([null, 1, null]);
+    expect(feed.states().some((s) => s.state.active_pane_id === '%7')).toBe(false);
     expect(feed.fetches).toHaveLength(1);
     await feed.runtime.dispose();
   });

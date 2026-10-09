@@ -1,7 +1,15 @@
-import { quote } from '../../domain/commands';
+import { TmuxOp, toTmuxCommand } from '../../domain/commands';
 
 // Batching constants
 const KEY_BATCH_INTERVAL_MS = 16; // Batch keystrokes within ~1 frame
+
+/** One send of the special keys batched for `target`. */
+const keysCommand = (target: string, keys: string[]): string =>
+  toTmuxCommand(TmuxOp.SendKeys({ target, keys: keys.join(' ') }));
+
+/** One send of the literal text batched for `target` (chunked like any `SendText`). */
+const textCommand = (target: string, text: string): string =>
+  toTmuxCommand(TmuxOp.SendText({ target, text }));
 
 /**
  * Unescape literal text from tmux send-keys -l format.
@@ -151,17 +159,13 @@ export class KeyBatcher {
 
     for (const [session, keys] of this.pendingKeys) {
       if (keys.length === 0) continue;
-      const combinedKeys = keys.join(' ');
-      const command = `send-keys -t ${session} ${combinedKeys}`;
-      this.sendFn('run_tmux_command', { command });
+      this.sendFn('run_tmux_command', { command: keysCommand(session, keys) });
     }
     this.pendingKeys.clear();
 
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
-      const escaped = quote(text);
-      const command = `send-keys -t ${session} -l ${escaped}`;
-      this.sendFn('run_tmux_command', { command });
+      this.sendFn('run_tmux_command', { command: textCommand(session, text) });
     }
     this.pendingLiteralText.clear();
   }
@@ -183,9 +187,7 @@ export class KeyBatcher {
     let sent = false;
     for (const [session, keys] of this.pendingKeys) {
       if (keys.length === 0) continue;
-      const combinedKeys = keys.join(' ');
-      const command = `send-keys -t ${session} ${combinedKeys}`;
-      this.sendFn('run_tmux_command', { command });
+      this.sendFn('run_tmux_command', { command: keysCommand(session, keys) });
       sent = true;
     }
     this.pendingKeys.clear();
@@ -199,9 +201,7 @@ export class KeyBatcher {
   private flushKeyBatchForSession(session: string): void {
     const keys = this.pendingKeys.get(session);
     if (!keys || keys.length === 0) return;
-    const combinedKeys = keys.join(' ');
-    const command = `send-keys -t ${session} ${combinedKeys}`;
-    this.sendFn('run_tmux_command', { command });
+    this.sendFn('run_tmux_command', { command: keysCommand(session, keys) });
     this.pendingKeys.delete(session);
   }
 
@@ -210,9 +210,7 @@ export class KeyBatcher {
     let sent = false;
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
-      const escaped = quote(text);
-      const command = `send-keys -t ${session} -l ${escaped}`;
-      this.sendFn('run_tmux_command', { command });
+      this.sendFn('run_tmux_command', { command: textCommand(session, text) });
       sent = true;
     }
     this.pendingLiteralText.clear();
@@ -226,9 +224,7 @@ export class KeyBatcher {
   private flushLiteralBatchForSession(session: string): void {
     const text = this.pendingLiteralText.get(session);
     if (!text || text.length === 0) return;
-    const escaped = quote(text);
-    const command = `send-keys -t ${session} -l ${escaped}`;
-    this.sendFn('run_tmux_command', { command });
+    this.sendFn('run_tmux_command', { command: textCommand(session, text) });
     this.pendingLiteralText.delete(session);
   }
 }

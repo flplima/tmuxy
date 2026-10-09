@@ -6,8 +6,9 @@
  * emission and numbered by `seq`. A delta that is missing, misordered or does
  * not decode would apply to the wrong state and silently diverge, so the
  * stage refetches a full state instead (`get_initial_state` at the last
- * viewport the client reported) — one refetch at a time — and puts the answer
- * back on the feed. Every other event passes through in order.
+ * viewport the client reported) — one refetch at a time — and, once the
+ * sequencer has adopted it, publishes the sequencer's state in turn. Every
+ * other event passes through in order.
  */
 
 import { Chunk, Effect, FiberSet, Option, PubSub, Queue, type Scope, Stream } from 'effect';
@@ -26,13 +27,21 @@ import {
   type TmuxTransportService,
 } from './TmuxTransport';
 
+/** A refetched full state has been adopted: publish the sequencer's state from here. */
+const RESYNCED = { _tag: 'Resynced' } as const;
+
+/** What the stream stage reads: the driver's events, and its own `RESYNCED` marks. */
+export type FeedEvent = DriverEvent | typeof RESYNCED;
+
 /**
  * Sequence the raw states on `feed`. `resync` refetches a full state (already
- * adopted by `sequencer`), or None when it cannot yet; its answer is offered
- * back onto `feed` so it is published in turn.
+ * adopted by `sequencer`), or None when it cannot yet. Once it is adopted, a
+ * mark goes on the back of `feed`: the state published there is the
+ * sequencer's at that point, which includes any delta queued ahead of the
+ * mark — the answer alone would be older than what was already painted.
  */
 export const sequenceStateUpdates = (
-  feed: Queue.Queue<DriverEvent>,
+  feed: Queue.Queue<FeedEvent>,
   sequencer: StateSequencer,
   resync: Effect.Effect<Option.Option<ServerState>, AdapterError>,
 ): Effect.Effect<Stream.Stream<TransportEvent>, never, Scope.Scope> =>
@@ -42,9 +51,7 @@ export const sequenceStateUpdates = (
     const refetch = oneAtATime.withPermitsIfAvailable(1)(
       resync.pipe(
         Effect.flatMap((answer) =>
-          Option.isSome(answer)
-            ? Queue.offer(feed, TransportEvent.State({ state: answer.value, seq: null }))
-            : Effect.void,
+          Option.isSome(answer) ? Queue.offer(feed, RESYNCED) : Effect.void,
         ),
         Effect.catchAll((e) =>
           Effect.sync(() =>
@@ -56,9 +63,10 @@ export const sequenceStateUpdates = (
         ),
       ),
     );
-    const sequence = (event: DriverEvent): Option.Option<TransportEvent> => {
-      if (event._tag !== 'StateReceived') return Option.some(event);
-      const step = sequencer.receive(event.payload);
+    const sequence = (event: FeedEvent): Option.Option<TransportEvent> => {
+      if (event._tag !== 'StateReceived' && event._tag !== 'Resynced') return Option.some(event);
+      const step =
+        event._tag === 'Resynced' ? sequencer.current() : sequencer.receive(event.payload);
       if (step._tag === 'State') return Option.some(step);
       if (step._tag === 'Resync') fork(refetch);
       return Option.none();
@@ -131,7 +139,7 @@ export const makeSequencedTransport = (
 ): Effect.Effect<TmuxTransportService, never, Scope.Scope> =>
   Effect.gen(function* () {
     const { sequencer } = driver;
-    const feed = yield* Queue.unbounded<DriverEvent>();
+    const feed = yield* Queue.unbounded<FeedEvent>();
     yield* forwardDriverEvents(driver, (event) => {
       feed.unsafeOffer(event);
     });

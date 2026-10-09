@@ -194,21 +194,45 @@ export const TmuxWindow = Schema.mutable(
 );
 export type TmuxWindow = Schema.Schema.Type<typeof TmuxWindow>;
 
-/** The session as the client holds it, decoded from a wire full state. */
-const ClientState = Schema.Struct({
+/** The session's own fields as the client holds them; its panes and windows are decoded per record. */
+const ClientSession = Schema.Struct({
   sessionName: from('session_name', Schema.String),
   activeWindowId: from('active_window_id', Schema.NullOr(WindowId)),
   activePaneId: from('active_pane_id', Schema.NullOr(PaneId)),
-  panes: Schema.mutable(Schema.Array(TmuxPane)),
-  windows: Schema.mutable(Schema.Array(TmuxWindow)),
   totalWidth: from('total_width', Schema.Number),
   totalHeight: from('total_height', Schema.Number),
   /** See `ServerState.focus_request`; `''` when nothing is pending. */
   focusRequest: withDefault('focus_request', Schema.String, () => ''),
 });
-export type ClientState = Schema.Schema.Type<typeof ClientState>;
 
-const decodeClientState = Schema.decodeSync(ClientState);
+/** The session as the client holds it, decoded from a wire full state. */
+export type ClientState = Schema.Schema.Type<typeof ClientSession> & {
+  panes: TmuxPane[];
+  windows: TmuxWindow[];
+};
+
+const decodeSession = Schema.decodeSync(ClientSession);
+
+/**
+ * Decode each wire record once. A delta rebuilds only the records it changes
+ * and keeps the rest as they were (`mergeRecords`), so on every later state an
+ * unchanged pane or window is the same object, and its decode is reused —
+ * this runs on every state the client paints.
+ */
+function cachedDecode<W extends object, C>(decode: (wire: W) => C): (wire: W) => C {
+  const decoded = new WeakMap<W, C>();
+  return (wire) => {
+    let client = decoded.get(wire);
+    if (client === undefined) {
+      client = decode(wire);
+      decoded.set(wire, client);
+    }
+    return client;
+  };
+}
+
+const decodePane = cachedDecode(Schema.decodeSync(TmuxPane));
+const decodeWindow = cachedDecode(Schema.decodeSync(TmuxWindow));
 
 /**
  * The client's view of a decoded server state: camelCase records with their
@@ -216,7 +240,9 @@ const decodeClientState = Schema.decodeSync(ClientState);
  * the wire decode, so this cannot fail.
  */
 export function toClientState(state: ServerState): ClientState {
-  const client = decodeClientState(state);
-  client.windows.sort((a, b) => a.index - b.index);
-  return client;
+  return {
+    ...decodeSession(state),
+    panes: state.panes.map(decodePane),
+    windows: state.windows.map(decodeWindow).sort((a, b) => a.index - b.index),
+  };
 }

@@ -37,6 +37,11 @@ export class StateSequencer {
    * the client's state (see `adoptInitialState`).
    */
   private synced = false;
+  /**
+   * The stream lost its sequence and no full state or adopted answer has
+   * replaced the state since: a delta now would apply to the wrong state.
+   */
+  private diverged = false;
 
   /** A raw `state-update` payload arrived. */
   receive(raw: unknown): SequenceStep {
@@ -48,13 +53,15 @@ export class StateSequencer {
     const update = decoded.right;
     let seq: number | null = null;
     if (update.type === 'delta') {
-      if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) return this.lose();
+      // Still diverged: ask again, since the refetch may have failed.
+      if (this.diverged || isDeltaSeqGap(this.lastDeltaSeq, update.delta)) return this.lose();
       seq = update.delta.seq;
       this.lastDeltaSeq = seq;
     } else {
       // A full state is a fresh sync point.
       this.lastDeltaSeq = null;
       this.synced = true;
+      this.diverged = false;
     }
     const next = handleStateUpdate(update, this.state);
     if (!next) return IGNORE;
@@ -74,7 +81,17 @@ export class StateSequencer {
     // A synced stream carries on from its own sequence; an adopted answer
     // starts one.
     if (!synced) this.lastDeltaSeq = null;
+    this.diverged = false;
     return state;
+  }
+
+  /**
+   * The state as of now, to publish once a refetched answer has been adopted.
+   * Deltas that queued up behind the refetch have applied on top of the
+   * answer by then, so the answer itself would be older than what was shown.
+   */
+  current(): SequenceStep {
+    return this.state ? { _tag: 'State', state: this.state, seq: null } : IGNORE;
   }
 
   /** A new connection opened: until its full state lands, an answer is the state to start from. */
@@ -87,11 +104,13 @@ export class StateSequencer {
     this.state = null;
     this.lastDeltaSeq = null;
     this.synced = false;
+    this.diverged = false;
   }
 
   private lose(): SequenceStep {
     this.lastDeltaSeq = null;
     this.synced = false;
+    this.diverged = true;
     return RESYNC;
   }
 }
