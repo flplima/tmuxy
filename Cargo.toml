@@ -36,5 +36,14 @@ strip = true
 [profile.release.package.tmuxy-tauri-app]
 strip = false
 
+# The server the E2E suites run against on CI: optimised like a release
+# build, but without the fat-LTO, single-codegen-unit link, which is most of
+# a minute on a runner and buys nothing a functional test can see. The
+# binary that ships is still built with `release`, by build-app.yml.
+[profile.ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+
 [patch.crates-io]
 vt100 = { path = "vendor/vt100" }

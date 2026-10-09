@@ -30,16 +30,22 @@ jobs:
   lint:
     uses: ./.github/workflows/ci-lint.yml
 
-  # The frontend bundle and the release server, built ONCE and handed to every
-  # job that needs them. Both used to be rebuilt inside each of the e2e matrix
-  # entries and the latency job — the same two builds a dozen times over, for
-  # the largest share of this workflow's runner minutes.
+  # The frontend bundle and the test server, each built ONCE and handed to
+  # every job that needs them. They used to be rebuilt inside each of the e2e
+  # matrix entries — the same two builds a dozen times over, for the largest
+  # share of this workflow's runner minutes.
+  #
+  # Two jobs so the desktop job, which only needs the dist, starts as soon as
+  # the frontend is built rather than after the server too. The server job
+  # still waits for the dist: the server embeds it at compile time
+  # (rust-embed in tmuxy-server/src/server.rs), and the E2E suites hit the
+  # embedded copy.
   #
   # Every consumer runs on ubuntu-latest, so one linux-x86_64 binary serves
   # them all. Artifacts do not carry the executable bit; consumers chmod it.
-  build-artifacts:
+  build-frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v7
@@ -49,18 +55,11 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-
       - name: Install npm dependencies
         run: npm ci
 
       - name: Build frontend
         run: npm run build -w tmuxy-ui
-
-      - name: Build server (release)
-        run: cargo build --release -p tmuxy-server
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v7
@@ -70,11 +69,36 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The `ci` profile (Cargo.toml): release optimisation without the fat-LTO,
+  # single-codegen-unit link that is most of the release build's minute and
+  # that no functional test can tell apart. The artifact keeps the
+  # `target/release/` path its consumers expect.
+  build-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-frontend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
+
+      - name: Build server (ci profile)
+        run: cargo build --profile ci -p tmuxy-server
+
       - name: Upload server binary
         uses: actions/upload-artifact@v7
         with:
           name: tmuxy-server-release
-          path: target/release/tmuxy-server
+          path: target/ci/tmuxy-server
           if-no-files-found: error
           retention-days: 1
 
@@ -135,7 +159,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: build-artifacts
+    needs: build-server
     strategy:
       fail-fast: false
       matrix:
@@ -207,7 +231,7 @@ jobs:
           cache: npm
 
       # No Rust toolchain here any more: the release server arrives as an
-      # artifact from `build-artifacts`, and nothing else in this job compiles.
+      # artifact from `build-server`, and nothing else in this job compiles.
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -449,17 +473,12 @@ jobs:
   # and compiled the Tauri app twice between them, for the two jobs that
   # between them produced most of this workflow's failures.
   #
-  # Release, not debug: build-app.yml ships release, so that is the binary a
-  # user launches, and the smoke test needs it anyway. The E2E suite takes the
-  # path through TAURI_BINARY; a local `npx tauri build --debug` still works
-  # with no env set.
-  #
   # The smoke test runs FIRST and brings its own tauri-driver up and down; the
   # jest suite then starts its own on the same port.
   desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: build-artifacts
+    needs: build-frontend
 
     steps:
       - uses: actions/checkout@v7
@@ -518,7 +537,7 @@ jobs:
       # release build is still exercised daily and on every tag by
       # build-app.yml, and the desktop latency measurement that does need it
       # lives in nightly-perf.yml.
-      # Reuses the frontend-dist artifact from build-artifacts instead of rebuilding.
+      # Reuses the frontend-dist artifact from build-frontend instead of rebuilding.
       - name: Build Tauri app (debug)
         run: npx tauri build --debug --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
         working-directory: packages/tmuxy-tauri-app
