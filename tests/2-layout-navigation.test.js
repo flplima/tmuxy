@@ -865,6 +865,96 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
     expect(restored.filter((p) => p.opacity > 0.99).length).toBe(4);
     await assertLayoutInvariants(ctx.page);
   }, 120000);
+
+  // An even 2×2 grid built column by column: the two row lines happen to line
+  // up, but tmux resizes each column's on its own. Dragging the left one used
+  // to draw the right column moving too — a layout tmux never produced, so the
+  // preview hung on until its fallback timer gave up.
+  test('in a grid split into columns, dragging one column’s row divider moves that column only', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 3);
+    await navigatePaneKeyboard(ctx.page, 'left');
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 4);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const c = window.app?.getSnapshot()?.context;
+          return Boolean(c?.windows?.find((w) => w.id === c.activeWindowId)?.paneTree);
+        }),
+      8000,
+      'the window to report its split structure',
+    );
+
+    // Where each pane is drawn, keyed by which quarter of the grid it sits in.
+    const quarters = () =>
+      ctx.page.evaluate(() => {
+        const c = window.app.getSnapshot().context;
+        const panes = c.panes.filter((p) => p.windowId === c.activeWindowId);
+        const midX = Math.max(...panes.map((p) => p.x)) / 2;
+        const midY = Math.max(...panes.map((p) => p.y)) / 2;
+        const out = {};
+        for (const p of panes) {
+          const el = document.querySelector(`.pane-container [data-pane-id="${p.tmuxId}"]`);
+          const r = el.getBoundingClientRect();
+          const key = `${p.y < midY ? 'top' : 'bottom'}-${p.x < midX ? 'left' : 'right'}`;
+          out[key] = { top: Math.round(r.top), height: Math.round(r.height) };
+        }
+        return out;
+      });
+
+    // Each column has its own row divider: two ns-resize handles, side by side.
+    const rowDividers = await ctx.page.evaluate(() =>
+      [...document.querySelectorAll('.resize-divider')]
+        .filter((d) => d.style.cursor === 'ns-resize')
+        .map((d) => {
+          const r = d.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, width: r.width };
+        })
+        .sort((a, b) => a.left - b.left),
+    );
+    expect(rowDividers).toHaveLength(2);
+    const [leftDivider] = rowDividers;
+
+    const before = await quarters();
+    const rowPx = await ctx.page.evaluate(() => window.app.getSnapshot().context.charHeight);
+
+    await ctx.page.mouse.move(leftDivider.x, leftDivider.y);
+    await ctx.page.mouse.down();
+    for (let step = 1; step <= 3; step++) {
+      await ctx.page.mouse.move(leftDivider.x, leftDivider.y + step * rowPx);
+    }
+    // Mid-drag, as drawn: the left column moved, the right one did not.
+    await waitForCondition(
+      ctx.page,
+      async () => (await quarters())['top-left'].height > before['top-left'].height,
+      8000,
+      'the preview to draw the drag',
+    );
+    const during = await quarters();
+    expect(during['top-right']).toEqual(before['top-right']);
+    expect(during['bottom-right']).toEqual(before['bottom-right']);
+    await ctx.page.mouse.up();
+
+    // And tmux agrees: the preview lets go once its layout has landed.
+    await waitForCondition(
+      ctx.page,
+      async () => ctx.page.evaluate(() => window.app.getSnapshot().context.resize === null),
+      8000,
+      'the resize preview to settle',
+    );
+    const after = await quarters();
+    expect(after['top-left'].height).toBeGreaterThan(before['top-left'].height);
+    expect(after['top-right']).toEqual(before['top-right']);
+    expect(after['bottom-right']).toEqual(before['bottom-right']);
+    await assertLayoutInvariants(ctx.page);
+  }, 120000);
 });
 
 // ==================== Scenario 4b: Split right after a tab switch ====================

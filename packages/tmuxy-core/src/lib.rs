@@ -468,6 +468,10 @@ pub struct TmuxWindow {
     /// switched to — and the switch would land on its first pane for a beat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_pane_id: Option<PaneId>,
+    /// The window's split structure (see `layout::PaneTree`): what a divider
+    /// drag moves. Absent until tmux has reported a layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_tree: Option<layout::PaneTree>,
 }
 
 /// Full tmux state with all panes and windows
@@ -686,6 +690,8 @@ pub struct WindowDelta {
     pub zoomed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_pane_id: Option<Option<PaneId>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_tree: Option<Option<layout::PaneTree>>,
 }
 
 impl WindowDelta {
@@ -908,6 +914,7 @@ mod tests {
             "collapsible": true,
             "zoomed": true,
             "active_pane_id": "%3",
+            "pane_tree": { "vertical": true, "children": ["%1", "%3"] },
         });
         let fields = all_fields.as_object().unwrap();
 

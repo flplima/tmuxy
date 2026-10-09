@@ -2775,6 +2775,13 @@ mod protocol_fixtures {
                     collapsible: true,
                     zoomed: true,
                     active_pane_id: Some("%2".parse().unwrap()),
+                    pane_tree: Some(tmuxy_core::layout::PaneTree::Split {
+                        vertical: false,
+                        children: vec![
+                            tmuxy_core::layout::PaneTree::Pane("%1".parse().unwrap()),
+                            tmuxy_core::layout::PaneTree::Pane("%2".parse().unwrap()),
+                        ],
+                    }),
                 },
                 TmuxWindow {
                     id: "@2".parse().unwrap(),
@@ -2793,6 +2800,7 @@ mod protocol_fixtures {
                     collapsible: false,
                     zoomed: false,
                     active_pane_id: None,
+                    pane_tree: None,
                 },
             ],
             total_width: 80,
@@ -2863,6 +2871,13 @@ mod protocol_fixtures {
                 collapsible: Some(false),
                 zoomed: Some(false),
                 active_pane_id: Some(Some("%4".parse().unwrap())),
+                pane_tree: Some(Some(tmuxy_core::layout::PaneTree::Split {
+                    vertical: true,
+                    children: vec![
+                        tmuxy_core::layout::PaneTree::Pane("%3".parse().unwrap()),
+                        tmuxy_core::layout::PaneTree::Pane("%4".parse().unwrap()),
+                    ],
+                })),
             }),
         );
         windows.insert("@2".parse().unwrap(), None);
@@ -2924,6 +2939,7 @@ mod protocol_fixtures {
                 collapsible: false,
                 zoomed: false,
                 active_pane_id: None,
+                pane_tree: None,
             }]),
             active_window_id: Some("@2".parse().unwrap()),
             active_pane_id: Some("%4".parse().unwrap()),

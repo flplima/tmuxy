@@ -11,7 +11,7 @@
 
 import { Schema } from 'effect';
 import { GroupId, PaneId, WindowId, paneNumber } from './ids';
-import { PaneContent, WindowType, type ServerState } from './wire';
+import { PaneContent, PaneTree, WindowType, type ServerState } from './wire';
 
 /** A required field, read from the wire key `key`. */
 const from = <K extends string, S extends Schema.Schema.All>(key: K, schema: S) =>
@@ -190,6 +190,8 @@ export const TmuxWindow = Schema.mutable(
     /** True while a pane in this window is zoomed (tmux hides the others).
      *  Absent is equivalent to false. */
     zoomed: Schema.optional(Schema.Boolean),
+    /** The window's split structure, which a divider drag follows; absent until tmux reports a layout. */
+    paneTree: optionalFrom('pane_tree', Schema.NullOr(PaneTree)),
   }),
 );
 export type TmuxWindow = Schema.Schema.Type<typeof TmuxWindow>;

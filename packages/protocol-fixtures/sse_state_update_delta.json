@@ -125,6 +125,13 @@
           "float_width": 70,
           "index": 1,
           "name": "renamed",
+          "pane_tree": {
+            "children": [
+              "%3",
+              "%4"
+            ],
+            "vertical": true
+          },
           "sidebar_cols": 40,
           "sidebar_hidden": true,
           "window_type": "sidebar-left",

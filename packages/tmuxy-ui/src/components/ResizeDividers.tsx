@@ -19,11 +19,14 @@
 import { useAppSend, useReadOnly } from '../machines/AppContext';
 import type { PaneCellBox, TmuxPane } from '../machines/types';
 import { haptics } from '../utils/haptics';
-import { resizeLimits, isLocked } from '../machines/resize/limits';
+import { bandScope, resizeLimits, isLocked } from '../machines/resize/limits';
 import type { PaneId } from '../domain/ids';
+import type { PaneTree } from '../domain/wire';
 
 interface ResizeDividersProps {
   panes: TmuxPane[];
+  /** The window's split structure: which dividers are one, and what each drag moves. */
+  paneTree: PaneTree | null;
   charWidth: number;
   charHeight: number;
   centeringOffset: { x: number; y: number };
@@ -44,8 +47,16 @@ interface ResolvedDivider {
   paneId: PaneId;
 }
 
-/** Merge adjacent/overlapping segments at a given divider position */
-function mergeSegments(segments: DividerSegment[]): DividerSegment[] {
+/**
+ * Merge adjacent/overlapping segments at a given divider position, when
+ * `sameDivider` says one drag moves them both. Two segments on one line are
+ * still two dividers when tmux resizes them apart — the row lines of an even
+ * 2×2 grid whose root splits into columns.
+ */
+function mergeSegments(
+  segments: DividerSegment[],
+  sameDivider: (a: DividerSegment, b: DividerSegment) => boolean,
+): DividerSegment[] {
   if (segments.length <= 1) return segments;
 
   const sorted = [...segments].sort((a, b) => a.start - b.start);
@@ -55,7 +66,7 @@ function mergeSegments(segments: DividerSegment[]): DividerSegment[] {
   for (let i = 1; i < sorted.length; i++) {
     const next = sorted[i];
     // Adjacent or overlapping (allow 1-cell gap for tmux divider)
-    if (next.start <= current.end + 1) {
+    if (next.start <= current.end + 1 && sameDivider(current, next)) {
       current.end = Math.max(current.end, next.end);
     } else {
       merged.push(current);
@@ -129,11 +140,14 @@ function collectDividerSegments(panes: TmuxPane[]) {
 function resolveDividers(
   horizontal: Map<number, DividerSegment[]>,
   vertical: Map<number, DividerSegment[]>,
+  scope: (paneId: PaneId, handle: 's' | 'e') => Record<PaneId, PaneCellBox>,
 ): ResolvedDivider[] {
   const dividers: ResolvedDivider[] = [];
+  const movedTogether = (handle: 's' | 'e') => (a: DividerSegment, b: DividerSegment) =>
+    b.paneId in scope(a.paneId, handle);
 
   horizontal.forEach((segments, axisPos) => {
-    for (const seg of mergeSegments(segments)) {
+    for (const seg of mergeSegments(segments, movedTogether('s'))) {
       dividers.push({
         orientation: 'h',
         axisPos,
@@ -145,7 +159,7 @@ function resolveDividers(
   });
 
   vertical.forEach((segments, axisPos) => {
-    for (const seg of mergeSegments(segments)) {
+    for (const seg of mergeSegments(segments, movedTogether('e'))) {
       dividers.push({
         orientation: 'v',
         axisPos,
@@ -171,6 +185,7 @@ const DIVIDER_THICKNESS = 8;
 
 export function ResizeDividers({
   panes,
+  paneTree,
   charWidth,
   charHeight,
   centeringOffset,
@@ -179,18 +194,20 @@ export function ResizeDividers({
   const readOnly = useReadOnly();
   // The layout is whoever writes' to change; a viewer gets no handles on it.
   if (readOnly) return null;
-  const { horizontal, vertical } = collectDividerSegments(panes);
-  const dividers = resolveDividers(horizontal, vertical);
   const geometry: Record<PaneId, PaneCellBox> = Object.fromEntries(
     panes.map((p) => [p.tmuxId, { x: p.x, y: p.y, width: p.width, height: p.height }]),
   );
+  const scope = (paneId: PaneId, handle: 's' | 'e') =>
+    bandScope(geometry, paneTree, paneId, handle);
+  const { horizontal, vertical } = collectDividerSegments(panes);
+  const dividers = resolveDividers(horizontal, vertical, scope);
 
   return (
     <>
       {dividers.map((div, idx) => {
         const isH = div.orientation === 'h';
         const handle = isH ? 's' : 'e';
-        const locked = isLocked(resizeLimits(geometry, div.paneId, handle));
+        const locked = isLocked(resizeLimits(scope(div.paneId, handle), div.paneId, handle));
         return (
           <div
             key={`divider-${idx}`}

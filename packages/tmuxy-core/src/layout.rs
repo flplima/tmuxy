@@ -13,6 +13,24 @@
 //! own proportions, so navigating between nested panes never reshapes the
 //! window. Turning the feature off evens the first-level rows out.
 
+use crate::ids::PaneId;
+
+/// A layout's shape without its sizes: which panes share which split. The
+/// client reads it to know what a divider drag moves — tmux resizes along
+/// the tree, so in an even 2×2 grid the panes a drag moves depend on whether
+/// the root splits into columns or rows, which the geometry alone cannot
+/// tell apart.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum PaneTree {
+    Pane(PaneId),
+    Split {
+        /// Children stacked top to bottom (`[`), else side by side (`{`).
+        vertical: bool,
+        children: Vec<PaneTree>,
+    },
+}
+
 /// One cell of a layout tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
@@ -61,6 +79,19 @@ impl Node {
                     children.iter().map(Node::min_height).max().unwrap_or(1)
                 }
             }
+        }
+    }
+
+    /// This cell's shape, without sizes (see `PaneTree`).
+    pub fn pane_tree(&self) -> PaneTree {
+        match self {
+            Node::Leaf { pane, .. } => PaneTree::Pane(PaneId::from_number(*pane)),
+            Node::Split {
+                vertical, children, ..
+            } => PaneTree::Split {
+                vertical: *vertical,
+                children: children.iter().map(Node::pane_tree).collect(),
+            },
         }
     }
 

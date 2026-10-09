@@ -4,7 +4,7 @@
  */
 
 import { toClientState, type TmuxPane, type TmuxWindow } from '../client';
-import type { ServerState } from '../wire';
+import type { PaneTree, ServerState } from '../wire';
 import { cellLinesEqual } from '../deltaProtocol';
 import type { TmuxSnapshot } from './types';
 
@@ -104,8 +104,21 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     Boolean(prev.zoomed) === Boolean(next.zoomed) &&
     // A background tab's active pane changes nothing else about its window;
     // pinned here, a switch to it would land on a stale pane.
-    (prev.activePaneId ?? null) === (next.activePaneId ?? null);
+    (prev.activePaneId ?? null) === (next.activePaneId ?? null) &&
+    // A split or a kill can change only the tree (the panes change on their
+    // own records); a stale tree would preview a drag along the old splits.
+    samePaneTree(prev.paneTree ?? null, next.paneTree ?? null);
   return same ? prev : next;
+}
+
+function samePaneTree(a: PaneTree | null, b: PaneTree | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a === 'string' || typeof b === 'string') return false;
+  return (
+    a.vertical === b.vertical &&
+    a.children.length === b.children.length &&
+    a.children.every((child, i) => samePaneTree(child, b.children[i]))
+  );
 }
 
 export function preserveSnapshotIdentity(prev: TmuxSnapshot, next: TmuxSnapshot): TmuxSnapshot {

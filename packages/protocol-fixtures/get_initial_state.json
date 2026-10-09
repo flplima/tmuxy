@@ -117,6 +117,13 @@
         "id": "@1",
         "index": 0,
         "name": "main",
+        "pane_tree": {
+          "children": [
+            "%1",
+            "%2"
+          ],
+          "vertical": false
+        },
         "window_type": "tab",
         "zoomed": true
       },

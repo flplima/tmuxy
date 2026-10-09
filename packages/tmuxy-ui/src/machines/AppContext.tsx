@@ -91,6 +91,7 @@ export {
   selectPaneGroupPanes,
   getActivePaneInGroup,
   selectVisiblePanes,
+  selectActivePaneTree,
   selectVisibleFloats,
   selectMarkedPaneId,
   selectHiddenWindowPanes,

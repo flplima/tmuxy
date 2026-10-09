@@ -1,9 +1,10 @@
 /**
  * The band a divider drag moves, and how far it can be dragged.
  *
- * Dragging one divider moves a BAND of panes: every pane ending on the dragged
- * edge grows or shrinks with it, and every pane starting just past the edge is
- * pushed along and resized the other way; nothing else moves. That one rule
+ * Dragging one divider moves a BAND of panes: within the two cells of the
+ * layout tree the divider separates (`bandScope`), every pane ending on the
+ * dragged edge grows or shrinks with it, and every pane starting just past the
+ * edge is pushed along and resized the other way; nothing else moves. That rule
  * is what the preview draws (`selectPreviewPanes`), what the model handler
  * waits for before it lets the preview go (`resizePreviewSettled`), and what
  * bounds the drag here.
@@ -24,6 +25,7 @@
 
 import type { ResizeHandle, ResizeLimits, ResizeState, PaneCellBox } from '../types';
 import type { PaneId } from '../../domain/ids';
+import type { PaneTree } from '../../domain/wire';
 
 /**
  * The smallest pane tmux will leave behind: one cell on the resized axis.
@@ -52,6 +54,66 @@ function draggedEdge(box: PaneCellBox, handle: ResizeHandle): number {
   if (handle === 'w') return box.x;
   if (handle === 's') return box.y + box.height;
   return box.y;
+}
+
+/** A pane id at a leaf of `tree`, in order. */
+function leaves(tree: PaneTree): PaneId[] {
+  return typeof tree === 'string' ? [tree] : tree.children.flatMap(leaves);
+}
+
+/** The path from `tree` down to the leaf `paneId`, outermost first; empty when it is not there. */
+function pathTo(tree: PaneTree, paneId: PaneId): PaneTree[] {
+  if (typeof tree === 'string') return tree === paneId ? [tree] : [];
+  for (const child of tree.children) {
+    const below = pathTo(child, paneId);
+    if (below.length > 0) return [tree, ...below];
+  }
+  return [];
+}
+
+/**
+ * The panes a drag of `paneId`'s `handle` edge can move: the geometry of the
+ * two sibling cells of the window's layout tree whose shared boundary is that
+ * edge. tmux resizes along the tree, so only they move. In an even 2×2 grid
+ * the right column's top pane ends on the same line as the left column's, yet
+ * when the root splits into columns tmux leaves it alone. With no tree known,
+ * every pane is in scope and the band is decided by the edge alone.
+ */
+export function bandScope(
+  geometry: Record<PaneId, PaneCellBox>,
+  tree: PaneTree | null | undefined,
+  paneId: PaneId,
+  handle: ResizeHandle,
+): Record<PaneId, PaneCellBox> {
+  const target = geometry[paneId];
+  if (!target || !tree) return geometry;
+  const vertical = isVertical(handle);
+  const edge = draggedEdge(target, handle);
+  // An `e`/`s` handle drags the far edge of the cell before the boundary; a
+  // `w`/`n` handle, the near edge of the cell after it.
+  const trailing = handle === 'e' || handle === 's';
+  const meets = (before: { far: number }, after: { near: number }) =>
+    trailing ? before.far === edge && after.near > edge : after.near === edge && before.far < edge;
+  const extent = (cell: PaneTree): { near: number; far: number } | null => {
+    const boxes = leaves(cell).flatMap((id) => (geometry[id] ? [geometry[id]] : []));
+    if (boxes.length === 0) return null;
+    return {
+      near: Math.min(...boxes.map((b) => (vertical ? b.y : b.x))),
+      far: Math.max(...boxes.map((b) => (vertical ? b.y + b.height : b.x + b.width))),
+    };
+  };
+  // Innermost first: the split nearest the pane whose boundary is the edge.
+  for (const node of pathTo(tree, paneId).reverse()) {
+    if (typeof node === 'string' || node.vertical !== vertical) continue;
+    for (let i = 0; i + 1 < node.children.length; i++) {
+      const before = extent(node.children[i]);
+      const after = extent(node.children[i + 1]);
+      if (!before || !after || !meets(before, after)) continue;
+      const ids = [...leaves(node.children[i]), ...leaves(node.children[i + 1])];
+      return Object.fromEntries(ids.flatMap((id) => (geometry[id] ? [[id, geometry[id]]] : [])));
+    }
+  }
+  return geometry;
 }
 
 /** The side of `edge` a pane touches it from, or null for a pane the drag leaves alone. */

@@ -148,6 +148,25 @@ export type WirePane = Schema.Schema.Type<typeof WirePane>;
 /** A pane before decoding: what a sandbox engine or a fixture builds. */
 export type WirePaneEncoded = Schema.Schema.Encoded<typeof WirePane>;
 
+/**
+ * A window's split structure without sizes: a pane, or panes split side by
+ * side (`vertical: false`) or stacked (`vertical: true`). What a divider drag
+ * moves follows it (`machines/resize/limits.ts`).
+ */
+export type PaneTree =
+  | PaneId
+  | { readonly vertical: boolean; readonly children: readonly PaneTree[] };
+type PaneTreeEncoded =
+  | string
+  | { readonly vertical: boolean; readonly children: readonly PaneTreeEncoded[] };
+export const PaneTree: Schema.Schema<PaneTree, PaneTreeEncoded> = Schema.Union(
+  PaneId,
+  Schema.Struct({
+    vertical: Schema.Boolean,
+    children: Schema.Array(Schema.suspend(() => PaneTree)),
+  }),
+);
+
 /** A window as the server sends it. */
 export const WireWindow = Schema.Struct({
   id: WindowId,
@@ -166,6 +185,7 @@ export const WireWindow = Schema.Struct({
   collapsible: Schema.optional(Schema.Boolean),
   zoomed: Schema.optional(Schema.Boolean),
   active_pane_id: OptionalNull(PaneId),
+  pane_tree: OptionalNull(PaneTree),
 });
 export type WireWindow = Schema.Schema.Type<typeof WireWindow>;
 /** A window before decoding; see `WirePaneEncoded`. */
@@ -252,6 +272,7 @@ export const WindowDelta = Schema.Struct({
   collapsible: Schema.optional(Schema.Boolean),
   zoomed: Schema.optional(Schema.Boolean),
   active_pane_id: OptionalNull(PaneId),
+  pane_tree: OptionalNull(PaneTree),
 });
 export type WindowDelta = Schema.Schema.Type<typeof WindowDelta>;
 

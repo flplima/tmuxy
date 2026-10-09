@@ -25,6 +25,7 @@ import {
   SIDEBAR_OVERLAY_MIN_COLS,
 } from './constants';
 import type { PaneId, WindowId } from '../domain/ids';
+import type { PaneTree } from '../domain/wire';
 
 // ============================================
 // Pane Selectors
@@ -83,7 +84,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // resizing briefly reports y=0, which computePaneBox turns into a dropped
   // header row and a 1-row content jump — so rendering them is what caused the
   // wobble. Rebuilding from the snapshot keeps everything stable and monotonic.
-  const { paneId, handle, originalGeometry } = resize;
+  const { paneId, handle, originalGeometry, bandGeometry } = resize;
 
   if (!activePanes.some((p) => p.tmuxId === paneId)) {
     return activePanes;
@@ -93,12 +94,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // the layout tmux is being asked for are the same thing. Without it the
   // pane on the near side kept growing under the pointer while the one across
   // the line bottomed out at a single cell, and they overlapped.
-  const band = resizedBand(
-    originalGeometry,
-    paneId,
-    handle,
-    dragCells(resize, charWidth, charHeight),
-  );
+  const band = resizedBand(bandGeometry, paneId, handle, dragCells(resize, charWidth, charHeight));
 
   return activePanes.map((pane) => {
     const frozen = originalGeometry[pane.tmuxId];
@@ -800,6 +796,11 @@ export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<PaneId
 // ============================================
 
 /** The server runs `--read-only`: the UI offers nothing that would change the session. */
+/** The active window's split structure, which the dividers follow; null until tmux reports one. */
+export function selectActivePaneTree(context: AppMachineContext): PaneTree | null {
+  return context.windows.find((w) => w.id === context.activeWindowId)?.paneTree ?? null;
+}
+
 export function selectReadOnly(context: AppMachineContext): boolean {
   return context.readOnly;
 }

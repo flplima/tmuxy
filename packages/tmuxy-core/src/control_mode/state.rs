@@ -910,6 +910,8 @@ pub struct WindowState {
 
     /// Layout string
     pub layout: String,
+    /// The layout's shape, parsed from `layout` when it changes.
+    pub pane_tree: Option<crate::layout::PaneTree>,
 
     /// Window type sourced from @tmuxy-window-type. `None` = untagged, which
     /// surfaces as a tab.
@@ -961,6 +963,7 @@ impl WindowState {
             name: String::new(),
             active: false,
             layout: String::new(),
+            pane_tree: None,
             window_type: None,
             sidebar_cols: None,
             sidebar_hidden: false,
@@ -999,6 +1002,7 @@ impl WindowState {
             collapsible: self.collapsible,
             zoomed: self.zoomed,
             active_pane_id: self.active_pane_id.clone(),
+            pane_tree: self.pane_tree.clone(),
         }
     }
 }
@@ -2440,6 +2444,7 @@ impl StateAggregator {
     fn handle_layout_change(&mut self, window_id: &WindowId, layout: &str) -> Vec<PaneId> {
         if let Some(window) = self.windows.get_mut(window_id) {
             window.layout = layout.to_string();
+            window.pane_tree = crate::layout::parse(layout).map(|root| root.pane_tree());
         }
 
         // Parse layout to update pane positions and return panes that were resized
@@ -3399,6 +3404,9 @@ impl StateAggregator {
         }
         if prev.active_pane_id != curr.active_pane_id {
             delta.active_pane_id = Some(curr.active_pane_id.clone());
+        }
+        if prev.pane_tree != curr.pane_tree {
+            delta.pane_tree = Some(curr.pane_tree.clone());
         }
 
         delta
@@ -4548,6 +4556,7 @@ mod tests {
             collapsible: false,
             zoomed: false,
             active_pane_id: None,
+            pane_tree: None,
         };
         let mut after = before.clone();
         after.index = 3;

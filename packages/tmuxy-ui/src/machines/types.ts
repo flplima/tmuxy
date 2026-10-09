@@ -133,6 +133,13 @@ export interface ResizeState {
    */
   originalGeometry: Record<PaneId, PaneCellBox>;
   /**
+   * The part of `originalGeometry` this drag can move: the two cells of the
+   * window's layout tree that the divider separates (`bandScope` in
+   * machines/resize/limits.ts). The band, the limits and the settled check
+   * are all computed from it.
+   */
+  bandGeometry: Record<PaneId, PaneCellBox>;
+  /**
    * How far this drag may travel before tmux would refuse it. Computed once
    * from the frozen geometry (machines/resize/limits.ts) and applied to the
    * delta, so the preview and the commands agree and neither can draw or ask
@@ -618,6 +625,7 @@ export type ResizeMachineEvent =
       startX: number;
       startY: number;
       panes: TmuxPane[];
+      windows: TmuxWindow[];
       charWidth: number;
       charHeight: number;
     }

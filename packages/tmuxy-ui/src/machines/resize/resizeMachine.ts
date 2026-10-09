@@ -19,7 +19,7 @@ import type {
   ResizeHandle,
 } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
-import { resizeLimits, clampDelta } from './limits';
+import { bandScope, resizeLimits, clampDelta } from './limits';
 import { TmuxOp, type ResizeStep } from '../../domain/commands';
 import type { PaneId } from '../../domain/ids';
 
@@ -104,13 +104,17 @@ export const resizeMachine = setup({
                   .map((p) => [p.tmuxId, { x: p.x, y: p.y, width: p.width, height: p.height }]),
               );
 
+              const tree = event.windows.find((w) => w.id === pane.windowId)?.paneTree;
+              const bandGeometry = bandScope(geometry, tree, event.paneId, event.handle);
+
               const resize: ResizeState = {
                 paneId: event.paneId,
                 handle: event.handle,
                 startX: event.startX,
                 startY: event.startY,
                 originalGeometry: geometry,
-                limits: resizeLimits(geometry, event.paneId, event.handle),
+                bandGeometry,
+                limits: resizeLimits(bandGeometry, event.paneId, event.handle),
                 pixelDelta: { x: 0, y: 0 },
                 delta: { cols: 0, rows: 0 },
                 lastSentDelta: { cols: 0, rows: 0 },

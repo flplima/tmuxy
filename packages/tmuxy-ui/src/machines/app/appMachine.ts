@@ -100,7 +100,7 @@ function resizePreviewSettled(
   charHeight: number,
 ): boolean {
   const band = resizedBand(
-    resize.originalGeometry,
+    resize.bandGeometry,
     resize.paneId,
     resize.handle,
     dragCells(resize, charWidth, charHeight),
@@ -1297,6 +1297,7 @@ export const appMachine = setup({
           actions: sendTo('resizeLogic', ({ event, context }) => ({
             ...event,
             panes: context.panes,
+            windows: context.windows,
             charWidth: context.charWidth,
             charHeight: context.charHeight,
           })),

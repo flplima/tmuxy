@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, fireEvent } from 'storybook/test';
 import { ResizeDividers } from './ResizeDividers';
 import { ProviderHarness } from '../stories/StoryHarness';
-import { useAppSelector, selectVisiblePanes } from '../machines/AppContext';
+import { useAppSelector, selectActivePaneTree, selectVisiblePanes } from '../machines/AppContext';
 
 const CHAR_W = 8;
 const CHAR_H = 16;
@@ -14,10 +14,12 @@ const CHAR_H = 16;
  */
 function LiveDividers() {
   const panes = useAppSelector(selectVisiblePanes);
+  const paneTree = useAppSelector(selectActivePaneTree);
   return (
     <div style={{ position: 'relative', width: 800, height: 400 }}>
       <ResizeDividers
         panes={panes}
+        paneTree={paneTree}
         charWidth={CHAR_W}
         charHeight={CHAR_H}
         centeringOffset={{ x: 0, y: 0 }}
@@ -95,6 +97,7 @@ function CollapsedStackDividers() {
     <div style={{ position: 'relative', width: 800, height: 400 }}>
       <ResizeDividers
         panes={squashed}
+        paneTree={null}
         charWidth={CHAR_W}
         charHeight={CHAR_H}
         centeringOffset={{ x: 0, y: 0 }}

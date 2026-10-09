@@ -37,6 +37,7 @@ import {
   useIsDragging,
   useIsResizing,
   selectVisiblePanes,
+  selectActivePaneTree,
   selectHiddenWindowPanes,
   selectDraggedPaneId,
   selectDragOffsetX,
@@ -232,6 +233,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const isZoomed = useAppSelector((ctx) =>
     Boolean(ctx.windows.find((w) => w.id === ctx.activeWindowId)?.zoomed),
   );
+  const paneTree = useAppSelector(selectActivePaneTree);
   const allPanes = useAppSelector((ctx) => ctx.panes);
   // A trackpad gesture, as far as the panes are concerned. Each of these
   // changes once per gesture, never per step - GestureStage draws the steps.
@@ -962,6 +964,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
       <ResizeDividers
         panes={visiblePanes}
+        paneTree={paneTree}
         charWidth={charWidth}
         charHeight={charHeight}
         centeringOffset={centeringOffset}

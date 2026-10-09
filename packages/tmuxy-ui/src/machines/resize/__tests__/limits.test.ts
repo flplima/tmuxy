@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { pid } from '../../../test/wire';
 import {
+  bandScope,
   resizeLimits,
   resizedBand,
   dragCells,
@@ -17,6 +18,7 @@ import {
   PANE_MIN_CELLS,
 } from '../limits';
 import type { PaneCellBox } from '../../types';
+import type { PaneTree } from '../../../domain/wire';
 
 const boxes = (entries: Record<string, PaneCellBox>) => entries;
 
@@ -81,6 +83,51 @@ describe('resizedBand', () => {
 
   it('moves nothing for a pane that is not in the geometry', () => {
     expect(resizedBand({}, pid('%9'), 'e', 3)).toEqual({});
+  });
+});
+
+describe('bandScope', () => {
+  // An even 2×2 grid. The rectangles are the same whether the root splits
+  // into two columns or two rows; only the layout tree tells them apart.
+  const grid = boxes({
+    [pid('%0')]: { x: 0, y: 0, width: 40, height: 9 },
+    [pid('%1')]: { x: 0, y: 10, width: 40, height: 10 },
+    [pid('%2')]: { x: 41, y: 0, width: 39, height: 9 },
+    [pid('%3')]: { x: 41, y: 10, width: 39, height: 10 },
+  });
+  const stack = (...children: PaneTree[]): PaneTree => ({ vertical: true, children });
+  const sideBySide = (...children: PaneTree[]): PaneTree => ({ vertical: false, children });
+  const columns = sideBySide(stack(pid('%0'), pid('%1')), stack(pid('%2'), pid('%3')));
+  const rows = stack(sideBySide(pid('%0'), pid('%2')), sideBySide(pid('%1'), pid('%3')));
+  const moved = (tree: PaneTree, paneId: string, handle: 'e' | 'w' | 's' | 'n') =>
+    Object.keys(resizedBand(bandScope(grid, tree, pid(paneId), handle), pid(paneId), handle, 2))
+      .sort()
+      .join(' ');
+
+  it('with columns at the root, a row divider moves only its own column', () => {
+    expect(moved(columns, '%0', 's')).toBe('%0 %1');
+    expect(moved(columns, '%3', 'n')).toBe('%2 %3');
+  });
+
+  it('with rows at the root, the same divider moves the whole row line', () => {
+    expect(moved(rows, '%0', 's')).toBe('%0 %1 %2 %3');
+  });
+
+  it('the column divider is the other way round', () => {
+    expect(moved(columns, '%0', 'e')).toBe('%0 %1 %2 %3');
+    expect(moved(rows, '%0', 'e')).toBe('%0 %2');
+    expect(moved(rows, '%3', 'w')).toBe('%1 %3');
+  });
+
+  it('with no tree known, every pane on the edge is in scope', () => {
+    expect(bandScope(grid, null, pid('%0'), 's')).toBe(grid);
+  });
+
+  it('limits come from the scope only', () => {
+    // Columns at the root: the right column's bottom pane is not across this
+    // divider, so it cannot be what stops the drag.
+    const tight = { ...grid, [pid('%3')]: { x: 41, y: 10, width: 39, height: 2 } };
+    expect(resizeLimits(bandScope(tight, columns, pid('%0'), 's'), pid('%0'), 's').max).toBe(9);
   });
 });
 

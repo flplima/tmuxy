@@ -324,5 +324,6 @@ function applyWindowDelta(window: WireWindow, delta: WindowDelta): WireWindow {
     ...(delta.collapsible !== undefined && { collapsible: delta.collapsible }),
     ...(delta.zoomed !== undefined && { zoomed: delta.zoomed }),
     ...(delta.active_pane_id !== undefined && { active_pane_id: delta.active_pane_id }),
+    ...(delta.pane_tree !== undefined && { pane_tree: delta.pane_tree }),
   };
 }
