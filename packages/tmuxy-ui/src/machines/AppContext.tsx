@@ -29,9 +29,11 @@ import {
   getActivePaneInGroup,
 } from './selectors';
 import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
-import type { TmuxAdapter } from '../tmux/types';
-import { createAdapter } from '../tmux/adapters';
-import { tracer } from '../tmux/tracer';
+import type { Layer } from 'effect';
+import type { TmuxTransport } from '../infra/transport/TmuxTransport';
+import { transportForEnvironment } from '../infra/transport/layers';
+import { makeAppRuntime } from '../infra/runtime';
+import { tracer } from '../infra/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createLinkModifierActor } from './actors/linkModifierActor';
@@ -39,10 +41,9 @@ import { createGestureActor } from './actors/gestureActor';
 import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
-import { makeTmuxStore } from '../tmux/store';
-import { toEffectAdapter } from '../tmux/effect';
-import { Effect } from 'effect';
+import { makeTmuxStore } from '../infra/store/TmuxStore';
 import { measureCellMetrics } from '../utils/cellMetrics';
+import type { PaneId } from '../domain/ids';
 
 // ============================================
 // App Config (static flags passed via provider)
@@ -134,33 +135,30 @@ const AppContext = createContext<AppMachineActor | null>(null);
 
 export function AppProvider({
   children,
-  adapter: externalAdapter,
+  transport,
   config,
 }: {
   children: ReactNode;
-  adapter?: TmuxAdapter;
+  /** The backend to run against; the environment's (web, desktop, `?demo`) when omitted. */
+  transport?: Layer.Layer<TmuxTransport>;
   config?: AppConfig;
 }) {
-  // Create adapter, store, and actors once. The TmuxStore is the Tier-3
-  // client model — owns optimistic patches and reconciliation; the
-  // tmuxStoreActor bridges it into XState so the appMachine context stays
-  // a passive mirror of the store's derived snapshot.
+  // Create the runtime, store, and actors once. The runtime is built from the
+  // transport Layer and every actor runs its effects on it. The TmuxStore is
+  // the client model — owns optimistic patches and reconciliation; the
+  // tmuxStoreActor bridges it into XState so the appMachine context stays a
+  // passive mirror of the store's derived snapshot.
   const actors = useMemo(() => {
-    const adapter = externalAdapter ?? createAdapter();
-    const store = Effect.runSync(
-      makeTmuxStore({
-        adapter: toEffectAdapter(adapter),
-        isReadOnly: () => adapter.readOnly === true,
-      }),
-    );
+    const runtime = makeAppRuntime(transport ?? transportForEnvironment());
+    const store = makeTmuxStore();
     return {
-      tmuxActor: createTmuxActor(adapter),
-      tmuxStoreActor: createTmuxStoreActor(store),
+      tmuxActor: createTmuxActor(runtime),
+      tmuxStoreActor: createTmuxStoreActor(store, runtime),
       keyboardActor: createKeyboardActor(),
       linkModifierActor: createLinkModifierActor(),
       gestureActor: createGestureActor(),
       sizeActor: createSizeActor(measureCellMetrics),
-      serversActor: createServersActor(adapter),
+      serversActor: createServersActor(runtime),
     };
   }, []);
 
@@ -177,7 +175,7 @@ export function AppProvider({
     const originalSend = actorRef.send.bind(actorRef);
     (actorRef as { send: (event: unknown) => void }).send = (event: unknown) => {
       // Action tracing: record only the event *type* (a variant name like
-      // SEND_TMUX_COMMAND), never its payload — the payload can carry keystrokes.
+      // DISPATCH_OP), never its payload — the payload can carry keystrokes.
       // The derived model-update firehose is coalesced to a periodic count so it
       // doesn't drown the trace.
       const type = (event as { type?: string })?.type;
@@ -267,13 +265,15 @@ export function useIsResizing(): boolean {
 }
 
 /** Get a specific pane by ID (with resize preview). */
-export function usePane(paneId: string): TmuxPane | undefined {
+export function usePane(paneId: PaneId | null): TmuxPane | undefined {
   const actor = useAppActor();
-  return useSelector(actor, (snapshot) => selectPaneById(snapshot.context, paneId));
+  return useSelector(actor, (snapshot) =>
+    paneId === null ? undefined : selectPaneById(snapshot.context, paneId),
+  );
 }
 
 /** Check if a pane is in the active window */
-export function useIsPaneInActiveWindow(paneId: string): boolean {
+export function useIsPaneInActiveWindow(paneId: PaneId): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => selectIsPaneInActiveWindowFn(snapshot.context, paneId));
 }
@@ -287,7 +287,7 @@ export function useIsSinglePane(): boolean {
 interface PaneGroupResult {
   group: PaneGroup | undefined;
   groupPanes: TmuxPane[];
-  activePaneId: string | null;
+  activePaneId: PaneId | null;
 }
 
 /**
@@ -308,7 +308,7 @@ function paneGroupResultEqual(a: PaneGroupResult, b: PaneGroupResult): boolean {
 }
 
 /** Get the group containing a pane, with resolved pane data and active pane ID */
-export function usePaneGroup(paneId: string): PaneGroupResult {
+export function usePaneGroup(paneId: PaneId): PaneGroupResult {
   const actor = useAppActor();
   return useSelector(
     actor,
@@ -323,7 +323,7 @@ export function usePaneGroup(paneId: string): PaneGroupResult {
 }
 
 /** Get the copy mode state for a pane (undefined if not in copy mode) */
-export function useCopyModeState(paneId: string): CopyModeState | undefined {
+export function useCopyModeState(paneId: PaneId): CopyModeState | undefined {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.copyModeStates[paneId]);
 }

@@ -14,7 +14,9 @@
  */
 
 import { Data } from 'effect';
-import type { TmuxPane, TmuxWindow } from '../types';
+import type { TmuxPane, TmuxWindow } from '../client';
+import type { PaneId, WindowId } from '../ids';
+import type { TmuxOp } from '../commands';
 
 // ============================================
 // Snapshot — the data the UI consumes
@@ -28,11 +30,10 @@ import type { TmuxPane, TmuxWindow } from '../types';
 export interface TmuxSnapshot {
   readonly panes: ReadonlyArray<TmuxPane>;
   readonly windows: ReadonlyArray<TmuxWindow>;
-  readonly activePaneId: string | null;
-  readonly activeWindowId: string | null;
+  readonly activePaneId: PaneId | null;
+  readonly activeWindowId: WindowId | null;
   readonly totalWidth: number;
   readonly totalHeight: number;
-  readonly statusLine: string;
   readonly sessionName: string;
   /**
    * A one-shot focus request queued by a shell helper (`tmuxy nav` at the edge
@@ -53,59 +54,12 @@ export const EMPTY_SNAPSHOT: TmuxSnapshot = {
   activeWindowId: null,
   totalWidth: 0,
   totalHeight: 0,
-  statusLine: '',
   sessionName: '',
   focusRequest: '',
 };
 
 /** Branded string so a raw string can't be passed where an OpId is expected. */
 export type OpId = string & { readonly __brand: 'OpId' };
-
-// ============================================
-// TmuxOp — every optimistic user intent as data
-// ============================================
-
-/**
- * Tagged union of every user intent the model knows how to predict.
- * Built from parsed commands, semantic events (SELECT_TAB, CREATE_TAB), or
- * direct component invocations. The store turns each op into a tmux command
- * via `toTmuxCommand` and applies a predicted patch via the per-op `predict`
- * function.
- *
- * `RawCommand` is the escape hatch: any string that wasn't recognized as a
- * typed op is forwarded as-is with no optimistic prediction.
- */
-export type TmuxOp =
-  | { readonly _tag: 'Split'; readonly direction: 'horizontal' | 'vertical' }
-  | { readonly _tag: 'Navigate'; readonly direction: 'L' | 'R' | 'U' | 'D' }
-  | { readonly _tag: 'SelectPane'; readonly paneId: string }
-  | { readonly _tag: 'Swap'; readonly sourcePaneId: string; readonly targetPaneId: string }
-  | { readonly _tag: 'NewWindow' }
-  | {
-      readonly _tag: 'SelectWindow';
-      /** A window id (`@N`, what the client sends), a tmux index, or a neighbour. */
-      readonly target: string | number | 'next' | 'previous';
-    }
-  /** paneId null = the active pane. */
-  | { readonly _tag: 'KillPane'; readonly paneId: string | null }
-  /** windowId null = the active window. Only `@N`-form targets are predicted. */
-  | { readonly _tag: 'KillWindow'; readonly windowId: string | null }
-  /** target null = the active window. */
-  | { readonly _tag: 'RenameWindow'; readonly target: string | null; readonly name: string }
-  /** paneId null = the active pane. Predicts zoom-IN only (see predictZoomToggle). */
-  | { readonly _tag: 'ZoomToggle'; readonly paneId: string | null }
-  /**
-   * Pane-group tab switch: the clicked (parked) group member swaps into the
-   * visible slot occupied by `visiblePaneId`. Backed by the guest
-   * pane-group-switch script (resize-window ; swap-pane); dispatched with an
-   * explicit command string, never parsed from the wire.
-   */
-  | {
-      readonly _tag: 'GroupSwitch';
-      readonly clickedPaneId: string;
-      readonly visiblePaneId: string;
-    }
-  | { readonly _tag: 'RawCommand'; readonly command: string };
 
 // ============================================
 // Patch — a pure transformation of TmuxSnapshot
@@ -181,7 +135,7 @@ export interface TmuxClientModel {
    * PaneLayout uses this as the React key so the pane element survives the
    * id swap without unmount/remount flicker.
    */
-  readonly paneKeyOverrides: Readonly<Record<string, string>>;
+  readonly paneKeyOverrides: Readonly<Record<PaneId, PaneId>>;
   /**
    * The tab and pane a read-only client is looking at, when it has chosen its
    * own. Unlike an op it predicts nothing and waits for nothing: tmux is never
@@ -192,8 +146,8 @@ export interface TmuxClientModel {
 }
 
 export interface ViewFocus {
-  readonly windowId: string;
-  readonly paneId: string | null;
+  readonly windowId: WindowId;
+  readonly paneId: PaneId | null;
 }
 
 export const EMPTY_MODEL: TmuxClientModel = {
@@ -246,7 +200,12 @@ export type OpError = OpRejectedByTmux | OpTransportError | OpBlockedReadOnly;
  *    server's reality).
  */
 export type ReconcileVerdict =
-  | { readonly _tag: 'matched'; readonly realId?: string }
+  /** The real pane a Split, or the real window a NewWindow, turned out to be. */
+  | {
+      readonly _tag: 'matched';
+      readonly realPaneId?: PaneId;
+      readonly realWindowId?: WindowId;
+    }
   | { readonly _tag: 'pending' }
   | { readonly _tag: 'failed'; readonly reason: string };
 

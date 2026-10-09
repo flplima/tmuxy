@@ -1,14 +1,15 @@
 import type {
-  ServerState,
-  ServerPane,
-  ServerWindow,
-  ServerDelta,
-  PaneDelta,
-  WindowDelta,
-  StateUpdate,
   CellLine,
   PaneContent,
-} from './types';
+  PaneDelta,
+  ServerDelta,
+  ServerState,
+  SparseContent,
+  StateUpdate,
+  WindowDelta,
+  WirePane,
+  WireWindow,
+} from './wire';
 
 /**
  * Detect if a full state update represents a different session (kill+recreate).
@@ -88,7 +89,7 @@ export function isDeltaSeqGap(prevSeq: number | null, delta: ServerDelta): boole
 }
 
 /**
- * Handle a StateUpdate (full or delta), returning the new state.
+ * Handle a decoded StateUpdate (full or delta), returning the new state.
  * Returns null if a delta arrives before any full state.
  */
 export function handleStateUpdate(
@@ -96,17 +97,6 @@ export function handleStateUpdate(
   currentState: ServerState | null,
 ): ServerState | null {
   if (update.type === 'full') {
-    // A malformed update must never take the UI down with it: keep what we
-    // have, log, and let the next snapshot resync (the adapter re-requests a
-    // full state whenever sequencing breaks).
-    if (
-      !update.state ||
-      !Array.isArray(update.state.panes) ||
-      !Array.isArray(update.state.windows)
-    ) {
-      console.warn('Ignoring full state update without state', update);
-      return currentState;
-    }
     // When replacing existing state with a full update, preserve non-empty pane
     // content that would be overwritten by empty content. This handles two cases:
     // 1. Initial sync: get_initial_state captured real content, but the control mode
@@ -142,102 +132,61 @@ export function handleStateUpdate(
     console.warn('Received delta before full state, ignoring');
     return null;
   }
-  if (!update.delta) {
-    console.warn('Ignoring delta update without delta', update);
-    return currentState;
-  }
 
   return applyDelta(currentState, update.delta);
+}
+
+/**
+ * Merge a delta's changes into `current`: a key mapped to `null` is removed,
+ * a key mapped to a change is updated (a change for an unknown key is
+ * ignored), and `added` records are inserted or replaced whole.
+ */
+function mergeRecords<K, R, C>(
+  current: ReadonlyArray<R>,
+  keyOf: (record: R) => K,
+  changes: ReadonlyMap<K, C | null> | undefined,
+  apply: (record: R, change: C) => R,
+  added: ReadonlyArray<R> | undefined,
+): R[] {
+  const byKey = new Map<K, R>();
+  for (const record of current) byKey.set(keyOf(record), record);
+  for (const [key, change] of changes ?? []) {
+    const existing = byKey.get(key);
+    if (change === null) byKey.delete(key);
+    else if (existing !== undefined) byKey.set(key, apply(existing, change));
+  }
+  for (const record of added ?? []) byKey.set(keyOf(record), record);
+  return Array.from(byKey.values());
 }
 
 /**
  * Apply a delta to the current state and return a new state
  */
 export function applyDelta(state: ServerState, delta: ServerDelta): ServerState {
-  const newState: ServerState = { ...state };
-
-  if (delta.active_window_id !== undefined) {
-    newState.active_window_id = delta.active_window_id;
-  }
-  if (delta.active_pane_id !== undefined) {
-    newState.active_pane_id = delta.active_pane_id;
-  }
-  if (delta.status_line !== undefined) {
-    newState.status_line = delta.status_line;
-  }
-  if (delta.focus_request !== undefined) {
-    newState.focus_request = delta.focus_request;
-  }
-  if (delta.total_width !== undefined) {
-    newState.total_width = delta.total_width;
-  }
-  if (delta.total_height !== undefined) {
-    newState.total_height = delta.total_height;
-  }
-
-  if (delta.panes || delta.new_panes) {
-    const paneMap = new Map<string, ServerPane>();
-    for (const pane of state.panes) {
-      paneMap.set(pane.tmux_id, pane);
-    }
-
-    if (delta.panes) {
-      for (const [paneId, paneDelta] of Object.entries(delta.panes)) {
-        if (paneDelta === null) {
-          paneMap.delete(paneId);
-        } else {
-          const existing = paneMap.get(paneId);
-          if (existing) {
-            paneMap.set(paneId, applyPaneDelta(existing, paneDelta));
-          }
-        }
-      }
-    }
-
-    if (delta.new_panes) {
-      for (const newPane of delta.new_panes) {
-        paneMap.set(newPane.tmux_id, newPane);
-      }
-    }
-
-    newState.panes = Array.from(paneMap.values());
-  }
-
-  if (delta.windows || delta.new_windows) {
-    const windowMap = new Map<string, ServerWindow>();
-    for (const window of state.windows) {
-      windowMap.set(window.id, window);
-    }
-
-    if (delta.windows) {
-      for (const [windowId, windowDelta] of Object.entries(delta.windows)) {
-        if (windowDelta === null) {
-          windowMap.delete(windowId);
-        } else {
-          const existing = windowMap.get(windowId);
-          if (existing) {
-            windowMap.set(windowId, applyWindowDelta(existing, windowDelta));
-          }
-        }
-      }
-    }
-
-    if (delta.new_windows) {
-      for (const newWindow of delta.new_windows) {
-        windowMap.set(newWindow.id, newWindow);
-      }
-    }
-
-    newState.windows = Array.from(windowMap.values());
-  }
-
-  return newState;
+  return {
+    ...state,
+    active_window_id: delta.active_window_id ?? state.active_window_id,
+    active_pane_id: delta.active_pane_id ?? state.active_pane_id,
+    focus_request: delta.focus_request ?? state.focus_request,
+    total_width: delta.total_width ?? state.total_width,
+    total_height: delta.total_height ?? state.total_height,
+    panes:
+      delta.panes || delta.new_panes
+        ? mergeRecords(state.panes, (p) => p.tmux_id, delta.panes, applyPaneDelta, delta.new_panes)
+        : state.panes,
+    windows:
+      delta.windows || delta.new_windows
+        ? mergeRecords(
+            state.windows,
+            (w) => w.id,
+            delta.windows,
+            applyWindowDelta,
+            delta.new_windows,
+          )
+        : state.windows,
+  };
 }
 
-/**
- * Compare two cell lines for deep equality.
- * Returns true if both lines have the same characters and styles.
- */
 /**
  * Cell-line equality with wire-shape normalization: `null`/`undefined` styles
  * are both "no style", and absent boolean flags equal `false`. Exported as
@@ -283,10 +232,7 @@ export function cellLinesEqual(a: CellLine, b: CellLine): boolean {
  * Merge sparse line updates into existing content.
  * delta.content is Record<number, CellLine> — only changed line indices.
  */
-function mergeSparseContent(
-  oldContent: PaneContent,
-  changes: Record<number, CellLine>,
-): PaneContent {
+function mergeSparseContent(oldContent: PaneContent, changes: SparseContent): PaneContent {
   // Find the max line index to determine new content length
   let maxIdx = oldContent.length - 1;
   for (const key of Object.keys(changes)) {
@@ -313,7 +259,7 @@ function mergeSparseContent(
   return merged;
 }
 
-function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
+function applyPaneDelta(pane: WirePane, delta: PaneDelta): WirePane {
   // A delta is applied verbatim, even when it empties every row: that is what
   // a `clear` looks like (the erase arrives as its own %output, the prompt as
   // the next one). The resize transient this used to guard against — a reset
@@ -360,7 +306,7 @@ function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
   };
 }
 
-function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindow {
+function applyWindowDelta(window: WireWindow, delta: WindowDelta): WireWindow {
   return {
     ...window,
     ...(delta.index !== undefined && { index: delta.index }),
