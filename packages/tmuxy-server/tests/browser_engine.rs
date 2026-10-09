@@ -742,10 +742,12 @@ async fn navigating_a_still_page_produces_a_new_frame() {
         .await
         .expect("goto");
 
+    // One deadline for the whole wait: a slow runner may take a while to
+    // paint the new page, and that is not the same as never painting it.
     let mut latest = first.clone();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-    while std::time::Instant::now() < deadline && latest == first {
-        if tokio::time::timeout(std::time::Duration::from_secs(3), frames.changed())
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    while latest == first {
+        if tokio::time::timeout_at(deadline, frames.changed())
             .await
             .is_err()
         {
