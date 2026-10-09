@@ -2098,7 +2098,8 @@ impl StateAggregator {
                 self.pending_buffer_reads.push_back(buffer_name.clone());
                 ProcessEventResult {
                     commands: vec![format!(
-                        "display-message -p 'TMUXY_BUF_BEGIN' ; show-buffer -b '{buffer_name}' ; display-message -p 'TMUXY_BUF_END'"
+                        "display-message -p 'TMUXY_BUF_BEGIN' ; show-buffer -b {} ; display-message -p 'TMUXY_BUF_END'",
+                        crate::tmux_quote(&buffer_name)
                     )],
                     ..Default::default()
                 }
@@ -4056,6 +4057,31 @@ mod tests {
             })
             .expect("a pane in copy mode: the buffer is read over the control channel");
         assert!(read.contains("TMUXY_BUF_BEGIN") && read.contains("show-buffer -b 'buffer0'"));
+    }
+
+    /// A buffer is named by whoever ran `set-buffer -b`, so the name is quoted
+    /// into the read: a quote in it must neither break the read nor end the
+    /// argument and run the rest as a command of its own.
+    #[test]
+    fn a_paste_buffer_name_is_quoted_into_its_read() {
+        let mut agg = StateAggregator::new();
+        seed_active_pane(&mut agg, "%0", "@0");
+        agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+        let read = agg
+            .step(ControlModeEvent::PasteBufferChanged {
+                buffer_name: "x' ; run-shell 'touch /tmp/pwned".to_string(),
+            })
+            .effects
+            .into_iter()
+            .find_map(|e| match e {
+                SideEffect::SendTmuxCommand(cmd) => Some(cmd),
+                _ => None,
+            })
+            .expect("a pane in copy mode: the buffer is read");
+        assert!(
+            read.contains(r"show-buffer -b 'x'\'' ; run-shell '\''touch /tmp/pwned' ;"),
+            "{read}"
+        );
     }
 
     #[test]

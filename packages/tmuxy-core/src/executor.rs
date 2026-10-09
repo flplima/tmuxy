@@ -1,11 +1,4 @@
-/// Single-quote a value for interpolation into a tmux command string.
-///
-/// Session names come from `servers.json` and the connect form, so they can
-/// contain whitespace (which would silently truncate the target) or `;`
-/// (which would append extra commands to the list).
-pub fn tmux_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
-}
+pub use crate::tmux_quote;
 
 /// Build the `new-window` rewrite: `new-window`/`neww` crashes tmux 3.5a with
 /// control mode attached, so both transports send `splitw ; breakp` instead.
