@@ -120,12 +120,23 @@ jobs:
   # cargo test (a real `tmux -CC` against Homebrew's tmux). Vitest ran here too
   # and was dropped — it is pure JS logic with no platform surface, already
   # covered by `node-checks / unit-tests`.
+  #
+  # The CLI suite runs on every push: it is cheap and the shell is where the
+  # platform shows. The Rust suite runs only when the push touches the code
+  # that has a macOS branch — the desktop app, the pty spawn in
+  # `control_mode/connection.rs`, the CLI scripts, the Cargo manifests — and
+  # always on a tag build. A Mac minute costs ten Linux ones, and the ~500
+  # platform-neutral tests are run on Linux per commit already; build-app.yml
+  # runs the whole suite on a Mac daily and on every tag as the net.
   macos-tests:
     runs-on: macos-latest
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The whole history, so the diff below can reach the push's base.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
@@ -150,11 +161,31 @@ jobs:
       - name: CLI suite
         run: npm run test:cli
 
+      # A base it cannot reach (a force-push, a first push of a branch) runs
+      # the suite rather than skipping it: the filter only ever saves time.
+      - name: Does this push touch macOS-specific code?
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          rust=true
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            if git diff --name-only "$BASE" HEAD | grep -qE '^(packages/tmuxy-tauri-app/|packages/tmuxy-core/src/control_mode/connection\.rs|bin/|Cargo\.(toml|lock)|\.github/workflows/lint-and-tests\.yml)'; then
+              rust=true
+            else
+              rust=false
+            fi
+          fi
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "cargo test on macOS: $rust (base ${BASE:-none})"
+
       # The tauri crate's build script expects a frontend dist to exist.
       - name: Frontend dist placeholder
+        if: steps.changes.outputs.rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: mkdir -p packages/tmuxy-ui/dist
 
       - name: Cargo test
+        if: steps.changes.outputs.rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: cargo test --workspace
 
   rust-tests:
