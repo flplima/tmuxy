@@ -10,6 +10,7 @@ import {
   ThemeSettings,
 } from '../../../domain/wire';
 import { Schema } from 'effect';
+import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
 import { StateSequencer } from '../stateSequencer';
 import { decodeEvent } from '../wireDecode';
 import { KeyBatcher } from '../keyBatching';
@@ -267,7 +268,7 @@ export class TauriAdapter implements SequencedAdapter {
   }
 
   async switchSession(newSession: string): Promise<void> {
-    // For Tauri, use switch-client to change the tmux session
-    await this.invoke<void>('run_tmux_command', { command: `switch-client -t ${newSession}` });
+    const command = toTmuxCommand(TmuxOp.SwitchClient({ session: newSession }));
+    await this.invoke<void>('run_tmux_command', { command });
   }
 }

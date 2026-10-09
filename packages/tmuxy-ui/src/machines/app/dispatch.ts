@@ -14,7 +14,7 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import { isLayoutChange, isMultiStep, TmuxOp, type TmuxOpOf } from '../../domain/commands';
-import type { PaneId, WindowId } from '../../domain/ids';
+import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
 import type { AllAppMachineEvents, AppMachineContext } from '../types';
 
@@ -26,20 +26,32 @@ type Enqueue = Parameters<
 >[0]['enqueue'];
 
 /**
+ * The client's active window and pane, as targets tmux can resolve: null
+ * while either is still the placeholder of a predicted split or new window,
+ * so the command falls back to tmux's own current one instead of failing.
+ */
+function activeTargets(context: Ctx): { windowId: WindowId | null; paneId: PaneId | null } {
+  const { activeWindowId, activePaneId } = context;
+  return {
+    windowId: activeWindowId && !isPlaceholderId(activeWindowId) ? activeWindowId : null,
+    paneId: activePaneId && !isPlaceholderId(activePaneId) ? activePaneId : null,
+  };
+}
+
+/**
  * Fill in the targets an op leaves to "tmux's current one" where the client's
  * own idea of current is the better one: tmux's current window and pane can
  * lag the user's focus (an optimistic tab switch, a control-mode client whose
  * current window drifts under `window-size manual`).
  */
 function bindActiveTargets(op: TmuxOp, context: Ctx): TmuxOp {
+  const active = activeTargets(context);
   switch (op._tag) {
     case 'CyclePane':
-      return op.windowId || !context.activeWindowId
-        ? op
-        : TmuxOp.CyclePane({ windowId: context.activeWindowId });
+      return op.windowId || !active.windowId ? op : TmuxOp.CyclePane({ windowId: active.windowId });
     case 'GroupAdd': {
-      if (op.pane) return op;
-      const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
+      if (op.pane || !active.paneId) return op;
+      const pane = context.panes.find((p) => p.tmuxId === active.paneId);
       return pane
         ? TmuxOp.GroupAdd({
             pane: { paneId: pane.tmuxId, width: pane.width, height: pane.height },
@@ -220,10 +232,10 @@ function resolveWindowTarget(command: string, activeWindowId: WindowId | null): 
  * tmux format strings control mode will not resolve for us (a `run-shell`
  * from an expanded alias in a root binding), filled from the active pane.
  */
-function expandPaneFormats(command: string, context: Ctx): string {
-  if (!context.activePaneId || !/#\{pane_(id|width|height)\}/.test(command)) return command;
-  const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
-  let expanded = command.replace(/#{pane_id}/g, context.activePaneId);
+function expandPaneFormats(command: string, paneId: PaneId | null, context: Ctx): string {
+  if (!paneId || !/#\{pane_(id|width|height)\}/.test(command)) return command;
+  const pane = context.panes.find((p) => p.tmuxId === paneId);
+  let expanded = command.replace(/#{pane_id}/g, paneId);
   if (pane) {
     expanded = expanded
       .replace(/#{pane_width}/g, String(pane.width))
@@ -249,9 +261,10 @@ export const dispatchActions = {
   dispatch_command: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
       if (event.type !== 'SEND_TMUX_COMMAND') return;
+      const active = activeTargets(context);
       const command = resolveWindowTarget(
-        expandPaneFormats(event.command, context),
-        context.activeWindowId,
+        expandPaneFormats(event.command, active.paneId, context),
+        active.windowId,
       );
 
       // `select-window -t <N>`: N is the visual tab position, not a tmux index

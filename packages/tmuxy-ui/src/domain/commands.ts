@@ -181,6 +181,8 @@ export type TmuxOp = Data.TaggedEnum<{
   // ── Sessions ───────────────────────────────────────────
   NewSession: { readonly name: string };
   KillSession: { readonly name: string | null };
+  /** Move this client to another session (the desktop app's one control client). */
+  SwitchClient: { readonly session: string };
   RenameSession: { readonly session: string | null; readonly name: string };
   SourceConfig: NoFields;
   /** Clear the one-shot focus request a shell helper queued. */
@@ -418,6 +420,8 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `new-session -d -s ${target(op.name)}`;
     case 'KillSession':
       return op.name === null ? 'kill-session' : `kill-session -t ${target(op.name)}`;
+    case 'SwitchClient':
+      return `switch-client -t ${target(op.session)}`;
     case 'RenameSession':
       return op.session === null
         ? `rename-session -- ${quote(op.name)}`
