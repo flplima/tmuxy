@@ -18,7 +18,7 @@ TMUXY_VERSION="${TMUXY_VERSION:-}"
 if [ -z "$TMUXY_VERSION" ] && [ -f "$REPO_ROOT/package.json" ]; then
   TMUXY_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$REPO_ROOT/package.json" 2>/dev/null || true)
 fi
-TMUXY_VERSION="${TMUXY_VERSION:-0.0.10-alpha.69}"
+TMUXY_VERSION="${TMUXY_VERSION:-0.0.10-alpha.70}"
 
 # --- Helpers ---
 
