@@ -53,6 +53,22 @@ describe('StateSequencer', () => {
     expect(stream.receive(full('%5'))).toMatchObject({ _tag: 'State' });
   });
 
+  it('after a gap, applies no delta until an answer is adopted, then carries on from it', () => {
+    const stream = new StateSequencer();
+    stream.receive(full());
+    stream.receive(delta(1));
+    expect(stream.receive(delta(3))).toEqual({ _tag: 'Resync' });
+    // The next delta follows the lost one, so it would apply to the wrong state.
+    expect(stream.receive(delta(4, { active_pane_id: '%7' }))).toEqual({ _tag: 'Resync' });
+
+    stream.adopt(state('%4'));
+    const step = stream.receive(delta(5, { active_pane_id: '%5' }));
+    expect(step._tag === 'State' && step.state.active_pane_id).toBe('%5');
+    // What a refetch publishes is the state now, not the older answer.
+    const now = stream.current();
+    expect(now._tag === 'State' && now.state.active_pane_id).toBe('%5');
+  });
+
   it('ignores a delta before any full state', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(new StateSequencer().receive(delta(1))).toEqual({ _tag: 'Ignore' });
