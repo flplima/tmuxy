@@ -190,6 +190,7 @@ async function ready(canvasElement: HTMLElement) {
 }
 
 export const SlideBetweenTabs: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
   parameters: {
     docs: {
@@ -294,6 +295,7 @@ export const SlideBetweenTabs: Story = {
 };
 
 export const PinchZoomsThePaneUnderTheFingers: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['split-window -h'] },
   parameters: {
     docs: {
@@ -382,6 +384,7 @@ export const PinchInOpensAllTabs: Story = {
 };
 
 export const PinchOutOfAllTabsEntersTheCurrentTab: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
   parameters: {
     docs: {

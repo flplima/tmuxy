@@ -120,8 +120,55 @@ jobs:
 
   # A nightly that fails into an empty room is the same as no nightly. One
   # issue is kept open and commented on, rather than a new one every night.
+  # The deterministic (DemoAdapter) stories a push leaves out — the ones
+  # tagged `nightly` — and the axe accessibility pass over every story, which
+  # the per-commit probe skips. docs/TESTS.md § Tiers.
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - uses: ./.github/actions/install-chromium
+
+      - name: Create placeholder v86 asset dirs
+        run: mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
+
+      - name: Start Storybook (dev server)
+        run: |
+          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook-deterministic.log &
+          bin/wait-for-server http://localhost:6006/index.json 180000
+
+      - name: Probe every deterministic story, with the a11y pass
+        env:
+          PROBE_TIER: all
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run test-storybook -w tmuxy-ui
+
+      - name: Probe failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: storybook-deterministic-artifacts-${{ github.run_id }}
+          path: packages/tmuxy-ui/probe-artifacts
+          if-no-files-found: ignore
+
+      - name: Storybook logs (debug)
+        if: failure()
+        run: tail -200 /tmp/storybook-deterministic.log
+
   report-failure:
-    needs: sweep
+    needs: [sweep, deterministic]
     if: failure() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -138,7 +185,7 @@ jobs:
         run: |
           set -euo pipefail
           TITLE="Nightly v86 sweep is failing"
-          BODY="The nightly full v86 story sweep failed.
+          BODY="The nightly story sweep failed: the full v86 sweep, the deterministic nightly tier with the a11y pass, or both (the run's job list says which).
 
           The run log lists the failing stories under 'failures', each with its error and the first lines of its stack.
 

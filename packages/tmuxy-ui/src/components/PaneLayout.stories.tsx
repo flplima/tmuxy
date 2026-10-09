@@ -123,6 +123,7 @@ const headers = () => {
  * Gruvbox writes everything on the active header in its yellow accent.
  */
 export const PaneHeaderGrayAndGruvboxAccent: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['split-window -h'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

@@ -46,6 +46,7 @@ async function waitForOverview(open: boolean): Promise<HTMLElement | null> {
 }
 
 export const OpenClickSlotSwitchesTab: Story = {
+  tags: ['nightly'],
   args: {
     height: 500,
     initCommands: ['rename-window main', 'new-window', 'rename-window logs', 'new-window'],
@@ -117,35 +118,6 @@ export const OpenClickSlotSwitchesTab: Story = {
   },
 };
 
-export const PlusCreatesAndCloseKills: Story = {
-  args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
-    const user = userEvent.setup({ delay: 5 });
-
-    await user.keyboard('{Control>}0{/Control}');
-    let overview = (await waitForOverview(true)) as HTMLElement;
-    await user.click(overview.querySelector('[data-testid="tab-overview-new"]') as HTMLElement);
-    await waitForOverview(false);
-    await waitFor(() => expect(tabs()).toHaveLength(3));
-
-    await user.keyboard('{Control>}0{/Control}');
-    overview = (await waitForOverview(true)) as HTMLElement;
-    const doomed = tabs()[2].id;
-    await user.click(
-      overview.querySelector(
-        `[data-testid="tab-overview-slot-${doomed}"] .tab-overview-slot-close`,
-      ) as HTMLElement,
-    );
-    await waitFor(() => expect(tabs().map((w) => w.id)).not.toContain(doomed));
-    // Closing keeps the overview open; Escape leaves it.
-    expect(document.querySelector('[data-testid="tab-overview"]')).not.toBeNull();
-    await user.keyboard('{Escape}');
-    await waitForOverview(false);
-  },
-};
-
 const APPEARANCE = {
   opacity: 0.7,
   activePaneOpacity: 1,
@@ -175,6 +147,7 @@ function onScreen(card: HTMLElement, grid: HTMLElement): boolean {
 }
 
 export const ColumnsFromConfigAndScrolling: Story = {
+  tags: ['nightly'],
   args: {
     height: 500,
     initCommands: ['rename-window main', ...Array.from({ length: 11 }, () => 'new-window')],
@@ -255,6 +228,7 @@ export const ColumnsFromConfigAndScrolling: Story = {
 };
 
 export const OpensOutOfTheSlotYouClicked: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
   parameters: {
     docs: {

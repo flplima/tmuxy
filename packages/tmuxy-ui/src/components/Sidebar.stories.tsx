@@ -489,6 +489,7 @@ export const RightClickContextMenus: Story = {
 // ---------------------------------------------------------------------------
 
 export const RightColumnSlideDoesNotMoveTheLeftEdge: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['split-window -h'] },
   parameters: {
     docs: {
@@ -863,6 +864,7 @@ export const PaneStateIsWhatThePaneDeclares: Story = {
 // ---------------------------------------------------------------------------
 
 export const TallTreeScrollsInsideTheColumn: Story = {
+  tags: ['nightly'],
   args: {
     height: 400,
     initCommands: ['rename-window main', ...Array.from({ length: 11 }, () => 'new-window')],

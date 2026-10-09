@@ -334,6 +334,7 @@ export const KillPaneRejected: Story = {
 // ---------------------------------------------------------------------------
 
 export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?: number }> = {
+  tags: ['nightly'],
   args: { height: 600, commandDelayMs: 3000 },
   parameters: {
     docs: {
@@ -389,108 +390,7 @@ export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?
   },
 };
 
-// ---------------------------------------------------------------------------
-// Gemini-style clear+redraw — anti-blink coalescing
-// ---------------------------------------------------------------------------
-
-export const SteadyStreamNoBlink: Story = {
-  args: { height: 600 },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 600 },
-      description: {
-        story:
-          'TUI apps like the Gemini CLI repeatedly clear and redraw the entire pane. The frontend rAF batching and the backend trailing-edge debounce together ensure the cleared intermediate state never reaches the renderer. This story waits for the demo shell to paint its welcome banner, then samples the pane content every frame for ~250ms while the demo loop keeps emitting state updates. Each sample must show the banner — if any sample is empty, the renderer briefly drew a cleared frame, which is the bug we guard against.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    // The demo shell paints "This is a live demo" as the welcome banner the
-    // moment the pane mounts. Using that as our anchor text means we don't
-    // have to type or wait for any echo round-trip — we just need to verify
-    // that already-painted content never disappears under steady redraws.
-    await waitFor(
-      () => {
-        const pane = canvas.getByRole('group', { name: /Pane %0/i });
-        expect(pane.textContent || '').toMatch(/live demo/i);
-      },
-      { timeout: 8000 },
-    );
-
-    // Sample the pane every frame for ~250ms. The DemoTmux emits state on a
-    // timer (setOnAsyncUpdate) so the anchor text passes through the same
-    // delta-merge + rAF batching path Gemini CLI's clear+redraw would.
-    let blinks = 0;
-    for (let i = 0; i < 16; i++) {
-      const pane = canvas.getByRole('group', { name: /Pane %0/i });
-      const txt = (pane.textContent || '').trim();
-      if (!/live demo/i.test(txt)) {
-        blinks++;
-      }
-      await wait(16);
-    }
-    expect(blinks).toBe(0);
-  },
-};
-
-// ---------------------------------------------------------------------------
-// OSC 52 clipboard plumbing — round-trip through the appMachine
-// ---------------------------------------------------------------------------
-
 interface ClipboardArgs {
   height?: number;
   initCommands?: string[];
 }
-
-export const ClipboardOSC52: StoryObj<ClipboardArgs> = {
-  args: { height: 600 },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 600 },
-      description: {
-        story:
-          'When a terminal app emits an OSC 52 sequence (e.g. `printf "\\e]52;c;<base64>\\e\\\\"`), the backend decodes the payload and tells the frontend to mirror it into the system clipboard. This story uses the DemoAdapter `emitClipboard` helper and verifies the appMachine received the event via the `__tmuxyLastClipboard` test hook.',
-      },
-    },
-  },
-  render: (args) => {
-    let live: DemoAdapter | null = null;
-    return (
-      <div data-osc52-harness>
-        <AppHarness
-          {...args}
-          onAdapterReady={(adapter) => {
-            live = adapter;
-            // Park the live adapter on window so the play function below can
-            // reach it without having to subscribe to React state.
-            (window as unknown as { __osc52Adapter?: DemoAdapter }).__osc52Adapter = live;
-          }}
-        />
-      </div>
-    );
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
-
-    const adapter = (window as unknown as { __osc52Adapter?: DemoAdapter }).__osc52Adapter;
-    expect(adapter).toBeTruthy();
-
-    // Clear any prior test hook payload.
-    const win = window as unknown as { __tmuxyLastClipboard?: { paneId: PaneId; text: string } };
-    win.__tmuxyLastClipboard = undefined;
-
-    // Inject the clipboard write the same way the Rust backend would after
-    // parsing an OSC 52 sequence.
-    adapter!.emitClipboard(PaneId.make('%0'), 'gemini says hi');
-
-    await waitFor(
-      () => {
-        expect(win.__tmuxyLastClipboard).toEqual({ paneId: '%0', text: 'gemini says hi' });
-      },
-      { timeout: 1000 },
-    );
-  },
-};

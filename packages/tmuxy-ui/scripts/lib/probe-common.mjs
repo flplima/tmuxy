@@ -35,13 +35,30 @@ export function parseProbeArgs(argv) {
  * so they run on probe-spikes.mjs's single shared engine page and nowhere
  * else; `v86: true` selects exactly them, `false` everything else.
  */
-export async function fetchStoryIds({ storybookUrl, filters, v86 }) {
+/**
+ * Which stories a run takes, by the `nightly` tag (docs/TESTS.md § Tiers):
+ * `commit` leaves the tagged ones out, `nightly` takes only them, `all`
+ * ignores the tag.
+ */
+const TIERS = {
+  commit: (tags) => !tags.includes('nightly'),
+  nightly: (tags) => tags.includes('nightly'),
+  all: () => true,
+};
+
+export async function fetchStoryIds({ storybookUrl, filters, v86, tier = 'all' }) {
+  const inTier = TIERS[tier];
+  if (!inTier)
+    throw new Error(
+      `unknown tier ${JSON.stringify(tier)}; one of ${Object.keys(TIERS).join(', ')}`,
+    );
   const res = await fetch(`${storybookUrl}/index.json`);
   if (!res.ok) throw new Error(`storybook /index.json: ${res.status}`);
   const json = await res.json();
   const ids = Object.keys(json.entries).filter((id) => {
     const entry = json.entries[id];
-    return entry.type === 'story' && (entry.tags ?? []).includes('v86') === v86;
+    const tags = entry.tags ?? [];
+    return entry.type === 'story' && tags.includes('v86') === v86 && inTier(tags);
   });
   if (filters.length === 0) return ids;
   return ids.filter((id) => filters.some((f) => id.includes(f)));

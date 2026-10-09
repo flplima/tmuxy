@@ -61,6 +61,7 @@ async function waitForQuiescence(idPrefix = 'Pane:'): Promise<void> {
  * the world" regression guard.
  */
 export const TypingIsolation: Story = {
+  tags: ['nightly'],
   args: { height: 600, initCommands: ['split-window -h', 'split-window -v'] },
   render: (args) => {
     enableRenderLog();
@@ -87,26 +88,11 @@ export const TypingIsolation: Story = {
     await waitForQuiescence();
 
     const mark = renderLogMark();
-    const ctxPanes = () =>
-      (
-        window as unknown as {
-          app: { getSnapshot(): { context: { panes: { tmuxId: string }[] } } };
-        }
-      ).app.getSnapshot().context.panes;
-    const beforeObj = ctxPanes().find((pp) => pp.tmuxId === otherIds[0]);
     await user.keyboard('echo hi');
     await waitFor(() => expect(renderCountSince(mark, `Pane:${activeId}`)).toBeGreaterThan(0), {
       timeout: 5000,
     });
     await wait(500);
-
-    console.error(
-      'ISOLATION-DEBUG',
-      JSON.stringify({
-        sameObj: beforeObj === ctxPanes().find((pp) => pp.tmuxId === otherIds[0]),
-        counts: renderCountsById(mark),
-      }),
-    );
 
     // The typed-into pane committed; nothing else did.
     for (const id of otherIds) {
@@ -126,6 +112,7 @@ export const TypingIsolation: Story = {
  * memo comparator and the line-identity preservation in mergeContent.
  */
 export const OutputBurstLineMemo: Story = {
+  tags: ['nightly'],
   args: { height: 600 },
   render: (args) => {
     enableRenderLog();
@@ -160,6 +147,7 @@ export const OutputBurstLineMemo: Story = {
  * not double the cost.
  */
 export const TabSwitchCommitBudget: Story = {
+  tags: ['nightly'],
   args: { height: 600 },
   render: (args) => {
     enableRenderLog();
@@ -196,6 +184,7 @@ export const TabSwitchCommitBudget: Story = {
  * measurements repeatedly triggered font-ready or subscription re-renders.
  */
 export const IdleRedrawBudget: Story = {
+  tags: ['nightly'],
   args: { height: 600 },
   render: (args) => {
     enableRenderLog();

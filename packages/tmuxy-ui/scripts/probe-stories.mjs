@@ -17,6 +17,9 @@
  *   PROBE_CPU_THROTTLE  slow the renderer by this factor (default 1) to
  *                       reproduce a loaded CI runner locally.
  *   PROBE_A11Y          set to 0 to skip the axe pass (default: on).
+ *   PROBE_TIER          `commit` leaves out stories tagged `nightly`,
+ *                       `nightly` takes only them, `all` (default) ignores
+ *                       the tag. docs/TESTS.md § Tiers.
  *   PROBE_REPEAT        run each selected story N times (default 1) and fail
  *                       if ANY attempt fails — how a story is shown to be
  *                       deterministic rather than lucky.
@@ -339,7 +342,12 @@ async function runPool(items, n, fn) {
   return results;
 }
 
-const ids = await fetchStoryIds({ storybookUrl: STORYBOOK_URL, filters: FILTERS, v86: false });
+const ids = await fetchStoryIds({
+  storybookUrl: STORYBOOK_URL,
+  filters: FILTERS,
+  v86: false,
+  tier: process.env.PROBE_TIER || 'all',
+});
 if (ids.length === 0) {
   console.error('no stories matched');
   process.exit(1);

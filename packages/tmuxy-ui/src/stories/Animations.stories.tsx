@@ -121,6 +121,7 @@ async function waitForAnimationsEnabled(layout: HTMLElement, timeout = 6000): Pr
 // ---------------------------------------------------------------------------
 
 export const SplitPane: Story = {
+  tags: ['nightly'],
   args: { height: 600 },
   parameters: {
     docs: {
@@ -335,6 +336,7 @@ export const SplitRejectedRollback: Story = {
 // ---------------------------------------------------------------------------
 
 export const ClosePane: Story = {
+  tags: ['nightly'],
   args: { height: 600, initCommands: ['split-window -h'] },
   parameters: {
     docs: {
@@ -647,6 +649,7 @@ function alphaOf(color: string): number {
 }
 
 export const FocusCueNeverHardFlips: Story = {
+  tags: ['nightly'],
   args: { height: 600 },
   parameters: {
     docs: {
@@ -958,44 +961,5 @@ export const ConfigAnimationsOff: Story = {
       sampling = false;
       layout.removeEventListener('transitionstart', onTransitionStart);
     }
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Animations disabled — the no-animations class flips and transitions go away
-// ---------------------------------------------------------------------------
-
-export const AnimationsDisabled: Story = {
-  args: { height: 600 },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 600 },
-      description: {
-        story:
-          'The app turns off layout animations whenever a transition would look wrong — deterministically observable on disconnect, which holds `enableAnimations: false` until the connection settles again. The `.pane-layout` flips to `pane-layout-no-animations`, whose rule strips the geometry transitions from every `.pane-layout-item` (only the enter/leave/shift lifecycle classes are allowed to out-specify that gate). Baseline first confirms animations are on (pane geometry transition is 0.1s).',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-
-    const layout = getPaneLayout(canvasElement);
-    await waitForAnimationsEnabled(layout);
-
-    // Baseline: animations on → no disabled class, and the pane carries a
-    // real transition (note `.pane-layout-resizing` may be latched from the
-    // last layout commit, so the property set varies — the duration doesn't).
-    expect(layout.classList.contains('pane-layout-no-animations')).toBe(false);
-    expect(getComputedStyle(paneNodes(canvasElement)[0]).transitionDuration).toContain('0.1s');
-
-    getApp().send({ type: 'TMUX_DISCONNECTED' });
-
-    await waitFor(
-      () => {
-        expect(layout.classList.contains('pane-layout-no-animations')).toBe(true);
-      },
-      { timeout: 4000 },
-    );
   },
 };

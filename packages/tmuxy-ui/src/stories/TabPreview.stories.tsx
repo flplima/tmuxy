@@ -262,6 +262,7 @@ export const TheCardCanBeReachedAndClosesTheTab: Story = {
 // ---------------------------------------------------------------------------
 
 export const ItFadesAndSlidesBothWays: Story = {
+  tags: ['nightly'],
   args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {
@@ -391,6 +392,7 @@ export const ClickingTheCardOpensThatTab: Story = {
 // ---------------------------------------------------------------------------
 
 export const RightClickTurnsThePreviewIntoTheMenu: Story = {
+  tags: ['nightly'],
   args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {

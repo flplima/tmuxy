@@ -76,6 +76,7 @@ async function pageUntilDone(button: HTMLElement, list: HTMLElement): Promise<vo
 // ---------------------------------------------------------------------------
 
 export const PagesAScreenfulAtATime: Story = {
+  tags: ['nightly'],
   args: { height: 420, initCommands: MANY_TABS },
   parameters: {
     docs: {

@@ -196,6 +196,7 @@ function biggestMover(
 // ---------------------------------------------------------------------------
 
 export const AResizeGrowsOnAClock: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['split-window -h'] },
   parameters: {
     docs: {
@@ -344,6 +345,7 @@ export const ConfigAnimationsOffSnapsTheSize: Story = {
 // ---------------------------------------------------------------------------
 
 export const TheCursorStaysInsideTheOpeningRow: Story = {
+  tags: ['nightly'],
   args: { height: 500, initCommands: ['split-window -v'] },
   parameters: {
     docs: {

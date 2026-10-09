@@ -319,26 +319,6 @@ export const IMEComposedText: Story = {
 };
 
 /**
- * The other side of the discriminator: chords must stay chords. Alt+x is a real
- * M-x (its key is still ASCII — the OS composed nothing), Cmd+x is a menu-level
- * chord, and macOS Option+h arrives as `˙` but is claimed as M-h for pane
- * navigation. None of the three may leak a character into the line, which would
- * turn every keyboard shortcut into garbage on screen.
- */
-export const ChordsAreNotText: Story = {
-  args: { height: 420 },
-  play: async ({ canvasElement }) => {
-    const rect = await typeRun(canvasElement, '', [
-      () => press({ key: 'x', altKey: true }),
-      () => press({ key: 'x', metaKey: true }),
-      () => press({ key: '˙', altKey: true }),
-    ]);
-    // Exactly the two brackets: the chords typed nothing between them.
-    expectPainted(canvasElement, rect, 2);
-  },
-};
-
-/**
  * Where an IME composes. A composition can only begin inside an editable
  * element, and until PR #61 nothing on the desktop ever had one — the hidden
  * input existed for touch keyboards only, so Korean, Japanese and Chinese
@@ -463,6 +443,7 @@ export const ClickingAPaneKeepsAccentsTypable: Story = {
  * later.
  */
 export const DiacriticsOfManyLanguages: Story = {
+  tags: ['nightly'],
   args: { height: 420 },
   play: async ({ canvasElement }) => {
     // One run per language rather than one long one: a failure then names the

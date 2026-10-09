@@ -136,7 +136,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
 
-      # The three tmuxy-core integration tests drive a real `tmux -CC`.
+      # The five tmuxy-core integration tests drive a real `tmux -CC`.
       # Homebrew's tmux, not a source build: this job exists to catch macOS
       # platform differences, and brew's is what macOS users actually run.
       - name: Install tmux
@@ -344,7 +344,16 @@ jobs:
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
           bin/wait-for-server http://localhost:6006/index.json 180000
 
+      # The per-commit tier: stories tagged `nightly` (frame-sampled
+      # animations, render-count budgets, language sweeps) run in the nightly
+      # v86 workflow's deterministic job instead, which also runs the axe
+      # accessibility pass over every story. Skipped here because it was a
+      # third of the job's time and, with every blocking rule quarantined,
+      # gated nothing a commit could fail on.
       - name: Probe deterministic stories
+        env:
+          PROBE_TIER: commit
+          PROBE_A11Y: '0'
         run: |
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run test-storybook -w tmuxy-ui

@@ -388,6 +388,7 @@ export const BlockRunTilesPerCell: Story = {
 const ICON = '';
 
 export const FatInkIcon: Story = {
+  tags: ['nightly'],
   args: {
     line: [...text('  '), { c: ICON }, ...text('  main')],
   },

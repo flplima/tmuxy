@@ -136,40 +136,8 @@ export const AskAnotherPaneAndClickYes: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// The shortcut the feature exists for: agree without leaving your own pane
-// ---------------------------------------------------------------------------
-
-export const CmdEnterAnswersTheWholeTab: Story = {
-  args: { initCommands: ['split-window -h'] },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          'The real use case: an agent in the pane you are reading asks the pane beside it to run something. You never leave the agent’s pane — Cmd+Enter (Ctrl+Enter off macOS) says yes to every question pending in the tab in view.',
-      },
-    },
-  },
-  play: async () => {
-    // The pane holding the keyboard is the agent's; the question goes to the
-    // other one, which is the shape of the real use case.
-    const here = app().context.activePaneId!;
-    const there = tabPanes().find((p) => p.tmuxId !== here)!.tmuxId;
-    expect(there).toBeTruthy();
-
-    askPane(there, 'tok-2', 'Run the migration?');
-    await waitForOverlay(there);
-
-    const user = userEvent.setup({ delay: 5 });
-    await user.keyboard('{Meta>}{Enter}{/Meta}');
-
-    await waitForNoOverlay(there);
-    // And the keyboard never moved.
-    expect(app().context.activePaneId).toBe(here);
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Answering from the keyboard, on the pane holding it
+// Answering from the keyboard, on the pane holding it. Cmd+Enter answering
+// the pane beside you is tests/13-ask-confirmation.test.js, end to end.
 // ---------------------------------------------------------------------------
 
 export const KeyboardMovesBetweenYesAndNo: Story = {
