@@ -175,6 +175,7 @@ The `docs/` directory contains architectural and design documentation. **Review 
 - **After finishing**: if your changes affect behavior described in docs, suggest updates to the user.
 - **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `tmuxy-server/src/state.rs`").
 - **Use ASCII diagrams, not Mermaid**: diagrams in docs should use plain ASCII art inside fenced code blocks. Mermaid requires a renderer and is not universally supported by all markdown viewers or AI agents.
+- **One instruction file**: this `AGENTS.md` is the only one. Rules that apply to one folder live in that folder's `README.md` — read it before working there: [tests/README.md](tests/README.md) (E2E, copy mode and scrollback), [packages/tmuxy-ui/README.md](packages/tmuxy-ui/README.md) (React + XState).
 
 ## Git
 
