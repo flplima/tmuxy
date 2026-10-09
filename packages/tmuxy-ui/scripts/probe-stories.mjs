@@ -20,6 +20,9 @@
  *   PROBE_TIER          `commit` leaves out stories tagged `nightly`,
  *                       `nightly` takes only them, `all` (default) ignores
  *                       the tag. docs/TESTS.md § Tiers.
+ *   PROBE_SHARD         `i/n` runs the i-th of n equal slices of the story
+ *                       list (1-based), so the probe can be spread across
+ *                       runners; every story lands in exactly one slice.
  *   PROBE_REPEAT        run each selected story N times (default 1) and fail
  *                       if ANY attempt fails — how a story is shown to be
  *                       deterministic rather than lucky.
@@ -342,12 +345,23 @@ async function runPool(items, n, fn) {
   return results;
 }
 
-const ids = await fetchStoryIds({
+const allIds = await fetchStoryIds({
   storybookUrl: STORYBOOK_URL,
   filters: FILTERS,
   v86: false,
   tier: process.env.PROBE_TIER || 'all',
 });
+// Stride, not contiguous blocks: the index lists a file's stories together,
+// and a file's heavy stories (full AppHarness boots) would otherwise all land
+// in the same slice.
+const shard = (process.env.PROBE_SHARD || '1/1').match(/^(\d+)\/(\d+)$/);
+if (!shard || Number(shard[1]) < 1 || Number(shard[1]) > Number(shard[2])) {
+  console.error(
+    `PROBE_SHARD must be i/n with 1 <= i <= n, got ${JSON.stringify(process.env.PROBE_SHARD)}`,
+  );
+  process.exit(2);
+}
+const ids = allIds.filter((_, k) => k % Number(shard[2]) === Number(shard[1]) - 1);
 if (ids.length === 0) {
   console.error('no stories matched');
   process.exit(1);

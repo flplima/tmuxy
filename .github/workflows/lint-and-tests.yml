@@ -348,9 +348,17 @@ jobs:
   # Storybook probes. Both jobs drive stories in a real Chromium against a
   # `storybook dev` server — dev (not static) on purpose: no build step, and
   # stories compile on demand.
+  # Two runners, each a stride of the story list (PROBE_SHARD): with the
+  # nightly tier gone the probe was still the longest job on every push, and
+  # a second runner's setup (~90s) is cheaper than the half it takes over.
   storybook-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
+    name: storybook-probe (${{ matrix.shard }})
 
     steps:
       - uses: actions/checkout@v7
@@ -385,6 +393,7 @@ jobs:
         env:
           PROBE_TIER: commit
           PROBE_A11Y: '0'
+          PROBE_SHARD: ${{ matrix.shard }}
         run: |
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run test-storybook -w tmuxy-ui
@@ -396,7 +405,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: storybook-probe-artifacts
+          name: storybook-probe-artifacts-${{ strategy.job-index }}
           path: packages/tmuxy-ui/probe-artifacts/
           if-no-files-found: ignore
           retention-days: 7
