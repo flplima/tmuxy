@@ -24,7 +24,6 @@
 
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { GestureFlags } from '../types';
-import { isModelPaneId, type PaneId } from '../../domain/ids';
 
 export type GestureActorEvent = { type: 'NOOP' };
 
@@ -65,10 +64,9 @@ interface WebKitGestureEvent extends UIEvent {
 }
 
 /** The tiled pane under the fingers, by the element the event landed on. */
-function paneIdAt(target: EventTarget | null, x: number, y: number): PaneId | null {
+function paneIdAt(target: EventTarget | null, x: number, y: number): string | null {
   const el = target instanceof Element ? target : document.elementFromPoint(x, y);
-  const id = el?.closest<HTMLElement>('.pane-layout-item[data-pane-id]')?.dataset.paneId;
-  return isModelPaneId(id) ? id : null;
+  return el?.closest<HTMLElement>('.pane-layout-item[data-pane-id]')?.dataset.paneId ?? null;
 }
 
 export function createGestureActor() {
@@ -81,12 +79,12 @@ export function createGestureActor() {
     };
 
     // ---- pinch ---------------------------------------------------------------
-    let pinch: { scale: number; paneId: PaneId | null; timer: number | null } | null = null;
+    let pinch: { scale: number; paneId: string | null; timer: number | null } | null = null;
     // WebKit reports the pinch as gesture events; any ctrl-wheel it sends
     // alongside must not count the same fingers twice.
     let webkitPinch = false;
 
-    const startPinch = (paneId: PaneId | null) => {
+    const startPinch = (paneId: string | null) => {
       if (pinch?.timer != null) clearTimeout(pinch.timer);
       pinch = { scale: 1, paneId, timer: null };
       return pinch;

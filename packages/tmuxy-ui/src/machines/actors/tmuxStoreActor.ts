@@ -1,35 +1,34 @@
 /**
- * tmuxStoreActor — Bridge between the TmuxStore and XState.
+ * tmuxStoreActor — Bridge between the Effect-managed TmuxStore and XState.
  *
  * Responsibilities:
  *  1. Subscribe to the store and forward every model change to the parent as
  *     a TMUX_MODEL_UPDATE event. This is how local optimistic patches and
  *     server reconciliations both reach the XState context.
- *  2. Expose a DISPATCH_OP receiver: the parent routes every op here (see
- *     `routeOp`), and the actor runs it through `store.dispatch`. The store
- *     applies the predicted patch synchronously (caller sees the change
- *     before the network round-trip), then awaits the adapter for the real
- *     round-trip.
- *  3. Log dispatched commands via LOG_APPEND (the debug log), and surface a
- *     failed dispatch — or a structural op tmux never confirmed — as
- *     TMUX_ERROR.
+ *  2. Expose a DISPATCH_COMMAND receiver: the parent's SEND_TMUX_COMMAND
+ *     handler relays the final command string here, and the actor runs it
+ *     through `store.dispatchCommand`. The store applies the predicted
+ *     patch synchronously (caller sees the change before the network
+ *     round-trip), then awaits the adapter for the real round-trip.
+ *  3. Log dispatched commands and rollback warnings via LOG_APPEND so the
+ *     debug log stays populated.
  *
  * Why a callback actor and not direct context access:
- *   The store lives in plain JS-land; the bridge actor is the single place
- *   that runs its dispatch (the one Effect, which needs the transport) on the
- *   app runtime. That keeps the XState code free of Effect and makes the
- *   actor easy to swap for a mock in integration tests.
+ *   The store lives in plain JS-land (Effect.Ref); the bridge actor is the
+ *   single place that runs Effect programs against it. Putting all the
+ *   `Effect.runFork` / `runSync` calls in one file keeps the XState code
+ *   free of Effect imports and makes the actor easy to swap for a mock in
+ *   integration tests.
  */
 
-import { Exit, Cause } from 'effect';
-import type { PaneId } from '../../domain/ids';
+import { Effect, Exit, Cause } from 'effect';
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { TmuxStore } from '../../infra/store/TmuxStore';
-import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
-import type { ServerState } from '../../domain/wire';
-import { tracer } from '../../infra/tracer';
-import { isInputCommand, READ_ONLY_NOTICE } from '../../domain/readOnly';
-import type { AppRuntime } from '../../infra/runtime';
+import type { TmuxStore } from '../../tmux/store';
+import type { TmuxOp } from '../../tmux/store/types';
+import type { ServerState } from '../../tmux/types';
+import { parseCommandToOp } from '../../tmux/store/parseCommand';
+import { tracer } from '../../tmux/tracer';
+import { isInputCommand, READ_ONLY_NOTICE } from '../../tmux/readOnly';
 
 /** Extract only content-free id/direction fields from a typed op for the trace.
  * Deliberately excludes `RenameWindow.name` and any free text. */
@@ -49,10 +48,18 @@ function traceOp(op: TmuxOp): void {
 
 export type TmuxStoreActorEvent =
   /**
-   * Dispatch an op. `command`, when given, is the exact string to send in
-   * place of the op's own form — a parsed binding keeps its pin and flags.
+   * Forward a tmux command from SEND_TMUX_COMMAND to the store.
+   * `skipPrediction: true` is the escape hatch for code paths that already
+   * own the optimistic visual (the drag machine pre-shuffles pane positions
+   * for the duration of a drag).
    */
-  | { type: 'DISPATCH_OP'; op: TmuxOp; command?: string }
+  | { type: 'DISPATCH_COMMAND'; command: string; skipPrediction?: boolean }
+  /**
+   * Dispatch a TYPED op with an explicit wire command. For ops the command
+   * parser cannot express (GroupSwitch rides a run-shell script call) —
+   * prediction/reconciliation come from the op, the string goes to tmux.
+   */
+  | { type: 'DISPATCH_OP'; op: TmuxOp; command: string }
   /** Push a fresh server snapshot into the store's reconciler. */
   | { type: 'RECONCILE_SERVER'; state: ServerState }
   /**
@@ -67,7 +74,7 @@ export type TmuxStoreActorEvent =
   | {
       type: 'UPDATE_PREDICT_CONTEXT';
       defaultShell: string;
-      paneActivationOrder: readonly PaneId[];
+      paneActivationOrder: readonly string[];
     };
 
 export interface TmuxStoreActorInput {
@@ -87,10 +94,9 @@ const STRUCTURAL_OPS = new Set([
 
 /**
  * Build the bridge actor. The store is captured in a closure; tests can
- * supply a fresh store per test for isolation. Dispatches run on the app
- * runtime, which provides the transport they send through.
+ * supply a fresh store per test for isolation.
  */
-export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
+export function createTmuxStoreActor(store: TmuxStore) {
   return fromCallback<TmuxStoreActorEvent, TmuxStoreActorInput>(({ input, receive }) => {
     const { parent } = input;
 
@@ -99,10 +105,10 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
     });
 
     const dispatchWithErrorSurface = (
-      program: ReturnType<TmuxStore['dispatch']>,
+      program: ReturnType<TmuxStore['dispatchCommand']>,
       command: string,
     ): void => {
-      void runtime.runPromiseExit(program).then((exit) => {
+      void Effect.runPromiseExit(program).then((exit) => {
         if (Exit.isFailure(exit)) {
           const failure = Cause.failureOption(exit.cause);
           if (failure._tag === 'Some') {
@@ -126,19 +132,37 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
 
     receive((event) => {
       if (event.type === 'DISPATCH_OP') {
-        const command = event.command ?? toTmuxCommand(event.op);
-        parent.send({ type: 'LOG_APPEND', kind: 'command', message: command });
+        parent.send({ type: 'LOG_APPEND', kind: 'command', message: event.command });
         traceOp(event.op);
-        // Fire-and-forget — the store rolls a failed op back on its own (the
-        // next TMUX_MODEL_UPDATE reflects it); dispatchWithErrorSurface
-        // reports the failure.
-        dispatchWithErrorSurface(store.dispatch(event.op, { command }), command);
+        dispatchWithErrorSurface(
+          store.dispatch(event.op, { command: event.command }),
+          event.command,
+        );
+        return;
+      }
+
+      if (event.type === 'DISPATCH_COMMAND') {
+        parent.send({ type: 'LOG_APPEND', kind: 'command', message: event.command });
+        // Derive the typed op for the trace (id/direction only; args discarded).
+        if (tracer.isEnabled()) {
+          try {
+            traceOp(parseCommandToOp(event.command));
+          } catch {
+            /* unparseable command — skip the op trace */
+          }
+        }
+        // Fire-and-forget — the store handles rollback on its own. We swallow
+        // OpError because the store has already updated the model; the next
+        // TMUX_MODEL_UPDATE will reflect the rolled-back state. Logged here
+        // for debuggability.
+        const opts = event.skipPrediction ? { skipPrediction: true } : undefined;
+        dispatchWithErrorSurface(store.dispatchCommand(event.command, opts), event.command);
         return;
       }
 
       if (event.type === 'RECONCILE_SERVER') {
-        // Synchronous — the listener fires inline.
-        const rolledBack = store.reconcile(event.state);
+        // Synchronous — Ref ops don't block, listener fires inline.
+        const rolledBack = Effect.runSync(store.reconcile(event.state));
         for (const entry of rolledBack) {
           console.warn(
             `[TmuxStore] rolled back ${entry.op._tag} op ${entry.opId}: ${entry.reason}`,
@@ -161,15 +185,17 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
       }
 
       if (event.type === 'CLEAR') {
-        store.clear();
+        Effect.runSync(store.clear());
         return;
       }
 
       if (event.type === 'UPDATE_PREDICT_CONTEXT') {
-        store.setPredictContext({
-          defaultShell: event.defaultShell,
-          paneActivationOrder: event.paneActivationOrder,
-        });
+        Effect.runSync(
+          store.setPredictContext({
+            defaultShell: event.defaultShell,
+            paneActivationOrder: event.paneActivationOrder,
+          }),
+        );
         return;
       }
     });

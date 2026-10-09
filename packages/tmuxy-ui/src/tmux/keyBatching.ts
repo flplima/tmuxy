@@ -1,7 +1,42 @@
-import { quote } from '../../domain/commands';
+import { Effect, Fiber } from 'effect';
 
 // Batching constants
 const KEY_BATCH_INTERVAL_MS = 16; // Batch keystrokes within ~1 frame
+
+/**
+ * Escape text for use with tmux send-keys -l (literal mode).
+ * Wraps in single quotes, escaping internal single quotes.
+ */
+export function escapeLiteralText(text: string): string {
+  return "'" + text.replace(/'/g, "'\\''") + "'";
+}
+
+/** Longest literal a single `send-keys -l` carries before the text is split. */
+const LITERAL_CHUNK_SIZE = 500;
+
+/**
+ * The command lines that type `text` into `target` literally, one per line.
+ *
+ * Control mode reads one command per line, so a newline inside a quoted
+ * literal would end the `send-keys` there and run the rest of the text as tmux
+ * commands of its own — `run-shell` included. Each line of text goes as its own
+ * `send-keys -l` (split into chunks so no command line grows unbounded), with
+ * an `Enter` between lines: what pasting the text into a terminal does.
+ */
+export function literalTextCommands(target: string, text: string): string {
+  const lines = text.split(/\r?\n/);
+  const commands: string[] = [];
+  lines.forEach((line, i) => {
+    for (let j = 0; j < line.length; j += LITERAL_CHUNK_SIZE) {
+      const chunk = line.slice(j, j + LITERAL_CHUNK_SIZE);
+      commands.push(`send-keys -t ${target} -l ${escapeLiteralText(chunk)}`);
+    }
+    if (i < lines.length - 1) {
+      commands.push(`send-keys -t ${target} Enter`);
+    }
+  });
+  return commands.join('\n');
+}
 
 /**
  * Unescape literal text from tmux send-keys -l format.
@@ -51,25 +86,28 @@ export type SendFn = (cmd: string, args: Record<string, unknown>) => void;
  */
 export class KeyBatcher {
   private pendingKeys: Map<string, string[]> = new Map();
-  // The batch window is a timer that runs the trailing flush after one frame;
-  // clearing it (flushAll/destroy) cancels that flush. A pending timer means a
-  // window is open.
-  private keyBatchWindow: ReturnType<typeof setTimeout> | null = null;
+  // The batch window is a fiber that sleeps one frame then runs the trailing
+  // flush; interrupting it (flushAll/destroy) cancels the pending flush and its
+  // underlying timer. A live fiber means a window is open.
+  private keyBatchFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private pendingLiteralText: Map<string, string> = new Map();
-  private literalBatchWindow: ReturnType<typeof setTimeout> | null = null;
+  private literalBatchFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private sendFn: SendFn;
 
   constructor(sendFn: SendFn) {
     this.sendFn = sendFn;
   }
 
-  /** Open a batch window: after one frame, run `flush`. */
-  private openWindow(flush: () => void): ReturnType<typeof setTimeout> {
-    return setTimeout(flush, KEY_BATCH_INTERVAL_MS);
+  /** Open a batch window: after one frame, run `flush`. Returned as a fiber so
+   *  it can be interrupted. */
+  private openWindow(flush: () => void): Fiber.RuntimeFiber<void, never> {
+    return Effect.runFork(
+      Effect.sleep(KEY_BATCH_INTERVAL_MS).pipe(Effect.andThen(Effect.sync(flush))),
+    );
   }
 
-  private cancelWindow(window: ReturnType<typeof setTimeout> | null): void {
-    if (window !== null) clearTimeout(window);
+  private cancelWindow(fiber: Fiber.RuntimeFiber<void, never> | null): void {
+    if (fiber) Effect.runFork(Fiber.interrupt(fiber));
   }
 
   /**
@@ -93,10 +131,10 @@ export class KeyBatcher {
         this.flushKeyBatchForSession(session);
       }
 
-      if (!this.literalBatchWindow) {
+      if (!this.literalBatchFiber) {
         // Leading edge: no window open — send now, open the window.
         this.sendFn('run_tmux_command', { command });
-        this.literalBatchWindow = this.openWindow(() => this.flushLiteralBatch());
+        this.literalBatchFiber = this.openWindow(() => this.flushLiteralBatch());
       } else {
         const existing = this.pendingLiteralText.get(session) || '';
         this.pendingLiteralText.set(session, existing + rawText);
@@ -123,10 +161,10 @@ export class KeyBatcher {
         this.flushLiteralBatchForSession(session);
       }
 
-      if (!this.keyBatchWindow) {
+      if (!this.keyBatchFiber) {
         // Leading edge: no window open — send now, open the window.
         this.sendFn('run_tmux_command', { command });
-        this.keyBatchWindow = this.openWindow(() => this.flushKeyBatch());
+        this.keyBatchFiber = this.openWindow(() => this.flushKeyBatch());
       } else {
         if (!this.pendingKeys.has(session)) {
           this.pendingKeys.set(session, []);
@@ -144,10 +182,10 @@ export class KeyBatcher {
    * Flush all pending batches. Call before sending non-batched commands.
    */
   flushAll(): void {
-    this.cancelWindow(this.keyBatchWindow);
-    this.keyBatchWindow = null;
-    this.cancelWindow(this.literalBatchWindow);
-    this.literalBatchWindow = null;
+    this.cancelWindow(this.keyBatchFiber);
+    this.keyBatchFiber = null;
+    this.cancelWindow(this.literalBatchFiber);
+    this.literalBatchFiber = null;
 
     for (const [session, keys] of this.pendingKeys) {
       if (keys.length === 0) continue;
@@ -159,7 +197,7 @@ export class KeyBatcher {
 
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
-      const escaped = quote(text);
+      const escaped = escapeLiteralText(text);
       const command = `send-keys -t ${session} -l ${escaped}`;
       this.sendFn('run_tmux_command', { command });
     }
@@ -170,16 +208,16 @@ export class KeyBatcher {
    * Clear all pending batches and timers without flushing.
    */
   destroy(): void {
-    this.cancelWindow(this.keyBatchWindow);
-    this.keyBatchWindow = null;
-    this.cancelWindow(this.literalBatchWindow);
-    this.literalBatchWindow = null;
+    this.cancelWindow(this.keyBatchFiber);
+    this.keyBatchFiber = null;
+    this.cancelWindow(this.literalBatchFiber);
+    this.literalBatchFiber = null;
     this.pendingKeys.clear();
     this.pendingLiteralText.clear();
   }
 
   private flushKeyBatch(): void {
-    this.keyBatchWindow = null;
+    this.keyBatchFiber = null;
     let sent = false;
     for (const [session, keys] of this.pendingKeys) {
       if (keys.length === 0) continue;
@@ -192,7 +230,7 @@ export class KeyBatcher {
     // Trailing flush under sustained input: keep the window open so the
     // stream keeps coalescing. An empty window closes (next key is leading).
     if (sent) {
-      this.keyBatchWindow = this.openWindow(() => this.flushKeyBatch());
+      this.keyBatchFiber = this.openWindow(() => this.flushKeyBatch());
     }
   }
 
@@ -206,11 +244,11 @@ export class KeyBatcher {
   }
 
   private flushLiteralBatch(): void {
-    this.literalBatchWindow = null;
+    this.literalBatchFiber = null;
     let sent = false;
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
-      const escaped = quote(text);
+      const escaped = escapeLiteralText(text);
       const command = `send-keys -t ${session} -l ${escaped}`;
       this.sendFn('run_tmux_command', { command });
       sent = true;
@@ -219,14 +257,14 @@ export class KeyBatcher {
     // Trailing flush under sustained input: keep the window open so the
     // stream keeps coalescing. An empty window closes (next key is leading).
     if (sent) {
-      this.literalBatchWindow = this.openWindow(() => this.flushLiteralBatch());
+      this.literalBatchFiber = this.openWindow(() => this.flushLiteralBatch());
     }
   }
 
   private flushLiteralBatchForSession(session: string): void {
     const text = this.pendingLiteralText.get(session);
     if (!text || text.length === 0) return;
-    const escaped = quote(text);
+    const escaped = escapeLiteralText(text);
     const command = `send-keys -t ${session} -l ${escaped}`;
     this.sendFn('run_tmux_command', { command });
     this.pendingLiteralText.delete(session);

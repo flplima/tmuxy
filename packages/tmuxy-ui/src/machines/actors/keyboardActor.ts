@@ -27,8 +27,7 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { CopyModeState } from '../../domain/copyMode';
-import type { KeyBindings } from '../../domain/wire';
+import type { KeyBindings, CopyModeState } from '../../tmux/types';
 import { extractSelectedText } from '../../utils/copyMode';
 import {
   focusKeyboardInput,
@@ -40,10 +39,9 @@ import {
 import { flashCopiedRange } from '../../utils/copyFlash';
 import { terminalTextOf } from '../../utils/nativeSelection';
 import { focusGuiWindow, newGuiWindow } from '../../utils/guiWindows';
-import { isTauri } from '../../utils/platform';
-import { pinPrefix, TmuxOp } from '../../domain/commands';
+import { isTauri } from '../../tmux/adapters';
+import { escapeLiteralText, literalTextCommands } from '../../tmux/keyBatching';
 import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
-import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 
 /**
  * The slice of a pane this actor reads off the machine snapshot. Narrow on
@@ -51,8 +49,8 @@ import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../.
  * fields a keystroke can depend on.
  */
 interface LivePane {
-  tmuxId: PaneId;
-  windowId: WindowId;
+  tmuxId: string;
+  windowId: string;
   active: boolean;
   /** Raw `@tmuxy-ask`: a question pending on the pane (`utils/paneAsk.ts`). */
   paneAsk?: string | null;
@@ -60,12 +58,12 @@ interface LivePane {
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
-  | { type: 'UPDATE_ACTIVE_PANE'; paneId: PaneId | null }
+  | { type: 'UPDATE_ACTIVE_PANE'; paneId: string | null }
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
   | { type: 'UPDATE_ENABLED'; enabled: boolean }
-  | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: PaneId | null }
+  | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: string | null }
   | { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED'; focused: boolean }
-  | { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED'; paneId: PaneId | null };
+  | { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED'; paneId: string | null };
 
 export interface KeyboardActorInput {
   parent: AnyActorRef;
@@ -193,8 +191,8 @@ export function formatTmuxKey(event: KeyboardEvent): string {
  * stream, so by the time they execute server-side the in-flight split/new-window
  * has landed and tmux's own active pane IS the pane the placeholder stands for.
  */
-function realPaneId(id: PaneId | null): PaneId | null {
-  return id !== null && isPlaceholderId(id) ? null : id;
+function realPaneId(id: string | null): string | null {
+  return id !== null && id.startsWith('__placeholder_') ? null : id;
 }
 
 /**
@@ -232,21 +230,21 @@ function isModifierOnlyKey(key: string): boolean {
 export function createKeyboardActor() {
   return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
     let sessionName = 'tmuxy';
-    let activePaneId: PaneId | null = null;
-    let focusedFloatPaneId: PaneId | null = null;
+    let activePaneId: string | null = null;
+    let focusedFloatPaneId: string | null = null;
     // When true, the sidebar tree holds focus; its own capture-phase listener
     // handles nav keys, so we stop forwarding keystrokes to tmux.
     let leftSidebarFocused = false;
     // Pane id of the pinned terminal dock while it holds focus. Like a focused
     // float it becomes the key target, so keys reach a pane in another window
     // without `select-pane` switching the active tab out from under the user.
-    let focusedRightSidebarPaneId: PaneId | null = null;
+    let focusedRightSidebarPaneId: string | null = null;
     /**
      * The pane keys belong to when an overlay owns focus: a float wins over the
      * dock (a float is drawn on top of it), and neither is set when the plain
      * pane grid has focus.
      */
-    const overlayPaneId = (): PaneId | null => focusedFloatPaneId ?? focusedRightSidebarPaneId;
+    const overlayPaneId = (): string | null => focusedFloatPaneId ?? focusedRightSidebarPaneId;
     let enabled = true;
     let isComposing = false;
     // Where a composition begun outside the hidden input commits: pinned when
@@ -322,7 +320,10 @@ export function createKeyboardActor() {
     const cleanupKeyboardInput = setupMobileKeyboard((text, paneId) => {
       if (!enabled || leftSidebarFocused) return;
       const textTarget = paneId === null ? keyTarget() : (realPaneId(paneId) ?? sessionName);
-      input.parent.send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: textTarget, text }) });
+      input.parent.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: literalTextCommands(textTarget, text),
+      });
     });
 
     // Prefix mode as a small self-contained unit: it owns the active flag, the
@@ -458,17 +459,17 @@ export function createKeyboardActor() {
       // snapshot here closes that window; `activePaneId` (the cached closure)
       // remains the fallback if the read ever throws.
       let liveActivePaneId = activePaneId;
-      let liveActiveWindowId: WindowId | null = null;
-      let liveCopyStates: Record<PaneId, CopyModeState> | undefined;
-      let liveAskSelections: Record<PaneId, AskAnswer> = {};
+      let liveActiveWindowId: string | null = null;
+      let liveCopyStates: Record<string, CopyModeState> | undefined;
+      let liveAskSelections: Record<string, AskAnswer> = {};
       let livePanes: ReadonlyArray<LivePane> = [];
       try {
         const snapshot = input.parent.getSnapshot() as {
           context?: {
-            activePaneId?: PaneId;
-            activeWindowId?: WindowId | null;
-            copyModeStates?: Record<PaneId, CopyModeState>;
-            askSelections?: Record<PaneId, AskAnswer>;
+            activePaneId?: string;
+            activeWindowId?: string | null;
+            copyModeStates?: Record<string, CopyModeState>;
+            askSelections?: Record<string, AskAnswer>;
             panes?: ReadonlyArray<LivePane>;
           };
         };
@@ -507,23 +508,25 @@ export function createKeyboardActor() {
        * just the window.
        */
       const bindingPin = (): string => {
-        if (overlayPaneId()) return pinPrefix(null, realPaneId(overlayPaneId()));
+        const overlay = realPaneId(overlayPaneId());
+        if (overlayPaneId()) return overlay ? `select-pane -t ${overlay} \\; ` : '';
         let pane = realPaneId(liveActivePaneId);
         const windowId =
           liveActiveWindowId ?? livePanes.find((p) => p.tmuxId === pane)?.windowId ?? null;
         if (windowId) {
-          const inWindow = (id: PaneId | null) =>
+          const inWindow = (id: string | null) =>
             id !== null && livePanes.some((p) => p.tmuxId === id && p.windowId === windowId);
           if (!inWindow(pane)) {
             pane = realPaneId(
               livePanes.find((p) => p.windowId === windowId && p.active)?.tmuxId ?? null,
             );
           }
-          return pinPrefix(windowId, pane);
+          const windowPin = `select-window -t ${windowId} \\; `;
+          return pane ? `${windowPin}select-pane -t ${pane} \\; ` : windowPin;
         }
         // Nothing known about the window: the pane pin at least aims at the
         // right pane if tmux is already on its window.
-        return pinPrefix(null, pane);
+        return pane ? `select-pane -t ${pane} \\; ` : '';
       };
 
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode
@@ -536,7 +539,7 @@ export function createKeyboardActor() {
       // The dock's pane can be in client-side copy mode too (wheel, drag), so
       // the pane whose copy state matters is the one holding the keyboard.
       let activeCopyState: CopyModeState | undefined;
-      let scrollbackPane: PaneId | null = null;
+      let scrollbackPane: string | null = null;
       if (!leftSidebarFocused) {
         scrollbackPane = overlayPaneId() ?? liveActivePaneId;
         activeCopyState = scrollbackPane ? liveCopyStates?.[scrollbackPane] : undefined;
@@ -551,7 +554,7 @@ export function createKeyboardActor() {
       const scrollModePane = activeCopyState?.mode === 'scroll' ? scrollbackPane : null;
 
       /** Which of Yes/No the question on a pane is highlighting. */
-      const askSelection = (paneId: PaneId): AskAnswer => liveAskSelections[paneId] ?? 'yes';
+      const askSelection = (paneId: string): AskAnswer => liveAskSelections[paneId] ?? 'yes';
 
       // Cmd+Enter (Ctrl+Enter off macOS): say yes to every question pending in
       // the tab in view. This is the shortcut the whole `tmuxy ask` round trip
@@ -757,8 +760,8 @@ export function createKeyboardActor() {
           // Double prefix sends literal prefix key to the shell
           prefixMode.exit();
           input.parent.send({
-            type: 'DISPATCH_OP',
-            op: TmuxOp.SendKeys({ target: keyTarget(), keys: prefixKey }),
+            type: 'SEND_TMUX_COMMAND',
+            command: `send-keys -t ${keyTarget()} ${prefixKey}`,
           });
         } else {
           // Enter prefix mode
@@ -948,15 +951,18 @@ export function createKeyboardActor() {
       // composed (á, ç, @ via AltGr) has no meaningful key name: tmux accepts
       // `send-keys M-ç` but delivers ESC + ç, which the shell discards as an
       // unbound meta sequence — the character never reaches the line.
-      let op: TmuxOp;
+      let command: string;
       if (isTextKey(event)) {
-        op = TmuxOp.SendText({ target, text: event.key });
+        command = `send-keys -t ${target} -l ${escapeLiteralText(event.key)}`;
       } else if (formattedKey) {
-        op = TmuxOp.SendKeys({ target, keys: formattedKey });
+        command = `send-keys -t ${target} ${formattedKey}`;
       } else {
         return;
       }
-      input.parent.send({ type: 'DISPATCH_OP', op });
+      input.parent.send({
+        type: 'SEND_TMUX_COMMAND',
+        command,
+      });
 
       input.parent.send({
         type: 'KEY_PRESS',
@@ -999,8 +1005,8 @@ export function createKeyboardActor() {
       const composedText = event.data;
       if (!composedText) return;
       input.parent.send({
-        type: 'DISPATCH_OP',
-        op: TmuxOp.SendText({ target, text: composedText }),
+        type: 'SEND_TMUX_COMMAND',
+        command: literalTextCommands(target, composedText),
       });
     };
 
@@ -1013,8 +1019,8 @@ export function createKeyboardActor() {
       // One control-mode command per line of text, sent in a single call so
       // the lines reach the pane in order.
       input.parent.send({
-        type: 'DISPATCH_OP',
-        op: TmuxOp.SendText({ target: keyTarget(), text }),
+        type: 'SEND_TMUX_COMMAND',
+        command: literalTextCommands(keyTarget(), text),
       });
     };
 
@@ -1074,7 +1080,7 @@ export function createKeyboardActor() {
       const active = document.activeElement as HTMLElement | null;
       const pane = active?.closest?.('[data-pane-id][tabindex]') as HTMLElement | null;
       if (!pane || pane !== active) return;
-      const paneId = realPaneId(isModelPaneId(pane.dataset.paneId) ? pane.dataset.paneId : null);
+      const paneId = realPaneId(pane.dataset.paneId ?? null);
       if (paneId === null) return;
       focusKeyboardInput(paneId);
       keyboardFocusEstablished = true;

@@ -14,17 +14,22 @@
  */
 
 import { fromCallback } from 'xstate';
-import { isMacPlatform } from '../../utils/platform';
 
 export const LINK_MODIFIER_CLASS = 'link-modifier-held';
 
 export type LinkModifierActorEvent = { type: 'NOOP' };
 
+/**
+ * Which modifier opens a link on this platform — Cmd on Apple, Ctrl elsewhere,
+ * matching the convention every editor and browser uses. Exported so tests
+ * press the same key the actor listens for.
+ */
+export const isApplePlatform = (): boolean =>
+  /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+
 export function createLinkModifierActor() {
   return fromCallback<LinkModifierActorEvent>(() => {
-    // Cmd opens a link on Apple, Ctrl elsewhere — the convention every editor
-    // and browser uses.
-    const apple = isMacPlatform();
+    const apple = isApplePlatform();
     let held = false;
 
     const set = (next: boolean) => {

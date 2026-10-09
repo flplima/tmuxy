@@ -1,24 +1,28 @@
-import type { SequencedAdapter } from '../driver';
-import { EventHub } from '../../eventHub';
-import { TransportEvent, type DriverEvent } from '../events';
 import {
-  ClipboardEvent,
-  CommandFailure,
-  ConnectionInfo,
-  DetachedEvent,
-  KeyBindings,
-  LogEvent,
-  MessageFrame,
+  TmuxAdapter,
+  StateListener,
+  ErrorListener,
+  ConnectionInfoListener,
+  ReconnectionListener,
+  KeyBindingsListener,
   ThemeSettings,
-} from '../../../domain/wire';
-import { StateSequencer } from '../stateSequencer';
-import { decodeEvent } from '../wireDecode';
-import { KeyBatcher } from '../keyBatching';
-import { latencyTracker } from '../../latencyTracker';
-import { tracer } from '../../tracer';
-import { isReadCommand, READ_ONLY_REASON } from '../../../domain/readOnly';
-import { Cancelled } from '../AdapterError';
-import { Effect, Fiber, Queue, Schedule, Schema } from 'effect';
+  ThemeSettingsListener,
+  LogListener,
+  LogEntryKind,
+  FatalListener,
+  DetachedListener,
+  ClipboardListener,
+  ServerState,
+  StateUpdate,
+  KeyBindings,
+} from './types';
+import { adoptInitialState, handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
+import { KeyBatcher } from './keyBatching';
+import { latencyTracker } from './latencyTracker';
+import { tracer } from './tracer';
+import { isReadCommand, READ_ONLY_REASON } from './readOnly';
+import { Cancelled } from './effect/AdapterError';
+import { Effect, Fiber, Queue, Schedule } from 'effect';
 
 /**
  * Reconnection backoff: retry forever, exponential from 1s, capped at 30s.
@@ -59,18 +63,6 @@ const STREAM_EVENTS = [
   'fatal',
 ] as const;
 
-const isCommandFailure = Schema.is(CommandFailure);
-
-/** The `data` of an SSE frame (`{ event, data }` JSON); undefined when the frame is not JSON. */
-function parseFrame(type: string, event: MessageEvent): unknown {
-  try {
-    return (JSON.parse(event.data) as { data?: unknown }).data;
-  } catch (e) {
-    console.error(`Failed to parse ${type} frame:`, e);
-    return undefined;
-  }
-}
-
 /** A connect() caller waiting for the channel to (re)reach the connected state. */
 interface ConnectWaiter {
   resolve: () => void;
@@ -90,7 +82,7 @@ function getSessionFromUrl(): string {
 /**
  * HTTP Adapter using SSE for server->client push and POST for client->server commands.
  */
-export class HttpAdapter implements SequencedAdapter {
+export class HttpAdapter implements TmuxAdapter {
   /** The server runs `--read-only`; known from the `connection-info` greeting. */
   readOnly = false;
   /** Enumerating sessions is a `query_tmux`, which a read-only server refuses. */
@@ -117,17 +109,54 @@ export class HttpAdapter implements SequencedAdapter {
   // Session-name override set by switchSession. Instance-scoped (not a module
   // global) so multiple adapters — or a re-created one — don't share/leak it.
   private sessionOverride: string | null = null;
+  private reconnectAttempts = 0;
   private intentionalDisconnect = false;
 
-  readonly events = new EventHub<DriverEvent>();
+  private stateListeners = new Set<StateListener>();
+  private errorListeners = new Set<ErrorListener>();
+  private connectionInfoListeners = new Set<ConnectionInfoListener>();
+  private reconnectionListeners = new Set<ReconnectionListener>();
+  private keyBindingsListeners = new Set<KeyBindingsListener>();
+  private themeSettingsListeners = new Set<ThemeSettingsListener>();
+  private logListeners = new Set<LogListener>();
+  private fatalListeners = new Set<FatalListener>();
+  private detachedListeners = new Set<DetachedListener>();
+  private clipboardListeners = new Set<ClipboardListener>();
   private fatal = false;
   /** Removes the `online` / `visibilitychange` listeners; null while none are installed. */
   private networkHints: (() => void) | null = null;
   /** The in-flight question to a server whose event stream would not open. */
   private refusalProbe: AbortController | null = null;
 
-  /** The client's copy of the state the stream stage sequences; a new connection or session restarts it. */
-  readonly sequencer = new StateSequencer();
+  // Delta protocol state
+  private currentState: ServerState | null = null;
+  // Last applied delta seq (null right after a full snapshot). Used to detect a
+  // dropped/misordered delta and refetch a full state before it diverges.
+  private lastDeltaSeq: number | null = null;
+  /**
+   * The stream has delivered a full state and no sequence gap since, so it is
+   * the client's state (see `adoptInitialState`).
+   */
+  private streamSynced = false;
+  /** Delta seq of the most recent applied update, for the trace `apply` event
+   * (joins to the server's `emit state` seq). Null for full snapshots. */
+  private lastAppliedSeq: number | null = null;
+  // Last client size seen via set_client_size/get_initial_state — needed to
+  // refetch a full snapshot on a seq gap (get_initial_state takes cols/rows).
+  private lastCols = 0;
+  private lastRows = 0;
+  // Single-flight guard for the delta-seq-gap resync: a live fiber means one is
+  // in progress. A fiber (vs. a boolean) can't desync — its finalizer always
+  // clears the slot — and it can be interrupted on disconnect.
+  private resyncFiber: Fiber.RuntimeFiber<void, never> | null = null;
+
+  // rAF batching: coalesce SSE updates within a single display frame.
+  // This prevents "painting" artifacts during full-screen redraws (neovim, etc.)
+  // where multiple intermediate states arrive within one frame interval.
+  // pendingState holds the latest; rafFiber is the single in-flight frame — a
+  // fiber (not a boolean) so its finalizer cancels the rAF on interrupt.
+  private pendingState: ServerState | null = null;
+  private rafFiber: Fiber.RuntimeFiber<void, never> | null = null;
 
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
@@ -199,14 +228,25 @@ export class HttpAdapter implements SequencedAdapter {
     this.intentionalDisconnect = true;
     this.networkHints?.();
     this.networkHints = null;
+    this.reconnectAttempts = 0;
     this.reconnecting = false;
 
     this.keyBatcher.destroy();
+    this.pendingState = null;
+    if (this.rafFiber) {
+      Effect.runFork(Fiber.interrupt(this.rafFiber));
+      this.rafFiber = null;
+    }
 
     // Interrupt the reconnect fiber; its scoped finalizer closes the stream.
     if (this.channelFiber) {
       Effect.runFork(Fiber.interrupt(this.channelFiber));
       this.channelFiber = null;
+    }
+    // Drop any in-flight delta-seq-gap resync too.
+    if (this.resyncFiber) {
+      Effect.runFork(Fiber.interrupt(this.resyncFiber));
+      this.resyncFiber = null;
     }
     if (this.eventSource) {
       this.eventSource.close();
@@ -286,7 +326,7 @@ export class HttpAdapter implements SequencedAdapter {
 
   /**
    * Open a single EventSource. The returned effect stays suspended for the
-   * LIFETIME of that connection — its handlers fire side effects (events,
+   * LIFETIME of that connection — its handlers fire side effects (notify*,
    * resolve waiters) while connected — and only completes, as a failure, when
    * the connection ends. Retrying it therefore reconnects. Its scoped finalizer
    * closes the stream on interruption (disconnect / session switch).
@@ -296,7 +336,7 @@ export class HttpAdapter implements SequencedAdapter {
       const es = new EventSource(eventsUrl);
       // A new connection starts a new sequence; until its full state lands,
       // an initial-state answer is the state to start from.
-      this.sequencer.reopen();
+      this.streamSynced = false;
       this.eventSource = es;
 
       // A link that dies silently — a sleeping laptop, a Wi-Fi roam, a proxy
@@ -333,99 +373,164 @@ export class HttpAdapter implements SequencedAdapter {
         this.connectionId = 0;
         if (!this.intentionalDisconnect && !this.fatal) {
           this.reconnecting = true;
-          this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
+          this.reconnectAttempts++;
+          this.notifyReconnection(true, this.reconnectAttempts);
         }
         resume(Effect.fail(error));
       };
 
-      // Every frame is `{ event, data }` JSON; `data` is decoded against its
-      // schema and the handler only ever sees a payload that matched.
-      const on = <A, I>(
-        type: (typeof STREAM_EVENTS)[number],
-        schema: Schema.Schema<A, I>,
-        handle: (data: A) => void,
-      ): void => {
-        const decode = decodeEvent(schema, type);
-        es.addEventListener(type, (event: MessageEvent) => {
-          const data = decode(parseFrame(type, event));
-          if (data !== null) handle(data);
-        });
-      };
+      es.addEventListener('connection-info', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          this.connectionId = data.data?.connection_id ?? data.connection_id ?? 0;
+          this.connected = true;
+          this.reconnectAttempts = 0;
 
-      on('connection-info', ConnectionInfo, (data) => {
-        this.connectionId = data.connection_id;
-        this.connected = true;
+          // Clear reconnecting state if was reconnecting
+          if (this.reconnecting) {
+            this.reconnecting = false;
+            this.notifyReconnection(false, 0);
+          }
 
-        // Clear reconnecting state if was reconnecting
-        if (this.reconnecting) {
-          this.reconnecting = false;
-          this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
+          const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
+          this.readOnly = Boolean(data.data?.read_only ?? data.read_only);
+          this.notifyConnectionInfo(this.connectionId, defaultShell, this.readOnly);
+
+          // Action tracing (docs/TELEMETRY.md): the server tells us whether it
+          // is recording; only then do we ship our own events, and only through
+          // the same-origin /trace sink. The server independently rejects when
+          // off, so this is a hint, not the gate.
+          const traceEnabled = data.data?.trace_enabled ?? data.trace_enabled ?? false;
+          tracer.setServerEnabled(!!traceEnabled && !this.readOnly);
+          tracer.setSink((events) => this.shipTrace(events));
+
+          this.resolveConnectWaiters();
+        } catch (e) {
+          console.error('Failed to parse connection-info:', e);
         }
-
-        this.readOnly = data.read_only === true;
-        this.events.emit(
-          TransportEvent.ConnectionInfo({
-            defaultShell: data.default_shell ?? 'bash',
-            readOnly: this.readOnly,
-          }),
-        );
-
-        // Action tracing (docs/TELEMETRY.md): the server tells us whether it
-        // is recording; only then do we ship our own events, and only through
-        // the same-origin /trace sink. The server independently rejects when
-        // off, so this is a hint, not the gate.
-        tracer.setServerEnabled(data.trace_enabled === true && !this.readOnly);
-        tracer.setSink((events) => this.shipTrace(events));
-
-        this.resolveConnectWaiters();
       });
 
-      // Decoded and sequenced by the stream stage (`stateFeed.ts`).
       es.addEventListener('state-update', (event: MessageEvent) => {
-        this.events.emit({ _tag: 'StateReceived', payload: parseFrame('state-update', event) });
+        try {
+          const data = JSON.parse(event.data);
+          // Handle nested structure from server
+          const update: StateUpdate = data.data || data;
+
+          // Delta seq-gap detection: a dropped or misordered delta would
+          // otherwise apply to stale state and silently diverge. On a gap,
+          // refetch a full snapshot instead of applying the delta.
+          if (update.type === 'delta') {
+            if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
+              this.lastDeltaSeq = null;
+              this.streamSynced = false;
+              this.resyncFullState();
+              return;
+            }
+            this.lastDeltaSeq = update.delta.seq;
+            this.lastAppliedSeq = update.delta.seq;
+          } else {
+            // A full snapshot is a fresh sync point.
+            this.lastDeltaSeq = null;
+            this.streamSynced = true;
+            this.lastAppliedSeq = null;
+          }
+
+          const newState = handleStateUpdate(update, this.currentState);
+          if (newState) {
+            this.currentState = newState;
+            this.scheduleStateNotify(newState);
+          }
+        } catch (e) {
+          console.error('Failed to parse state-update:', e);
+        }
       });
 
-      on('keybindings', KeyBindings, (keybindings) =>
-        this.events.emit(TransportEvent.KeyBindings({ keybindings })),
-      );
+      es.addEventListener('keybindings', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const keybindings: KeyBindings = data.data || data;
+          this.notifyKeyBindings(keybindings);
+        } catch (e) {
+          console.error('Failed to parse keybindings:', e);
+        }
+      });
 
-      on('theme-settings', ThemeSettings, (settings) =>
-        this.events.emit(TransportEvent.ThemeSettings({ settings })),
-      );
+      es.addEventListener('theme-settings', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const settings: ThemeSettings = data.data || data;
+          this.notifyThemeSettings(settings);
+        } catch (e) {
+          console.error('Failed to parse theme settings:', e);
+        }
+      });
 
       // Backend errors for the user (a rejected command, a failed sync). The
       // wire name is `tmux-error`, not `error`: a server event named `error`
       // also fires `es.onerror`, and every reported error would have bounced
       // the connection.
-      on('tmux-error', MessageFrame, (data) =>
-        this.events.emit(TransportEvent.Error({ message: data.message || 'Unknown error' })),
-      );
+      es.addEventListener('tmux-error', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const message = data.data?.message || data.message || 'Unknown error';
+          this.notifyError(message);
+        } catch (e) {
+          console.error('Failed to parse tmux-error event:', e);
+        }
+      });
 
       // OSC 52 clipboard write requests from terminal applications.
       // Mirrored into the system clipboard via navigator.clipboard.writeText.
-      on('clipboard', ClipboardEvent, (data) =>
-        this.events.emit(TransportEvent.Clipboard({ paneId: data.pane_id, text: data.text })),
-      );
+      es.addEventListener('clipboard', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const payload = data.data || data;
+          const paneId = String(payload.pane_id ?? '');
+          const text = String(payload.text ?? '');
+          this.notifyClipboard(paneId, text);
+        } catch (e) {
+          console.error('Failed to parse clipboard event:', e);
+        }
+      });
 
-      on('log', LogEvent, (data) =>
-        this.events.emit(TransportEvent.Log({ kind: data.kind, message: data.message })),
-      );
-
-      // The connection ended with tmux's own reason. Deliberately does NOT set
-      // `this.fatal`: that flag stops the retry loop for good, and a detach is
-      // something the user steps back from by reconnecting.
-      on('detached', DetachedEvent, (data) =>
-        this.events.emit(TransportEvent.Detached({ reason: data.reason ?? null })),
-      );
+      es.addEventListener('log', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const payload = data.data || data;
+          const kind = (payload.kind as LogEntryKind) || 'info';
+          const message = String(payload.message ?? '');
+          this.notifyLog(kind, message);
+        } catch (e) {
+          console.error('Failed to parse log event:', e);
+        }
+      });
 
       // Backend gave up reconnecting — terminal state, no more events. Flip the
       // flag the retry `while` predicate checks so the loop stops instead of
       // reconnecting into a dead backend, then end the connection.
-      on('fatal', MessageFrame, (data) => {
-        const message = data.message || 'tmux unavailable';
-        this.fatal = true;
-        this.events.emit(TransportEvent.Fatal({ message }));
-        endConnection(new Error(message));
+      // The connection ended with tmux's own reason. Deliberately does NOT set
+      // `this.fatal`: that flag stops the retry loop for good, and a detach is
+      // something the user steps back from by reconnecting.
+      es.addEventListener('detached', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const reason = (data.data?.reason ?? data.reason ?? null) as string | null;
+          this.notifyDetached(reason);
+        } catch (e) {
+          console.error('Failed to parse detached event:', e);
+        }
+      });
+
+      es.addEventListener('fatal', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const message = String((data.data?.message ?? data.message) || 'tmux unavailable');
+          this.fatal = true;
+          this.notifyFatal(message);
+          endConnection(new Error(message));
+        } catch (e) {
+          console.error('Failed to parse fatal event:', e);
+        }
       });
 
       es.onerror = () => {
@@ -476,7 +581,7 @@ export class HttpAdapter implements SequencedAdapter {
       const message = `The server refused this page${reason ? `: ${reason}` : ''}`;
       // The attempt that asked has already ended; this stops the next one.
       this.fatal = true;
-      this.events.emit(TransportEvent.Fatal({ message }));
+      this.notifyFatal(message);
     } catch {
       // Unreachable, or aborted below: an outage, which the retry loop owns.
     } finally {
@@ -504,6 +609,10 @@ export class HttpAdapter implements SequencedAdapter {
     return this.connected;
   }
 
+  isReconnecting(): boolean {
+    return this.reconnecting;
+  }
+
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     if (this.readOnly) {
       if (!isReadCommand(cmd)) throw new Cancelled({ reason: READ_ONLY_REASON });
@@ -512,8 +621,26 @@ export class HttpAdapter implements SequencedAdapter {
       if (cmd === 'get_initial_state') args = {};
     }
 
-    // Answered raw: the stream stage decodes and adopts it.
-    if (cmd === 'get_initial_state') return this.invokeInternal(cmd, args);
+    // Cache the client size so a seq-gap resync can refetch get_initial_state.
+    if (
+      (cmd === 'set_client_size' || cmd === 'get_initial_state') &&
+      typeof args?.cols === 'number' &&
+      typeof args?.rows === 'number'
+    ) {
+      this.lastCols = args.cols;
+      this.lastRows = args.rows;
+    }
+
+    // Special handling for get_initial_state: also set currentState so delta updates work
+    if (cmd === 'get_initial_state') {
+      const result = await this.invokeInternal<T>(cmd, args);
+      const synced = this.streamSynced;
+      this.currentState = adoptInitialState(result as ServerState, this.currentState, synced);
+      // A synced stream carries on from its own sequence; an adopted answer
+      // starts one.
+      if (!synced) this.lastDeltaSeq = null;
+      return this.currentState as T;
+    }
 
     // Check if this is a send-keys command that should be batched
     if (this.keyBatcher.intercept(cmd, args)) {
@@ -572,7 +699,7 @@ export class HttpAdapter implements SequencedAdapter {
     const task = Effect.promise(() =>
       this.invokeInternal<T>(cmd, args, actionId).then(resolveOuter, rejectOuter),
     );
-    this.commandQueue.unsafeOffer(task);
+    Effect.runSync(Queue.offer(this.commandQueue, task));
     return outer;
   }
 
@@ -612,7 +739,7 @@ export class HttpAdapter implements SequencedAdapter {
         .then(() => {})
         .catch(() => {}),
     );
-    this.commandQueue.unsafeOffer(task);
+    Effect.runSync(Queue.offer(this.commandQueue, task));
   }
 
   /**
@@ -644,21 +771,78 @@ export class HttpAdapter implements SequencedAdapter {
     });
 
     if (!response.ok) {
-      // The server's refusal is a `{ error, kind }` body, thrown as is so the
-      // Effect facade tags it by kind (see AdapterError). Any other body — a
-      // reverse-proxy 502 page, a 401 auth challenge — surfaces as the HTTP
-      // status, not a JSON SyntaxError from parsing HTML.
-      const body: unknown = await response.json().catch(() => null);
-      throw isCommandFailure(body) ? body : new Error(`HTTP ${response.status}`);
+      // A non-JSON error body — a reverse-proxy 502 page, a 401 auth
+      // challenge — must surface as the HTTP status, not a JSON SyntaxError
+      // from parsing HTML. Try for a structured {error}, fall back to status.
+      let message = `HTTP ${response.status}`;
+      try {
+        const errData = await response.json();
+        if (errData?.error) message = errData.error;
+      } catch {
+        // Non-JSON body: keep the HTTP status message.
+      }
+      throw new Error(message);
     }
 
     const data = await response.json();
     return data.result as T;
   }
 
+  onStateChange(listener: StateListener): () => void {
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
+  }
+
+  onError(listener: ErrorListener): () => void {
+    this.errorListeners.add(listener);
+    return () => this.errorListeners.delete(listener);
+  }
+
+  onConnectionInfo(listener: ConnectionInfoListener): () => void {
+    this.connectionInfoListeners.add(listener);
+    return () => this.connectionInfoListeners.delete(listener);
+  }
+
+  onReconnection(listener: ReconnectionListener): () => void {
+    this.reconnectionListeners.add(listener);
+    return () => this.reconnectionListeners.delete(listener);
+  }
+
+  onKeyBindings(listener: KeyBindingsListener): () => void {
+    this.keyBindingsListeners.add(listener);
+    return () => this.keyBindingsListeners.delete(listener);
+  }
+
+  onThemeSettings(listener: ThemeSettingsListener): () => void {
+    this.themeSettingsListeners.add(listener);
+    return () => this.themeSettingsListeners.delete(listener);
+  }
+
+  onLog(listener: LogListener): () => void {
+    this.logListeners.add(listener);
+    return () => this.logListeners.delete(listener);
+  }
+
+  onFatal(listener: FatalListener): () => void {
+    this.fatalListeners.add(listener);
+    return () => this.fatalListeners.delete(listener);
+  }
+
+  onDetached(listener: DetachedListener): () => void {
+    this.detachedListeners.add(listener);
+    return () => this.detachedListeners.delete(listener);
+  }
+
+  onClipboard(listener: ClipboardListener): () => void {
+    this.clipboardListeners.add(listener);
+    return () => this.clipboardListeners.delete(listener);
+  }
+
   async switchSession(newSession: string): Promise<void> {
     this.sessionOverride = newSession;
-    this.sequencer.reset();
+    this.currentState = null;
+    this.lastDeltaSeq = null;
+    this.streamSynced = false;
 
     // Switching sessions is a fresh start — clear a prior fatal so the switch
     // isn't permanently rejected by connect()'s fatal guard (recovering from a
@@ -679,10 +863,84 @@ export class HttpAdapter implements SequencedAdapter {
     this.connected = false;
     this.connectionId = 0;
     this.reconnecting = false;
+    this.reconnectAttempts = 0;
     this.failConnectWaiters(new Error('switching session'));
 
     // Reconnect to new session
     await this.connect();
+  }
+
+  /**
+   * Coalesce SSE updates within a single display frame via requestAnimationFrame.
+   * During full-screen redraws (neovim, etc.), the backend emits multiple partial
+   * states within one 16.67ms display frame. rAF batching ensures only the final
+   * (most complete) state is rendered, eliminating the visible "painting" effect.
+   */
+  /**
+   * Refetch a full state snapshot after a delta seq gap. Uses the last client
+   * size seen via set_client_size/get_initial_state; if none has been seen yet,
+   * skips (the server's periodic full snapshot recovers). Guarded so overlapping
+   * gaps trigger a single refetch.
+   */
+  private resyncFullState(): void {
+    if (this.resyncFiber) return; // single-flight: a resync is already running
+    if (!this.readOnly && (this.lastCols === 0 || this.lastRows === 0)) return;
+    const program = Effect.tryPromise({
+      try: () =>
+        this.invoke<ServerState>('get_initial_state', {
+          cols: this.lastCols,
+          rows: this.lastRows,
+        }),
+      catch: (e) => e,
+    }).pipe(
+      // invoke() already set currentState + reset lastDeltaSeq.
+      Effect.flatMap((state) => Effect.sync(() => this.scheduleStateNotify(state))),
+      Effect.catchAll((e) =>
+        Effect.sync(() =>
+          console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e),
+        ),
+      ),
+      // Clear the slot on success, failure, or interruption so the next gap can
+      // trigger a fresh resync.
+      Effect.ensuring(
+        Effect.sync(() => {
+          this.resyncFiber = null;
+        }),
+      ),
+    );
+    this.resyncFiber = Effect.runFork(program);
+  }
+
+  private scheduleStateNotify(state: ServerState): void {
+    this.pendingState = state;
+    if (this.rafFiber) return; // a frame is already scheduled; latest wins
+    const program = Effect.async<void>((resume) => {
+      const id = requestAnimationFrame(() => resume(Effect.void));
+      // Interrupting the fiber (disconnect) cancels the pending frame.
+      return Effect.sync(() => cancelAnimationFrame(id));
+    }).pipe(
+      Effect.flatMap(() =>
+        Effect.sync(() => {
+          const s = this.pendingState;
+          this.pendingState = null;
+          if (s) this.notifyStateChange(s);
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          this.rafFiber = null;
+        }),
+      ),
+    );
+    this.rafFiber = Effect.runFork(program);
+  }
+
+  private notifyStateChange(state: ServerState): void {
+    // Paint-bound apply (rAF-batched): closes the oldest outstanding input's
+    // round trip and feeds the update-rate / stall metrics (Axis-B).
+    latencyTracker.recordUpdate();
+    tracer.event({ layer: 'adapter', name: 'apply', seq: this.lastAppliedSeq ?? undefined });
+    this.stateListeners.forEach((listener) => listener(state));
   }
 
   /** Mint a per-connection action id (e.g. `a-3-17`) so the trace can correlate
@@ -710,5 +968,47 @@ export class HttpAdapter implements SequencedAdapter {
     } catch {
       // window/fetch unavailable (SSR/test) — drop silently.
     }
+  }
+
+  private notifyError(error: string): void {
+    this.errorListeners.forEach((listener) => listener(error));
+  }
+
+  private notifyConnectionInfo(
+    connectionId: number,
+    defaultShell: string,
+    readOnly: boolean,
+  ): void {
+    this.connectionInfoListeners.forEach((listener) =>
+      listener(connectionId, defaultShell, readOnly),
+    );
+  }
+
+  private notifyReconnection(reconnecting: boolean, attempt: number): void {
+    this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
+  }
+
+  private notifyKeyBindings(keybindings: KeyBindings): void {
+    this.keyBindingsListeners.forEach((listener) => listener(keybindings));
+  }
+
+  private notifyThemeSettings(settings: ThemeSettings): void {
+    this.themeSettingsListeners.forEach((listener) => listener(settings));
+  }
+
+  private notifyLog(kind: LogEntryKind, message: string): void {
+    this.logListeners.forEach((listener) => listener(kind, message));
+  }
+
+  private notifyFatal(message: string): void {
+    this.fatalListeners.forEach((listener) => listener(message));
+  }
+
+  private notifyDetached(reason: string | null): void {
+    this.detachedListeners.forEach((listener) => listener(reason));
+  }
+
+  private notifyClipboard(paneId: string, text: string): void {
+    this.clipboardListeners.forEach((listener) => listener(paneId, text));
   }
 }

@@ -12,6 +12,7 @@ import type { CellMetrics } from '../../utils/cellMetrics';
 
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
+  | { type: 'STOP_OBSERVE' }
   | { type: 'CONNECTED' }
   | { type: 'REMEASURE' };
 
@@ -128,6 +129,15 @@ export function createSizeActor(measureFn: MeasureFn) {
           bodyObserver.observe(body);
         }
       }
+      if (event.type === 'STOP_OBSERVE') {
+        containerObserver?.disconnect();
+        containerObserver = null;
+        bodyObserver?.disconnect();
+        bodyObserver = null;
+        measureHost = undefined;
+        containerWidth = undefined;
+        containerHeight = undefined;
+      }
       if (event.type === 'CONNECTED') {
         // Force re-send size on reconnection
         lastCols = 0;
@@ -143,7 +153,6 @@ export function createSizeActor(measureFn: MeasureFn) {
       window.removeEventListener('resize', handleResize);
       if (resizeTimeout) clearTimeout(resizeTimeout);
       containerObserver?.disconnect();
-      bodyObserver?.disconnect();
     };
   });
 }

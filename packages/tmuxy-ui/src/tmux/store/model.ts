@@ -6,12 +6,18 @@
  * spinning up Effect at all.
  */
 
-import type { TmuxClientModel, TmuxSnapshot, PendingOp, OpId, Patch, ViewFocus } from './types';
-import type { TmuxOp } from '../commands';
+import type {
+  TmuxClientModel,
+  TmuxSnapshot,
+  PendingOp,
+  OpId,
+  Patch,
+  TmuxOp,
+  ViewFocus,
+} from './types';
 import { EMPTY_SNAPSHOT, OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from './types';
 import { reconcile as opReconcile } from './ops';
 import { gridExtent } from '../../machines/app/helpers';
-import type { PaneId, WindowId } from '../ids';
 
 let opIdCounter = 0;
 
@@ -50,7 +56,7 @@ export function settleViewFocus(view: ViewFocus | null, snapshot: TmuxSnapshot):
 
 let activeWindowsMemo: {
   windows: TmuxSnapshot['windows'];
-  windowId: WindowId;
+  windowId: string;
   result: TmuxSnapshot['windows'];
 } | null = null;
 
@@ -61,7 +67,7 @@ let activeWindowsMemo: {
  */
 function windowsWithActive(
   windows: TmuxSnapshot['windows'],
-  windowId: WindowId,
+  windowId: string,
 ): TmuxSnapshot['windows'] {
   if (activeWindowsMemo?.windows === windows && activeWindowsMemo.windowId === windowId) {
     return activeWindowsMemo.result;
@@ -123,7 +129,7 @@ export interface RollbackEntry {
 
 export interface ReconcileResult {
   readonly model: TmuxClientModel;
-  readonly matched: ReadonlyArray<{ opId: OpId; op: TmuxOp; realId?: PaneId | WindowId }>;
+  readonly matched: ReadonlyArray<{ opId: OpId; op: TmuxOp; realId?: string }>;
   readonly rolledBack: ReadonlyArray<RollbackEntry>;
 }
 
@@ -133,14 +139,14 @@ export function applyServerSnapshot(
   now: number = Date.now(),
 ): ReconcileResult {
   const committed = next;
-  const matched: Array<{ opId: OpId; op: TmuxOp; realId?: PaneId | WindowId }> = [];
+  const matched: Array<{ opId: OpId; op: TmuxOp; realId?: string }> = [];
   const rolledBack: RollbackEntry[] = [];
   const keepers: PendingOp[] = [];
   let paneKeyOverrides = model.paneKeyOverrides;
   // Track real ids already claimed in this reconcile pass so two in-flight
   // Split / NewWindow ops don't both match against the same new id.
-  const claimedPanes = new Set<PaneId>();
-  const claimedWindows = new Set<WindowId>();
+  const claimedPanes = new Set<string>();
+  const claimedWindows = new Set<string>();
 
   for (const op of model.ops) {
     if (op.status === 'failed') {
@@ -158,30 +164,31 @@ export function applyServerSnapshot(
       now,
     );
     if (verdict._tag === 'matched') {
-      const { realPaneId, realWindowId } = verdict;
-      matched.push({ opId: op.id, op: op.op, realId: realPaneId ?? realWindowId });
-      if (realPaneId) {
-        claimedPanes.add(realPaneId);
-        const placeholderId = (op.meta as { placeholderId?: PaneId }).placeholderId;
-        if (placeholderId) {
-          paneKeyOverrides = { ...paneKeyOverrides, [realPaneId]: placeholderId };
-        }
-      } else if (realWindowId) {
-        claimedWindows.add(realWindowId);
-        // Map the new window's single pane to the placeholder pane id so
-        // PaneLayout's React key survives the optimistic→real swap without
-        // unmount/remount flicker.
-        const placeholderPaneId = (op.meta as { placeholderPaneId?: PaneId }).placeholderPaneId;
-        if (placeholderPaneId) {
-          const newPane = committed.panes.find(
-            (p) => p.windowId === realWindowId && !claimedPanes.has(p.tmuxId),
-          );
-          if (newPane) {
-            paneKeyOverrides = {
-              ...paneKeyOverrides,
-              [newPane.tmuxId]: placeholderPaneId,
-            };
-            claimedPanes.add(newPane.tmuxId);
+      matched.push({ opId: op.id, op: op.op, realId: verdict.realId });
+      if (verdict.realId) {
+        if (op.op._tag === 'Split') {
+          claimedPanes.add(verdict.realId);
+          const placeholderId = (op.meta as { placeholderId?: string }).placeholderId;
+          if (placeholderId) {
+            paneKeyOverrides = { ...paneKeyOverrides, [verdict.realId]: placeholderId };
+          }
+        } else if (op.op._tag === 'NewWindow') {
+          claimedWindows.add(verdict.realId);
+          // Map the new window's single pane to the placeholder pane id so
+          // PaneLayout's React key survives the optimistic→real swap without
+          // unmount/remount flicker.
+          const placeholderPaneId = (op.meta as { placeholderPaneId?: string }).placeholderPaneId;
+          if (placeholderPaneId) {
+            const newPane = committed.panes.find(
+              (p) => p.windowId === verdict.realId && !claimedPanes.has(p.tmuxId),
+            );
+            if (newPane) {
+              paneKeyOverrides = {
+                ...paneKeyOverrides,
+                [newPane.tmuxId]: placeholderPaneId,
+              };
+              claimedPanes.add(newPane.tmuxId);
+            }
           }
         }
       }
@@ -210,11 +217,11 @@ export function applyServerSnapshot(
   }
 
   // Prune key overrides for panes that no longer exist anywhere.
+  const knownPaneIds = new Set(committed.panes.map((p) => p.tmuxId));
   if (Object.keys(paneKeyOverrides).length > 0) {
-    const next: Record<PaneId, PaneId> = {};
-    for (const { tmuxId } of committed.panes) {
-      const key = paneKeyOverrides[tmuxId];
-      if (key) next[tmuxId] = key;
+    const next: Record<string, string> = {};
+    for (const [k, v] of Object.entries(paneKeyOverrides)) {
+      if (knownPaneIds.has(k)) next[k] = v;
     }
     paneKeyOverrides = next;
   }

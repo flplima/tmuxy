@@ -1,16 +1,19 @@
 /**
- * From the decoded wire state to the store's snapshot, and the identity
- * preservation that keeps unchanged records the same objects across updates.
+ * Adapter between wire-format ServerState (snake_case) and TmuxSnapshot
+ * (camelCase, store-internal). Re-uses the existing `transformServerState`
+ * helper that already handles the snake → camel conversion + sort.
  */
 
-import { toClientState, type TmuxPane, type TmuxWindow } from '../client';
-import type { ServerState } from '../wire';
+import { transformServerState as _transform } from '../../machines/app/helpers';
 import { cellLinesEqual } from '../deltaProtocol';
+import type { ServerState, TmuxPane, TmuxWindow } from '../types';
 import type { TmuxSnapshot } from './types';
 
-/** The snapshot a decoded server state describes (see `toClientState`). */
 export function transformServerState(payload: ServerState): TmuxSnapshot {
-  return toClientState(payload);
+  // The helper returns mutable arrays; TmuxSnapshot is `readonly`. The cast
+  // is safe — the store never mutates the snapshot in place, it returns
+  // fresh objects from reducers.
+  return _transform(payload) as TmuxSnapshot;
 }
 
 /**
@@ -133,6 +136,7 @@ export function preserveSnapshotIdentity(prev: TmuxSnapshot, next: TmuxSnapshot)
     prev.activeWindowId === next.activeWindowId &&
     prev.totalWidth === next.totalWidth &&
     prev.totalHeight === next.totalHeight &&
+    prev.statusLine === next.statusLine &&
     prev.sessionName === next.sessionName &&
     prev.focusRequest === next.focusRequest;
 
