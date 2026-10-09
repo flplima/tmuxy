@@ -394,7 +394,7 @@ else asks — **does a long session degrade?**
 | Harness  | `packages/tmuxy-ui/scripts/measure-soak.mjs` (`npm run perf:soak`)                        |
 | Load     | Tens of MB of output through one pane, then hundreds of split/close cycles                |
 | Measures | JS heap, DOM nodes, JS event listeners (CDP `Performance.getMetrics`), server RSS         |
-| Verdict  | A **plateau**, not a ceiling: each measure's second-half mean against its first-half mean |
+| Verdict  | A **plateau**, not a ceiling: each measure's second-half mean against its first-half mean, counted as growth only while it is still climbing at the end |
 | Where    | `soak` job in `.github/workflows/nightly-perf.yml` — nightly, table in the run summary    |
 | Gating   | Not yet. `--gate` turns it on once the nightly numbers have a known shape                 |
 
@@ -404,7 +404,11 @@ Three things about it are deliberate and worth not undoing:
 the machine, the Chrome build and what else the runner is doing, so a ceiling in
 megabytes is either meaningless or permanently red. Growth between the halves of
 one run divides all of that out, and it is also the only form that distinguishes
-a leak from warm-up — which a single before/after reading cannot.
+a leak from warm-up — which a single before/after reading cannot. Warm-up can
+still lift the second half over the first (the output phase fills the pane with
+rows for its first few windows), so a measure past its tolerance also has to be
+climbing between the start and the end of the second half: a leak is, a filled
+pane is flat by then.
 
 **Load comes from the CLI, not the keyboard.** Axis C types, because the
 keystroke path is its subject. Axis D's subject is what the app retains while

@@ -667,9 +667,9 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
   }, 180000);
 });
 
-// ==================== Scenario 8: Mouse Drag & SGR ====================
+// ==================== Scenario 8: Resize from the prompt & SGR ====================
 
-describe('Scenario 8: Mouse Drag & SGR', () => {
+describe('Scenario 8: Resize from the prompt & SGR', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
@@ -679,40 +679,46 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     await ctx.afterEach();
   }, ctx.hookTimeout);
 
-  test('Drag H divider → drag V divider → SGR click → SGR wheel → SGR right-click', async () => {
+  // The mouse drag of a divider is covered in 2-layout-navigation (the 2×2
+  // grid test); this one resizes from the command prompt.
+  test('resize-pane -D / -R at the prompt → SGR click → SGR wheel → SGR right-click', async () => {
     if (ctx.skipIfNotReady()) return;
 
-    // Step 1: Drag horizontal divider
+    // Step 1: resize-pane -D on a stacked pair
     await ctx.setupTwoPanes('horizontal');
     await waitForPaneCount(ctx.page, 2);
     await assertContentMatch(ctx.page, 'Scenario 8 setup');
     await assertLayoutInvariants(ctx.page);
     let panesBefore = await ctx.session.getPaneInfo();
     await resizePaneKeyboard(ctx.page, 'D', 5);
-    await delay(DELAYS.SYNC);
-    let panesAfter = await ctx.session.getPaneInfo();
-    const heightsChanged = panesBefore.some((before, i) => {
-      const after = panesAfter[i];
-      return after && before.height !== after.height;
-    });
-    expect(heightsChanged).toBe(true);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await ctx.session.getPaneInfo()).some(
+          (after, i) => panesBefore[i] && panesBefore[i].height !== after.height,
+        ),
+      8000,
+      'resize-pane -D to change the panes’ heights',
+    );
 
     // Kill panes to reset
     await killPaneKeyboard(ctx.page);
     expect(await ctx.session.getPaneCount()).toBe(1);
 
-    // Step 2: Drag vertical divider (via tmux resize)
+    // Step 2: resize-pane -R on a side-by-side pair
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 2);
     panesBefore = await ctx.session.getPaneInfo();
     await resizePaneKeyboard(ctx.page, 'R', 10);
-    await delay(DELAYS.SYNC);
-    panesAfter = await ctx.session.getPaneInfo();
-    const widthsChanged = panesBefore.some((before, i) => {
-      const after = panesAfter[i];
-      return after && before.width !== after.width;
-    });
-    expect(widthsChanged).toBe(true);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await ctx.session.getPaneInfo()).some(
+          (after, i) => panesBefore[i] && panesBefore[i].width !== after.width,
+        ),
+      8000,
+      'resize-pane -R to change the panes’ widths',
+    );
 
     // Kill pane to reset for SGR tests
     await killPaneKeyboard(ctx.page);

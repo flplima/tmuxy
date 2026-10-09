@@ -68,7 +68,7 @@
  *
  *   TMUX_SOCKET=tmuxy-soak ./target/release/tmuxy-server --port 9131 --dev
  *
- * (The three-socket rule in the repo's CLAUDE.md, for the same reason: a
+ * (The three-socket rule in the repo's AGENTS.md, for the same reason: a
  * released build serves `tmuxy`, the dev server `tmuxy-dev`, the E2E suite
  * `tmuxy-test`. This harness is a fourth caller and needs a fourth.)
  *
@@ -311,12 +311,28 @@ async function phaseChurn(page, cdp, serverPid, { cycles, windows }) {
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 /**
+ * Whether a measure is still climbing at the end of the run: the last two of
+ * the second half's windows against its first two, at half the tolerance.
+ * Warm-up — a pane filling with rows, a cache reaching its size — lifts the
+ * second half over the first and then levels off inside it; a leak keeps
+ * climbing to the last window. With too few windows to tell, it counts as
+ * climbing, so the halves comparison alone decides.
+ */
+function stillRising(late, tolerance) {
+  if (late.length < 4) return true;
+  const start = mean(late.slice(0, 2));
+  const end = mean(late.slice(-2));
+  return start > 0 ? (end - start) / start > tolerance / 2 : end > start;
+}
+
+/**
  * Compare the second half of a phase's samples to the first.
  *
  * Returns one verdict per measure: the two halves' means, the growth between
- * them as a fraction, and whether that exceeds the measure's tolerance. A
- * measure with no readings at all (server RSS when the pid is unknown) reports
- * `null` rather than passing silently.
+ * them as a fraction, and whether the measure grew past its tolerance AND is
+ * still climbing at the end (`stillRising`). A measure with no readings at
+ * all (server RSS when the pid is unknown) reports `null` rather than passing
+ * silently.
  */
 function plateau(samples) {
   const half = Math.floor(samples.length / 2);
@@ -337,12 +353,14 @@ function plateau(samples) {
     const e = mean(early);
     const l = mean(late);
     const growth = e > 0 ? (l - e) / e : 0;
+    const rising = stillRising(late, PLATEAU_TOLERANCE[key]);
     verdicts[key] = {
       early: Number(e.toFixed(2)),
       late: Number(l.toFixed(2)),
       growth: Number(growth.toFixed(4)),
       tolerance: PLATEAU_TOLERANCE[key],
-      withinTolerance: growth <= PLATEAU_TOLERANCE[key],
+      stillRising: rising,
+      withinTolerance: growth <= PLATEAU_TOLERANCE[key] || !rising,
     };
   }
   return verdicts;
@@ -450,7 +468,8 @@ async function main() {
         console.log(`  ${measure.padEnd(18)} not measured`);
         continue;
       }
-      const verdict = v.withinTolerance ? 'plateau' : 'GROWTH';
+      let verdict = v.withinTolerance ? 'plateau' : 'GROWTH';
+      if (v.withinTolerance && v.growth > v.tolerance) verdict = 'warm-up, then plateau';
       console.log(
         `  ${measure.padEnd(18)} ${String(v.early).padStart(9)} → ${String(v.late).padStart(9)}` +
           `  ${(v.growth * 100).toFixed(1).padStart(7)}%  (tol ${(v.tolerance * 100).toFixed(0)}%)  ${verdict}`,

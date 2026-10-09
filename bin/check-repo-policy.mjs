@@ -189,10 +189,10 @@ function checkDocsToScriptsConsistency() {
       if (token.includes(' ')) continue;
       if (token.includes('*') || token.includes('..') || token.includes('://')) continue;
       if (
-        !/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|CLAUDE\.md|\.agents|\.claude)\//.test(
+        !/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|\.agents|\.claude)\//.test(
           token,
         ) &&
-        !['AGENTS.md', 'CLAUDE.md', 'Cargo.lock', 'package.json'].includes(token)
+        !['AGENTS.md', 'Cargo.lock', 'package.json'].includes(token)
       ) {
         continue;
       }
@@ -246,7 +246,7 @@ const BLIND_WAIT_CEILING = {
   // the helper, so this is the number that matters most.
   'tests/helpers': 21,
   // Test bodies. Each one affects a single test.
-  tests: 160,
+  tests: 158,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */
