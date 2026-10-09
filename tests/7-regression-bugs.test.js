@@ -181,7 +181,14 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     // Group it: BETA is created and swapped into the visible slot.
     await clickPaneGroupAdd(ctx.page);
     await waitForGroupTabs(ctx.page, 2);
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId)) !==
+        alphaId,
+      8000,
+      'the new member to take the keyboard',
+    );
 
     const betaId = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.activePaneId || null,
@@ -238,7 +245,14 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     // Add to group — creates BETA and swaps it into the visible slot.
     await clickPaneGroupAdd(ctx.page);
     await waitForGroupTabs(ctx.page, 2);
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId)) !==
+        alphaId,
+      8000,
+      'the new member to take the keyboard',
+    );
 
     const betaId = await ctx.page.evaluate(() => {
       return window.app?.getSnapshot()?.context?.activePaneId || null;
@@ -357,9 +371,16 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
     );
     expect(alphaId).not.toBeNull();
 
+    const activePane = () =>
+      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId);
     await clickPaneGroupAdd(ctx.page);
     await waitForGroupTabs(ctx.page, 2);
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activePane()) !== alphaId,
+      8000,
+      'the second member to take the keyboard',
+    );
     await runCommand(ctx.page, 'echo BETA_TAB', 'BETA_TAB');
     const betaId = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.activePaneId || null,
@@ -369,7 +390,12 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
 
     await clickPaneGroupAdd(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      async () => ![alphaId, betaId].includes(await activePane()),
+      8000,
+      'the third member to take the keyboard',
+    );
     await runCommand(ctx.page, 'echo GAMMA_TAB', 'GAMMA_TAB');
     const gammaId = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.activePaneId || null,
@@ -586,9 +612,8 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
     // Build 4 tabs via the "+" button (real user path → new-window).
     for (let i = 0; i < 3; i++) {
       await clickAddTab();
-      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, i + 2, 15000);
     }
-    await waitForWindowCount(ctx.page, 4, 15000);
     await assertConverged('after create')();
 
     // The terminal is idle (no command output), so nothing but the fix's timer
@@ -688,8 +713,15 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
     // nothing re-points tmux at this window behind the scenes.
     // A locator, not a handle: the strip re-renders as the new tab's name
     // settles, and a handle taken a moment earlier can point at a replaced node.
-    await page.locator('.tab-list .tab-name').last().click();
-    await delay(DELAYS.SYNC);
+    const lastTab = page.locator('.tab-list .tab-name').last();
+    const lastId = await lastTab.getAttribute('data-window-id');
+    await lastTab.click();
+    await waitForCondition(
+      page,
+      async () => (await visibleTab()) === lastId,
+      8000,
+      'the last tab to be the one on screen',
+    );
     const target = await visibleTab();
     expect(target).toMatch(/^@\d+$/);
 

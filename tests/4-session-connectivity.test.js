@@ -66,9 +66,14 @@ describe('Scenario 12: Session Reconnect', () => {
     );
     ctx.session.setPage(ctx.page);
     await waitForSessionReady(ctx.page, ctx.session.name, 15000);
-    await delay(DELAYS.SYNC);
 
     // Step 3: Verify preserved
+    await waitForCondition(
+      ctx.page,
+      async () => (await ctx.session.getPaneCount()) === 2,
+      8000,
+      'tmux to still report both panes after the reload',
+    );
     expect(await ctx.session.getPaneCount()).toBe(2);
 
     // Re-focus after reload for keyboard operations

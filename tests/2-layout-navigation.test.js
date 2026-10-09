@@ -41,6 +41,7 @@ const {
   getThemeAccent,
   assertLayoutInvariants,
   waitForShellPrompt,
+  waitForLayoutSettled,
   showsShellPrompt,
   waitForCondition,
   DELAYS,
@@ -1264,7 +1265,6 @@ describe('Scenario 4: Window Lifecycle', () => {
     // Step 1: Create new window
     const initialCount = await ctx.session.getWindowCount();
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, initialCount + 1);
     expect(await ctx.session.getWindowCount()).toBe(initialCount + 1);
 
@@ -1286,7 +1286,6 @@ describe('Scenario 4: Window Lifecycle', () => {
 
     // Step 5: Create 3rd window and select by number
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 3);
     await selectWindowKeyboard(ctx.page, 1);
     await waitForCondition(
@@ -1304,7 +1303,12 @@ describe('Scenario 4: Window Lifecycle', () => {
 
     // Step 7: Rename window
     await renameWindowKeyboard(ctx.page, 'MyRenamedWindow');
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      async () => (await ctx.session.getWindowInfo()).some((w) => w.name === 'MyRenamedWindow'),
+      8000,
+      'tmux to report the renamed window',
+    );
     let windows = await ctx.session.getWindowInfo();
     expect(windows.find((w) => w.name === 'MyRenamedWindow')).toBeDefined();
 
@@ -1332,14 +1336,17 @@ describe('Scenario 4: Window Lifecycle', () => {
     await waitForPaneCount(ctx.page, 4, 10000);
 
     await selectLayoutKeyboard(ctx.page, 'tiled');
-    await delay(DELAYS.SYNC);
-    const tiledPanes = await ctx.session.getPaneInfo();
-    expect(tiledPanes.length).toBe(4);
-    const areas = tiledPanes.map((p) => p.width * p.height);
-    expect(Math.max(...areas) / Math.min(...areas)).toBeLessThan(2);
+    // Tiled: four panes of about the same area, by tmux's own geometry.
+    const evenAreas = async () => {
+      const panes = await ctx.session.getPaneInfo();
+      if (panes.length !== 4) return false;
+      const areas = panes.map((p) => p.width * p.height);
+      return Math.max(...areas) / Math.min(...areas) < 2;
+    };
+    await waitForCondition(ctx.page, evenAreas, 8000, 'tmux to tile the four panes evenly');
 
-    // Wait for layout to fully settle (layout change triggers resize round-trip)
-    await delay(DELAYS.SYNC);
+    // The layout change triggers a resize round-trip; let the grid land.
+    await waitForLayoutSettled(ctx.page);
 
     // Verify layout invariants (overlap, centering, padding, headers, dimensions)
     await assertLayoutInvariants(ctx.page, { label: 'Scenario 4 tiled layout' });
@@ -1357,6 +1364,16 @@ describe('Scenario 5: Pane Groups', () => {
 
   test('Header → add button → create group → switch tabs → identity verify → add 3rd → close tab → ungroup', async () => {
     if (ctx.skipIfNotReady()) return;
+    const activePane = () =>
+      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId || null);
+    // A click on a group tab has landed once that tab is drawn as the active one.
+    const waitForActiveGroupTab = (idx) =>
+      waitForCondition(
+        ctx.page,
+        async () => (await getGroupTabInfo(ctx.page))[idx]?.active === true,
+        8000,
+        `group tab ${idx} to become the active one`,
+      );
     await ctx.setupPage();
 
     // Layout invariants on initial single pane
@@ -1517,11 +1534,14 @@ describe('Scenario 5: Pane Groups', () => {
     const betaIdx = tabs.findIndex((t) => t.active); // currently on ALPHA's tab
     const otherIdx = betaIdx === 0 ? 1 : 0;
     await clickGroupTab(ctx.page, otherIdx);
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activePane()) === betaPaneId,
+      8000,
+      'BETA to take the keyboard back',
+    );
 
-    const afterSwitch2Id = await ctx.page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.activePaneId || null;
-    });
+    const afterSwitch2Id = await activePane();
     expect(afterSwitch2Id).toBe(betaPaneId);
 
     // Step 8: Verify tab highlight matches active pane
@@ -1536,10 +1556,13 @@ describe('Scenario 5: Pane Groups', () => {
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
     // Step 9a: Record GAMMA pane ID (the newly added 3rd tab, which is now active)
-    await delay(DELAYS.SYNC);
-    const gammaPaneId = await ctx.page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.activePaneId || null;
-    });
+    await waitForCondition(
+      ctx.page,
+      async () => ![alphaPaneId, betaPaneId, null].includes(await activePane()),
+      8000,
+      'the third member to take the keyboard',
+    );
+    const gammaPaneId = await activePane();
     expect(gammaPaneId).not.toBeNull();
     expect(gammaPaneId).not.toBe(alphaPaneId);
     expect(gammaPaneId).not.toBe(betaPaneId);
@@ -1550,7 +1573,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const firstInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, firstInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForActiveGroupTab(firstInactiveIdx);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1558,7 +1581,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const secondInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, secondInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForActiveGroupTab(secondInactiveIdx);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1566,7 +1589,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const thirdInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, thirdInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForActiveGroupTab(thirdInactiveIdx);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -2544,7 +2567,6 @@ describe('Scenario 11: Status Bar', () => {
 
     // Step 4: Create second window - 2 tabs
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 2);
     expect(await ctx.session.getWindowCount()).toBe(2);
 
@@ -2566,11 +2588,28 @@ describe('Scenario 11: Status Bar', () => {
     }
     expect(inactiveTab).not.toBeNull();
     await inactiveTab.click();
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      () => inactiveTab.evaluate((el) => el.classList.contains('tab-name-active')),
+      8000,
+      'the clicked tab to become the active one',
+    );
 
     // Step 7: Rename window
     await renameWindowKeyboard(ctx.page, 'RENAMED_WINDOW');
-    await delay(DELAYS.SYNC);
+    const stripText = () =>
+      ctx.page.evaluate(() => {
+        const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
+        return Array.from(tabs)
+          .map((t) => t.textContent)
+          .join(' ');
+      });
+    await waitForCondition(
+      ctx.page,
+      async () => (await stripText()).includes('RENAMED_WINDOW'),
+      8000,
+      'the strip to show the new name',
+    );
     const tabText = await ctx.page.evaluate(() => {
       const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
       return Array.from(tabs)
@@ -2601,7 +2640,6 @@ describe('Scenario 11: Status Bar', () => {
     });
     expect(await closeItem.evaluate((el) => el !== null)).toBe(true);
     await closeItem.asElement().click();
-    await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 1);
     expect(await ctx.session.getWindowCount()).toBe(1);
   }, 180000);
@@ -2629,7 +2667,6 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     // Step 2: Create second window (we're now in window 2)
     await createWindowKeyboard(ctx.page);
     await waitForWindowCount(ctx.page, 2);
-    await delay(DELAYS.SYNC);
     // Wait for new pane content to render via SSE (non-fatal on CI)
     try {
       await waitForShellPrompt(ctx.page);
@@ -2662,7 +2699,6 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     }
     expect(inactiveTab).not.toBeNull();
     await inactiveTab.click();
-    await delay(DELAYS.SYNC);
 
     // Step 6: Verify we switched — active pane must become win1PaneId.
     // (The old version stringified a closure over win1PaneId, saw undefined
@@ -2675,7 +2711,6 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await focusPage(ctx.page);
     await typeInTerminal(ctx.page, `echo ${MARKER_W1}`);
     await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC);
 
     // Step 8: Verify MARKER_W1 appears in the DOM (we're viewing window 1)
     await waitForTerminalText(ctx.page, MARKER_W1);
@@ -2692,13 +2727,17 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     }
     expect(inactiveTab2).not.toBeNull();
     await inactiveTab2.click();
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      () => inactiveTab2.evaluate((el) => el.classList.contains('tab-name-active')),
+      8000,
+      'the clicked tab to become the active one',
+    );
 
     const MARKER_W2B = `W2B_MARKER_${Date.now()}`;
     await focusPage(ctx.page);
     await typeInTerminal(ctx.page, `echo ${MARKER_W2B}`);
     await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC);
 
     // Step 11: Verify MARKER_W2B appears in DOM (we're viewing window 2)
     await waitForTerminalText(ctx.page, MARKER_W2B);

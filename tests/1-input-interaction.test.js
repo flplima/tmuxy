@@ -129,7 +129,6 @@ describe('Scenario 1: General Layout', () => {
     // Step 1: Split vertical (prefix + %) → 2 panes side by side
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 2, 10000);
-    await delay(DELAYS.SYNC);
 
     // Step 1b: Verify typing works in the new pane immediately after split.
     // This catches output being dropped by panes_moved_window suppression.
@@ -139,7 +138,6 @@ describe('Scenario 1: General Layout', () => {
     // Step 2: Split horizontal (prefix + ") → 3 panes
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 3, 10000);
-    await delay(DELAYS.SYNC);
 
     // Step 2b: Verify typing works in this pane too
     const SPLIT2_TOKEN = 'SPLIT2_VIS_' + Date.now();
@@ -284,7 +282,7 @@ describe('Scenario 2: Keyboard Basics', () => {
     await pressEnter(ctx.page);
     await delay(DELAYS.EXTRA_LONG);
     await sendKeyCombo(ctx.page, 'Control', 'c');
-    await delay(DELAYS.SYNC);
+    await waitForShellPrompt(ctx.page);
     await runCommand(ctx.page, 'echo "after_interrupt"', 'after_interrupt');
 
     // Step 5: Ctrl+D sends EOF
@@ -751,10 +749,13 @@ describe('Scenario 8: Resize from the prompt & SGR', () => {
     const wheelY = capture2.contentBox.y + capture2.contentBox.height / 2;
     await ctx.page.mouse.move(wheelX, wheelY);
     await ctx.page.mouse.wheel(0, -capture2.charSize.charHeight * 3);
-    await delay(DELAYS.SYNC);
+    // The first wheel has reached tmux before the second is sent, so the two
+    // arrive as distinct reports rather than one coalesced scroll — and the
+    // second wait asks for one report more than the first delivered, so it
+    // is the scroll-down that is waited for, not the ups again.
+    const afterUp = await readMouseEvents(1);
     await ctx.page.mouse.wheel(0, capture2.charSize.charHeight * 2);
-    await delay(DELAYS.SYNC);
-    events = await readMouseEvents(2);
+    events = await readMouseEvents(afterUp.length + 1);
     const scrollUps = events.filter((e) => e.type === 'scroll_up');
     const scrollDowns = events.filter((e) => e.type === 'scroll_down');
     expect(scrollUps.length).toBeGreaterThanOrEqual(1);
@@ -782,14 +783,22 @@ describe('Scenario 8: Resize from the prompt & SGR', () => {
         }),
       );
     });
-    // Wait for at least 1 new event (the right-click press)
-    const allEvents = await readMouseEvents(eventsBefore.length + 1, 10000);
-    const rPress = allEvents.find((e) => e.type === 'press' && e.btn === 2);
-    expect(rPress).toBeDefined();
+    // The right-click press itself, not merely one more report: a wheel
+    // report from the step above can still be arriving.
+    let rPress;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const events = await readMouseEvents(eventsBefore.length, 1000);
+        rPress = events.find((e) => e.type === 'press' && e.btn === 2);
+        return rPress !== undefined;
+      },
+      10000,
+      'the right-click press to reach tmux',
+    );
     expect(rPress.btn).toBe(2);
 
     await stopMouseCapture(ctx);
-    await delay(DELAYS.SYNC);
   }, 180000);
 });
 
