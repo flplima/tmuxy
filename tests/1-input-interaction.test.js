@@ -40,6 +40,7 @@ const {
   ensureMouseCaptureStopped,
   pasteText,
 } = require('./helpers');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 // ==================== Touch Scroll Helpers ====================
 
@@ -1473,12 +1474,34 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
 
     // 1. The drag itself. The pane used to focus the hidden keyboard input on
     //    the press, which collapses the page's selection, so it selected nothing.
+    //    Output that arrives while the text is selected must not slide other
+    //    text under the highlight: a job prints after the drag, in the shell
+    //    itself, with nothing typed.
+    //    (printf, so the typed command line does not itself contain the marker.)
+    await runCommand(ctx.page, "( sleep 2; seq 1 5; printf 'LATE_%s\\n' OUTPUT ) &", '[1]');
     await runCommand(ctx.page, 'echo "DRAG_SELECT_ME and more"', 'DRAG_SELECT_ME');
     const at = await cellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
     expect(at).not.toBeNull();
     await drag(ctx.page, at.first, at.last, at.y);
     const selected = await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '');
     expect(selected).toBe('DRAG_SELECT_ME');
+
+    // The job has printed in tmux; the pane on screen holds still, the
+    // selection still reads the same text, and it still sits on the same row.
+    const paneId = await ctx.session.getActivePaneId();
+    await waitForCondition(
+      ctx.page,
+      async () => tmuxExec(`capture-pane -t ${paneId} -p`).includes('LATE_OUTPUT'),
+      10000,
+      'the background job to print in tmux',
+    );
+    await delay(DELAYS.SHORT);
+    expect(await getTerminalText(ctx.page)).not.toContain('LATE_OUTPUT');
+    expect(await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe(
+      'DRAG_SELECT_ME',
+    );
+    const still = await cellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
+    expect(Math.abs(still.box.top - at.box.top)).toBeLessThanOrEqual(1);
 
     // The selection wears the terminal's colours reversed: the foreground as
     // its background, the palette's gray for the text.
@@ -1540,6 +1563,8 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     );
     expect(await ctx.page.evaluate(() => window.__copied)).toBe('DRAG_SELECT_ME');
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+    // With the selection gone the pane catches up with the job's output.
+    await waitForTerminalText(ctx.page, 'LATE_OUTPUT');
 
     // 3. A row of differently-coloured runs copies as one line. Each run is its
     //    own box, and the browser's own copy broke the line at every one.

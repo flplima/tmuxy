@@ -34,6 +34,7 @@ import {
 import { usePaneMouse } from '../hooks/usePaneMouse';
 import { usePaneTouch } from '../hooks/usePaneTouch';
 import { useLatchedContent } from '../hooks/useLatchedContent';
+import { useHeldWhileSelected } from '../hooks/useHeldWhileSelected';
 import { LogProfiler } from '../utils/renderLog';
 import { RowEdges } from './RowEdges';
 import { AskOverlay } from './AskOverlay';
@@ -88,6 +89,14 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
   const { forwardScrollToParent } = useAppConfig();
+  // The screen the live grid draws: held still while the browser has a
+  // selection on it, so new output cannot slide other text under the
+  // highlight. The scroll view holds its own rows by absolute line.
+  const shown = useHeldWhileSelected(
+    { content, cursorX: pane?.cursorX ?? 0, cursorY: pane?.cursorY ?? 0 },
+    contentRef,
+    !copyState,
+  );
 
   // Selection context menu state
   const [selectionMenu, setSelectionMenu] = useState<{
@@ -401,9 +410,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                   style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
                 >
                   <Terminal
-                    content={content}
-                    cursorX={pane.cursorX}
-                    cursorY={pane.cursorY}
+                    content={shown.content}
+                    cursorX={shown.cursorX}
+                    cursorY={shown.cursorY}
                     // Kept mounted but not the live pane while a view is open:
                     // an active Terminal registers the app's single cursor
                     // anchor, and a hidden one would take it from the copy

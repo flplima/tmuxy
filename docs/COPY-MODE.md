@@ -29,6 +29,11 @@ deliberately left unselectable: there the drag belongs to the application and is
 Where the browser owns the drag, the pane does not take the hidden keyboard input's focus on the
 press: focusing an input collapses the page's selection, so a drag across text selected nothing. The
 keyboard actor hands focus to the input on the release instead, and only if nothing was selected.
+While the browser holds a selection on the live screen, the screen holds still
+(`hooks/useHeldWhileSelected.ts`): the live grid reuses row nodes by screen index, so output
+that scrolled the screen slid other text under the highlight and `Cmd+C` copied the wrong lines.
+The program keeps running; the pane catches up the moment the selection collapses. The scroll
+view needs none of this — its rows are keyed by absolute line.
 
 **Select all is the client's selection, in either view.** `Cmd+A` (`Ctrl+Shift+A` off macOS) selects a
 pane's whole scrollback — opening the scroll view on a pane that has no view yet, since there is
