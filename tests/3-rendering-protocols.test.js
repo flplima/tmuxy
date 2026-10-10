@@ -585,7 +585,12 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       // Hovering the first fragment marks every row of the link, not only the
       // one under the pointer.
       await ctx.page.keyboard.down(modifier);
-      await delay(DELAYS.SHORT);
+      await waitForCondition(
+        ctx.page,
+        async () => ctx.page.evaluate(() => document.body.classList.contains('link-modifier-held')),
+        5000,
+        'the link modifier to be held',
+      );
       const firstFragment = ctx.page
         .locator(`.terminal-content a.terminal-autolink[href="${long}"]`)
         .first();
