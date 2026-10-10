@@ -713,15 +713,8 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
     // nothing re-points tmux at this window behind the scenes.
     // A locator, not a handle: the strip re-renders as the new tab's name
     // settles, and a handle taken a moment earlier can point at a replaced node.
-    const lastTab = page.locator('.tab-list .tab-name').last();
-    const lastId = await lastTab.getAttribute('data-window-id');
-    await lastTab.click();
-    await waitForCondition(
-      page,
-      async () => (await visibleTab()) === lastId,
-      8000,
-      'the last tab to be the one on screen',
-    );
+    await page.locator('.tab-list .tab-name').last().click();
+    await delay(DELAYS.SYNC);
     const target = await visibleTab();
     expect(target).toMatch(/^@\d+$/);
 

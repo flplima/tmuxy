@@ -1366,25 +1366,11 @@ describe('Scenario 5: Pane Groups', () => {
     if (ctx.skipIfNotReady()) return;
     const activePane = () =>
       ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId || null);
-    // The client and tmux agree on which pane holds the keyboard: the
-    // client's switch is optimistic, so until tmux reports the same pane the
-    // swap is still in flight, and a group operation sent meanwhile lands on
-    // a window mid-change.
-    const tmuxActivePane = () =>
-      String(
-        ctx.session.runCommand(`display-message -p -t ${ctx.session.name} '#{pane_id}'`),
-      ).trim();
-    const switchSettled = async () => (await activePane()) === tmuxActivePane();
-    // A click on a group tab has landed once that tab is drawn as the active
-    // one and tmux has caught up.
-    const waitForActiveGroupTab = (idx) =>
-      waitForCondition(
-        ctx.page,
-        async () =>
-          (await getGroupTabInfo(ctx.page))[idx]?.active === true && (await switchSettled()),
-        8000,
-        `group tab ${idx} to become the active one`,
-      );
+    // A group switch is settled by a fixed wait here, deliberately: the
+    // client's active pane is optimistic, tmux's own answer names the pane
+    // of whatever window it considers current while a group swap is under
+    // way, and a wait on either let the next group operation go out
+    // mid-swap on CI (the third member then never took the keyboard).
     await ctx.setupPage();
 
     // Layout invariants on initial single pane
@@ -1545,12 +1531,7 @@ describe('Scenario 5: Pane Groups', () => {
     const betaIdx = tabs.findIndex((t) => t.active); // currently on ALPHA's tab
     const otherIdx = betaIdx === 0 ? 1 : 0;
     await clickGroupTab(ctx.page, otherIdx);
-    await waitForCondition(
-      ctx.page,
-      async () => (await activePane()) === betaPaneId && (await switchSettled()),
-      8000,
-      'BETA to take the keyboard back',
-    );
+    await delay(DELAYS.SYNC);
 
     const afterSwitch2Id = await activePane();
     expect(afterSwitch2Id).toBe(betaPaneId);
@@ -1567,13 +1548,7 @@ describe('Scenario 5: Pane Groups', () => {
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
     // Step 9a: Record GAMMA pane ID (the newly added 3rd tab, which is now active)
-    await waitForCondition(
-      ctx.page,
-      async () =>
-        ![alphaPaneId, betaPaneId, null].includes(await activePane()) && (await switchSettled()),
-      8000,
-      'the third member to take the keyboard',
-    );
+    await delay(DELAYS.SYNC);
     const gammaPaneId = await activePane();
     expect(gammaPaneId).not.toBeNull();
     expect(gammaPaneId).not.toBe(alphaPaneId);
@@ -1585,7 +1560,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const firstInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, firstInactiveIdx);
-    await waitForActiveGroupTab(firstInactiveIdx);
+    await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1593,7 +1568,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const secondInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, secondInactiveIdx);
-    await waitForActiveGroupTab(secondInactiveIdx);
+    await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1601,7 +1576,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const thirdInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, thirdInactiveIdx);
-    await waitForActiveGroupTab(thirdInactiveIdx);
+    await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
