@@ -198,7 +198,19 @@ _lock_acquire() {
   # A `.lock` left as a FILE is from the flock era, when the lock was an fd
   # onto a file of that name; it would block mkdir forever.
   [ -f "$lock" ] && rm -f "$lock"
-  while ! mkdir "$lock" 2>/dev/null; do
+  while :; do
+    if mkdir "$lock" 2>/dev/null; then
+      # Between this mkdir and the pid landing, a waiter that watched the
+      # PREVIOUS owner die can move the fresh directory away as that owner's
+      # (the steal below). The write then has nowhere to go — and under
+      # `set -e` that was an emitter exiting 1 under contention, on a CI Mac
+      # once in some hundred pushes. A lock that was taken from under us is
+      # not ours: take it again.
+      if echo $$ > "$lock/pid" 2>/dev/null; then
+        return 0
+      fi
+      continue
+    fi
     owner="$(cat "$lock/pid" 2>/dev/null || true)"
     tries=$((tries + 1))
     _lock_nap
@@ -217,12 +229,19 @@ _lock_acquire() {
     if [ "$owner" = "$(cat "$lock/pid" 2>/dev/null || true)" ] &&
       { { [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; } || [ "$tries" -gt 200 ]; }; then
       if mv "$lock" "$lock.stale.$$" 2>/dev/null; then
-        rm -rf "$lock.stale.$$"
+        # What was moved must be the dead owner's lock. A live one re-taken
+        # in that instant goes back where it was; if its place has been taken
+        # meanwhile, its owner is about to find its pid gone and take the lock
+        # again (above), so dropping it is safe.
+        if [ "$(cat "$lock.stale.$$/pid" 2>/dev/null || true)" = "$owner" ]; then
+          rm -rf "$lock.stale.$$"
+        elif ! mv "$lock.stale.$$" "$lock" 2>/dev/null; then
+          rm -rf "$lock.stale.$$"
+        fi
       fi
       tries=0
     fi
   done
-  echo $$ > "$lock/pid"
 }
 
 # Release the lock for a directory. Safe to call when not held.
