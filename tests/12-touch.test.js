@@ -108,6 +108,11 @@ describe('Phone width (400px) with a touchscreen', () => {
         const ctx = window.app?.getSnapshot()?.context;
         return {
           docScrollWidth: document.documentElement.scrollWidth,
+          // Typing before the font settles types across a resize: the cell
+          // is re-measured when the face loads, the grid asks tmux for new
+          // columns, and zsh redraws the half-typed line at the old width —
+          // the `ffori in $$(seq` the screen showed.
+          fontsLoaded: document.fonts.status === 'loaded',
           pane: box(document.querySelector('.pane-active [role="log"]')),
           tabs: box(document.querySelector('.tab-list')),
           // What the grid was sized from, for a failure to be readable: the
@@ -136,16 +141,21 @@ describe('Phone width (400px) with a touchscreen', () => {
     // waits for the grid to BE the one asked for, which is the thing the
     // geometry below is about, and waits as long as the rest of the suite does.
     let layout = await measureLayout();
+    let previous = null;
     const fits = (l) =>
       l &&
       l.pane &&
       l.grid &&
+      l.fontsLoaded &&
+      // The cell has stopped changing size: two samples agree.
+      previous?.grid?.charWidth === l.grid.charWidth &&
       l.grid.totalWidth === l.grid.targetCols &&
       l.pane.right <= PHONE.width + 1 &&
       l.docScrollWidth <= PHONE.width + 1;
     const layoutDeadline = Date.now() + 20000;
     while (Date.now() < layoutDeadline && !fits(layout)) {
       await delay(100);
+      previous = layout;
       layout = await measureLayout();
     }
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);

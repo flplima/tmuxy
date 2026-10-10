@@ -62,7 +62,16 @@ async function visibleTerminals(page, scope) {
       if (box.width < 1 || box.height < 1) return;
       if (box.right <= 0 || box.bottom <= 0) return;
       if (box.left >= window.innerWidth || box.top >= window.innerHeight) return;
-      out.push({ index, text: log.textContent || '', box: box.toJSON() });
+      // Row by row, with a newline between rows. The log's own textContent
+      // fused consecutive rows (`TOUCH_KBD_OKTOUCH_KBD_OK`) and lost the
+      // space a wrapped line carried at its wrap column, so a long command
+      // read back as garbled when it was intact.
+      const rows = [...log.querySelectorAll('.terminal-line')].map((row) => row.textContent || '');
+      out.push({
+        index,
+        text: rows.length > 0 ? rows.join('\n') : log.textContent || '',
+        box: box.toJSON(),
+      });
     });
     return out;
   }, scope ?? null);
