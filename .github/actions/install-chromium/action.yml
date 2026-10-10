@@ -3,7 +3,11 @@ name: Install Chromium
 # ~130MB and identical for one lockfile. The apt side of `--with-deps` is
 # only run on a miss: the GitHub runner image ships Google Chrome, so the
 # shared libraries Chromium loads are already there, and the ~15s index
-# refresh was the whole cost of this action on a hit.
+# refresh was the whole cost of this action on a hit. What the image does
+# NOT ship is the fonts `--with-deps` brings — CJK, emoji, Unifont — and
+# without them every wide-glyph check sees a narrow fallback, so those are
+# installed on a hit too, from the image's own index (a refresh only if
+# that index has gone stale).
 runs:
   using: composite
   steps:
@@ -18,3 +22,13 @@ runs:
       if: steps.playwright-cache.outputs.cache-hit != 'true'
       shell: bash
       run: npx playwright install chromium --with-deps
+
+    # The font list is the one Playwright's own install-deps uses for
+    # Chromium (playwright-core's nativeDeps).
+    - name: Install the fonts Chromium renders with (cache hit)
+      if: steps.playwright-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        fonts='fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei xfonts-cyrillic xfonts-scalable'
+        sudo apt-get install -y --no-install-recommends $fonts \
+          || { sudo apt-get update && sudo apt-get install -y --no-install-recommends $fonts; }

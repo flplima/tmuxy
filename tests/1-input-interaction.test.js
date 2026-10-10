@@ -750,12 +750,21 @@ describe('Scenario 8: Resize from the prompt & SGR', () => {
     await ctx.page.mouse.move(wheelX, wheelY);
     await ctx.page.mouse.wheel(0, -capture2.charSize.charHeight * 3);
     // The first wheel has reached tmux before the second is sent, so the two
-    // arrive as distinct reports rather than one coalesced scroll — and the
-    // second wait asks for one report more than the first delivered, so it
-    // is the scroll-down that is waited for, not the ups again.
-    const afterUp = await readMouseEvents(1);
+    // arrive as distinct reports rather than one coalesced scroll. The second
+    // wait is for a scroll-down report itself: the first wheel's remaining
+    // up-reports can still be arriving, and one of those would satisfy a
+    // count.
+    await readMouseEvents(1);
     await ctx.page.mouse.wheel(0, capture2.charSize.charHeight * 2);
-    events = await readMouseEvents(afterUp.length + 1);
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        events = await readMouseEvents(0, 1000);
+        return events.some((e) => e.type === 'scroll_down');
+      },
+      10000,
+      'the scroll-down to reach tmux',
+    );
     const scrollUps = events.filter((e) => e.type === 'scroll_up');
     const scrollDowns = events.filter((e) => e.type === 'scroll_down');
     expect(scrollUps.length).toBeGreaterThanOrEqual(1);
