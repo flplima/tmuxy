@@ -419,7 +419,6 @@ module.exports = {
   sendKeyCombo,
   getAppState,
   getPaneCount,
-  getRawWindowCount,
   invokeCommand,
   waitForPaneCount,
   waitForRawWindowCount,

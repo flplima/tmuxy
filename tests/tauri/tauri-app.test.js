@@ -22,7 +22,6 @@ const {
   pressKey,
   getAppState,
   getPaneCount,
-  getRawWindowCount,
   invokeCommand,
   waitForPaneCount,
   waitForRawWindowCount,
@@ -152,43 +151,31 @@ describe('App Lifecycle', () => {
 // ==================== IPC Commands ====================
 
 describe('IPC Commands', () => {
-  test('type input appears in terminal', async () => {
+  test('typed input reaches the terminal; a split over IPC arrives as a sized pane through the delta protocol', async () => {
     await setupApp();
 
     const marker = `TAURI_TEST_${Date.now()}`;
     await typeKeys(driver, `echo ${marker}`);
     await pressKey(driver, 'Enter');
     await waitForTerminalText(driver, marker);
-  });
 
-  test('split pane via IPC', async () => {
-    await setupApp();
+    // Baseline pane count, not an absolute: the app always attaches to the
+    // `tmuxy` session, and a previous test's kill-session can race the next
+    // app start — leftover panes would fail a hardcoded `toBe(1)`.
+    const before = (await getAppState(driver)).panes.length;
+    expect(before).toBeGreaterThanOrEqual(1);
 
-    // Start with 1 pane
-    expect(await getPaneCount(driver)).toBe(1);
-
-    // Split via the same IPC path the UI uses
+    // Split via the same IPC path the UI uses; the new pane reaches the
+    // client as a Tauri event → delta.
     await invokeCommand(driver, 'run_tmux_command', { command: 'split-window -h' });
-    await waitForPaneCount(driver, 2);
+    await waitForPaneCount(driver, before + 1);
 
-    expect(await getPaneCount(driver)).toBe(2);
-  });
-
-  test('new window via IPC', async () => {
-    await setupApp();
-
-    // Assert on the raw window count (ctx.windows), which the monitor reports
-    // as soon as the window exists. The @tmuxy-window-type=tab classification
-    // is stamped asynchronously and, under CI's tmux 3.4, can lag indefinitely
-    // (the initial window has been observed sitting at windowType=null past a
-    // 60s timeout) — so gating this test on it made it flaky. Window *creation*
-    // is the behavior under test here, and it's classification-independent.
-    await waitForRawWindowCount(driver, 1);
-
-    await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
-    await waitForRawWindowCount(driver, 2);
-
-    expect(await getRawWindowCount(driver)).toBe(2);
+    const state = await getAppState(driver);
+    expect(state.panes.length).toBeGreaterThanOrEqual(before + 1);
+    for (const pane of state.panes) {
+      expect(pane.width).toBeGreaterThan(0);
+      expect(pane.height).toBeGreaterThan(0);
+    }
   });
 
   test('query_tmux returns what a command printed; run_tmux_command returns nothing', async () => {
@@ -313,22 +300,24 @@ describe('IPC Commands', () => {
     expect((await snackbarTexts()).some((t) => t.includes(message))).toBe(false);
   });
 
-  test('run_tmux_command rewrites new-window to splitw+breakp', async () => {
+  test('new-window over IPC is rewritten to splitw+breakp: tmux survives and the window appears', async () => {
     await setupApp();
+
+    // Assert on the raw window count (ctx.windows), which the monitor reports
+    // as soon as the window exists. The @tmuxy-window-type=tab classification
+    // is stamped asynchronously and, under CI's tmux 3.4, can lag indefinitely,
+    // so gating on it made this flaky. Window creation is classification-independent.
+    await waitForRawWindowCount(driver, 1);
 
     await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
 
-    // The real assertion here is no-crash: a bare `tmux new-window` while
-    // control mode is attached crashes tmux 3.5a. If the rewrite worked,
-    // the server is still alive and display-message succeeds. We don't assert
-    // on the window count because the new window's @tmuxy-window-type tag is
-    // set asynchronously from the executor subprocess (after split+breakp) and
-    // races the frontend's state snapshot under CI load — flake-prone even
-    // though the no-crash invariant we care about is satisfied.
+    // A bare `new-window` while control mode is attached crashes tmux 3.5a;
+    // if the rewrite worked, the server is still alive and answers.
     const result = await invokeCommand(driver, 'query_tmux', {
       command: 'display-message -p #{session_name}',
     });
     expect(result).toContain(sessionName);
+    await waitForRawWindowCount(driver, 2);
   });
 
   // The monitor starts with the app, before the webview can listen, so its
@@ -410,31 +399,6 @@ describe('IPC Commands', () => {
 // ==================== State Sync ====================
 
 describe('State Sync', () => {
-  test('delta protocol updates pane state', async () => {
-    await setupApp();
-
-    // Baseline pane count, not an absolute: the app always attaches to the
-    // `tmuxy` session, and a previous test's kill-session can race the next
-    // app start — leftover panes would fail a hardcoded `toBe(1)` even though
-    // the delta protocol (what this test is about) works fine.
-    let state = await getAppState(driver);
-    const before = state.panes.length;
-    expect(before).toBeGreaterThanOrEqual(1);
-
-    // Split creates new pane — state should update via Tauri event → delta protocol
-    await invokeCommand(driver, 'run_tmux_command', { command: 'split-window -h' });
-    await waitForPaneCount(driver, before + 1);
-
-    state = await getAppState(driver);
-    expect(state.panes.length).toBeGreaterThanOrEqual(before + 1);
-
-    // Both panes should have valid dimensions
-    for (const pane of state.panes) {
-      expect(pane.width).toBeGreaterThan(0);
-      expect(pane.height).toBeGreaterThan(0);
-    }
-  });
-
   test('keybindings are available via IPC', async () => {
     await setupApp();
 
