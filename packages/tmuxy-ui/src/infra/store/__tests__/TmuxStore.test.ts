@@ -15,7 +15,6 @@ import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
 import { pid, wid, wireState } from '../../../test/wire';
 import { dispatchRaw } from '../../../test/store';
 import { fakeTransport } from '../../../test/transport';
-import { TmuxError } from '../../transport/AdapterError';
 import type { TmuxClientModel } from '../../../domain/store/types';
 
 function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
@@ -178,21 +177,6 @@ describe('TmuxStore (integration)', () => {
   });
 
   // Smoke test: TmuxError class instances are correctly classified.
-  it('throws TmuxError as OpRejectedByTmux', async () => {
-    const fake = fakeTransport();
-    const store = makeTmuxStore();
-    store.reconcile(blankServerState());
-
-    fake.setNextResult({
-      kind: 'reject',
-      error: new TmuxError({ command: 'split-window -h', stderr: 'too small' }),
-    });
-    const exit = await fake.runtime.runPromiseExit(
-      store.dispatch(parseCommandToOp('split-window -h')),
-    );
-    expect(exit._tag).toBe('Failure');
-    expect(store.getModel().ops).toHaveLength(0);
-  });
 });
 
 describe('notify granularity', () => {

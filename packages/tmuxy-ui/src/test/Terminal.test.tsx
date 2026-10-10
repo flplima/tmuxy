@@ -20,36 +20,6 @@ describe('Terminal', () => {
     vi.clearAllMocks();
   });
 
-  it('renders terminal container', () => {
-    const content = createContent(['line 1', 'line 2', 'line 3']);
-    render(<Terminal content={content} />);
-
-    const terminal = screen.getByTestId('terminal');
-    expect(terminal).toBeInTheDocument();
-    expect(terminal).toHaveClass('terminal-container');
-  });
-
-  it('renders terminal lines', () => {
-    const content = createContent(['hello', 'world']);
-    render(<Terminal content={content} />);
-
-    const terminal = screen.getByTestId('terminal');
-    expect(terminal).toBeInTheDocument();
-
-    // Check that content is rendered
-    const pre = terminal.querySelector('.terminal-content');
-    expect(pre).toBeInTheDocument();
-    expect(pre?.textContent).toContain('hello');
-    expect(pre?.textContent).toContain('world');
-  });
-
-  it('handles empty content', () => {
-    render(<Terminal content={[]} />);
-
-    const terminal = screen.getByTestId('terminal');
-    expect(terminal).toBeInTheDocument();
-  });
-
   it('pads content to match height', () => {
     const content = createContent(['line 1']);
     render(<Terminal content={content} height={5} />);

@@ -83,4 +83,14 @@ describe('preserveSnapshotIdentity — every pane field', () => {
   it('an unchanged pane keeps its object', () => {
     expect(preserveSnapshotIdentity(snap(full), snap({ ...full })).panes[0]).toBe(full);
   });
+
+  // The wire omits a field a pane never declared; that must not read as a
+  // change against the null the client holds, or the pane re-renders every tick.
+  it('a field absent on the wire and null on the client are the same', () => {
+    const { paneState: _declared, ...undeclared } = full;
+    const prev = snap({ ...full, paneState: null });
+    expect(preserveSnapshotIdentity(prev, snap(undeclared as TmuxPane)).panes[0]).toBe(
+      prev.panes[0],
+    );
+  });
 });

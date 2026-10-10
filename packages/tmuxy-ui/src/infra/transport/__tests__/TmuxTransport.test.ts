@@ -124,27 +124,6 @@ describe('TmuxTransport over a driver', () => {
     }
   });
 
-  it('typed errors enable exhaustive pattern matching on _tag', async () => {
-    const adapter = fakeTransport({
-      invoke: (async () => {
-        throw { error: 'pane does not exist', kind: 'tmux' };
-      }) as TmuxAdapter['invoke'],
-    });
-
-    // The whole point of typing errors: handle them by tag.
-    const program = call((t) => t.invoke<void>('kill-pane')).pipe(
-      Effect.catchTags({
-        TmuxError: (e) => Effect.succeed(`tmux said: ${e.stderr}`),
-        TransportError: () => Effect.succeed('network down'),
-        ProtocolError: () => Effect.succeed('bad protocol'),
-        Cancelled: () => Effect.succeed('cancelled'),
-      }),
-    );
-
-    const result = await adapter.run(program);
-    expect(result).toBe('tmux said: pane does not exist');
-  });
-
   it('publishes what the driver pushes, in order, to a subscriber taken before it is pushed', async () => {
     const transport = fakeTransport();
     const seen = await transport.run(

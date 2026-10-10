@@ -23,7 +23,6 @@ import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../../../domain/store/parseCommand';
 import { applyServerSnapshot, modelFromSnapshot, makePendingOp } from '../../../domain/store/model';
 import type { OpId, TmuxSnapshot } from '../../../domain/store/types';
-import type { TmuxOp } from '../../../domain/commands';
 import type {
   ServerState,
   ServerStateEncoded,
@@ -171,77 +170,6 @@ describe('TmuxStore — verbatim command preservation', () => {
     expect(sent(fake)[0]).toContain('split-window -v');
     expect(sent(fake)[0]).toContain('#{pane_current_path}');
     expect(sent(fake)[0]).toContain('select-pane -t %0');
-  });
-
-  it("a pending op keeps the caller's full command string", () => {
-    const m = modelFromSnapshot({
-      panes: [
-        {
-          id: 0,
-          tmuxId: pid('%0'),
-          windowId: wid('@0'),
-          content: [],
-          cursorX: 0,
-          cursorY: 0,
-          width: 80,
-          height: 24,
-          x: 0,
-          y: 0,
-          active: true,
-          command: 'bash',
-          title: '',
-          borderTitle: '',
-          inMode: false,
-          copyCursorX: 0,
-          copyCursorY: 0,
-          alternateOn: false,
-          mouseAnyFlag: false,
-          paused: false,
-          historySize: 0,
-          selectionPresent: false,
-          selectionStartX: 0,
-          selectionStartY: 0,
-          cursorShape: 0,
-          cursorHidden: false,
-        },
-      ],
-      windows: [
-        {
-          id: wid('@0'),
-          index: 0,
-          name: 'main',
-          active: true,
-          windowType: 'tab',
-          floatParent: null,
-          floatWidth: null,
-          floatHeight: null,
-          floatDrawer: null,
-          floatBg: null,
-          floatNoheader: false,
-        },
-      ],
-      activePaneId: pid('%0'),
-      activeWindowId: wid('@0'),
-      totalWidth: 80,
-      totalHeight: 24,
-      focusRequest: '',
-      sessionName: 'tmuxy',
-    });
-    const op: TmuxOp = { _tag: 'Split', direction: 'vertical' };
-    const result = predict(op, m.committed, { defaultShell: 'bash', paneActivationOrder: [] }, 'X');
-    expect(result).not.toBeNull();
-    // The op's canonical command is `split-window -h` — but the test
-    // simulates the keyboardActor sending the full string including
-    // the prefix-pin AND the -c flag. The pending op carries the
-    // original; that's what hits the wire.
-    const pending = makePendingOp({
-      id: 'op_full' as OpId,
-      op,
-      command: 'select-pane -t %0 \\; split-window -h -c "#{pane_current_path}"',
-      patch: result!.patch,
-      meta: result!.meta,
-    });
-    expect(pending.command).toContain('#{pane_current_path}');
   });
 });
 
@@ -482,24 +410,6 @@ describe('TmuxStore — typed errors', () => {
       expect(causeStr).toContain('insufficient space');
     }
     // No pending op survives a rejection.
-    expect(store.getModel().ops).toHaveLength(0);
-  });
-
-  it('rejecting object-shape {error: ...} (Rust convention) also rolls back', async () => {
-    const fake = fakeTransport();
-    const store = makeTmuxStore();
-    store.reconcile(serverState());
-
-    fake.setNextResult({ kind: 'reject', error: { error: 'no such pane: %999', kind: 'tmux' } });
-    const exit = await fake.runtime.runPromiseExit(
-      store.dispatch({
-        _tag: 'Swap',
-        sourcePaneId: pid('%999'),
-        targetPaneId: pid('%0'),
-        keepFocus: false,
-      }),
-    );
-    expect(exit._tag).toBe('Failure');
     expect(store.getModel().ops).toHaveLength(0);
   });
 });

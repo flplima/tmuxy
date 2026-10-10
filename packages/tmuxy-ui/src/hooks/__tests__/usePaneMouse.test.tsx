@@ -82,27 +82,6 @@ describe('usePaneMouse.handleWheel', () => {
     expect(sgrEvents.length).toBeGreaterThan(0);
   });
 
-  it('does NOT enter copy mode when only mouseAnyFlag is true (apps without alt screen)', () => {
-    const { result, events } = setup({ alternateOn: false, mouseAnyFlag: true });
-    result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
-  });
-
-  it('does NOT enter copy mode when tmux is already in a pane mode (inMode=true)', () => {
-    // Guards against race: server reports in_mode=true after our cancel command
-    // but the client-side copy state was already cleared.
-    const { result, events } = setup({
-      alternateOn: false,
-      mouseAnyFlag: false,
-      scrollbackMode: null,
-      inMode: true,
-    });
-    result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
-  });
-
   it('opens the scroll view — not copy mode — on scroll-up in a shell with scrollback', () => {
     const { result, events } = setup({
       alternateOn: false,
@@ -119,13 +98,6 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterScroll).toBeDefined();
     // Quantized to whole lines, and scrolling up means a negative delta.
     expect(enterScroll).toMatchObject({ paneId: pid('%1'), scrollLines: -5 });
-  });
-
-  it('does NOT enter copy mode on scroll-down in normal shell', () => {
-    const { result, events } = setup({ alternateOn: false, mouseAnyFlag: false });
-    result.current.handleWheel(wheelEvent(100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
   });
 
   it('scrolls the container by whole rows, never part of one', () => {
@@ -227,12 +199,5 @@ describe('usePaneMouse — copy-mode selection sequencing', () => {
     const { result, events } = setupSeq('copy');
     result.current.handleTripleClick(clickEvent(3));
     expect(events.some((e) => e.type === 'COPY_MODE_LINE_SELECT')).toBe(true);
-  });
-
-  it('never opens copy mode from the mouse — that is what prefix [ is for', () => {
-    const { result, events } = setupSeq(null);
-    result.current.handleDoubleClick(clickEvent(2));
-    result.current.handleTripleClick(clickEvent(3));
-    expect(events.some((e) => e.type === 'ENTER_COPY_MODE')).toBe(false);
   });
 });

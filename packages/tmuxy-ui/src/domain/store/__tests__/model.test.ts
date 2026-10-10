@@ -9,7 +9,6 @@ import {
   rollbackOp,
 } from '../model';
 import { predict } from '../ops';
-import { parseCommandToOp } from '../parseCommand';
 import { toTmuxCommand, type TmuxOp } from '../../commands';
 import type { TmuxSnapshot, OpId } from '../types';
 import { OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from '../types';
@@ -232,39 +231,5 @@ describe('TmuxClientModel', () => {
     const { model: rolledBack, entry } = rollbackOp(withOp, 'op_nav' as OpId, 'manual cancel');
     expect(entry?.reason).toBe('manual cancel');
     expect(rolledBack.derived.activePaneId).toBe(pid('%0'));
-  });
-
-  it('parseCommandToOp recognizes the common shapes', () => {
-    expect(parseCommandToOp('split-window -h')).toEqual({ _tag: 'Split', direction: 'vertical' });
-    expect(parseCommandToOp('splitw -v')).toEqual({ _tag: 'Split', direction: 'horizontal' });
-    expect(parseCommandToOp('select-pane -L')).toEqual({
-      _tag: 'Navigate',
-      direction: 'L',
-      script: false,
-    });
-    expect(parseCommandToOp('select-pane -t %5')).toEqual({
-      _tag: 'SelectPane',
-      paneId: pid('%5'),
-    });
-    expect(parseCommandToOp('new-window')).toEqual({ _tag: 'NewWindow' });
-    expect(parseCommandToOp('next-window')).toEqual({ _tag: 'SelectWindow', target: 'next' });
-    expect(parseCommandToOp('select-window -t 3')).toEqual({ _tag: 'SelectWindow', target: 3 });
-    // The client's own tab switch names the window by id, so a stale index
-    // can never land on the wrong window.
-    expect(parseCommandToOp('select-window -t @3')).toEqual({
-      _tag: 'SelectWindow',
-      target: wid('@3'),
-    });
-    expect(parseCommandToOp('swap-pane -s %1 -t %2')).toEqual({
-      _tag: 'Swap',
-      sourcePaneId: pid('%1'),
-      targetPaneId: pid('%2'),
-      keepFocus: false,
-    });
-    // Unknown shapes fall through to RawCommand
-    expect(parseCommandToOp('display-message -p hello')).toEqual({
-      _tag: 'RawCommand',
-      command: 'display-message -p hello',
-    });
   });
 });

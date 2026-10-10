@@ -278,6 +278,13 @@ describe('op classification', () => {
  * render back to that same string, or prediction and the wire would disagree
  * about what the key does.
  */
+describe('short command forms parse to the same op as the long ones', () => {
+  it('splitw and split-window are one op', () => {
+    expect(parseCommandToOp('splitw -v')).toEqual(parseCommandToOp('split-window -v'));
+    expect(parseCommandToOp('splitw -h')).toEqual(TmuxOp.Split({ direction: 'vertical' }));
+  });
+});
+
 describe('binding strings round-trip through their op', () => {
   const bindings = [
     'split-window -h',

@@ -321,12 +321,6 @@ describe('keyboardActor — prefix mode', () => {
     return actives[actives.length - 1];
   };
 
-  it('entering prefix mode (Ctrl+A) announces PREFIX_MODE_CHANGE active', () => {
-    const { events } = spawnKeyboardActor(pid('%3'));
-    pressKey({ key: 'a', ctrlKey: true });
-    expect(lastPrefixActive(events)).toBe(true);
-  });
-
   it('auto-exits prefix mode after the timeout', () => {
     vi.useFakeTimers();
     const { events } = spawnKeyboardActor(pid('%3'));

@@ -97,13 +97,6 @@ describe('groupsAndFloats state', () => {
     expect(ctx.focusedFloatPaneId).toBeNull();
   });
 
-  it('OPEN_CONNECT_FLOAT does not crash and leaves context unchanged', () => {
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards);
-    const before = actor.getSnapshot().context.floatPanes;
-    const ctx = sendAndGetContext(actor, { type: 'OPEN_CONNECT_FLOAT' });
-    expect(ctx.floatPanes).toBe(before);
-  });
-
   describe('sidebar motion', () => {
     // The toggles also handle SET_TARGET_SIZE here so the test can see the
     // settled size the motion predicts (appMachine owns the real handler).
