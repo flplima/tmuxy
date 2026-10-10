@@ -11,6 +11,8 @@ import { Cursor } from './Cursor';
 import { cellsToCss } from './terminalShared';
 import { cursorShapeToMode } from '../utils/cursorShape';
 import { isWrappedRow } from '../utils/copyMode';
+import { detectUrlsAcrossRows } from '../utils/urlDetect';
+import { setLinkHot } from '../utils/linkHover';
 import { isTauri, tauriSchemeUrl } from '../utils/platform';
 import type { CursorMode } from './Cursor';
 import type { ImagePlacement } from '../domain/client';
@@ -219,6 +221,10 @@ export const Terminal: React.FC<TerminalProps> = ({
     return result;
   }, [content, height, staleClipOffset]);
 
+  // Links are detected over logical lines, so a URL that wraps is one link
+  // on every row it covers, not a link to its first row's fragment.
+  const rowUrls = useMemo(() => detectUrlsAcrossRows(lines, width), [lines, width]);
+
   // Cursor row within the rendered viewport, after stale-content clipping.
   const cursorRow = effectiveCursorY - staleClipOffset;
   const cursorVisible = showCursor && cursorRow >= 0 && cursorRow < lines.length;
@@ -237,6 +243,8 @@ export const Terminal: React.FC<TerminalProps> = ({
       <pre
         className={`terminal-content ${selectable ? 'terminal-selectable' : ''}`}
         aria-hidden="true"
+        onMouseOver={(e) => setLinkHot(e.target, true)}
+        onMouseOut={(e) => setLinkHot(e.target, false)}
       >
         {lines.map((line, lineIndex) => (
           <TerminalLine
@@ -244,6 +252,7 @@ export const Terminal: React.FC<TerminalProps> = ({
             line={line}
             selectionRange={getSelectionRange(lineIndex)}
             wrapped={isWrappedRow(line, width)}
+            autoUrls={rowUrls[lineIndex]}
           />
         ))}
       </pre>

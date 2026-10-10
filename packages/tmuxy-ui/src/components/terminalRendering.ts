@@ -15,7 +15,7 @@ import {
   sameCellColor,
   sameCellStyle,
 } from './terminalShared';
-import { detectUrls } from '../utils/urlDetect';
+import { detectUrls, type DetectedUrl } from '../utils/urlDetect';
 import { safeHref } from '../utils/openUrl';
 
 // ============================================
@@ -135,6 +135,9 @@ export function renderLineToDOM(
   el: HTMLDivElement,
   line: CellLine,
   selRange: { startCol: number; endCol: number } | null,
+  // The row's links when the caller detected them over the logical line
+  // (`detectUrlsAcrossRows`); absent, the row detects its own.
+  rowUrls?: DetectedUrl[],
 ): void {
   el.textContent = '';
   // Reset inline background so stale colors don't persist across updates
@@ -162,7 +165,7 @@ export function renderLineToDOM(
     cellOffsets[i] = lineText.length;
     lineText += line[i].c;
   }
-  const autoUrls = detectUrls(lineText);
+  const autoUrls = rowUrls ?? detectUrls(lineText);
   const urlIdxOf = (i: number): number => {
     const off = cellOffsets[i];
     for (let u = 0; u < autoUrls.length; u++) {

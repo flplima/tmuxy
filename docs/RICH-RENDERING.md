@@ -42,7 +42,12 @@ characters RFC 3986 allows in a URI, plus Unicode letters, digits and marks for
 internationalised addresses. It is an allowlist on purpose: terminal UIs butt
 their text against separators with no space in between, and a class defined by
 what it excluded swallowed all of them — `…/bar│Files:12│Status:ok` came back
-as one link covering most of the line.
+as one link covering most of the line. Detection runs over a _logical_ line:
+rows that only soft-wrapped (the same full-width rule the copy path uses,
+`isWrappedRow`) are joined first, so a URL longer than the pane is one link on
+every row it covers, each opening the whole address. OSC 8 links already arrive
+whole on every row from the server. Either kind is one `<a>` per row, so
+hovering any row marks every anchor with the same target (`utils/linkHover.ts`).
 
 OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — all parsing lives in `tmuxy-core/src/control_mode/images.rs` and `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
 

@@ -439,7 +439,10 @@
   cursor: pointer;
 }
 
-.terminal-hyperlink:hover {
+/* `terminal-link-hot` is set on every anchor of the hovered URL (a wrapped
+   link is one anchor per row; see utils/linkHover.ts). */
+.terminal-hyperlink:hover,
+.terminal-hyperlink.terminal-link-hot {
   color: var(--link-hover);
   text-decoration-color: var(--link-hover);
 }
@@ -467,7 +470,8 @@
   pointer-events: auto;
 }
 
-.link-modifier-held .terminal-autolink:hover {
+.link-modifier-held .terminal-autolink:hover,
+.link-modifier-held .terminal-autolink.terminal-link-hot {
   color: var(--link-hover);
   text-decoration-color: var(--link-hover);
 }

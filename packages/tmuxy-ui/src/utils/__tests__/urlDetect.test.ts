@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { detectUrls } from '../urlDetect';
+import { detectUrls, detectUrlsAcrossRows } from '../urlDetect';
+import type { CellLine } from '../../domain/wire';
 
 /** What the detector would underline, as substrings of the input. */
 const covered = (text: string) => detectUrls(text).map((u) => text.slice(u.start, u.end));
@@ -64,5 +65,39 @@ describe('detectUrls', () => {
 
   it('finds nothing in text without a scheme', () => {
     expect(detectUrls('example.com/a and ftp://ex.test/b')).toEqual([]);
+  });
+});
+
+/** Rows of a pane `width` wide, each string one row's cells. */
+const rows = (...texts: string[]): CellLine[] => texts.map((t) => [...t].map((c) => ({ c })));
+
+describe('detectUrlsAcrossRows', () => {
+  const width = 10;
+
+  it('a URL that wraps is one link on every row, each with the whole address', () => {
+    // Row 0 fills the width, so it wrapped into row 1.
+    const perRow = detectUrlsAcrossRows(rows('see https:', '//ex.test/a and'), width);
+    expect(perRow).toEqual([
+      [{ start: 4, end: 10, url: 'https://ex.test/a' }],
+      [{ start: 0, end: 11, url: 'https://ex.test/a' }],
+    ]);
+  });
+
+  it('strips sentence punctuation from the whole URL, not from a row at the wrap', () => {
+    const perRow = detectUrlsAcrossRows(rows('https://a.', 'test/x. ok'), width);
+    expect(perRow[0]).toEqual([{ start: 0, end: 10, url: 'https://a.test/x' }]);
+    expect(perRow[1]).toEqual([{ start: 0, end: 6, url: 'https://a.test/x' }]);
+  });
+
+  it('a row that did not fill the width ends its line: the next row is its own', () => {
+    const perRow = detectUrlsAcrossRows(rows('https:', '//ex.test/'), width);
+    expect(perRow).toEqual([[], []]);
+  });
+
+  it('rows outside a wrapped line are detected on their own', () => {
+    const perRow = detectUrlsAcrossRows(rows('x https://a', 'b.test/1 y', 'https://c.t'), width);
+    expect(perRow[0]).toEqual([{ start: 2, end: 11, url: 'https://ab.test/1' }]);
+    expect(perRow[1]).toEqual([{ start: 0, end: 8, url: 'https://ab.test/1' }]);
+    expect(perRow[2]).toEqual([{ start: 0, end: 11, url: 'https://c.t' }]);
   });
 });

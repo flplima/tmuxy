@@ -3,6 +3,9 @@
  * Returns ranges of detected URLs for rendering as clickable links.
  */
 
+import { isWrappedRow } from './copyMode';
+import type { CellLine } from '../domain/wire';
+
 export interface DetectedUrl {
   start: number;
   end: number; // exclusive
@@ -41,4 +44,55 @@ export function detectUrls(text: string): DetectedUrl[] {
     results.push({ start: m.index, end: m.index + url.length, url });
   }
   return results;
+}
+
+/** A row's cells joined as text, the way `detectUrls` sees a row. */
+export function rowText(line: CellLine): string {
+  let text = '';
+  for (const cell of line) text += cell.c;
+  return text;
+}
+
+/**
+ * URL detection over LOGICAL lines: a row that filled the pane's width ran on
+ * into the next with no line break (`isWrappedRow`), so the rows of one
+ * wrapped line are joined before the regex runs and each match is cut back
+ * into per-row ranges — every range carrying the whole URL. Detected per row,
+ * a long address was a link to its first row's fragment and plain text after
+ * that; a scheme straddling the wrap was no link at all.
+ *
+ * Offsets are UTF-16 offsets into each row's own text, as `detectUrls`
+ * reports them for a single row.
+ */
+export function detectUrlsAcrossRows(rows: readonly CellLine[], width: number): DetectedUrl[][] {
+  const perRow: DetectedUrl[][] = rows.map(() => []);
+  let i = 0;
+  while (i < rows.length) {
+    let end = i;
+    while (end < rows.length - 1 && isWrappedRow(rows[end], width)) end++;
+    const texts = rows.slice(i, end + 1).map(rowText);
+    const matches = detectUrls(texts.join(''));
+    let base = 0;
+    for (let r = i; r <= end; r++) {
+      const length = texts[r - i].length;
+      for (const m of matches) {
+        if (m.end <= base || m.start >= base + length) continue;
+        perRow[r].push({
+          start: Math.max(m.start - base, 0),
+          end: Math.min(m.end - base, length),
+          url: m.url,
+        });
+      }
+      base += length;
+    }
+    i = end + 1;
+  }
+  return perRow;
+}
+
+/** Whether two detections would draw the same links. */
+export function sameUrls(a: readonly DetectedUrl[], b: readonly DetectedUrl[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((u, k) => u.start === b[k].start && u.end === b[k].end && u.url === b[k].url);
 }

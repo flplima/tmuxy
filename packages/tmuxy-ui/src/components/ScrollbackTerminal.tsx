@@ -17,6 +17,8 @@ import { useAppSelector, selectCharSize } from '../machines/AppContext';
 import { renderLineToDOM } from './terminalRendering';
 import { sameCellStyle } from './terminalShared';
 import { isRowLoaded, isWrappedRow } from '../utils/copyMode';
+import { detectUrlsAcrossRows, sameUrls, type DetectedUrl } from '../utils/urlDetect';
+import { setLinkHot } from '../utils/linkHover';
 import type { CopyModeState } from '../domain/copyMode';
 import type { CellLine } from '../domain/wire';
 
@@ -172,7 +174,10 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
   // alive in the scroll view: its endpoints live in these nodes, and a node
   // that is replaced takes the selection with it.
   const rowsRef = useRef(
-    new Map<number, { el: HTMLDivElement; line: CellLine; selRange: SelRange }>(),
+    new Map<
+      number,
+      { el: HTMLDivElement; line: CellLine; selRange: SelRange; urls: DetectedUrl[] }
+    >(),
   );
 
   const { totalLines, scrollTop, height, cursorRow, cursorCol, lines, loadedRanges } = copyState;
@@ -223,9 +228,24 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       }
     }
 
+    // The row's links, detected over the logical line it is part of: up
+    // through every row that wrapped into it, down through what it wraps into.
+    const urlsFor = (row: number, line: CellLine): DetectedUrl[] => {
+      let first = row;
+      while (first > 0 && isWrappedRow(lineFor(first - 1, lines, loadedRanges), width)) first--;
+      let last = row;
+      while (last < totalLines - 1 && isWrappedRow(lineFor(last, lines, loadedRanges), width))
+        last++;
+      if (first === last) return detectUrlsAcrossRows([line], width)[0];
+      const group: CellLine[] = [];
+      for (let r = first; r <= last; r++) group.push(lineFor(r, lines, loadedRanges));
+      return detectUrlsAcrossRows(group, width)[row - first];
+    };
+
     const ensure = (row: number) => {
       const line = lineFor(row, lines, loadedRanges);
       const selRange = getSelectionRange(row);
+      const urls = urlsFor(row, line);
       const top = `${row * charHeight}px`;
       // A row that reached the last column ran on into the next with no logical
       // line break. The scroll view's selection is the BROWSER's, and its copy
@@ -236,9 +256,14 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       if (entry) {
         if (entry.el.style.top !== top) entry.el.style.top = top;
         setWrapped(entry.el, wrapped);
-        if (!sameLine(entry.line, line) || !sameRange(entry.selRange, selRange)) {
-          renderLineToDOM(entry.el, line, selRange);
+        if (
+          !sameLine(entry.line, line) ||
+          !sameRange(entry.selRange, selRange) ||
+          !sameUrls(entry.urls, urls)
+        ) {
+          renderLineToDOM(entry.el, line, selRange, urls);
           entry.selRange = selRange;
+          entry.urls = urls;
         }
         entry.line = line;
         return;
@@ -251,7 +276,7 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       el.style.top = top;
       el.style.left = '0';
       el.style.right = '0';
-      renderLineToDOM(el, line, selRange);
+      renderLineToDOM(el, line, selRange, urls);
       // Document order is selection order: keep the rows ascending.
       let next: Element | null = null;
       for (const child of pre.children) {
@@ -261,7 +286,7 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
         }
       }
       pre.insertBefore(el, next);
-      rows.set(row, { el, line, selRange });
+      rows.set(row, { el, line, selRange, urls });
     };
 
     for (let row = renderStart; row <= renderEnd; row++) ensure(row);
@@ -275,6 +300,7 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
     isCopyMode,
     charHeight,
     width,
+    totalLines,
   ]);
 
   // Cursor character
@@ -298,6 +324,8 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       <pre
         className={`terminal-content ${isCopyMode ? '' : 'terminal-selectable'}`}
         aria-hidden="true"
+        onMouseOver={(e) => setLinkHot(e.target, true)}
+        onMouseOut={(e) => setLinkHot(e.target, false)}
         data-testid="scrollback-terminal"
         data-copy-mode={isCopyMode ? 'true' : undefined}
         data-scroll-mode={isCopyMode ? undefined : 'true'}

@@ -559,6 +559,60 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       );
       const second = await ctx.page.evaluate(() => window.__opened[1]);
       expect(second.url).toBe('https://example.com/plain');
+
+      // Step 3: a URL longer than the pane wraps onto a second row. Detected
+      // per row it was a link to the first row's fragment and plain text
+      // after that; both rows are one link to the whole address, and the
+      // second row opens it. The path is built so the typed command does not
+      // itself hold the URL.
+      const long = `https://example.com/wrap/${'a'.repeat(200)}?x=1`;
+      await runCommand(
+        ctx.page,
+        `echo "https://example.com/wrap/$(printf 'a%.0s' {1..200})?x=1"`,
+        'aaaa?x=1',
+      );
+      const fragments = await ctx.page.evaluate((href) => {
+        const anchors = [...document.querySelectorAll('.terminal-content a.terminal-autolink')]
+          .filter((a) => a.getAttribute('href') === href)
+          .map((a) => a.getBoundingClientRect());
+        return anchors.map((r) => ({ top: r.top, width: r.width, height: r.height }));
+      }, long);
+      // More than one row, each a visible box, all with the full href.
+      expect(fragments.length).toBeGreaterThan(1);
+      for (const f of fragments) expect(f.width).toBeGreaterThan(0);
+      expect(new Set(fragments.map((f) => Math.round(f.top))).size).toBe(fragments.length);
+
+      // Hovering the first fragment marks every row of the link, not only the
+      // one under the pointer.
+      await ctx.page.keyboard.down(modifier);
+      await delay(DELAYS.SHORT);
+      const firstFragment = ctx.page
+        .locator(`.terminal-content a.terminal-autolink[href="${long}"]`)
+        .first();
+      await firstFragment.hover();
+      const hot = await ctx.page.evaluate(
+        (href) =>
+          [...document.querySelectorAll('.terminal-content a.terminal-autolink')]
+            .filter((a) => a.getAttribute('href') === href)
+            .map((a) => a.classList.contains('terminal-link-hot')),
+        long,
+      );
+      expect(hot.length).toBe(fragments.length);
+      expect(hot.every(Boolean)).toBe(true);
+
+      // The last row opens the whole URL.
+      await ctx.page
+        .locator(`.terminal-content a.terminal-autolink[href="${long}"]`)
+        .last()
+        .click();
+      await ctx.page.keyboard.up(modifier);
+      await waitForCondition(
+        ctx.page,
+        async () => ctx.page.evaluate(() => window.__opened.length === 3),
+        5000,
+        'the wrapped URL to be opened from its last row',
+      );
+      expect(await ctx.page.evaluate(() => window.__opened[2].url)).toBe(long);
     });
 
     // The reported bug: a long underline over unrelated text in Claude Code.

@@ -17,7 +17,7 @@ import type { CellLine, TerminalCell, CellStyle } from '../domain/wire';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
-import { detectUrls } from '../utils/urlDetect';
+import { detectUrls, sameUrls, type DetectedUrl } from '../utils/urlDetect';
 import { openExternalUrl, safeHref } from '../utils/openUrl';
 
 /**
@@ -108,10 +108,16 @@ export interface TerminalLineProps {
    * command as one line and copying it broken at the pane's width.
    */
   wrapped?: boolean;
+  /**
+   * The row's auto-detected URLs when the parent detected them over the
+   * logical line (`detectUrlsAcrossRows`), so a URL that wraps links every
+   * row it covers to the whole address. Absent, the row detects its own.
+   */
+  autoUrls?: DetectedUrl[];
 }
 
 export const TerminalLine = memo(
-  function TerminalLine({ line, selectionRange, wrapped }: TerminalLineProps) {
+  function TerminalLine({ line, selectionRange, wrapped, autoUrls: rowUrls }: TerminalLineProps) {
     // How wide a symbol really is can only be measured against the font the
     // page ends up using, and at first paint that is not yet the one it will
     // settle on. The measurement cache says when it has changed its mind; a
@@ -138,8 +144,8 @@ export const TerminalLine = memo(
         offsets[i] = text.length;
         text += line[i].c;
       }
-      return { autoUrls: detectUrls(text), cellOffsets: offsets };
-    }, [line]);
+      return { autoUrls: rowUrls ?? detectUrls(text), cellOffsets: offsets };
+    }, [line, rowUrls]);
 
     const urlIdx = useCallback(
       (i: number): number => {
@@ -345,6 +351,18 @@ export const TerminalLine = memo(
     // `data-wrapped` is what the copy path reads, so a row that stops (or
     // starts) wrapping has to redraw even when its cells are untouched.
     if (prevProps.wrapped !== nextProps.wrapped) return false;
+
+    // A neighbour's change can alter this row's links (the URL it continues).
+    if (
+      prevProps.autoUrls !== nextProps.autoUrls &&
+      !(
+        prevProps.autoUrls &&
+        nextProps.autoUrls &&
+        sameUrls(prevProps.autoUrls, nextProps.autoUrls)
+      )
+    ) {
+      return false;
+    }
 
     // Re-render if selection range changed
     const prevSel = prevProps.selectionRange;
