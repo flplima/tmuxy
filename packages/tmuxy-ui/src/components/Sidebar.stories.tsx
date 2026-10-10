@@ -434,7 +434,11 @@ function rightClick(el: HTMLElement): void {
 const menuLabels = (): string[] =>
   [...document.querySelectorAll('[role="menuitem"]')].map((n) => n.textContent ?? '');
 
+// Nightly while quarantined for `probe-timeout` (scripts/probe-quarantine.json):
+// a story that is going to sit at the per-story deadline costs the commit
+// probe two minutes a push and gates nothing there.
 export const RightClickContextMenus: Story = {
+  tags: ['nightly'],
   args: {
     height: 500,
     initCommands: ['rename-window one', 'new-window', 'rename-window two', 'split-window -h'],

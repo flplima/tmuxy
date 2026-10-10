@@ -1,10 +1,14 @@
 name: lint and tests
 
 on:
+  # A change to prose alone runs nothing: no test reads docs/ or a README,
+  # and main has no required check that a skipped run would leave pending.
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
   # Callable as a job, so another workflow can make a real `needs:` dependency
   # on this suite. `Build App` calls it on the TAG ref: the artifacts that
   # become a release are then gated on the same tests, for the same ref —

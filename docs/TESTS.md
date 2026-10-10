@@ -100,6 +100,10 @@ Not every E2E test earns a runner on every push. A test whose logic a cheaper la
 
 So the tag is the one source of truth: adding it to a test moves it out of the push and into the nightly and the release gate; nothing else needs listing. The per-commit matrix is still the one that fails a push, and a test in it is one the push cannot do without — moving a test to the nightly tier is a claim that a cheaper layer covers its logic, and the test's doc comment should name that layer. A test that only matters for packaging or a deployment shape (a reverse proxy, a sparse launchd `PATH`) belongs in the nightly tier too: the tag build runs it before anything ships.
 
+The same tag works for stories (`tags: ['nightly']` on a story), where the per-commit probe leaves them out and the nightly `deterministic` job runs them. A quarantined story that fails by **timing out** belongs there as well while it is quarantined: it sits at the per-story deadline on every push and gates nothing, so the minutes it costs are better spent nightly.
+
+A push that changes only prose — `docs/**` or any `*.md` — runs no workflow at all (`paths-ignore` on `lint-and-tests.yml`). Nothing in the suite reads those files, and `main` has no required check that a skipped run could leave pending.
+
 ## Core Principle: Test What the User Sees
 
 A test passes when a real user would say "this works." A test that checks internal state while the feature is visually broken is worse than no test — it creates false confidence.

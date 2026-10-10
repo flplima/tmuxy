@@ -22,12 +22,12 @@
     {
       "name": "3-rendering-a",
       "path": "tests/3-rendering-protocols.test.js",
-      "filter": "(Scenario (14|16|16b)|Category 11):"
+      "filter": "(Scenario (16|16b)|Category 11):"
     },
     {
       "name": "3-rendering-b",
       "path": "tests/3-rendering-protocols.test.js",
-      "filter": "(?!(Scenario (14|16|16b)|Category 11):)"
+      "filter": "(?!(Scenario (16|16b)|Category 11):)"
     },
     { "name": "4-session", "path": "tests/4-session-connectivity.test.js" },
     { "name": "5-stress", "path": "tests/5-stress-stability.test.js" },
