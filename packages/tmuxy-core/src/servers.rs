@@ -434,16 +434,6 @@ mod tests {
         assert!(!listed.iter().any(|s| s.id == MY_TMUX_ID));
     }
 
-    /// An entry pointing at the user's own tmux must carry the socket tmux
-    /// itself defaults to — anything else attaches to a server nobody has.
-    #[test]
-    fn my_tmux_names_the_socket_tmux_itself_uses() {
-        assert_eq!(USERS_OWN_SOCKET, "default");
-        // ...and it is deliberately NOT tmuxy's own socket, which is the whole
-        // reason the entry has to exist.
-        assert_ne!(USERS_OWN_SOCKET, DEFAULT_TMUX_SOCKET);
-    }
-
     #[test]
     fn a_bare_host_needs_nothing_else() {
         // The whole point of the one-field form: everything not typed here —

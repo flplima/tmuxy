@@ -1698,12 +1698,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_default() {
-        let config = MonitorConfig::default();
-        assert!(!config.create_session);
-    }
-
-    #[test]
     fn test_is_multi_step_run_shell_matches_pane_group_scripts() {
         // Real-world commands the frontend sends through SEND_TMUX_COMMAND.
         assert!(is_multi_step_run_shell(

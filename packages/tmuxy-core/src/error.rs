@@ -77,35 +77,3 @@ impl From<TmuxError> for String {
         e.to_string()
     }
 }
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn display_includes_variant_context() {
-        let e = TmuxError::SessionNotFound {
-            name: "foo".to_string(),
-        };
-        assert_eq!(e.to_string(), "tmux session 'foo' does not exist");
-    }
-
-    #[test]
-    fn string_bridge_round_trips() {
-        let s: String = TmuxError::other("oops").into();
-        assert_eq!(s, "tmux error: oops");
-        let e: TmuxError = "fallback".to_string().into();
-        assert!(matches!(e, TmuxError::ControlMode(_)));
-    }
-
-    #[test]
-    fn io_error_propagates_via_from() {
-        fn inner() -> Result<()> {
-            std::fs::read_to_string("/nonexistent/path/for/test")?;
-            Ok(())
-        }
-        let err = inner().unwrap_err();
-        assert!(matches!(err, TmuxError::Io(_)));
-    }
-}

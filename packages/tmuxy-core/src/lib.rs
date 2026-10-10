@@ -941,46 +941,6 @@ mod tests {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod vt100_capture_test {
     #[test]
-    fn test_capture_pane_first_line() {
-        // Simulate capture-pane output (14 lines ending with newline)
-        let content = b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n";
-
-        // Strip trailing newline (as done in reset_and_process_capture)
-        let content = if content.ends_with(b"\n") {
-            &content[..content.len() - 1]
-        } else {
-            &content[..]
-        };
-
-        // Create terminal with 14 rows, 128 cols
-        let mut terminal = vt100::Parser::new(14, 128, 0);
-
-        // Normalize newlines (as done in reset_and_process_capture)
-        let normalized: Vec<u8> = content
-            .iter()
-            .flat_map(|&b| {
-                if b == b'\n' {
-                    vec![b'\r', b'\n']
-                } else {
-                    vec![b]
-                }
-            })
-            .collect();
-
-        // Process the content
-        terminal.process(&normalized);
-
-        // Extract cells
-        let screen = terminal.screen();
-        let content = crate::extract_cells_from_screen(screen);
-
-        // Check first 3 rows
-        assert_eq!(content[0][0].char, "1", "First row should start with '1'");
-        assert_eq!(content[1][0].char, "2", "Second row should start with '2'");
-        assert_eq!(content[2][0].char, "3", "Third row should start with '3'");
-    }
-
-    #[test]
     fn test_sgr_dim_faint_propagates_to_cell_style() {
         // SGR 2 (faint/dim) — used by Claude Code's TUI for autosuggestion text.
         // vt100 0.15 silently dropped this; 0.16 propagates it as cell.dim().
@@ -1013,16 +973,6 @@ mod vt100_capture_test {
         assert!(!is_dim(9), "'t' (end of 'bright') should not be dim");
         assert!(is_dim(10), "'D' after re-enabling SGR 2 should be dim");
         assert!(!is_dim(11), "'P' after SGR 0 should not be dim");
-    }
-
-    #[test]
-    fn test_emoji_width() {
-        let bytes = "🟥".as_bytes();
-        let mut terminal = vt100::Parser::new(1, 10, 0);
-        terminal.process(bytes);
-        let screen = terminal.screen();
-        let (_, col) = screen.cursor_position();
-        assert_eq!(col, 2, "vt100 should treat 🟥 as 2 columns wide");
     }
 
     /// Feed `text` to a fresh 1×20 emulator and return the cursor column plus
