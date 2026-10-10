@@ -1366,11 +1366,22 @@ describe('Scenario 5: Pane Groups', () => {
     if (ctx.skipIfNotReady()) return;
     const activePane = () =>
       ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId || null);
-    // A click on a group tab has landed once that tab is drawn as the active one.
+    // The client and tmux agree on which pane holds the keyboard: the
+    // client's switch is optimistic, so until tmux reports the same pane the
+    // swap is still in flight, and a group operation sent meanwhile lands on
+    // a window mid-change.
+    const tmuxActivePane = () =>
+      String(
+        ctx.session.runCommand(`display-message -p -t ${ctx.session.name} '#{pane_id}'`),
+      ).trim();
+    const switchSettled = async () => (await activePane()) === tmuxActivePane();
+    // A click on a group tab has landed once that tab is drawn as the active
+    // one and tmux has caught up.
     const waitForActiveGroupTab = (idx) =>
       waitForCondition(
         ctx.page,
-        async () => (await getGroupTabInfo(ctx.page))[idx]?.active === true,
+        async () =>
+          (await getGroupTabInfo(ctx.page))[idx]?.active === true && (await switchSettled()),
         8000,
         `group tab ${idx} to become the active one`,
       );
@@ -1536,7 +1547,7 @@ describe('Scenario 5: Pane Groups', () => {
     await clickGroupTab(ctx.page, otherIdx);
     await waitForCondition(
       ctx.page,
-      async () => (await activePane()) === betaPaneId,
+      async () => (await activePane()) === betaPaneId && (await switchSettled()),
       8000,
       'BETA to take the keyboard back',
     );
@@ -1558,7 +1569,8 @@ describe('Scenario 5: Pane Groups', () => {
     // Step 9a: Record GAMMA pane ID (the newly added 3rd tab, which is now active)
     await waitForCondition(
       ctx.page,
-      async () => ![alphaPaneId, betaPaneId, null].includes(await activePane()),
+      async () =>
+        ![alphaPaneId, betaPaneId, null].includes(await activePane()) && (await switchSettled()),
       8000,
       'the third member to take the keyboard',
     );
