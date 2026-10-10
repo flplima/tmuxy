@@ -94,13 +94,39 @@ async function stopRecording(page) {
   });
 }
 
-/** Two fingers sliding left (content follows: the next tab comes in from the right). */
+/**
+ * Two fingers sliding left (content follows: the next tab comes in from the
+ * right). The steps are dispatched from inside the page on a timer, so their
+ * cadence is the trackpad's and not the test runner's: a wheel sent through
+ * the driver arrives whenever the round trip lets it, and on a slow runner
+ * the gaps grew past the silence the client reads as the fingers lifting.
+ */
 async function slide(page, x, y, { steps = 14, step = 36, every = 16, direction = 1 } = {}) {
   await page.mouse.move(x, y);
-  for (let i = 0; i < steps; i++) {
-    await page.mouse.wheel(direction * step, 0);
-    await delay(every);
-  }
+  await page.evaluate(
+    ({ x, y, steps, step, every, direction }) =>
+      new Promise((resolve) => {
+        const target = document.elementFromPoint(x, y) ?? document.body;
+        let sent = 0;
+        const tick = () => {
+          target.dispatchEvent(
+            new WheelEvent('wheel', {
+              deltaX: direction * step,
+              deltaY: 0,
+              deltaMode: 0,
+              clientX: x,
+              clientY: y,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          if (++sent < steps) setTimeout(tick, every);
+          else resolve();
+        };
+        tick();
+      }),
+    { x, y, steps, step, every, direction },
+  );
 }
 
 describe('Trackpad: a two-finger slide switches tabs', () => {
