@@ -17,8 +17,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
       - name: Build demo
         run: npm run build -w tmuxy-demo
 
@@ -32,8 +31,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
       - name: Vitest
         run: npm test -- --run
 
@@ -47,7 +45,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
       - name: CLI suite
         run: npm run test:cli

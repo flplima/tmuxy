@@ -66,8 +66,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
 
       - name: Build frontend
         run: npm run build -w tmuxy-ui
@@ -259,16 +258,16 @@ jobs:
 
       # No Rust toolchain here any more: the release server arrives as an
       # artifact from `build-server`, and nothing else in this job compiles.
+      # The runner image's apt index is used as it is; a refresh is ~10s on
+      # every runner, and only needed when the image's lists have gone stale.
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison fzf neovim
+          sudo apt-get install -y --no-install-recommends fzf neovim \
+            || { sudo apt-get update && sudo apt-get install -y --no-install-recommends fzf neovim; }
 
       - uses: ./.github/actions/install-tmux
 
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
 
       - uses: ./.github/actions/install-chromium
 
@@ -372,8 +371,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
 
       - uses: ./.github/actions/install-chromium
 
@@ -460,8 +458,7 @@ jobs:
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
 
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
 
       - name: Build tmuxy-wasm
         run: npm run build:wasm
@@ -572,8 +569,7 @@ jobs:
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --version 2.0.6 --locked --force
 
-      - name: Install npm dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-node-modules
 
       - name: Download frontend dist
         uses: actions/download-artifact@v8

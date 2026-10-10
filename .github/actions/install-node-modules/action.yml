@@ -1,0 +1,22 @@
+name: Install node modules
+# The workspace's node_modules trees, restored from a cache keyed by the
+# lockfile; `npm ci` runs only when the lockfile changed. setup-node's own
+# `cache: npm` keeps the tarballs, which still leaves ~20s of unpacking and
+# linking on every job — on sixteen e2e runners a push, that is the single
+# largest piece of setup. Keyed by OS too: the trees hold native binaries.
+runs:
+  using: composite
+  steps:
+    - name: Cache node_modules
+      id: node-modules-cache
+      uses: actions/cache@v6
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+        key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
+
+    - name: Install npm dependencies (cache miss)
+      if: steps.node-modules-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm ci

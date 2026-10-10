@@ -25,11 +25,15 @@ runs:
           /usr/local/share/tmux
         key: ${{ inputs.cache-key-namespace }}-tmux-${{ inputs.version }}-v1
 
+    # The build's own apt dependencies are installed here, on a miss, so a job
+    # that only ever restores the cache pays for no apt index refresh.
     - name: Build tmux ${{ inputs.version }} (cache miss)
       if: steps.tmux-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libevent-dev libncurses-dev bison
         v='${{ inputs.version }}'
         curl -sL "https://github.com/tmux/tmux/releases/download/$v/tmux-$v.tar.gz" | tar xz
         cd "tmux-$v" && ./configure && make -j"$(nproc)" && sudo make install

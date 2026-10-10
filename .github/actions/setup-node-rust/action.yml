@@ -27,7 +27,5 @@ runs:
 
     - uses: swatinem/rust-cache@v2
 
-    - name: Install npm dependencies
+    - uses: ./.github/actions/install-node-modules
       if: inputs.install-npm == 'true'
-      shell: bash
-      run: npm ci

@@ -1,17 +1,20 @@
 name: Install Chromium
 # Playwright's Chromium, with its browser download cached. The download is
-# ~130MB and identical for one lockfile; only the apt side of `--with-deps`
-# still happens on a cache hit.
+# ~130MB and identical for one lockfile. The apt side of `--with-deps` is
+# only run on a miss: the GitHub runner image ships Google Chrome, so the
+# shared libraries Chromium loads are already there, and the ~15s index
+# refresh was the whole cost of this action on a hit.
 runs:
   using: composite
   steps:
     - name: Cache Playwright browsers
+      id: playwright-cache
       uses: actions/cache@v6
       with:
         path: ~/.cache/ms-playwright
         key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-        restore-keys: ${{ runner.os }}-playwright-
 
-    - name: Install Chromium
+    - name: Install Chromium (cache miss)
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
       shell: bash
       run: npx playwright install chromium --with-deps
