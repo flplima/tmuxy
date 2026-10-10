@@ -46,17 +46,22 @@ const TIERS = {
   all: () => true,
 };
 
+/** Storybook's index: every entry by id, with its tags. */
+export async function fetchStoryIndex(storybookUrl) {
+  const res = await fetch(`${storybookUrl}/index.json`);
+  if (!res.ok) throw new Error(`storybook /index.json: ${res.status}`);
+  return (await res.json()).entries;
+}
+
 export async function fetchStoryIds({ storybookUrl, filters, v86, tier = 'all' }) {
   const inTier = TIERS[tier];
   if (!inTier)
     throw new Error(
       `unknown tier ${JSON.stringify(tier)}; one of ${Object.keys(TIERS).join(', ')}`,
     );
-  const res = await fetch(`${storybookUrl}/index.json`);
-  if (!res.ok) throw new Error(`storybook /index.json: ${res.status}`);
-  const json = await res.json();
-  const ids = Object.keys(json.entries).filter((id) => {
-    const entry = json.entries[id];
+  const entries = await fetchStoryIndex(storybookUrl);
+  const ids = Object.keys(entries).filter((id) => {
+    const entry = entries[id];
     const tags = entry.tags ?? [];
     return entry.type === 'story' && tags.includes('v86') === v86 && inTier(tags);
   });

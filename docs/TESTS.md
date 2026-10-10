@@ -163,6 +163,16 @@ A float pane test should, in a single test:
 
 Do not write five separate tests for these steps. The value is in the chain.
 
+## Does This Test Earn Its Place?
+
+Three questions for a new test, and for any test you touch; a "yes" to any one of them is a test to delete or fold into its neighbour. Sixty cases went in one pass once these were asked, and none had ever caught a tmuxy bug.
+
+1. **Could it fail only if a dependency changed?** A test of `thiserror`'s `Display`, of `vt100` measuring an emoji, of Effect's `catchTags`, of a derived `Default` — tests the library, not the product.
+2. **Is there another test in the file that fails for the same reason?** Every `-h` row beside its `--help` row; six copy-pasted direction tests that differ in one string; a "renders the container" test before a test that renders the container and then checks its contents. Tables and `test.each` are for the rows that differ in data, not for repeating a row.
+3. **Does it assert something the code never does?** A hook that never sends an event, asserted not to send it; a store rejection whose error type is never checked; a test helper tested instead of the thing it stands in for. These pass forever and say nothing.
+
+The matching rule for waits: a wait names the **event** it expects, never a count of events or a state derived from one. A count is satisfied by a late report of the previous event; an optimistic client state is set before anything happened; tmux's current pane during a group swap is whichever window the swap is passing through. Where no settled signal exists, a fixed wait with a comment saying why is the honest choice, and `BLIND_WAIT_CEILING` in `bin/check-repo-policy.mjs` exists to make it explicit, not to be ratcheted to zero.
+
 ## Assertions That Catch Real Bugs
 
 For every assertion, ask: **"What bug would make this assertion fail?"** If you cannot name a specific, plausible bug, the assertion is not useful.
@@ -302,7 +312,7 @@ The `v86` tier needs two gitignored artifact sets that Storybook mounts as stati
 
 **Seeing the raw tmux TUI.** The toolbar's "tmux view" global (`.storybook/preview.ts`, decorator in `src/stories/tmuxView.tsx`) attaches a second, read-only tmux client on the guest's VGA console and shows v86's rendering of it — tmux drawing its own borders, status line and cursor, no tmuxy code involved — either beside the story or as a cell-aligned translucent overlay. It applies to the shared-engine `Scenarios/Application` stories; use it to eyeball what tmux thinks the screen looks like versus what tmuxy rendered.
 
-Both probes expect a running Storybook (`npm run storybook -w tmuxy-ui`). CI runs the **dev** server (no build step needed; on-demand compilation). Filter either probe to specific stories by id substring: `npm run test-storybook:v86 -w tmuxy-ui -- split-optimistic resize-pane-drag`. Set `PROBE_TIMINGS_JSON=<path>` to write per-story timings.
+Both probes expect a running Storybook (`npm run storybook -w tmuxy-ui`). CI runs the **dev** server (no build step needed; on-demand compilation). Filter either probe to specific stories by id substring: `npm run test-storybook:v86 -w tmuxy-ui -- split-optimistic resize-pane-drag`. Set `PROBE_TIMINGS_JSON=<path>` to write per-story timings. The fonts a story's wide-glyph checks depend on are `bin/chromium-fonts` — the list CI installs and `bin/install-dev-tools` installs in a container, so the two measure a CJK or emoji cell the same way; a host without them sees every fullwidth glyph as a narrow fallback and fails those stories for a reason that has nothing to do with the code.
 
 ### When the probe goes red
 
@@ -311,6 +321,8 @@ The probe used to report `playFunctionThrewException` and nothing else, which is
 To reproduce a CI failure locally, the knobs are `PROBE_REPEAT`, `PROBE_CONCURRENCY`, `PROBE_CPU_THROTTLE` (renderer throttling — a loaded runner is usually what a "flaky" story is actually reacting to) and `PROBE_A11Y=0`.
 
 **Quarantine** (`packages/tmuxy-ui/scripts/probe-quarantine.json`) is the one way a known failure stops gating, and it is deliberately hard to abuse: every entry needs a reason and a `YYYY-MM-DD` expiry, after which it blocks again; there is a hard cap on how many entries may exist; and a malformed or over-cap file makes the probe exit without running anything. A quarantined story still runs and is still reported — it just does not fail the job, and it is listed as ready to remove once it passes.
+
+A quarantined story that fails by **timing out** is the one kind quarantine must not hide: it sits at the per-story deadline on every push, reports nothing new, and once cost the commit probe two minutes a run for weeks before anyone looked. Its entry carries `failure: "probe-timeout"`, and the story must then also carry the `nightly` tag — the commit-tier probe refuses to run otherwise. The probe prints the ten slowest stories of every run, and names any shielded timeout whose entry does not declare it.
 
 ### Accessibility
 
@@ -421,6 +433,8 @@ npm run test:e2e -- --testNamePattern="Scenario 22"
 # Verbose output
 npm run test:e2e -- --verbose
 ```
+
+**Where a run's time went.** Every `lint and tests` run ends with a `timing` job that writes a job, step and test timing table to the run's summary page, and `bin/ci-timing.mjs <run-id>` prints the same for any run. A green run says nothing about what got slower; the table does — a quarantined story at the deadline, a shard twice the size of its sibling and a cache key that stopped hitting were each found this way and invisible from the tick. Look at it before adding a runner or moving a test to the nightly tier: the fix is usually one line in the table.
 
 When CI's E2E or latency job fails, its last step prints the tail of the server log (`/tmp/tmuxy-server.log`). A local suite-started server writes stderr to `/tmp/tmuxy-server-stderr.log`.
 

@@ -642,3 +642,32 @@ jobs:
 
       - name: cargo audit
         run: cargo audit
+
+  # Where the run's time went, on the run's summary page: jobs, steps and the
+  # slowest tests, read back from the logs by bin/ci-timing.mjs. Runs after
+  # everything else whatever their result, and never fails the run itself.
+  timing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: always()
+    needs:
+      [
+        lint,
+        node-checks,
+        macos-tests,
+        rust-tests,
+        e2e,
+        storybook-probe,
+        storybook-v86-probe,
+        desktop,
+        audit,
+      ]
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Timing summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node bin/ci-timing.mjs "$GITHUB_RUN_ID" --summary >> "$GITHUB_STEP_SUMMARY" || true

@@ -44,11 +44,13 @@ import {
   a11yShield as shieldFor,
   loadQuarantine,
   quarantineStatus as statusFor,
+  timeoutsOutOfTier,
 } from './probe-quarantine.mjs';
 import {
   ARTIFACT_DIR,
   SCRIPT_DIR,
   fetchStoryIds,
+  fetchStoryIndex,
   launchChromium,
   parseProbeArgs,
   printFailures,
@@ -329,28 +331,41 @@ async function runPool(items, n, fn) {
     Array.from({ length: n }, async () => {
       while (queue.length) {
         const item = queue.shift();
+        const started = Date.now();
         let result = await withStoryDeadline(fn, item);
         if (isTornContext(result)) {
           process.stdout.write(`  RETRY ${result.id} (storybook reloaded the preview)\n`);
           result = await withStoryDeadline(fn, item);
         }
+        result.seconds = (Date.now() - started) / 1000;
         results.push(result);
         const status = quarantineStatus(result.id);
         const tag = result.ok ? 'PASS' : status.shielded ? 'FLAKY' : 'FAIL';
         const suffix = result.reason ? ` (${result.reason})` : '';
-        process.stdout.write(`  ${tag}  ${result.id}${suffix}\n`);
+        // The duration is what bin/ci-timing.mjs reads back out of the log.
+        process.stdout.write(`  ${tag}  ${result.id}${suffix} (${result.seconds.toFixed(1)}s)\n`);
       }
     }),
   );
   return results;
 }
 
+const TIER = process.env.PROBE_TIER || 'all';
 const allIds = await fetchStoryIds({
   storybookUrl: STORYBOOK_URL,
   filters: FILTERS,
   v86: false,
-  tier: process.env.PROBE_TIER || 'all',
+  tier: TIER,
 });
+if (TIER === 'commit') {
+  const index = await fetchStoryIndex(STORYBOOK_URL);
+  const stuck = timeoutsOutOfTier(quarantine, (id) => index[id]?.tags);
+  if (stuck.length > 0) {
+    console.error('quarantined stories that time out must carry the `nightly` tag:');
+    for (const e of stuck) console.error(`  - ${e.id}`);
+    process.exit(2);
+  }
+}
 // Stride, not contiguous blocks: the index lists a file's stories together,
 // and a file's heavy stories (full AppHarness boots) would otherwise all land
 // in the same slice.
@@ -397,6 +412,21 @@ const shieldNote = (f) => {
 };
 printFailures(blocking, 'failures', shieldNote);
 printFailures(shielded, 'quarantined failures (reported, not blocking)', shieldNote);
+
+const slowest = [...results].sort((a, b) => b.seconds - a.seconds).slice(0, 10);
+console.log('\nslowest stories:');
+for (const r of slowest) console.log(`  ${r.seconds.toFixed(1).padStart(6)}s  ${r.id}`);
+
+// A shielded timeout that the entry does not declare: every run pays the
+// deadline for it until the entry says `failure: "probe-timeout"` and the
+// story is tagged nightly (timeoutsOutOfTier then holds the commit tier to it).
+const undeclared = shielded.filter(
+  (r) => r.reason === 'probe-timeout' && quarantineStatus(r.id).entry.failure !== 'probe-timeout',
+);
+if (undeclared.length > 0) {
+  console.log('\nquarantined stories that timed out — mark the entry `failure: "probe-timeout"`:');
+  for (const r of undeclared) console.log(`  - ${r.id}`);
+}
 
 // Every a11y violation is printed, whatever its impact — the ones that gate
 // are already in the failure report above, and the rest are the backlog.

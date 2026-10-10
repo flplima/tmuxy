@@ -47,6 +47,12 @@ export function loadQuarantine(path) {
     const where = `entry ${JSON.stringify(entry.id ?? '(no id)')}`;
     if (typeof entry.id !== 'string' || entry.id === '') problems.push(`${where}: missing id`);
     checkDated(entry, where);
+    // A story that fails by TIMING OUT costs the whole per-story deadline on
+    // every run while reporting nothing new; the entry says so, and the probe
+    // keeps such a story out of the per-commit tier (see timeoutsOutOfTier).
+    if (entry.failure !== undefined && entry.failure !== 'probe-timeout') {
+      problems.push(`${where}: failure must be "probe-timeout" when present`);
+    }
     if (byId.has(entry.id)) problems.push(`${where}: listed twice`);
     byId.set(entry.id, entry);
   }
@@ -85,6 +91,18 @@ export function loadQuarantine(path) {
   }
   const today = new Date().toISOString().slice(0, 10);
   return { byId, a11y, today, max };
+}
+
+/**
+ * The quarantined stories that time out and are still in the per-commit
+ * tier — each one is two minutes of a push spent on a story that gates
+ * nothing there. `tagsOf(id)` is the story's tags from Storybook's index.
+ * Tagging the story `nightly` is the fix; the probe refuses to run until then.
+ */
+export function timeoutsOutOfTier(quarantine, tagsOf) {
+  return [...quarantine.byId.values()].filter(
+    (e) => e.failure === 'probe-timeout' && !(tagsOf(e.id) ?? []).includes('nightly'),
+  );
 }
 
 /** Whether a failure of `id` is shielded right now, and why it is or is not. */

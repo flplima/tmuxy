@@ -37,14 +37,17 @@ fi
 echo "[dev-tools] apt packages"
 # fzf and neovim are driven BY the tests (the float fzf round trip, the nvim
 # performance suite); jq reads the NDJSON trace; zstd unpacks the v86 image;
-# xvfb + webkit2gtk-driver are the Tauri E2E display and driver. The CJK face
-# is here because without one headless Chromium measures a fullwidth glyph as a
-# 1-cell fallback box, and the wide-glyph stories assert real cell widths.
+# xvfb + webkit2gtk-driver are the Tauri E2E display and driver. The fonts are
+# bin/chromium-fonts, the list CI's Chromium gets: without the CJK and emoji
+# faces headless Chromium measures a fullwidth glyph as a 1-cell fallback box,
+# and the wide-glyph stories and E2E tests assert real cell widths — the same
+# list here is what makes a container pass match a CI pass.
 $SUDO apt-get update
+# shellcheck disable=SC2046
 $SUDO apt-get install -y --no-install-recommends \
     jq zstd fzf neovim \
-    fonts-wqy-zenhei \
-    xvfb x11-utils webkit2gtk-driver
+    xvfb x11-utils webkit2gtk-driver \
+    $(cat "$(dirname "$0")/chromium-fonts")
 
 # Prebuilt binaries where there is one: `cargo install` from source costs
 # minutes per tool on a cold machine, and these are all published as releases.

@@ -23,12 +23,13 @@ runs:
       shell: bash
       run: npx playwright install chromium --with-deps
 
-    # The font list is the one Playwright's own install-deps uses for
-    # Chromium (playwright-core's nativeDeps).
+    # bin/chromium-fonts is the list Playwright's own install-deps uses for
+    # Chromium; bin/install-dev-tools installs the same one, so a container
+    # and a runner measure a wide glyph the same way.
     - name: Install the fonts Chromium renders with (cache hit)
       if: steps.playwright-cache.outputs.cache-hit == 'true'
       shell: bash
       run: |
-        fonts='fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei xfonts-cyrillic xfonts-scalable'
+        fonts="$(cat bin/chromium-fonts)"
         sudo apt-get install -y --no-install-recommends $fonts \
           || { sudo apt-get update && sudo apt-get install -y --no-install-recommends $fonts; }
