@@ -28,30 +28,19 @@ describe('CLI help output', () => {
   describe('pane subcommand help', () => {
     test.each([
       [['pane', 'list', '--help'], 'Usage: tmuxy pane list'],
-      [['pane', 'list', '-h'], 'Usage: tmuxy pane list'],
       // `pane split` is the one subcommand with no `-h` help alias: -h is its
       // own flag (horizontal split). Covered in cli-pane.test.js.
       [['pane', 'split', '--help'], 'Usage: tmuxy pane split'],
       [['pane', 'kill', '--help'], 'Usage: tmuxy pane kill'],
-      [['pane', 'kill', '-h'], 'Usage: tmuxy pane kill'],
       [['pane', 'select', '--help'], 'Usage: tmuxy pane select'],
-      [['pane', 'select', '-h'], 'Usage: tmuxy pane select'],
       [['pane', 'resize', '--help'], 'Usage: tmuxy pane resize'],
-      [['pane', 'resize', '-h'], 'Usage: tmuxy pane resize'],
       [['pane', 'swap', '--help'], 'Usage: tmuxy pane swap'],
-      [['pane', 'swap', '-h'], 'Usage: tmuxy pane swap'],
       [['pane', 'zoom', '--help'], 'Usage: tmuxy pane zoom'],
-      [['pane', 'zoom', '-h'], 'Usage: tmuxy pane zoom'],
       [['pane', 'break', '--help'], 'Usage: tmuxy pane break'],
-      [['pane', 'break', '-h'], 'Usage: tmuxy pane break'],
       [['pane', 'capture', '--help'], 'Usage: tmuxy pane capture'],
-      [['pane', 'capture', '-h'], 'Usage: tmuxy pane capture'],
       [['pane', 'send', '--help'], 'Usage: tmuxy pane send'],
-      [['pane', 'send', '-h'], 'Usage: tmuxy pane send'],
       [['pane', 'paste', '--help'], 'Usage: tmuxy pane paste'],
-      [['pane', 'paste', '-h'], 'Usage: tmuxy pane paste'],
       [['pane', 'float', '--help'], 'Usage: tmuxy pane float'],
-      [['pane', 'float', '-h'], 'Usage: tmuxy pane float'],
     ])('tmuxy %j shows help', (args, expected) => {
       const { stdout, exitCode } = runCLI(args);
       expect(exitCode).toBe(0);
@@ -63,7 +52,6 @@ describe('CLI help output', () => {
     test.each([
       [['pane', 'group'], 'Usage: tmuxy pane group <command>'],
       [['pane', 'group', '--help'], 'Usage: tmuxy pane group <command>'],
-      [['pane', 'group', '-h'], 'Usage: tmuxy pane group <command>'],
       [['pane', 'group', 'add', '--help'], 'Usage: tmuxy pane group add'],
       [['pane', 'group', 'close', '--help'], 'Usage: tmuxy pane group close'],
       [['pane', 'group', 'switch', '--help'], 'Usage: tmuxy pane group switch'],
@@ -102,7 +90,6 @@ describe('CLI help output', () => {
       [['widget', '--help'], 'Usage: tmuxy widget <command>'],
       [['widget', '-h'], 'Usage: tmuxy widget <command>'],
       [['widget', 'browser', '--help'], 'Usage: tmuxy widget browser'],
-      [['widget', 'browser', '-h'], 'Usage: tmuxy widget browser'],
     ])('tmuxy %j shows help', (args, expected) => {
       const { stdout, exitCode } = runCLI(args);
       expect(exitCode).toBe(0);

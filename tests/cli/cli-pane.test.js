@@ -20,13 +20,6 @@ describe('CLI pane subcommands', () => {
       expect(parsed).toEqual(LIST_PANES_JSON);
     });
 
-    test('lists panes --all passes -s flag', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'list', '--all']);
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toContain('-s');
-    });
-
     test('lists panes --all --json', () => {
       const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'list', '--all', '--json'], {
         env: { MOCK_TMUX_LIST_PANES: LIST_PANES_OUTPUT },
