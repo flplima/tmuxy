@@ -43,6 +43,7 @@ const {
   firstLevelRows,
   waitForShellPrompt,
   waitForLayoutSettled,
+  afterFrames,
   showsShellPrompt,
   waitForCondition,
   DELAYS,
@@ -119,9 +120,8 @@ async function openFloatFromCli(ctx) {
   await pressEnter(ctx.page);
   // Extended timeout for the CLI → run-shell → control mode chain.
   await waitForFloatModal(ctx.page, 20000);
-  // float-create.sh routes its tmux commands through run-shell, synchronously,
-  // so it finishes shortly after the modal appears and the prompt returns.
-  await delay(DELAYS.SYNC);
+  // float-create.sh's last step focuses the float, which is what the wait
+  // below holds out for — not a fixed beat after the modal appears.
   await verifyFloatVisible(ctx.page);
   await waitForCondition(
     ctx.page,
@@ -720,11 +720,21 @@ describe('Scenario 4f: Collapsible panes', () => {
     await waitForPaneCount(page, 4);
     const before = await rows();
     expect(before.length).toBe(3);
-    await navigatePaneKeyboard(page, 'left');
-    await delay(DELAYS.SYNC);
-    await navigatePaneKeyboard(page, 'right');
-    await delay(DELAYS.SYNC);
-    expect(await rows()).toEqual(before);
+    // Each move has landed when the active pane changed; the first level must
+    // not have moved with it.
+    const active = () => page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId);
+    for (const direction of ['left', 'right']) {
+      const from = await active();
+      await navigatePaneKeyboard(page, direction);
+      await waitForCondition(
+        page,
+        async () => (await active()) !== from,
+        8000,
+        `the move ${direction} to change the active pane`,
+      );
+      await waitForLayoutSettled(page);
+      expect(await rows()).toEqual(before);
+    }
 
     // Step 3: moving up into a collapsed row expands it and collapses the
     // row that held the nested pair.
@@ -824,7 +834,13 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
       8000,
       'tmux to report the window zoomed',
     );
-    await delay(DELAYS.LONG);
+    // The other panes fade out by CSS transition: read them once it is done.
+    await waitForCondition(
+      ctx.page,
+      async () => (await visiblePanes()).filter((p) => p.opacity > 0.99).length === 1,
+      5000,
+      'the zoom to leave one pane shown',
+    );
 
     const zoomed = await visiblePanes();
     const shown = zoomed.filter((p) => p.opacity > 0.99);
@@ -843,7 +859,12 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
       8000,
       'tmux to report the window un-zoomed',
     );
-    await delay(DELAYS.LONG);
+    await waitForCondition(
+      ctx.page,
+      async () => (await visiblePanes()).filter((p) => p.opacity > 0.99).length === 4,
+      5000,
+      'the un-zoom to show all four panes again',
+    );
     const restored = await visiblePanes();
     expect(restored.filter((p) => p.opacity > 0.99).length).toBe(4);
     await assertLayoutInvariants(ctx.page);
@@ -1513,10 +1534,12 @@ describe('Scenario 5: Pane Groups', () => {
     const betaIdx = tabs.findIndex((t) => t.active); // currently on ALPHA's tab
     const otherIdx = betaIdx === 0 ? 1 : 0;
     await clickGroupTab(ctx.page, otherIdx);
-    await delay(DELAYS.SYNC);
-
-    const afterSwitch2Id = await activePane();
-    expect(afterSwitch2Id).toBe(betaPaneId);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activePane()) === betaPaneId,
+      8000,
+      async () => `the switch back to make BETA active (active: ${await activePane()})`,
+    );
 
     // Step 8: Verify tab highlight matches active pane
     const tabsAfterSwitch = await getGroupTabInfo(ctx.page);
@@ -1530,11 +1553,16 @@ describe('Scenario 5: Pane Groups', () => {
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
     // Step 9a: Record GAMMA pane ID (the newly added 3rd tab, which is now active)
-    await delay(DELAYS.SYNC);
-    const gammaPaneId = await activePane();
-    expect(gammaPaneId).not.toBeNull();
-    expect(gammaPaneId).not.toBe(alphaPaneId);
-    expect(gammaPaneId).not.toBe(betaPaneId);
+    let gammaPaneId = null;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        gammaPaneId = await activePane();
+        return gammaPaneId !== null && gammaPaneId !== alphaPaneId && gammaPaneId !== betaPaneId;
+      },
+      8000,
+      'the new third tab to become the active pane',
+    );
 
     // Step 9b: Switch to first tab (ALPHA) with 3 tabs — this is the scenario
     // that triggers the bug where a pane escapes the group window when the
@@ -1542,7 +1570,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const firstInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, firstInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForLayoutSettled(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1550,7 +1578,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const secondInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, secondInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForLayoutSettled(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1558,7 +1586,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const thirdInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, thirdInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForLayoutSettled(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -2031,11 +2059,21 @@ describe('Scenario 6f: Float Tab Scope', () => {
   }
 
   /** Click whichever tab button is not the active one. */
+  /** Click the inactive tab, and resolve once the app is on its window. */
   async function clickOtherTab(page) {
+    const activeWindow = () =>
+      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+    const from = await activeWindow();
     for (const tab of await tabButtons(page)) {
       const active = await tab.evaluate((el) => el.classList.contains('tab-name-active'));
       if (!active) {
         await tab.click();
+        await waitForCondition(
+          page,
+          async () => (await activeWindow()) !== from,
+          8000,
+          'the tab click to switch the active window',
+        );
         return;
       }
     }
@@ -2051,7 +2089,6 @@ describe('Scenario 6f: Float Tab Scope', () => {
     await createWindowKeyboard(ctx.page);
     await waitForWindowCount(ctx.page, 2, 10000);
     await clickOtherTab(ctx.page);
-    await delay(DELAYS.SYNC);
     const homeWindowId = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.activeWindowId,
     );
@@ -2060,8 +2097,15 @@ describe('Scenario 6f: Float Tab Scope', () => {
     await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
     await pressEnter(ctx.page);
     await waitForFloatModal(ctx.page, 20000);
-    await delay(DELAYS.SYNC);
     await verifyFloatVisible(ctx.page);
+    // The float is opened and focused by one script; it is up when the app
+    // holds it as the focused float.
+    await waitForCondition(
+      ctx.page,
+      () => ctx.page.evaluate(() => !!window.app?.getSnapshot()?.context?.focusedFloatPaneId),
+      10000,
+      'the new float to take focus',
+    );
 
     const floatPaneId = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
@@ -2730,7 +2774,7 @@ describe('Scenario 24: Tab Switch No Blink', () => {
     // Create a second window so we have two tabs to switch between
     await createWindowKeyboard(ctx.page);
     await waitForWindowCount(ctx.page, 2);
-    await delay(DELAYS.SYNC);
+    await waitForLayoutSettled(ctx.page);
 
     // Install a MutationObserver inside the page that records, for each
     // observed mutation on .tab-name elements, the ordered list of tab ids
@@ -2984,7 +3028,6 @@ describe('Scenario 22: Float fzf Workflow', () => {
       await delay(30);
     }
     await ctx.page.keyboard.press('Enter');
-    await delay(DELAYS.SYNC);
 
     // Verify typed text in float's DOM
     await waitForCondition(
@@ -3011,9 +3054,9 @@ describe('Scenario 22: Float fzf Workflow', () => {
       await delay(30);
     }
     await ctx.page.keyboard.press('Enter');
-    await delay(DELAYS.SYNC);
 
-    // Verify fzf result in float DOM — fzf --select-1 prints the match to stdout
+    // Verify fzf result in float DOM — fzf --select-1 prints the match to stdout,
+    // on a row of its own: the typed command line carries the marker too.
     await waitForCondition(
       ctx.page,
       async () => {
@@ -3022,8 +3065,10 @@ describe('Scenario 22: Float fzf Workflow', () => {
             document.querySelector('.float-container') ||
             document.querySelector('.modal-container');
           if (!fc) return false;
-          const log = fc.querySelector('[role="log"]');
-          return log?.textContent?.includes(marker) || false;
+          return [...fc.querySelectorAll('[role="log"] .terminal-line')].some((row) => {
+            const text = row.textContent || '';
+            return text.includes(marker) && !text.includes('fzf');
+          });
         }, FZF_MARKER);
       },
       15000,
@@ -3406,7 +3451,9 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       'dock focused after a click',
     );
     await ctx.page.keyboard.press('Escape');
-    await delay(DELAYS.MEDIUM);
+    // The key is handled in the page: had Escape moved the focus, it would
+    // show within a frame or two.
+    await afterFrames(ctx.page);
     const stillFocusedAfterEscape = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.rightSidebarFocused,
     );
@@ -3505,8 +3552,8 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     // the line editor in command mode, where `exit` would not be typed. Ctrl+C
     // aborts the line and starts a fresh one in insert mode under either keymap.
     await ctx.page.click('[data-testid="sidebar-title-right"] .sidebar-title-text');
+    // Keys reach the shell in the order pressed; no beat between them.
     await ctx.page.keyboard.press('Control+c');
-    await delay(DELAYS.SHORT);
     await ctx.page.keyboard.type('exit');
     await ctx.page.keyboard.press('Enter');
     await ctx.page.waitForFunction(
@@ -3811,7 +3858,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     // stays open, focus returns to the panes. Escape is deliberately not a
     // sidebar key, so it must leave the focus where it is.
     await ctx.page.keyboard.press('Escape');
-    await delay(DELAYS.MEDIUM);
+    await afterFrames(ctx.page);
     const focusedAfterEscape = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.leftSidebarFocused,
     );
