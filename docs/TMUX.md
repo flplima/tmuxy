@@ -10,13 +10,14 @@ The minimum is **tmux 3.2**. The desktop app and `tmuxy server` run `tmux -V` at
 
 3.2 is the floor because control-mode flow control (`pause-after`) and format subscriptions (`refresh-client -B`) arrived in it, and because it is what Ubuntu 22.04 LTS ships — the oldest system the AppImage catalog tests on. The nightly matrix runs 3.2a alongside 3.4, 3.5a and 3.7a, so the floor is a version something exercises.
 
-What differs on tmux 3.2, and how tmuxy copes:
+What differs on the older supported versions, and how tmuxy copes:
 
-| tmux | Difference                                                                                                                                                                        | tmuxy                                                                                                                                                                                                                                                                                                |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3.2  | No `allow-passthrough` option (passthrough is always on)                                                                                                                          | The monitor sets it with `set -q`, which an older tmux skips silently                                                                                                                                                                                                                                |
-| 3.2  | No `%layout-change` after `swap-pane`                                                                                                                                             | The monitor re-lists the panes behind every swap a client sends                                                                                                                                                                                                                                      |
-| 3.2  | Emoji sequences get different widths: a ZWJ sequence (`👩‍💻`) and an emoji with a skin tone (`👍🏽`) take 4 columns instead of 2, a text symbol with VS16 (`❤️`) takes 1 instead of 2 | **Known limitation.** tmuxy's emulator follows the 3.4+ rules, so on a line holding such a sequence everything after it renders a column or two off tmux's own grid. CJK, single emoji, flags and combining marks agree. See [RICH-RENDERING.md](RICH-RENDERING.md#cell-widths-must-agree-with-tmux) |
+| tmux | Difference                                                                                                                                                                                                          | tmuxy                                                                                                                                                                                                                                                                                                |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.2  | No `allow-passthrough` option (passthrough is always on)                                                                                                                                                            | The monitor sets it with `set -q`, which an older tmux skips silently                                                                                                                                                                                                                                |
+| 3.2  | No `%layout-change` after `swap-pane`                                                                                                                                                                               | The monitor re-lists the panes behind every swap a client sends                                                                                                                                                                                                                                      |
+| 3.2  | Emoji sequences get different widths: a ZWJ sequence (`👩‍💻`) and an emoji with a skin tone (`👍🏽`) take 4 columns instead of 2, a text symbol with VS16 (`❤️`) takes 1 instead of 2                                   | **Known limitation.** tmuxy's emulator follows the 3.4+ rules, so on a line holding such a sequence everything after it renders a column or two off tmux's own grid. CJK, single emoji, flags and combining marks agree. See [RICH-RENDERING.md](RICH-RENDERING.md#cell-widths-must-agree-with-tmux) |
+| 3.4  | `run-shell` output — and a "returned 1" for a command that failed — is shown in `view-mode` on the target pane rather than handed to the calling client; every key typed afterwards goes to the mode, not the shell | The CLI runs every command it sends through `run-shell` with its output and exit status redirected to files, and prints them itself (`_run_shell` in `bin/tmuxy/_lib`), so `run-shell` has nothing to show                                                                                           |
 
 ## Dedicated Server Socket
 
@@ -272,10 +273,11 @@ The pane row therefore asks `#{?#{==:#{pane_mode},copy-mode},1,0}` instead
 (`COPY_MODE_FLAG` in `tmuxy-core/src/constants.rs`). It expands to the same single
 int-like field, so the row parser's positions and its `@window` anchor are unchanged.
 
-This surfaced on **tmux 3.4**, where a freshly created pane comes up in `view-mode`: the
-whole terminal rendered as a 0×0 box from the moment the session opened, on every pane, and
-never recovered. It was not version-specific in principle — `prefix s` on any version could
-do the same — and 3.4 is simply where it was guaranteed. A lockstep test in `constants.rs`
+This surfaced on **tmux 3.4**, where a pane landed in `view-mode` as soon as a CLI command
+sent through `run-shell` printed anything or failed (the version table above): the whole
+terminal rendered as a 0×0 box and never recovered. It was not version-specific in
+principle — `prefix s` on any version could do the same — and 3.4 is simply where it was
+guaranteed. A lockstep test in `constants.rs`
 keeps the format from regressing to the broader field.
 
 ## Pane Titles

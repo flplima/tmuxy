@@ -50,6 +50,22 @@ function withoutPaneResolution(tmuxCalls) {
 }
 
 /**
+ * `_run_shell` (bin/tmuxy/_lib) wraps every run-shell command in the group and
+ * redirects that bring its output and exit status back through files. The
+ * wrapping is the same on every call and carries a temp path, so it is
+ * stripped once here; the tests assert on the command itself.
+ * `cli-run.test.js` asserts the wrapping is there.
+ */
+const RUN_SHELL_WRAP = /^\{ (.*) ; \} >'[^']*\/out' 2>'[^']*\/err'; echo \$\? >'[^']*\/status'$/s;
+
+function withoutRunShellWrap(tmuxCalls) {
+  return tmuxCalls.map((call) => {
+    const match = call.args[0] === 'run-shell' && RUN_SHELL_WRAP.exec(call.args[1] ?? '');
+    return match ? { ...call, args: [call.args[0], match[1], ...call.args.slice(2)] } : call;
+  });
+}
+
+/**
  * Build the environment the CLI runs under: the mock tmux on PATH, a log file
  * for the recorded calls, and any per-test overrides.
  *
@@ -118,7 +134,8 @@ function runCLIFull(args, opts = {}) {
     // No log file or empty — no tmux calls made
   }
   const allCalls = stripSocketArgs(tmuxCalls, opts.env);
-  tmuxCalls = withoutPaneResolution(allCalls);
+  const rawRunShells = allCalls.filter((call) => call.args[0] === 'run-shell');
+  tmuxCalls = withoutRunShellWrap(withoutPaneResolution(allCalls));
   const paneResolution = allCalls.find(isPaneResolution) ?? null;
 
   // Clean up log file
@@ -133,6 +150,7 @@ function runCLIFull(args, opts = {}) {
     stderr: result.stderr || '',
     exitCode: result.status ?? 1,
     tmuxCalls,
+    rawRunShells,
     paneResolution,
   };
 }

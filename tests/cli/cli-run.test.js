@@ -11,6 +11,24 @@ describe('CLI run escape hatch', () => {
       ]);
     });
 
+    // tmux 3.4 shows run-shell output, and a "returned 1", in view-mode on the
+    // pane instead of handing it to the CLI — and a pane in view-mode swallows
+    // every key. The inner tmux therefore writes its output and status to
+    // files, and run-shell itself has nothing to show.
+    test('brings the inner command output and exit status back through files', () => {
+      const ok = runCLI(['run', 'splitw', '-P']);
+      expect(ok.exitCode).toBe(0);
+      expect(ok.stdout.trim()).toBe('%99');
+      expect(ok.rawRunShells[0].args[1]).toMatch(
+        /^\{ tmux -L tmuxy splitw '-P' ; \} >'[^']*\/out' 2>'[^']*\/err'; echo \$\? >'[^']*\/status'$/,
+      );
+
+      const failed = runCLI(['run', 'move-window', '-s', ':0', '-t', ':1'], {
+        env: { MOCK_TMUX_EXIT_CODE: '1' },
+      });
+      expect(failed.exitCode).toBe(1);
+    });
+
     test('errors with no command', () => {
       const { stderr, exitCode } = runCLI(['run']);
       expect(exitCode).toBe(1);

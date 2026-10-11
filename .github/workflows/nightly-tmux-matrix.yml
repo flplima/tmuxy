@@ -12,6 +12,8 @@ name: nightly tmux version matrix
 #   - the tmuxy-core integration tests that drive a real `tmux -CC`
 #   - the snapshot E2E suite
 #   - tests/8-tui-alternate-screen.test.js (alternate-screen / TUI path)
+#   - the whole E2E suite, on every released version but 3.7a (which the
+#     per-commit jobs already run it on)
 #
 # Blocking policy: the RELEASED versions gate this workflow. `HEAD`
 # (tmux master) does not — upstream can break, or change behaviour, on any
@@ -79,7 +81,7 @@ jobs:
   suites:
     needs: build-artifacts
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     name: tmux ${{ matrix.tmux.name }}
     permissions:
       contents: read
@@ -226,6 +228,20 @@ jobs:
           TMUXY_NO_RESTORE: '1'
         run: npx jest tests/ --testNamePattern '\[nightly\]'
 
+      # The whole E2E suite, on every released version the per-commit jobs do
+      # not pin. The two suites above never source a config or run a CLI
+      # command that fails, so they missed tmux 3.4 putting a pane into
+      # view-mode on run-shell output — after which every key typed went into
+      # the mode, and 53 of 88 tests failed on a version Ubuntu 24.04 ships.
+      - name: Full E2E suite
+        id: full-e2e
+        if: matrix.tmux.version != '3.7a' && matrix.tmux.version != 'HEAD'
+        continue-on-error: true
+        env:
+          TMUXY_NO_SNAPSHOT: '1'
+          TMUXY_NO_RESTORE: '1'
+        run: npx jest --runInBand tests/
+
       - name: Server logs (debug)
         if: always()
         run: tail -2000 /tmp/tmuxy-server.log || true
@@ -251,13 +267,14 @@ jobs:
             echo "| snapshots | ${{ steps.snapshots.outcome }} |"
             echo "| 8-tui-alternate-screen | ${{ steps.tui.outcome }} |"
             echo "| nightly E2E tier | ${{ steps.nightly-tier.outcome }} |"
+            echo "| full E2E suite | ${{ steps.full-e2e.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # One issue is kept open and commented on, the same pattern as
       # nightly-v86.yml. Reported from inside the job because a HEAD failure
       # must reach someone WITHOUT the job (or the workflow) going red.
       - name: Open or update the tracking issue
-        if: always() && github.event_name == 'schedule' && (steps.core.outcome == 'failure' || steps.server.outcome == 'failure' || steps.snapshots.outcome == 'failure' || steps.tui.outcome == 'failure' || steps.nightly-tier.outcome == 'failure')
+        if: always() && github.event_name == 'schedule' && (steps.core.outcome == 'failure' || steps.server.outcome == 'failure' || steps.snapshots.outcome == 'failure' || steps.tui.outcome == 'failure' || steps.nightly-tier.outcome == 'failure' || steps.full-e2e.outcome == 'failure')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -283,6 +300,7 @@ jobs:
           | snapshots | ${{ steps.snapshots.outcome }} |
           | 8-tui-alternate-screen | ${{ steps.tui.outcome }} |
           | nightly E2E tier (3.7a only) | ${{ steps.nightly-tier.outcome }} |
+          | full E2E suite (not 3.7a) | ${{ steps.full-e2e.outcome }} |
 
           Run: $RUN_URL
           Commit: ${{ github.sha }}
@@ -310,6 +328,7 @@ jobs:
           if [ "${{ steps.snapshots.outcome }}" = "failure" ]; then failed="$failed snapshots"; fi
           if [ "${{ steps.tui.outcome }}" = "failure" ]; then failed="$failed 8-tui"; fi
           if [ "${{ steps.nightly-tier.outcome }}" = "failure" ]; then failed="$failed nightly-tier"; fi
+          if [ "${{ steps.full-e2e.outcome }}" = "failure" ]; then failed="$failed full-e2e"; fi
 
           if [ -z "$failed" ]; then
             echo "all suites passed on tmux ${{ matrix.tmux.name }}"

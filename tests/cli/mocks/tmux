@@ -113,13 +113,21 @@ case "${1:-}" in
     ;;
   run-shell)
     case "$*" in
-      *splitw*'-P'*)
-        echo "${MOCK_TMUX_SPLIT_PANE_ID:-%99}"
-        ;;
-      *breakp*'-P'*)
-        echo "${MOCK_TMUX_BREAK_WINDOW_ID:-@99}"
-        ;;
+      *splitw*'-P'*) response="${MOCK_TMUX_SPLIT_PANE_ID:-%99}" ;;
+      *breakp*'-P'*) response="${MOCK_TMUX_BREAK_WINDOW_ID:-@99}" ;;
+      *) response="" ;;
     esac
+    # `_run_shell` has the command write its output and exit status to files
+    # (bin/tmuxy/_lib) rather than through run-shell. Play the command:
+    # write what it would have printed, and the status, where the CLI reads
+    # them; run-shell itself succeeds.
+    dir=$(printf '%s' "$2" | sed -n "s/.*>'\([^']*\)\/out'.*/\1/p")
+    if [ -n "$dir" ]; then
+      [ -n "$response" ] && echo "$response" > "$dir/out"
+      echo "$exit_code" > "$dir/status"
+      exit 0
+    fi
+    [ -n "$response" ] && echo "$response"
     ;;
   break-pane)
     ;;

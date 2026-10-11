@@ -50,6 +50,26 @@ _tmux() {
   command tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"
 }
 
+# Run ONE shell command inside the tmux server through run-shell, and hand
+# back what it printed and its exit status as if it had run here.
+#
+# They come back through files, not through run-shell: tmux 3.4 shows
+# run-shell output — and a "returned 1" for a command that failed — in
+# view-mode on the target pane instead of handing it to the calling client,
+# and a pane in view-mode swallows every key typed into it. One failing
+# `tmuxy run` left the shell unreachable.
+_run_shell() {
+  local dir status=0
+  dir=$(mktemp -d)
+  _tmux run-shell "{ $1 ; } >$(shquote "$dir/out") 2>$(shquote "$dir/err"); echo \$? >$(shquote "$dir/status")" || status=$?
+  # No status file means run-shell never ran the command; its own status stands.
+  if [ -f "$dir/status" ]; then status=$(cat "$dir/status"); fi
+  if [ -f "$dir/out" ]; then cat "$dir/out"; fi
+  if [ -f "$dir/err" ]; then cat "$dir/err" >&2; fi
+  rm -rf "$dir"
+  return "$status"
+}
+
 # Route a mutating tmux command through run-shell. These scripts run inside a
 # live pane with a control-mode client attached (the UI spawns them in floats),
 # so direct external mutations (new-session, set-environment, …) can crash the
@@ -63,7 +83,7 @@ _tmux() {
 # inner client's TMUX_PANE, which tmux reads for an unattached client the way
 # it reads it for a shell in a pane.
 _run_safe() {
-  _tmux run-shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+  _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
 }
 
 # Quote arguments for interpolation into a `_run_safe` command string. Each
