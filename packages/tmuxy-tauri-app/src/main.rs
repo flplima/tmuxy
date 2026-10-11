@@ -7,6 +7,7 @@ mod desktop;
 mod gestures;
 mod gui;
 mod monitor;
+mod startup_error;
 mod titlebar;
 mod window_style;
 mod windows;

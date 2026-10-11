@@ -26,14 +26,19 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
 tauri-plugin-window-state = "2"
-# A native error dialog before any window exists (no tmux, or one too old).
-rfd = "0.15"
 
 [features]
 webdriver = ["tauri-plugin-webdriver"]
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["process"] }
+
+# A native error dialog before any window exists (no tmux, or one too old).
+# Linux shows it with GTK directly (src/startup_error.rs): rfd's Linux
+# backends need `zenity`, or run GTK on a thread of their own that deadlocks
+# against the event loop tauri's setup is blocking.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd = "0.15"
 
 # Native title-bar chrome (traffic-light placement, double-click preference) — see src/titlebar.rs,
 # and the scroll-wheel event monitor behind the two-finger slide — see src/gestures.rs

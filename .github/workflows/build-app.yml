@@ -421,6 +421,43 @@ jobs:
               echo "AppImage reports '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
           fi
 
+      # A tmux tmuxy cannot run on ends in a dialog that says so, not in a
+      # silent exit. The dialog is GTK's own; through rfd's default backend it
+      # needed `zenity`, and on a machine without it (the AppImage catalog's
+      # test runner) the app quit within a second with nothing on screen. So
+      # zenity goes first, a stub stands in for an old tmux, and the dialog has
+      # to show up under Xvfb while the app waits on it.
+      - name: A too-old tmux is reported in a dialog (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xdotool
+          if command -v zenity >/dev/null; then sudo apt-get remove -y zenity; fi
+          APPIMAGE=$(ls target/release/bundle/appimage/*.AppImage | head -1)
+          chmod +x "$APPIMAGE"
+          SCRATCH=$(mktemp -d "${RUNNER_TEMP}/tmuxy-old-tmux.XXXXXX")
+          printf '#!/bin/sh\necho "tmux 3.1c"\n' > "$SCRATCH/tmux"
+          chmod +x "$SCRATCH/tmux"
+          cat > "$SCRATCH/run.sh" <<'EOF'
+          set -u
+          HOME="$SCRATCH/home" TMUX_BIN="$SCRATCH/tmux" TMUX_SOCKET=tmuxy-old-tmux \
+            APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE" > "$SCRATCH/app.log" 2>&1 &
+          APP=$!
+          # Polls until the dialog is up or the app is gone; the deadline only
+          # bounds a hang, it is not a guess at how fast the runner is.
+          for _ in $(seq 1 120); do
+            if xdotool search --name "tmuxy can't start" >/dev/null 2>&1; then
+              echo "dialog is up"; kill "$APP"; exit 0
+            fi
+            kill -0 "$APP" 2>/dev/null || { echo "the app exited without showing the dialog"; cat "$SCRATCH/app.log"; exit 1; }
+            sleep 1
+          done
+          echo "no dialog within the deadline"; cat "$SCRATCH/app.log"; kill "$APP"; exit 1
+          EOF
+          mkdir -p "$SCRATCH/home"
+          SCRATCH="$SCRATCH" APPIMAGE="$GITHUB_WORKSPACE/$APPIMAGE" xvfb-run -a bash "$SCRATCH/run.sh"
+
       # What the AppImage catalog's appdir-lint checks, checked here first. The
       # Tauri CLI before 2.11.3 wrote `.DirIcon` as an ABSOLUTE symlink into
       # the build runner's workspace: dangling once the image left the runner,

@@ -1168,12 +1168,7 @@ pub fn run() {
                 Ok(version) => tracing::info!(%version, "tmux found"),
                 Err(e) => {
                     tracing::error!(error = %e, "tmux check failed");
-                    rfd::MessageDialog::new()
-                        .set_level(rfd::MessageLevel::Error)
-                        .set_title("tmuxy can't start")
-                        .set_description(e.to_string())
-                        .set_buttons(rfd::MessageButtons::Ok)
-                        .show();
+                    crate::startup_error::show(&e.to_string());
                     std::process::exit(1);
                 }
             }
