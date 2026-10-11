@@ -1,6 +1,6 @@
 {
   "productName": "tmuxy",
-  "version": "0.0.10-alpha.71",
+  "version": "0.0.10-alpha.72",
   "identifier": "com.tmuxy.app",
   "build": {
     "beforeDevCommand": "npm run dev -w tmuxy-ui",
