@@ -213,11 +213,13 @@ mod macos {
                     &block,
                 )
             };
+            // The bin is `tmuxy`, so `module_path!()` would fall outside the
+            // trace allowlist and the log filter; the crate's target is spelled.
             if let Some(monitor) = monitor {
                 handle.manage(Monitor(monitor));
-                tracing::info!("trackpad slide monitor installed");
+                tracing::info!(target: "tmuxy_tauri_app::gestures", "trackpad slide monitor installed");
             } else {
-                tracing::warn!("trackpad slide monitor could not be installed");
+                tracing::warn!(target: "tmuxy_tauri_app::gestures", "trackpad slide monitor could not be installed");
             }
         });
     }
