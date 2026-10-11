@@ -4,6 +4,7 @@ mod cli;
 mod commands;
 #[cfg(target_os = "linux")]
 mod desktop;
+mod gestures;
 mod gui;
 mod monitor;
 mod titlebar;

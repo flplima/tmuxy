@@ -808,6 +808,8 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
     } else {
         tracing::info!("TMUXY_OPAQUE_WINDOW=1: built window with decorations, no transparency");
     }
+    // The two-finger slide between tabs, from the shell's own scroll phases.
+    crate::gestures::install(&window);
 
     Ok(window)
 }
@@ -1238,6 +1240,7 @@ pub fn run() {
             commands::set_theme,
             commands::set_cursor_blink,
             commands::set_theme_mode,
+            commands::set_swipe_tabs,
             commands::get_themes_list,
             // Window chrome: the status bar doubles as the title bar
             commands::set_titlebar_height,

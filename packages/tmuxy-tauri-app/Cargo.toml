@@ -35,9 +35,18 @@ webdriver = ["tauri-plugin-webdriver"]
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["process"] }
 
-# Native title-bar chrome (traffic-light placement, double-click preference) — see src/titlebar.rs
+# Native title-bar chrome (traffic-light placement, double-click preference) — see src/titlebar.rs,
+# and the scroll-wheel event monitor behind the two-finger slide — see src/gestures.rs
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
+objc2 = "0.6"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-foundation", "NSButton", "NSControl", "NSEvent", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString", "NSUserDefaults"] }
 # Same crate tauri applies window effects with; used directly to clear the blur (tauri only clears on Windows)
 window-vibrancy = "0.6"
+
+# The scroll-event hook on the WebKitGTK widget behind the two-finger slide — see src/gestures.rs
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+gdk = "0.18"
+glib = "0.18"

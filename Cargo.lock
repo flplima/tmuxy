@@ -5927,8 +5927,13 @@ dependencies = [
 name = "tmuxy-tauri-app"
 version = "0.0.10-alpha.70"
 dependencies = [
+ "block2",
  "clap",
+ "gdk",
+ "glib 0.18.5",
+ "gtk",
  "nix",
+ "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "rfd",
