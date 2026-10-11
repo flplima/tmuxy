@@ -150,9 +150,9 @@ describe('keyboardActor — active-pane target uses the live snapshot', () => {
     actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%2') });
 
     // A printable key fired in this same tick must reach %2, not the stale
-    // %1 (sent literally as `-l 'a'`).
+    // %1 (sent literally as `-l -- 'a'`).
     pressKey({ key: 'a' });
-    expect(lastSendCommand(events)).toBe("send-keys -t %2 -l 'a'");
+    expect(lastSendCommand(events)).toBe("send-keys -t %2 -l -- 'a'");
   });
 
   it('falls back to the cached pane when the snapshot has no activePaneId', () => {
@@ -181,7 +181,7 @@ describe('keyboardActor — active-pane target uses the live snapshot', () => {
     child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%7') });
 
     pressKey({ key: 'b' });
-    expect(lastSendCommand(events)).toBe("send-keys -t %7 -l 'b'");
+    expect(lastSendCommand(events)).toBe("send-keys -t %7 -l -- 'b'");
   });
 });
 
@@ -361,21 +361,21 @@ describe('keyboardActor — composed characters are literal text', () => {
     // marker that suppresses genuinely mid-composition keys.
     pressKey({ key: 'Dead', keyCode: 229 });
     pressKey({ key: 'á', keyCode: 229 });
-    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l 'á'");
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- 'á'");
   });
 
   it('still suppresses a key the IME is only processing (no character yet)', () => {
     pressKey({ key: 'x' });
     pressKey({ key: 'Process', keyCode: 229 });
     // The last command is still the `x` before it — `Process` sent nothing.
-    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l 'x'");
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- 'x'");
   });
 
   it('sends a macOS Option-composed character instead of an M- chord', () => {
     // Option+c on a US Mac layout: altKey is set, but the OS already replaced
     // the letter with `ç`.
     pressKey({ key: 'ç', altKey: true });
-    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l 'ç'");
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- 'ç'");
   });
 
   it('sends an AltGr third-level symbol instead of a C-M- chord', () => {
@@ -391,20 +391,20 @@ describe('keyboardActor — composed characters are literal text', () => {
         cancelable: true,
       }),
     );
-    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l '@'");
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- '@'");
   });
 
   it('sends IME-composed text as one literal on compositionend', () => {
     window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
     pressKey({ key: 'n', keyCode: 229, isComposing: true });
     window.dispatchEvent(new CompositionEvent('compositionend', { data: '日本語', bubbles: true }));
-    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l '日本語'");
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- '日本語'");
   });
 
   it('sends an emoji from the picker as one character', () => {
     window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
     window.dispatchEvent(new CompositionEvent('compositionend', { data: '😀', bubbles: true }));
-    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l '😀'");
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- '😀'");
   });
 });
 
@@ -542,7 +542,7 @@ describe('keyboardActor — desktop IME', () => {
     textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한글' }));
     pressKey({ key: 'x' });
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l 'x'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'x'"]);
     textarea.remove();
   });
 
@@ -593,7 +593,7 @@ describe('keyboardActor — desktop IME', () => {
       }),
     );
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l 'a'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'a'"]);
   });
 
   it('routes hidden-input text to an active pane selected after focus moved', () => {
@@ -605,7 +605,7 @@ describe('keyboardActor — desktop IME', () => {
     handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
     insertText(input, 'b');
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l 'b'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l -- 'b'"]);
   });
 
   it('routes hidden-input text to a newly focused float pane', () => {
@@ -617,7 +617,7 @@ describe('keyboardActor — desktop IME', () => {
     handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
     insertText(input, 'f');
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %9 -l 'f'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %9 -l -- 'f'"]);
   });
 
   it('returns hidden-input text to the active pane after a float loses focus', () => {
@@ -630,7 +630,7 @@ describe('keyboardActor — desktop IME', () => {
     handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: null });
     insertText(input, 'r');
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l 'r'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'r'"]);
   });
 
   it('keeps printable prefix bindings active while the hidden input owns focus', () => {
@@ -730,7 +730,7 @@ describe('keyboardActor — desktop IME', () => {
     startComposition(input, ['ㅎ']);
     commitComposition(input, '한글');
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l '한글'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- '한글'"]);
   });
 
   it('commits hidden-input composition to the pane where composition started', () => {
@@ -744,7 +744,7 @@ describe('keyboardActor — desktop IME', () => {
     mobileKeyboard.focusKeyboardInput(pid('%4'));
     commitComposition(input, '한');
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l '한'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- '한'"]);
   });
 
   it('pins hidden-input composition to the actor target at composition start', () => {
@@ -758,7 +758,7 @@ describe('keyboardActor — desktop IME', () => {
     handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%5') });
     commitComposition(input, '한');
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l '한'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l -- '한'"]);
   });
 
   it('commits non-input composition to the pane where composition started', () => {
@@ -766,7 +766,7 @@ describe('keyboardActor — desktop IME', () => {
     handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
     window.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한' }));
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l '한'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- '한'"]);
   });
 
   it('forwards committed Hangul to the focused float pane', () => {
@@ -779,7 +779,7 @@ describe('keyboardActor — desktop IME', () => {
     startComposition(input, ['ㅎ']);
     commitComposition(input, '한');
 
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %9 -l '한'"]);
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %9 -l -- '한'"]);
   });
 
   it('drops a composition commit after keyboard forwarding is disabled', () => {
@@ -806,10 +806,10 @@ describe('keyboardActor — desktop IME', () => {
     pasteText('붙여넣기');
 
     expect(sendCommands(handle.events)).toEqual([
-      "send-keys -t tmuxy -l 'x'",
+      "send-keys -t tmuxy -l -- 'x'",
       'send-keys -t tmuxy Tab',
-      "send-keys -t tmuxy -l '한'",
-      "send-keys -t tmuxy -l '붙여넣기'",
+      "send-keys -t tmuxy -l -- '한'",
+      "send-keys -t tmuxy -l -- '붙여넣기'",
     ]);
     expect(sendCommands(handle.events).join('\n')).not.toContain(placeholder);
   });
