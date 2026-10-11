@@ -57,12 +57,26 @@ async fn the_initial_state_knows_the_modes_a_program_set_before_the_client_attac
         .expect("control-mode connection on the scratch socket");
     let runner = tokio::spawn(async move { monitor.run(&Quiet).await });
 
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::GetState { reply }).await.unwrap();
-    let state = tokio::time::timeout(Duration::from_secs(10), rx)
-        .await
-        .expect("the initial state arrives")
-        .expect("the monitor answered");
+    // The program's `printf` and the monitor's first `list-panes` race each
+    // other on a slow runner: a state read before the modes were set is not
+    // yet the one this test is about, so it is read again until the deadline.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let state = loop {
+        let (reply, rx) = tokio::sync::oneshot::channel();
+        tx.send(MonitorCommand::GetState { reply }).await.unwrap();
+        let state = tokio::time::timeout(Duration::from_secs(10), rx)
+            .await
+            .expect("the initial state arrives")
+            .expect("the monitor answered");
+        let ready = state
+            .panes
+            .first()
+            .is_some_and(|p| p.alternate_on && p.mouse_any_flag);
+        if ready || tokio::time::Instant::now() >= deadline {
+            break state;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
 
     assert_eq!(state.panes.len(), 1, "one pane: {:?}", state.panes);
     let pane = &state.panes[0];
