@@ -280,7 +280,32 @@ async function focusPage(page) {
   } catch {
     await page.click('body', { timeout: 5000 });
   }
-  await delay(DELAYS.MEDIUM);
+  await waitForKeyboardFocus(page);
+}
+
+/**
+ * Resolve once the app is really holding the keyboard.
+ *
+ * The app keeps a hidden 1px `<input>` focused on every device
+ * (utils/mobileKeyboard.ts) and routes what lands in it to a pane, so that
+ * input BEING the active element is the signal that a keystroke will arrive.
+ * Anything looser — "the clicked terminal is the active element" — is true
+ * the instant the click lands, before the app has taken focus, and the first
+ * characters of a long command are then typed into nothing.
+ *
+ * Falls through after `timeout`: a few surfaces (the tree widget) never hand
+ * the input focus at all, and keys sent there go where the surface sends them.
+ */
+async function waitForKeyboardFocus(page, timeout = 3000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const ready = await page.evaluate(() => {
+      const el = document.activeElement;
+      return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+    });
+    if (ready) return;
+    await delay(40);
+  }
 }
 
 /**
@@ -333,8 +358,19 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
     backoff = Math.min(backoff * 1.5, maxBackoff);
   }
 
-  // Additional delay to ensure keyboard actor has received UPDATE_SESSION
-  await delay(DELAYS.LONG);
+  // The keyboard actor routes a key to the session and pane the app holds, so
+  // the session is ready for keystrokes once the app names it and has a pane
+  // to aim at — not a fixed beat after tmux answered.
+  await waitForCondition(
+    page,
+    () =>
+      page.evaluate((name) => {
+        const c = window.app?.getSnapshot()?.context;
+        return !!c && c.sessionName === name && c.panes.length > 0 && !!c.activePaneId;
+      }, sessionName),
+    5000,
+    `the app to hold session '${sessionName}' and an active pane`,
+  );
 }
 
 /**
@@ -434,6 +470,7 @@ module.exports = {
   navigateToSession,
   verifyRoundTrip,
   focusPage,
+  waitForKeyboardFocus,
   waitForSessionReady,
   waitForWindowCount,
   waitForPaneCount,

@@ -6,7 +6,7 @@
 
 const { delay } = require('./browser');
 const { tmuxSideOfSession } = require('./tmux-side');
-const { DELAYS, waitBudget } = require('./config');
+const { waitBudget } = require('./config');
 const {
   sendKeyCombo,
   sendPrefixCommand,
@@ -319,10 +319,14 @@ async function waitForLayoutSettled(page, { timeout = 10000 } = {}) {
     });
 
   const start = Date.now();
+  // No machine on the page yet (a page still hydrating): wait for one to
+  // observe. A page that never gets one has no layout to settle.
   let previous = await sample();
-  // No machine on the page (a raw or not-yet-hydrated page): nothing to
-  // observe, so fall back to the old fixed wait rather than returning early.
-  if (previous === null) return await delay(DELAYS.LONG);
+  while (previous === null && Date.now() - start < timeout) {
+    await delay(60);
+    previous = await sample();
+  }
+  if (previous === null) return;
   while (Date.now() - start < timeout) {
     await delay(60);
     const current = await sample();

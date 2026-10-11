@@ -4,8 +4,6 @@
  * Enter/exit copy mode and paste operations via keyboard.
  */
 
-const { delay } = require('./browser');
-const { DELAYS } = require('./config');
 const { sendPrefixCommand } = require('./keyboard');
 
 /**
@@ -28,7 +26,6 @@ async function pasteText(page, text) {
     event.clipboardData.setData('text/plain', t);
     window.dispatchEvent(event);
   }, text);
-  await delay(DELAYS.LONG);
 }
 
 module.exports = {

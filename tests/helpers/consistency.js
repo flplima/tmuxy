@@ -11,7 +11,7 @@
 
 const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 const { delay } = require('./browser');
-const { DELAYS } = require('./config');
+const { waitForLayoutSettled } = require('./pane-ops');
 const { extractUIState, extractTmuxState } = require('./snapshot-compare');
 
 // ==================== Structural State Comparison ====================
@@ -351,8 +351,8 @@ async function withConsistencyChecks(ctx, operation, options = {}) {
     }
   }
 
-  // Wait for UI to settle before comparing snapshots
-  await delay(DELAYS.MEDIUM);
+  // Wait for the UI to settle before comparing snapshots
+  if (ctx.page) await waitForLayoutSettled(ctx.page);
 
   // Compare structural state (tmux vs UI)
   if (!skipSnapshot && ctx.page) {
