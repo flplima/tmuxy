@@ -43,6 +43,22 @@ const {
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
+/**
+ * The copy-mode state once `pred` holds for it. Copy mode runs in the client,
+ * so a key's effect lands in the app's copy-mode state: wait for the state the
+ * key should produce, and fail with what the state was if it never does.
+ */
+async function copyStateWhere(page, pred, desc) {
+  let state = null;
+  await waitForCondition(
+    page,
+    async () => !!(state = await getCopyModeState(page)) && pred(state),
+    5000,
+    () => `${desc} (copy state: ${JSON.stringify(state)})`,
+  );
+  return state;
+}
+
 // ==================== Touch Scroll Helpers ====================
 
 async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepDelay = 16) {
@@ -847,76 +863,63 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     const csEntry = await enterCopyModeAndWait(ctx.page);
     expect(csEntry.active).toBe(true);
 
+    const copyState = (pred, desc) => copyStateWhere(ctx.page, pred, desc);
+    const ctrl = async (key) => {
+      await ctx.page.keyboard.down('Control');
+      await ctx.page.keyboard.press(key);
+      await ctx.page.keyboard.up('Control');
+    };
+
     // Step 2: Navigate with 'k' (up) — cursor row should decrease
     const before = await getCopyModeState(ctx.page);
-    for (let i = 0; i < 3; i++) {
-      await ctx.page.keyboard.press('k');
-      await delay(50);
-    }
-    await delay(DELAYS.SHORT);
-    const afterUp = await getCopyModeState(ctx.page);
-    expect(afterUp.cursorRow).toBeLessThan(before.cursorRow);
+    for (let i = 0; i < 3; i++) await ctx.page.keyboard.press('k');
+    const afterUp = await copyState(
+      (s) => s.cursorRow === before.cursorRow - 3,
+      'kkk to move the cursor up three rows',
+    );
 
     // Navigate with 'j' (down) — cursor row should increase
     await ctx.page.keyboard.press('j');
-    await delay(DELAYS.SHORT);
-    const afterDown = await getCopyModeState(ctx.page);
-    expect(afterDown.cursorRow).toBeGreaterThan(afterUp.cursorRow);
+    await copyState((s) => s.cursorRow === afterUp.cursorRow + 1, 'j to move the cursor down');
 
-    // Navigate to a line with content (scrollback output from seq)
-    // Go to start of line first, then move right
+    // Move up a few lines onto a "seq" output line (not the empty prompt),
+    // to the start of it.
     await ctx.page.keyboard.press('0');
-    await delay(DELAYS.SHORT);
-    // Move up a few lines to ensure we're on a "seq" output line (not the empty prompt)
-    for (let i = 0; i < 3; i++) {
-      await ctx.page.keyboard.press('k');
-      await delay(50);
-    }
+    for (let i = 0; i < 3; i++) await ctx.page.keyboard.press('k');
     await ctx.page.keyboard.press('0');
-    await delay(DELAYS.SHORT);
+    await copyState(
+      (s) => s.cursorRow === afterUp.cursorRow - 2 && s.cursorCol === 0,
+      'the cursor at the start of a seq line',
+    );
 
     // Navigate with 'l' (right) — cursor col should increase
     await ctx.page.keyboard.press('l');
     await ctx.page.keyboard.press('l');
-    await delay(DELAYS.SHORT);
-    const afterRight = await getCopyModeState(ctx.page);
-    expect(afterRight.cursorCol).toBeGreaterThan(0);
+    const afterRight = await copyState((s) => s.cursorCol > 0, 'll to move the cursor right');
 
     // Navigate with 'h' (left) — cursor col should decrease
     await ctx.page.keyboard.press('h');
-    await delay(DELAYS.SHORT);
-    const afterLeft = await getCopyModeState(ctx.page);
-    expect(afterLeft.cursorCol).toBeLessThan(afterRight.cursorCol);
+    await copyState((s) => s.cursorCol < afterRight.cursorCol, 'h to move the cursor left');
 
     // Step 3: Line edges: '0' goes to col 0, '$' goes to end of line
     await ctx.page.keyboard.press('l');
     await ctx.page.keyboard.press('l');
-    await delay(DELAYS.SHORT);
     await ctx.page.keyboard.press('0');
-    await delay(DELAYS.SHORT);
-    const atStart = await getCopyModeState(ctx.page);
-    expect(atStart.cursorCol).toBe(0);
+    await copyState((s) => s.cursorCol === 0, '0 to move the cursor to the line start');
 
     await ctx.page.keyboard.press('$');
-    await delay(DELAYS.SHORT);
-    const atEnd = await getCopyModeState(ctx.page);
-    expect(atEnd.cursorCol).toBeGreaterThan(0);
+    await copyState((s) => s.cursorCol > 0, '$ to move the cursor to the line end');
 
     // Step 4: Half-page up/down (Ctrl+u / Ctrl+d)
     const beforePage = await getCopyModeState(ctx.page);
-    await ctx.page.keyboard.down('Control');
-    await ctx.page.keyboard.press('u');
-    await ctx.page.keyboard.up('Control');
-    await delay(DELAYS.SHORT);
-    const afterPageUp = await getCopyModeState(ctx.page);
-    expect(afterPageUp.cursorRow).toBeLessThan(beforePage.cursorRow);
+    await ctrl('u');
+    const afterPageUp = await copyState(
+      (s) => s.cursorRow < beforePage.cursorRow,
+      'Ctrl+u to move half a page up',
+    );
 
-    await ctx.page.keyboard.down('Control');
-    await ctx.page.keyboard.press('d');
-    await ctx.page.keyboard.up('Control');
-    await delay(DELAYS.SHORT);
-    const afterPageDown = await getCopyModeState(ctx.page);
-    expect(afterPageDown.cursorRow).toBeGreaterThan(afterPageUp.cursorRow);
+    await ctrl('d');
+    await copyState((s) => s.cursorRow > afterPageUp.cursorRow, 'Ctrl+d to move half a page down');
 
     // Step 5: Still in copy mode after all navigation
     const csStillActive = await getCopyModeState(ctx.page);
@@ -1022,13 +1025,14 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     await waitForTmuxOutOfMode(ctx.page);
     await enterCopyModeAndWait(ctx.page);
     // Navigate up to a line with content (the "seq 1 200" command output)
-    for (let i = 0; i < 5; i++) {
-      await ctx.page.keyboard.press('k');
-      await delay(50);
-    }
+    for (let i = 0; i < 5; i++) await ctx.page.keyboard.press('k');
     // Move to start of line so we have room to move right
     await ctx.page.keyboard.press('0');
-    await delay(DELAYS.SHORT);
+    await copyStateWhere(
+      ctx.page,
+      (s) => s.cursorCol === 0,
+      'kkkkk then 0 to put the cursor at a line start',
+    );
     // Press 'v' to enter char selection mode
     await ctx.page.keyboard.press('v');
     await waitForCondition(
@@ -1068,7 +1072,6 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     // Force content sync: after copy mode exit the terminal DOM may be stale.
     // Running a command forces fresh content that matches tmux ground truth.
     await runCommand(ctx.page, 'echo COPY_EXIT', 'COPY_EXIT');
-    await delay(DELAYS.SYNC);
     await assertContentMatch(ctx.page, 'Scenario 9 end');
   }, 180000);
 });
@@ -1096,32 +1099,32 @@ describe('Scenario 10: Copy Mode Select & Yank', () => {
     expect(csEntry.active).toBe(true);
 
     // Step 3: Navigate up to a content line with 'k'
-    for (let i = 0; i < 5; i++) {
-      await ctx.page.keyboard.press('k');
-      await delay(50);
-    }
-    await delay(DELAYS.SHORT);
+    for (let i = 0; i < 5; i++) await ctx.page.keyboard.press('k');
+    await copyStateWhere(
+      ctx.page,
+      (s) => s.cursorRow === csEntry.cursorRow - 5,
+      'kkkkk to move the cursor up five rows',
+    );
 
     // Step 4: Go to start of line with '0'
     await ctx.page.keyboard.press('0');
-    await delay(DELAYS.SHORT);
-    const atStart = await getCopyModeState(ctx.page);
-    expect(atStart.cursorCol).toBe(0);
+    const atStart = await copyStateWhere(
+      ctx.page,
+      (s) => s.cursorCol === 0,
+      '0 to move the cursor to the line start',
+    );
 
     // Step 5: Enter char selection with 'v'
     await ctx.page.keyboard.press('v');
-    await delay(DELAYS.SHORT);
-    const csWithSelection = await getCopyModeState(ctx.page);
-    expect(csWithSelection.selectionMode).toBe('char');
+    await copyStateWhere(ctx.page, (s) => s.selectionMode === 'char', "'v' to start a selection");
 
     // Step 6: Extend selection with 'l' keys
-    for (let i = 0; i < 3; i++) {
-      await ctx.page.keyboard.press('l');
-      await delay(50);
-    }
-    await delay(DELAYS.SHORT);
-    const csExtended = await getCopyModeState(ctx.page);
-    expect(csExtended.cursorCol).toBeGreaterThan(atStart.cursorCol);
+    for (let i = 0; i < 3; i++) await ctx.page.keyboard.press('l');
+    await copyStateWhere(
+      ctx.page,
+      (s) => s.cursorCol > atStart.cursorCol,
+      'lll to extend the selection',
+    );
 
     // Step 7: Yank with 'y' (triggers extractSelectedText → clipboard → auto-exit)
     await ctx.page.keyboard.press('y');
@@ -1196,10 +1199,15 @@ describe('Scenario 21: Touch Scrolling', () => {
       10,
       16,
     );
-    await delay(DELAYS.SYNC);
-
     // Touch events are unreliable in headless, so fall back to keyboard entry
-    // (the correct prefix from tmuxy.conf) when the swipe did not register.
+    // (the correct prefix from tmuxy.conf) when the swipe did not register —
+    // judged by whether the view opened, not after a fixed pause.
+    await waitForCondition(
+      ctx.page,
+      async () => !!(await getCopyModeState(ctx.page))?.active,
+      3000,
+      'the swipe to open the scroll view',
+    ).catch(() => {});
     let copyModeActive = await getCopyModeState(ctx.page);
     if (!copyModeActive?.active) {
       await enterCopyModeAndWait(ctx.page);
@@ -1212,19 +1220,15 @@ describe('Scenario 21: Touch Scrolling', () => {
     // typed into the shell, and the next command would run as `qless`.
     await ctx.page.keyboard.press(copyModeActive.mode === 'scroll' ? 'Escape' : 'q');
     await waitForCopyMode(ctx.page, false);
-    await delay(DELAYS.LONG);
 
     // Step 4: Touch scroll in alternate screen (less command)
+    const alternateOn = () =>
+      ctx.page.evaluate(
+        () => document.querySelector('.pane-wrapper')?.getAttribute('data-alternate-on') === 'true',
+      );
     await typeInTerminal(ctx.page, 'less /etc/services');
     await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC);
-
-    // Verify alternate mode is active
-    const altOn = await ctx.page.evaluate(() => {
-      const pane = document.querySelector('.pane-wrapper');
-      return pane?.getAttribute('data-alternate-on') === 'true';
-    });
-    expect(altOn).toBe(true);
+    await waitForCondition(ctx.page, alternateOn, 10000, 'less to switch to the alternate screen');
 
     // Get initial visible text
     const textBefore = await getTerminalText(ctx.page);
@@ -1238,34 +1242,43 @@ describe('Scenario 21: Touch Scrolling', () => {
       10,
       16,
     );
-    await delay(DELAYS.SYNC);
 
     // Verify content changed (scrolled down in less)
     // Touch events may not reliably translate to arrow keys in headless mode —
     // fall back to keyboard Down arrows if touch didn't scroll.
-    let textAfter = await getTerminalText(ctx.page);
-    if (textAfter === textBefore) {
+    const scrolled = async () => (await getTerminalText(ctx.page)) !== textBefore;
+    const swipeScrolled = await waitForCondition(
+      ctx.page,
+      scrolled,
+      3000,
+      'the swipe to scroll less',
+    )
+      .then(() => true)
+      .catch(() => false);
+    if (!swipeScrolled) {
       for (let i = 0; i < 10; i++) {
         await ctx.page.keyboard.press('ArrowDown');
         await delay(50);
       }
-      await delay(DELAYS.SYNC);
-      textAfter = await getTerminalText(ctx.page);
+      await waitForCondition(ctx.page, scrolled, 10000, 'Down arrows to scroll less');
     }
-    expect(textAfter).not.toBe(textBefore);
+    expect(await getTerminalText(ctx.page)).not.toBe(textBefore);
 
     // Exit less
     await ctx.page.keyboard.press('q');
-    await delay(DELAYS.LONG);
+    await waitForCondition(
+      ctx.page,
+      async () => !(await alternateOn()),
+      10000,
+      'less to quit and leave the alternate screen',
+    );
 
     // Step 5: Multi-pane touch isolation
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 2, 10000);
 
     // Generate distinct content in each pane
-    await typeInTerminal(ctx.page, 'echo PANE_TWO_MARKER');
-    await pressEnter(ctx.page);
-    await delay(DELAYS.SHORT);
+    await runCommand(ctx.page, 'echo PANE_TWO_MARKER', 'PANE_TWO_MARKER');
 
     // Get both pane positions
     const panePositions = await ctx.page.evaluate(() => {
@@ -1293,7 +1306,9 @@ describe('Scenario 21: Touch Scrolling', () => {
       5,
       16,
     );
-    await delay(DELAYS.LONG);
+    // A touch is handled in the page; a pane it took away would be gone a
+    // frame or two later.
+    await afterFrames(ctx.page);
 
     // Both panes should still exist
     const finalPaneCount = await getUIPaneCount(ctx.page);
@@ -1302,8 +1317,8 @@ describe('Scenario 21: Touch Scrolling', () => {
     // Exit copy mode if active (touch scroll enters copy mode on normal screen)
     const touchCopyState = await getCopyModeState(ctx.page);
     if (touchCopyState?.active) {
-      await ctx.page.keyboard.press('q');
-      await delay(DELAYS.SYNC);
+      await ctx.page.keyboard.press(touchCopyState.mode === 'scroll' ? 'Escape' : 'q');
+      await waitForCopyMode(ctx.page, false);
     }
 
     // Layout was already validated before the multi-pane isolation step.
@@ -1330,7 +1345,6 @@ describe('Scenario 23: Multi-Viewport Layout', () => {
     await waitForPaneCount(ctx.page, 2, 10000);
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 3, 10000);
-    await delay(DELAYS.SYNC);
 
     // Verify invariants at default size first (before any viewport changes)
     await assertLayoutInvariants(ctx.page, { label: 'viewport default (1280x720)' });
@@ -1339,11 +1353,24 @@ describe('Scenario 23: Multi-Viewport Layout', () => {
       { width: 800, height: 600, label: 'small' },
       { width: 1920, height: 1080, label: 'large' },
     ];
+    const paneGrid = () =>
+      ctx.page.evaluate(() =>
+        JSON.stringify(
+          (window.app?.getSnapshot()?.context?.panes ?? []).map((p) => [p.width, p.height]),
+        ),
+      );
 
     for (const vp of viewports) {
+      const before = await paneGrid();
       await ctx.page.setViewportSize({ width: vp.width, height: vp.height });
-      // Wait for resize to propagate through: browser → SSE → server → tmux → SSE → browser
-      await delay(DELAYS.SYNC * 2);
+      // The resize goes browser → server → tmux → browser; it has arrived when
+      // tmux's pane sizes have changed.
+      await waitForCondition(
+        ctx.page,
+        async () => (await paneGrid()) !== before,
+        10000,
+        `tmux to resize the panes for the ${vp.label} viewport`,
+      );
 
       // Wait for pane count to still be 3 after resize
       await waitForPaneCount(ctx.page, 3, 10000);
@@ -1355,7 +1382,6 @@ describe('Scenario 23: Multi-Viewport Layout', () => {
 
     // Restore default viewport
     await ctx.page.setViewportSize({ width: 1280, height: 720 });
-    await delay(DELAYS.SYNC);
   }, 180000);
 });
 
@@ -1600,8 +1626,15 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     const mixed = await shownCellsOf(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
     await drag(ctx.page, mixed.first, mixed.last, mixed.y);
     await ctx.page.keyboard.press('Meta+c');
-    await delay(DELAYS.SHORT);
-    expect(await ctx.page.evaluate(() => window.__copied)).toBe('RED_RUN PLAIN_RUN');
+    await waitForCondition(
+      ctx.page,
+      () => ctx.page.evaluate(() => window.__copied === 'RED_RUN PLAIN_RUN'),
+      5000,
+      async () =>
+        `Cmd+C to copy the row as one line (copied: ${JSON.stringify(
+          await ctx.page.evaluate(() => window.__copied),
+        )})`,
+    );
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
   }, 120000);
 
