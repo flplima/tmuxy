@@ -48,7 +48,9 @@ fn forward(window: &WebviewWindow, phase: &str, dx: f64, dy: f64, t: f64) {
 enum Stream {
     /// Nothing under way.
     Idle,
-    /// Begun, no delta seen yet: the first delta decides.
+    /// Begun, no delta seen yet: the first delta decides. (GTK has no begin
+    /// event; its first delta is the beginning.)
+    #[cfg(target_os = "macos")]
     Pending,
     /// A slide the page is being told about; its deltas are swallowed.
     Claimed,
@@ -264,7 +266,7 @@ mod linux {
                     let (sx, sy) = event.delta();
                     let (dx, dy) = (-sx, -sy);
                     match stream.get() {
-                        Stream::Idle | Stream::Pending => {
+                        Stream::Idle => {
                             let claim = SWIPE_ENABLED.load(Ordering::Relaxed) && horizontal(dx, dy);
                             if !claim {
                                 stream.set(Stream::Passed);
