@@ -74,23 +74,38 @@ describe('rubberBand', () => {
 });
 
 describe('swipeCommits', () => {
-  it('commits a slide already half way across, however slowly it was released', () => {
-    expect(swipeCommits(-520, 0, 1000)).toBe(true);
-    expect(swipeCommits(520, 0, 1000)).toBe(true);
+  it('commits a slide already past the mark, however slowly it was released', () => {
+    // A quarter of 1000.
+    expect(swipeCommits(-260, 0, 1000)).toBe(true);
+    expect(swipeCommits(260, 0, 1000)).toBe(true);
   });
 
-  it('commits a flick short of half way, on the speed it was released at', () => {
-    // 200px in hand at 3px/ms lands at 560 - past half of 1000.
-    expect(swipeCommits(-200, -3, 1000)).toBe(true);
-    expect(swipeCommits(-200, -0.5, 1000)).toBe(false);
+  it('caps the mark at a distance a trackpad can cover, however wide the pane', () => {
+    expect(swipeCommits(-250, 0, 4000)).toBe(true);
+    expect(swipeCommits(-230, 0, 4000)).toBe(false);
   });
 
-  it('settles a slow drag short of half way back where it started', () => {
-    expect(swipeCommits(-240, -0.25, 1000)).toBe(false);
+  it('commits a slide short of the mark on the speed it was released at', () => {
+    // 100px in hand at 1px/ms lands at 220 — not yet a quarter of 1000...
+    expect(swipeCommits(-100, -1, 1000)).toBe(false);
+    // ...and 150px at the same speed lands at 270, past it.
+    expect(swipeCommits(-150, -1, 1000)).toBe(true);
+  });
+
+  it('commits a flick however short, on its speed alone', () => {
+    expect(swipeCommits(-30, -1.5, 1000)).toBe(true);
+    expect(swipeCommits(30, 1.5, 1000)).toBe(true);
+    // A twitch is not a flick, and neither is speed the other way.
+    expect(swipeCommits(-10, -1.5, 1000)).toBe(false);
+    expect(swipeCommits(-30, 1.5, 1000)).toBe(false);
+  });
+
+  it('settles a slow drag short of the mark back where it started', () => {
+    expect(swipeCommits(-150, -0.25, 1000)).toBe(false);
   });
 
   it('lets a slide pulled back as it is released settle where it started', () => {
-    expect(swipeCommits(-450, 2, 1000)).toBe(false);
+    expect(swipeCommits(-200, 2, 1000)).toBe(false);
     expect(swipeCommits(0, -5, 1000)).toBe(false);
   });
 });

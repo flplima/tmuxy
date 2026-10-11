@@ -19,14 +19,24 @@ export interface Box {
 /** How far past either end of the strip the grid can be pulled, as a share of the pane area's width. */
 export const SWIPE_EDGE_LIMIT_SHARE = 0.2;
 /**
- * Where a slide must reach, as a share of the pane area's width, to switch
- * tabs: half way, like a native page swipe. A slide that stops short of it
- * settles back unless it was still moving when it was released - which is what
- * `SWIPE_PROJECT_MS` carries a flick past.
+ * Where a slide must reach to switch tabs: a quarter of the pane area's
+ * width (Firefox's own swipe mark), and never more than `SWIPE_COMMIT_MAX_PX`
+ * — a trackpad covers a few hundred points, whatever the monitor's width. A
+ * slide that stops short of it settles back unless it was still moving when
+ * it was released, which is what `SWIPE_PROJECT_MS` carries a flick past.
  */
-export const SWIPE_COMMIT_SHARE = 0.5;
+export const SWIPE_COMMIT_SHARE = 0.25;
+export const SWIPE_COMMIT_MAX_PX = 240;
 /** How far ahead a release is projected at the speed the fingers had. */
 export const SWIPE_PROJECT_MS = 120;
+/**
+ * A flick: released at this speed (px/ms) or more, in the slide's own
+ * direction, a slide switches tabs however short it was — a quick small
+ * swipe is the gesture most people make. `SWIPE_FLICK_MIN_PX` keeps a
+ * twitch from counting.
+ */
+export const SWIPE_FLICK_SPEED = 1.2;
+export const SWIPE_FLICK_MIN_PX = 16;
 /** The gap between one tab and the next while a slide is showing both. */
 export const SWIPE_GUTTER_PX = 24;
 /** A released slide is never quicker than this, nor slower. */
@@ -73,17 +83,20 @@ export function rubberBand(dx: number, width: number): number {
 }
 
 /**
- * Whether a released slide switches tabs: where it would land, carried on at
- * the speed the fingers had (px/ms, signed), is past the commit share. That
- * takes a flick as far as its speed says, and lets a slide pulled back as it
- * is released settle where it started.
+ * Whether a released slide switches tabs: a flick does on its speed alone;
+ * otherwise where the slide would land, carried on at the speed the fingers
+ * had (px/ms, signed), has to be past the commit mark. A slide pulled back
+ * as it is released settles where it started.
  */
 export function swipeCommits(dx: number, speed: number, width: number): boolean {
   if (dx === 0) return false;
+  const onward = Math.sign(speed) === Math.sign(dx);
+  if (onward && Math.abs(speed) >= SWIPE_FLICK_SPEED && Math.abs(dx) >= SWIPE_FLICK_MIN_PX) {
+    return true;
+  }
   const projected = dx + speed * SWIPE_PROJECT_MS;
-  return (
-    Math.sign(projected) === Math.sign(dx) && Math.abs(projected) >= width * SWIPE_COMMIT_SHARE
-  );
+  const mark = Math.min(width * SWIPE_COMMIT_SHARE, SWIPE_COMMIT_MAX_PX);
+  return Math.sign(projected) === Math.sign(dx) && Math.abs(projected) >= mark;
 }
 
 /** How long a released slide takes to cover `remaining` px at `speed` px/ms. */
