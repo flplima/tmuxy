@@ -203,8 +203,12 @@ pub fn checksum(body: &str) -> u16 {
     csum
 }
 
-/// Parse a layout string, with or without its checksum prefix.
+/// Parse a layout string, with or without its checksum prefix — or the JSON
+/// form tmux 3.8 prints for `#{window_layout}` (see [`parse_json`]).
 pub fn parse(layout: &str) -> Option<Node> {
+    if layout.trim_start().starts_with('{') {
+        return parse_json(layout);
+    }
     let body = match layout.split_once(',') {
         Some((head, rest)) if head.len() == 4 && head.bytes().all(|b| b.is_ascii_hexdigit()) => {
             rest
@@ -272,6 +276,42 @@ fn parse_cell(bytes: &[u8], i: &mut usize) -> Option<Node> {
                 children,
             })
         }
+        _ => None,
+    }
+}
+
+/// The JSON layout tmux 3.8 prints for `#{window_layout}`:
+/// `{"V":2,"L":cell}`, a cell being `{"t":"p"|"h"|"v","w","h","x","y",…}`
+/// with `"I":"%N"` on a pane and `"c":[cells]` on a split (`"h"` side by
+/// side, `"v"` stacked). `%layout-change` still carries the classic string,
+/// and only 3.8 reads the JSON back — so it is turned into the classic tree,
+/// which every supported tmux takes through `select-layout`.
+pub fn parse_json(layout: &str) -> Option<Node> {
+    let value: serde_json::Value = serde_json::from_str(layout).ok()?;
+    json_cell(value.get("L")?)
+}
+
+fn json_cell(cell: &serde_json::Value) -> Option<Node> {
+    let num = |key: &str| cell.get(key)?.as_u64().and_then(|n| u32::try_from(n).ok());
+    let (w, h, x, y) = (num("w")?, num("h")?, num("x")?, num("y")?);
+    match cell.get("t")?.as_str()? {
+        "p" => {
+            let pane = cell.get("I")?.as_str()?.strip_prefix('%')?.parse().ok()?;
+            Some(Node::Leaf { w, h, x, y, pane })
+        }
+        kind @ ("h" | "v") => Some(Node::Split {
+            w,
+            h,
+            x,
+            y,
+            vertical: kind == "v",
+            children: cell
+                .get("c")?
+                .as_array()?
+                .iter()
+                .map(json_cell)
+                .collect::<Option<Vec<_>>>()?,
+        }),
         _ => None,
     }
 }
@@ -471,6 +511,25 @@ mod tests {
             serialize(&bare),
             format!("{:04x},159x48,0,0,1", checksum("159x48,0,0,1"))
         );
+    }
+
+    /// tmux 3.8 prints `#{window_layout}` as JSON, which no older tmux's
+    /// `select-layout` takes. The same 80x20 window (a row above a
+    /// side-by-side pair), as tmux 3.8 printed it and as tmux 3.4 printed it:
+    /// the JSON comes out as exactly the 3.4 string, checksum and all.
+    #[test]
+    fn tmux_3_8_json_layout_becomes_the_classic_string() {
+        let json = r#"{"V":2,"L":{"t":"v","w":80,"h":20,"x":0,"y":0,"c":[{"t":"p","w":80,"h":10,"x":0,"y":0,"l":1,"i":0,"I":"%0"},{"t":"h","w":80,"h":9,"x":0,"y":11,"c":[{"t":"p","w":40,"h":9,"x":0,"y":11,"l":0,"i":1,"I":"%1"},{"t":"p","w":39,"h":9,"x":41,"y":11,"a":true,"i":2,"I":"%2"}]}]}}"#;
+        let tmux_3_4 = "72ca,80x20,0,0[80x10,0,0,0,80x9,0,11{40x9,0,11,1,39x9,41,11,2}]";
+        assert_eq!(
+            parse_json(json).map(|n| serialize(&n)).as_deref(),
+            Some(tmux_3_4)
+        );
+        // `parse` takes either form and sees the same tree.
+        assert_eq!(parse(json), parse(tmux_3_4));
+        // Not a layout: no tree, not a panic.
+        assert_eq!(parse_json(r#"{"V":2}"#), None);
+        assert_eq!(parse_json("not json"), None);
     }
 
     #[test]

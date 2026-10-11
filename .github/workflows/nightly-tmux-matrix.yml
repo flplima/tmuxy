@@ -99,6 +99,9 @@ jobs:
           - { name: '3.4', version: '3.4' }
           - { name: '3.5a', version: '3.5a' }
           - { name: '3.7a', version: '3.7a' }
+          # What Homebrew ships. 3.8 prints #{window_layout} as JSON, which
+          # session snapshots convert back to the classic string.
+          - { name: '3.8', version: '3.8' }
           - { name: 'HEAD', version: 'HEAD', soft: true }
 
     # The suite's own tmux socket — the tests pin it themselves

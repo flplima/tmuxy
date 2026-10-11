@@ -40,6 +40,7 @@ const {
   getGroupTabInfo,
   getThemeAccent,
   assertLayoutInvariants,
+  firstLevelRows,
   waitForShellPrompt,
   waitForLayoutSettled,
   showsShellPrompt,
@@ -657,31 +658,12 @@ describe('Scenario 4f: Collapsible panes', () => {
 
     // First-level row heights from tmux's own layout string; null when the
     // root is not a vertical stack.
-    const rows = async () => {
-      const layout = String(
+    const rows = async () =>
+      firstLevelRows(
         await ctx.session.runCommand(
           `display-message -p -t ${ctx.session.name} '#{window_layout}'`,
         ),
-      ).trim();
-      const body = layout.replace(/^[0-9a-f]{4},/, '');
-      const m = body.match(/^\d+x\d+,\d+,\d+\[(.*)\]$/);
-      if (!m) return null;
-      // Top-level cells: a depth-0 comma followed by a new "WxH," starts one.
-      const cells = [];
-      let depth = 0;
-      let start = 0;
-      for (let i = 0; i < m[1].length; i++) {
-        const c = m[1][i];
-        if (c === '[' || c === '{') depth++;
-        else if (c === ']' || c === '}') depth--;
-        else if (c === ',' && depth === 0 && /^\d+x\d+,/.test(m[1].slice(i + 1))) {
-          cells.push(m[1].slice(start, i));
-          start = i + 1;
-        }
-      }
-      cells.push(m[1].slice(start));
-      return cells.map((cell) => Number(cell.match(/^\d+x(\d+)/)[1]));
-    };
+      );
     const collapsible = async () =>
       String(
         await ctx.session.runCommand(

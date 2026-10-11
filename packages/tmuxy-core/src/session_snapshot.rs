@@ -94,7 +94,8 @@ pub struct WindowSnapshot {
     pub index: u32,
     pub name: String,
     pub active: bool,
-    /// tmux's `#{window_layout}`, replayed through `select-layout`.
+    /// tmux's `#{window_layout}` in its classic form (tmux 3.8's JSON is
+    /// converted on save), replayed through `select-layout`.
     pub layout: String,
     /// `@tmuxy-window-type`: a float or sidebar; `None` for a tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +202,16 @@ fn park_script() -> String {
         .join("pane-group-park")
         .to_string_lossy()
         .into_owned()
+}
+
+/// A layout as `select-layout` on any supported tmux takes it: tmux 3.8's
+/// JSON becomes the classic string, which only 3.8 itself would not need;
+/// anything else — the classic string, or something unrecognised — is kept
+/// exactly as tmux printed it, for tmux to judge.
+fn restorable_layout(layout: &str) -> String {
+    crate::layout::parse_json(layout)
+        .map(|node| crate::layout::serialize(&node))
+        .unwrap_or_else(|| layout.to_string())
 }
 
 /// The server option a restore's shell step leaves its answer in.
@@ -348,7 +359,9 @@ pub fn parse_windows(output: &str) -> Vec<WindowRecord> {
                 window_type: opt(parts[3]),
                 float_parent_id: WindowId::parse(parts[4].trim()).ok(),
                 options,
-                layout: unescape(parts[14]),
+                // Kept in the classic form every supported tmux takes back:
+                // tmux 3.8 prints JSON here, which no older one reads.
+                layout: restorable_layout(&unescape(parts[14])),
                 name: unescape(parts[15]),
             })
         })
@@ -1017,7 +1030,7 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
                 "select-layout",
                 "-t",
                 &target(s, w.index),
-                &w.layout,
+                &restorable_layout(&w.layout),
             ])));
         }
         if let Some(kind) = &w.window_type {
@@ -1111,7 +1124,7 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
                 "select-layout",
                 "-t",
                 &target(s, w.index),
-                &w.layout,
+                &restorable_layout(&w.layout),
             ])));
         }
     }

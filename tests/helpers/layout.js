@@ -324,6 +324,39 @@ async function assertLayoutInvariants(page, options = {}) {
   }
 }
 
+/**
+ * Heights of a window's first-level rows, from the layout tmux prints for
+ * `#{window_layout}`; null when the root is not a vertical stack. tmux 3.8
+ * prints it as JSON (`{"V":2,"L":{"t":"v","c":[…]}}`), older versions as
+ * `csum,WxH,X,Y[cell,cell,…]` — both are read.
+ */
+function firstLevelRows(layout) {
+  const text = String(layout).trim();
+  if (text.startsWith('{')) {
+    const root = JSON.parse(text).L;
+    return root?.t === 'v' ? root.c.map((cell) => cell.h) : null;
+  }
+  const body = text.replace(/^[0-9a-f]{4},/, '');
+  const m = body.match(/^\d+x\d+,\d+,\d+\[(.*)\]$/);
+  if (!m) return null;
+  // Top-level cells: a depth-0 comma followed by a new "WxH," starts one.
+  const cells = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < m[1].length; i++) {
+    const c = m[1][i];
+    if (c === '[' || c === '{') depth++;
+    else if (c === ']' || c === '}') depth--;
+    else if (c === ',' && depth === 0 && /^\d+x\d+,/.test(m[1].slice(i + 1))) {
+      cells.push(m[1].slice(start, i));
+      start = i + 1;
+    }
+  }
+  cells.push(m[1].slice(start));
+  return cells.map((cell) => Number(cell.match(/^\d+x(\d+)/)[1]));
+}
+
 module.exports = {
   assertLayoutInvariants,
+  firstLevelRows,
 };
