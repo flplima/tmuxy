@@ -13,7 +13,7 @@ name: nightly tmux version matrix
 #   - the snapshot E2E suite
 #   - tests/8-tui-alternate-screen.test.js (alternate-screen / TUI path)
 #
-# Blocking policy: the three RELEASED versions gate this workflow. `HEAD`
+# Blocking policy: the RELEASED versions gate this workflow. `HEAD`
 # (tmux master) does not — upstream can break, or change behaviour, on any
 # commit, and a red nightly nobody can fix is a nightly nobody reads. A HEAD
 # failure is reported into the tracking issue and the job still passes.
@@ -93,6 +93,7 @@ jobs:
         tmux:
           # `version` is the release tag; `soft` marks a version whose failure
           # must not fail the workflow.
+          - { name: '3.2a', version: '3.2a' }
           - { name: '3.4', version: '3.4' }
           - { name: '3.5a', version: '3.5a' }
           - { name: '3.7a', version: '3.7a' }

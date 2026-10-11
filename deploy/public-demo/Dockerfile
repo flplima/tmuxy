@@ -49,7 +49,8 @@ RUN cargo build --release -p tmuxy-server \
     && strip target/release/tmuxy-server
 
 # --- Stage 3: build tmux ------------------------------------------------------
-# tmuxy requires tmux 3.4+ and bookworm ships 3.3a, so it is built from source.
+# Built from source rather than taking bookworm's 3.3a: the demo runs a
+# version the per-commit CI exercises.
 # In its own stage: purging the build deps out of the runtime image took
 # libevent's RUNTIME library with them, and tmux then would not start at all.
 FROM debian:bookworm-slim AS tmux

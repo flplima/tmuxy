@@ -552,8 +552,7 @@ jobs:
       # guest / docs/TMUX.md target). Ubuntu's apt ships tmux 3.4, which has a
       # race where the initial auto-adopt of `@tmuxy-window-type=tab` gets
       # clobbered by an in-flight list-windows response under the load the
-      # Ctx/Tower Tauri path puts on the CC stream at startup. The app also
-      # refuses to launch below tmux 3.3.
+      # Ctx/Tower Tauri path puts on the CC stream at startup.
       - uses: ./.github/actions/install-tmux
 
       # `cargo install tauri-driver` compiles from source on every run

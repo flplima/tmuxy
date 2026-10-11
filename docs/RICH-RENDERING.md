@@ -168,6 +168,8 @@ tmux reports cursor positions and lays out everything on **its** grid; tmuxy re-
 | ZWJ / VS16 at column 0                                   | dropped                                                                                                     | —                          |
 | sequence longer than the cell buffer (22 bytes; tmux 21) | the overflowing character starts a new cell                                                                 | —                          |
 
+These are the rules of tmux 3.4 and later. tmux 3.2 sizes ZWJ sequences, skin-tone sequences and VS16 symbols differently, and tmuxy does not follow it there — a known limitation on the oldest supported tmux, described in [TMUX.md](TMUX.md#tmux-version).
+
 The E2E test in `tests/3-rendering-protocols.test.js` ("Wide glyphs stay on the tmux cell grid") is the contract: it prints each case, parks the shell in `read`, and compares the _rendered_ cursor and marker positions against tmux's own `#{cursor_x}`. Add a row to that test whenever a width rule changes.
 
 ## Testing

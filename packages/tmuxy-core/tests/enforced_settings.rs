@@ -68,15 +68,18 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
 
     // A session configured exactly the wrong way round, the way a user's
     // tmux.conf leaves it. Every one of these must be overridden on connect.
-    for (key, value) in [
-        ("pane-border-status", "off"),
-        ("mouse", "off"),
-        ("focus-events", "off"),
-        ("allow-passthrough", "off"),
-        ("allow-rename", "off"),
-        ("set-titles", "off"),
-    ] {
-        common::tmux(&["set-option", "-t", "app", key, value]).unwrap();
+    // tmux 3.2 has no `allow-passthrough` (it passes the sequences through
+    // unconditionally), so there is nothing to turn off or read back there.
+    let version = common::tmux(&["-V"]).unwrap();
+    let has_passthrough =
+        tmuxy_core::tmux_check::parse_version(&version).is_none_or(|found| found >= (3, 3));
+    let mut switches = vec!["mouse", "focus-events", "allow-rename", "set-titles"];
+    if has_passthrough {
+        switches.push("allow-passthrough");
+    }
+    common::tmux(&["set-option", "-t", "app", "pane-border-status", "off"]).unwrap();
+    for key in &switches {
+        common::tmux(&["set-option", "-t", "app", key, "off"]).unwrap();
     }
     common::tmux(&["set-window-option", "-t", "app", "aggressive-resize", "on"]).unwrap();
 
@@ -104,13 +107,7 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
         "the border row is drawn empty"
     );
 
-    for key in [
-        "mouse",
-        "focus-events",
-        "allow-passthrough",
-        "allow-rename",
-        "set-titles",
-    ] {
+    for key in &switches {
         assert_eq!(option(&tx, key).await, "on", "{key} is enforced on");
     }
 

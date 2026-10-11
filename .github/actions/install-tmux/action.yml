@@ -1,7 +1,7 @@
 name: Install tmux
-# A source-built tmux, cached by version. Ubuntu's apt tmux is too old for the
-# app (it refuses to launch below 3.3), and 3.7a is what the devcontainer and
-# the v86 guest run — docs/TMUX.md targets it everywhere. The build is ~30-60s,
+# A source-built tmux, cached by version. 3.7a is what the devcontainer and
+# the v86 guest run — docs/TMUX.md targets it everywhere — and the nightly
+# matrix builds each older version it covers the same way. The build is ~30-60s,
 # the cache restore ~2s.
 inputs:
   version:

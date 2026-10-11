@@ -642,8 +642,6 @@ impl TmuxMonitor {
             ("mouse", "on"),
             // Focus events for applications like vim/neovim.
             ("focus-events", "on"),
-            // Allow OSC passthrough for hyperlinks, images, and other sequences.
-            ("allow-passthrough", "on"),
             // Allow applications to set pane title via OSC 0/2.
             ("allow-rename", "on"),
             ("set-titles", "on"),
@@ -661,6 +659,20 @@ impl TmuxMonitor {
             // settings + control mode + new-session -d crashes the server.
             // Each session's monitor enforces its own settings on connect.
             let cmd = format!("set {} '{}'", key, value);
+            self.connection.send_command(&cmd).await?;
+        }
+
+        // Options newer than the oldest tmux tmuxy supports. `-q` lets that
+        // tmux skip one it does not know instead of reporting an error.
+        let newer_settings = [
+            // Allow OSC passthrough for hyperlinks, images, and other
+            // sequences. tmux 3.3 added the option; 3.2 passes them through
+            // unconditionally.
+            ("allow-passthrough", "on"),
+        ];
+
+        for (key, value) in &newer_settings {
+            let cmd = format!("set -q {} '{}'", key, value);
             self.connection.send_command(&cmd).await?;
         }
 
@@ -1311,8 +1323,12 @@ impl TmuxMonitor {
         // A PANE-scoped `@tmuxy-*` write needs the same treatment for
         // the same reason: answering a `tmuxy ask` clears `@tmuxy-ask`,
         // and without this the question would stay on screen until the
-        // next event moved it.
-        if toggles_pane_mark(&unescaped) || writes_pane_scoped_tmuxy_option(&unescaped) {
+        // next event moved it. And a pane swap, which tmux 3.2 does not
+        // announce at all.
+        if toggles_pane_mark(&unescaped)
+            || writes_pane_scoped_tmuxy_option(&unescaped)
+            || swaps_panes(&unescaped)
+        {
             if let Err(e) = self
                 .connection
                 .send_command(tmux_formats::LIST_PANES_CMD)
@@ -1447,21 +1463,35 @@ fn toggles_pane_mark(command: &str) -> bool {
 /// `swap-window`, `renumber-windows`, and their short forms). tmux emits no
 /// notification for an index change, so the caller re-lists windows right after.
 fn reorders_windows(command: &str) -> bool {
-    const VERBS: [&str; 5] = [
-        "move-window",
-        "movew",
-        "swap-window",
-        "swapw",
-        "renumber-windows",
-    ];
-    // The verb heads a command; anywhere else it is an argument (a key sent
-    // to a shell, say).
-    command.split("\\;").any(|segment| {
-        segment
-            .split_whitespace()
-            .next()
-            .is_some_and(|w| VERBS.contains(&w))
-    })
+    runs_any(
+        command,
+        &[
+            "move-window",
+            "movew",
+            "swap-window",
+            "swapw",
+            "renumber-windows",
+        ],
+    )
+}
+
+/// Whether a client command swaps panes (`swap-pane` / `swapp`). tmux 3.2
+/// emits no `%layout-change` for a swap, so the caller re-lists panes right
+/// after; on later versions the re-list only repeats what the notification
+/// already brought.
+fn swaps_panes(command: &str) -> bool {
+    runs_any(command, &["swap-pane", "swapp"])
+}
+
+/// Whether any command of a client's command list is one of `verbs`. Only the
+/// verb heading a command counts; anywhere else it is an argument (a key sent
+/// to a shell, say). The list separator may still be the client's `\;` or
+/// already unescaped.
+fn runs_any(command: &str, verbs: &[&str]) -> bool {
+    crate::executor::split_compound(command)
+        .iter()
+        .flat_map(|part| part.split(" ; "))
+        .any(|part| verbs.contains(&crate::executor::command_verb(part)))
 }
 
 fn writes_tmuxy_option(command: &str) -> bool {
@@ -1657,9 +1687,24 @@ mod tests {
         assert!(reorders_windows(
             "select-window -t @0 \\; swapw -s @3 -t @1"
         ));
+        // The monitor asks after unescaping the client's `\;`.
+        assert!(reorders_windows("select-window -t @0 ; swapw -s @3 -t @1"));
         assert!(reorders_windows("renumber-windows"));
         assert!(!reorders_windows("select-window -t @3"));
         assert!(!reorders_windows("send-keys -t %1 move-window Enter"));
+    }
+
+    /// tmux 3.2 sends no `%layout-change` for a swap, so the panes are
+    /// re-listed behind every one — pinned by the keyboard actor or not.
+    #[test]
+    fn pane_swaps_re_list_the_panes() {
+        assert!(swaps_panes("swap-pane -D"));
+        assert!(swaps_panes(
+            "select-window -t @8 ; select-pane -t %32 ; swap-pane -D"
+        ));
+        assert!(swaps_panes("select-pane -t %3 \\; swapp -s %1 -t %2"));
+        assert!(!swaps_panes("select-pane -t %3"));
+        assert!(!swaps_panes("send-keys -t %1 swap-pane Enter"));
     }
 
     #[test]

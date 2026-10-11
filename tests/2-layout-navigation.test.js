@@ -3607,8 +3607,9 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     const longTitle = 'a very long pane title that certainly needs truncating in this tree';
     // The shell may set the title itself at every prompt (zsh and fish
     // configs commonly do, over OSC 2), which would overwrite this one before
-    // the tree draws it. `allow-set-title off` keeps the title the test set.
-    await ctx.session.runCommand(`set-option -p -t ${ctx.session.name} allow-set-title off`);
+    // the tree draws it. `allow-set-title off` keeps the title the test set
+    // (`-q`: tmux 3.2 has no such option).
+    await ctx.session.runCommand(`set-option -q -p -t ${ctx.session.name} allow-set-title off`);
     await ctx.session.runCommand(`select-pane -t ${ctx.session.name} -T '${longTitle}'`);
 
     // Step 1: Open the sidebar via the real keybinding (prefix t).
