@@ -414,6 +414,34 @@ jobs:
               echo "AppImage reports '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
           fi
 
+      # What the AppImage catalog's appdir-lint checks, checked here first. The
+      # Tauri CLI before 2.11.3 wrote `.DirIcon` as an ABSOLUTE symlink into
+      # the build runner's workspace: dangling once the image left the runner,
+      # so desktops showed a generic icon and AppImageHub refused the entry
+      # (AppImage/appimage.github.io#9427). Every link at the AppDir root has
+      # to be relative and resolve inside the image.
+      - name: Lint the AppImage's AppDir (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(ls target/release/bundle/appimage/*.AppImage | head -1)
+          WORK=$(mktemp -d "${RUNNER_TEMP}/tmuxy-appdir.XXXXXX")
+          (cd "$WORK" && "$GITHUB_WORKSPACE/$APPIMAGE" --appimage-extract >/dev/null)
+          ROOT="$WORK/squashfs-root"
+          for name in .DirIcon tmuxy.desktop tmuxy.png; do
+            [ -L "$ROOT/$name" ] || [ -f "$ROOT/$name" ] || { echo "$name is missing from the AppDir"; exit 1; }
+            if [ -L "$ROOT/$name" ]; then
+              target=$(readlink "$ROOT/$name")
+              case "$target" in
+                /*) echo "$name is an absolute symlink ($target): dangling outside the build machine"; exit 1 ;;
+              esac
+            fi
+            [ -e "$ROOT/$name" ] || { echo "$name does not resolve inside the AppDir"; exit 1; }
+          done
+          test -x "$ROOT/AppRun"
+          grep -q '^Icon=tmuxy$' "$ROOT/tmuxy.desktop"
+          echo "AppDir root: $(ls -A "$ROOT" | tr '\n' ' ')"
+
       # In a clean container, not on the runner: the runner already has every
       # Tauri build dependency installed, so a `Depends:` line missing from the
       # .deb cannot fail there. Here apt has to resolve the package's declared

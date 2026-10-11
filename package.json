@@ -32,7 +32,7 @@
     "check:full": "npm run check:fast && npm run test:cli && TERM=xterm-256color cargo test --workspace"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.9.0",
+    "@tauri-apps/cli": "^2.12.2",
     "eslint-plugin-jest": "^29.15.0",
     "jest": "^29.7.0",
     "playwright": "^1.58.0",
