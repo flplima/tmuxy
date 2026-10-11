@@ -1,25 +1,21 @@
 /**
- * Gesture Actor - turns trackpad slides and pinches into GESTURE_* events.
+ * Gesture Actor - turns the desktop app's trackpad gestures into GESTURE_* events.
  *
- * A trackpad reaches a web page in two dialects:
- *  - Chromium and Firefox report a pinch as `wheel` events with `ctrlKey` set
- *    (a negative deltaY spreads the fingers). WebKit - Safari and the desktop
- *    app's WKWebView - reports it as `gesturestart` / `gesturechange` /
- *    `gestureend` carrying the cumulative `scale`.
- *  - Both report a two-finger horizontal slide as `wheel` events with deltaX.
+ * Desktop only (docs/DESKTOP.md). A web page cannot tell when the fingers
+ * leave a trackpad: a two-finger slide reaches it as `wheel` events with no
+ * phase, and silence is the only thing that ever says "lifted" - the same
+ * silence as fingers resting on the pad. So the slide comes from the native
+ * shell, which sees the real phases (`NSEvent.phase` on macOS, GTK's smooth
+ * scroll and its stop event on Linux) and calls `window.tmuxyGesture` with
+ * them, swallowing those events before the webview scrolls on them.
  *
- * Neither says when the fingers lift. A pinch ends on `gestureend`, or once the
- * ctrl-wheel stream goes quiet. A slide ends when its stream goes quiet or when
- * its steps start shrinking the way the momentum macOS adds after lift-off
- * does, so the tab switch lands at lift-off like the native gesture instead of
- * after the coast.
- *
- * The listeners sit on the window in the capture phase, ahead of the panes'
- * own wheel handlers, and swallow exactly the events a gesture claims. Vertical
- * scrolling passes through untouched, and a gesture the config turns off
- * claims nothing, which hands it back to the browser - the flags are read off
- * the machine at the moment each event arrives, since the claim has to be made
- * before the event goes anywhere else.
+ * A pinch has phases in the webview itself: WebKit reports it as
+ * `gesturestart` / `gesturechange` / `gestureend` carrying the cumulative
+ * `scale`. (A ctrl+wheel pinch, the Chromium dialect, is kept for a desktop
+ * build on WebKitGTK, where it is how libinput's pinch arrives; it ends when
+ * the stream goes quiet.) Those listeners sit on the window in the capture
+ * phase and swallow exactly the events a gesture claims; a gesture the config
+ * turns off claims nothing, which hands it back to the webview.
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
@@ -34,29 +30,43 @@ interface GestureActorInput {
   parent: AnyActorRef;
 }
 
-/** Wheel silence that means a slide's fingers have lifted. */
-export const SWIPE_IDLE_MS = 70;
-/** How much of the speed estimate each step carries (the rest is the steps before it). */
-const SPEED_SMOOTHING = 0.6;
 /** Pinch deltas arrive further apart than a slide's; a pause this long ends it. */
 export const PINCH_IDLE_MS = 200;
 /** A ctrl-wheel step scales by exp(-deltaY / this). */
 const PINCH_DELTA_SCALE = 100;
 /** A mouse wheel notch is ~100px; capped so Ctrl+wheel on a mouse steps gently. */
 const PINCH_MAX_STEP = 25;
-/** How much the horizontal axis has to dominate for a slide to start. */
-const SWIPE_AXIS_RATIO = 1.5;
-/** A vertical scroll this recent keeps a slide from starting mid-scroll. */
-const SCROLL_GUARD_MS = 200;
-/** After a slide ends, the momentum tail must not start another one. */
-export const SWIPE_COOLDOWN_MS = 350;
-/** A step in the coast this much bigger than the coast's own steps is the fingers back on the pad. */
-const SWIPE_RESTART_RATIO = 1.4;
-/** ...and at least this big, so noise in a slow coast cannot restart a slide. */
-const SWIPE_RESTART_STEP = 6;
-/** Consecutive shrinking steps, below this share of the peak, that read as momentum. */
-const MOMENTUM_STEPS = 3;
-const MOMENTUM_SHARE = 0.6;
+/** How much of the speed estimate each step carries (the rest is the steps before it). */
+const SPEED_SMOOTHING = 0.6;
+
+/** The phases the native shell reports for a slide (docs/DESKTOP.md § Trackpad gestures). */
+export type NativeSlidePhase =
+  | 'began'
+  | 'changed'
+  | 'ended'
+  | 'cancelled'
+  | 'momentum'
+  | 'momentum-ended';
+
+/**
+ * What the shell calls, once per native scroll event it claims for a slide:
+ * `dx` in points, positive when the fingers move right; `t` the event's own
+ * timestamp in seconds, so the speed a release carries on at is measured on
+ * the device's clock rather than on the page's.
+ */
+export type NativeGestureHook = (
+  kind: 'slide',
+  phase: NativeSlidePhase,
+  dx: number,
+  dy: number,
+  t: number,
+) => void;
+
+declare global {
+  interface Window {
+    tmuxyGesture?: NativeGestureHook;
+  }
+}
 
 interface WebKitGestureEvent extends UIEvent {
   scale: number;
@@ -98,125 +108,22 @@ export function createGestureActor() {
       send({ type: 'GESTURE_PINCH_END' });
     };
 
-    // ---- slide ---------------------------------------------------------------
-    let swipe: {
-      dx: number;
-      peak: number;
-      prev: number;
-      shrinking: number;
-      /** Signed px/ms, smoothed over the last steps. */
-      speed: number;
-      /** The smoothed speed from while the fingers were still driving the slide - what a release carries on at, before the momentum tail decays it. */
-      liftSpeed: number;
-      at: number;
-      timer: number | null;
-    } | null = null;
-    let lastVerticalAt = -Infinity;
-    let cooldownUntil = -Infinity;
-    /** The size of the steps the last slide's coast is arriving in. */
-    let coastStep = 0;
-
-    const endSwipe = () => {
-      if (!swipe) return;
-      if (swipe.timer != null) clearTimeout(swipe.timer);
-      const speed = swipe.liftSpeed;
-      // Seed the coast with the step the slide ended on. The momentum tail
-      // starts near that size and decays, so this is what the "fingers are back
-      // on the pad" test below has to beat. Starting from 0 meant the FIRST
-      // tail step always won it (any step >= SWIPE_RESTART_STEP beats 0), which
-      // restarted a slide the instant one committed: the grid jumped back to
-      // where the incoming tab started and re-ran its whole finishing
-      // animation, in plain view.
-      coastStep = Math.abs(swipe.prev);
-      swipe = null;
-      cooldownUntil = performance.now() + SWIPE_COOLDOWN_MS;
-      send({ type: 'GESTURE_SWIPE_END', speed });
-    };
-
     const claim = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
     };
 
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        if (webkitPinch) return claim(e);
-        if (!pinchAllowed()) return;
-        claim(e);
-        const p = pinch ?? startPinch(paneIdAt(e.target, e.clientX, e.clientY));
-        const step = Math.max(-PINCH_MAX_STEP, Math.min(PINCH_MAX_STEP, e.deltaY));
-        p.scale *= Math.exp(-step / PINCH_DELTA_SCALE);
-        if (p.timer != null) clearTimeout(p.timer);
-        p.timer = window.setTimeout(endPinch, PINCH_IDLE_MS);
-        send({ type: 'GESTURE_PINCH', scale: p.scale, paneId: p.paneId });
-        return;
-      }
-
-      const now = performance.now();
-      if (!swipe) {
-        const horizontal =
-          Math.abs(e.deltaX) >= 1 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * SWIPE_AXIS_RATIO;
-        if (!horizontal) {
-          if (e.deltaY !== 0) lastVerticalAt = now;
-          return;
-        }
-        if (!flags().swipeTabs || now - lastVerticalAt < SCROLL_GUARD_MS) return;
-        // The coast of the slide that just ended: keep it from turning into a
-        // browser history swipe, and don't let it start another slide - unless
-        // the fingers are plainly back on the pad, since a coast only ever
-        // decays while a new push accelerates. Swiping twice quickly is a
-        // thing people do.
-        if (now < cooldownUntil) {
-          const size = Math.abs(e.deltaX);
-          const pushing = size >= SWIPE_RESTART_STEP && size > coastStep * SWIPE_RESTART_RATIO;
-          if (!pushing) {
-            coastStep = Math.max(size, coastStep * 0.8);
-            return claim(e);
-          }
-          cooldownUntil = -Infinity;
-          coastStep = 0;
-        }
-        swipe = {
-          dx: 0,
-          peak: 0,
-          prev: 0,
-          shrinking: 0,
-          speed: 0,
-          liftSpeed: 0,
-          at: now,
-          timer: null,
-        };
-      }
-
+      if (!e.ctrlKey) return;
+      if (webkitPinch) return claim(e);
+      if (!pinchAllowed()) return;
       claim(e);
-      // The content follows the fingers: moving them left scrolls right.
-      const step = -e.deltaX;
-      swipe.dx += step;
-      // Smoothed so one long frame (or one tiny step) does not decide how fast
-      // the release carries on.
-      const dt = Math.max(8, Math.min(64, now - swipe.at));
-      swipe.at = now;
-      swipe.speed = swipe.speed * (1 - SPEED_SMOOTHING) + (step / dt) * SPEED_SMOOTHING;
-      const size = Math.abs(step);
-      if (size >= Math.abs(swipe.peak)) {
-        swipe.peak = step;
-        swipe.shrinking = 0;
-      } else if (size < Math.abs(swipe.prev)) {
-        swipe.shrinking++;
-      } else {
-        swipe.shrinking = 0;
-      }
-      swipe.prev = step;
-      // Steps that are not already decaying are the fingers themselves.
-      if (swipe.shrinking === 0) swipe.liftSpeed = swipe.speed;
-      if (swipe.timer != null) clearTimeout(swipe.timer);
-      send({ type: 'GESTURE_SWIPE', dx: swipe.dx });
-
-      if (swipe.shrinking >= MOMENTUM_STEPS && size < Math.abs(swipe.peak) * MOMENTUM_SHARE) {
-        endSwipe();
-        return;
-      }
-      swipe.timer = window.setTimeout(endSwipe, SWIPE_IDLE_MS);
+      const p = pinch ?? startPinch(paneIdAt(e.target, e.clientX, e.clientY));
+      const step = Math.max(-PINCH_MAX_STEP, Math.min(PINCH_MAX_STEP, e.deltaY));
+      p.scale *= Math.exp(-step / PINCH_DELTA_SCALE);
+      if (p.timer != null) clearTimeout(p.timer);
+      p.timer = window.setTimeout(endPinch, PINCH_IDLE_MS);
+      send({ type: 'GESTURE_PINCH', scale: p.scale, paneId: p.paneId });
     };
 
     const onGestureStart = (e: Event) => {
@@ -239,11 +146,57 @@ export function createGestureActor() {
       endPinch();
     };
 
+    // ---- slide (from the shell) ----------------------------------------------
+    // The fingers are on the pad from `began` to `ended` or `cancelled`,
+    // however long they rest in between: nothing here is timed. The speed a
+    // release carries on at is the smoothed speed of the last steps.
+    let slide: { dx: number; speed: number; at: number } | null = null;
+
+    const endSlide = (speed: number) => {
+      if (!slide) return;
+      slide = null;
+      send({ type: 'GESTURE_SWIPE_END', speed });
+    };
+
+    const onNative: NativeGestureHook = (kind, phase, dx, _dy, t) => {
+      if (kind !== 'slide') return;
+      switch (phase) {
+        case 'began':
+          if (!flags().swipeTabs) return;
+          slide = { dx: 0, speed: 0, at: t };
+          return;
+        case 'changed': {
+          if (!slide) {
+            if (!flags().swipeTabs) return;
+            slide = { dx: 0, speed: 0, at: t };
+          }
+          slide.dx += dx;
+          // Smoothed so one long gap (or one tiny step) does not decide how
+          // fast the release carries on. Seconds on the wire, ms here.
+          const dt = Math.max(8, Math.min(64, (t - slide.at) * 1000));
+          slide.at = t;
+          slide.speed = slide.speed * (1 - SPEED_SMOOTHING) + (dx / dt) * SPEED_SMOOTHING;
+          send({ type: 'GESTURE_SWIPE', dx: slide.dx });
+          return;
+        }
+        case 'ended':
+          endSlide(slide?.speed ?? 0);
+          return;
+        case 'cancelled':
+          endSlide(0);
+          return;
+        default:
+          // The momentum tail after a lift: the shell swallows it so the page
+          // does not scroll on it, and the slide has already ended at the lift.
+          return;
+      }
+    };
+
     // Switching apps mid-gesture never delivers its end.
     const abandon = () => {
       webkitPinch = false;
       endPinch();
-      endSwipe();
+      endSlide(0);
     };
 
     const opts = { capture: true, passive: false } as const;
@@ -252,6 +205,7 @@ export function createGestureActor() {
     window.addEventListener('gesturechange', onGestureChange, opts);
     window.addEventListener('gestureend', onGestureEnd, opts);
     window.addEventListener('blur', abandon);
+    window.tmuxyGesture = onNative;
 
     return () => {
       window.removeEventListener('wheel', onWheel, opts);
@@ -259,8 +213,8 @@ export function createGestureActor() {
       window.removeEventListener('gesturechange', onGestureChange, opts);
       window.removeEventListener('gestureend', onGestureEnd, opts);
       window.removeEventListener('blur', abandon);
+      if (window.tmuxyGesture === onNative) delete window.tmuxyGesture;
       if (pinch?.timer != null) clearTimeout(pinch.timer);
-      if (swipe?.timer != null) clearTimeout(swipe.timer);
     };
   });
 }

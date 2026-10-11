@@ -44,6 +44,7 @@ import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../infra/store/TmuxStore';
 import { measureCellMetrics } from '../utils/cellMetrics';
+import { isTauri } from '../utils/platform';
 import type { PaneId } from '../domain/ids';
 
 // ============================================
@@ -57,6 +58,11 @@ export interface AppConfig {
   requireFocus?: boolean;
   /** When true, running in demo mode — disables session/host click actions */
   isDemo?: boolean;
+  /**
+   * Run the desktop app's trackpad gesture actor (docs/DESKTOP.md) off the
+   * desktop — for a story that drives it with the shell's own events.
+   */
+  desktopGestures?: boolean;
 }
 
 const AppConfigContext = createContext<AppConfig>({});
@@ -158,7 +164,10 @@ export function AppProvider({
       tmuxStoreActor: createTmuxStoreActor(store, runtime),
       keyboardActor: createKeyboardActor(),
       linkModifierActor: createLinkModifierActor(),
-      gestureActor: createGestureActor(),
+      // Trackpad gestures are the desktop app's (docs/DESKTOP.md): the web
+      // build keeps the machine's no-op actor and the browser its own
+      // wheel, pinch-zoom and history swipe.
+      ...((config?.desktopGestures ?? isTauri()) ? { gestureActor: createGestureActor() } : {}),
       sizeActor: createSizeActor(measureCellMetrics),
       serversActor: createServersActor(runtime),
     };

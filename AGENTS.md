@@ -7,6 +7,7 @@ A web-based tmux interface built with React (Vite) frontend and Rust backend.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview and component interaction.
 See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
 See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
+See [docs/DESKTOP.md](docs/DESKTOP.md) for what only the desktop app has (trackpad gestures, GUI windows, window chrome) and why.
 See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, workarounds, and the `@tmuxy-*` window/pane tag schema.
 See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback rendering and native browser scrolling in copy mode.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.

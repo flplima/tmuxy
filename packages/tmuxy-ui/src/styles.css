@@ -2953,13 +2953,6 @@
   transition: none;
 }
 
-/* A two-finger slide switches tabs; Chromium must not also take it as a
-   history swipe. */
-html,
-body {
-  overscroll-behavior-x: none;
-}
-
 .pane-container.tab-overview-open .float-modal {
   visibility: hidden;
 }

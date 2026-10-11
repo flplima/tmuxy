@@ -76,7 +76,9 @@ Prefer a native package? Grab the `.deb` or `.AppImage` directly from the
 
 ### Desktop App
 
-Launch `tmuxy` from your applications menu or terminal.
+Launch `tmuxy` from your applications menu or terminal. macOS and Linux only.
+
+A few things exist only here, because a browser tab is not given them: trackpad gestures (two-finger slide between tabs, pinch to zoom), several windows on one session, window styles and the native menu bar, other servers in the session menu. The full list, with the reason for each, is [docs/DESKTOP.md](docs/DESKTOP.md).
 
 ### Web App (Headless / Remote)
 

@@ -1,14 +1,15 @@
 /**
- * Trackpad gesture stories (demo engine).
+ * Trackpad gesture stories (demo engine) — the desktop app's gestures, run
+ * on the web build (docs/DESKTOP.md).
  *
- * A play function cannot touch a trackpad, so these dispatch exactly what one
- * sends a page: wheel events with deltaX for a two-finger slide, ctrl+wheel for
- * a pinch in Chromium and Firefox, and WebKit's gesturestart / gesturechange /
- * gestureend for a pinch in Safari and the desktop app. They land on the
- * element under the "fingers" and travel the real chain: gestureActor, the app
- * machine, GestureStage and PaneLayout drawing each step, and SELECT_TAB /
- * ZOOM_PANE / TOGGLE_TAB_OVERVIEW / TAB_OVERVIEW_ACTIVATE into the demo tmux
- * when the fingers lift.
+ * The gesture actor is opted in with `config.desktopGestures`, and the
+ * stories drive it the way the shell does: a slide as calls to
+ * `window.tmuxyGesture` with the phases the native side reports, a pinch as
+ * ctrl+wheel (WebKitGTK) or WebKit's gesturestart / gesturechange /
+ * gestureend (the macOS WKWebView). They travel the real chain: gestureActor,
+ * the app machine, GestureStage and PaneLayout drawing each step, and
+ * SELECT_TAB / ZOOM_PANE / TOGGLE_TAB_OVERVIEW / TAB_OVERVIEW_ACTIVATE into
+ * the demo tmux when the fingers lift.
  *
  * Motion is sampled once a frame after the fingers lift, so a bounce, an
  * overshoot or a zoom that steps back before going on shows up as a sample
@@ -18,13 +19,14 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
-import { SWIPE_COOLDOWN_MS } from '../machines/actors/gestureActor';
+import type { NativeSlidePhase } from '../machines/actors/gestureActor';
 import { SWIPE_COMMIT_SHARE, SWIPE_EDGE_LIMIT_SHARE } from '../utils/gestures';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/Trackpad Gestures',
   component: AppHarness,
   parameters: { layout: 'fullscreen' },
+  args: { config: { desktopGestures: true } },
 };
 export default meta;
 type Story = StoryObj<typeof AppHarness>;
@@ -62,6 +64,8 @@ const paneEl = (id: string) =>
   document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`) as HTMLElement;
 const activePaneEl = () => paneEl(ctx().activePaneId!);
 const atRest = () => waitFor(() => expect(getComputedStyle(layout()).transform).toBe('none'));
+const translateX = () =>
+  Math.round(new DOMMatrixReadOnly(getComputedStyle(layout()).transform).m41);
 
 function centre(el: Element) {
   const r = el.getBoundingClientRect();
@@ -69,67 +73,58 @@ function centre(el: Element) {
 }
 
 /**
- * One wheel step per value over `el`: the fingers are down until the steps stop.
- *
- * Paced by a macrotask, not by a frame, and the difference is the whole point.
- * A slide ends after `SWIPE_IDLE_MS` (70ms) of wheel silence — wall clock, a
- * real `setTimeout` in `gestureActor` — while a trackpad delivers its events on
- * its own cadence, nothing to do with what is painting. Waiting a
- * `requestAnimationFrame` between steps tied the gesture to the frame rate: on a
- * loaded runner one frame runs past 70ms, the actor concludes the fingers have
- * lifted, the grid springs back, and the assertion reads a pane at rest.
- * Reproduced 4 runs out of 4 at `PROBE_CPU_THROTTLE=20`; 20 out of 20 pass now.
- *
- * Why this holds under ANY stall and is not just a wider margin: expired timers
- * run in order of their due time, so the next step's `setTimeout(0)` — due at
- * once — always runs before the idle timer due 70ms after the previous step,
- * however long the thread was away in between. Measured in Chromium: a 120ms
- * busy-wait after scheduling both, and the 0ms one still ran first.
- *
- * Still one task per step rather than one burst: the momentum detector reads
- * the fingers lifting from steps that shrink one after another, and a burst
- * dispatched back to back reads to it as a different gesture (measured: the
- * flick then fell short of the commit share). One frame at the end, so the
- * transform the caller is about to measure has been applied.
+ * The shell's calls for a slide: `began`, one `changed` per step, then the
+ * phase the fingers end on. The clock is the device's (`t`, seconds), so the
+ * speed a release carries on at is set by the steps' spacing here, not by
+ * how long the page took between them.
  */
-async function wheelSteps(el: Element, steps: number[], init: WheelEventInit = {}) {
+class Fingers {
+  private t = performance.now() / 1000;
+  constructor(private readonly everyMs = 16) {}
+  private call(phase: NativeSlidePhase, dx = 0) {
+    this.t += this.everyMs / 1000;
+    window.tmuxyGesture?.('slide', phase, dx, 0, this.t);
+  }
+  down() {
+    this.call('began');
+  }
+  /** Each step is one native event; a frame between them so the grid is drawn. */
+  async move(steps: number[]) {
+    for (const dx of steps) {
+      this.call('changed', dx);
+      await nextFrame();
+    }
+  }
+  /** The fingers stay on the pad: no event for `ms`. */
+  async rest(ms: number) {
+    await pause(ms);
+    this.t += ms / 1000;
+  }
+  async lift() {
+    this.call('ended');
+    await nextFrame();
+  }
+}
+const repeat = (step: number, n: number) => Array.from({ length: n }, () => step);
+
+/** One pinch step per value over `el`, as ctrl+wheel (WebKitGTK's dialect). */
+async function pinchSteps(el: Element, steps: number[]) {
   for (const step of steps) {
-    const delta = init.ctrlKey ? { deltaY: step } : { deltaX: step };
     el.dispatchEvent(
       new WheelEvent('wheel', {
         bubbles: true,
         cancelable: true,
         ...centre(el),
-        ...init,
-        ...delta,
+        ctrlKey: true,
+        deltaY: step,
       }),
     );
     await pause(0);
   }
   await nextFrame();
 }
-const repeat = (step: number, n: number) => Array.from({ length: n }, () => step);
 
-/**
- * Wheel steps that pull the grid `px` to the right (fingers moving right), in a
- * fixed, small number of steps.
- *
- * Long in distance, few in number. What a release commits to is
- * `dx + speed × SWIPE_PROJECT_MS`, and `speed` is px per ms between wheel
- * events as the actor measures them — a gap the actor clamps to 8–64ms, so it
- * varies with the machine — which means a fixed step SIZE can read as a slower
- * gesture on a busy runner and land on the other side of the commit share.
- * Distance is the part a test can hold still, so the slide is sized to be past
- * the share on distance alone and the speed cannot decide it either way.
- *
- * Few steps rather than many, because the cursor overlay eases toward the panes
- * on its own clock (`SmoothCursor`), and the story measures it after the slide:
- * a slide spread over many more steps is measured while the cursor is still
- * catching up.
- */
-const slideSteps = (px: number, count = 16) => repeat(-Math.ceil(px / count), count);
-
-/** A WebKit gesture event (Safari, the desktop app's WKWebView) over `el`. */
+/** A WebKit gesture event (the macOS WKWebView) over `el`. */
 function webkitGesture(el: Element, type: string, scale: number): Event {
   const e = new Event(type, { bubbles: true, cancelable: true });
   Object.assign(e, { scale, ...centre(el) });
@@ -189,14 +184,15 @@ async function ready(canvasElement: HTMLElement) {
   await within(canvasElement).findAllByRole('group', { name: /Pane/i }, { timeout: 8000 });
 }
 
+const TWO_TABS = ['rename-window main', 'new-window', 'rename-window logs'];
+
 export const SlideBetweenTabs: Story = {
-  tags: ['nightly'],
-  args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
+  args: { height: 500, initCommands: TWO_TABS },
   parameters: {
     docs: {
       description: {
         story:
-          'Two fingers sliding right pull in the previous tab. While they move, the grid follows them with that tab’s real panes beside it at the same height, and the cursor rides along. Released half way across - or short of it but still moving, as a flick - the tab switches on the release itself, and the new tab then slides the rest of the way in on one ease-out curve whose length comes from the distance left and the speed the fingers had, never past its place and never back. Past the first tab the grid gives with resistance and slides back, and a short slow slide slides back too.',
+          'Two fingers sliding right pull in the previous tab. While they move, the grid follows them with that tab’s real panes beside it at the same height, and the cursor rides along. Released past the mark the tab switches on the release itself, and the new tab then slides the rest of the way in on one ease-out curve, never past its place and never back. Past the first tab the grid gives with resistance and slides back, and a short slow slide slides back too. A flick short of the mark is carried the rest of the way by the speed it lifts at.',
       },
     },
   },
@@ -212,9 +208,12 @@ export const SlideBetweenTabs: Story = {
     const cursorStart = cursorLeft();
 
     // Fingers slide right: the grid moves with them, "main" alongside at the
-    // same height, the cursor with it, and nothing has switched yet. Far enough
-    // that the DISTANCE alone is past the commit share (see slideSteps).
-    await wheelSteps(logsPane, slideSteps(ctx().containerWidth * SWIPE_COMMIT_SHARE * 1.3));
+    // same height, the cursor with it, and nothing has switched yet. Far
+    // enough that the distance alone is past the commit share.
+    const fingers = new Fingers();
+    fingers.down();
+    const far = ctx().containerWidth * SWIPE_COMMIT_SHARE * 1.3;
+    await fingers.move(repeat(Math.ceil(far / 16), 16));
     const moved = logsPane.getBoundingClientRect();
     expect(moved.left - rest.left).toBeGreaterThan(300);
     expect(mainPane.classList).toContain('pane-swipe-neighbor');
@@ -225,15 +224,10 @@ export const SlideBetweenTabs: Story = {
     expect(cursorLeft() - cursorStart).toBeGreaterThan((moved.left - rest.left) * 0.7);
     expect(ctx().activeWindowId).toBe(logs.id);
 
-    // They lift: the tab switches at once - the keyboard and the strip do not
-    // wait for any animation - and only then does "main" slide the rest of the
-    // way in, one way only.
-    //
-    // "At once" is measured against the slide, not against a clock: the frame
-    // the switch is first seen on still has "main" a long way from its resting
-    // place, so the switch cannot have waited for the slide to finish. A
-    // wall-clock budget here read a loaded runner's slow frames as a product
-    // bug and was the single biggest source of red runs for this story.
+    // They lift: the tab switches at once — the keyboard and the strip do not
+    // wait for any animation — and only then does "main" slide the rest of
+    // the way in, one way only.
+    await fingers.lift();
     const switchLeft = await (async () => {
       for (let frame = 0; frame < 240; frame++) {
         if (ctx().activeWindowId === main.id) return mainPane.getBoundingClientRect().left;
@@ -257,40 +251,71 @@ export const SlideBetweenTabs: Story = {
     });
 
     // Past the first tab: the grid gives a little with nothing beside it, and
-    // slides straight back. (A new slide, once the last one's coast is over.)
-    await pause(SWIPE_COOLDOWN_MS);
-    await wheelSteps(mainPane, repeat(-24, 16));
-    // Resistance: it gives, but far less than the 384px the fingers moved,
-    // and never past the limit.
+    // slides straight back.
+    const edge = new Fingers();
+    edge.down();
+    await edge.move(repeat(24, 16));
     const give = mainPane.getBoundingClientRect().left - rest.left;
     expect(give).toBeGreaterThan(60);
     expect(give).toBeLessThan(rest.width * SWIPE_EDGE_LIMIT_SHARE);
     expect(document.querySelector('.pane-swipe-neighbor')).toBeNull();
+    await edge.lift();
     const back = await sampleUntil(() => mainPane.getBoundingClientRect().left, settled);
     expectOneWay(back, -1, 'slide back');
     expect(Math.min(...back)).toBeGreaterThanOrEqual(rest.left - 1);
     expect(ctx().activeWindowId).toBe(main.id);
 
     // A short, slow slide toward "logs" follows the fingers, then slides back.
-    await pause(SWIPE_COOLDOWN_MS);
-    await wheelSteps(mainPane, repeat(4, 5));
+    const short = new Fingers(80);
+    short.down();
+    await short.move(repeat(-4, 5));
     expect(mainPane.getBoundingClientRect().left).toBeLessThan(rest.left - 10);
+    await short.lift();
     await sampleUntil(() => mainPane.getBoundingClientRect().left, settled);
     expect(ctx().activeWindowId).toBe(main.id);
 
-    // A flick that lifts short of half way: the momentum tail says the fingers
-    // are off and how fast they were going, and that carries it to "logs".
-    await pause(SWIPE_COOLDOWN_MS);
-    // Sized from the pane area, so the tail still reads as a flick however far
-    // apart the frames land: it stops well short of the commit share on
-    // distance, and only the speed it lifts at carries it to "logs".
-    const flick = Math.round(ctx().containerWidth * 0.08);
-    await wheelSteps(
-      mainPane,
-      [1, 1, 1, 0.9, 0.6, 0.34, 0.18, 0.09].map((share) => Math.round(flick * share)),
-    );
+    // A flick that lifts short of the mark: the speed it lifts at carries it
+    // to "logs".
+    const flick = new Fingers(8);
+    flick.down();
+    await flick.move(repeat(-Math.round(ctx().containerWidth * 0.04), 8));
+    await flick.lift();
     await waitFor(() => expect(ctx().activeWindowId).toBe(logs.id));
     await waitFor(() => expect(settled()).toBe(true));
+  },
+};
+
+export const FingersRestingMidSlide: Story = {
+  args: { height: 500, initCommands: TWO_TABS },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'The fingers stop on the pad half way, to look, and go on. The shell sends nothing while they rest and the slide does not end: the grid stays exactly where they left it — for 400ms here, for as long as they like in fact — and the steps after the pause are the same slide, which switches tabs when they lift. This is the case a web page cannot have, and the reason the gesture is the desktop’s.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await ready(canvasElement);
+    await waitFor(() => expect(tabs()).toHaveLength(2), { timeout: 8000 });
+    const [main, logs] = tabs();
+    await waitFor(() => expect(ctx().activeWindowId).toBe(logs.id));
+
+    const step = Math.ceil((ctx().containerWidth * SWIPE_COMMIT_SHARE * 1.3) / 14);
+    const fingers = new Fingers(40);
+    fingers.down();
+    await fingers.move(repeat(step, 6));
+    const held = translateX();
+    expect(held).toBeGreaterThan(0);
+    await fingers.rest(400);
+    expect(translateX(), 'the grid moved while the fingers were still').toBe(held);
+    expect(ctx().activeWindowId).toBe(logs.id);
+    await fingers.move(repeat(step, 8));
+    expect(translateX()).toBeGreaterThan(held);
+    await fingers.lift();
+    await waitFor(() => expect(ctx().activeWindowId).toBe(main.id), { timeout: 4000 });
+    await waitFor(() => expect(settled()).toBe(true));
+    await atRest();
   },
 };
 
@@ -301,7 +326,7 @@ export const PinchZoomsThePaneUnderTheFingers: Story = {
     docs: {
       description: {
         story:
-          'A pinch out (ctrl+wheel, the Chromium dialect) grows the pane under the fingers toward the box it fills zoomed; lifting them zooms that pane, and the zoom carries on from where the fingers left it without stepping back toward the slot first. A pinch in on the zoomed pane shrinks the grid with the fingers, and the unzoom carries on down from there.',
+          'A pinch out (ctrl+wheel, the WebKitGTK dialect) grows the pane under the fingers toward the box it fills zoomed; lifting them zooms that pane, and the zoom carries on from where the fingers left it without stepping back toward the slot first. A pinch in on the zoomed pane shrinks the grid with the fingers, and the unzoom carries on down from there.',
       },
     },
   },
@@ -312,7 +337,7 @@ export const PinchZoomsThePaneUnderTheFingers: Story = {
     const pane = paneEl(target);
     const before = pane.getBoundingClientRect();
 
-    await wheelSteps(pane, repeat(-8, 5), { ctrlKey: true });
+    await pinchSteps(pane, repeat(-8, 5));
     const lifted = pane.getBoundingClientRect();
     expect(lifted.width).toBeGreaterThan(before.width * 1.3);
     expect(zoomed()).toBe(false);
@@ -330,7 +355,7 @@ export const PinchZoomsThePaneUnderTheFingers: Story = {
     expect(ctx().activePaneId).toBe(target);
     const full = pane.getBoundingClientRect();
 
-    await wheelSteps(pane, repeat(8, 5), { ctrlKey: true });
+    await pinchSteps(pane, repeat(8, 5));
     const pinched = pane.getBoundingClientRect();
     expect(pinched.width).toBeLessThan(full.width * 0.8);
     expect(zoomed()).toBe(true);
@@ -351,7 +376,7 @@ export const PinchInOpensAllTabs: Story = {
     docs: {
       description: {
         story:
-          'A pinch in on a tab that is not zoomed, in the WebKit dialect the desktop app and Safari speak (gesturestart / gesturechange / gestureend). The grid shrinks about its centre as the fingers close; when they lift the "all tabs" view opens and the grid carries on from there into the current tab’s card.',
+          'A pinch in on a tab that is not zoomed, in the dialect the macOS WKWebView speaks (gesturestart / gesturechange / gestureend). The grid shrinks about its centre as the fingers close; when they lift the "all tabs" view opens and the grid carries on from there into the current tab’s card.',
       },
     },
   },
@@ -385,7 +410,7 @@ export const PinchInOpensAllTabs: Story = {
 
 export const PinchOutOfAllTabsEntersTheCurrentTab: Story = {
   tags: ['nightly'],
-  args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
+  args: { height: 500, initCommands: TWO_TABS },
   parameters: {
     docs: {
       description: {
@@ -439,7 +464,7 @@ export const TurnedOffInTheConfig: Story = {
     docs: {
       description: {
         story:
-          '`set -g @tmuxy-gesture-swipe-tabs off` (and the two pinch flags) reach the client with the appearance. Slides and pinches then draw nothing and change nothing, and the WebKit gesture events are left unclaimed for the webview.',
+          '`set -g @tmuxy-gesture-swipe-tabs off` (and the two pinch flags) reach the client with the appearance. A slide the shell reports and a pinch then draw nothing and change nothing, and the WebKit gesture events are left unclaimed for the webview.',
       },
     },
   },
@@ -460,10 +485,13 @@ export const TurnedOffInTheConfig: Story = {
     const tab = ctx().activeWindowId;
     const pane = activePaneEl();
 
-    await wheelSteps(pane, repeat(-24, 16));
+    const fingers = new Fingers();
+    fingers.down();
+    await fingers.move(repeat(24, 16));
     expect(getComputedStyle(layout()).transform).toBe('none');
     expect(document.querySelector('.pane-swipe-neighbor')).toBeNull();
-    await wheelSteps(pane, repeat(-8, 8), { ctrlKey: true });
+    await fingers.lift();
+    await pinchSteps(pane, repeat(-8, 8));
     expect(pane.classList).not.toContain('pane-gesture-growing');
     expect(webkitGesture(pane, 'gesturestart', 1).defaultPrevented).toBe(false);
     expect(webkitGesture(pane, 'gesturechange', 0.5).defaultPrevented).toBe(false);
