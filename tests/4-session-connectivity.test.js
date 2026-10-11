@@ -296,8 +296,8 @@ describe('Scenario 13: Multi-Client', () => {
     const page2 = await ctx.browser.newPage();
     await navigateToSession(page2, ctx.session.name);
     // Wait for the second page to fully load and render terminals
+    // (Step 4 then waits for its three panes, which is what "loaded" means.)
     await page2.waitForSelector('[role="log"]', { timeout: 15000 }).catch(() => {});
-    await delay(DELAYS.SYNC * 2);
 
     // Step 3: Both see terminal
     const p1Terminal = await ctx.page.$('[role="log"]');
