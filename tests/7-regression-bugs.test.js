@@ -579,14 +579,30 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
   // Assert the UI's rendered active tab agrees with tmux reality. `activeWindowId`
   // drives which panes render, so any divergence means the user sees the wrong tab.
   const assertConverged = (label) => async () => {
-    const state = await ctx.page.evaluate(() => {
-      const c = window.app?.getSnapshot()?.context;
-      const tabs = (c?.windows || []).filter((w) => w.windowType === 'tab');
-      const flagged = tabs.filter((w) => w.active).map((w) => w.id);
-      const activePaneWindow = (c?.panes || []).find((p) => p.tmuxId === c.activePaneId)?.windowId;
-      return { activeWindowId: c?.activeWindowId, flagged, activePaneWindow };
-    });
-    const truth = tmuxActiveWindow();
+    let state;
+    let truth;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        state = await ctx.page.evaluate(() => {
+          const c = window.app?.getSnapshot()?.context;
+          const tabs = (c?.windows || []).filter((w) => w.windowType === 'tab');
+          const flagged = tabs.filter((w) => w.active).map((w) => w.id);
+          const activePaneWindow = (c?.panes || []).find(
+            (p) => p.tmuxId === c.activePaneId,
+          )?.windowId;
+          return { activeWindowId: c?.activeWindowId, flagged, activePaneWindow };
+        });
+        truth = tmuxActiveWindow();
+        return (
+          state?.activeWindowId === truth &&
+          JSON.stringify(state?.flagged) === JSON.stringify([truth]) &&
+          state?.activePaneWindow === truth
+        );
+      },
+      15000,
+      () => `${label} to converge (ui active: ${state?.activeWindowId}, tmux truth: ${truth})`,
+    );
     expect(`${label}: ${state.activeWindowId}`).toBe(`${label}: ${truth}`);
     expect(`${label}: ${JSON.stringify(state.flagged)}`).toBe(
       `${label}: ${JSON.stringify([truth])}`,
