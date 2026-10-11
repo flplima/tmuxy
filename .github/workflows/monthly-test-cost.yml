@@ -1,0 +1,63 @@
+name: monthly test cost
+
+# What the suite costs, recorded once a month so the trend is on record:
+# minutes from a push to main until main is green again, and how many commits
+# went to the tests themselves (bin/test-cost.mjs). De-flaking work is paying
+# off when to-green p90 falls and the ✅ share falls with it.
+#
+# Each run comments the last three months on one tracking issue, so the
+# history accumulates in one place instead of in run summaries that expire.
+
+on:
+  schedule:
+    # 07:00 UTC on the 1st — the month just ended is complete.
+    - cron: '0 7 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monthly-test-cost
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The commit counts read the history, not just the tip.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node bin/test-cost.mjs --months 3 --summary | tee report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record it on the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TITLE="Test cost by month"
+          EXISTING=$(gh issue list --state open --label ci-metrics \
+            --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file report.md
+          else
+            gh label create ci-metrics --color 1D76DB \
+              --description "Recorded by a scheduled CI job" 2>/dev/null || true
+            gh issue create --title "$TITLE" --label ci-metrics --body-file report.md
+          fi
