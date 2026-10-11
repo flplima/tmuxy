@@ -242,13 +242,17 @@ function list(commands: ReadonlyArray<string>): string {
  * commands of its own — `run-shell` included. Each line of text goes as its own
  * `send-keys -l` (split into chunks so no command line grows unbounded), with
  * an `Enter` between lines: what pasting the text into a terminal does.
+ *
+ * `--` ends the options: without it, text starting with a dash (`-la`, or the
+ * `-$` of `"line-$i"` when fast typing batches it so) is read as flags, tmux
+ * rejects the command, and the text is lost.
  */
 function literalText(to: string, text: string): string {
   const lines = text.split(/\r?\n/);
   const commands: string[] = [];
   lines.forEach((line, i) => {
     for (let j = 0; j < line.length; j += LITERAL_CHUNK_SIZE) {
-      commands.push(`send-keys -t ${to} -l ${quote(line.slice(j, j + LITERAL_CHUNK_SIZE))}`);
+      commands.push(`send-keys -t ${to} -l -- ${quote(line.slice(j, j + LITERAL_CHUNK_SIZE))}`);
     }
     if (i < lines.length - 1) commands.push(`send-keys -t ${to} Enter`);
   });

@@ -66,7 +66,10 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.PasteBuffer(), 'paste-buffer'],
   [TmuxOp.SendKeys({ target: pid('%3'), keys: 'C-c' }), 'send-keys -t %3 C-c'],
   [TmuxOp.SendKeys({ target: 'main', keys: 'Up' }), 'send-keys -t main Up'],
-  [TmuxOp.SendText({ target: pid('%3'), text: "it's" }), "send-keys -t %3 -l 'it'\\''s'"],
+  [TmuxOp.SendText({ target: pid('%3'), text: "it's" }), "send-keys -t %3 -l -- 'it'\\''s'"],
+  // Text that starts with a dash stays text: without `--` tmux read `-$` (fast
+  // typing batched the `-$` of `"line-$i"`) as flags and dropped it.
+  [TmuxOp.SendText({ target: pid('%3'), text: '-$' }), "send-keys -t %3 -l -- '-$'"],
   [
     TmuxOp.SendMouse({ paneId: pid('%3'), button: 0, x: 5, y: 2, release: false }),
     'send-keys -t %3 -H 1b 5b 3c 30 3b 35 3b 32 4d',
@@ -203,20 +206,20 @@ describe('toTmuxCommand', () => {
     // Pane output a user selected and chose "Send keys" on.
     const text = "echo one\nrun-shell 'touch /tmp/pwned'\r\nlast";
     expect(toTmuxCommand(TmuxOp.SendText({ target: pid('%3'), text })).split('\n')).toEqual([
-      "send-keys -t %3 -l 'echo one'",
+      "send-keys -t %3 -l -- 'echo one'",
       'send-keys -t %3 Enter',
-      "send-keys -t %3 -l 'run-shell '\\''touch /tmp/pwned'\\'''",
+      "send-keys -t %3 -l -- 'run-shell '\\''touch /tmp/pwned'\\'''",
       'send-keys -t %3 Enter',
-      "send-keys -t %3 -l 'last'",
+      "send-keys -t %3 -l -- 'last'",
     ]);
   });
 
   it('splits a long line into chunks and keeps blank lines as Enter', () => {
     const text = `${'x'.repeat(1200)}\n\n`;
     expect(toTmuxCommand(TmuxOp.SendText({ target: pid('%1'), text })).split('\n')).toEqual([
-      `send-keys -t %1 -l '${'x'.repeat(500)}'`,
-      `send-keys -t %1 -l '${'x'.repeat(500)}'`,
-      `send-keys -t %1 -l '${'x'.repeat(200)}'`,
+      `send-keys -t %1 -l -- '${'x'.repeat(500)}'`,
+      `send-keys -t %1 -l -- '${'x'.repeat(500)}'`,
+      `send-keys -t %1 -l -- '${'x'.repeat(200)}'`,
       'send-keys -t %1 Enter',
       'send-keys -t %1 Enter',
     ]);

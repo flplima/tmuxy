@@ -816,6 +816,10 @@ export class DemoAdapter implements TmuxAdapter {
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '-l') {
         literal = true;
+      } else if (args[i] === '--') {
+        // End of options: everything after is the text, dashes and all.
+        keys.push(...args.slice(i + 1));
+        break;
       } else if (args[i] === '-t') {
         i++;
         if (i < args.length && args[i].startsWith('%')) {

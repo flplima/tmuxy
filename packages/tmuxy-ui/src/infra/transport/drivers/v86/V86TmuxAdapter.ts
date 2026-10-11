@@ -132,7 +132,7 @@ function toControlModeCommand(command: string): string {
 }
 
 function toControlModeLine(line: string): string {
-  const literal = line.match(/^(send-keys -t \S+ -l )(.+)$/);
+  const literal = line.match(/^(send-keys -t \S+ -l (?:-- )?)(.+)$/);
   if (literal) {
     // tmux 3.7a format-expands send-keys arguments, and no amount of `#`
     // doubling protects a valid `#{variable}` (`##{pane_id}` still yields

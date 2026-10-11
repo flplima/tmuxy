@@ -51,7 +51,7 @@ export type SendFn = (cmd: string, args: Record<string, unknown>) => void;
  * key-repeat) still coalesces to ~one send per frame.
  *
  * It handles two types of send-keys:
- * - Literal text: `send-keys -t SESSION -l 'TEXT'`
+ * - Literal text: `send-keys -t SESSION -l -- 'TEXT'`
  * - Special keys: `send-keys -t SESSION KEY1 KEY2`
  *
  * Cross-batch ordering is preserved: if literal text is pending and a
@@ -90,8 +90,8 @@ export class KeyBatcher {
 
     const command = args.command as string;
 
-    // Match literal send-keys: send-keys -t SESSION -l 'ESCAPED_TEXT'
-    const literalMatch = command.match(/^send-keys -t (\S+) -l (.+)$/);
+    // Match literal send-keys: send-keys -t SESSION -l -- 'ESCAPED_TEXT'
+    const literalMatch = command.match(/^send-keys -t (\S+) -l (?:-- )?(.+)$/);
     if (literalMatch) {
       const [, session, escapedText] = literalMatch;
       const rawText = unescapeLiteralText(escapedText);

@@ -22,14 +22,14 @@ describe('KeyBatcher', async () => {
 
   const literal = (text: string) =>
     batcher.intercept('run_tmux_command', {
-      command: `send-keys -t s0 -l ${quote(text)}`,
+      command: `send-keys -t s0 -l -- ${quote(text)}`,
     });
   const special = (keys: string) =>
     batcher.intercept('run_tmux_command', { command: `send-keys -t s0 ${keys}` });
 
   it('sends an isolated literal keystroke immediately (leading edge)', async () => {
     expect(literal('a')).toBe(true);
-    expect(sent).toEqual(["send-keys -t s0 -l 'a'"]);
+    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'"]);
     // Nothing pending — the window closes empty and no duplicate follows.
     await vi.advanceTimersByTimeAsync(100);
     expect(sent).toHaveLength(1);
@@ -47,9 +47,9 @@ describe('KeyBatcher', async () => {
     await vi.advanceTimersByTimeAsync(5);
     literal('b');
     literal('c');
-    expect(sent).toEqual(["send-keys -t s0 -l 'a'"]); // b, c wait for the window
+    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'"]); // b, c wait for the window
     await vi.advanceTimersByTimeAsync(11); // window closes at 16ms
-    expect(sent).toEqual(["send-keys -t s0 -l 'a'", "send-keys -t s0 -l 'bc'"]);
+    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'", "send-keys -t s0 -l -- 'bc'"]);
   });
 
   it('keeps coalescing under sustained input (window stays open after a non-empty flush)', async () => {
@@ -58,18 +58,18 @@ describe('KeyBatcher', async () => {
     literal('b');
     await vi.advanceTimersByTimeAsync(6); // first trailing flush: 'b', window re-opens
     literal('c'); // arrives inside the re-opened window — must NOT send immediately
-    expect(sent).toEqual(["send-keys -t s0 -l 'a'", "send-keys -t s0 -l 'b'"]);
+    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'", "send-keys -t s0 -l -- 'b'"]);
     await vi.advanceTimersByTimeAsync(16); // second trailing flush: 'c'
     expect(sent).toEqual([
-      "send-keys -t s0 -l 'a'",
-      "send-keys -t s0 -l 'b'",
-      "send-keys -t s0 -l 'c'",
+      "send-keys -t s0 -l -- 'a'",
+      "send-keys -t s0 -l -- 'b'",
+      "send-keys -t s0 -l -- 'c'",
     ]);
     // Stream stopped — window closes and the next key is leading again.
     await vi.advanceTimersByTimeAsync(16);
     literal('d');
     expect(sent).toHaveLength(4);
-    expect(sent[3]).toBe("send-keys -t s0 -l 'd'");
+    expect(sent[3]).toBe("send-keys -t s0 -l -- 'd'");
   });
 
   it('normal typing speed never waits: keys spaced past the window all send immediately', async () => {
@@ -79,9 +79,9 @@ describe('KeyBatcher', async () => {
     await vi.advanceTimersByTimeAsync(100);
     literal('c');
     expect(sent).toEqual([
-      "send-keys -t s0 -l 'a'",
-      "send-keys -t s0 -l 'b'",
-      "send-keys -t s0 -l 'c'",
+      "send-keys -t s0 -l -- 'a'",
+      "send-keys -t s0 -l -- 'b'",
+      "send-keys -t s0 -l -- 'c'",
     ]);
   });
 
@@ -91,8 +91,8 @@ describe('KeyBatcher', async () => {
     literal('b'); // pending in the window
     special('Enter'); // must flush pending 'b' first, then send Enter
     expect(sent).toEqual([
-      "send-keys -t s0 -l 'a'",
-      "send-keys -t s0 -l 'b'",
+      "send-keys -t s0 -l -- 'a'",
+      "send-keys -t s0 -l -- 'b'",
       'send-keys -t s0 Enter',
     ]);
   });
@@ -102,7 +102,11 @@ describe('KeyBatcher', async () => {
     await vi.advanceTimersByTimeAsync(5);
     special('Down'); // pending
     literal('x'); // must flush pending Down first, then send x
-    expect(sent).toEqual(['send-keys -t s0 Up', 'send-keys -t s0 Down', "send-keys -t s0 -l 'x'"]);
+    expect(sent).toEqual([
+      'send-keys -t s0 Up',
+      'send-keys -t s0 Down',
+      "send-keys -t s0 -l -- 'x'",
+    ]);
   });
 
   it('joins special keys pending in the same window into one send', async () => {
@@ -132,20 +136,20 @@ describe('KeyBatcher', async () => {
     await vi.advanceTimersByTimeAsync(5);
     literal('b'); // pending
     batcher.flushAll();
-    expect(sent).toEqual(["send-keys -t s0 -l 'a'", "send-keys -t s0 -l 'b'"]);
+    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'", "send-keys -t s0 -l -- 'b'"]);
     // Windows are closed — the next key is leading again.
     literal('c');
-    expect(sent[2]).toBe("send-keys -t s0 -l 'c'");
+    expect(sent[2]).toBe("send-keys -t s0 -l -- 'c'");
   });
 
   it('keeps sessions separate within one window', async () => {
     literal('a'); // opens the literal window (leading, session s0)
     batcher.intercept('run_tmux_command', {
-      command: `send-keys -t s1 -l ${quote('z')}`,
+      command: `send-keys -t s1 -l -- ${quote('z')}`,
     });
     await vi.advanceTimersByTimeAsync(16);
-    expect(sent).toContain("send-keys -t s0 -l 'a'");
-    expect(sent).toContain("send-keys -t s1 -l 'z'");
+    expect(sent).toContain("send-keys -t s0 -l -- 'a'");
+    expect(sent).toContain("send-keys -t s1 -l -- 'z'");
     expect(sent).toHaveLength(2);
   });
 });
