@@ -203,6 +203,37 @@ fn park_script() -> String {
         .into_owned()
 }
 
+/// The server option a restore's shell step leaves its answer in.
+const RESTORE_ANSWER: &str = "@tmuxy-restore-answer";
+
+/// Run `shell` through `run-shell` and keep what it printed as `key`.
+///
+/// Not by reading run-shell's own output: tmux 3.4 does not hand that back to
+/// a control client, it opens it in view-mode on the current pane — and a
+/// pane in view-mode takes the keys the restore types next as mode commands,
+/// one of which opens a prompt that leaves the control client answering
+/// nothing more. So the shell writes its output into a server option, which
+/// is read back and cleared, and the shell step always succeeds (a "returned
+/// 1" is view-mode output too); a failure surfaces as an answer the next
+/// steps cannot use as a target.
+fn ask_run_shell(key: &str, shell: &str) -> Vec<Step> {
+    let [flag, socket] = crate::session::tmux_socket_args();
+    let relay = format!(
+        "{} {} {} set-option -g {RESTORE_ANSWER} \"$({shell} 2>&1)\"; true",
+        shell_quote(crate::session::tmux_path()),
+        flag,
+        shell_quote(&socket),
+    );
+    vec![
+        Step::Run(argv(&["run-shell", &relay])),
+        Step::Ask {
+            key: key.to_string(),
+            argv: argv(&["show-options", "-gv", RESTORE_ANSWER]),
+        },
+        Step::Run(argv(&["set-option", "-gu", RESTORE_ANSWER])),
+    ]
+}
+
 /// The hidden members of `snapshot`'s groups among the stash's `stash` panes.
 /// A stash pane with no group tag, or whose group has no visible pane in this
 /// session, belongs to some other session (or to nobody) and is left out.
@@ -1043,23 +1074,18 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
         });
         let Some((w, p)) = anchor else { continue };
         let key = format!("HID{n}");
-        steps.push(Step::Ask {
-            key: key.clone(),
-            argv: argv(&[
-                "run-shell",
-                &format!(
-                    "bash {} {} {} {}{}",
-                    shell_quote(&park_script()),
-                    shell_quote(&pane_target(s, w.index, p.index)),
-                    shell_quote(member.group_id.as_str()),
-                    shell_quote(&cwd_or_fallback(&member.cwd, options)),
-                    member
-                        .position
-                        .map(|pos| format!(" {pos}"))
-                        .unwrap_or_default(),
-                ),
-            ]),
-        });
+        let park = format!(
+            "bash {} {} {} {}{}",
+            shell_quote(&park_script()),
+            shell_quote(&pane_target(s, w.index, p.index)),
+            shell_quote(member.group_id.as_str()),
+            shell_quote(&cwd_or_fallback(&member.cwd, options)),
+            member
+                .position
+                .map(|pos| format!(" {pos}"))
+                .unwrap_or_default(),
+        );
+        steps.extend(ask_run_shell(&key, &park));
         let pane = format!("#{key}#");
         if let Some(word) = &member.restore_command {
             steps.push(Step::Run(argv(&[
@@ -2031,7 +2057,7 @@ mod tests {
             .unwrap();
         let i_park = lines
             .iter()
-            .position(|l| l.starts_with("ask: run-shell bash ") && l.contains("pane-group-park"))
+            .position(|l| l.starts_with("run: run-shell ") && l.contains("pane-group-park"))
             .expect("the member is parked");
         assert!(i_tag < i_park, "{lines:#?}");
         // `/srv` is the member's directory; where it is gone, the fallback.
@@ -2040,14 +2066,28 @@ mod tests {
         } else {
             "/home/x"
         };
+        // The park prints the new pane's id into a server option, not through
+        // run-shell (which tmux 3.4 shows in view-mode); it is read back as
+        // the answer and cleared.
         assert!(
-            lines[i_park].ends_with(&format!("pane-group-park work:0.0 g1 {dir}")),
+            lines[i_park].contains(&format!(
+                "set-option -g @tmuxy-restore-answer \"$(bash {} work:0.0 g1 {dir} 2>&1)\"; true",
+                park_script()
+            )),
             "{}",
             lines[i_park]
         );
-        assert_eq!(lines[i_park + 1], "run: send-keys -t #HID0# -l htop");
+        assert_eq!(
+            lines[i_park + 1],
+            "ask: show-options -gv @tmuxy-restore-answer"
+        );
+        assert_eq!(
+            lines[i_park + 2],
+            "run: set-option -gu @tmuxy-restore-answer"
+        );
+        assert_eq!(lines[i_park + 3], "run: send-keys -t #HID0# -l htop");
         // Window 0 gets its layout back after the park.
-        assert!(lines[i_park + 2..]
+        assert!(lines[i_park + 4..]
             .iter()
             .any(|l| l.starts_with("run: select-layout -t work:0 ")));
     }
@@ -2085,7 +2125,7 @@ mod tests {
             .iter()
             .find(|l| l.contains("pane-group-park"))
             .expect("the member is parked");
-        assert!(park.ends_with(" 0"), "{park}");
+        assert!(park.contains(" 0 2>&1)"), "{park}");
     }
 
     /// Only this session's groups: a stash pane of another session's group,
