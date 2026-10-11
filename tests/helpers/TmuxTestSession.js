@@ -382,20 +382,16 @@ class TmuxTestSession {
   }
 
   /**
-   * Wait until the line the cursor is on in the active pane, up to the
-   * cursor, matches `pattern` — what the shell has made of the input so far (a
-   * completion, a recalled history entry), which the whole-screen text cannot
-   * tell apart from the same words printed earlier. Up to the cursor, so a
-   * shell's greyed-out suggestion after it does not count.
+   * Wait until the line the cursor is on in the active pane matches `pattern`
+   * — what the shell has made of the input so far (a completion, a recalled
+   * history entry), which the whole-screen text cannot tell apart from the
+   * same words printed earlier. The whole row, trailing blanks dropped: the
+   * cursor's column is in cells, which a wide glyph makes no string index.
    */
   async waitForCursorLine(pattern, timeout = 10000) {
     const line = () => {
-      const [x, y] = tmuxExec(`display-message -t ${this.name} -p "#{cursor_x} #{cursor_y}"`)
-        .trim()
-        .split(' ');
-      return tmuxExec(`capture-pane -p -t ${this.name} -S ${y} -E ${y}`)
-        .slice(0, Number(x))
-        .replace(/\s+$/, '');
+      const y = tmuxExec(`display-message -t ${this.name} -p "#{cursor_y}"`).trim();
+      return tmuxExec(`capture-pane -p -t ${this.name} -S ${y} -E ${y}`).replace(/\s+$/, '');
     };
     await waitForCondition(
       this.page,
