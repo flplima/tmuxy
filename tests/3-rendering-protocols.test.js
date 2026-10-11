@@ -21,6 +21,7 @@ const {
   getCursorGeometry,
   getRunGeometry,
 } = require('./helpers');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 // ==================== Scenario 14: OSC Protocols ====================
 
@@ -327,16 +328,25 @@ describe('Scenario 16: Unicode Rendering', () => {
       },
     ];
 
-    for (const c of cases) {
+    // tmux before 3.4 gives ZWJ, skin-tone and VS16 sequences other widths,
+    // which tmuxy does not follow — a documented limitation (docs/TMUX.md,
+    // tmux version table). On those versions only the rules both agree on are
+    // checked.
+    const [major, minor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);
+    const sameRules = !major || major > 3 || (major === 3 && minor >= 4);
+    const checked = sameRules
+      ? cases
+      : cases.filter((c) => !['ZWJ sequence', 'skin tone', 'VS16'].includes(c.name));
+    for (const c of checked) {
       await typeInTerminal(
         ctx.page,
         `printf "${c.name.slice(0, 3)} ${c.bytes} ${c.marker}"; read -r _`,
       );
       await pressEnter(ctx.page);
-      await waitForTerminalText(ctx.page, c.marker);
-      // Let the cursor settle on the output line (the typed command line also
-      // contains the marker; the output line is the one the cursor is on).
-      await delay(DELAYS.SYNC);
+      // The typed command line also carries the marker; the output line is
+      // the one without `printf`, and `read` parks tmux's cursor right after it.
+      await waitForTerminalText(ctx.page, c.marker, 15000, { notOnLineWith: 'printf' });
+      await ctx.session.waitForCursorLine(new RegExp(`${c.marker}$`));
 
       const tmuxCursorX = Number(
         ctx.session.runCommand(`display-message -p -t ${ctx.session.name} '#{cursor_x}'`),

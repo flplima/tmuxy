@@ -364,6 +364,47 @@ class TmuxTestSession {
     return tmuxExec(`display-message -t ${this.name} -p "#{pane_id}"`);
   }
 
+  /**
+   * Wait until the session's active pane is running `command` in the
+   * foreground — the moment a program started at the prompt is up and reading
+   * its input, which is what a key meant for it (Ctrl+C, a line for `cat`)
+   * has to wait for. Read from tmux, which knows the foreground process.
+   */
+  async waitForForeground(command, timeout = 10000) {
+    const current = () =>
+      tmuxExec(`display-message -t ${this.name} -p "#{pane_current_command}"`).trim();
+    await waitForCondition(
+      this.page,
+      () => current() === command,
+      timeout,
+      () => `the active pane to run '${command}' (it runs '${current()}')`,
+    );
+  }
+
+  /**
+   * Wait until the line the cursor is on in the active pane, up to the
+   * cursor, matches `pattern` — what the shell has made of the input so far (a
+   * completion, a recalled history entry), which the whole-screen text cannot
+   * tell apart from the same words printed earlier. Up to the cursor, so a
+   * shell's greyed-out suggestion after it does not count.
+   */
+  async waitForCursorLine(pattern, timeout = 10000) {
+    const line = () => {
+      const [x, y] = tmuxExec(`display-message -t ${this.name} -p "#{cursor_x} #{cursor_y}"`)
+        .trim()
+        .split(' ');
+      return tmuxExec(`capture-pane -p -t ${this.name} -S ${y} -E ${y}`)
+        .slice(0, Number(x))
+        .replace(/\s+$/, '');
+    };
+    await waitForCondition(
+      this.page,
+      () => pattern.test(line()),
+      timeout,
+      () => `the cursor line to match ${pattern} (it reads '${line()}')`,
+    );
+  }
+
   // ==================== Window Queries ====================
 
   /**

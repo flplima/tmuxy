@@ -442,6 +442,25 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
 }
 
 /**
+ * Resolve after the page has drawn `frames` more frames. For a check that
+ * something did NOT change after a local interaction (a scroll, a click that
+ * re-renders): the app reacts in the event handler and on the next frame, so
+ * a couple of painted frames is the moment a change would have shown — tied
+ * to the page's own clock, not a number of milliseconds.
+ */
+async function afterFrames(page, frames = 2) {
+  await page.evaluate(
+    (n) =>
+      new Promise((resolve) => {
+        const step = (left) =>
+          left === 0 ? resolve() : requestAnimationFrame(() => step(left - 1));
+        step(n);
+      }),
+    frames,
+  );
+}
+
+/**
  * Poll a condition until it returns true or timeout.
  * @param {Page} page - Playwright page (for context; not always used by fn)
  * @param {Function} fn - Async function returning boolean
@@ -463,6 +482,7 @@ async function waitForCondition(page, fn, timeout = 10000, description = 'condit
 }
 
 module.exports = {
+  afterFrames,
   disconnectBrowser,
   delay,
   getBrowser,
