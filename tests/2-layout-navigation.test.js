@@ -1534,12 +1534,11 @@ describe('Scenario 5: Pane Groups', () => {
     const betaIdx = tabs.findIndex((t) => t.active); // currently on ALPHA's tab
     const otherIdx = betaIdx === 0 ? 1 : 0;
     await clickGroupTab(ctx.page, otherIdx);
-    await waitForCondition(
-      ctx.page,
-      async () => (await activePane()) === betaPaneId,
-      8000,
-      async () => `the switch back to make BETA active (active: ${await activePane()})`,
-    );
+    // Settled by a fixed wait, deliberately — see the note at `activePane`.
+    await delay(DELAYS.SYNC);
+
+    const afterSwitch2Id = await activePane();
+    expect(afterSwitch2Id).toBe(betaPaneId);
 
     // Step 8: Verify tab highlight matches active pane
     const tabsAfterSwitch = await getGroupTabInfo(ctx.page);
@@ -1553,16 +1552,11 @@ describe('Scenario 5: Pane Groups', () => {
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
     // Step 9a: Record GAMMA pane ID (the newly added 3rd tab, which is now active)
-    let gammaPaneId = null;
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        gammaPaneId = await activePane();
-        return gammaPaneId !== null && gammaPaneId !== alphaPaneId && gammaPaneId !== betaPaneId;
-      },
-      8000,
-      'the new third tab to become the active pane',
-    );
+    await delay(DELAYS.SYNC);
+    const gammaPaneId = await activePane();
+    expect(gammaPaneId).not.toBeNull();
+    expect(gammaPaneId).not.toBe(alphaPaneId);
+    expect(gammaPaneId).not.toBe(betaPaneId);
 
     // Step 9b: Switch to first tab (ALPHA) with 3 tabs — this is the scenario
     // that triggers the bug where a pane escapes the group window when the
@@ -1570,7 +1564,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const firstInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, firstInactiveIdx);
-    await waitForLayoutSettled(ctx.page);
+    await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1578,7 +1572,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const secondInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, secondInactiveIdx);
-    await waitForLayoutSettled(ctx.page);
+    await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -1586,7 +1580,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const thirdInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, thirdInactiveIdx);
-    await waitForLayoutSettled(ctx.page);
+    await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
