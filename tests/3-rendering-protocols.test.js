@@ -6,6 +6,7 @@
 
 const path = require('path');
 const {
+  afterFrames,
   createTestContext,
   delay,
   getTerminalText,
@@ -92,21 +93,19 @@ describe('Scenario 14: OSC Protocols', () => {
     await runCommand(ctx.page, 'echo "AFTER_MALFORMED"', 'AFTER_MALFORMED', 15000);
 
     // Step 4: OSC 52 doesn't crash
+    // The shell runs these in the order typed, so the echo after them is the
+    // fence: its output only shows once the OSC 52 lines have gone through.
     await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;SGVsbG8=\\e\\\\"');
     await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC);
     await runCommand(ctx.page, 'echo "OSC52_OK"', 'OSC52_OK');
 
     // Step 5: Multiple OSC 52 operations
     await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;Zmlyc3Q=\\e\\\\"');
     await pressEnter(ctx.page);
-    await delay(DELAYS.SHORT);
     await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;c2Vjb25k\\e\\\\"');
     await pressEnter(ctx.page);
-    await delay(DELAYS.SHORT);
     await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;dGhpcmQ=\\e\\\\"');
     await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC);
     await runCommand(ctx.page, 'echo "MULTI_OSC52_OK"', 'MULTI_OSC52_OK');
   }, 180000);
 
@@ -404,8 +403,10 @@ describe('Scenario 16: Unicode Rendering', () => {
       'printf "\\033[48;5;237mBGW \\xe2\\x9c\\x85X \\xe2\\x98\\x91\\xef\\xb8\\x8f END_BG_WIDE\\033[0m"; read -r _',
     );
     await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, 'END_BG_WIDE');
-    await delay(DELAYS.SYNC);
+    // The typed command carries the marker too; `read` parks tmux's cursor
+    // right after the printed one.
+    await waitForTerminalText(ctx.page, 'END_BG_WIDE', 15000, { notOnLineWith: 'printf' });
+    await ctx.session.waitForCursorLine(/END_BG_WIDE$/);
 
     const row = await ctx.page.evaluate(() => {
       const spans = [...document.querySelectorAll('.terminal-line > span')];
@@ -550,7 +551,9 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       // The echoed command line also auto-links, so pick the output's URL by href.
       const autolink = '.terminal-content a.terminal-autolink[href="https://example.com/plain"]';
       await ctx.page.click(autolink, { force: true });
-      await delay(DELAYS.MEDIUM);
+      // A click is handled in the page: had it opened the link, it would have
+      // within a frame or two.
+      await afterFrames(ctx.page);
       expect(await ctx.page.evaluate(() => window.__opened.length)).toBe(1);
 
       // Hold the modifier as a real keydown first: the body class that turns
@@ -558,7 +561,12 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       // and Playwright's click checks hit-testing before it presses modifiers.
       const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
       await ctx.page.keyboard.down(modifier);
-      await delay(DELAYS.SHORT);
+      await waitForCondition(
+        ctx.page,
+        () => ctx.page.evaluate(() => document.body.classList.contains('link-modifier-held')),
+        5000,
+        'the held modifier to make links clickable',
+      );
       await ctx.page.click(autolink);
       await ctx.page.keyboard.up(modifier);
       await waitForCondition(
@@ -809,9 +817,9 @@ describe('Scenario 23: Terminal Image Protocols', () => {
 
     // File download (no inline=1) — should be consumed but produce no image
     const cmd = `printf '\\e]1337;File=name=dGVzdA==:${TINY_PNG_B64}\\a' && echo DOWNLOAD_SENT`;
+    // The echo's output comes after the escape in the pane's own byte stream,
+    // so once it shows, any placement the escape made would already be there.
     await runCommand(ctx.page, cmd, 'DOWNLOAD_SENT');
-
-    await delay(DELAYS.SYNC * 2);
 
     const images = await getImagePlacements(ctx.page);
     expect(images.length).toBe(0);
@@ -896,7 +904,8 @@ describe('Scenario 23: Terminal Image Protocols', () => {
       `printf '\\eP+q5463;524742\\e\\\\' && echo QUERY_SENT`,
       'QUERY_SENT',
     );
-    await delay(DELAYS.SYNC);
+    // The echo's output follows the query in the pane's byte stream: a picture
+    // decoded from it would already be placed.
     expect(await pictures()).toBe(0);
 
     // 2. A real picture still shows...

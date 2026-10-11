@@ -5,14 +5,15 @@
  * (DECSCUSR), typing round-trip and paging through a long file.
  */
 
+const fs = require('fs');
 const {
   createTestContext,
   delay,
   getTerminalText,
   waitForTerminalText,
+  waitForCondition,
   typeInTerminal,
   pressEnter,
-  DELAYS,
 } = require('./helpers');
 
 const ctx = createTestContext();
@@ -71,7 +72,14 @@ describe('Nvim Rendering & Interaction', () => {
       `seq 1 500 | awk '{printf "LINE%03d quick brown fox\\n", NR}' > ${file}`,
     );
     await pressEnter(ctx.page);
-    await delay(DELAYS.LONG);
+    // The shell has written the file when all 500 lines are in it.
+    await waitForCondition(
+      ctx.page,
+      () =>
+        fs.existsSync(file) && fs.readFileSync(file, 'utf8').trimEnd().split('\n').length === 500,
+      10000,
+      `the shell to write the 500-line ${file}`,
+    );
 
     // Open nvim with no swap file and minimal config
     await typeInTerminal(ctx.page, `nvim --clean -n ${file}`);
@@ -94,8 +102,9 @@ describe('Nvim Rendering & Interaction', () => {
 
     // Enter insert mode: 'A' appends at end of line, which does not depend on
     // where the cursor happens to sit.
+    // nvim reads its input in order, so the text typed next lands after the
+    // `A` has taken it into insert mode.
     await ctx.page.keyboard.press('A');
-    await delay(1500);
 
     // Typing round-trip: keystrokes → tmux → SSE → rendered DOM.
     const insertedText = 'jumps over the lazy dog';
@@ -108,40 +117,42 @@ describe('Nvim Rendering & Interaction', () => {
 
     // Return to normal mode (Escape) — cursor is a block again
     await ctx.page.keyboard.press('Escape');
-    await delay(DELAYS.LONG);
     await waitForCursorClass(ctx.page, 'terminal-cursor-block');
 
-    // Page down (Ctrl+D) out of the first screen
+    // Page down (Ctrl+D) out of the first screen. nvim takes the keys in order;
+    // the paging is done when the first line has scrolled away.
     for (let i = 0; i < 10; i++) {
       await ctx.page.keyboard.down('Control');
       await ctx.page.keyboard.press('d');
       await ctx.page.keyboard.up('Control');
-      await delay(200);
     }
-    await delay(500);
-
-    // Exact prefix so LINE001 doesn't match LINE100 and friends.
-    const afterDown = await getTerminalText(ctx.page);
-    expect(afterDown).not.toContain('LINE001');
+    await waitForCondition(
+      ctx.page,
+      async () => !(await getTerminalText(ctx.page)).includes('LINE001'),
+      10000,
+      'Ctrl+D to page LINE001 off the screen',
+    );
 
     // Page up (Ctrl+U) back to the top
     for (let i = 0; i < 10; i++) {
       await ctx.page.keyboard.down('Control');
       await ctx.page.keyboard.press('u');
       await ctx.page.keyboard.up('Control');
-      await delay(200);
     }
     await waitForTerminalText(ctx.page, 'LINE001', 5000);
 
     // Exit nvim discarding the edit (:q!) — use keyboard directly in normal mode
     await ctx.page.keyboard.type(':q!', { delay: 50 });
     await ctx.page.keyboard.press('Enter');
-    await delay(2000);
 
     // Leaving the alternate screen restores the shell: the discarded edit is
     // gone from view.
-    const text = await getTerminalText(ctx.page);
-    expect(text).not.toContain(insertedText);
+    await waitForCondition(
+      ctx.page,
+      async () => !(await getTerminalText(ctx.page)).includes(insertedText),
+      10000,
+      ':q! to leave nvim and take the discarded edit off the screen',
+    );
 
     await typeInTerminal(ctx.page, `rm -f ${file}`);
     await pressEnter(ctx.page);
