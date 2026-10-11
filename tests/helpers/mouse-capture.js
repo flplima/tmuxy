@@ -128,13 +128,17 @@ async function readMouseEvents(minCount = 1, timeout = 5000) {
  */
 async function stopMouseCapture(ctx) {
   await ctx.page.keyboard.press('q');
-  await delay(DELAYS.LONG);
-  // Wait for mouse tracking flag to clear in the UI before proceeding.
-  // The python script disables mouse modes on exit, but the UI needs time
-  // to receive the updated pane state from the server.
+  await waitForMouseTrackingOff(ctx.page);
+}
+
+/**
+ * Wait for the mouse tracking flag to clear in the UI. The python script
+ * disables mouse modes on exit, and the UI learns of it from the server.
+ */
+async function waitForMouseTrackingOff(page) {
   const flagStart = Date.now();
   while (Date.now() - flagStart < 5000) {
-    const hasFlag = await ctx.page.evaluate(
+    const hasFlag = await page.evaluate(
       () => !!document.querySelector('[data-mouse-any-flag="true"]'),
     );
     if (!hasFlag) break;
@@ -157,7 +161,7 @@ async function ensureMouseCaptureStopped(ctx) {
     });
     if (hasCapture) {
       await ctx.page.keyboard.press('q');
-      await delay(DELAYS.LONG);
+      await waitForMouseTrackingOff(ctx.page);
     }
   } catch {
     // Page may be closed or unresponsive — ignore

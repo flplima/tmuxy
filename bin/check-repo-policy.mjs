@@ -244,9 +244,9 @@ function checkDocsToScriptsConsistency() {
 const BLIND_WAIT_CEILING = {
   // Shared machinery. A blind wait here is multiplied by every test that calls
   // the helper, so this is the number that matters most.
-  'tests/helpers': 21,
+  'tests/helpers': 1,
   // Test bodies. Each one affects a single test.
-  tests: 132,
+  tests: 117,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */

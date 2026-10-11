@@ -4,8 +4,7 @@
  * Focus, key combos, tmux prefix, typing, and tmux command line.
  */
 
-const { delay, waitForCondition } = require('./browser');
-const { DELAYS } = require('./config');
+const { delay, waitForCondition, waitForKeyboardFocus } = require('./browser');
 
 // ==================== Focus Helper ====================
 
@@ -21,8 +20,8 @@ async function focusTerminal(page) {
   try {
     await page.click(activeSelector, { timeout: 2000 });
   } catch {
-    // Active pane terminal may not exist yet; try any terminal
-    await delay(100);
+    // Active pane terminal may not exist yet; try any terminal (the click
+    // waits for one to appear).
     try {
       await page.click('[role="log"]', { timeout: 2000 });
     } catch {
@@ -46,7 +45,6 @@ async function sendKeyCombo(page, ...keys) {
   for (const key of keys.slice(0, -1).reverse()) {
     await page.keyboard.up(key);
   }
-  await delay(DELAYS.SHORT);
 }
 
 /**
@@ -193,32 +191,6 @@ async function sendPrefixCommand(page, key, options = {}) {
 }
 
 /**
- * Resolve once the app is really holding the keyboard.
- *
- * The app keeps a hidden 1px `<input>` focused on every device
- * (utils/mobileKeyboard.ts) and routes what lands in it to a pane, so that
- * input BEING the active element is the signal that a keystroke will arrive.
- * Anything looser — "the clicked terminal is the active element" — is true
- * the instant the click lands, before the app has taken focus, and the first
- * characters of a long command are then typed into nothing.
- *
- * Falls through after `timeout` with the beat the old fixed wait gave: a few
- * surfaces (the tree widget) never hand the input focus at all.
- */
-async function waitForKeyboardFocus(page, timeout = 3000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const ready = await page.evaluate(() => {
-      const el = document.activeElement;
-      return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
-    });
-    if (ready) return;
-    await delay(40);
-  }
-  await delay(DELAYS.MEDIUM);
-}
-
-/**
  * Type text in terminal
  */
 async function typeInTerminal(page, text, { target } = {}) {
@@ -283,7 +255,6 @@ async function typeComposedChar(page, char, via) {
     },
     { char, via },
   );
-  await delay(DELAYS.SHORT);
 }
 
 /**
@@ -296,15 +267,15 @@ async function typeComposedText(page, text) {
     window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
     window.dispatchEvent(new CompositionEvent('compositionend', { data: text, bubbles: true }));
   }, text);
-  await delay(DELAYS.SHORT);
 }
 
 /**
- * Press Enter key
+ * Press Enter. Keys reach tmux in the order they are pressed (the transport
+ * serialises them), so the next key needs no beat; what Enter RUNS is the
+ * caller's to wait for.
  */
 async function pressEnter(page) {
   await page.keyboard.press('Enter');
-  await delay(DELAYS.SHORT);
 }
 
 // ==================== Tmux Command Line ====================
@@ -314,14 +285,28 @@ async function pressEnter(page) {
  */
 async function tmuxCommandKeyboard(page, cmd) {
   await sendPrefixCommand(page, ':');
-  await delay(DELAYS.MEDIUM);
+  // The prompt's input takes focus when it mounts; keys typed before then
+  // would reach the pane instead.
+  await waitForCondition(
+    page,
+    () => page.evaluate(() => document.activeElement?.classList.contains('tmux-command-input')),
+    5000,
+    'the command prompt to open and take focus',
+  );
   // Type command character by character — adapter batching preserves order
   for (const char of cmd) {
     await page.keyboard.type(char);
     await delay(10);
   }
   await page.keyboard.press('Enter');
-  await delay(DELAYS.LONG);
+  // Submitting closes the prompt; what the command does is the caller's to
+  // wait for.
+  await waitForCondition(
+    page,
+    () => page.evaluate(() => !document.querySelector('[data-testid="tmux-command-mode"]')),
+    5000,
+    'the command prompt to close',
+  );
 }
 
 module.exports = {

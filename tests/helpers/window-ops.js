@@ -148,6 +148,18 @@ async function activeWindowId(page) {
  */
 async function selectWindowKeyboard(page, number) {
   await tmuxCommandKeyboard(page, `select-window -t :${number}`);
+  // A keyboard command right after this is pinned to the window the app holds,
+  // so the app — not just tmux — has to be on the new window first.
+  await waitForCondition(
+    page,
+    () =>
+      page.evaluate((n) => {
+        const c = window.app?.getSnapshot()?.context;
+        return c?.windows.find((w) => w.id === c.activeWindowId)?.index === n;
+      }, number),
+    8000,
+    `the app to make window ${number} active`,
+  );
 }
 
 /**

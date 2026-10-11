@@ -2540,8 +2540,9 @@ describe('Scenario 11: Status Bar', () => {
     expect(barInfo.hasContent).toBe(true);
     expect(barInfo.isVisible).toBe(true);
 
-    // Step 2: Window tab present
-    const tab = await ctx.page.$('.tab-name');
+    // Step 2: Window tab present (the strip redraws as the config's
+    // move-window lands, so it is waited for, not read once).
+    const tab = await ctx.page.waitForSelector('.tab-name', { timeout: 5000 }).catch(() => null);
     expect(tab).not.toBeNull();
 
     // Step 3: Session name visible

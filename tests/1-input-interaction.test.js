@@ -6,6 +6,7 @@
  */
 
 const {
+  afterFrames,
   createTestContext,
   delay,
   navigateToSession,
@@ -262,37 +263,37 @@ describe('Scenario 2: Keyboard Basics', () => {
     await runCommand(ctx.page, 'echo hello123', 'hello123');
 
     // Step 2: Backspace
+    // Keys reach tmux in the order they are pressed, so the two Backspaces
+    // need no beat between them.
     await typeInTerminal(ctx.page, 'echo helloxx');
     await ctx.page.keyboard.press('Backspace');
-    await delay(DELAYS.SHORT);
     await ctx.page.keyboard.press('Backspace');
-    await delay(DELAYS.SHORT);
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, 'hello');
 
-    // Step 3: Tab completion
+    // Step 3: Tab completion — the rest of the line is typed once the shell
+    // has completed the word, which is what it would otherwise race.
     await typeInTerminal(ctx.page, 'ech');
     await ctx.page.keyboard.press('Tab');
-    await delay(DELAYS.LONG);
+    await ctx.session.waitForCursorLine(/echo$/);
     await typeInTerminal(ctx.page, ' tab_complete_test');
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, 'tab_complete_test');
 
-    // Step 4: Ctrl+C interrupts
+    // Step 4: Ctrl+C interrupts — once `sleep` is actually running.
     await typeInTerminal(ctx.page, 'sleep 100');
     await pressEnter(ctx.page);
-    await delay(DELAYS.EXTRA_LONG);
+    await ctx.session.waitForForeground('sleep');
     await sendKeyCombo(ctx.page, 'Control', 'c');
     await waitForShellPrompt(ctx.page);
     await runCommand(ctx.page, 'echo "after_interrupt"', 'after_interrupt');
 
-    // Step 5: Ctrl+D sends EOF
+    // Step 5: Ctrl+D sends EOF — to a `cat` that is up and reading.
     await typeInTerminal(ctx.page, 'cat');
     await pressEnter(ctx.page);
-    await delay(DELAYS.LONG);
+    await ctx.session.waitForForeground('cat');
     await typeInTerminal(ctx.page, 'test_input');
     await pressEnter(ctx.page);
-    await delay(DELAYS.SHORT);
     await sendKeyCombo(ctx.page, 'Control', 'd');
     await waitForTerminalText(ctx.page, 'test_input');
 
@@ -427,7 +428,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     let box = await terminal.boundingBox();
     await ctx.page.mouse.click(box.x + 50, box.y + 50);
     await ctx.page.mouse.click(box.x + 100, box.y + 100);
-    await delay(DELAYS.LONG);
+    // runCommand types only once the app holds the keyboard.
     await runCommand(ctx.page, 'echo click_test', 'click_test');
     await runCommand(ctx.page, 'seq 1 100', '100');
 
@@ -466,8 +467,14 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     expect(aligned.offset).toBeCloseTo(0, 5);
 
     // And a wheel tick that is not a whole number of rows still lands on one.
+    const beforeTick = aligned.scrollTop;
     await ctx.page.mouse.wheel(0, -Math.round(aligned.rowHeight * 1.5));
-    await delay(DELAYS.MEDIUM);
+    await waitForCondition(
+      ctx.page,
+      async () => (await rowAlignment()).scrollTop !== beforeTick,
+      5000,
+      'the part-row wheel tick to move the view',
+    );
     aligned = await rowAlignment();
     expect(aligned.offset).toBeCloseTo(0, 5);
 
@@ -556,7 +563,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
         el.scrollTop +=
           r * parseFloat(getComputedStyle(el).getPropertyValue('--line-height-terminal'));
       }, rows);
-      await delay(DELAYS.MEDIUM);
+      await afterFrames(ctx.page);
     };
     await scrollBy(6);
     expect(await readSelection()).toBe(selected);
@@ -566,7 +573,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
       const el = document.querySelector('.pane-scroll-container');
       el.scrollTop = el.scrollHeight;
     });
-    await delay(DELAYS.LONG);
+    await afterFrames(ctx.page);
     expect((await getCopyModeState(ctx.page))?.mode).toBe('scroll');
     expect(await readSelection()).toBe(selected);
 
@@ -578,14 +585,19 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
       const el = node.nodeType === 1 ? node : node.parentElement;
       el.closest('.terminal-line').scrollIntoView({ block: 'center' });
     });
-    await delay(DELAYS.MEDIUM);
+    await afterFrames(ctx.page);
     expect(await readSelection()).toBe(selected);
     const selRect = await ctx.page.evaluate(() => {
       const r = window.getSelection().getRangeAt(0).getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
     await ctx.page.mouse.click(selRect.x, selRect.y, { button: 'right' });
-    await delay(DELAYS.MEDIUM);
+    await waitForCondition(
+      ctx.page,
+      () => ctx.page.evaluate(() => !!document.querySelector('[role^="menuitem"]')),
+      5000,
+      'the context menu to open',
+    );
     expect(await readSelection()).toBe(selected);
     const menuItems = await ctx.page.evaluate(() =>
       [...document.querySelectorAll('[role^="menuitem"]')].map((el) => ({
@@ -639,7 +651,9 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     const termEl = await ctx.page.$('[role="log"]');
     box = await termEl.boundingBox();
     await ctx.page.mouse.dblclick(box.x + 100, box.y + box.height / 2);
-    await delay(DELAYS.SYNC);
+    // Copy mode is the client's own state, entered in the event handler: had
+    // the double-click entered it, it would show within a frame or two.
+    await afterFrames(ctx.page);
     const afterDblClick = await ctx.page.evaluate(() => ({
       selection: window.getSelection()?.toString() ?? '',
       copyState: window.app.getSnapshot().context.copyModeStates['%0'] ?? null,
@@ -743,7 +757,6 @@ describe('Scenario 8: Resize from the prompt & SGR', () => {
 
     // Step 4: SGR wheel - stop and restart capture for clean slate
     await stopMouseCapture(ctx);
-    await delay(DELAYS.LONG);
     const capture2 = await startMouseCapture(ctx);
 
     const wheelX = capture2.contentBox.x + capture2.contentBox.width / 2;
@@ -1458,6 +1471,22 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
       { sel: rootSelector, needle: text },
     );
 
+  /**
+   * `cellsOf` once a line starting with `text` is on screen. runCommand's text
+   * wait is met by the typed command line, which merely CONTAINS the marker;
+   * the output line that starts with it can still be on its way.
+   */
+  const shownCellsOf = async (page, rootSelector, text) => {
+    let found = null;
+    await waitForCondition(
+      page,
+      async () => (found = await cellsOf(page, rootSelector, text)) !== null,
+      10000,
+      `a line starting with ${text}`,
+    );
+    return found;
+  };
+
   /** Press, sweep and release, pausing on the end so a throttled move lands there. */
   const drag = async (page, from, to, y) => {
     await page.mouse.move(from, y);
@@ -1480,8 +1509,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     //    (printf, so the typed command line does not itself contain the marker.)
     await runCommand(ctx.page, "( sleep 2; seq 1 5; printf 'LATE_%s\\n' OUTPUT ) &", '[1]');
     await runCommand(ctx.page, 'echo "DRAG_SELECT_ME and more"', 'DRAG_SELECT_ME');
-    const at = await cellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
-    expect(at).not.toBeNull();
+    const at = await shownCellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
     await drag(ctx.page, at.first, at.last, at.y);
     const selected = await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '');
     expect(selected).toBe('DRAG_SELECT_ME');
@@ -1569,8 +1597,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     // 3. A row of differently-coloured runs copies as one line. Each run is its
     //    own box, and the browser's own copy broke the line at every one.
     await runCommand(ctx.page, 'printf "\\033[31mRED_RUN\\033[0m PLAIN_RUN\\n"', 'PLAIN_RUN');
-    const mixed = await cellsOf(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
-    expect(mixed).not.toBeNull();
+    const mixed = await shownCellsOf(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
     await drag(ctx.page, mixed.first, mixed.last, mixed.y);
     await ctx.page.keyboard.press('Meta+c');
     await delay(DELAYS.SHORT);

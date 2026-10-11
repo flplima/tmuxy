@@ -12,6 +12,7 @@ const {
   focusPage,
   waitForSessionReady,
   waitForPaneCount,
+  waitForCondition,
   delay,
 } = require('./browser');
 const TmuxTestSession = require('./TmuxTestSession');
@@ -191,7 +192,8 @@ function createTestContext({ snapshot = false } = {}) {
    * that let one test's slow shutdown fail the next one.
    */
   async function waitForMonitorGone(session, timeout = 10000) {
-    if (!session) return await delay(DELAYS.LONG);
+    // No session was ever created, so no monitor attached to let go of.
+    if (!session) return;
     const start = Date.now();
     while (Date.now() - start < timeout) {
       let clients = '';
@@ -318,7 +320,6 @@ function createTestContext({ snapshot = false } = {}) {
       } else {
         await splitPaneKeyboard(ctx.page, 'horizontal');
       }
-      await delay(DELAYS.SHORT);
     }
   };
 
@@ -387,8 +388,18 @@ function createTestContext({ snapshot = false } = {}) {
     await waitForPanes(2);
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPanes(3);
+    // The split below is pinned to the pane the app holds as active, so the
+    // move up has to have reached the app before it.
+    const activePane = () =>
+      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId ?? null);
+    const below = await activePane();
     await navigatePaneKeyboard(ctx.page, 'up');
-    await delay(DELAYS.SHORT);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activePane()) !== below,
+      5000,
+      'the move up to change the active pane',
+    );
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPanes(4);
   };

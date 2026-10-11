@@ -6,7 +6,7 @@
 
 const { delay } = require('./browser');
 const { tmuxSideOfSession } = require('./tmux-side');
-const { DELAYS, waitBudget } = require('./config');
+const { waitBudget } = require('./config');
 const {
   sendKeyCombo,
   sendPrefixCommand,
@@ -120,13 +120,16 @@ async function textIsReadable(page, index, text) {
  * Uses Node-side polling with page.evaluate for reliable cross-environment behavior.
  * (Browser-side waitForFunction can miss transient DOM states on CI.)
  */
-async function waitForTerminalText(page, text, timeout = 15000, { scope } = {}) {
+async function waitForTerminalText(page, text, timeout = 15000, { scope, notOnLineWith } = {}) {
   const budget = waitBudget(timeout);
   const start = Date.now();
   let why = 'it never appeared';
+  // `notOnLineWith` skips rows that also carry it — the typed command line,
+  // when what is awaited is that command's output.
+  const counts = (row) => row.includes(text) && !(notOnLineWith && row.includes(notOnLineWith));
   while (Date.now() - start < budget) {
     for (const terminal of await visibleTerminals(page, scope)) {
-      if (!terminal.text.includes(text)) continue;
+      if (!terminal.text.split('\n').some(counts)) continue;
       const verdict = await textIsReadable(page, terminal.index, text);
       if (verdict.ok) return await getTerminalText(page, { scope });
       why = verdict.why;
@@ -257,7 +260,13 @@ async function waitForPrompts(page, quantifier, timeout, ceiling) {
 async function runCommand(page, command, expectedOutput, timeout = 20000, { scope } = {}) {
   await typeInTerminal(page, command);
   await pressEnter(page);
-  return await waitForTerminalText(page, expectedOutput, timeout, { scope });
+  // The typed command line often carries the expected text itself (`echo X`
+  // waiting for X), and it is on screen before the command has run. Only a
+  // row without the command's opening counts as its output.
+  return await waitForTerminalText(page, expectedOutput, timeout, {
+    scope,
+    notOnLineWith: command.slice(0, 12),
+  });
 }
 
 // ==================== UI Interactions ====================
@@ -319,10 +328,14 @@ async function waitForLayoutSettled(page, { timeout = 10000 } = {}) {
     });
 
   const start = Date.now();
+  // No machine on the page yet (a page still hydrating): wait for one to
+  // observe. A page that never gets one has no layout to settle.
   let previous = await sample();
-  // No machine on the page (a raw or not-yet-hydrated page): nothing to
-  // observe, so fall back to the old fixed wait rather than returning early.
-  if (previous === null) return await delay(DELAYS.LONG);
+  while (previous === null && Date.now() - start < timeout) {
+    await delay(60);
+    previous = await sample();
+  }
+  if (previous === null) return;
   while (Date.now() - start < timeout) {
     await delay(60);
     const current = await sample();

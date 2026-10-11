@@ -14,7 +14,8 @@
  * 8. Inter-pane gaps match expected charWidth/charHeight
  */
 
-const { delay } = require('./browser');
+const { waitForCondition } = require('./browser');
+const { waitForLayoutSettled } = require('./pane-ops');
 
 /**
  * Assert all layout invariants hold for the current pane mosaic.
@@ -29,8 +30,21 @@ async function assertLayoutInvariants(page, options = {}) {
   const { checkCentering = true, checkGaps = true, label } = options;
   const prefix = label ? `[${label}] ` : '';
 
-  // Wait for layout animations to settle
-  await delay(500);
+  // The panes move by CSS transition: measure once the layout has settled and
+  // no transition is still running, not after a guess at how long they take.
+  await waitForLayoutSettled(page);
+  await waitForCondition(
+    page,
+    () =>
+      page.evaluate(
+        () =>
+          !document
+            .getAnimations()
+            .some((a) => a instanceof CSSTransition && a.playState === 'running'),
+      ),
+    5000,
+    'pane transitions to finish',
+  );
 
   const result = await page.evaluate(
     ({ checkCentering: cc, checkGaps: cg }) => {

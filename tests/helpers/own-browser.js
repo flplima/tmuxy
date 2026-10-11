@@ -124,7 +124,8 @@ function createOwnBrowserContext({
    * tmux itself is the signal: the session is gone and no client is left.
    */
   async function waitForMonitorGone(session, timeout = 10000) {
-    if (!session) return await delay(DELAYS.LONG);
+    // No session was ever created, so no monitor attached to let go of.
+    if (!session) return;
     const start = Date.now();
     while (Date.now() - start < timeout) {
       let clients = '';
