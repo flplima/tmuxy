@@ -549,7 +549,7 @@ async fn the_viewport_follows_the_pane_and_refuses_nonsense() {
     };
 
     session
-        .set_viewport(480, 800, 1.0)
+        .set_viewport(480, 800, false)
         .await
         .expect("set_viewport");
     assert_eq!(
@@ -565,7 +565,7 @@ async fn the_viewport_follows_the_pane_and_refuses_nonsense() {
 
     for (w, h) in [(0, 800), (480, 0), (99_999, 800)] {
         assert!(
-            session.set_viewport(w, h, 1.0).await.is_err(),
+            session.set_viewport(w, h, false).await.is_err(),
             "{w}x{h} must be refused, not clamped"
         );
     }
@@ -595,6 +595,7 @@ async fn a_click_and_a_key_from_a_pane_reach_the_page() {
     use tmuxy_server::browser::pane::{self, PaneSize};
     use tmuxy_server::browser::session::Output;
     use tmuxy_server::browser::verbs::Verb;
+    use tmuxy_server::browser::verbs::Viewport;
 
     let state = scratch_dir("input");
     let Some(mut session) =
@@ -611,9 +612,10 @@ async fn a_click_and_a_key_from_a_pane_reach_the_page() {
         cell_w: 8,
         cell_h: 16,
     };
-    let (vw, vh) = size.viewport();
+    let page = pane::layout(size, Viewport::Auto);
+    let (vw, vh) = (page.page_w, page.page_h);
     session
-        .set_viewport(vw, vh, 1.0)
+        .set_viewport(vw, vh, false)
         .await
         .expect("the viewport the pane implies");
 
@@ -640,7 +642,7 @@ async fn a_click_and_a_key_from_a_pane_reach_the_page() {
     // still lands in it — so the box is deliberately small enough that being a
     // few cells out does not.
     for pressed in [true, false] {
-        pane::forward_mouse(&mut session, size, 0, 10, 5, pressed).await;
+        pane::forward_mouse(&mut session, page, 0, 10, 5, pressed).await;
     }
     for _ in 0..40 {
         if session
@@ -694,7 +696,7 @@ async fn a_click_and_a_key_from_a_pane_reach_the_page() {
 
     // The status row belongs to tmuxy, not the page: a report on it is dropped
     // rather than forwarded to a coordinate off the bottom of the viewport.
-    pane::forward_mouse(&mut session, size, 0, 10, size.rows, true).await;
+    pane::forward_mouse(&mut session, page, 0, 10, size.rows, true).await;
     assert_eq!(
         session
             .run(Verb::Text {

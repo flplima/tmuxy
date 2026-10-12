@@ -38,10 +38,50 @@ pub enum Verb {
     Back,
     /// Go forward in history.
     Forward,
+    /// Lay the page out for the pane (`auto`) or for a fixed device size.
+    Viewport { viewport: Viewport },
     /// Reload.
     Reload,
     /// The list of verbs, for a person who typed the wrong thing.
     Help,
+}
+
+/// What the page lays out for: the pane itself, or a fixed device size shown
+/// at its own aspect inside the pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Viewport {
+    #[default]
+    Auto,
+    Desktop,
+    Mobile,
+}
+
+impl Viewport {
+    pub fn parse(word: &str) -> Option<Self> {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "desktop" => Some(Self::Desktop),
+            "mobile" => Some(Self::Mobile),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Desktop => "desktop",
+            Self::Mobile => "mobile",
+        }
+    }
+
+    /// The fixed size in CSS pixels; `None` follows the pane.
+    pub fn size(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Auto => None,
+            Self::Desktop => Some((1440, 900)),
+            Self::Mobile => Some((400, 800)),
+        }
+    }
 }
 
 /// Why a line could not become a verb.
@@ -172,6 +212,10 @@ pub fn parse(line: &str) -> Result<Verb, ParseError> {
         }),
         "back" => Ok(Verb::Back),
         "forward" => Ok(Verb::Forward),
+        "viewport" => match Viewport::parse(rest) {
+            Some(viewport) => Ok(Verb::Viewport { viewport }),
+            None => Err(need("auto, desktop or mobile", "viewport")),
+        },
         "reload" | "refresh" => Ok(Verb::Reload),
         "help" | "?" => Ok(Verb::Help),
         other => Err(ParseError::Unknown {
@@ -229,6 +273,7 @@ url                     the page's current URL
 shot [path]             save a PNG
 back                    history back
 forward                 history forward
+viewport auto|desktop|mobile  lay out for the pane, 1440x900 or 400x800
 reload                  reload
 help                    this list";
 
@@ -252,6 +297,14 @@ mod tests {
         assert_eq!(parse("url"), Ok(Verb::Url));
         assert_eq!(parse("back"), Ok(Verb::Back));
         assert_eq!(parse("forward"), Ok(Verb::Forward));
+        assert_eq!(
+            parse("viewport mobile"),
+            Ok(Verb::Viewport {
+                viewport: Viewport::Mobile
+            })
+        );
+        assert!(parse("viewport").is_err());
+        assert!(parse("viewport tablet").is_err());
         assert_eq!(parse("reload"), Ok(Verb::Reload));
         assert_eq!(parse("refresh"), Ok(Verb::Reload));
         assert_eq!(parse("help"), Ok(Verb::Help));
@@ -455,6 +508,7 @@ mod tests {
             ("shot", "shot"),
             ("back", "back"),
             ("forward", "forward"),
+            ("viewport", "viewport desktop"),
             ("reload", "reload"),
             ("help", "help"),
         ] {

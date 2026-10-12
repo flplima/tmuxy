@@ -1304,6 +1304,22 @@ describe('Scenario 24: The Browser Pane', () => {
 
     const picture = await waitForPicture(ctx.page, 'the first page is drawn in the pane');
 
+    // The first page has nothing behind it: the engine's starting
+    // `about:blank` is not somewhere to go back to.
+    const backButton = () =>
+      ctx.page.evaluate(() => {
+        const button = document.querySelector(
+          '[data-testid="browser-live-bar"] [data-testid="browser-nav-back"]',
+        );
+        return button ? { disabled: button.disabled } : null;
+      });
+    await waitForCondition(
+      ctx.page,
+      async () => (await backButton())?.disabled === true,
+      30000,
+      async () => `Back to be off on the first page (now ${JSON.stringify(await backButton())})`,
+    );
+
     // A real click on the picture. It goes out as an SGR mouse report, which
     // is the same path any mouse-tracking program in a pane gets — nothing
     // about this feature is in the client.
@@ -1365,6 +1381,41 @@ describe('Scenario 24: The Browser Pane', () => {
       async () => (await readBar())?.address.endsWith('first.html') ?? false,
       30000,
       async () => `the back button to take the page back (bar: ${JSON.stringify(await readBar())})`,
+    );
+
+    // The page-size button: Mobile draws a phone-shaped page at its own
+    // aspect, a narrow column in the pane; Auto gives the pane back to it.
+    const pictureShape = () =>
+      ctx.page.evaluate(() => {
+        const img = document.querySelector('.terminal-image');
+        if (!img) return null;
+        const r = img.getBoundingClientRect();
+        return { width: r.width, height: r.height };
+      });
+    const choose = async (label) => {
+      await ctx.page.click('[data-testid="browser-nav-viewport"]');
+      await ctx.page.click(`[data-testid="browser-viewport-menu"] >> text=${label}`);
+    };
+    await choose('Mobile (400x800px)');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const shape = await pictureShape();
+        return !!shape && shape.height > 0 && shape.width < shape.height;
+      },
+      30000,
+      async () => `a phone-shaped picture (now ${JSON.stringify(await pictureShape())})`,
+    );
+    await choose('Auto');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const shape = await pictureShape();
+        return !!shape && shape.width > shape.height;
+      },
+      30000,
+      async () =>
+        `the picture to fill the pane again (now ${JSON.stringify(await pictureShape())})`,
     );
 
     // Leaving gives the shell back: the alternate screen goes away and the

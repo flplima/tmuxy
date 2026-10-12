@@ -31,6 +31,7 @@
 //! whole agent protocol, and it needed no API.
 
 use super::pane;
+use super::verbs::Viewport;
 
 /// A browser pane, from the command line.
 #[derive(clap::Args, Debug)]
@@ -54,6 +55,10 @@ pub struct BrowserArgs {
     /// --color-filter` does: the app applies it to the picture.
     #[arg(long)]
     pub color_filter: bool,
+    /// What the page lays out for: `auto` (the pane), `desktop` (1440x900) or
+    /// `mobile` (400x800). The toolbar's size button changes it later.
+    #[arg(long, value_parser = parse_viewport, default_value = "auto")]
+    pub viewport: Viewport,
     /// The page to open (a bare host gets a scheme). What a restored browser
     /// pane is handed: the pane writes `@tmuxy-pane-restore` with the page it
     /// is on, so a session snapshot brings it back here.
@@ -86,9 +91,14 @@ pub async fn run(args: BrowserArgs) {
         args.attach,
         args.url,
         args.color_filter,
+        args.viewport,
     )
     .await;
     std::process::exit(code);
+}
+
+fn parse_viewport(word: &str) -> Result<Viewport, String> {
+    Viewport::parse(word).ok_or_else(|| format!("{word:?}: auto, desktop or mobile"))
 }
 
 /// The session a pane gets when none is named: its own, from `$TMUX_PANE`.

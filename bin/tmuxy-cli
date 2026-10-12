@@ -1432,11 +1432,12 @@ OEOF
     case "${1:-}" in
       --help | -h)
         cat <<'BEOF'
-Usage: tmuxy browser [--session NAME] [--attach ENDPOINT] [--color-filter] [url]
+Usage: tmuxy browser [--session NAME] [--attach ENDPOINT] [--color-filter]
+                     [--viewport auto|desktop|mobile] [url]
 
 Turn this pane into a browser: a real engine draws the page IN THE PANE as an
 inline image, under the app's address bar (back, forward, refresh, the
-address, open externally). The mouse and keyboard reach the page. It shows
+address, page size, open externally). The mouse and keyboard reach the page. It shows
 sites that refuse to be framed and works the same in the web UI and the
 desktop app. `tmuxy open <website>` opens one too.
 
@@ -1458,6 +1459,7 @@ Verbs (after `:`):
   title | url             the page's title or current URL
   shot [path]             save a PNG
   back | forward | reload history
+  viewport auto|desktop|mobile  lay out for the pane, 1440x900 or 400x800
 
 Options:
   --session NAME     Which session (default: one per pane); names the
@@ -1469,6 +1471,8 @@ Options:
                      prompt at chrome://inspect/#remote-debugging. An attached
                      browser is left running when the pane closes.
   --color-filter     Recolour the page into the theme's colours
+  --viewport SIZE    What the page lays out for: auto (the pane, the
+                     default), desktop (1440x900) or mobile (400x800)
 
 In a pane, `TMUXY_CELL_PX=WxH` overrides the cell size used to size the page
 when the terminal does not report one.

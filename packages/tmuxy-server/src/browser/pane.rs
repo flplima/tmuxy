@@ -52,7 +52,7 @@ use chromiumoxide::cdp::browser_protocol::input::{
 };
 
 use super::session::{Attachment, Output, Session};
-use super::verbs;
+use super::verbs::{self, Viewport};
 
 /// Cell size in pixels when the terminal does not report one.
 ///
@@ -86,8 +86,6 @@ mod term {
     pub(super) const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1002l";
     pub(super) const HIDE_CURSOR: &str = "\x1b[?25l";
     pub(super) const SHOW_CURSOR: &str = "\x1b[?25h";
-    /// The picture's top-left: row 2, under the toolbar row.
-    pub const PICTURE_HOME: &str = "\x1b[2;1H";
     pub(super) const CLEAR: &str = "\x1b[2J";
 }
 
@@ -108,13 +106,55 @@ impl PaneSize {
     fn image_rows(&self) -> u16 {
         self.rows.saturating_sub(2).max(1)
     }
+}
 
-    /// The viewport the page should lay out in.
-    pub fn viewport(&self) -> (u32, u32) {
-        (
-            u32::from(self.cols) * u32::from(self.cell_w),
-            u32::from(self.image_rows()) * u32::from(self.cell_h),
-        )
+/// Where the picture sits in the pane, and the page size it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layout {
+    /// The picture's first column (1-indexed).
+    pub col: u16,
+    /// Its size in cells, from `PICTURE_TOP`.
+    pub cols: u16,
+    pub rows: u16,
+    /// The viewport the page lays out in, in CSS pixels.
+    pub page_w: u32,
+    pub page_h: u32,
+}
+
+/// The picture's place for this pane and viewport.
+///
+/// `Auto` fills the picture area and lays the page out for it. A fixed size is
+/// shown at its own aspect, centred: its cells are worked out from the cell
+/// size the page is laid out against, so a phone-shaped page stays a phone.
+pub fn layout(size: PaneSize, viewport: Viewport) -> Layout {
+    let area_cols = size.cols.max(1);
+    let area_rows = size.image_rows();
+    let (cell_w, cell_h) = (f64::from(size.cell_w), f64::from(size.cell_h));
+    match viewport.size() {
+        None => Layout {
+            col: 1,
+            cols: area_cols,
+            rows: area_rows,
+            page_w: u32::from(area_cols) * u32::from(size.cell_w),
+            page_h: u32::from(area_rows) * u32::from(size.cell_h),
+        },
+        Some((page_w, page_h)) => {
+            let scale = (f64::from(area_cols) * cell_w / f64::from(page_w))
+                .min(f64::from(area_rows) * cell_h / f64::from(page_h));
+            let fit = |pixels: u32, cell: f64, most: u16| -> u16 {
+                let cells = (f64::from(pixels) * scale / cell).round();
+                (cells.max(1.0) as u16).min(most)
+            };
+            let cols = fit(page_w, cell_w, area_cols);
+            let rows = fit(page_h, cell_h, area_rows);
+            Layout {
+                col: 1 + (area_cols - cols) / 2,
+                cols,
+                rows,
+                page_w,
+                page_h,
+            }
+        }
     }
 }
 
@@ -176,17 +216,17 @@ fn parse_cell_px(raw: &str) -> Option<(u16, u16)> {
 /// the pty), so its aspect rarely matches the pane's; fitted, the picture was
 /// letterboxed, and a click — mapped cell to page pixel as if the picture
 /// filled the cells — landed up to a few rows away from what was under it.
-fn draw_frame(frame: &[u8], size: PaneSize) -> Vec<u8> {
+fn draw_frame(frame: &[u8], layout: Layout) -> Vec<u8> {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(frame);
     format!(
-        "{}{}\x1b]1337;File=inline=1;width={};height={};preserveAspectRatio=0:{}\x07",
+        "{}\x1b[{PICTURE_TOP};{}H\x1b]1337;File=inline=1;width={};height={};preserveAspectRatio=0:{}\x07",
         // Re-asserted with every frame: a client that attached after the
         // program hid its cursor never saw that escape.
         term::HIDE_CURSOR,
-        term::PICTURE_HOME,
-        size.cols,
-        size.image_rows(),
+        layout.col,
+        layout.cols,
+        layout.rows,
         encoded
     )
     .into_bytes()
@@ -330,10 +370,20 @@ fn utf8_len(lead: u8) -> usize {
 /// in the middle of the cell the user pointed at. Cells are the resolution tmux
 /// reports — this is the ceiling on how precisely a click can land, and why
 /// `:click <selector>` exists for anything smaller than a cell.
-fn cell_to_page(col: u16, row: u16, size: PaneSize) -> (f64, f64) {
-    let x = (f64::from(col.saturating_sub(1)) + 0.5) * f64::from(size.cell_w);
-    let y = (f64::from(row.saturating_sub(PICTURE_TOP)) + 0.5) * f64::from(size.cell_h);
-    (x, y)
+fn cell_to_page(col: u16, row: u16, layout: Layout) -> (f64, f64) {
+    let across = (f64::from(col.saturating_sub(layout.col)) + 0.5) / f64::from(layout.cols);
+    let down = (f64::from(row.saturating_sub(PICTURE_TOP)) + 0.5) / f64::from(layout.rows);
+    (
+        across * f64::from(layout.page_w),
+        down * f64::from(layout.page_h),
+    )
+}
+
+/// Whether a cell is on the picture, rather than on the toolbar, the status
+/// row, or the margin beside a fixed-size page.
+fn on_picture(col: u16, row: u16, layout: Layout) -> bool {
+    (layout.col..layout.col + layout.cols).contains(&col)
+        && (PICTURE_TOP..PICTURE_TOP + layout.rows).contains(&row)
 }
 
 /// An SGR button code as what it means to a page.
@@ -397,6 +447,7 @@ fn restore_tag_args(
     pane: &str,
     named_session: Option<&str>,
     color_filter: bool,
+    viewport: Viewport,
     url: Option<&str>,
 ) -> Vec<String> {
     let mut line = "tmuxy browser".to_string();
@@ -406,6 +457,10 @@ fn restore_tag_args(
     }
     if color_filter {
         line.push_str(" --color-filter");
+    }
+    if viewport != Viewport::Auto {
+        line.push_str(" --viewport ");
+        line.push_str(viewport.name());
     }
     if let Some(url) = url {
         line.push(' ');
@@ -424,7 +479,12 @@ fn shell_quote(word: &str) -> String {
 /// `TMUXY_CLI` is set by the CLI when it starts this program, so the pane
 /// reaches the same `tmuxy` that launched it wherever it is installed; a
 /// pane started some other way falls back to `tmuxy` on the PATH.
-fn announce_restore(named_session: Option<&str>, color_filter: bool, url: Option<&str>) {
+fn announce_restore(
+    named_session: Option<&str>,
+    color_filter: bool,
+    viewport: Viewport,
+    url: Option<&str>,
+) {
     let Some(pane) = std::env::var_os("TMUX_PANE") else {
         return;
     };
@@ -432,6 +492,7 @@ fn announce_restore(named_session: Option<&str>, color_filter: bool, url: Option
         &pane.to_string_lossy(),
         named_session,
         color_filter,
+        viewport,
         url,
     ));
 }
@@ -486,10 +547,15 @@ struct Navigation {
 /// The toolbar row's text. The UI reads it to know this is a live browser and
 /// which buttons are live; the address is the pane title (see the module doc).
 /// Kept short so it never wraps into the picture.
-fn header_line(nav: &Navigation, color_filter: bool) -> String {
+fn header_line(nav: &Navigation, color_filter: bool, viewport: Viewport) -> String {
     let bit = |b: bool| if b { '1' } else { '0' };
+    let size = match viewport {
+        Viewport::Auto => 'a',
+        Viewport::Desktop => 'd',
+        Viewport::Mobile => 'm',
+    };
     format!(
-        "{HEADER_PREFIX}{}{}{}",
+        "{HEADER_PREFIX}{}{}{}{size}",
         bit(nav.can_go_back),
         bit(nav.can_go_forward),
         bit(color_filter)
@@ -500,11 +566,11 @@ fn header_line(nav: &Navigation, color_filter: bool) -> String {
 const HEADER_PREFIX: &str = "tmuxy:browser ";
 
 /// Write the toolbar row and the title that carries the address.
-fn header(size: &PaneSize, nav: &Navigation, color_filter: bool) {
+fn header(size: &PaneSize, nav: &Navigation, color_filter: bool, viewport: Viewport) {
     let title: String = nav.url.chars().filter(|c| !c.is_control()).collect();
     write_out(&format!(
         "\x1b]2;{title}\x07\x1b[1;1H\x1b[2K{}\x1b[{};1H",
-        header_line(nav, color_filter),
+        header_line(nav, color_filter, viewport),
         size.rows
     ));
 }
@@ -535,9 +601,15 @@ async fn navigation(page: &chromiumoxide::page::Page) -> Option<Navigation> {
     let entry = history.entries.get(index)?;
     Some(Navigation {
         url: entry.url.clone(),
-        can_go_back: index > 0,
+        can_go_back: history.entries[..index].iter().any(|e| is_page(&e.url)),
         can_go_forward: index + 1 < history.entries.len(),
     })
+}
+
+/// A history entry worth going back to. Every tab starts on `about:blank`, so
+/// the first page a pane opens would otherwise offer "back" to nothing.
+fn is_page(url: &str) -> bool {
+    !url.is_empty() && url != "about:blank"
 }
 
 /// Keep the toolbar row and the address current: on a navigation, and after a
@@ -545,6 +617,7 @@ async fn navigation(page: &chromiumoxide::page::Page) -> Option<Navigation> {
 async fn header_loop(
     page: chromiumoxide::page::Page,
     mut size: tokio::sync::watch::Receiver<PaneSize>,
+    mut viewport: tokio::sync::watch::Receiver<Viewport>,
     color_filter: bool,
     named_session: Option<String>,
     done: Arc<AtomicBool>,
@@ -555,18 +628,24 @@ async fn header_loop(
             return;
         }
         let resized = size.has_changed().unwrap_or(false);
+        let resized_page = viewport.has_changed().unwrap_or(false);
         let current = *size.borrow_and_update();
+        let current_viewport = *viewport.borrow_and_update();
         if let Some(nav) = navigation(&page).await {
             let moved = shown.as_ref().map(|n| &n.url) != Some(&nav.url);
-            if resized || shown.as_ref() != Some(&nav) {
-                header(&current, &nav, color_filter);
+            if resized || resized_page || shown.as_ref() != Some(&nav) {
+                header(&current, &nav, color_filter, current_viewport);
             }
-            if moved {
-                // The page moved, by a verb or by a link inside it; the
-                // restore tag follows it.
-                let url =
-                    (!nav.url.is_empty() && nav.url != "about:blank").then_some(nav.url.as_str());
-                announce_restore(named_session.as_deref(), color_filter, url);
+            if moved || resized_page {
+                // The page moved, by a verb or by a link inside it, or changed
+                // size; the restore tag follows it.
+                let url = is_page(&nav.url).then_some(nav.url.as_str());
+                announce_restore(
+                    named_session.as_deref(),
+                    color_filter,
+                    current_viewport,
+                    url,
+                );
             }
             shown = Some(nav);
         }
@@ -582,6 +661,7 @@ pub async fn run(
     attach: Option<String>,
     goto: Option<String>,
     color_filter: bool,
+    viewport: Viewport,
 ) -> i32 {
     let session = match attach {
         Some(endpoint) => Session::attach(state_dir, session_name, &endpoint).await,
@@ -598,10 +678,14 @@ pub async fn run(
 
     let attached = session.attachment() == Attachment::Attached;
     let size = pane_size();
-    let (vw, vh) = size.viewport();
-    if let Err(error) = session.set_viewport(vw, vh, 1.0).await {
+    let first = layout(size, viewport);
+    if let Err(error) = session
+        .set_viewport(first.page_w, first.page_h, viewport == Viewport::Mobile)
+        .await
+    {
         eprintln!("tmuxy browser: {error}");
     }
+    let (viewport_tx, viewport_rx) = tokio::sync::watch::channel(viewport);
 
     // The pane's size, as everything that cares reads it. A `watch` rather than
     // a shared cell because the resize has to WAKE the read loop: the viewport
@@ -621,7 +705,7 @@ pub async fn run(
 
     let raw = RawMode::enter().ok();
     tag_pane(true);
-    header(&size, &Navigation::default(), color_filter);
+    header(&size, &Navigation::default(), color_filter, viewport);
 
     status(
         &size,
@@ -642,6 +726,7 @@ pub async fn run(
             Ok(frames) => Some(tokio::spawn(draw_loop(
                 frames,
                 size_rx.clone(),
+                viewport_rx.clone(),
                 Arc::clone(&done),
             ))),
             Err(error) => {
@@ -654,6 +739,7 @@ pub async fn run(
     let header_task = tokio::spawn(header_loop(
         session.page().clone(),
         size_rx.clone(),
+        viewport_rx,
         color_filter,
         named_session.then(|| session_name.to_string()),
         Arc::clone(&done),
@@ -677,7 +763,7 @@ pub async fn run(
         status(&size, &url);
     }
 
-    let code = read_loop(&mut session, size_rx, attached).await;
+    let code = read_loop(&mut session, size_rx, viewport_tx, attached).await;
 
     done.store(true, Ordering::Relaxed);
     header_task.abort();
@@ -733,6 +819,7 @@ async fn watch_for_resize(sizes: tokio::sync::watch::Sender<PaneSize>) {
 async fn draw_loop(
     mut frames: tokio::sync::watch::Receiver<super::session::Frame>,
     mut size: tokio::sync::watch::Receiver<PaneSize>,
+    mut viewport: tokio::sync::watch::Receiver<Viewport>,
     done: Arc<AtomicBool>,
 ) {
     loop {
@@ -740,7 +827,7 @@ async fn draw_loop(
             return;
         }
         let frame = frames.borrow_and_update().clone();
-        let current = *size.borrow_and_update();
+        let current = layout(*size.borrow_and_update(), *viewport.borrow_and_update());
         if !frame.is_empty() {
             let mut stdout = std::io::stdout().lock();
             let _ = stdout.write_all(&draw_frame(&frame, current));
@@ -755,6 +842,7 @@ async fn draw_loop(
             tokio::select! {
                 changed = frames.changed() => changed.is_err(),
                 changed = size.changed() => changed.is_err(),
+                changed = viewport.changed() => changed.is_err(),
             }
         };
         if tokio::time::timeout(REDRAW_INTERVAL, next)
@@ -836,6 +924,7 @@ impl Inputs {
 async fn read_loop(
     session: &mut Session,
     mut sizes: tokio::sync::watch::Receiver<PaneSize>,
+    viewport: tokio::sync::watch::Sender<Viewport>,
     attached: bool,
 ) -> i32 {
     let mut inputs = Inputs::start();
@@ -853,8 +942,12 @@ async fn read_loop(
                 size = *sizes.borrow_and_update();
                 // The page lays out against the pane, so a resize has to reach
                 // the engine — this is the whole reason the read loop watches.
-                let (vw, vh) = size.viewport();
-                if let Err(error) = session.set_viewport(vw, vh, 1.0).await {
+                let current = *viewport.borrow();
+                let page = layout(size, current);
+                if let Err(error) = session
+                    .set_viewport(page.page_w, page.page_h, current == Viewport::Mobile)
+                    .await
+                {
                     status(&size, &format!("error: {error}"));
                 }
                 continue;
@@ -864,7 +957,7 @@ async fn read_loop(
         match input {
             Input::Key(key) if key.as_slice() == b"\x03" => return 0, // ctrl+c
             Input::Key(key) if key.as_slice() == b":" => {
-                match command_mode(session, size, &mut inputs).await {
+                match command_mode(session, size, &viewport, &mut inputs).await {
                     CommandOutcome::Continue => {}
                     CommandOutcome::Quit => return 0,
                 }
@@ -881,7 +974,8 @@ async fn read_loop(
                 pressed,
             } => {
                 if !attached {
-                    forward_mouse(session, size, button, col, row, pressed).await;
+                    let page = layout(size, *viewport.borrow());
+                    forward_mouse(session, page, button, col, row, pressed).await;
                 }
             }
         }
@@ -900,6 +994,7 @@ enum CommandOutcome {
 async fn command_mode(
     session: &mut Session,
     size: PaneSize,
+    viewport: &tokio::sync::watch::Sender<Viewport>,
     inputs: &mut Inputs,
 ) -> CommandOutcome {
     let mut line = String::new();
@@ -920,7 +1015,7 @@ async fn command_mode(
                 status(&size, "");
                 return CommandOutcome::Continue;
             }
-            b"\r" | b"\n" => return run_line(session, size, &line).await,
+            b"\r" | b"\n" => return run_line(session, size, viewport, &line).await,
             b"\x7f" | b"\x08" => {
                 line.pop();
             }
@@ -936,11 +1031,31 @@ async fn command_mode(
 }
 
 /// Run one verb line and show what it said.
-async fn run_line(session: &mut Session, size: PaneSize, line: &str) -> CommandOutcome {
+async fn run_line(
+    session: &mut Session,
+    size: PaneSize,
+    viewport: &tokio::sync::watch::Sender<Viewport>,
+    line: &str,
+) -> CommandOutcome {
     if matches!(line.trim(), "q" | "quit" | "exit") {
         return CommandOutcome::Quit;
     }
     match verbs::parse(line) {
+        // The pane's own verb: where the picture sits is this program's call.
+        Ok(verbs::Verb::Viewport { viewport: next }) => {
+            // A fixed size leaves margins the old picture would show through:
+            // the screen is cleared and the toolbar row redrawn with it.
+            write_out(term::CLEAR);
+            viewport.send_replace(next);
+            let page = layout(size, next);
+            match session
+                .set_viewport(page.page_w, page.page_h, next == Viewport::Mobile)
+                .await
+            {
+                Ok(()) => status(&size, next.name()),
+                Err(error) => status(&size, &format!("error: {error}")),
+            }
+        }
         Ok(verb) => match session.run(verb).await {
             Ok(output) => {
                 let text = output.to_string();
@@ -1026,17 +1141,19 @@ fn key_name(key: &str) -> (String, Option<String>) {
 /// Forward one mouse report to the page.
 pub async fn forward_mouse(
     session: &mut Session,
-    size: PaneSize,
+    layout: Layout,
     button: u16,
     col: u16,
     row: u16,
     pressed: bool,
 ) {
-    // The toolbar row and the status row are tmuxy's, not the page's.
-    if row < PICTURE_TOP || row >= PICTURE_TOP + size.image_rows() {
+    // The toolbar row, the status row and a fixed page's margins are tmuxy's,
+    // not the page's.
+    if !on_picture(col, row, layout) {
         return;
     }
-    let (x, y) = cell_to_page(col, row, size);
+    let (x, y) = cell_to_page(col, row, layout);
+    let (x, y) = (x * session.view_scale(), y * session.view_scale());
 
     let params = match decode_button(button) {
         ButtonMeaning::Wheel { up } => DispatchMouseEventParams::builder()
@@ -1092,7 +1209,8 @@ mod tests {
             22,
             "a row each for the toolbar and status"
         );
-        assert_eq!(size.viewport(), (640, 352));
+        assert_eq!(layout(size, Viewport::Auto).page_w, 640);
+        assert_eq!(layout(size, Viewport::Auto).page_h, 352);
     }
 
     /// A one-row pane would otherwise ask for a zero-height viewport, which
@@ -1106,7 +1224,8 @@ mod tests {
             cell_h: 16,
         };
         assert_eq!(size.image_rows(), 1);
-        assert!(size.viewport().1 > 0);
+        assert!(layout(size, Viewport::Auto).page_h > 0);
+        assert!(layout(size, Viewport::Mobile).rows > 0);
     }
 
     #[test]
@@ -1117,7 +1236,8 @@ mod tests {
             cell_w: 8,
             cell_h: 16,
         };
-        let drawn = String::from_utf8(draw_frame(b"\xff\xd8\xff", size)).unwrap();
+        let drawn =
+            String::from_utf8(draw_frame(b"\xff\xd8\xff", layout(size, Viewport::Auto))).unwrap();
         assert!(
             drawn.starts_with("\x1b[?25l\x1b[2;1H"),
             "the cursor must be at the picture's corner, or tmuxy anchors the picture somewhere new each time"
@@ -1235,8 +1355,38 @@ mod tests {
             cell_h: 16,
         };
         // Row 2 is the picture's first: row 1 is the toolbar's.
-        assert_eq!(cell_to_page(1, 2, size), (4.0, 8.0));
-        assert_eq!(cell_to_page(2, 4, size), (12.0, 40.0));
+        let page = layout(size, Viewport::Auto);
+        assert_eq!(cell_to_page(1, 2, page), (4.0, 8.0));
+        assert_eq!(cell_to_page(2, 4, page), (12.0, 40.0));
+    }
+
+    /// A fixed size keeps its own aspect: a phone page is a narrow column in
+    /// the middle of a wide pane, and a click maps through that column only.
+    #[test]
+    fn a_fixed_viewport_is_drawn_at_its_own_aspect_and_clicked_through_it() {
+        let size = PaneSize {
+            cols: 160,
+            rows: 42,
+            cell_w: 8,
+            cell_h: 16,
+        };
+        let phone = layout(size, Viewport::Mobile);
+        assert_eq!((phone.page_w, phone.page_h), (400, 800));
+        assert_eq!(phone.rows, 40, "as tall as the picture area");
+        // 40 rows of 16px is 640px for 800px of page: 400px is 320px, 40 cells.
+        assert_eq!(phone.cols, 40);
+        assert_eq!(phone.col, 61, "centred: 60 columns of margin each side");
+        assert!(!on_picture(60, 10, phone), "the margin is not the page");
+        assert!(on_picture(61, 10, phone));
+        // The middle of the column is the middle of the page.
+        let (x, y) = cell_to_page(80, 21, phone);
+        assert!(
+            (x - 195.0).abs() < 10.0 && (y - 390.0).abs() < 20.0,
+            "{x},{y}"
+        );
+        let drawn = String::from_utf8(draw_frame(b"\xff", phone)).unwrap();
+        assert!(drawn.contains("\x1b[2;61H"), "{drawn}");
+        assert!(drawn.contains("width=40;height=40"), "{drawn}");
     }
 
     #[test]
@@ -1316,15 +1466,21 @@ mod tests {
     /// and it carries the page: that is what a snapshot hands back.
     #[test]
     fn the_restore_tag_is_handed_to_the_cli_with_the_page() {
-        let argv = restore_tag_args("%7", Some("notes"), true, Some("https://example.com/a b"));
+        let argv = restore_tag_args(
+            "%7",
+            Some("notes"),
+            true,
+            Viewport::Mobile,
+            Some("https://example.com/a b"),
+        );
         assert_eq!(argv[0], "pane");
         assert_eq!(argv[1], "restore-cmd");
         assert_eq!(argv[3], "%7");
         assert_eq!(
             argv[2],
-            "tmuxy browser --session 'notes' --color-filter 'https://example.com/a b'"
+            "tmuxy browser --session 'notes' --color-filter --viewport mobile 'https://example.com/a b'"
         );
-        let bare = restore_tag_args("%1", None, false, None);
+        let bare = restore_tag_args("%1", None, false, Viewport::Auto, None);
         assert_eq!(
             bare[2], "tmuxy browser",
             "a pane's own session is not carried over"
@@ -1369,10 +1525,16 @@ mod tests {
             can_go_back: true,
             can_go_forward: false,
         };
-        assert_eq!(header_line(&nav, false), "tmuxy:browser 100");
-        assert_eq!(header_line(&nav, true), "tmuxy:browser 101");
+        assert_eq!(
+            header_line(&nav, false, Viewport::Auto),
+            "tmuxy:browser 100a"
+        );
+        assert_eq!(
+            header_line(&nav, true, Viewport::Mobile),
+            "tmuxy:browser 101m"
+        );
         assert!(
-            header_line(&nav, true).len() < 20,
+            header_line(&nav, true, Viewport::Desktop).len() < 20,
             "short enough never to wrap into the picture"
         );
     }
@@ -1386,12 +1548,21 @@ mod tests {
             cell_w: 8,
             cell_h: 16,
         };
+        let page = layout(size, Viewport::Auto);
         assert_eq!(size.image_rows(), 8);
-        assert_eq!(
-            PICTURE_TOP + size.image_rows(),
-            10,
-            "row 10 is the status row"
-        );
+        assert!(!on_picture(1, 1, page), "row 1 is the toolbar's");
+        assert!(on_picture(1, 2, page));
+        assert!(on_picture(80, 9, page));
+        assert!(!on_picture(1, 10, page), "row 10 is the status row");
+    }
+
+    /// Every tab starts on `about:blank`; the first real page has nowhere to
+    /// go back to.
+    #[test]
+    fn a_blank_start_is_not_somewhere_to_go_back_to() {
+        assert!(!is_page("about:blank"));
+        assert!(!is_page(""));
+        assert!(is_page("https://example.com/"));
     }
 
     #[test]

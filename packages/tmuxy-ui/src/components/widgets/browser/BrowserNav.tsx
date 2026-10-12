@@ -19,7 +19,7 @@
  * the pane by the CLI.
  */
 
-import { memo, useRef, useState } from 'react';
+import { memo, useRef, useState, type ReactNode } from 'react';
 import { useAppSend } from '../../../machines/AppContext';
 import { isOpenableUrl } from '../../../utils/openUrl';
 import { Tooltip } from '../../Tooltip';
@@ -34,6 +34,8 @@ interface BrowserNavProps {
   onNavigate: (url: string) => void;
   /** A viewer that cannot drive the pane sees the address, not the controls. */
   readOnly?: boolean;
+  /** The caller's own buttons, between the address and the way out. */
+  extra?: ReactNode;
 }
 
 /** nf-fa-external_link — the way out to the system browser. */
@@ -47,6 +49,7 @@ export const BrowserNav = memo(function BrowserNav({
   onReload,
   onNavigate,
   readOnly = false,
+  extra,
 }: BrowserNavProps) {
   const send = useAppSend();
   const [draft, setDraft] = useState(url);
@@ -134,6 +137,7 @@ export const BrowserNav = memo(function BrowserNav({
           onFocus={(e) => e.currentTarget.select()}
         />
       </form>
+      {extra}
       <Tooltip
         label={
           canOpenExternally

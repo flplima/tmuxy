@@ -40,9 +40,20 @@ describe('tmuxy browser', () => {
     expect(stdout).toContain('TMUXY_CHROME');
     expect(stdout).toContain('--attach');
     expect(stdout).toContain('--color-filter');
+    expect(stdout).toContain('--viewport');
     expect(stdout).toContain('chrome://inspect');
     // The pane is driven by typing verbs into it; each must be discoverable.
-    for (const verb of ['goto', 'eval', 'click', 'type', 'wait', 'text', 'shot', 'forward']) {
+    for (const verb of [
+      'goto',
+      'eval',
+      'click',
+      'type',
+      'wait',
+      'text',
+      'shot',
+      'forward',
+      'viewport',
+    ]) {
       expect(stdout).toContain(verb);
     }
   });

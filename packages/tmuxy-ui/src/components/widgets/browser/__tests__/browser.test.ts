@@ -37,23 +37,27 @@ describe('isWebsite', () => {
 });
 
 describe('the live browser header', () => {
-  it('reads which way history goes and the colour filter', () => {
-    expect(parseLiveHeader('tmuxy:browser 101')).toEqual({
+  it('reads which way history goes, the colour filter and the page size', () => {
+    expect(parseLiveHeader('tmuxy:browser 101m')).toEqual({
       canGoBack: true,
       canGoForward: false,
       colorFilter: true,
+      viewport: 'mobile',
     });
-    expect(parseLiveHeader('tmuxy:browser 010   ')).toEqual({
+    expect(parseLiveHeader('tmuxy:browser 010a   ')).toEqual({
       canGoBack: false,
       canGoForward: true,
       colorFilter: false,
+      viewport: 'auto',
     });
+    expect(parseLiveHeader('tmuxy:browser 000d')?.viewport).toBe('desktop');
   });
 
   it('is not anything else a top row says', () => {
     expect(parseLiveHeader('~/projects/tmuxy main')).toBeNull();
-    expect(parseLiveHeader('tmuxy:browser 1')).toBeNull();
-    expect(parseLiveHeader('echo tmuxy:browser 101')).toBeNull();
+    expect(parseLiveHeader('tmuxy:browser 101')).toBeNull();
+    expect(parseLiveHeader('tmuxy:browser 101x')).toBeNull();
+    expect(parseLiveHeader('echo tmuxy:browser 101a')).toBeNull();
   });
 
   it('types one verb line, however the address was pasted', () => {

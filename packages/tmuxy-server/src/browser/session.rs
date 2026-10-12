@@ -17,6 +17,7 @@ use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverridePar
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams, EventScreencastFrame, NavigateParams,
     ScreencastFrameAckParams, StartScreencastFormat, StartScreencastParams, StopScreencastParams,
+    Viewport,
 };
 use chromiumoxide::page::Page;
 use futures_util::StreamExt;
@@ -43,6 +44,12 @@ const NAV_MARK: &str = "__tmuxyLeaving";
 /// mode stream as keystroke echo, so size here is latency there.
 /// How long to wait for a closing browser to actually be gone.
 const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long an explicit frame capture may take before the pane gives up on it.
+const CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The narrowest a browser window's contents get (Chromium's own floor).
+const MIN_WINDOW_WIDTH: u32 = 500;
 
 /// How long an attached browser's existing tab may take to become drivable.
 const ATTACH_TAB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -166,6 +173,11 @@ pub struct Session {
     /// behind should paint the CURRENT frame, not work through stale ones.
     frames: watch::Sender<Frame>,
     screencasting: bool,
+    /// How much larger than the page the window draws it (`set_viewport`):
+    /// input lands in window pixels, so a click is scaled by it too.
+    view_scale: f64,
+    /// The page's own size in CSS pixels, as last set.
+    page_size: (u32, u32),
     shots_dir: PathBuf,
     profile: Option<PathBuf>,
     /// Kept so the connection's event loop is cancelled when the session drops.
@@ -263,10 +275,17 @@ impl Session {
             attachment,
             frames,
             screencasting: false,
+            view_scale: 1.0,
+            page_size: (0, 0),
             shots_dir: state_dir.join("browser-shots").join(name),
             profile,
             _handler: handler_task,
         })
+    }
+
+    /// Window pixels per page pixel (see `view_scale`).
+    pub fn view_scale(&self) -> f64 {
+        self.view_scale
     }
 
     pub fn attachment(&self) -> Attachment {
@@ -308,6 +327,11 @@ impl Session {
                 self.eval("history.forward()").await?;
                 Ok(Output::Silent)
             }
+            // The size is the pane's to choose: it decides where the picture
+            // sits in the pane, which the engine does not know about.
+            Verb::Viewport { .. } => Err(SessionError::Engine(
+                "`viewport` is set in a browser pane, at its `:` prompt".into(),
+            )),
             Verb::Reload => {
                 self.page
                     .reload()
@@ -541,27 +565,39 @@ impl Session {
         &mut self,
         width: u32,
         height: u32,
-        scale: f64,
+        mobile: bool,
     ) -> Result<(), SessionError> {
         if !(MIN_VIEWPORT..=MAX_VIEWPORT).contains(&width)
             || !(MIN_VIEWPORT..=MAX_VIEWPORT).contains(&height)
         {
             return Err(SessionError::BadViewport { width, height });
         }
-        let scale = if (0.5..=4.0).contains(&scale) {
-            scale
-        } else {
-            1.0
-        };
+        // A window is never narrower than `MIN_WINDOW_WIDTH`, and the
+        // screencast encodes the whole window: a page narrower than that (a
+        // phone) came out with a blank strip beside it, squeezed into the
+        // phone's cells. Drawn at a larger scale, it fills the window exactly.
+        let view_scale = (f64::from(MIN_WINDOW_WIDTH) / f64::from(width)).max(1.0);
+        let mut metrics = SetDeviceMetricsOverrideParams::builder()
+            .width(i64::from(width))
+            .height(i64::from(height))
+            .device_scale_factor(1.0)
+            .mobile(mobile);
+        // Only when it scales anything: an explicit `scale: 1` left some
+        // Chromium builds with a screenshot that never answered.
+        if view_scale > 1.0 {
+            metrics = metrics.scale(view_scale);
+        }
+        let metrics = metrics.build().map_err(SessionError::Engine)?;
         self.page
-            .execute(SetDeviceMetricsOverrideParams::new(
-                width as i64,
-                height as i64,
-                scale,
-                false,
-            ))
+            .execute(metrics)
             .await
             .map_err(|e| SessionError::Engine(e.to_string()))?;
+        self.view_scale = view_scale;
+        self.page_size = (width, height);
+        let (width, height) = (
+            (f64::from(width) * view_scale).ceil() as u32,
+            (f64::from(height) * view_scale).ceil() as u32,
+        );
         // The screencast encodes the WINDOW's contents, not the emulated
         // viewport: a pane larger than the headless window's default size got
         // the page laid out for the pane but drawn as the window's top-left
@@ -706,16 +742,28 @@ impl Session {
     /// changed size kept re-sending the frame of its OLD size, stretched over
     /// the new one — and a click, mapped through the new size, missed.
     async fn publish_current_frame(&mut self) {
-        if let Ok(bytes) = self
-            .page
-            .screenshot(
-                CaptureScreenshotParams::builder()
-                    .format(CaptureScreenshotFormat::Jpeg)
-                    .quality(FRAME_QUALITY)
-                    .build(),
-            )
-            .await
-        {
+        let mut params = CaptureScreenshotParams::builder()
+            .format(CaptureScreenshotFormat::Jpeg)
+            .quality(FRAME_QUALITY);
+        // A page drawn larger than itself (`view_scale`) is captured the way
+        // the screencast sees it: the whole page, at the window's scale.
+        // Unclipped, the capture came back page-sized with the drawing shrunk
+        // into its corner.
+        if self.view_scale > 1.0 {
+            let (width, height) = self.page_size;
+            params = params.clip(Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: f64::from(width),
+                height: f64::from(height),
+                scale: self.view_scale,
+            });
+        }
+        // Bounded: an engine that paints nothing (a headless build on a
+        // locked Mac) never answers a capture, and the pane froze before it
+        // read a single key — ctrl+c included. The screencast fills in later.
+        let capture = self.page.screenshot(params.build());
+        if let Ok(Ok(bytes)) = tokio::time::timeout(CAPTURE_TIMEOUT, capture).await {
             if !bytes.is_empty() {
                 self.frames.send_replace(Arc::new(bytes));
             }
