@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chromiumoxide::browser::Browser;
+use chromiumoxide::cdp::browser_protocol::browser::{
+    Bounds, GetWindowForTargetParams, SetContentsSizeParams, SetWindowBoundsParams,
+};
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams, EventScreencastFrame, NavigateParams,
@@ -555,6 +558,44 @@ impl Session {
             ))
             .await
             .map_err(|e| SessionError::Engine(e.to_string()))?;
+        // The screencast encodes the WINDOW's contents, not the emulated
+        // viewport: a pane larger than the headless window's default size got
+        // the page laid out for the pane but drawn as the window's top-left
+        // corner, stretched over the pane. Our own engine's window contents
+        // follow the viewport; an attached browser's window is the user's.
+        if self.attachment == Attachment::Launched {
+            let window = self
+                .page
+                .execute(GetWindowForTargetParams::default())
+                .await
+                .map_err(|e| SessionError::Engine(e.to_string()))?
+                .result
+                .window_id;
+            let contents = SetContentsSizeParams::builder()
+                .window_id(window)
+                .width(width as i64)
+                .height(height as i64)
+                .build()
+                .map_err(SessionError::Engine)?;
+            if self.page.execute(contents).await.is_err() {
+                // Browsers before `Browser.setContentsSize` only size the
+                // whole window, frame included; the frame then crops a strip
+                // off the bottom, which still beats a corner of the page.
+                self.page
+                    .execute(SetWindowBoundsParams::new(
+                        window,
+                        Bounds::builder()
+                            .width(width as i64)
+                            .height(height as i64)
+                            .build(),
+                    ))
+                    .await
+                    .map_err(|e| SessionError::Engine(e.to_string()))?;
+            }
+        }
+        if self.screencasting {
+            self.publish_current_frame().await;
+        }
         Ok(())
     }
 
@@ -648,6 +689,19 @@ impl Session {
         });
 
         // The explicit first frame, for a page that will never change.
+        self.publish_current_frame().await;
+
+        Ok(self.frames.subscribe())
+    }
+
+    /// Capture the page as it is now and publish it as the current frame.
+    ///
+    /// For the moments the screencast cannot be relied on to cover: a still
+    /// page emits no frame of its own, so the first picture, and the picture
+    /// after a resize, are taken explicitly. Without the second, a pane that
+    /// changed size kept re-sending the frame of its OLD size, stretched over
+    /// the new one — and a click, mapped through the new size, missed.
+    async fn publish_current_frame(&mut self) {
         if let Ok(bytes) = self
             .page
             .screenshot(
@@ -662,8 +716,6 @@ impl Session {
                 self.frames.send_replace(Arc::new(bytes));
             }
         }
-
-        Ok(self.frames.subscribe())
     }
 
     /// End the session.
