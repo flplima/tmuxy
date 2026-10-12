@@ -752,6 +752,12 @@ impl PaneState {
         if self.mouse_any_flag {
             terminal.process(b"\x1b[?1000h");
         }
+        // A hidden cursor is a mode too: rebuilt without it, a full-screen
+        // program that hid its cursor long ago (a browser pane, a pager)
+        // grew a block cursor over its picture after every capture refill.
+        if self.cursor_hidden {
+            terminal.process(b"\x1b[?25l");
+        }
         terminal
     }
 
@@ -3518,7 +3524,22 @@ impl Default for StateAggregator {
 #[cfg(test)]
 mod tests {
 
-    /// A program that redraws on SIGWINCH (`tmuxy browser --repl`) is in the
+    /// A program that hid its cursor long before a capture refill keeps it
+    /// hidden after one: the refill rebuilds the parser, and capture-pane
+    /// replays the screen, not the modes.
+    #[test]
+    fn a_capture_refill_keeps_a_hidden_cursor_hidden() {
+        let mut pane = PaneState::new(pid("%1"), 40, 10);
+        pane.process_output(b"\x1b[?25lhello");
+        assert!(pane.cursor_hidden);
+        pane.reset_and_process_capture(b"hello");
+        assert!(
+            pane.terminal.screen().hide_cursor(),
+            "the rebuilt parser lost the hidden cursor"
+        );
+    }
+
+    /// A program that redraws on SIGWINCH (`tmuxy browser`) is in the
     /// middle of writing a frame when the resize reaches the pane. Dropping the
     /// half already read left vt100 printing the rest of the base64 as text,
     /// over the rows the picture was meant to cover.
