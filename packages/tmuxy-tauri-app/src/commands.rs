@@ -200,9 +200,8 @@ pub async fn set_cursor_blink(
     tmuxy_core::theme::set_cursor_blink(&tx, enabled).await
 }
 
-/// `@tmuxy-gesture-swipe-tabs` as the page sees it — and whether the pane on
-/// screen owns horizontal scrolling itself (docs/DESKTOP.md): the shell
-/// claims a two-finger slide only while this is on.
+/// `@tmuxy-gesture-swipe-tabs` as the page sees it (docs/DESKTOP.md): the
+/// shell claims a two-finger slide only while this is on.
 #[tauri::command]
 pub fn set_swipe_tabs(enabled: bool) {
     crate::gestures::set_swipe_tabs(enabled);

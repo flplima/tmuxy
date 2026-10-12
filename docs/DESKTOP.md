@@ -54,10 +54,11 @@ touchpad (`hasPreciseScrollingDeltas` on macOS; a touchpad device on Linux),
 while `@tmuxy-gesture-swipe-tabs` is on — the page is told the flag through
 a command whenever it changes. The claimed events, and the momentum tail
 that follows them, never reach the webview: the page does not scroll on
-them, and nothing has to `preventDefault`. Vertical scrolls, mouse wheels and
-a slide over a pane whose program tracks the mouse are left alone, since a
-TUI's horizontal scroll is its own (Ghostty had to gate its tab-switch
-gesture for exactly that reason).
+them, and nothing has to `preventDefault`. Vertical scrolls and mouse wheels
+are left alone. A slide over a pane whose program tracks the mouse is still
+claimed: Ghostty gates its tab switch on that, but Claude Code and nvim track
+the mouse, so the gate left most tabs with no slide at all, and what such a
+program gives up is only a horizontal two-finger scroll.
 
 **macOS** installs an `NSEvent` local monitor for `.scrollWheel` from Rust
 (`objc2-app-kit`): it runs before `-[NSApplication sendEvent:]`, so before

@@ -202,17 +202,15 @@ export function createGestureActor() {
     };
 
     // The shell claims a slide's scroll events before the page sees them, so
-    // it has to be told when not to: the config flag off, or a pane on
-    // screen whose program tracks the mouse — its horizontal scroll is its
-    // own (Ghostty had to gate its tab-switch gesture for exactly that).
+    // it has to be told when not to: the config flag off. A mouse-tracking
+    // program on the tab does NOT turn it off — Claude Code and nvim track
+    // the mouse, so gating on them left most tabs with no slide at all, and
+    // what a TUI loses is only a horizontal two-finger scroll.
     let shellClaims: boolean | null = null;
     const tellShell = () => {
       const context = input.parent.getSnapshot()?.context as AppMachineContext | undefined;
       if (!context) return;
-      const tracking = context.panes.some(
-        (p) => p.windowId === context.activeWindowId && p.mouseAnyFlag,
-      );
-      const claims = context.gestureFlags.swipeTabs && !tracking;
+      const claims = context.gestureFlags.swipeTabs;
       if (claims === shellClaims) return;
       shellClaims = claims;
       if (!isTauri()) return;
