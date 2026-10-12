@@ -238,6 +238,35 @@ describe('Terminal', () => {
     expect(img.style.height).toBe('calc(4 * var(--line-height-terminal))');
   });
 
+  it('fills the cells when the picture asks to, and fits inside them otherwise', () => {
+    // A browser pane maps a clicked cell to a page pixel as if its picture
+    // filled the cells; letterboxed, every click landed off the thing under it.
+    render(
+      <Terminal
+        content={createContent(['x'])}
+        paneId={pid('%0')}
+        images={[
+          {
+            id: 1,
+            row: 0,
+            col: 0,
+            widthCells: 10,
+            heightCells: 4,
+            protocol: 'iterm2',
+            stretch: true,
+          },
+          { id: 2, row: 5, col: 0, widthCells: 10, heightCells: 4, protocol: 'iterm2' },
+        ]}
+      />,
+    );
+
+    const [filled, fitted] = Array.from(
+      screen.getByTestId('terminal').querySelectorAll<HTMLElement>('img.terminal-image'),
+    );
+    expect(filled.style.objectFit).toBe('fill');
+    expect(fitted.style.objectFit).toBe('');
+  });
+
   it('asks the desktop app for image bytes, which serves no HTTP route', () => {
     // The desktop build has no `/api/images/...` — that is the web server's
     // route — so a relative URL resolved against the app's own origin and

@@ -2711,6 +2711,7 @@ mod protocol_fixtures {
                         width_cells: 10,
                         height_cells: 5,
                         protocol: ImageProtocol::Kitty,
+                        stretch: false,
                     }],
                     cursor_shape: 6,
                     cursor_hidden: true,

@@ -90,6 +90,8 @@ export const WireImagePlacement = Schema.Struct({
   width_cells: Schema.Number,
   height_cells: Schema.Number,
   protocol: Schema.Literal('iterm2', 'kitty', 'sixel'),
+  /** Fill the cells instead of fitting inside them (`preserveAspectRatio=0`); absent = fit. */
+  stretch: Schema.optional(Schema.Boolean),
 });
 export type WireImagePlacement = Schema.Schema.Type<typeof WireImagePlacement>;
 

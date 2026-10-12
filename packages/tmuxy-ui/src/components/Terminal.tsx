@@ -292,6 +292,10 @@ export const Terminal: React.FC<TerminalProps> = ({
                 left: cellsToCss(img.col),
                 width: cellsToCss(img.widthCells),
                 height: `calc(${img.heightCells} * var(--line-height-terminal))`,
+                // `preserveAspectRatio=0`: the cells are the picture's own
+                // coordinates (a browser pane maps clicks through them), so it
+                // fills them rather than letterboxing inside them.
+                objectFit: img.stretch ? 'fill' : undefined,
               }}
             />
           ))}

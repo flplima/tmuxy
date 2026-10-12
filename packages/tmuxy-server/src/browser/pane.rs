@@ -158,11 +158,17 @@ fn parse_cell_px(raw: &str) -> Option<(u16, u16)> {
 /// The cursor goes home first. That is what makes the redraw REPLACE rather than
 /// accumulate: tmuxy anchors a placement at the cursor and swaps whatever was
 /// already anchored there.
+///
+/// `preserveAspectRatio=0` makes the picture fill its cells exactly. The page
+/// is laid out for an ASSUMED cell size (the viewer's real one never reaches
+/// the pty), so its aspect rarely matches the pane's; fitted, the picture was
+/// letterboxed, and a click — mapped cell to page pixel as if the picture
+/// filled the cells — landed up to a few rows away from what was under it.
 fn draw_frame(frame: &[u8], size: PaneSize) -> Vec<u8> {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(frame);
     format!(
-        "{}\x1b]1337;File=inline=1;width={};height={}:{}\x07",
+        "{}\x1b]1337;File=inline=1;width={};height={};preserveAspectRatio=0:{}\x07",
         term::HOME,
         size.cols,
         size.image_rows(),
@@ -480,8 +486,11 @@ pub async fn run(
         }
     };
 
-    // A restored pane is handed the page it was on.
+    // A restored pane is handed the page it was on. Read like `:goto`, so a
+    // bare host typed after `--goto` gets a scheme instead of a navigation
+    // the engine never answers.
     if let Some(url) = goto {
+        let url = verbs::normalise_url(&url);
         match session.run(verbs::Verb::Goto { url }).await {
             Ok(Output::Line(url)) => status(&size, &url),
             Ok(_) => {}
@@ -956,6 +965,10 @@ mod tests {
         assert!(drawn.contains("width=10;height=4"), "{drawn}");
         assert!(drawn.ends_with('\x07'), "the OSC must be terminated");
         assert!(drawn.contains("inline=1"), "{drawn}");
+        assert!(
+            drawn.contains("preserveAspectRatio=0"),
+            "a letterboxed picture puts clicks where the page is not: {drawn}"
+        );
     }
 
     #[test]

@@ -37,6 +37,7 @@ export const ImagePlacement = Schema.mutable(
     widthCells: from('width_cells', Schema.Number),
     heightCells: from('height_cells', Schema.Number),
     protocol: Schema.Literal('iterm2', 'kitty', 'sixel'),
+    stretch: optionalFrom('stretch', Schema.Boolean),
   }),
 );
 export type ImagePlacement = Schema.Schema.Type<typeof ImagePlacement>;

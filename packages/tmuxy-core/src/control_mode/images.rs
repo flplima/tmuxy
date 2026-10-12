@@ -52,6 +52,12 @@ pub struct ImagePlacement {
     pub height_cells: u16,
     /// Which protocol produced this image.
     pub protocol: ImageProtocol,
+    /// Fill the cells exactly instead of fitting inside them: iTerm2's
+    /// `preserveAspectRatio=0`. A picture whose cells ARE its coordinate
+    /// space (the browser pane maps a clicked cell to a page pixel) must not
+    /// be letterboxed, or a click lands where the picture is not.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stretch: bool,
 }
 
 /// Stored image blob.
@@ -439,6 +445,7 @@ impl ImageParser {
         let mut width_cells: u16 = 0;
         let mut height_cells: u16 = 0;
         let mut inline = false;
+        let mut stretch = false;
         for arg in args_str.split(';') {
             if let Some(val) = arg.strip_prefix("width=") {
                 width_cells = parse_iterm2_dim(val, 8);
@@ -446,6 +453,8 @@ impl ImageParser {
                 height_cells = parse_iterm2_dim(val, 16);
             } else if arg == "inline=1" {
                 inline = true;
+            } else if arg == "preserveAspectRatio=0" {
+                stretch = true;
             }
         }
         if !inline {
@@ -474,6 +483,7 @@ impl ImageParser {
             width_cells,
             height_cells,
             protocol: ImageProtocol::ITerm2,
+            stretch,
         });
         Some((
             end,
@@ -676,6 +686,7 @@ impl ImageParser {
             width_cells,
             height_cells,
             protocol: ImageProtocol::Kitty,
+            stretch: false,
         });
 
         Some((consumed, Some((id, stored))))
@@ -772,6 +783,7 @@ impl ImageParser {
             width_cells,
             height_cells,
             protocol: ImageProtocol::Sixel,
+            stretch: false,
         });
 
         Some((
@@ -971,6 +983,19 @@ mod tests {
         assert_eq!(parser.placements[0].width_cells, 10);
         assert_eq!(parser.placements[0].height_cells, 5);
         assert_eq!(result.new_images.len(), 1);
+    }
+
+    #[test]
+    fn iterm2_preserve_aspect_ratio_zero_fills_its_cells() {
+        let mut parser = ImageParser::new();
+        parser.process(b"\x1b]1337;File=inline=1;width=10;height=5;preserveAspectRatio=0:AAAA\x07");
+        assert!(parser.placements[0].stretch);
+        let mut parser = ImageParser::new();
+        parser.process(b"\x1b]1337;File=inline=1;width=10;height=5:AAAA\x07");
+        assert!(
+            !parser.placements[0].stretch,
+            "fitting is the protocol's default"
+        );
     }
 
     #[test]
