@@ -137,7 +137,9 @@ describe('Scenario 32: Session snapshots', () => {
     //    Order matters for one of them: `pane group add` groups tmux's CURRENT
     //    pane, so it runs right after the split, while the split pane is the
     //    current one — before a float or a tab has moved the focus elsewhere.
-    srv.cli(['pane', 'split', '-v']);
+    //    Side by side on purpose: that layout is written with braces, which
+    //    tmux's command parser reads as a block unless they are quoted.
+    srv.cli(['pane', 'split', '-h']);
     srv.cli(['pane', 'group', 'add']);
     srv.cli(['pane', 'float', '--width', '60', '--height', '20']);
     // `tab create` answers with the new window's id, which is how it is

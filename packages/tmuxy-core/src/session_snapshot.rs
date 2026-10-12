@@ -1424,11 +1424,15 @@ async fn via_monitor(tx: &MonitorCommandSender, argv: Vec<String>) -> Result<Str
 /// with "-F expects an argument". Inside double quotes it is just text, and
 /// the command expands it when it runs. Found by the first real save, which
 /// never wrote a file.
+///
+/// Braces too: `{` opens a command block to the same parser, so the layout of
+/// any side-by-side split (`…{40x24,0,0,1,…}`) was a syntax error, and the
+/// restore stopped there — before the tags, groups and commands it had left.
 pub fn tmux_word(word: &str) -> String {
     if !word.is_empty()
         && word
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_./=:@%+,{}".contains(c))
+            .all(|c| c.is_ascii_alphanumeric() || "-_./=:@%+,".contains(c))
     {
         return word.to_string();
     }
@@ -2220,9 +2224,10 @@ mod tests {
             tmux_word("#{s/,/%2C/:window_layout}"),
             "\"#{s/,/%2C/:window_layout}\""
         );
+        // `{` opens a command block: a side-by-side layout is quoted.
         assert_eq!(
             tmux_word("b1c2,80x24,0,0{40x24,0,0,1}"),
-            "b1c2,80x24,0,0{40x24,0,0,1}"
+            "\"b1c2,80x24,0,0{40x24,0,0,1}\""
         );
         assert_eq!(tmux_word("a b"), "\"a b\"");
         assert_eq!(tmux_word("say \"hi\" $HOME"), "\"say \\\"hi\\\" \\$HOME\"");
