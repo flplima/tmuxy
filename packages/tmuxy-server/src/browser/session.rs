@@ -304,6 +304,10 @@ impl Session {
                 self.eval("history.back()").await?;
                 Ok(Output::Silent)
             }
+            Verb::Forward => {
+                self.eval("history.forward()").await?;
+                Ok(Output::Silent)
+            }
             Verb::Reload => {
                 self.page
                     .reload()

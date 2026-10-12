@@ -438,7 +438,7 @@ more than it needs them to be large.
 
 ## The browser pane's frames
 
-`tmuxy browser --repl` draws the page as an inline JPEG written to the pty
+`tmuxy browser` draws the page as an inline JPEG written to the pty
 (`browser/pane.rs`), so every frame is base64 through control mode — the same
 channel that carries keystroke echo, which is what Axis C is measured on. The
 budget therefore matters, and it is kept by three knobs in

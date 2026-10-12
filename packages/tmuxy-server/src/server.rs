@@ -248,8 +248,8 @@ pub enum ServerAction {
     /// Inspect a local action-trace file: print a summary, or export a
     /// Chrome-trace/Perfetto timeline with `--export` (docs/TELEMETRY.md).
     Trace(crate::trace_view::TraceViewArgs),
-    /// Drive a real browser: one verb line, or `--repl` to draw the page in
-    /// this pane and send it input. Backs `tmuxy browser`.
+    /// Turn this pane into a browser: draw the page in it and send it input.
+    /// Backs `tmuxy browser` (and `tmuxy open` for a website).
     #[cfg(unix)]
     Browser(crate::browser::client::BrowserArgs),
     /// Save, restore, list or forget session snapshots. Backs

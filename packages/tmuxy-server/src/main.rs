@@ -6,7 +6,7 @@ async fn main() {
         tmuxy_core::session::set_server_command(exe, None);
     }
     // A screen-owning subcommand gets the quiet filter: a dependency's `WARN`
-    // on stderr lands in the middle of the picture `browser --repl` is drawing.
+    // on stderr lands in the middle of the picture `tmuxy browser` is drawing.
     // Read from argv rather than after parsing, because the subscriber has to
     // be installed before anything can log.
     let owns_the_screen = std::env::args().any(|arg| arg == "browser");

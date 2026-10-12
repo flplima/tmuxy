@@ -108,6 +108,16 @@ export type TmuxOp = Data.TaggedEnum<{
   SendKeys: { readonly target: PaneId | string; readonly keys: string };
   /** Text typed literally, line by line. */
   SendText: { readonly target: PaneId | string; readonly text: string };
+  /**
+   * Hand a pane to `tmuxy browser` on a website: what the file widget does with
+   * a page it cannot frame. The pane is respawned, so the widget's own process
+   * goes, and a shell takes over when the browser is left.
+   */
+  OpenBrowserPane: {
+    readonly paneId: PaneId;
+    readonly url: string;
+    readonly colorFilter: boolean;
+  };
   /** An SGR mouse report for a mouse-tracking pane; coordinates are 1-based cells. */
   SendMouse: {
     readonly paneId: PaneId;
@@ -357,6 +367,16 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `send-keys -t ${op.target} ${op.keys}`;
     case 'SendText':
       return literalText(op.target, op.text);
+    case 'OpenBrowserPane': {
+      const program = [
+        `${SCRIPTS_DIR}/../tmuxy-cli browser`,
+        ...(op.colorFilter ? ['--color-filter'] : []),
+        quote(op.url),
+      ].join(' ');
+      return `respawn-pane -k -t ${op.paneId} -c '#{pane_current_path}' ${quote(
+        `${program}; exec "\${SHELL:-sh}"`,
+      )}`;
+    }
     case 'SendMouse':
       return mouseReport(op);
     case 'EnterCopyMode':

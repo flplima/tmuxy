@@ -879,6 +879,13 @@ export type BrowserHistoryEvent = {
 };
 /** Hand the page to the system browser (`utils/openUrl.ts`). */
 export type BrowserOpenExternalEvent = { type: 'BROWSER_OPEN_EXTERNAL'; url: string };
+/** A website reached the file widget: hand the pane to `tmuxy browser`. */
+export type BrowserOpenLiveEvent = {
+  type: 'BROWSER_OPEN_LIVE';
+  paneId: PaneId;
+  url: string;
+  colorFilter: boolean;
+};
 /**
  * The `<title>` the page turned out to have, so the pane's tab can carry it
  * instead of a URL. Read by fetching the HTML, which only works where the
@@ -1291,6 +1298,7 @@ export type AppMachineEvent =
   | BrowserNavigateEvent
   | BrowserHistoryEvent
   | BrowserOpenExternalEvent
+  | BrowserOpenLiveEvent
   | BrowserPageTitleEvent
   | OpenCommandPromptEvent
   | CommandModeSubmitEvent

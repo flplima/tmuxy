@@ -16,10 +16,12 @@
 # ink to the foreground, light paper to the background). Markdown is already
 # drawn in the theme's colours and is left as it is.
 #
-# The widget takes a single resolved source and shows it: HTML and websites go
-# in a frame, markdown is rendered (mermaid included), images are drawn. The
-# UI decides which from the source, so this only has to resolve it and keep the
-# pane alive — the pipe closing is what tears the widget down.
+# The widget takes a single resolved source and shows it: local HTML goes in a
+# frame, markdown is rendered (mermaid included), images are drawn. The UI
+# decides which from the source, so this only has to resolve it and keep the
+# pane alive — the pipe closing is what tears the widget down. A website is not
+# framed: `tmuxy open` hands it to `tmuxy browser` (a real engine drawn in the
+# pane), and `--resolve` is how the CLI finds out which one a target is.
 
 set -euo pipefail
 

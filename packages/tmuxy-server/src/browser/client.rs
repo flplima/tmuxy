@@ -13,13 +13,16 @@
 //! that fetches from the SERVER's network (SEC-11). The engine now runs as the
 //! person who typed the command, which is the only answer that needs no policy.
 //!
-//! Three shapes:
+//! Two shapes, both a pane program (`pane`) that draws the page and reads input:
 //!
-//!   * `tmuxy browser goto example.com` — one verb, its own engine, gone after.
-//!   * `tmuxy browser --repl` — the pane program (`pane`), which draws the page.
-//!   * `tmuxy browser --attach <ws://…>` — the same, against a browser somebody
-//!     else started. See `--attach`'s own help for why that is the escape hatch
-//!     for a desktop build and for the user's real profile.
+//!   * `tmuxy browser [url]` — launches its own engine on a throwaway profile.
+//!   * `tmuxy browser --attach <ws://…> [url]` — drives a browser somebody else
+//!     started. See `--attach`'s own help for why that is the escape hatch for
+//!     a desktop build and for the user's real profile.
+//!
+//! `tmuxy open <url>` lands here too for a website (`tmuxy-widget-browser`):
+//! the app draws its address bar over the pane's top row, and the page below
+//! is this program's picture.
 //!
 //! To drive a session that is already open in a pane, send it a line: the pane
 //! program's `:` command mode reads keys from the pty, so `tmuxy pane send -t
@@ -27,20 +30,16 @@
 //! `tmuxy pane capture` reads the answer back off the status row. That is the
 //! whole agent protocol, and it needed no API.
 
-use super::session::{Output, Session};
-use super::{pane, verbs};
+use super::pane;
 
-/// What to do with a browser session, from the command line.
+/// A browser pane, from the command line.
 #[derive(clap::Args, Debug)]
 pub struct BrowserArgs {
-    /// The session to drive. Names the throwaway profile, so one engine per
-    /// name, and a name is something a script can say again later.
-    #[arg(long, default_value = "default")]
-    pub session: String,
-    /// Draw the page in this pane and read input from it: the full-screen
-    /// program. Without it, the remaining arguments are one verb line.
+    /// The session. Names the throwaway profile, so one engine per name. The
+    /// default is per pane: two browser panes on one name would fight over the
+    /// profile's lock, and the second would never start.
     #[arg(long)]
-    pub repl: bool,
+    pub session: Option<String>,
     /// Attach to a browser that is already running, by DevTools endpoint
     /// (`ws://…` from `/json/version`, or `http://127.0.0.1:PORT`).
     ///
@@ -51,14 +50,14 @@ pub struct BrowserArgs {
     /// running and its profile untouched when the pane closes.
     #[arg(long)]
     pub attach: Option<String>,
-    /// Open this page as the pane starts (`--repl` only). What a restored
-    /// browser pane is handed: the pane writes `@tmuxy-pane-restore` with the
-    /// page it is on, so a session snapshot brings it back here.
-    #[arg(long, value_name = "URL")]
-    pub goto: Option<String>,
-    /// One verb line: `goto example.com`, `eval document.title`, `shot`, …
-    #[arg(trailing_var_arg = true)]
-    pub line: Vec<String>,
+    /// Recolour the page into the theme's colours, as `tmuxy open
+    /// --color-filter` does: the app applies it to the picture.
+    #[arg(long)]
+    pub color_filter: bool,
+    /// The page to open (a bare host gets a scheme). What a restored browser
+    /// pane is handed: the pane writes `@tmuxy-pane-restore` with the page it
+    /// is on, so a session snapshot brings it back here.
+    pub url: Option<String>,
 }
 
 /// `tmuxy browser …`.
@@ -70,65 +69,51 @@ pub async fn run(args: BrowserArgs) {
     // would fight over the lock.
     let state_dir = tmuxy_core::paths::state_dir();
 
+    let named = args.session.is_some();
+    let session = args
+        .session
+        .unwrap_or_else(|| default_session(std::env::var("TMUX_PANE").ok().as_deref()));
     // The name becomes a directory name for the profile, so `../` or a slash in
     // it would place a profile somewhere nobody asked for.
-    if !tmuxy_core::session::is_safe_session_name(&args.session) {
-        fail(&format!("not a usable session name: {:?}", args.session));
+    if !tmuxy_core::session::is_safe_session_name(&session) {
+        fail(&format!("not a usable session name: {session:?}"));
     }
 
-    if args.repl {
-        let code = pane::run(&state_dir, &args.session, args.attach, args.goto).await;
-        std::process::exit(code);
-    }
-
-    let line = args.line.join(" ");
-    // Parsed before the engine is touched: a typo must not cost a browser
-    // launch, and `help` has to work on a machine with no browser at all.
-    let verb = match verbs::parse(&line) {
-        Ok(verb) => verb,
-        Err(verbs::ParseError::Empty) => {
-            println!("{}", verbs::HELP);
-            return;
-        }
-        Err(error) => fail(&error.to_string()),
-    };
-    if matches!(verb, verbs::Verb::Help) {
-        println!("{}", verbs::HELP);
-        return;
-    }
-
-    // A one-shot gets an engine of its own and gives it back. That is the honest
-    // cost of asking a question with no pane to hold the answer's session:
-    // about a second of Chromium start-up. Anything cheaper would mean a
-    // background daemon, which is the thing this design just deleted.
-    let mut session = match &args.attach {
-        Some(endpoint) => Session::attach(&state_dir, &args.session, endpoint).await,
-        None => Session::launch(&state_dir, &args.session).await,
-    }
-    .unwrap_or_else(|error| fail(&error.to_string()));
-
-    let output = session.run(verb).await;
-    session.close().await;
-
-    match output {
-        Ok(output) => show(&output),
-        Err(error) => fail(&error.to_string()),
-    }
+    let code = pane::run(
+        &state_dir,
+        &session,
+        named,
+        args.attach,
+        args.url,
+        args.color_filter,
+    )
+    .await;
+    std::process::exit(code);
 }
 
-/// Print what a verb said, or nothing when it had nothing to say.
-///
-/// The distinction is worth the function: a verb that answers with an empty
-/// string printing a blank line, or `null`, puts a word in the pane that a
-/// `capture-pane` reads as output and a person reads as an error.
-fn show(output: &Output) {
-    let text = output.to_string();
-    if !text.is_empty() {
-        println!("{text}");
+/// The session a pane gets when none is named: its own, from `$TMUX_PANE`.
+fn default_session(tmux_pane: Option<&str>) -> String {
+    match tmux_pane.map(|p| p.trim_start_matches('%')) {
+        Some(id) if !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) => {
+            format!("pane-{id}")
+        }
+        _ => "default".to_string(),
     }
 }
 
 fn fail(message: &str) -> ! {
     eprintln!("tmuxy browser: {message}");
     std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_session;
+
+    #[test]
+    fn each_pane_gets_a_session_of_its_own() {
+        assert_eq!(default_session(Some("%12")), "pane-12");
+        assert_eq!(default_session(None), "default");
+        assert_eq!(default_session(Some("../x")), "default");
+    }
 }

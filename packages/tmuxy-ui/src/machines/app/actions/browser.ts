@@ -9,7 +9,9 @@
  * components/widgets/browser/view.ts for the other half of that split.
  */
 
+import { sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
+import { TmuxOp } from '../../../domain/commands';
 import type { BrowserPaneState } from '../../types';
 import { clampZoom, normalizeAddress } from '../../../components/widgets/browser/view';
 import { isOpenableUrl, openExternalUrl } from '../../../utils/openUrl';
@@ -91,6 +93,20 @@ export const browserActions = {
       if (next < 0 || next >= state.history.length) return null;
       return { ...state, historyIndex: next };
     });
+  }),
+
+  browser_openLive: act(({ event, enqueue }) => {
+    if (event.type !== 'BROWSER_OPEN_LIVE') return;
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_OP' as const,
+        op: TmuxOp.OpenBrowserPane({
+          paneId: event.paneId,
+          url: event.url,
+          colorFilter: event.colorFilter,
+        }),
+      }),
+    );
   }),
 
   browser_openExternal: act(({ event, enqueue }) => {

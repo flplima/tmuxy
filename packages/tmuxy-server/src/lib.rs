@@ -40,7 +40,7 @@ pub const DEFAULT_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info,warn";
 
 /// The same, for a command that OWNS THE SCREEN.
 ///
-/// `tmuxy browser --repl` draws a picture of a page over the whole pane; a
+/// `tmuxy browser` draws a picture of a page over the whole pane; a
 /// stray `WARN` from a dependency written to stderr lands in the middle of it,
 /// and chromiumoxide emits one for every CDP message it does not model. So the
 /// blanket `warn` goes: tmuxy's own logs still appear (they are few, and worth

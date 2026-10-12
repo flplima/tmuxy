@@ -70,6 +70,14 @@ const cases: Array<[TmuxOp, string]> = [
   // Text that starts with a dash stays text: without `--` tmux read `-$` (fast
   // typing batched the `-$` of `"line-$i"`) as flags and dropped it.
   [TmuxOp.SendText({ target: pid('%3'), text: '-$' }), "send-keys -t %3 -l -- '-$'"],
+  // A website hands the pane to `tmuxy browser`, and a shell takes over when
+  // the browser is left.
+  [
+    TmuxOp.OpenBrowserPane({ paneId: pid('%3'), url: 'https://x.dev/a', colorFilter: true }),
+    "respawn-pane -k -t %3 -c '#{pane_current_path}' " +
+      "'$HOME/.config/tmuxy/bin/tmuxy/../tmuxy-cli browser --color-filter " +
+      "'\\''https://x.dev/a'\\''; exec \"${SHELL:-sh}\"'",
+  ],
   [
     TmuxOp.SendMouse({ paneId: pid('%3'), button: 0, x: 5, y: 2, release: false }),
     'send-keys -t %3 -H 1b 5b 3c 30 3b 35 3b 32 4d',

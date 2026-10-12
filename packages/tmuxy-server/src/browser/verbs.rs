@@ -36,6 +36,8 @@ pub enum Verb {
     Text { selector: Option<String> },
     /// Go back in history.
     Back,
+    /// Go forward in history.
+    Forward,
     /// Reload.
     Reload,
     /// The list of verbs, for a person who typed the wrong thing.
@@ -169,6 +171,7 @@ pub fn parse(line: &str) -> Result<Verb, ParseError> {
             selector: (!rest.is_empty()).then(|| rest.to_string()),
         }),
         "back" => Ok(Verb::Back),
+        "forward" => Ok(Verb::Forward),
         "reload" | "refresh" => Ok(Verb::Reload),
         "help" | "?" => Ok(Verb::Help),
         other => Err(ParseError::Unknown {
@@ -225,6 +228,7 @@ title                   the page's title
 url                     the page's current URL
 shot [path]             save a PNG
 back                    history back
+forward                 history forward
 reload                  reload
 help                    this list";
 
@@ -247,6 +251,7 @@ mod tests {
         assert_eq!(parse("title"), Ok(Verb::Title));
         assert_eq!(parse("url"), Ok(Verb::Url));
         assert_eq!(parse("back"), Ok(Verb::Back));
+        assert_eq!(parse("forward"), Ok(Verb::Forward));
         assert_eq!(parse("reload"), Ok(Verb::Reload));
         assert_eq!(parse("refresh"), Ok(Verb::Reload));
         assert_eq!(parse("help"), Ok(Verb::Help));
@@ -449,6 +454,7 @@ mod tests {
             ("url", "url"),
             ("shot", "shot"),
             ("back", "back"),
+            ("forward", "forward"),
             ("reload", "reload"),
             ("help", "help"),
         ] {

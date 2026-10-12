@@ -40,6 +40,9 @@ import { RowEdges } from './RowEdges';
 import { AskOverlay } from './AskOverlay';
 import { isCollapsedPane } from '../constants';
 import { extractSelectedText } from '../utils/copyMode';
+import { themeFilterId } from '../utils/themeColorFilter';
+import { BrowserLiveBar } from './widgets/browser/BrowserLiveBar';
+import { LIVE_BROWSER_WIDGET, parseLiveHeader } from './widgets/browser/live';
 import type { PaneId } from '../domain/ids';
 
 interface TerminalPaneProps {
@@ -335,6 +338,14 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   // re-lays out the stack).
   const collapsed = isCollapsedPane(pane);
 
+  // A live browser (`tmuxy browser`): the app's address bar over the top row
+  // the pane program leaves for it. Both halves are needed — the tag, which
+  // only the program can set (through the CLI), and the header it writes.
+  const liveHeader =
+    pane.paneWidget === LIVE_BROWSER_WIDGET && shown.content[0]
+      ? parseLiveHeader(shown.content[0].map((cell) => cell.c).join(''))
+      : null;
+
   // Scroll indicator geometry (only meaningful in copy mode)
   const totalLines = copyState?.totalLines ?? 0;
   const scrollTop = copyState?.scrollTop ?? 0;
@@ -429,6 +440,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     selectionStartY={pane.selectionStartY}
                     images={pane.images}
                     paneId={pane.tmuxId}
+                    imageFilter={
+                      liveHeader?.colorFilter ? `url(#${themeFilterId(pane.tmuxId)})` : undefined
+                    }
                     cursorShape={pane.cursorShape}
                     cursorHidden={pane.cursorHidden}
                     selectable={!pane.mouseAnyFlag}
@@ -442,6 +456,10 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
               inside it (not over the whole pane) so the header stays legible
               — that is where the pane's title and its close button live. */}
           <AskOverlay paneId={paneId} holdsKeyboard={holdsKeyboard} />
+
+          {liveHeader && !copyState && (
+            <BrowserLiveBar paneId={pane.tmuxId} header={liveHeader} url={pane.title} />
+          )}
 
           {/* Scroll position indicator — flashes on scroll in copy mode */}
           {copyState && (

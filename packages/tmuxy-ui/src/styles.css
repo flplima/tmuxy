@@ -1627,6 +1627,22 @@
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
 }
 
+/* A live browser's bar (`tmuxy browser`) sits over the pane's top row, which
+   the pane program leaves for it: exactly one row tall, and opaque, since the
+   row underneath holds the program's header text. */
+.browser-live-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  background-color: var(--term-background);
+}
+
+.browser-live-bar .browser-nav {
+  height: var(--line-height-terminal);
+}
+
 .browser-nav-button {
   display: flex;
   align-items: center;

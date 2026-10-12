@@ -10,6 +10,8 @@
  * Action implementations live in ../actions/browser.ts.
  */
 
+import { notReadOnly } from '../readOnlyGuard';
+
 export const browserState = {
   on: {
     BROWSER_ZOOM: { actions: 'browser_zoom' },
@@ -18,6 +20,7 @@ export const browserState = {
     BROWSER_NAVIGATE: { actions: 'browser_navigate' },
     BROWSER_HISTORY: { actions: 'browser_history' },
     BROWSER_OPEN_EXTERNAL: { actions: 'browser_openExternal' },
+    BROWSER_OPEN_LIVE: { guard: notReadOnly, actions: 'browser_openLive' },
     BROWSER_PAGE_TITLE: { actions: 'browser_pageTitle' },
   },
 } as const;

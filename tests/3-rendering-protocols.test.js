@@ -1174,7 +1174,7 @@ describe('Category 17: Widgets', () => {
 // ==================== Scenario 24: The Browser Pane ====================
 
 /**
- * `tmuxy browser --repl` — a real browser drawn in a pane.
+ * `tmuxy browser` — a real browser drawn in a pane.
  *
  * The only test in the tree that exercises the whole chain this feature is:
  * an engine on the machine, its page encoded as an inline image, written to a
@@ -1243,7 +1243,7 @@ describe('Scenario 24: The Browser Pane', () => {
         // The repo's CLI by path, not whatever `tmuxy` resolves to: a machine
         // may have an older one installed, and a test that runs it is testing
         // that instead.
-        `exec ${TMUXY_CLI} browser --repl --session e2e\n`,
+        `exec ${TMUXY_CLI} browser --session e2e\n`,
       { mode: 0o755 },
     );
   });
@@ -1337,9 +1337,45 @@ describe('Scenario 24: The Browser Pane', () => {
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, '42', 30000);
 
+    // The address bar over the top row: on screen, and showing where the PAGE
+    // is — the link was followed inside it, and the bar followed too.
+    const readBar = () =>
+      ctx.page.evaluate(() => {
+        const bar = document.querySelector('[data-testid="browser-live-bar"]');
+        const input = bar?.querySelector('[data-testid="browser-nav-input"]');
+        if (!bar || !input) return null;
+        const r = bar.getBoundingClientRect();
+        return { width: r.width, height: r.height, address: input.value };
+      });
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const bar = await readBar();
+        return !!bar && bar.width > 0 && bar.height > 0 && bar.address.endsWith('second.html');
+      },
+      30000,
+      async () =>
+        `the address bar to show the followed link (bar: ${JSON.stringify(await readBar())})`,
+    );
+
+    // Its back button drives the pane, and the bar follows the page back.
+    await ctx.page.click('[data-testid="browser-live-bar"] [data-testid="browser-nav-back"]');
+    await waitForCondition(
+      ctx.page,
+      async () => (await readBar())?.address.endsWith('first.html') ?? false,
+      30000,
+      async () => `the back button to take the page back (bar: ${JSON.stringify(await readBar())})`,
+    );
+
     // Leaving gives the shell back: the alternate screen goes away and the
-    // pane is a shell again, not a frozen picture.
+    // pane is a shell again, not a frozen picture — with no bar over it.
     await sendKeyCombo(ctx.page, 'Control', 'c');
     await waitForShellPrompt(ctx.page);
+    await waitForCondition(
+      ctx.page,
+      async () => (await readBar()) === null,
+      15000,
+      'the address bar to leave with the browser',
+    );
   }, 180000);
 });

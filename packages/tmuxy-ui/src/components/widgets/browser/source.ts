@@ -55,6 +55,14 @@ export function isRemote(src: string): boolean {
 }
 
 /**
+ * A web PAGE: the engine's to show (`tmuxy browser`), never a frame's. A remote
+ * image or markdown file is still drawn by the app, in the theme.
+ */
+export function isWebsite(src: string): boolean {
+  return /^https?:/i.test(src) && classifySource(src) === 'page';
+}
+
+/**
  * The URL to actually load for a source: remote ones as written, local paths
  * through whichever file route this build has (see utils/fileUrl).
  *

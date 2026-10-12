@@ -7,9 +7,12 @@
  * the pane's ⋮ menu (contributed by this widget's definition) and on
  * ctrl+r / ctrl+c, so almost all of the pane is the page.
  *
- * A page goes in an `<iframe>`; markdown and images are rendered by the app so
- * they inherit its typography and theme. Websites that refuse to be framed
- * (`X-Frame-Options`) show their own refusal — tmuxy does not proxy them.
+ * A local page goes in an `<iframe>`; markdown and images are rendered by the
+ * app so they inherit its typography and theme. A WEBSITE is not framed: most
+ * big ones refuse to be (`X-Frame-Options`), and WebKit shows that refusal as
+ * a blank frame. One that arrives here — typed into the address bar, or a
+ * source that names one — hands the pane over to `tmuxy browser`, a real
+ * engine drawn in the pane under the same bar (`BrowserLiveBar`).
  *
  * Under the pane header sits the address bar (`BrowserNav`): back, forward,
  * refresh, the address, and a way out to the system browser. Zoom and close
@@ -17,11 +20,18 @@
  * for the things you reach for while reading a page, and not for the rest.
  */
 
-import { memo, useRef, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import {
+  memo,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { useAppSelector, useAppSend, useReadOnly } from '../../../machines/AppContext';
 import type { WidgetProps } from '../index';
 import { browserView } from './view';
-import { classifySource, isRemote, loadUrl, parseColorFilter } from './source';
+import { classifySource, isWebsite, loadUrl, parseColorFilter } from './source';
 import { rampTables, readThemeRamp, themeFilterId } from '../../../utils/themeColorFilter';
 import { getThemeVersion, subscribeTheme } from '../../../utils/themeManager';
 import { MarkdownView } from './MarkdownView';
@@ -38,29 +48,13 @@ import type { PaneId } from '../../../domain/ids';
 const LOCAL_PAGE_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
 
 /**
- * What a remote page may do. A website is another origin already, so it keeps
- * `allow-same-origin` — without it every login, cookie and bit of storage the
- * page relies on would break, and framing a site is the point of the widget.
- *
- * What it does NOT get is `allow-top-navigation`: an unsandboxed frame could
- * set `window.top.location` and navigate the whole tmuxy tab away — a
- * convincing place to phish the Basic-auth prompt, or simply a page that
- * cannot be closed. `allow-popups-to-escape-sandbox` keeps a link the user
- * opens from inheriting this sandbox in its new tab, where it would be a
- * broken copy of the site rather than the site.
- */
-const REMOTE_PAGE_SANDBOX =
-  'allow-same-origin allow-scripts allow-forms allow-popups ' +
-  'allow-popups-to-escape-sandbox allow-modals allow-downloads';
-
-/**
  * The SVG filter `--color-filter` points the content at: luminance mapped onto
  * a ramp of theme colours (utils/themeColorFilter). Memoised on its id, so the
  * pane's content ticks do not re-read the theme; the theme subscription is
  * what re-renders it, once the new theme's colours have landed. Renders
  * nothing until the theme's colours resolve.
  */
-const ThemeColorFilter = memo(function ThemeColorFilter({ id }: { id: string }) {
+export const ThemeColorFilter = memo(function ThemeColorFilter({ id }: { id: string }) {
   useSyncExternalStore(subscribeTheme, getThemeVersion, getThemeVersion);
   const ramp = readThemeRamp();
   if (!ramp) return null;
@@ -131,10 +125,28 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
     kind === 'page' && !readOnly,
   );
 
+  const send = useAppSend();
+  const colorFilter = parseColorFilter(lines);
+  const website = isWebsite(view.url);
+  // A website is the engine's to show, not a frame's (see the file comment).
+  useEffect(() => {
+    if (website && !readOnly) {
+      send({ type: 'BROWSER_OPEN_LIVE', paneId, url: view.url, colorFilter });
+    }
+  }, [website, readOnly, send, paneId, view.url, colorFilter]);
+
   /** The bar, then whatever the source resolves to, in one column. */
   const framed = (className: string, style: CSSProperties | undefined, body: ReactNode) => (
     <div className={`widget-browser-shell ${className}`} style={style}>
-      <BrowserNav paneId={paneId} view={view} />
+      <BrowserNav
+        url={view.url}
+        canGoBack={view.canGoBack}
+        canGoForward={view.canGoForward}
+        readOnly={readOnly}
+        onHistory={(delta) => send({ type: 'BROWSER_HISTORY', paneId, source: view.source, delta })}
+        onReload={() => send({ type: 'BROWSER_RELOAD', paneId, source: view.source })}
+        onNavigate={(url) => send({ type: 'BROWSER_NAVIGATE', paneId, source: view.source, url })}
+      />
       {body}
     </div>
   );
@@ -161,10 +173,20 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
     );
   }
 
+  if (website) {
+    return framed(
+      'widget-browser',
+      undefined,
+      <div className="widget-browser-empty" data-testid="browser-opening-live">
+        Opening {view.url} in tmuxy browser…
+      </div>,
+    );
+  }
+
   const src = loadUrl(view.url, view.reloadNonce);
   // Markdown is drawn by the app in the theme's colours already; the filter is
   // for what brings its own: a page in the frame, and images.
-  const filterId = parseColorFilter(lines) ? themeFilterId(paneId) : null;
+  const filterId = colorFilter ? themeFilterId(paneId) : null;
   const themeFilter = filterId ? <ThemeColorFilter id={filterId} /> : null;
   const filterStyle = filterId ? { filter: `url(#${filterId})` } : undefined;
 
@@ -205,10 +227,10 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
         className="widget-browser-frame"
         src={src}
         title={view.url}
-        // Always sandboxed. `isRemote` also matches `data:` and `blob:`, which
-        // a pane's own output can name (see detectWidget) — those were framed
-        // with no sandbox at all.
-        sandbox={isRemote(view.url) ? REMOTE_PAGE_SANDBOX : LOCAL_PAGE_SANDBOX}
+        // Always sandboxed, with no origin of its own: a website never gets
+        // here, and `data:` / `blob:` — which a pane's own output can name
+        // (see detectWidget) — must not run as the app.
+        sandbox={LOCAL_PAGE_SANDBOX}
         // Scale from the top-left and give the frame back the size the scale
         // took away, so the page lays out at the zoomed width instead of being
         // cropped to a fraction of the pane.

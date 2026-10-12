@@ -465,10 +465,11 @@ export const PaneGroup: Story = {
 };
 
 /**
- * Widget: a pane pointed at a URL prints a `__TMUXY_WIDGET__:browser` marker
- * followed by its source; the UI detects it, swaps the terminal renderer for
- * the browser **widget component**, and names the pane after the page — the
- * URL with its protocol stripped — all client-side off the live %output stream.
+ * Widget: a pane pointed at a page prints a `__TMUXY_WIDGET__:browser` marker
+ * followed by its source; the UI detects it and swaps the terminal renderer for
+ * the browser **widget component** — all client-side off the live %output
+ * stream. The page is a `data:` document: a website is not framed any more
+ * (it is handed to `tmuxy browser`, which the guest has no engine for).
  *
  * Driven through `tmuxy-widget` directly rather than the `tmuxy widget browser`
  * wrapper: the marker protocol is what the UI actually contracts on, and the
@@ -479,22 +480,17 @@ export const Widget: Story = {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     pasteLine(
-      `{ echo '__SRC__:https://example.com/hello-widget'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
+      `{ echo '__SRC__:data:text/html,<h1>HELLO_WIDGET</h1>'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
     );
     await waitFor(
       () => {
         const doc = canvasElement.ownerDocument;
         const frame = doc.querySelector('.widget-browser-frame') as HTMLIFrameElement | null;
         expect(frame).not.toBeNull();
-        expect(frame!.getAttribute('src')).toBe('https://example.com/hello-widget');
+        expect(frame!.getAttribute('src')).toBe('data:text/html,<h1>HELLO_WIDGET</h1>');
         // Visible, not merely mounted: the frame sits under two stacked
         // full-height boxes that a layout slip would collapse.
         expect(frame!.getBoundingClientRect().height).toBeGreaterThan(50);
-        // The pane names itself after the page, protocol stripped.
-        const pane = doc.querySelector('[role=group][aria-label^="Widget pane"]');
-        expect(pane?.querySelector('.pane-tab-title')?.textContent).toBe(
-          'example.com/hello-widget',
-        );
       },
       { timeout: 40000, interval: 500 },
     );
@@ -2285,7 +2281,7 @@ export const WidgetExitRestoresShell: Story = {
     await focusFirstPane(canvas, user);
     const doc = canvasElement.ownerDocument;
     pasteLine(
-      `{ echo '__SRC__:https://example.com/widget-exit-5'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
+      `{ echo '__SRC__:data:text/html,<p>widget-exit-5</p>'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
     );
     await waitFor(() => expect(doc.querySelector('.widget-browser')).not.toBeNull(), {
       timeout: 40000,

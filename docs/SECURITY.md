@@ -110,10 +110,11 @@ Which pane is a widget at all is not decided by pane content. The `__TMUXY_WIDGE
 
 ## A Real Browser Driven From a Pane Changes Whose Network This Is
 
-The browser widget frames pages in the VIEWER's browser, so a page it opens has
-the viewer's network position and the viewer's cookies, and tmuxy never sees
-either. `tmuxy browser` inverts all three, and none of the reasoning above
-carries over.
+The browser widget frames LOCAL pages in the VIEWER's browser, so a file it
+opens has the viewer's cookies, and tmuxy never sees them. A website does not
+go there: `tmuxy open <website>` (and an address typed into the widget's bar)
+hands the pane to `tmuxy browser`, which inverts all of that, and none of the
+reasoning above carries over.
 
 **It runs as whoever typed the command, not as the server.** This is the single
 most important property, and it was not always true. The engine used to live in
@@ -124,7 +125,9 @@ question the code had to answer (SEC-11). Now the engine is launched by a
 program in a pane, so it has exactly the powers of the person at that terminal.
 There is no route, no client command, no read-only exemption to maintain, and
 nothing a viewer can name. A viewer who can send keys to a pane can already run
-any command; this is one of them.
+any command; this is one of them. A read-only viewer sees the page as pane
+output — one picture, fetched once by the session's own engine — and its
+address bar is inert, since it would drive the pane by typing into it.
 
 **The network position is still not the viewer's.** `goto http://10.0.0.5/admin`
 from a pane on a machine reached over a tunnel is a request from inside THAT

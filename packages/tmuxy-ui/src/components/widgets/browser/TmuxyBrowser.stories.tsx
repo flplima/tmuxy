@@ -119,16 +119,18 @@ export const ImageSource: Story = {
 };
 
 /**
- * A website is framed under the address bar, and the bar costs the page one
+ * A local page is framed under the address bar, and the bar costs the page one
  * row — the rest of the pane is the page.
  */
-export const WebPage: Story = {
-  render: () => <Harness src="https://example.com/docs" />,
+export const LocalPage: Story = {
+  render: () => <Harness src="/tmp/docs.html" />,
   play: async ({ canvasElement }) => {
-    const frame = canvasElement.querySelector<HTMLIFrameElement>('.widget-browser-frame');
-    expect(frame).not.toBeNull();
-    expect(frame!.getAttribute('src')).toBe('https://example.com/docs');
-    const rect = frame!.getBoundingClientRect();
+    const frame = await waitFor(() => {
+      const el = canvasElement.querySelector<HTMLIFrameElement>('.widget-browser-frame');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const rect = frame.getBoundingClientRect();
     expect(rect.width).toBeGreaterThan(100);
     expect(rect.height).toBeGreaterThan(100);
 
@@ -143,13 +145,31 @@ export const WebPage: Story = {
 };
 
 /**
+ * A website is never framed: most refuse to be, and WebKit shows the refusal
+ * as a blank pane. The widget hands the pane to `tmuxy browser` instead and
+ * says so while that happens.
+ */
+export const WebsiteGoesToTheBrowserPane: Story = {
+  render: () => <Harness src="https://example.com/docs" />,
+  play: async ({ canvasElement }) => {
+    const note = await waitFor(() => {
+      const el = canvasElement.querySelector<HTMLElement>('[data-testid="browser-opening-live"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(note.textContent).toContain('https://example.com/docs');
+    expect(note.getBoundingClientRect().height).toBeGreaterThan(0);
+    expect(canvasElement.querySelector('.widget-browser-frame')).toBeNull();
+  },
+};
+
+/**
  * The address bar: type somewhere new, and back/forward walk the places this
- * pane has been pointed. The page's own links are not in that history — the
- * frame is another document and, for a website, another origin, so nothing
- * inside it can be read from out here.
+ * pane has been pointed. A framed document's own links are not in that
+ * history — nothing inside the frame can be read from out here.
  */
 export const NavigatingWithTheAddressBar: Story = {
-  render: () => <Harness src="https://example.com/docs" />,
+  render: () => <Harness src="/tmp/docs.html" />,
   play: async ({ canvasElement }) => {
     const user = userEvent.setup({ delay: 5 });
     const nav = canvasElement.querySelector<HTMLElement>('[data-testid="browser-nav"]')!;
@@ -157,40 +177,37 @@ export const NavigatingWithTheAddressBar: Story = {
     const back = nav.querySelector<HTMLButtonElement>('[data-testid="browser-nav-back"]')!;
     const forward = nav.querySelector<HTMLButtonElement>('[data-testid="browser-nav-forward"]')!;
     const external = nav.querySelector<HTMLButtonElement>('[data-testid="browser-nav-external"]')!;
-    const frameSrc = () =>
-      canvasElement.querySelector<HTMLIFrameElement>('.widget-browser-frame')?.getAttribute('src');
 
     // Where the pane was pointed, and nowhere to step from it.
-    expect(input.value).toBe('https://example.com/docs');
+    expect(input.value).toBe('/tmp/docs.html');
     expect(back.disabled).toBe(true);
     expect(forward.disabled).toBe(true);
-    // An http page can be handed to the system browser.
-    expect(external.disabled).toBe(false);
+    // A local file is not something the system browser can be handed.
+    expect(external.disabled).toBe(true);
 
-    // Type an address and press Enter. A bare host gets its scheme.
+    // Type an address and press Enter.
     await user.click(input);
     await user.clear(input);
-    await user.type(input, 'example.org/next{Enter}');
+    await user.type(input, '/tmp/next.html{Enter}');
     await waitFor(() => {
-      expect(frameSrc()).toBe('https://example.org/next');
+      expect(input.value).toBe('/tmp/next.html');
     });
-    expect(input.value).toBe('https://example.org/next');
     expect(back.disabled).toBe(false);
     expect(forward.disabled).toBe(true);
 
     // Back returns to where the pane started, and forward comes back.
     await user.click(back);
     await waitFor(() => {
-      expect(frameSrc()).toBe('https://example.com/docs');
+      expect(input.value).toBe('/tmp/docs.html');
     });
-    expect(input.value).toBe('https://example.com/docs');
     expect(back.disabled).toBe(true);
     expect(forward.disabled).toBe(false);
 
     await user.click(forward);
     await waitFor(() => {
-      expect(frameSrc()).toBe('https://example.org/next');
+      expect(input.value).toBe('/tmp/next.html');
     });
+    expect(canvasElement.querySelector('.widget-browser-frame')).not.toBeNull();
   },
 };
 

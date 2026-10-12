@@ -97,7 +97,7 @@ describe('Scenario 32: Session snapshots', () => {
     // Typed as a short path: a long command line into a pane drops characters.
     fs.writeFileSync(
       path.join(scratch, 'run'),
-      `#!/bin/sh\nexport TMUXY_STATE_DIR=${stateDir}\nexec ${path.join(process.cwd(), 'bin/tmuxy-cli')} browser --repl --session e2e\n`,
+      `#!/bin/sh\nexport TMUXY_STATE_DIR=${stateDir}\nexec ${path.join(process.cwd(), 'bin/tmuxy-cli')} browser --session e2e\n`,
       { mode: 0o755 },
     );
     browser = await getBrowser();
@@ -199,8 +199,7 @@ describe('Scenario 32: Session snapshots', () => {
           panes.some((p) => p.options && p.options['@tmuxy-group-id']) &&
           (shape.hidden ?? []).length === 1 &&
           panes.some((p) => p.restore_command === 'echo restored-ok') &&
-          (!engine ||
-            panes.some((p) => (p.restore_command ?? '').startsWith('tmuxy browser --repl')))
+          (!engine || panes.some((p) => (p.restore_command ?? '').startsWith('tmuxy browser')))
         );
       },
       30000,

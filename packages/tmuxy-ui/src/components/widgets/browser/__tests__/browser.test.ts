@@ -8,10 +8,59 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { browserTitle, classifySource, loadUrl, parseColorFilter, parseSource } from '../source';
+import {
+  browserTitle,
+  classifySource,
+  isWebsite,
+  loadUrl,
+  parseColorFilter,
+  parseSource,
+} from '../source';
+import { parseLiveHeader, verbLine } from '../live';
 import { browserView, clampZoom, normalizeAddress, MAX_ZOOM, MIN_ZOOM } from '../view';
 import type { BrowserPaneState } from '../../../../machines/types';
 import { canReadPageTitle, parseHtmlTitle } from '../pageTitle';
+
+describe('isWebsite', () => {
+  // A web page is the engine's; a remote image or markdown file is still drawn
+  // by the app, and data:/local sources are framed as before.
+  it.each([
+    ['https://example.com', true],
+    ['http://localhost:3000/app', true],
+    ['https://example.com/logo.png', false],
+    ['https://raw.example.com/README.md', false],
+    ['data:text/html,<h1>x</h1>', false],
+    ['/home/me/index.html', false],
+  ])('%s → %s', (src, website) => {
+    expect(isWebsite(src)).toBe(website);
+  });
+});
+
+describe('the live browser header', () => {
+  it('reads which way history goes and the colour filter', () => {
+    expect(parseLiveHeader('tmuxy:browser 101')).toEqual({
+      canGoBack: true,
+      canGoForward: false,
+      colorFilter: true,
+    });
+    expect(parseLiveHeader('tmuxy:browser 010   ')).toEqual({
+      canGoBack: false,
+      canGoForward: true,
+      colorFilter: false,
+    });
+  });
+
+  it('is not anything else a top row says', () => {
+    expect(parseLiveHeader('~/projects/tmuxy main')).toBeNull();
+    expect(parseLiveHeader('tmuxy:browser 1')).toBeNull();
+    expect(parseLiveHeader('echo tmuxy:browser 101')).toBeNull();
+  });
+
+  it('types one verb line, however the address was pasted', () => {
+    expect(verbLine('goto example.com')).toBe(':goto example.com\n');
+    expect(verbLine('goto a\nb')).toBe(':goto a b\n');
+  });
+});
 
 describe('parseSource', () => {
   it('reassembles a source that tmux wrapped across cell lines', () => {

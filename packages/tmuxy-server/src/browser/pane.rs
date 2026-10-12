@@ -26,7 +26,15 @@
 //! any mouse-tracking application. Coordinates arrive in CELLS — that is the
 //! resolution tmux reports and the ceiling on how precisely a click can land.
 //!
-//! ## Why there is a status row
+//! ## The toolbar row, and why there is a status row
+//!
+//! The top line is the app's: the pane tags itself `@tmuxy-pane-widget
+//! browser-live` and writes a short header there (`header_line`), and the UI
+//! draws its address bar over that row — back, forward, refresh, the address,
+//! open externally. The address itself travels as the pane's TITLE (OSC 2),
+//! because a URL is longer than a row and tmux keeps a title whole. The bar's
+//! buttons drive this program the way anything else does: they type `:back`,
+//! `:goto …` into the pane.
 //!
 //! The bottom line is left out of the picture and used for verb output, so an
 //! agent driving the pane with `tmuxy pane send` can read the answer back with
@@ -78,7 +86,8 @@ mod term {
     pub(super) const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1002l";
     pub(super) const HIDE_CURSOR: &str = "\x1b[?25l";
     pub(super) const SHOW_CURSOR: &str = "\x1b[?25h";
-    pub const HOME: &str = "\x1b[H";
+    /// The picture's top-left: row 2, under the toolbar row.
+    pub const PICTURE_HOME: &str = "\x1b[2;1H";
     pub(super) const CLEAR: &str = "\x1b[2J";
 }
 
@@ -91,10 +100,13 @@ pub struct PaneSize {
     pub cell_h: u16,
 }
 
+/// The first row of the picture (1-indexed): row 1 is the toolbar's.
+const PICTURE_TOP: u16 = 2;
+
 impl PaneSize {
-    /// The rows the picture occupies: everything but the status row.
+    /// The rows the picture occupies: everything but the toolbar and status rows.
     fn image_rows(&self) -> u16 {
-        self.rows.saturating_sub(1).max(1)
+        self.rows.saturating_sub(2).max(1)
     }
 
     /// The viewport the page should lay out in.
@@ -155,9 +167,9 @@ fn parse_cell_px(raw: &str) -> Option<(u16, u16)> {
 /// placement command of its own. tmuxy decodes both; this one is less to get
 /// wrong per frame.
 ///
-/// The cursor goes home first. That is what makes the redraw REPLACE rather than
-/// accumulate: tmuxy anchors a placement at the cursor and swaps whatever was
-/// already anchored there.
+/// The cursor goes to the picture's top-left first (row 2, under the toolbar).
+/// That is what makes the redraw REPLACE rather than accumulate: tmuxy anchors
+/// a placement at the cursor and swaps whatever was already anchored there.
 ///
 /// `preserveAspectRatio=0` makes the picture fill its cells exactly. The page
 /// is laid out for an ASSUMED cell size (the viewer's real one never reaches
@@ -168,8 +180,11 @@ fn draw_frame(frame: &[u8], size: PaneSize) -> Vec<u8> {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(frame);
     format!(
-        "{}\x1b]1337;File=inline=1;width={};height={};preserveAspectRatio=0:{}\x07",
-        term::HOME,
+        "{}{}\x1b]1337;File=inline=1;width={};height={};preserveAspectRatio=0:{}\x07",
+        // Re-asserted with every frame: a client that attached after the
+        // program hid its cursor never saw that escape.
+        term::HIDE_CURSOR,
+        term::PICTURE_HOME,
         size.cols,
         size.image_rows(),
         encoded
@@ -317,7 +332,7 @@ fn utf8_len(lead: u8) -> usize {
 /// `:click <selector>` exists for anything smaller than a cell.
 fn cell_to_page(col: u16, row: u16, size: PaneSize) -> (f64, f64) {
     let x = (f64::from(col.saturating_sub(1)) + 0.5) * f64::from(size.cell_w);
-    let y = (f64::from(row.saturating_sub(1)) + 0.5) * f64::from(size.cell_h);
+    let y = (f64::from(row.saturating_sub(PICTURE_TOP)) + 0.5) * f64::from(size.cell_h);
     (x, y)
 }
 
@@ -374,10 +389,26 @@ fn wheel_delta_y(up: bool) -> f64 {
 /// The CLI, never tmux directly: a mutating tmux command from inside a pane
 /// while control mode is attached crashes tmux 3.5a (docs/TMUX.md), and the
 /// CLI is the one place that knows to wrap it in `run-shell`.
-fn restore_tag_args(pane: &str, session: &str, url: Option<&str>) -> Vec<String> {
-    let mut line = format!("tmuxy browser --repl --session {}", shell_quote(session));
+///
+/// The session is written back only when one was NAMED: the default is the
+/// pane's own (`pane-<id>`), and a restored pane has a new id — handing it the
+/// old one would make it share a profile with whichever pane has that id now.
+fn restore_tag_args(
+    pane: &str,
+    named_session: Option<&str>,
+    color_filter: bool,
+    url: Option<&str>,
+) -> Vec<String> {
+    let mut line = "tmuxy browser".to_string();
+    if let Some(session) = named_session {
+        line.push_str(" --session ");
+        line.push_str(&shell_quote(session));
+    }
+    if color_filter {
+        line.push_str(" --color-filter");
+    }
     if let Some(url) = url {
-        line.push_str(" --goto ");
+        line.push(' ');
         line.push_str(&shell_quote(url));
     }
     vec!["pane".into(), "restore-cmd".into(), line, pane.into()]
@@ -393,23 +424,153 @@ fn shell_quote(word: &str) -> String {
 /// `TMUXY_CLI` is set by the CLI when it starts this program, so the pane
 /// reaches the same `tmuxy` that launched it wherever it is installed; a
 /// pane started some other way falls back to `tmuxy` on the PATH.
-fn announce_restore(session: &str, url: Option<&str>) {
+fn announce_restore(named_session: Option<&str>, color_filter: bool, url: Option<&str>) {
     let Some(pane) = std::env::var_os("TMUX_PANE") else {
         return;
     };
+    tmuxy_cli(&restore_tag_args(
+        &pane.to_string_lossy(),
+        named_session,
+        color_filter,
+        url,
+    ));
+}
+
+/// Run the `tmuxy` CLI with these arguments, quietly.
+///
+/// `TMUXY_CLI` is set by the CLI when it starts this program, so the pane
+/// reaches the same `tmuxy` that launched it wherever it is installed; a pane
+/// started some other way falls back to `tmuxy` on the PATH.
+fn tmuxy_cli(args: &[String]) {
     let cli = std::env::var_os("TMUXY_CLI").unwrap_or_else(|| "tmuxy".into());
     let _ = std::process::Command::new(cli)
-        .args(restore_tag_args(&pane.to_string_lossy(), session, url))
+        .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
 }
 
-/// Where the page is, for the restore tag; `None` on `about:blank` or failure.
-async fn current_url(session: &mut Session) -> Option<String> {
-    match session.run(verbs::Verb::Url).await {
-        Ok(Output::Line(url)) if !url.is_empty() && url != "about:blank" => Some(url),
-        _ => None,
+/// The pane tag that makes the app draw the toolbar over row 1.
+pub const LIVE_WIDGET: &str = "browser-live";
+
+/// Tag this pane (or untag it) as a live browser, through the CLI — the same
+/// out-of-band authorisation `tmuxy-widget` gives a widget: no output can set
+/// it, so no output can put a toolbar over a pane that did not ask for one.
+fn tag_pane(on: bool) {
+    let Some(pane) = std::env::var_os("TMUX_PANE") else {
+        return;
+    };
+    tmuxy_cli(&widget_tag_args(&pane.to_string_lossy(), on));
+}
+
+fn widget_tag_args(pane: &str, on: bool) -> Vec<String> {
+    let mut args: Vec<String> = vec!["run".into(), "set-option".into(), "-p".into()];
+    if !on {
+        args.push("-u".into());
+    }
+    args.extend(["-t".into(), pane.into(), "@tmuxy-pane-widget".into()]);
+    if on {
+        args.push(LIVE_WIDGET.into());
+    }
+    args
+}
+
+/// Where the page is and which way history can go: what the toolbar shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Navigation {
+    url: String,
+    can_go_back: bool,
+    can_go_forward: bool,
+}
+
+/// The toolbar row's text. The UI reads it to know this is a live browser and
+/// which buttons are live; the address is the pane title (see the module doc).
+/// Kept short so it never wraps into the picture.
+fn header_line(nav: &Navigation, color_filter: bool) -> String {
+    let bit = |b: bool| if b { '1' } else { '0' };
+    format!(
+        "{HEADER_PREFIX}{}{}{}",
+        bit(nav.can_go_back),
+        bit(nav.can_go_forward),
+        bit(color_filter)
+    )
+}
+
+/// What the toolbar row starts with (`header_line`).
+const HEADER_PREFIX: &str = "tmuxy:browser ";
+
+/// Write the toolbar row and the title that carries the address.
+fn header(size: &PaneSize, nav: &Navigation, color_filter: bool) {
+    let title: String = nav.url.chars().filter(|c| !c.is_control()).collect();
+    write_out(&format!(
+        "\x1b]2;{title}\x07\x1b[1;1H\x1b[2K{}\x1b[{};1H",
+        header_line(nav, color_filter),
+        size.rows
+    ));
+}
+
+/// One write to the terminal, whole: the frame drawer, the toolbar and the
+/// status row write from different tasks, and an escape torn in half by
+/// another's would land text in the picture.
+fn write_out(text: &str) {
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(text.as_bytes());
+    let _ = stdout.flush();
+}
+
+/// How often the toolbar asks the page where it is. A link followed inside the
+/// page moves it without telling anyone, and the address bar should follow.
+const NAVIGATION_POLL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Where the page is now, from the engine's own history.
+async fn navigation(page: &chromiumoxide::page::Page) -> Option<Navigation> {
+    use chromiumoxide::cdp::browser_protocol::page::GetNavigationHistoryParams;
+    let history = page
+        .execute(GetNavigationHistoryParams::default())
+        .await
+        .ok()?
+        .result
+        .clone();
+    let index = usize::try_from(history.current_index).ok()?;
+    let entry = history.entries.get(index)?;
+    Some(Navigation {
+        url: entry.url.clone(),
+        can_go_back: index > 0,
+        can_go_forward: index + 1 < history.entries.len(),
+    })
+}
+
+/// Keep the toolbar row and the address current: on a navigation, and after a
+/// resize (which clears nothing, but tmux reflows the row).
+async fn header_loop(
+    page: chromiumoxide::page::Page,
+    mut size: tokio::sync::watch::Receiver<PaneSize>,
+    color_filter: bool,
+    named_session: Option<String>,
+    done: Arc<AtomicBool>,
+) {
+    let mut shown: Option<Navigation> = None;
+    loop {
+        if done.load(Ordering::Relaxed) {
+            return;
+        }
+        let resized = size.has_changed().unwrap_or(false);
+        let current = *size.borrow_and_update();
+        if let Some(nav) = navigation(&page).await {
+            let moved = shown.as_ref().map(|n| &n.url) != Some(&nav.url);
+            if resized || shown.as_ref() != Some(&nav) {
+                header(&current, &nav, color_filter);
+            }
+            if moved {
+                // The page moved, by a verb or by a link inside it; the
+                // restore tag follows it.
+                let url =
+                    (!nav.url.is_empty() && nav.url != "about:blank").then_some(nav.url.as_str());
+                announce_restore(named_session.as_deref(), color_filter, url);
+            }
+            shown = Some(nav);
+        }
+        tokio::time::sleep(NAVIGATION_POLL).await;
     }
 }
 
@@ -417,8 +578,10 @@ async fn current_url(session: &mut Session) -> Option<String> {
 pub async fn run(
     state_dir: &Path,
     session_name: &str,
+    named_session: bool,
     attach: Option<String>,
     goto: Option<String>,
+    color_filter: bool,
 ) -> i32 {
     let session = match attach {
         Some(endpoint) => Session::attach(state_dir, session_name, &endpoint).await,
@@ -457,6 +620,8 @@ pub async fn run(
     let _ = stdout.flush();
 
     let raw = RawMode::enter().ok();
+    tag_pane(true);
+    header(&size, &Navigation::default(), color_filter);
 
     status(
         &size,
@@ -486,9 +651,17 @@ pub async fn run(
         }
     };
 
-    // A restored pane is handed the page it was on. Read like `:goto`, so a
-    // bare host typed after `--goto` gets a scheme instead of a navigation
-    // the engine never answers.
+    let header_task = tokio::spawn(header_loop(
+        session.page().clone(),
+        size_rx.clone(),
+        color_filter,
+        named_session.then(|| session_name.to_string()),
+        Arc::clone(&done),
+    ));
+
+    // The page the pane was opened on (a restored pane is handed the one it
+    // was on). Read like `:goto`, so a bare host gets a scheme instead of a
+    // navigation the engine never answers.
     if let Some(url) = goto {
         let url = verbs::normalise_url(&url);
         match session.run(verbs::Verb::Goto { url }).await {
@@ -503,13 +676,12 @@ pub async fn run(
     if let Ok(Output::Line(url)) = session.run(verbs::Verb::Url).await {
         status(&size, &url);
     }
-    // Say how to come back — now, and after every verb (`run_line`).
-    let url = current_url(&mut session).await;
-    announce_restore(session_name, url.as_deref());
 
-    let code = read_loop(&mut session, size_rx, attached, session_name).await;
+    let code = read_loop(&mut session, size_rx, attached).await;
 
     done.store(true, Ordering::Relaxed);
+    header_task.abort();
+    tag_pane(false);
     resizes.abort();
     if let Some(drawer) = drawer {
         drawer.abort();
@@ -517,15 +689,13 @@ pub async fn run(
     session.close().await;
 
     drop(raw);
-    let mut stdout = std::io::stdout();
-    let _ = write!(
-        stdout,
-        "{}{}{}",
+    // The title goes back to tmux's own once the pane is a shell again.
+    write_out(&format!(
+        "\x1b]2;\x07{}{}{}",
         term::MOUSE_OFF,
         term::SHOW_CURSOR,
         term::ALT_SCREEN_OFF
-    );
-    let _ = stdout.flush();
+    ));
     code
 }
 
@@ -572,7 +742,7 @@ async fn draw_loop(
         let frame = frames.borrow_and_update().clone();
         let current = *size.borrow_and_update();
         if !frame.is_empty() {
-            let mut stdout = std::io::stdout();
+            let mut stdout = std::io::stdout().lock();
             let _ = stdout.write_all(&draw_frame(&frame, current));
             let _ = stdout.flush();
         }
@@ -667,7 +837,6 @@ async fn read_loop(
     session: &mut Session,
     mut sizes: tokio::sync::watch::Receiver<PaneSize>,
     attached: bool,
-    session_name: &str,
 ) -> i32 {
     let mut inputs = Inputs::start();
     let mut size = *sizes.borrow_and_update();
@@ -695,7 +864,7 @@ async fn read_loop(
         match input {
             Input::Key(key) if key.as_slice() == b"\x03" => return 0, // ctrl+c
             Input::Key(key) if key.as_slice() == b":" => {
-                match command_mode(session, size, &mut inputs, session_name).await {
+                match command_mode(session, size, &mut inputs).await {
                     CommandOutcome::Continue => {}
                     CommandOutcome::Quit => return 0,
                 }
@@ -732,7 +901,6 @@ async fn command_mode(
     session: &mut Session,
     size: PaneSize,
     inputs: &mut Inputs,
-    session_name: &str,
 ) -> CommandOutcome {
     let mut line = String::new();
     loop {
@@ -752,7 +920,7 @@ async fn command_mode(
                 status(&size, "");
                 return CommandOutcome::Continue;
             }
-            b"\r" | b"\n" => return run_line(session, size, &line, session_name).await,
+            b"\r" | b"\n" => return run_line(session, size, &line).await,
             b"\x7f" | b"\x08" => {
                 line.pop();
             }
@@ -768,12 +936,7 @@ async fn command_mode(
 }
 
 /// Run one verb line and show what it said.
-async fn run_line(
-    session: &mut Session,
-    size: PaneSize,
-    line: &str,
-    session_name: &str,
-) -> CommandOutcome {
+async fn run_line(session: &mut Session, size: PaneSize, line: &str) -> CommandOutcome {
     if matches!(line.trim(), "q" | "quit" | "exit") {
         return CommandOutcome::Quit;
     }
@@ -785,9 +948,6 @@ async fn run_line(
                 // back with `capture-pane` wants the answer, not a paragraph.
                 let first = text.lines().next().unwrap_or("").to_string();
                 status(&size, &first);
-                // The page may have moved; the restore tag follows it.
-                let url = current_url(session).await;
-                announce_restore(session_name, url.as_deref());
             }
             Err(error) => status(&size, &format!("error: {error}")),
         },
@@ -799,14 +959,10 @@ async fn run_line(
 
 /// Write the status row, leaving the picture alone.
 fn status(size: &PaneSize, text: &str) {
-    let mut stdout = std::io::stdout();
     let width = usize::from(size.cols);
     let shown: String = text.chars().take(width).collect();
-    // Move to the status row, clear it, write, and leave the cursor there —
-    // anywhere else and the next frame would anchor its picture in the wrong
-    // place.
-    let _ = write!(stdout, "\x1b[{};1H\x1b[2K{}", size.rows, shown);
-    let _ = stdout.flush();
+    // Move to the status row, clear it, write, and leave the cursor there.
+    write_out(&format!("\x1b[{};1H\x1b[2K{}", size.rows, shown));
 }
 
 /// Forward one key to the page.
@@ -876,8 +1032,8 @@ pub async fn forward_mouse(
     row: u16,
     pressed: bool,
 ) {
-    // The status row is tmuxy's, not the page's.
-    if row > size.image_rows() {
+    // The toolbar row and the status row are tmuxy's, not the page's.
+    if row < PICTURE_TOP || row >= PICTURE_TOP + size.image_rows() {
         return;
     }
     let (x, y) = cell_to_page(col, row, size);
@@ -931,8 +1087,12 @@ mod tests {
             cell_w: 8,
             cell_h: 16,
         };
-        assert_eq!(size.image_rows(), 23, "one row is kept for status");
-        assert_eq!(size.viewport(), (640, 368));
+        assert_eq!(
+            size.image_rows(),
+            22,
+            "a row each for the toolbar and status"
+        );
+        assert_eq!(size.viewport(), (640, 352));
     }
 
     /// A one-row pane would otherwise ask for a zero-height viewport, which
@@ -959,10 +1119,10 @@ mod tests {
         };
         let drawn = String::from_utf8(draw_frame(b"\xff\xd8\xff", size)).unwrap();
         assert!(
-            drawn.starts_with("\x1b[H"),
-            "the cursor must be home, or tmuxy anchors the picture somewhere new each time"
+            drawn.starts_with("\x1b[?25l\x1b[2;1H"),
+            "the cursor must be at the picture's corner, or tmuxy anchors the picture somewhere new each time"
         );
-        assert!(drawn.contains("width=10;height=4"), "{drawn}");
+        assert!(drawn.contains("width=10;height=3"), "{drawn}");
         assert!(drawn.ends_with('\x07'), "the OSC must be terminated");
         assert!(drawn.contains("inline=1"), "{drawn}");
         assert!(
@@ -1074,8 +1234,9 @@ mod tests {
             cell_w: 8,
             cell_h: 16,
         };
-        assert_eq!(cell_to_page(1, 1, size), (4.0, 8.0));
-        assert_eq!(cell_to_page(2, 3, size), (12.0, 40.0));
+        // Row 2 is the picture's first: row 1 is the toolbar's.
+        assert_eq!(cell_to_page(1, 2, size), (4.0, 8.0));
+        assert_eq!(cell_to_page(2, 4, size), (12.0, 40.0));
     }
 
     #[test]
@@ -1155,22 +1316,82 @@ mod tests {
     /// and it carries the page: that is what a snapshot hands back.
     #[test]
     fn the_restore_tag_is_handed_to_the_cli_with_the_page() {
-        let argv = restore_tag_args("%7", "notes", Some("https://example.com/a b"));
+        let argv = restore_tag_args("%7", Some("notes"), true, Some("https://example.com/a b"));
         assert_eq!(argv[0], "pane");
         assert_eq!(argv[1], "restore-cmd");
         assert_eq!(argv[3], "%7");
-        assert!(
-            argv[2].starts_with("tmuxy browser --repl --session 'notes'"),
-            "{}",
-            argv[2]
+        assert_eq!(
+            argv[2],
+            "tmuxy browser --session 'notes' --color-filter 'https://example.com/a b'"
         );
-        assert!(
-            argv[2].ends_with("--goto 'https://example.com/a b'"),
-            "{}",
-            argv[2]
+        let bare = restore_tag_args("%1", None, false, None);
+        assert_eq!(
+            bare[2], "tmuxy browser",
+            "a pane's own session is not carried over"
         );
-        let bare = restore_tag_args("%1", "x", None);
-        assert_eq!(bare[2], "tmuxy browser --repl --session 'x'");
+    }
+
+    /// The tag is what lets the app draw a toolbar over row 1; it is set and
+    /// cleared through the CLI (`run-shell`), never by pane output.
+    #[test]
+    fn the_live_tag_is_set_and_cleared_through_the_cli() {
+        assert_eq!(
+            widget_tag_args("%3", true),
+            [
+                "run",
+                "set-option",
+                "-p",
+                "-t",
+                "%3",
+                "@tmuxy-pane-widget",
+                "browser-live"
+            ]
+        );
+        assert_eq!(
+            widget_tag_args("%3", false),
+            [
+                "run",
+                "set-option",
+                "-p",
+                "-u",
+                "-t",
+                "%3",
+                "@tmuxy-pane-widget"
+            ]
+        );
+    }
+
+    /// The UI reads this row (`browserLiveHeader` in tmuxy-ui); the two must agree.
+    #[test]
+    fn the_toolbar_row_says_which_way_history_goes() {
+        let nav = Navigation {
+            url: "https://example.com/".into(),
+            can_go_back: true,
+            can_go_forward: false,
+        };
+        assert_eq!(header_line(&nav, false), "tmuxy:browser 100");
+        assert_eq!(header_line(&nav, true), "tmuxy:browser 101");
+        assert!(
+            header_line(&nav, true).len() < 20,
+            "short enough never to wrap into the picture"
+        );
+    }
+
+    /// A click on the toolbar or status row is the app's, not the page's.
+    #[test]
+    fn the_rows_around_the_picture_take_no_clicks_through_to_the_page() {
+        let size = PaneSize {
+            cols: 80,
+            rows: 10,
+            cell_w: 8,
+            cell_h: 16,
+        };
+        assert_eq!(size.image_rows(), 8);
+        assert_eq!(
+            PICTURE_TOP + size.image_rows(),
+            10,
+            "row 10 is the status row"
+        );
     }
 
     #[test]

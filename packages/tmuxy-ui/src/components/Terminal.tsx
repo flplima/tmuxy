@@ -70,6 +70,8 @@ interface TerminalProps {
   images?: ImagePlacement[];
   /** Pane tmux ID (e.g., "%0") for image URL construction */
   paneId?: PaneId;
+  /** A CSS `filter` for the pictures: a live browser's `--color-filter`. */
+  imageFilter?: string;
   /** Cursor shape from DECSCUSR (0-6) */
   cursorShape?: number;
   /** Whether the cursor is hidden (DECTCEM mode 25 off) */
@@ -145,6 +147,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   selectionStartY = 0,
   images,
   paneId,
+  imageFilter,
   cursorShape = 0,
   cursorHidden = false,
   selectable = false,
@@ -296,6 +299,7 @@ export const Terminal: React.FC<TerminalProps> = ({
                 // coordinates (a browser pane maps clicks through them), so it
                 // fills them rather than letterboxing inside them.
                 objectFit: img.stretch ? 'fill' : undefined,
+                filter: imageFilter,
               }}
             />
           ))}

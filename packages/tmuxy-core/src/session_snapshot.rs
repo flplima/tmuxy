@@ -1838,7 +1838,7 @@ mod tests {
                         active: true,
                         cwd: "/tmp".into(),
                         command: None,
-                        restore_command: Some("tmuxy browser --repl".into()),
+                        restore_command: Some("tmuxy browser".into()),
                         options: BTreeMap::new(),
                         scrollback: None,
                     }],
@@ -1942,7 +1942,7 @@ mod tests {
         let typed = joined(&plan(&fixture(), &RestoreOptions::default()));
         assert!(typed.contains(&"run: send-keys -t work:0.1 -l vim a".to_string()));
         assert!(
-            typed.contains(&"run: send-keys -t work:2.0 -l tmuxy browser --repl".to_string()),
+            typed.contains(&"run: send-keys -t work:2.0 -l tmuxy browser".to_string()),
             "the restore tag wins"
         );
         assert!(!typed.iter().any(|l| l.ends_with(" Enter")));
@@ -1983,13 +1983,11 @@ mod tests {
         let lines = joined(&plan(&snapshot, &RestoreOptions::default()));
         let i_tag = lines
             .iter()
-            .position(|l| {
-                l == "run: set-option -p -t work:2.0 @tmuxy-pane-restore tmuxy browser --repl"
-            })
+            .position(|l| l == "run: set-option -p -t work:2.0 @tmuxy-pane-restore tmuxy browser")
             .expect("the browser pane's word is written back");
         assert_eq!(
             lines[i_tag + 1],
-            "run: send-keys -t work:2.0 -l tmuxy browser --repl"
+            "run: send-keys -t work:2.0 -l tmuxy browser"
         );
         assert!(!lines.contains(&"run: send-keys -t work:2.0 Enter".to_string()));
         // A discovered command is not a tag: nothing is written for vim.

@@ -6,13 +6,12 @@
  * it is one terminal row tall and carries no chrome of its own, because the
  * pane it sits in is usually a third of a screen.
  *
- * What back and forward move through is the pane's OWN history — the places
- * this pane has been POINTED (its `__SRC__` marker, then whatever was typed
- * here). A link followed inside the page is invisible from out here: the frame
- * is a separate document, and for a website a separate origin, so neither its
- * current URL nor its history can be read. Showing the address anyway and
- * calling it the page's would be a lie the first time someone clicked a link;
- * this shows where the pane was aimed, which is a thing the app actually knows.
+ * Two browsers wear it. The file widget (`TmuxyBrowser`) moves through the
+ * places the pane has been POINTED — a framed document's own history cannot be
+ * read from out here. A website runs in a real engine (`tmuxy browser`), which
+ * reports its own address and history, so there the bar is the page's
+ * (`BrowserLiveBar`). The bar itself only shows and asks; what a button does is
+ * the caller's.
  *
  * The address is a real input: it holds what the user is typing (so a render
  * mid-edit does not snatch the text away) and falls back to the current URL
@@ -24,20 +23,32 @@ import { memo, useRef, useState } from 'react';
 import { useAppSend } from '../../../machines/AppContext';
 import { isOpenableUrl } from '../../../utils/openUrl';
 import { Tooltip } from '../../Tooltip';
-import type { BrowserView } from './view';
-import type { PaneId } from '../../../domain/ids';
 
 interface BrowserNavProps {
-  paneId: PaneId;
-  view: BrowserView;
+  url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onHistory: (delta: -1 | 1) => void;
+  onReload: () => void;
+  /** An address typed into the bar and submitted. */
+  onNavigate: (url: string) => void;
+  /** A viewer that cannot drive the pane sees the address, not the controls. */
+  readOnly?: boolean;
 }
 
 /** nf-fa-external_link — the way out to the system browser. */
 const EXTERNAL_ICON = '';
 
-export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavProps) {
+export const BrowserNav = memo(function BrowserNav({
+  url,
+  canGoBack,
+  canGoForward,
+  onHistory,
+  onReload,
+  onNavigate,
+  readOnly = false,
+}: BrowserNavProps) {
   const send = useAppSend();
-  const { url, source } = view;
   const [draft, setDraft] = useState(url);
   const inputRef = useRef<HTMLInputElement>(null);
   // Follow the pane when the page changes under the bar, but never while the
@@ -50,8 +61,6 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
 
   const canOpenExternally = isOpenableUrl(url);
 
-  const go = (delta: -1 | 1) => send({ type: 'BROWSER_HISTORY', paneId, source, delta });
-
   return (
     <div className="browser-nav" data-testid="browser-nav">
       <Tooltip label="Back">
@@ -60,8 +69,8 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
           className="browser-nav-button"
           data-testid="browser-nav-back"
           aria-label="Back"
-          disabled={!view.canGoBack}
-          onClick={() => go(-1)}
+          disabled={readOnly || !canGoBack}
+          onClick={() => onHistory(-1)}
         >
           ‹
         </button>
@@ -72,8 +81,8 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
           className="browser-nav-button"
           data-testid="browser-nav-forward"
           aria-label="Forward"
-          disabled={!view.canGoForward}
-          onClick={() => go(1)}
+          disabled={readOnly || !canGoForward}
+          onClick={() => onHistory(1)}
         >
           ›
         </button>
@@ -84,7 +93,8 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
           className="browser-nav-button"
           data-testid="browser-nav-reload"
           aria-label="Refresh"
-          onClick={() => send({ type: 'BROWSER_RELOAD', paneId, source })}
+          disabled={readOnly}
+          onClick={onReload}
         >
           ⟳
         </button>
@@ -93,7 +103,7 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
         className="browser-nav-address"
         onSubmit={(e) => {
           e.preventDefault();
-          send({ type: 'BROWSER_NAVIGATE', paneId, source, url: draft });
+          if (!readOnly) onNavigate(draft);
           inputRef.current?.blur();
         }}
       >
@@ -103,6 +113,7 @@ export const BrowserNav = memo(function BrowserNav({ paneId, view }: BrowserNavP
           data-testid="browser-nav-input"
           type="text"
           value={draft}
+          readOnly={readOnly}
           aria-label="Address"
           spellCheck={false}
           autoComplete="off"

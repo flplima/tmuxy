@@ -303,7 +303,7 @@ fn parse_geometry(line: &str) -> Result<(u32, u32), String> {
 /// A pane used to accumulate images forever: the store is only swept when the
 /// PANE goes away, and nothing retires an image whose placement was replaced.
 /// That was survivable while an image meant a picture someone `icat`ed, and is
-/// not survivable now that `tmuxy browser --repl` draws a JPEG of the page
+/// not survivable now that `tmuxy browser` draws a JPEG of the page
 /// several times a second — the same anchor, a new image id each time, so the
 /// placements stay at one while the bytes behind them grow without limit.
 ///
@@ -773,7 +773,7 @@ bind-key    -T prefix \\% send-keys %";
 
     /// A pane that keeps producing frames must not grow without limit.
     ///
-    /// The frame case is the one that bit: `browser --repl` draws at the same
+    /// The frame case is the one that bit: `tmuxy browser` draws at the same
     /// anchor, so the PLACEMENTS stay at one while every frame adds a new
     /// image id — and the store is otherwise only swept when the pane goes
     /// away. The desktop app kept every frame until it was relaunched.
