@@ -28,6 +28,10 @@ const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 /// How often `wait` re-asks. Cheap — one evaluate per tick.
 const WAIT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// A property `goto` sets on the document it is leaving, so that it can tell
+/// that document from the one it asked for.
+const NAV_MARK: &str = "__tmuxyLeaving";
+
 /// How the page is encoded for the pane.
 ///
 /// JPEG rather than PNG: a frame is replaced within a tenth of a second and
@@ -36,6 +40,9 @@ const WAIT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 /// mode stream as keystroke echo, so size here is latency there.
 /// How long to wait for a closing browser to actually be gone.
 const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long an attached browser's existing tab may take to become drivable.
+const ATTACH_TAB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 const FRAME_QUALITY: i64 = 60;
 /// A cap on the encoded frame, independent of the viewport.
@@ -214,7 +221,7 @@ impl Session {
     }
 
     async fn from_browser(
-        browser: Browser,
+        mut browser: Browser,
         mut handler: chromiumoxide::handler::Handler,
         state_dir: &Path,
         name: &str,
@@ -228,15 +235,21 @@ impl Session {
         // Reuse the page the browser already has rather than opening a second
         // tab — a pane shows one page, and an attached browser's existing tab is
         // the one the user is looking at.
-        let page = match browser.pages().await {
-            Ok(pages) => match pages.into_iter().next() {
-                Some(page) => page,
-                None => browser
-                    .new_page("about:blank")
-                    .await
-                    .map_err(|e| SessionError::Launch(e.to_string()))?,
-            },
-            Err(e) => return Err(SessionError::Launch(e.to_string())),
+        let existing = match attachment {
+            Attachment::Attached => existing_tab(&mut browser).await?,
+            Attachment::Launched => browser
+                .pages()
+                .await
+                .map_err(|e| SessionError::Launch(e.to_string()))?
+                .into_iter()
+                .next(),
+        };
+        let page = match existing {
+            Some(page) => page,
+            None => browser
+                .new_page("about:blank")
+                .await
+                .map_err(|e| SessionError::Launch(e.to_string()))?,
         };
 
         let (frames, _) = watch::channel(Arc::new(Vec::new()));
@@ -305,18 +318,45 @@ impl Session {
     /// normal case, and "I asked for X and got Y" is the most useful thing to
     /// know after a navigation.
     async fn goto(&mut self, url: &str) -> Result<Output, SessionError> {
-        self.page
-            .goto(NavigateParams::new(url.to_string()))
-            .await
-            .map_err(|e| SessionError::Engine(e.to_string()))?;
+        match self.attachment {
+            Attachment::Launched => {
+                self.page
+                    .goto(NavigateParams::new(url.to_string()))
+                    .await
+                    .map_err(|e| SessionError::Engine(e.to_string()))?;
+            }
+            // chromiumoxide answers `Page.navigate` only once the frame events
+            // of a tab it set up itself arrive, and a tab that was already open
+            // in an attached browser never delivers them: every attached `goto`
+            // timed out after the page had in fact loaded. The page navigates
+            // itself instead, and the old document is marked first so the wait
+            // below can tell it from the new one.
+            Attachment::Attached => {
+                let target =
+                    serde_json::to_string(url).map_err(|e| SessionError::Engine(e.to_string()))?;
+                self.eval(&format!(
+                    "window.{NAV_MARK} = true; location.assign({target})"
+                ))
+                .await?;
+            }
+        }
         // Settling on `document.readyState` rather than a load event: the event
         // may have fired before this call got here, and a wait for an event
-        // that already happened never returns.
+        // that already happened never returns. A same-document navigation (a
+        // `#fragment`) keeps the document and its mark, and is done once the
+        // address is the one asked for.
+        let target = serde_json::to_string(url).map_err(|e| SessionError::Engine(e.to_string()))?;
+        let settled = format!(
+            "document.readyState !== 'loading' && (!window.{NAV_MARK} || location.href === {target})"
+        );
         let deadline = std::time::Instant::now() + WAIT_TIMEOUT;
         while std::time::Instant::now() < deadline {
-            let state = self.eval("document.readyState").await?;
-            if matches!(state.as_str(), Some("complete") | Some("interactive")) {
-                break;
+            // A document being swapped out can fail to answer; that is the
+            // navigation still happening, not an error.
+            if let Ok(value) = self.eval(&settled).await {
+                if value.as_bool() == Some(true) {
+                    break;
+                }
             }
             tokio::time::sleep(WAIT_POLL).await;
         }
@@ -699,9 +739,67 @@ fn base64_decode(encoded: &str) -> Option<Vec<u8>> {
         .ok()
 }
 
+/// The tab an attached browser is already showing, once it can be driven.
+///
+/// A browser reached by `Browser::connect` reports no pages: chromiumoxide only
+/// knows the targets it was told about, and the tabs that were open before it
+/// connected were never announced. Asking for the targets attaches to them, and
+/// a tab becomes a page when that attach is acknowledged — so it is polled for
+/// rather than read once. Without this every `--attach` run opened a fresh
+/// blank tab in the user's browser and drove that one instead.
+async fn existing_tab(browser: &mut Browser) -> Result<Option<Page>, SessionError> {
+    let targets = browser
+        .fetch_targets()
+        .await
+        .map_err(|e| SessionError::Launch(e.to_string()))?;
+    // Chrome lists the most recently used tab first.
+    let Some(tab) = targets.into_iter().find(|t| is_user_tab(&t.r#type, &t.url)) else {
+        return Ok(None);
+    };
+    let deadline = tokio::time::Instant::now() + ATTACH_TAB_TIMEOUT;
+    loop {
+        if let Ok(page) = browser.get_page(tab.target_id.clone()).await {
+            return Ok(Some(page));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(SessionError::Launch(format!(
+                "the open tab ({}) never became drivable",
+                tab.url
+            )));
+        }
+        tokio::time::sleep(WAIT_POLL).await;
+    }
+}
+
+/// A tab the user browses in, as opposed to DevTools, an extension's
+/// background page or a service worker.
+fn is_user_tab(kind: &str, url: &str) -> bool {
+    kind == "page" && !url.starts_with("devtools://") && !url.starts_with("chrome-extension://")
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+
+    /// `--attach` drives the tab the user browses in, never DevTools or an
+    /// extension's page that a browser also lists as a target.
+    #[test]
+    fn an_attached_browser_is_driven_through_a_browsing_tab() {
+        assert!(super::is_user_tab("page", "https://example.com/"));
+        assert!(super::is_user_tab("page", "about:blank"));
+        assert!(!super::is_user_tab(
+            "page",
+            "devtools://devtools/bundled/inspector.html"
+        ));
+        assert!(!super::is_user_tab(
+            "page",
+            "chrome-extension://abc/popup.html"
+        ));
+        assert!(!super::is_user_tab(
+            "service_worker",
+            "https://example.com/sw.js"
+        ));
+    }
 
     /// The two ways Chromium says an evaluate named a context a navigation
     /// just replaced; anything else is the page's own answer or a real error.
