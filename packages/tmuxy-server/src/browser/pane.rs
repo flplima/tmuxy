@@ -350,6 +350,16 @@ enum ButtonMeaning {
 /// How far one wheel notch scrolls the page.
 const WHEEL_STEP: f64 = 120.0;
 
+/// CDP's `deltaY` has the DOM's sign: positive scrolls the page DOWN, the way
+/// a wheel turned towards you does. Wheel up is therefore negative.
+fn wheel_delta_y(up: bool) -> f64 {
+    if up {
+        -WHEEL_STEP
+    } else {
+        WHEEL_STEP
+    }
+}
+
 /// Run a browser pane until the user leaves it.
 /// How to bring this pane back, as the `tmuxy` CLI is told it
 /// (`tmuxy pane restore-cmd '<line>' <pane>` → `@tmuxy-pane-restore`, see
@@ -868,10 +878,8 @@ pub async fn forward_mouse(
             .r#type(DispatchMouseEventType::MouseWheel)
             .x(x)
             .y(y)
-            // CDP's deltaY is the distance the CONTENT moves, which is the
-            // opposite sign from "the wheel went up".
             .delta_x(0.0)
-            .delta_y(if up { WHEEL_STEP } else { -WHEEL_STEP })
+            .delta_y(wheel_delta_y(up))
             .build(),
         ButtonMeaning::Button { button, dragging } => DispatchMouseEventParams::builder()
             .r#type(if dragging {
@@ -1084,6 +1092,14 @@ mod tests {
         assert_eq!(decode_button(64), ButtonMeaning::Wheel { up: true });
         assert_eq!(decode_button(65), ButtonMeaning::Wheel { up: false });
         assert_eq!(decode_button(3), ButtonMeaning::Release);
+    }
+
+    /// Wheel up scrolled the page DOWN: the sign was inverted against CDP,
+    /// whose `deltaY` follows the DOM (positive = towards the bottom).
+    #[test]
+    fn wheel_up_scrolls_towards_the_top() {
+        assert!(wheel_delta_y(true) < 0.0);
+        assert!(wheel_delta_y(false) > 0.0);
     }
 
     /// `text` present means the key TYPES. Sending it for a named key inserts
