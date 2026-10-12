@@ -285,9 +285,12 @@ describe('Scenario 32: Session snapshots', () => {
           },
         )}\nserver: ${srv.serverLog()}`,
     );
+    // Read as the user reads it: the pane is half the width beside its split,
+    // so the prompt and the offered line can wrap across rows.
     const offered = srv.cli(['pane', 'capture', '%0']);
-    expect(offered).toContain('echo restored-ok');
-    expect(offered).not.toContain('restored-ok\n');
+    expect(offered.replace(/\n/g, '')).toContain('echo restored-ok');
+    // Typed, not run: the command's own output would be a row of its own.
+    expect(offered.split('\n').map((row) => row.trim())).not.toContain('restored-ok');
 
     // 7. An exited session with a snapshot is offered in the session menu,
     //    opened from the status line with the tree sidebar closed (the menu
