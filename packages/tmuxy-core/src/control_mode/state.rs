@@ -779,7 +779,7 @@ impl PaneState {
             // SIGWINCH. This also subsumes the original %layout-change case the
             // replay was added for (content is reflowed, never lost).
             self.terminal.screen_mut().set_size(h, w);
-            self.image_parser.reset();
+            self.image_parser.reset_for_resize();
             // Drop stale hyperlink cell mappings (reflowed coordinates no longer
             // match) and realign the scroll compensation to the new height.
             self.osc_parser.reset();
@@ -3517,6 +3517,33 @@ impl Default for StateAggregator {
 
 #[cfg(test)]
 mod tests {
+
+    /// A program that redraws on SIGWINCH (`tmuxy browser --repl`) is in the
+    /// middle of writing a frame when the resize reaches the pane. Dropping the
+    /// half already read left vt100 printing the rest of the base64 as text,
+    /// over the rows the picture was meant to cover.
+    #[test]
+    fn a_resize_mid_frame_does_not_spill_the_frame_as_text() {
+        let mut pane = PaneState::new(pid("%1"), 40, 10);
+        pane.process_output(b"\x1b]1337;File=inline=1;width=20;height=5:iVBORw0K");
+        pane.resize(30, 10);
+        pane.process_output(b"GgoAAAANSUhEUg==\x07");
+
+        let content = pane.get_content();
+        let text: String = content
+            .iter()
+            .flat_map(|row| row.iter().map(|c| c.char.clone()))
+            .collect();
+        assert!(
+            !text.contains("GgoAAAANSUhEUg"),
+            "the frame's tail reached the grid as text: {text:?}"
+        );
+        assert_eq!(
+            pane.image_parser.placements.len(),
+            1,
+            "the frame was placed"
+        );
+    }
 
     /// SEC-11. A viewer's scroll used to cost three in-band control-mode
     /// queries on the writer's own connection. An observer's panes keep the

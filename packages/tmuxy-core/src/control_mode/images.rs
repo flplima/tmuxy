@@ -203,6 +203,16 @@ impl ImageParser {
         self.cursor_col = 0;
     }
 
+    /// Reset for a pane resize: retire the placements (their cells were just
+    /// reflowed) but KEEP the transfer in flight. The bytes still to come are
+    /// the rest of an escape the application already started writing; a
+    /// program that redraws on SIGWINCH is mid-frame at exactly this moment,
+    /// and dropping the head made vt100 print the remaining base64 as text.
+    pub fn reset_for_resize(&mut self) {
+        self.placements.clear();
+        self.main_screen_placements = None;
+    }
+
     pub fn update_cursor(&mut self, row: u16, col: u16) {
         self.cursor_row = row;
         self.cursor_col = col;
