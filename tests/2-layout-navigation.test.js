@@ -3953,8 +3953,8 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
     if (!(await treeOpen())) await sendPrefixCommand(ctx.page, 't');
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
-    // A state mark wherever it is drawn: the tree row, the tab, the pane's
-    // header tab. Idle draws nothing (the tree keeps an empty box in line).
+    // A state mark wherever it is drawn: the tree row and the pane's header
+    // (in the icon's place), and the tab (in its number's). Idle draws none.
     const mark = (selector) =>
       ctx.page.evaluate((sel) => {
         const el = document.querySelector(sel);
@@ -3975,7 +3975,9 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
         ctx.page,
         async () => {
           const now = await mark(selector);
-          if (!now || now.state !== expected.state) return false;
+          // An idle pane row draws no mark at all — its process icon is back.
+          if (!now) return expected.state === null && expected.text === undefined;
+          if (now.state !== expected.state) return false;
           if (expected.state && !now.visible) return false;
           if (expected.text instanceof RegExp) return expected.text.test(now.text);
           return expected.text === undefined || now.text === expected.text;
@@ -4015,7 +4017,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       10000,
       'the agent’s pane to be active again',
     );
-    await waitForMark(rowMark, { state: null, text: '' }, 'the tree row');
+    await waitForMark(rowMark, { state: null }, 'the tree row');
     await waitForMark(tabMark, { state: null, text: '➊' }, 'the tab');
   }, 120000);
 });

@@ -82,13 +82,6 @@ type Row =
   | { kind: 'tab'; window: TmuxWindow; position: number; collapsed: boolean }
   | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean };
 
-/**
- * The box-drawing connector a pane row is drawn with. The tree reads as a TUI
- * tree rather than an indented list, so a pane's depth comes from the glyph and
- * every row keeps the same padding.
- */
-const connector = (last: boolean) => (last ? '└─ ' : '├─ ');
-
 /** An open right-click menu targeting a tree row, positioned at the cursor. */
 type MenuState =
   | { kind: 'pane'; paneId: PaneId; x: number; y: number }
@@ -105,6 +98,12 @@ function rowLevel(r: Row): number {
 
 /** Optimistic placeholder panes have no identity worth a row; they resolve within a round trip. */
 const isPlaceholderPane = (p: TmuxPane) => isPlaceholderId(p.tmuxId);
+
+/** A pane's cwd as its row shows it: with the trailing slash of a directory. */
+function displayCwd(cwd: string | undefined): string {
+  if (!cwd) return '';
+  return cwd.endsWith('/') ? cwd : `${cwd}/`;
+}
 
 /** Stable identity per row, used to preserve the keyboard cursor across refreshes. */
 function rowKey(r: Row): string {
@@ -132,18 +131,20 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // none — and it is read for THIS session alone, the one the tree draws.
   const git = useMemo(() => {
     const byPane = new Map<PaneId, PaneGitContext>();
+    const cwdByPane = new Map<PaneId, string>();
     const panesByWindow = new Map<WindowId, PaneId[]>();
     for (const s of sessions.filter((s) => s.sessionName === sessionName)) {
       for (const p of s.panes) {
         const ids = panesByWindow.get(p.windowId) ?? [];
         ids.push(p.id);
         panesByWindow.set(p.windowId, ids);
+        if (p.cwd) cwdByPane.set(p.id, p.cwd);
         if (repositories.length === 0) continue;
         const context = findPaneGitContext(p.cwd, repositories);
         if (context) byPane.set(p.id, context);
       }
     }
-    return { byPane, panesByWindow };
+    return { byPane, cwdByPane, panesByWindow };
   }, [sessions, sessionName, repositories]);
 
   const branchOf = useCallback(
@@ -189,28 +190,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     });
     return out;
   }, [windows, panes, collapsed]);
-
-  // Which pane rows draw a branch. Repeating one worktree down every row of a
-  // tab is what made the old tree unreadable, so a pane shows its branch only
-  // when it differs from the pane above it in the same tab — the first pane of
-  // each tab always shows one, since the tab row itself no longer carries it.
-  const branchRows = useMemo(() => {
-    const show = new Set<string>();
-    let currentWindow: string | null = null;
-    let previous: string | null = null;
-    for (const row of rows) {
-      if (row.kind === 'tab') {
-        currentWindow = row.window.id;
-        previous = null;
-        continue;
-      }
-      if (row.kind !== 'pane' || row.window.id !== currentWindow) continue;
-      const branch = branchOf([row.pane.tmuxId])?.text ?? null;
-      if (branch && branch !== previous) show.add(row.pane.tmuxId);
-      previous = branch;
-    }
-    return show;
-  }, [rows, branchOf]);
 
   // Keyboard selection cursor, kept on a stable row identity across refreshes.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -419,6 +398,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           const isDropTarget = dropWindowId === row.window.id && dragPaneId !== null;
           const summary = tabSummaries.get(row.window.id);
           const { icon: tabMark, label } = tabIcon(row.window.name, row.position);
+          const tabState = !summary || summary.state === 'working' ? 'idle' : summary.state;
           return (
             <div
               key={`w${key}`}
@@ -491,27 +471,28 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               ) : (
                 <span className="sidebar-tree-label">
                   <span className="sidebar-tree-name">
-                    <span className="sidebar-tree-tab-icon" aria-hidden="true">
-                      {tabMark}
-                    </span>
+                    {/* The tab strip's icon — or, in its place, what wants the
+                        user. Work in progress shows on the pane rows, not twice. */}
+                    {tabState === 'idle' ? (
+                      <span className="sidebar-tree-tab-icon" aria-hidden="true">
+                        {tabMark}
+                      </span>
+                    ) : (
+                      <PaneStateMark
+                        state={tabState}
+                        className="sidebar-tree-tab-icon sidebar-tree-state"
+                      />
+                    )}
                     {label}
                   </span>
                 </span>
               )}
-              {summary && summary.count > 0 && (
+              {row.collapsed && summary && summary.count > 0 && (
                 <span className="sidebar-tree-count" aria-hidden="true">
                   {summary.count}
                 </span>
               )}
-              {/* A tab row says what wants the user; work in progress shows on
-                  its pane rows, not twice. */}
-              {summary && (
-                <PaneStateMark
-                  state={summary.state === 'working' ? 'idle' : summary.state}
-                  className="sidebar-tree-state"
-                  keepSpace
-                />
-              )}
+              <span className="sidebar-tree-id">{row.window.id}</span>
             </div>
           );
         }
@@ -520,6 +501,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         const { process, title } = paneRowLines(row.pane);
         const icon = getTabIcon(row.pane);
         const state = paneStateFor(row.pane, unreadPaneIds.includes(row.pane.tmuxId));
+        const cwd = displayCwd(git.cwdByPane.get(row.pane.tmuxId));
+        const branch = branchOf([row.pane.tmuxId]);
         return (
           <div
             key={`p${key}`}
@@ -554,36 +537,45 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             {/* Where the keyboard is. The left edge answers that; the right
                 edge answers what the pane is doing. */}
             <span className="sidebar-tree-rail" aria-hidden="true" />
-            <span className="sidebar-tree-branch" aria-hidden="true">
-              {connector(row.last)}
-            </span>
-            {row.pane.marked && (
-              <Tooltip label="Marked pane">
-                <span className="sidebar-tree-mark" aria-label="Marked pane">
-                  ⚑
-                </span>
-              </Tooltip>
-            )}
-            {icon && (
-              <span className="sidebar-tree-icon" aria-hidden="true">
-                {icon}
-              </span>
-            )}
-            {/* Two lines: what the pane IS on the first, what it is SHOWING on
-                the second. The id leads the first line, dim — it is what tells
-                two panes running the same program apart, the common case (two
-                shells in a tab) — and the state indicator closes it. The title
-                gets its own line because it is the half that routinely outgrows
-                a 30-column column; a pane with nothing to add draws one line. */}
+            <span
+              className={`sidebar-tree-branch${row.last ? ' is-last' : ''}`}
+              aria-hidden="true"
+            />
+            {/* Up to three lines. What the pane IS: its icon (or, in its place,
+                what it is doing — as on its header), the process, and its id on
+                the right. WHERE it is: the cwd, cut from the left so the end of
+                the path survives, and the branch. What it is SHOWING: the
+                program's own title, with the whole width to itself — an agent's
+                runs long. */}
             <span className="sidebar-tree-label">
               <span className="sidebar-tree-line">
-                <span className="sidebar-tree-id">{row.pane.tmuxId}</span>{' '}
+                {row.pane.marked && (
+                  <Tooltip label="Marked pane">
+                    <span className="sidebar-tree-mark" aria-label="Marked pane">
+                      ⚑
+                    </span>
+                  </Tooltip>
+                )}
+                {state !== 'idle' ? (
+                  <PaneStateMark state={state} className="sidebar-tree-icon sidebar-tree-state" />
+                ) : (
+                  icon && (
+                    <span className="sidebar-tree-icon" aria-hidden="true">
+                      {icon}
+                    </span>
+                  )
+                )}
                 <span className="sidebar-tree-name">{process}</span>
+                <span className="sidebar-tree-id">{row.pane.tmuxId}</span>
               </span>
+              {(cwd || branch) && (
+                <span className="sidebar-tree-where">
+                  <span className="sidebar-tree-cwd">{cwd && `\u200e${cwd}\u200e`}</span>
+                  {badgeSpan(branch)}
+                </span>
+              )}
               {title && <span className="sidebar-tree-title">{title}</span>}
             </span>
-            {branchRows.has(row.pane.tmuxId) && badgeSpan(branchOf([row.pane.tmuxId]))}
-            <PaneStateMark state={state} className="sidebar-tree-state" keepSpace />
           </div>
         );
       })}

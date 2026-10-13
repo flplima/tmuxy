@@ -2466,31 +2466,21 @@
 
 /* Panes recede under their tab, so scanning the tree reads tab names first.
 
-   A pane row is TWO lines: `%id process` with the state indicator, then the
-   pane's title. They answer different questions and truncate at different
-   rates — a process name is short and stable, a title is a path or a command
-   with its arguments and is the one thing in the tree that routinely outgrows
-   a 30-column column. Sharing one line, the title pushed the indicator around
-   and was the half that got cut. A pane with no title of its own draws one
-   line, so a column of plain shells stays compact.
-
-   The row is therefore top-aligned and free to grow: everything that belongs
-   to the first line (connector, icon, indicator) pins itself to the top, and
-   `height` gives way to a minimum. */
+   A pane row is up to three lines — what it is (icon, process, id), where it
+   is (cwd, branch), what it is showing (its title) — because they truncate at
+   different rates, and the title is the one thing in the tree that routinely
+   outgrows a 30-column column. A line with nothing to say is not drawn, so a
+   column of plain shells stays compact. The row is top-aligned and free to
+   grow: `height` gives way to a minimum. */
 .sidebar-tree-pane {
+  position: relative;
   align-items: flex-start;
   height: auto;
   min-height: var(--line-height-terminal);
   color: var(--text-dimmed);
-}
-
-/* Beside the label column, not beside whichever line happens to be taller. */
-.sidebar-tree-pane > .sidebar-tree-branch,
-.sidebar-tree-pane > .sidebar-tree-icon,
-.sidebar-tree-pane > .sidebar-tree-mark,
-.sidebar-tree-pane > .sidebar-tree-state,
-.sidebar-tree-pane > .sidebar-tree-git {
-  align-self: flex-start;
+  /* A pane's second and third lines sit closer than rows do: they belong to
+     the line above them, not to the next pane. */
+  --tree-sub-line: calc(var(--line-height-terminal) * 0.78);
 }
 
 /* The label column: the two lines stack, and each truncates on its own. */
@@ -2500,35 +2490,94 @@
   align-items: stretch;
 }
 
-.sidebar-tree-line,
+/* The first line: icon, process (cut first), and the id held at the right. */
+.sidebar-tree-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  line-height: var(--line-height-terminal);
+}
+
+.sidebar-tree-line > .sidebar-tree-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Where the pane is: its cwd, cut from the LEFT so the end of the path is what
+   survives (`…/projects/tmuxy/`), and its branch held at the right. The path
+   is set right-to-left only so the ellipsis lands at its start; the marks
+   around the text keep its slashes in order. */
+.sidebar-tree-where {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  line-height: var(--tree-sub-line);
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.sidebar-tree-cwd {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* What the pane is showing — an agent's title runs long — with the whole
+   width to itself. */
 .sidebar-tree-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: var(--line-height-terminal);
-}
-
-/* The title is the quieter line — what the pane is showing, under what it is.
-   Slightly smaller so two lines cost less than two rows' worth of height. */
-.sidebar-tree-title {
-  font-size: 0.9em;
+  line-height: var(--tree-sub-line);
+  font-size: 0.85em;
   opacity: 0.7;
 }
 
-/* Every child gets the row's own line box. Left to `line-height: normal` a
-   label has no metric anything can reason about — `getComputedStyle` reports
-   the string "normal" rather than a length — and the row's text no longer sits
-   on the same baseline as the connector and the state indicator beside it. */
-.sidebar-tree-pane > * {
-  line-height: var(--line-height-terminal);
-}
-
-/* The box-drawing connector — quieter than the label it points at. */
+/* The connector, drawn rather than typed: a box-drawing glyph only joins its
+   neighbours when every row is exactly one line, and a pane row is up to
+   three. A vertical line down the whole row (to the first line's middle on the
+   last pane) and a stub across to the icon, both from the column under the
+   tab's chevron, so the lines run unbroken from the tab to its last pane. */
 .sidebar-tree-branch {
-  flex: 0 0 auto;
+  position: relative;
+  flex: 0 0 1.1em;
+  align-self: stretch;
+  margin-right: 0.3em;
   color: var(--text-dimmed);
   opacity: 0.55;
-  white-space: pre;
+}
+
+.sidebar-tree-branch::before,
+.sidebar-tree-branch::after {
+  content: '';
+  position: absolute;
+  left: 0.35em;
+  border-color: currentColor;
+  border-style: solid;
+  border-width: 0;
+}
+
+.sidebar-tree-branch::before {
+  top: 0;
+  bottom: 0;
+  border-left-width: 1px;
+}
+
+.sidebar-tree-branch.is-last::before {
+  bottom: auto;
+  height: calc(var(--line-height-terminal) / 2);
+}
+
+.sidebar-tree-branch::after {
+  top: calc(var(--line-height-terminal) / 2);
+  right: 0;
+  border-top-width: 1px;
 }
 
 .sidebar-tree-tab:hover,
@@ -2560,9 +2609,15 @@
   background: var(--accent-green);
 }
 
-/* The pane id, ahead of the name and quieter than it: it is the tiebreak
-   between two panes running the same program, not something to read first. */
+/* A tab's window id and a pane's id, held at the right edge and quieter than
+   the name: the handle a script or `tmuxy` command takes, not something to
+   read first. */
 .sidebar-tree-id {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: var(--spacing-sm);
+  font-size: 0.85em;
+  font-weight: normal;
   opacity: 0.55;
 }
 
@@ -2599,16 +2654,12 @@
   opacity: 0.6;
 }
 
-/* The state indicator, pinned at the right edge. One cell wide so every row's
-   indicator lines up whatever its label did. */
+/* A state mark in an icon's place (a tab row's or a pane row's): the same
+   box, so nothing shifts when a pane starts or stops working. */
 .sidebar-tree-state {
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.1em;
-  margin-left: var(--spacing-sm);
-  line-height: 1;
 }
 
 /* A tab row's icon: the tab strip's (emoji, else circled position), a size up
@@ -2647,6 +2698,7 @@
 
 .sidebar-tree-icon {
   flex: 0 0 auto;
+  min-width: 1em;
   padding-right: var(--spacing-md);
   font-family: var(--font-mono);
   opacity: 0.85;
