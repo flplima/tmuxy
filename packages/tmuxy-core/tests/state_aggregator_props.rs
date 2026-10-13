@@ -74,9 +74,10 @@ fn response(output: &str) -> ControlModeEvent {
     }
 }
 
-/// A pane the aggregator knows (`%0`, `%1`, `%2` in window `@0`), the window
-/// active with `%0` focused — what an attached monitor has after its initial
-/// sync, and what the output, clipboard, pause and refresh paths all gate on.
+/// A pane the aggregator knows (`%0`, `%1`, `%2` in window `@0`, `%2` in copy
+/// mode), the window active with `%0` focused — what an attached monitor has
+/// after its initial sync, and what the output, clipboard, image, paste
+/// buffer, pause and refresh paths all gate on.
 fn seeded_aggregator() -> StateAggregator {
     let mut agg = StateAggregator::new();
     agg.step(ControlModeEvent::WindowAdd {
@@ -85,7 +86,7 @@ fn seeded_aggregator() -> StateAggregator {
     agg.step(response(
         "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
          %1,1,0,13,80,11,0,0,0,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
-         %2,2,40,13,40,11,0,0,0,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,",
+         %2,2,40,13,40,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,",
     ));
     agg.step(ControlModeEvent::SessionWindowChanged {
         session_id: "$0".to_string(),
@@ -131,7 +132,29 @@ fn seam_event_strategy() -> impl Strategy<Value = Vec<ControlModeEvent>> {
         1 => known_pane().prop_map(|p| vec![ControlModeEvent::Continue {
             pane_id: p.parse().unwrap(),
         }]),
+        1 => known_pane().prop_map(|p| vec![ControlModeEvent::Output {
+            pane_id: p.parse().unwrap(),
+            content: b"\x1b]1337;File=inline=1;width=10;height=5:iVBORw0KGgo=\x07".to_vec(),
+        }]),
+        1 => Just(vec![ControlModeEvent::PasteBufferChanged {
+            buffer_name: "buffer0".to_string(),
+        }]),
     ]
+}
+
+/// The effect's variant, for the coverage check.
+fn effect_kind(effect: &SideEffect) -> &'static str {
+    match effect {
+        SideEffect::AdoptUntaggedWindows(_) => "AdoptUntaggedWindows",
+        SideEffect::StoreImages { .. } => "StoreImages",
+        SideEffect::WriteClipboard { .. } => "WriteClipboard",
+        SideEffect::SendTmuxCommand(_) => "SendTmuxCommand",
+        SideEffect::CommandReply { .. } => "CommandReply",
+        SideEffect::RefreshAfterWindowAdd => "RefreshAfterWindowAdd",
+        SideEffect::RefreshPanes { .. } => "RefreshPanes",
+        SideEffect::ResumePane(_) => "ResumePane",
+        SideEffect::EmitState { .. } => "EmitState",
+    }
 }
 
 /// Where an effect sits in the order A1 documents.
@@ -172,18 +195,32 @@ fn the_seam_events_reach_every_effect_of_a1() {
         ControlModeEvent::Pause {
             pane_id: "%2".parse().unwrap(),
         },
+        ControlModeEvent::Output {
+            pane_id: "%1".parse().unwrap(),
+            content: b"\x1b]1337;File=inline=1;width=10;height=5:iVBORw0KGgo=\x07".to_vec(),
+        },
+        ControlModeEvent::PasteBufferChanged {
+            buffer_name: "buffer0".to_string(),
+        },
     ];
     let mut seen = HashSet::new();
     for ev in script {
         for effect in agg.step(ev).effects {
-            seen.insert(effect_rank(&effect));
+            seen.insert(effect_kind(&effect));
         }
     }
-    for rank in 0..=6 {
-        assert!(
-            seen.contains(&rank),
-            "no event reached rank {rank}: {seen:?}"
-        );
+    for kind in [
+        "AdoptUntaggedWindows",
+        "StoreImages",
+        "WriteClipboard",
+        "SendTmuxCommand",
+        "CommandReply",
+        "RefreshAfterWindowAdd",
+        "RefreshPanes",
+        "ResumePane",
+        "EmitState",
+    ] {
+        assert!(seen.contains(kind), "no event reached {kind}: {seen:?}");
     }
 }
 

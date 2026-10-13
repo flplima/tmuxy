@@ -1616,11 +1616,13 @@ mod tests {
         async fn graceful_close(&mut self) {}
     }
 
-    /// Where a command sits in the effect order of A1: tag and in-band
-    /// commands before any re-list, re-lists before captures, a flow resume
-    /// last. Only wire-visible effects have a place here.
+    /// Where a command sits in the effect order of A1: window tags, then
+    /// the aggregator's own commands, then re-lists, then captures, a flow
+    /// resume last. Only wire-visible effects have a place here.
     fn rank(cmd: &str) -> u8 {
-        if cmd == tmux_formats::LIST_PANES_CMD
+        if cmd.starts_with("set-option -w") {
+            0
+        } else if cmd == tmux_formats::LIST_PANES_CMD
             || cmd == tmux_formats::LIST_WINDOWS_CMD
             || cmd == tmux_formats::LIST_STASH_PANES_CMD
         {
@@ -1630,7 +1632,7 @@ mod tests {
         } else if cmd.starts_with("refresh-client -A") {
             5
         } else {
-            0
+            2
         }
     }
 
@@ -1647,18 +1649,23 @@ mod tests {
     /// aggregator returned their effects, for every command-bearing effect —
     /// the window tags of `AdoptUntaggedWindows` before the re-list of
     /// `RefreshAfterWindowAdd`, the re-list of `RefreshPanes` before its
-    /// captures, a `ResumePane` as the step's last command, a `CommandReply`
-    /// putting nothing on the wire — and nothing interleaved.
+    /// captures, a `ResumePane` as the step's last command, a
+    /// `SendTmuxCommand` sent as given, a `CommandReply` putting nothing on
+    /// the wire — and nothing interleaved.
     #[tokio::test]
     async fn a_step_sends_its_effects_commands_in_effect_order() {
         let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let title = tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
         let events = [
-            // A pane the monitor knows, as the initial sync leaves one.
+            // Two panes the monitor knows, as the initial sync leaves them,
+            // the second in copy mode so a paste buffer is worth reading.
             ControlModeEvent::WindowAdd {
                 window_id: "@0".parse().unwrap(),
             },
-            response("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,"),
+            response(
+                "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
+                 %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,",
+            ),
             response("TMUXY_CAP_BEGIN 0\n"),
             response("$ \n"),
             response("TMUXY_CAP_END\n"),
@@ -1678,6 +1685,10 @@ mod tests {
             // Flow control: the resume.
             ControlModeEvent::Pause {
                 pane_id: "%0".parse().unwrap(),
+            },
+            // A yank: the aggregator's own command to read the buffer.
+            ControlModeEvent::PasteBufferChanged {
+                buffer_name: "buffer0".to_string(),
             },
             ControlModeEvent::WindowClose {
                 window_id: "@1".parse().unwrap(),
@@ -1712,7 +1723,7 @@ mod tests {
         let ranks_of = |step: &[&String]| step.iter().map(|c| rank(c)).collect::<Vec<_>>();
         // Steps are numbered by event: the window add is the 6th, the reply's
         // three blocks the 7th to 9th, the title change the 10th, the pause
-        // the 11th.
+        // the 11th, the yank the 12th.
         let window_add = &steps[6];
         let first_list = window_add
             .iter()
@@ -1736,6 +1747,11 @@ mod tests {
             ranks_of(pause),
             [5],
             "a pause should answer with the resume alone: {pause:?}"
+        );
+        let yank = &steps[12];
+        assert!(
+            ranks_of(yank) == [2] && yank[0].contains("show-buffer"),
+            "a yank should send the buffer read alone: {yank:?}"
         );
     }
 
