@@ -1093,7 +1093,7 @@
   height: 16px;
   padding: 0;
   flex-shrink: 0;
-  margin: 0 4px 0 0;
+  margin: 0;
   border-radius: 0;
   opacity: 0.7;
   cursor: default;
@@ -2611,53 +2611,21 @@
   line-height: 1;
 }
 
-.sidebar-tree-state.is-needs-input {
-  color: var(--accent-amber);
-}
-
-.sidebar-tree-state.is-error {
-  color: var(--accent-red, #e06c75);
-}
-
-.sidebar-tree-state.is-unread {
-  color: var(--accent-blue-light);
-}
-
-.sidebar-tree-state.is-idle {
-  color: var(--text-dimmed);
-  opacity: 0.5;
-}
-
-/* Working is the only animated state, and that is the whole convention: motion
-   means "busy, leave it alone", stillness means "stopped, it wants you". A
-   spinning ring rather than a glyph cycle, so it needs no font support and
-   never re-renders React. */
-.sidebar-tree-state.is-working::after {
-  content: '';
+/* A tab row's icon: the tab strip's (emoji, else circled position), a size up
+   from the name with a little air after it. */
+.sidebar-tree-tab-icon {
   display: inline-block;
-  box-sizing: border-box;
-  width: 0.7em;
-  height: 0.7em;
-  border: 1.5px solid var(--accent-blue-light);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: sidebar-tree-spin 0.8s linear infinite;
+  min-width: 1em;
+  margin-right: 0.25em;
+  font-size: 1.15em;
+  line-height: 1;
+  text-align: center;
 }
 
-@keyframes sidebar-tree-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* With motion off the ring closes and holds still: a complete ring is still
-   distinct from the filled dot (unread) and the hollow one (idle), so the
-   state survives without animating. */
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-tree-state.is-working::after {
-    border-top-color: var(--accent-blue-light);
-    animation: none;
-  }
+/* A state mark takes its row's colour, as the tab strip's and a pane header's
+   do: the theme already says which row is active, so the mark need not. */
+.pane-tab-state {
+  opacity: 1;
 }
 
 /* The keyboard cursor. Only meaningful while the column has focus — an idle

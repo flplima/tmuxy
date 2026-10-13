@@ -57,13 +57,9 @@ import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
 import { InlineRename } from './InlineRename';
 import { isModelWindowId, type WindowId } from '../domain/ids';
-import {
-  PANE_STATE_GLYPH,
-  PANE_STATE_LABEL,
-  circledNumber,
-  tabPaneStates,
-  type PaneStateName,
-} from '../utils/paneState';
+import { PaneStateMark } from './PaneStateMark';
+import { tabIcon } from './paneTabDisplay';
+import { tabPaneStates, type PaneStateName } from '../utils/paneState';
 import type { AppMachineContext } from '../machines/types';
 
 /**
@@ -108,25 +104,16 @@ function selectTabStates(context: AppMachineContext): string[] {
 }
 
 /**
- * The tab's mark: its position as a circled numeral while all its panes are
- * idle, else what the busiest of them is doing — the same marks the tree draws,
- * with `working` the same spinning ring, and a question or a failure ahead of
- * work in progress.
+ * The tab's mark: what its busiest pane is doing — the tree's marks, with a
+ * question or a failure ahead of work in progress — and while all of them are
+ * idle, the tab's icon (`tabIcon`).
  */
-function TabMark({ position, state }: { position: number; state: PaneStateName }) {
-  if (state === 'idle') {
-    return (
-      <span className="tab-mark" aria-hidden="true">
-        {circledNumber(position)}
-      </span>
-    );
-  }
+function TabMark({ icon, state }: { icon: string; state: PaneStateName }) {
+  if (state !== 'idle') return <PaneStateMark state={state} className="tab-mark" />;
   return (
-    <Tooltip label={PANE_STATE_LABEL[state]}>
-      <span className={`tab-mark is-${state}`} role="img" aria-label={PANE_STATE_LABEL[state]}>
-        {PANE_STATE_GLYPH[state] ?? ''}
-      </span>
-    </Tooltip>
+    <span className="tab-mark" aria-hidden="true">
+      {icon}
+    </span>
   );
 }
 
@@ -453,10 +440,15 @@ export const WindowTabs = memo(function WindowTabs() {
                   onCancel={() => setRenamingId(null)}
                 />
               ) : (
-                <>
-                  <TabMark position={visualIndex} state={tabStates.get(window.id) ?? 'idle'} />
-                  <span className="tab-name-label">{window.name || `Tab ${visualIndex}`}</span>
-                </>
+                (() => {
+                  const { icon, label } = tabIcon(window.name, visualIndex);
+                  return (
+                    <>
+                      <TabMark icon={icon} state={tabStates.get(window.id) ?? 'idle'} />
+                      <span className="tab-name-label">{label}</span>
+                    </>
+                  );
+                })()
               )}
               {/* What this tab is doing that its name does not say. Both are
                   window state, so a background tab shows them too. */}

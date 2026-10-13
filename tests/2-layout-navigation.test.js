@@ -3946,61 +3946,68 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       10000,
       'the other pane to be active',
     );
-    await sendPrefixCommand(ctx.page, 't');
+    // Open the tree with its key — unless an earlier test left it open, when
+    // the same key would close it.
+    const treeOpen = () =>
+      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+    if (!(await treeOpen())) await sendPrefixCommand(ctx.page, 't');
+    await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
-    const badge = () =>
-      ctx.page.evaluate((id) => {
-        const el = document.querySelector(`[data-testid="tree-pane-${id}"] .sidebar-tree-state`);
+    // A state mark wherever it is drawn: the tree row, the tab, the pane's
+    // header tab. Idle draws nothing (the tree keeps an empty box in line).
+    const mark = (selector) =>
+      ctx.page.evaluate((sel) => {
+        const el = document.querySelector(sel);
         if (!el) return null;
         const r = el.getBoundingClientRect();
-        const state = [...el.classList].find((c) => c.startsWith('is-'));
-        return { state, visible: r.width > 0 && r.height > 0 && r.left >= 0 };
-      }, agentPane);
-    const waitForBadge = (state) =>
-      waitForCondition(
-        ctx.page,
-        async () => {
-          const now = await badge();
-          return now?.state === `is-${state}` && now.visible;
-        },
-        20000,
-        async () => `the agent's tree row to read ${state} (now ${JSON.stringify(await badge())})`,
-      );
-
-    await waitForBadge('working');
-    // The tab says so too, in place of its number: the spinning ring.
-    const tabMark = () =>
-      ctx.page.evaluate(() => {
-        const el = document.querySelector('.tab-name-active .tab-mark');
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        const ring = getComputedStyle(el, '::after');
         return {
+          state: [...el.classList].find((c) => c.startsWith('is-'))?.slice(3) ?? null,
           text: el.textContent,
-          state: [...el.classList].find((c) => c.startsWith('is-')) ?? null,
-          spinning: ring.animationName !== 'none' && ring.content !== 'none',
-          visible: r.width > 0 && r.height > 0,
+          visible: r.width > 0 && r.height > 0 && r.left >= 0,
         };
-      });
-    const waitForTabMark = (expected) =>
+      }, selector);
+    const rowMark = `[data-testid="tree-pane-${agentPane}"] .sidebar-tree-state`;
+    const tabMark = '.tab-name-active .tab-mark';
+    const headerMark = `[data-pane-tab="${agentPane}"] .pane-tab-icon`;
+    const SPINNER = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/;
+    const waitForMark = (selector, expected, what) =>
       waitForCondition(
         ctx.page,
         async () => {
-          const now = await tabMark();
-          return Boolean(now?.visible) && Object.entries(expected).every(([k, v]) => now[k] === v);
+          const now = await mark(selector);
+          if (!now || now.state !== expected.state) return false;
+          if (expected.state && !now.visible) return false;
+          if (expected.text instanceof RegExp) return expected.text.test(now.text);
+          return expected.text === undefined || now.text === expected.text;
         },
         20000,
         async () =>
-          `the tab mark to be ${JSON.stringify(expected)} (now ${JSON.stringify(await tabMark())})`,
+          `${what} to be ${expected.state ?? 'idle'} (now ${JSON.stringify(await mark(selector))})`,
       );
-    await waitForTabMark({ state: 'is-working', spinning: true, text: '' });
+
+    // Working: the same text spinner on the tree row, the tab (in place of its
+    // number) and the pane's header (in place of its icon) — and it turns.
+    await waitForMark(rowMark, { state: 'working', text: SPINNER }, 'the tree row');
+    await waitForMark(tabMark, { state: 'working', text: SPINNER }, 'the tab');
+    await waitForMark(headerMark, { state: 'working', text: SPINNER }, 'the pane header');
+    const frames = new Set();
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        frames.add((await mark(tabMark))?.text);
+        return frames.size > 1;
+      },
+      5000,
+      async () => `the spinner to turn (saw ${JSON.stringify([...frames])})`,
+    );
 
     // The agent finishes while the user is in the other pane: unread.
     fs.writeFileSync(go, '');
-    await waitForBadge('unread');
-    await waitForTabMark({ state: 'is-unread', text: '●' });
+    await waitForMark(rowMark, { state: 'unread', text: '●' }, 'the tree row');
+    await waitForMark(tabMark, { state: 'unread', text: '●' }, 'the tab');
 
-    // The user sees the mark and clicks the row: seen, so idle.
+    // The user sees the mark and clicks the row: seen, so idle — no mark on
+    // the row, and the tab shows its number again.
     await ctx.page.click(`[data-testid="tree-pane-${agentPane}"]`);
     await waitForCondition(
       ctx.page,
@@ -4008,8 +4015,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       10000,
       'the agent’s pane to be active again',
     );
-    await waitForBadge('idle');
-    // All idle again: the tab shows its number.
-    await waitForTabMark({ state: null, text: '➊' });
+    await waitForMark(rowMark, { state: null, text: '' }, 'the tree row');
+    await waitForMark(tabMark, { state: null, text: '➊' }, 'the tab');
   }, 120000);
 });

@@ -55,7 +55,7 @@ import {
   selectRepositories,
   useReadOnly,
 } from '../machines/AppContext';
-import { paneRowLines, getTabIcon } from './paneTabDisplay';
+import { paneRowLines, getTabIcon, tabIcon } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
 import {
   findPaneGitContext,
@@ -63,13 +63,8 @@ import {
   summarizeGitContexts,
   type PaneGitContext,
 } from './gitContext';
-import {
-  PANE_STATE_GLYPH,
-  PANE_STATE_LABEL,
-  paneStateFor,
-  tabPaneStates,
-  type PaneStateName,
-} from '../utils/paneState';
+import { PaneStateMark } from './PaneStateMark';
+import { paneStateFor, tabPaneStates } from '../utils/paneState';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { TmuxPane, TmuxWindow } from '../machines/types';
@@ -114,18 +109,6 @@ const isPlaceholderPane = (p: TmuxPane) => isPlaceholderId(p.tmuxId);
 /** Stable identity per row, used to preserve the keyboard cursor across refreshes. */
 function rowKey(r: Row): string {
   return r.kind === 'tab' ? r.window.id : r.pane.tmuxId;
-}
-
-/** The state indicator at a row's right edge. `working` is drawn by CSS. */
-function StateBadge({ state }: { state: PaneStateName }) {
-  const label = PANE_STATE_LABEL[state];
-  return (
-    <Tooltip label={label}>
-      <span className={`sidebar-tree-state is-${state}`} role="img" aria-label={label}>
-        {PANE_STATE_GLYPH[state] ?? ''}
-      </span>
-    </Tooltip>
-  );
 }
 
 export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boolean }) {
@@ -435,7 +418,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           const isActive = row.window.id === activeWindowId;
           const isDropTarget = dropWindowId === row.window.id && dragPaneId !== null;
           const summary = tabSummaries.get(row.window.id);
-          const label = row.window.name || `Tab ${row.position}`;
+          const { icon: tabMark, label } = tabIcon(row.window.name, row.position);
           return (
             <div
               key={`w${key}`}
@@ -508,7 +491,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               ) : (
                 <span className="sidebar-tree-label">
                   <span className="sidebar-tree-name">
-                    {row.position}:{label}
+                    <span className="sidebar-tree-tab-icon" aria-hidden="true">
+                      {tabMark}
+                    </span>
+                    {label}
                   </span>
                 </span>
               )}
@@ -517,7 +503,15 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                   {summary.count}
                 </span>
               )}
-              {summary && <StateBadge state={summary.state} />}
+              {/* A tab row says what wants the user; work in progress shows on
+                  its pane rows, not twice. */}
+              {summary && (
+                <PaneStateMark
+                  state={summary.state === 'working' ? 'idle' : summary.state}
+                  className="sidebar-tree-state"
+                  keepSpace
+                />
+              )}
             </div>
           );
         }
@@ -589,7 +583,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               {title && <span className="sidebar-tree-title">{title}</span>}
             </span>
             {branchRows.has(row.pane.tmuxId) && badgeSpan(branchOf([row.pane.tmuxId]))}
-            <StateBadge state={state} />
+            <PaneStateMark state={state} className="sidebar-tree-state" keepSpace />
           </div>
         );
       })}

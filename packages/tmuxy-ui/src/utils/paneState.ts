@@ -41,13 +41,14 @@ export const PANE_STATE_TIER: Record<PaneStateName, number> = {
   idle: 4,
 };
 
-/** The glyph a state draws, or null for `working` — the spinner is CSS. */
+/** The glyph a state draws: none for `idle`, and `working` is a spinner
+ *  (`components/PaneStateMark.tsx`). */
 export const PANE_STATE_GLYPH: Record<PaneStateName, string | null> = {
   'needs-input': '!',
   error: '✗',
   unread: '●',
   working: null,
-  idle: '◦',
+  idle: null,
 };
 
 /** Spoken form, for tooltips and assistive technology. */

@@ -196,50 +196,18 @@
   white-space: nowrap;
 }
 
-/* The tab's mark: its circled position (➊ ➋ …), or the state of its busiest
-   pane — the tree's marks and colours, and its spinning ring for working.
-   A size up from the name, in a box of its own so a state glyph and a numeral
-   take the same room, with a little air before the name. */
+/* The tab's mark: its icon (the emoji its name starts with, else its circled
+   position ➊ ➋ …), or the state of its busiest pane. A size up from the name,
+   in a box of its own so a state glyph and a numeral take the same room, and
+   in the tab's own colour — the theme says which tab is active, not the mark. */
 .tab-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
   min-width: 1em;
-  padding-right: 0.15em;
   font-size: 1.25em;
   line-height: 1;
-}
-
-.tab-mark.is-needs-input {
-  color: var(--accent-amber);
-}
-
-.tab-mark.is-error {
-  color: var(--accent-red, #e06c75);
-}
-
-.tab-mark.is-unread {
-  color: var(--accent-blue-light);
-}
-
-.tab-mark.is-working::after {
-  content: '';
-  display: inline-block;
-  box-sizing: border-box;
-  width: 0.7em;
-  height: 0.7em;
-  border: 1.5px solid var(--accent-blue-light);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: sidebar-tree-spin 0.8s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-mark.is-working::after {
-    border-top-color: var(--accent-blue-light);
-    animation: none;
-  }
 }
 
 /* A tab's state flags — stacked panes, a zoomed pane. Quiet next to the

@@ -5,7 +5,9 @@ import {
   getTabLabel,
   getTabIcon,
   paneRowLines,
+  splitLeadingEmoji,
   splitTitleIcon,
+  tabIcon,
 } from '../paneTabDisplay';
 import type { TmuxPane } from '../../domain/client';
 
@@ -189,5 +191,31 @@ describe('paneRowLines', () => {
       process: 'shell',
       title: 'some title',
     });
+  });
+});
+
+describe('splitLeadingEmoji', () => {
+  it('takes a tab name’s first emoji as its icon, whole', () => {
+    expect(splitLeadingEmoji('🚀 deploy')).toEqual({ emoji: '🚀', rest: 'deploy' });
+    expect(splitLeadingEmoji('🚀deploy')).toEqual({ emoji: '🚀', rest: 'deploy' });
+    // A variation selector, a skin tone, a ZWJ family and a flag are one emoji each.
+    expect(splitLeadingEmoji('❤️ home').emoji).toBe('❤️');
+    expect(splitLeadingEmoji('👍🏽 ok').emoji).toBe('👍🏽');
+    expect(splitLeadingEmoji('👨‍💻 code').emoji).toBe('👨‍💻');
+    expect(splitLeadingEmoji('🇧🇷 br')).toEqual({ emoji: '🇧🇷', rest: 'br' });
+  });
+
+  it('leaves a name that does not start with one alone', () => {
+    expect(splitLeadingEmoji('deploy 🚀')).toEqual({ emoji: null, rest: 'deploy 🚀' });
+    expect(splitLeadingEmoji('1 build')).toEqual({ emoji: null, rest: '1 build' });
+    expect(splitLeadingEmoji('')).toEqual({ emoji: null, rest: '' });
+  });
+});
+
+describe('tabIcon', () => {
+  it('wears the leading emoji, else the circled position', () => {
+    expect(tabIcon('🚀 deploy', 2)).toEqual({ icon: '🚀', label: 'deploy' });
+    expect(tabIcon('deploy', 2)).toEqual({ icon: '➋', label: 'deploy' });
+    expect(tabIcon('', 3)).toEqual({ icon: '➌', label: 'Tab 3' });
   });
 });
