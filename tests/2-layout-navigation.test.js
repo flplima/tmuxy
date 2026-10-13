@@ -3898,3 +3898,89 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     expect(pressedAfterClose).toBe('false');
   }, 180000);
 });
+
+describe('Scenario 6k: A coding agent’s state on its tree row', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('an agent’s hooks show it working → it finishes while the user is in another pane → unread → the user looks → idle', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page);
+    // Two panes: the agent's on top, the one the user moves to below.
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 2);
+    const activePane = () => ctx.page.evaluate(() => window.app.getSnapshot().context.activePaneId);
+    const otherPane = await activePane();
+    await navigatePaneKeyboard(ctx.page, 'up');
+    await waitForCondition(
+      ctx.page,
+      async () => (await activePane()) !== otherPane,
+      10000,
+      'the top pane to be active',
+    );
+    const agentPane = await activePane();
+
+    // A stand-in for an agent: it runs exactly the hook commands
+    // `tmuxy agent install` puts in Claude Code's settings — a prompt, then
+    // the turn ending — and ends its turn when the test says so.
+    const os = require('os');
+    const path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-agent-'));
+    const go = path.join(dir, 'go');
+    const hook = (event) => `echo '{}' | '${TMUXY_CLI}' agent hook claude ${event}`;
+    await typeInTerminal(
+      ctx.page,
+      `${hook('UserPromptSubmit')}; until [ -e '${go}' ]; do sleep 0.2; done; ${hook('Stop')}`,
+    );
+    await pressEnter(ctx.page);
+
+    // The user moves on to the other pane.
+    await navigatePaneKeyboard(ctx.page, 'down');
+    await waitForCondition(
+      ctx.page,
+      async () => (await activePane()) === otherPane,
+      10000,
+      'the other pane to be active',
+    );
+    await sendPrefixCommand(ctx.page, 't');
+
+    const badge = () =>
+      ctx.page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="tree-pane-${id}"] .sidebar-tree-state`);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const state = [...el.classList].find((c) => c.startsWith('is-'));
+        return { state, visible: r.width > 0 && r.height > 0 && r.left >= 0 };
+      }, agentPane);
+    const waitForBadge = (state) =>
+      waitForCondition(
+        ctx.page,
+        async () => {
+          const now = await badge();
+          return now?.state === `is-${state}` && now.visible;
+        },
+        20000,
+        async () => `the agent's tree row to read ${state} (now ${JSON.stringify(await badge())})`,
+      );
+
+    await waitForBadge('working');
+
+    // The agent finishes while the user is in the other pane: unread.
+    fs.writeFileSync(go, '');
+    await waitForBadge('unread');
+
+    // The user sees the mark and clicks the row: seen, so idle.
+    await ctx.page.click(`[data-testid="tree-pane-${agentPane}"]`);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activePane()) === agentPane,
+      10000,
+      'the agent’s pane to be active again',
+    );
+    await waitForBadge('idle');
+  }, 120000);
+});

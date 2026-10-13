@@ -260,6 +260,9 @@ pub enum ServerAction {
     /// the user's way in.
     #[command(hide = true)]
     Group(tmuxy_group::GroupArgs),
+    /// Wire coding agents (Claude Code, Codex, Antigravity) into tmuxy: hooks
+    /// that show their state, and the tmuxy skill. Backs `tmuxy agent`.
+    Agent(crate::agents::AgentArgs),
 }
 
 /// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
@@ -353,6 +356,7 @@ pub async fn run(args: ServerArgs) {
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
         Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
+        Some(ServerAction::Agent(agent_args)) => crate::agents::run(agent_args),
     }
 }
 

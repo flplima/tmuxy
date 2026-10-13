@@ -473,6 +473,11 @@ export interface AppMachineContext {
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: PaneId[];
   /**
+   * Panes that went from working (or waiting) to idle while the user was in
+   * another pane: drawn `unread` until they look (`utils/paneState.ts`).
+   */
+  unreadPaneIds: PaneId[];
+  /**
    * Whether the previous TMUX_MODEL_UPDATE carried no geometry delta on
    * existing panes. React can batch an optimistic (dirty) update and its
    * instant confirm (quiet) into ONE commit; any "stop suppressing

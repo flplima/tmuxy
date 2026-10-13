@@ -249,6 +249,10 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     ("tmuxy/_lib", include_str!("../../../bin/tmuxy/_lib")),
     ("tmuxy/ask", include_str!("../../../bin/tmuxy/ask")),
     (
+        "tmuxy/agent-hook",
+        include_str!("../../../bin/tmuxy/agent-hook"),
+    ),
+    (
         "tmuxy/queue-push",
         include_str!("../../../bin/tmuxy/queue-push"),
     ),

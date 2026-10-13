@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { pid } from '../../test/wire';
 import {
   PANE_STATES,
   PANE_STATE_TIER,
   aggregatePaneState,
+  nextUnreadPaneIds,
   normalizePaneState,
   paneStateFor,
   type PaneStateName,
@@ -84,5 +86,33 @@ describe('aggregatePaneState', () => {
     const tiers = PANE_STATES.map((s) => PANE_STATE_TIER[s]);
     expect(tiers).toEqual([...tiers].sort((a, b) => a - b));
     expect(new Set(tiers).size).toBe(PANE_STATES.length);
+  });
+});
+
+describe('nextUnreadPaneIds', () => {
+  const pane = (id: string, paneState: string | null) => ({ tmuxId: pid(id), paneState });
+
+  it('marks a pane that finished while the user was in another one, until they look', () => {
+    const working = [pane('%1', 'working'), pane('%2', null)];
+    const done = [pane('%1', 'idle'), pane('%2', null)];
+    const unread = nextUnreadPaneIds([], working, done, pid('%2'));
+    expect(unread).toEqual([pid('%1')]);
+    expect(paneStateFor(done[0], unread.includes(pid('%1')))).toBe('unread');
+
+    // Still unread on the next update, and the same array: nothing changed.
+    expect(nextUnreadPaneIds(unread, done, done, pid('%2'))).toBe(unread);
+    // The user moves to it.
+    expect(nextUnreadPaneIds(unread, done, done, pid('%1'))).toEqual([]);
+  });
+
+  it('leaves a pane the user is in, and one that starts working again', () => {
+    const working = [pane('%1', 'needs-input')];
+    expect(nextUnreadPaneIds([], working, [pane('%1', 'idle')], pid('%1'))).toEqual([]);
+    expect(nextUnreadPaneIds([pid('%1')], working, [pane('%1', 'working')], null)).toEqual([]);
+  });
+
+  it('does not mark a pane that was only ever idle, or one that closed', () => {
+    expect(nextUnreadPaneIds([], [pane('%1', null)], [pane('%1', 'idle')], null)).toEqual([]);
+    expect(nextUnreadPaneIds([pid('%1')], [pane('%1', 'idle')], [], null)).toEqual([]);
   });
 });

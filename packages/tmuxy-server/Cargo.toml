@@ -16,7 +16,9 @@ path = "src/main.rs"
 [dependencies]
 tmuxy-core = { path = "../tmuxy-core" }
 serde.workspace = true
-serde_json.workspace = true
+# preserve_order: `tmuxy agent install` rewrites the user's own agent
+# settings, which must keep the order they were written in.
+serde_json = { workspace = true, features = ["preserve_order"] }
 tokio = { workspace = true, features = ["process"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -1,0 +1,57 @@
+#!/bin/bash
+# tmuxy agent hook <agent> <event> — what `tmuxy agent install` puts in a
+# coding agent's lifecycle hooks. Reads the event's JSON on stdin, asks the
+# server binary what it means (`agent state`, the one place that decides),
+# and sets the pane's @tmuxy-pane-state to it.
+#
+# The agent waits for every hook, on every tool call, so this one never makes
+# it wait for tmux: it records the state it wants and returns, and a
+# background job applies the latest wanted state under a lock. Hooks that
+# race each other still end on the last one's state, because whichever job
+# runs last applies what was wanted last. Outside a tmuxy pane it does
+# nothing, and it always succeeds — a status line must never fail an agent.
+
+agent="${1:-}"
+event="${2:-}"
+# Antigravity reads every hook's stdout as JSON.
+[ "$agent" = agy ] && echo '{}'
+
+socket_path="${TMUX%%,*}"
+case "${socket_path##*/}" in
+  tmuxy*) ;;
+  *) exit 0 ;;
+esac
+[ -n "${TMUX_PANE:-}" ] || exit 0
+
+source "${0%/*}/_lib"
+find_server_cmd 2>/dev/null || exit 0
+state="$("${SERVER_CMD[@]}" agent state "$agent" "$event" 2>/dev/null)" || exit 0
+[ -n "$state" ] || exit 0
+
+# Per pane, and per tmux server ($TMUX carries its pid): pane ids start again
+# with the server.
+dir="${TMPDIR:-/tmp}/tmuxy-agent-$UID/${TMUX//[^A-Za-z0-9]/_}_${TMUX_PANE#%}"
+[ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || exit 0
+wanted=""
+[ -f "$dir/wanted" ] && read -r wanted <"$dir/wanted"
+[ "$state" = "$wanted" ] && exit 0
+echo "$state" >"$dir/wanted" 2>/dev/null || exit 0
+
+apply() {
+  local wanted="" applied=""
+  _lock_acquire "$dir"
+  read -r wanted <"$dir/wanted"
+  [ -f "$dir/applied" ] && read -r applied <"$dir/applied"
+  if [ -n "$wanted" ] && [ "$wanted" != "$applied" ]; then
+    if [ "$wanted" = clear ]; then
+      _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-state"
+    else
+      _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-state $(shquote "$wanted")"
+    fi
+    echo "$wanted" >"$dir/applied"
+  fi
+  _lock_release "$dir"
+}
+# Detached from the agent's pipes, or it would wait for the job anyway.
+apply </dev/null >/dev/null 2>&1 &
+exit 0

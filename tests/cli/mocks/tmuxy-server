@@ -1,3 +1,10 @@
 #!/bin/bash
 # Mock tmuxy-server binary for CLI tests
+if [ "${1:-} ${2:-}" = "agent state" ]; then
+  # What an agent event means is the real binary's (agents.rs); here it is
+  # whatever the test says it is.
+  cat >/dev/null
+  echo "${MOCK_AGENT_STATE:-}"
+  exit 0
+fi
 echo "mock-server-started $*"

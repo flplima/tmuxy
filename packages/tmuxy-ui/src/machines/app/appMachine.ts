@@ -69,6 +69,7 @@ import {
   keepLivePanes,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
+import { nextUnreadPaneIds } from '../../utils/paneState';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -1134,6 +1135,12 @@ export const appMachine = setup({
                     ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
                     : ctx.paneActivationOrder,
                 lastActivePaneByWindow,
+                unreadPaneIds: nextUnreadPaneIds(
+                  ctx.unreadPaneIds,
+                  ctx.panes,
+                  transformed.panes,
+                  effectiveActivePaneId,
+                ),
               })),
             );
             // Mirror the MRU order into the store's predict context — the

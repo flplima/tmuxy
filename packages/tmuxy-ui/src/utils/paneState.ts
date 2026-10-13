@@ -17,6 +17,7 @@
  */
 
 import type { TmuxPane } from '../domain/client';
+import type { PaneId } from '../domain/ids';
 import { paneAskFor } from './paneAsk';
 
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
@@ -91,9 +92,44 @@ export function normalizePaneState(raw: string | null | undefined): PaneStateNam
  * last declared about itself, and it outranks that declaration so the tab
  * holding the question is the one the tree points at.
  */
-export function paneStateFor(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): PaneStateName {
+export function paneStateFor(
+  pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>,
+  unread = false,
+): PaneStateName {
   if (paneAskFor(pane)) return 'needs-input';
-  return normalizePaneState(pane.paneState);
+  const declared = normalizePaneState(pane.paneState);
+  return declared === 'idle' && unread ? 'unread' : declared;
+}
+
+type StatePane = Pick<TmuxPane, 'tmuxId' | 'paneState' | 'paneAsk'>;
+
+/**
+ * The panes to draw `unread`: those that finished — went from `working` or
+ * `needs-input` to `idle` — while the user was in another pane. An agent's
+ * hooks only ever say `idle` when it stops; whether anybody saw the result is
+ * this side's to judge, since only the client knows which pane is in front.
+ *
+ * A pane stops being unread when it becomes the active one, or when it
+ * declares anything but `idle` again. Returns `unread` itself when nothing
+ * changed, so the context keeps its identity.
+ */
+export function nextUnreadPaneIds(
+  unread: readonly PaneId[],
+  before: readonly StatePane[],
+  after: readonly StatePane[],
+  activePaneId: PaneId | null,
+): PaneId[] {
+  const was = new Map(before.map((p) => [p.tmuxId, paneStateFor(p)]));
+  const next = after
+    .filter((pane) => {
+      if (pane.tmuxId === activePaneId || paneStateFor(pane) !== 'idle') return false;
+      if (unread.includes(pane.tmuxId)) return true;
+      const previous = was.get(pane.tmuxId);
+      return previous === 'working' || previous === 'needs-input';
+    })
+    .map((pane) => pane.tmuxId);
+  const same = next.length === unread.length && next.every((id, i) => id === unread[i]);
+  return same ? (unread as PaneId[]) : next;
 }
 
 /**

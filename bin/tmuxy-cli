@@ -11,6 +11,12 @@ SELF="$0"
 if [ -L "$SELF" ]; then
   SELF="$(readlink -f "$SELF")"
 fi
+# An agent hook runs on every tool call: straight to its script, before any
+# of the set-up below.
+if [ "${1:-}" = agent ] && [ "${2:-}" = hook ]; then
+  shift 2
+  exec "${SELF%/*}/tmuxy/agent-hook" "$@"
+fi
 REPO_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
@@ -43,8 +49,9 @@ SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 # else the first real one) hands tmux an answer it honours for an unattached
 # client the way it does for a pane's own — and `_run_safe` passes it on to
 # the client it spawns inside run-shell. Read-only, and skipped when there
-# is no server to ask.
-if [ -z "${TMUX_PANE:-}" ]; then
+# is no server to ask. Never for `tmuxy agent`: an agent hook outside any
+# tmuxy pane must change nothing, not some other pane's state.
+if [ -z "${TMUX_PANE:-}" ] && [ "${1:-}" != agent ]; then
   _outside_pane="$(_tmux list-panes -a \
     -f '#{&&:#{window_active},#{pane_active}}' \
     -F '#{session_attached}	#{session_name}	#{pane_id}' 2>/dev/null \
@@ -234,6 +241,56 @@ cmd_info() {
 # The one copy of the agent guide. .agents/skills/tmuxy/SKILL.md is this text
 # verbatim (a CLI test fails when they differ): an installed CLI has no repo to
 # read the skill file from, so the heredoc is the source.
+# Coding agents in tmuxy panes: `install` wires an agent's lifecycle hooks to
+# `tmuxy agent hook`, which turns each event into the pane's
+# `@tmuxy-pane-state`, and installs the skill. The editing of each agent's
+# own config lives in the server binary (`agents.rs`); what an event means
+# too, so the hooks stay a bare command that an upgrade never has to rewrite.
+cmd_agent() {
+  local verb="${1:-}"
+  [ $# -gt 0 ] && shift
+  case "$verb" in
+    install|uninstall|status)
+      find_server_cmd
+      if [ "$verb" = install ]; then
+        exec "${SERVER_CMD[@]}" agent install --hook-command "$(_agent_hook_command)" "$@"
+      fi
+      exec "${SERVER_CMD[@]}" agent "$verb" "$@"
+      ;;
+    ""|--help|-h)
+      cat <<EOF
+Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy]...
+
+Show what a coding agent is doing on its tree row: working, waiting for you,
+done, failed. Its lifecycle hooks report to tmuxy; the tmuxy skill is
+installed alongside, so the agent knows the CLI.
+
+  install     Add the hooks and the skill (default: every agent found)
+  uninstall   Remove them, leaving everything else as it was
+  status      What is installed, per agent
+
+Options:
+  --hooks-only | --skill-only
+  --project   This project's config (./.claude, ./.codex, ./.agents)
+              instead of the home directory's
+  --dry-run   Say what would change; write nothing
+  --force     (install) Replace a tmuxy skill tmuxy did not write
+EOF
+      ;;
+    *)
+      echo "Unknown agent command: $verb (try 'tmuxy agent --help')" >&2
+      return 1
+      ;;
+  esac
+}
+
+# The command installed hooks run tmuxy with: this script, resolved. Not the
+# `tmuxy` on PATH, which in the desktop app is the app binary, one more
+# process in front of every hook.
+_agent_hook_command() {
+  shquote "$SELF"
+}
+
 cmd_skill() {
   case "${1:-}" in
     --help|-h) echo "Usage: tmuxy skill"; return ;;
@@ -306,6 +363,7 @@ Usage: tmuxy <command> [args...]
 Commands:
   info        Show multiplexer and session status [--json]
   skill       Show AI agent guide and safety rules
+  agent       Show Claude Code / Codex / Antigravity state in tmuxy (install, uninstall, status)
   pane        Manage panes (split, kill, select, resize, group, float)
   ask         Send keys to another pane, once the user has confirmed
   tab         Manage tabs (create, kill, select, rename, layout)
@@ -595,7 +653,7 @@ cmd_pane() {
       for arg in "$@"; do
         case "$arg" in
           --help|-h)
-            echo "Usage: tmuxy pane state <idle|working|needs-input|error|unread> [%id]"
+            echo "Usage: tmuxy pane state <idle|working|needs-input|error|unread|clear> [%id]"
             return
             ;;
           %*) target="$arg" ;;
@@ -614,7 +672,11 @@ cmd_pane() {
         echo "Error: no pane to target (pass %id or run inside a pane)" >&2
         return 1
       fi
-      _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
+      if [ "$value" = clear ]; then
+        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-state"
+      else
+        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
+      fi
       ;;
 
     list)
@@ -1546,6 +1608,10 @@ CEOF
   skill)
     shift
     cmd_skill "$@"
+    ;;
+  agent)
+    shift
+    cmd_agent "$@"
     ;;
   --json|-j)
     shift

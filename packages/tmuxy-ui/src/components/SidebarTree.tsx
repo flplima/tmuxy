@@ -136,6 +136,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const sessions = useAppSelectorShallow(selectSessions);
   const repositories = useAppSelectorShallow(selectRepositories);
   const collapsedTabIds = useAppSelectorShallow((ctx) => ctx.collapsedTabIds);
+  const unreadPaneIds = useAppSelectorShallow((ctx) => ctx.unreadPaneIds);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
@@ -186,11 +187,13 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
       out.set(window.id, {
         count: windowPanes.length,
-        state: aggregatePaneState(windowPanes.map(paneStateFor)),
+        state: aggregatePaneState(
+          windowPanes.map((p) => paneStateFor(p, unreadPaneIds.includes(p.tmuxId))),
+        ),
       });
     }
     return out;
-  }, [windows, panes]);
+  }, [windows, panes, unreadPaneIds]);
 
   // Flatten into the ordered row list (also the keyboard nav order): this
   // session's tabs in strip order, each followed by its panes.
@@ -526,7 +529,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         const isActive = row.pane.tmuxId === activePaneId;
         const { process, title } = paneRowLines(row.pane);
         const icon = getTabIcon(row.pane);
-        const state = paneStateFor(row.pane);
+        const state = paneStateFor(row.pane, unreadPaneIds.includes(row.pane.tmuxId));
         return (
           <div
             key={`p${key}`}

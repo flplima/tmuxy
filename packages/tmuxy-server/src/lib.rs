@@ -6,6 +6,7 @@
 //! (`tests/browser_engine.rs`). Everything else is this crate's own, so that
 //! rustc's dead-code lint can see what nothing uses any more.
 
+mod agents;
 mod auth;
 pub mod browser;
 mod command;
