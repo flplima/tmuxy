@@ -2201,18 +2201,53 @@
   align-self: flex-end;
 }
 
-/* A column shows whether it has the keyboard the way a pane does: its content
-   dims to the inactive pane opacity while the keyboard is elsewhere, and its
-   divider — the full-height line facing the pane grid — takes the active
-   pane's border colour while it holds the keyboard. The matching half of the
-   line is drawn by the header cluster above (.statusbar-cluster-*.is-docked). */
+/* A column shows whether it has the keyboard exactly the way a pane does,
+   from the same settings: its surface is the theme's terminal background at
+   the inactive pane opacity and its content at the inactive text opacity
+   (`@tmuxy-inactive-pane-opacity`, `@tmuxy-inactive-text-opacity`) until it
+   takes the keyboard, when both go to their active values — on the same quick
+   clock a pane's focus change uses. And its divider, the full-height line
+   facing the pane grid, takes the active pane's border colour while it holds
+   the keyboard; the matching half of the line is drawn by the header cluster
+   above (.statusbar-cluster-*.is-docked). */
 .sidebar-column > .sidebar-body {
+  background-color: color-mix(
+    in srgb,
+    var(--term-background) calc(var(--inactive-pane-opacity) * 100%),
+    transparent
+  );
+  transition: background-color var(--transition-active);
+}
+
+.sidebar-column.is-focused > .sidebar-body {
+  background-color: color-mix(
+    in srgb,
+    var(--term-background) calc(var(--active-pane-opacity) * 100%),
+    transparent
+  );
+}
+
+.sidebar-column > .sidebar-body > * {
   opacity: var(--inactive-text-opacity);
   transition: opacity var(--transition-active);
 }
 
-.sidebar-column.is-focused > .sidebar-body {
+.sidebar-column.is-focused > .sidebar-body > * {
   opacity: var(--active-text-opacity);
+}
+
+/* Animations off (`@tmuxy-animations off`) or reduced motion: the column
+   changes in one step. */
+.app-no-animations .sidebar-column > .sidebar-body,
+.app-no-animations .sidebar-column > .sidebar-body > * {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-column > .sidebar-body,
+  .sidebar-column > .sidebar-body > * {
+    transition: none;
+  }
 }
 
 .sidebar-column-left {
