@@ -2616,11 +2616,35 @@ mod protocol_fixtures {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol-fixtures")
     }
 
+    /// `value` with every object's keys in order. serde_json keeps insertion
+    /// order (the agent installer needs it), and a `HashMap` field — a delta's
+    /// windows — inserts in no fixed order, so the file is rendered sorted.
+    fn sorted_keys(value: &serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                serde_json::Value::Object(
+                    keys.into_iter()
+                        .map(|k| (k.clone(), sorted_keys(&map[k])))
+                        .collect(),
+                )
+            }
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.iter().map(sorted_keys).collect())
+            }
+            other => other.clone(),
+        }
+    }
+
     /// Write `value` to `name` when regenerating, otherwise assert the
     /// committed file is byte-for-byte what the code emits today.
     fn assert_fixture(name: &str, value: &serde_json::Value) {
         let path = fixture_dir().join(name);
-        let rendered = format!("{}\n", serde_json::to_string_pretty(value).unwrap());
+        let rendered = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&sorted_keys(value)).unwrap()
+        );
         if std::env::var("UPDATE_PROTOCOL_FIXTURES").is_ok() {
             std::fs::create_dir_all(fixture_dir()).unwrap();
             std::fs::write(&path, &rendered).unwrap();

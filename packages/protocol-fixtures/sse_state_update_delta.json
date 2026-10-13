@@ -1,12 +1,62 @@
 {
-  "event": "state-update",
   "data": {
-    "type": "delta",
     "delta": {
-      "seq": 42,
+      "active_pane_id": "%4",
+      "active_window_id": "@2",
+      "focus_request": "",
+      "new_panes": [
+        {
+          "active": true,
+          "alternate_on": false,
+          "border_title": "",
+          "command": "fish",
+          "content": [
+            [
+              {
+                "c": "n"
+              }
+            ]
+          ],
+          "copy_cursor_x": 0,
+          "copy_cursor_y": 0,
+          "cursor_hidden": false,
+          "cursor_shape": 0,
+          "cursor_x": 1,
+          "cursor_y": 0,
+          "height": 12,
+          "history_size": 11,
+          "id": 4,
+          "in_mode": false,
+          "mouse_any_flag": false,
+          "paused": false,
+          "selection_present": false,
+          "selection_start_x": 0,
+          "selection_start_y": 0,
+          "title": "",
+          "tmux_id": "%4",
+          "width": 40,
+          "window_id": "@1",
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "new_windows": [
+        {
+          "active": false,
+          "float_parent": "@2",
+          "id": "@3",
+          "index": 2,
+          "name": "added",
+          "window_type": "float",
+          "zoomed": false
+        }
+      ],
       "panes": {
         "%2": {
-          "window_id": "@2",
+          "active": false,
+          "alternate_on": false,
+          "border_title": "new border",
+          "command": "bash",
           "content": {
             "1": [
               {
@@ -15,132 +65,82 @@
               {
                 "c": "y",
                 "s": {
-                  "fg": {
-                    "r": 200,
-                    "g": 40,
-                    "b": 40
-                  },
                   "bg": 4,
                   "bold": true,
                   "dim": true,
+                  "fg": {
+                    "b": 40,
+                    "g": 40,
+                    "r": 200
+                  },
+                  "inverse": true,
                   "italic": true,
                   "underline": true,
-                  "inverse": true,
                   "url": "https://example.com"
                 }
               }
             ]
           },
-          "cursor_x": 5,
-          "cursor_y": 6,
-          "width": 100,
-          "height": 30,
-          "x": 1,
-          "y": 2,
-          "active": false,
-          "command": "bash",
-          "title": "new title",
-          "border_title": "new border",
-          "group_id": null,
-          "pane_state": "idle",
-          "pane_ask": null,
-          "pane_widget": "browser",
-          "in_mode": false,
           "copy_cursor_x": 7,
           "copy_cursor_y": 8,
-          "alternate_on": false,
-          "mouse_any_flag": false,
-          "marked": false,
-          "paused": false,
+          "cursor_hidden": false,
+          "cursor_shape": 2,
+          "cursor_x": 5,
+          "cursor_y": 6,
+          "group_id": null,
+          "height": 30,
           "history_size": 4321,
+          "images": [],
+          "in_mode": false,
+          "marked": false,
+          "mouse_any_flag": false,
+          "pane_ask": null,
+          "pane_state": "idle",
+          "pane_widget": "browser",
+          "paused": false,
           "selection_present": false,
           "selection_start_x": 9,
           "selection_start_y": -10,
-          "images": [],
-          "cursor_shape": 2,
-          "cursor_hidden": false
+          "title": "new title",
+          "width": 100,
+          "window_id": "@2",
+          "x": 1,
+          "y": 2
         },
         "%3": null
       },
+      "seq": 42,
+      "total_height": 60,
+      "total_width": 100,
       "windows": {
         "@1": {
-          "index": 1,
-          "name": "renamed",
           "active": false,
-          "window_type": "sidebar-left",
+          "active_pane_id": "%4",
+          "collapsible": false,
+          "float_bg": "blur",
+          "float_drawer": "top",
+          "float_height": 25,
+          "float_noheader": true,
           "float_parent": null,
           "float_width": 70,
-          "float_height": 25,
-          "float_drawer": "top",
-          "float_bg": "blur",
-          "float_noheader": true,
-          "sidebar_cols": 40,
-          "sidebar_hidden": true,
-          "collapsible": false,
-          "zoomed": false,
-          "active_pane_id": "%4",
+          "index": 1,
+          "name": "renamed",
           "pane_tree": {
-            "vertical": true,
             "children": [
               "%3",
               "%4"
-            ]
-          }
+            ],
+            "vertical": true
+          },
+          "sidebar_cols": 40,
+          "sidebar_hidden": true,
+          "window_type": "sidebar-left",
+          "zoomed": false
         },
         "@2": null
-      },
-      "new_panes": [
-        {
-          "id": 4,
-          "tmux_id": "%4",
-          "window_id": "@1",
-          "content": [
-            [
-              {
-                "c": "n"
-              }
-            ]
-          ],
-          "cursor_x": 1,
-          "cursor_y": 0,
-          "width": 40,
-          "height": 12,
-          "x": 0,
-          "y": 0,
-          "active": true,
-          "command": "fish",
-          "title": "",
-          "border_title": "",
-          "in_mode": false,
-          "copy_cursor_x": 0,
-          "copy_cursor_y": 0,
-          "alternate_on": false,
-          "mouse_any_flag": false,
-          "paused": false,
-          "history_size": 11,
-          "selection_present": false,
-          "selection_start_x": 0,
-          "selection_start_y": 0,
-          "cursor_shape": 0,
-          "cursor_hidden": false
-        }
-      ],
-      "new_windows": [
-        {
-          "id": "@3",
-          "index": 2,
-          "name": "added",
-          "active": false,
-          "window_type": "float",
-          "float_parent": "@2",
-          "zoomed": false
-        }
-      ],
-      "active_window_id": "@2",
-      "active_pane_id": "%4",
-      "focus_request": "",
-      "total_width": 100,
-      "total_height": 60
-    }
-  }
+      }
+    },
+    "type": "delta"
+  },
+  "event": "state-update"
 }
