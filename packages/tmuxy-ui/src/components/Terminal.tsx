@@ -72,6 +72,11 @@ interface TerminalProps {
   paneId?: PaneId;
   /** A CSS `filter` for the pictures: a live browser's `--color-filter`. */
   imageFilter?: string;
+  /**
+   * Keep the text out of sight. A live browser pane's grid is for scripts and
+   * agents (`tmuxy pane capture`), not for the person looking at the page.
+   */
+  textHidden?: boolean;
   /** Cursor shape from DECSCUSR (0-6) */
   cursorShape?: number;
   /** Whether the cursor is hidden (DECTCEM mode 25 off) */
@@ -148,6 +153,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   images,
   paneId,
   imageFilter,
+  textHidden = false,
   cursorShape = 0,
   cursorHidden = false,
   selectable = false,
@@ -245,6 +251,7 @@ export const Terminal: React.FC<TerminalProps> = ({
     <div className="terminal-container" data-testid="terminal" role="log" aria-live="off">
       <pre
         className={`terminal-content ${selectable ? 'terminal-selectable' : ''}`}
+        style={textHidden ? { visibility: 'hidden' } : undefined}
         aria-hidden="true"
         onMouseOver={(e) => setLinkHot(e.target, true)}
         onMouseOut={(e) => setLinkHot(e.target, false)}

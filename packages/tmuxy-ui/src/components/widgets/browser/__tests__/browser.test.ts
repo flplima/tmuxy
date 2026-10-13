@@ -17,9 +17,29 @@ import {
   parseSource,
 } from '../source';
 import { parseLiveHeader, verbLine } from '../live';
+import { firstHeading } from '../markdownHeading';
 import { browserView, clampZoom, normalizeAddress, MAX_ZOOM, MIN_ZOOM } from '../view';
 import type { BrowserPaneState } from '../../../../machines/types';
 import { canReadPageTitle, parseHtmlTitle } from '../pageTitle';
+
+describe('firstHeading', () => {
+  // What a markdown pane is named after: its first H1, as plain words.
+  it.each([
+    ['# Release Notes\n\ntext', 'Release Notes'],
+    ['intro\n\n# The **Big** `Title` #\n', 'The Big Title'],
+    ['Setext Title\n===\n', 'Setext Title'],
+    ['# [Linked](https://x.dev) heading', 'Linked heading'],
+    ['# BROWSER_WIDGET_MD', 'BROWSER_WIDGET_MD'],
+    ['# _emphasis_ and snake_case', 'emphasis and snake_case'],
+  ])('%j → %s', (markdown, title) => {
+    expect(firstHeading(markdown)).toBe(title);
+  });
+
+  it('is not a heading inside code, nor a lower level', () => {
+    expect(firstHeading('```\n# not this\n```\n## Sub\n')).toBeNull();
+    expect(firstHeading('```sh\n# comment\n```\n# Real\n')).toBe('Real');
+  });
+});
 
 describe('isWebsite', () => {
   // A web page is the engine's; a remote image or markdown file is still drawn

@@ -361,6 +361,10 @@ pub struct TmuxPane {
     /// program declaring it is a change the session snapshot follows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_restore: Option<String>,
+    /// The address a live browser pane is showing (`@tmuxy-pane-url`), for
+    /// the app's address bar over it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_url: Option<String>,
 }
 
 /// Window type discriminator. Floats and sidebars carry it as the
@@ -581,6 +585,9 @@ pub struct PaneDelta {
     /// `@tmuxy-pane-restore` (only if changed); nested like `pane_widget`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pane_restore: Option<Option<String>>,
+    /// `@tmuxy-pane-url` (only if changed); nested like `pane_widget`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_url: Option<Option<String>>,
     /// Copy mode state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_mode: Option<bool>,

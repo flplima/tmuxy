@@ -998,17 +998,26 @@ describe('Category 17: Widgets', () => {
       expect(heading.width).toBeGreaterThan(0);
       expect(heading.height).toBeGreaterThan(0);
 
-      // The pane names itself after the file it is showing, and wears the
-      // browser widget's globe rather than a shell icon.
-      const tab = await wCtx.page.evaluate(() => {
-        const pane = document.querySelector('[role=group][aria-label^="Widget pane"]');
-        return {
-          title: pane?.querySelector('.pane-tab-title')?.textContent ?? null,
-          icon: pane?.querySelector('.pane-tab-icon')?.textContent ?? null,
-          hasTerminal: pane?.querySelector('[role="log"]') !== null,
-        };
-      });
-      expect(tab.title).toBe(file);
+      // The pane names itself after the document's first heading, as a page
+      // is named after its `<title>`, and wears the browser widget's globe
+      // rather than a shell icon.
+      const readTab = () =>
+        wCtx.page.evaluate(() => {
+          const pane = document.querySelector('[role=group][aria-label^="Widget pane"]');
+          return {
+            title: pane?.querySelector('.pane-tab-title')?.textContent ?? null,
+            icon: pane?.querySelector('.pane-tab-icon')?.textContent ?? null,
+            hasTerminal: pane?.querySelector('[role="log"]') !== null,
+          };
+        });
+      await waitForCondition(
+        wCtx.page,
+        async () => (await readTab()).title === 'BROWSER_WIDGET_MD',
+        15000,
+        async () =>
+          `the pane to be named after its heading (now ${JSON.stringify(await readTab())})`,
+      );
+      const tab = await readTab();
       expect(tab.icon).toBe('\uf0ac'); // nf-fa-globe
       expect(tab.hasTerminal).toBe(false);
 
@@ -1293,16 +1302,36 @@ describe('Scenario 24: The Browser Pane', () => {
     await typeInTerminal(ctx.page, `${scratch}/run`);
     await pressEnter(ctx.page);
 
+    // The status row is for scripts and agents, read the way they read it —
+    // `capture-pane` — since the app keeps a live browser's text out of sight.
+    const captured = () => String(ctx.session.runCommand(`capture-pane -p -t ${ctx.session.name}`));
+    const waitForStatus = (text, budget) =>
+      waitForCondition(
+        ctx.page,
+        () => captured().includes(text),
+        budget,
+        () =>
+          `\`${text}\` in the captured pane (now: ${JSON.stringify(captured().trim().slice(-120))})`,
+      );
+
     // The status row ends up showing where the pane is pointed, which for a
     // session nobody has navigated is `about:blank`. Waiting for THAT rather
     // than the banner, because the banner is the first thing the URL replaces.
-    await waitForTerminalText(ctx.page, 'about:blank', 60000);
+    await waitForStatus('about:blank', 60000);
 
     await typeInTerminal(ctx.page, `:goto file://${scratch}/first.html`);
     await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, 'first.html', 60000);
+    await waitForStatus('first.html', 60000);
 
     const picture = await waitForPicture(ctx.page, 'the first page is drawn in the pane');
+
+    // The grid under the picture — toolbar header, status row — is not for the
+    // person looking at the page: none of its text is visible.
+    const gridShown = await ctx.page.evaluate(() => {
+      const grid = document.querySelector('.terminal-content');
+      return grid ? getComputedStyle(grid).visibility : null;
+    });
+    expect(gridShown).toBe('hidden');
 
     // The first page has nothing behind it: the engine's starting
     // `about:blank` is not somewhere to go back to.
@@ -1345,13 +1374,13 @@ describe('Scenario 24: The Browser Pane', () => {
     // which is also how an agent reads it, with `tmuxy pane capture`.
     await typeInTerminal(ctx.page, ':url');
     await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, 'second.html', 30000);
+    await waitForStatus('second.html', 30000);
 
     // A verb that computes rather than navigates, so the status row is shown
     // to carry real output and not just URLs.
     await typeInTerminal(ctx.page, ':eval 6*7');
     await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, '42', 30000);
+    await waitForStatus('42', 30000);
 
     // The address bar over the top row: on screen, and showing where the PAGE
     // is — the link was followed inside it, and the bar followed too.

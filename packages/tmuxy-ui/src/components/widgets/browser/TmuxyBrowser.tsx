@@ -126,6 +126,7 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
   );
 
   const send = useAppSend();
+  const themeVersion = useSyncExternalStore(subscribeTheme, getThemeVersion, getThemeVersion);
   const colorFilter = parseColorFilter(lines);
   const website = isWebsite(view.url);
   // A website is the engine's to show, not a frame's (see the file comment).
@@ -186,7 +187,9 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
   const src = loadUrl(view.url, view.reloadNonce);
   // Markdown is drawn by the app in the theme's colours already; the filter is
   // for what brings its own: a page in the frame, and images.
-  const filterId = colorFilter ? themeFilterId(paneId) : null;
+  // Keyed by the theme's version: WebKit keeps a filtered picture until the
+  // filter REFERENCE changes, so a new theme recoloured nothing.
+  const filterId = colorFilter ? `${themeFilterId(paneId)}-${themeVersion}` : null;
   const themeFilter = filterId ? <ThemeColorFilter id={filterId} /> : null;
   const filterStyle = filterId ? { filter: `url(#${filterId})` } : undefined;
 
@@ -196,7 +199,18 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
   const zoomVar = { '--widget-zoom': view.zoom } as CSSProperties;
 
   if (kind === 'markdown') {
-    return framed('widget-browser', zoomVar, <MarkdownView url={src} />);
+    return framed(
+      'widget-browser',
+      zoomVar,
+      <MarkdownView
+        url={src}
+        // A markdown file is named after its first H1, as a page is after its
+        // `<title>`.
+        onHeading={(title) =>
+          send({ type: 'BROWSER_PAGE_TITLE', paneId, source: view.source, url: view.url, title })
+        }
+      />,
+    );
   }
 
   if (kind === 'image') {

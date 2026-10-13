@@ -7,37 +7,36 @@
  * types a verb line into the pane (`:back`, `:goto …`, `:viewport mobile`).
  *
  * One button only a website has: the page size. `Auto` lays the page out for
- * the pane; a device size is drawn at its own aspect in the middle of it.
+ * the pane; a device size is drawn at its own aspect in the middle of it. The
+ * menu marks the current choice; the button keeps one icon whatever it is.
  */
 
 import { memo, useRef, useState } from 'react';
 import { useAppSend, useReadOnly } from '../../../machines/AppContext';
-import { themeFilterId } from '../../../utils/themeColorFilter';
 import { FloatingMenu, MenuItem, MenuRadioGroup } from '../../floating/Menu';
 import { Tooltip } from '../../Tooltip';
 import { BrowserNav } from './BrowserNav';
 import { ThemeColorFilter } from './TmuxyBrowser';
-import { LIVE_VIEWPORTS, verbLine, type LiveBrowserHeader, type LiveViewport } from './live';
+import { LIVE_VIEWPORTS, verbLine, type LiveBrowserHeader } from './live';
 import type { PaneId } from '../../../domain/ids';
 
 interface BrowserLiveBarProps {
   paneId: PaneId;
   header: LiveBrowserHeader;
-  /** The page's address: the pane's title (see `live.ts`). */
+  /** The page's address (`@tmuxy-pane-url`). */
   url: string;
+  /** The theme filter's id for this pane and theme (see `TerminalPane`). */
+  filterId: string;
 }
 
-/** nf-fa-expand / nf-fa-desktop / nf-fa-mobile: what the page is laid out for. */
-const VIEWPORT_ICON: Record<LiveViewport, string> = {
-  auto: '',
-  desktop: '',
-  mobile: '',
-};
+/** nf-fa-expand: the page-size button, whichever size is chosen. */
+const VIEWPORT_ICON = '\uf065';
 
 export const BrowserLiveBar = memo(function BrowserLiveBar({
   paneId,
   header,
   url,
+  filterId,
 }: BrowserLiveBarProps) {
   const send = useAppSend();
   const readOnly = useReadOnly();
@@ -60,7 +59,7 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
           disabled={readOnly}
           onClick={() => setSizeMenuOpen((open) => !open)}
         >
-          {VIEWPORT_ICON[header.viewport]}
+          <span className="browser-nav-glyph">{VIEWPORT_ICON}</span>
         </button>
       </Tooltip>
       {sizeMenuOpen && (
@@ -96,7 +95,7 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
     >
-      {header.colorFilter && <ThemeColorFilter id={themeFilterId(paneId)} />}
+      {header.colorFilter && <ThemeColorFilter id={filterId} />}
       <BrowserNav
         url={url}
         canGoBack={header.canGoBack}

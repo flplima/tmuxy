@@ -1673,9 +1673,13 @@
   cursor: default;
 }
 
-/* The nerd glyph carries more ink than the chevrons beside it. */
-.browser-nav-external {
+/* An icon button is the same box as the chevrons beside it — the glyph is
+   scaled inside it, never the button, or its 1.5em came out narrower than its
+   neighbours' and the row of buttons stopped lining up. A nerd glyph carries
+   more ink than a chevron, hence the smaller glyph. */
+.browser-nav-glyph {
   font-size: 0.85em;
+  line-height: 1;
 }
 
 /* The address takes every pixel the buttons leave. */

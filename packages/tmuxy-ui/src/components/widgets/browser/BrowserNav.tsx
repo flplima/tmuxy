@@ -147,13 +147,13 @@ export const BrowserNav = memo(function BrowserNav({
       >
         <button
           type="button"
-          className="browser-nav-button browser-nav-external"
+          className="browser-nav-button"
           data-testid="browser-nav-external"
           aria-label="Open in default browser"
           disabled={!canOpenExternally}
           onClick={() => send({ type: 'BROWSER_OPEN_EXTERNAL', url })}
         >
-          {EXTERNAL_ICON}
+          <span className="browser-nav-glyph">{EXTERNAL_ICON}</span>
         </button>
       </Tooltip>
     </div>

@@ -303,6 +303,7 @@ function applyPaneDelta(pane: WirePane, delta: PaneDelta): WirePane {
     ...(delta.pane_ask !== undefined && { pane_ask: delta.pane_ask }),
     ...(delta.pane_widget !== undefined && { pane_widget: delta.pane_widget }),
     ...(delta.pane_restore !== undefined && { pane_restore: delta.pane_restore }),
+    ...(delta.pane_url !== undefined && { pane_url: delta.pane_url }),
   };
 }
 

@@ -8,7 +8,8 @@
  * render has moved the key on.
  */
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
+import { firstHeading } from './markdownHeading';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
@@ -109,10 +110,18 @@ function useFetchText(url: string): { text: string; error: string | null } {
 interface MarkdownViewProps {
   /** The URL to read the markdown source from. */
   url: string;
+  /** Told the document's first H1 once it has loaded (the pane's title). */
+  onHeading?: (title: string) => void;
 }
 
-export function MarkdownView({ url }: MarkdownViewProps) {
+export function MarkdownView({ url, onHeading }: MarkdownViewProps) {
   const { text, error } = useFetchText(url);
+  const heading = useMemo(() => (text ? firstHeading(text) : null), [text]);
+  const onHeadingRef = useRef(onHeading);
+  onHeadingRef.current = onHeading;
+  useEffect(() => {
+    if (heading) onHeadingRef.current?.(heading);
+  }, [heading]);
   // Rebuilt only when the document changes: every link and image in it is
   // resolved against this URL.
   const components = useMemo(() => markdownComponents(url), [url]);

@@ -178,6 +178,8 @@ pub struct Session {
     view_scale: f64,
     /// The page's own size in CSS pixels, as last set.
     page_size: (u32, u32),
+    /// Whether that page is emulating a mobile device.
+    mobile: bool,
     shots_dir: PathBuf,
     profile: Option<PathBuf>,
     /// Kept so the connection's event loop is cancelled when the session drops.
@@ -277,6 +279,7 @@ impl Session {
             screencasting: false,
             view_scale: 1.0,
             page_size: (0, 0),
+            mobile: false,
             shots_dir: state_dir.join("browser-shots").join(name),
             profile,
             _handler: handler_task,
@@ -572,6 +575,13 @@ impl Session {
         {
             return Err(SessionError::BadViewport { width, height });
         }
+        // Nothing to do for the size the page already has. A device-sized
+        // page keeps its size when the pane changes: re-applying it resized
+        // the window and repainted the page on every step of a drag, which
+        // is the flicker a resize used to cause.
+        if self.page_size == (width, height) && self.mobile == mobile {
+            return Ok(());
+        }
         // A window is never narrower than `MIN_WINDOW_WIDTH`, and the
         // screencast encodes the whole window: a page narrower than that (a
         // phone) came out with a blank strip beside it, squeezed into the
@@ -594,6 +604,7 @@ impl Session {
             .map_err(|e| SessionError::Engine(e.to_string()))?;
         self.view_scale = view_scale;
         self.page_size = (width, height);
+        self.mobile = mobile;
         let (width, height) = (
             (f64::from(width) * view_scale).ceil() as u32,
             (f64::from(height) * view_scale).ceil() as u32,

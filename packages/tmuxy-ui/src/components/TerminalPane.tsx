@@ -10,7 +10,14 @@
  * preventDefault(), and manually adjusts scrollTop on the scroll container.
  */
 
-import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
+import {
+  useRef,
+  useState,
+  useCallback,
+  useLayoutEffect,
+  useEffect,
+  useSyncExternalStore,
+} from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
 import {
@@ -41,6 +48,7 @@ import { AskOverlay } from './AskOverlay';
 import { isCollapsedPane } from '../constants';
 import { extractSelectedText } from '../utils/copyMode';
 import { themeFilterId } from '../utils/themeColorFilter';
+import { getThemeVersion, subscribeTheme } from '../utils/themeManager';
 import { BrowserLiveBar } from './widgets/browser/BrowserLiveBar';
 import { LIVE_BROWSER_WIDGET, parseLiveHeader } from './widgets/browser/live';
 import type { PaneId } from '../domain/ids';
@@ -92,6 +100,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
   const { forwardScrollToParent } = useAppConfig();
+  const themeVersion = useSyncExternalStore(subscribeTheme, getThemeVersion, getThemeVersion);
   // The screen the live grid draws: held still while the browser has a
   // selection on it, so new output cannot slide other text under the
   // highlight. The scroll view holds its own rows by absolute line.
@@ -345,6 +354,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     pane.paneWidget === LIVE_BROWSER_WIDGET && shown.content[0]
       ? parseLiveHeader(shown.content[0].map((cell) => cell.c).join(''))
       : null;
+  // The filter's id carries the theme's version: WebKit keeps the picture it
+  // filtered until the REFERENCE changes, so a new theme recoloured nothing.
+  const liveFilterId = `${themeFilterId(pane.tmuxId)}-${themeVersion}`;
 
   // Scroll indicator geometry (only meaningful in copy mode)
   const totalLines = copyState?.totalLines ?? 0;
@@ -440,9 +452,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     selectionStartY={pane.selectionStartY}
                     images={pane.images}
                     paneId={pane.tmuxId}
-                    imageFilter={
-                      liveHeader?.colorFilter ? `url(#${themeFilterId(pane.tmuxId)})` : undefined
-                    }
+                    imageFilter={liveHeader?.colorFilter ? `url(#${liveFilterId})` : undefined}
+                    textHidden={!!liveHeader}
                     cursorShape={pane.cursorShape}
                     cursorHidden={pane.cursorHidden}
                     selectable={!pane.mouseAnyFlag}
@@ -458,7 +469,12 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
           <AskOverlay paneId={paneId} holdsKeyboard={holdsKeyboard} />
 
           {liveHeader && !copyState && (
-            <BrowserLiveBar paneId={pane.tmuxId} header={liveHeader} url={pane.title} />
+            <BrowserLiveBar
+              paneId={pane.tmuxId}
+              header={liveHeader}
+              url={pane.url ?? ''}
+              filterId={liveFilterId}
+            />
           )}
 
           {/* Scroll position indicator — flashes on scroll in copy mode */}

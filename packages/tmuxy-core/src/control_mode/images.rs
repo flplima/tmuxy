@@ -190,9 +190,13 @@ impl ImageParser {
     /// visibly missing for as long as the next one takes to arrive. Swapping
     /// the picture at that anchor keeps exactly one frame on screen with no gap
     /// in between.
+    ///
+    /// Not only the same anchor: a picture drawn OVER another covers it. A
+    /// program that moves its picture — a browser pane centring a phone-sized
+    /// page in a pane that just changed size — otherwise left the old one on
+    /// screen beside the new, and every resize stacked another.
     fn place(&mut self, placement: ImagePlacement) {
-        self.placements
-            .retain(|p| p.row != placement.row || p.col != placement.col);
+        self.placements.retain(|p| !overlaps(p, &placement));
         self.placements.push(placement);
     }
 
@@ -804,6 +808,16 @@ impl ImageParser {
 // -------------------------------------------------------------------
 
 /// Whether the bytes end with a cursor move to the top left (CUP to 1;1).
+/// Whether two placements share a cell.
+fn overlaps(a: &ImagePlacement, b: &ImagePlacement) -> bool {
+    let span = |start: u16, len: u16| (start, start.saturating_add(len.max(1)));
+    let (a_left, a_right) = span(a.col, a.width_cells);
+    let (b_left, b_right) = span(b.col, b.width_cells);
+    let (a_top, a_bottom) = span(a.row, a.height_cells);
+    let (b_top, b_bottom) = span(b.row, b.height_cells);
+    a_left < b_right && b_left < a_right && a_top < b_bottom && b_top < a_bottom
+}
+
 fn ends_with_cursor_home(bytes: &[u8]) -> bool {
     [
         &b"\x1b[H"[..],
@@ -996,6 +1010,24 @@ mod tests {
             !parser.placements[0].stretch,
             "fitting is the protocol's default"
         );
+    }
+
+    /// A picture moved within the pane (a phone-sized page re-centred after a
+    /// resize) replaces the one it is drawn over, rather than stacking beside it.
+    #[test]
+    fn a_picture_drawn_over_another_replaces_it() {
+        let mut parser = ImageParser::new();
+        parser.update_cursor(1, 30);
+        parser.process(b"\x1b]1337;File=inline=1;width=20;height=10:AAAA\x07");
+        parser.update_cursor(1, 25);
+        parser.process(b"\x1b]1337;File=inline=1;width=20;height=10:AAAA\x07");
+        assert_eq!(parser.placements.len(), 1, "the covered picture is retired");
+        assert_eq!(parser.placements[0].col, 25);
+
+        // One beside it, sharing no cell, stays.
+        parser.update_cursor(1, 60);
+        parser.process(b"\x1b]1337;File=inline=1;width=5;height=5:AAAA\x07");
+        assert_eq!(parser.placements.len(), 2);
     }
 
     #[test]

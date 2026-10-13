@@ -36,9 +36,11 @@
 //! buttons drive this program the way anything else does: they type `:back`,
 //! `:goto …` into the pane.
 //!
-//! The bottom line is left out of the picture and used for verb output, so an
-//! agent driving the pane with `tmuxy pane send` can read the answer back with
-//! `tmuxy pane capture`. That is the entire agent protocol; it needs no API.
+//! The bottom line carries verb output, so an agent driving the pane with
+//! `tmuxy pane send` can read the answer back with `tmuxy pane capture`. That
+//! is the entire agent protocol; it needs no API. The person looking at the
+//! pane never sees it: the picture covers that row, and the app hides a live
+//! browser's text altogether — the grid is for scripts, the picture for people.
 
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
@@ -102,9 +104,11 @@ pub struct PaneSize {
 const PICTURE_TOP: u16 = 2;
 
 impl PaneSize {
-    /// The rows the picture occupies: everything but the toolbar and status rows.
+    /// The rows the picture occupies: everything under the toolbar row. The
+    /// status row is the last of them: the picture covers it, so verb output
+    /// is there for `tmuxy pane capture` without ever being in the way.
     fn image_rows(&self) -> u16 {
-        self.rows.saturating_sub(2).max(1)
+        self.rows.saturating_sub(1).max(1)
     }
 }
 
@@ -524,6 +528,27 @@ fn tag_pane(on: bool) {
     tmuxy_cli(&widget_tag_args(&pane.to_string_lossy(), on));
 }
 
+/// Tell the app's address bar where the page is (`@tmuxy-pane-url`), or
+/// that it is nowhere. Through the CLI, like the widget tag.
+fn tag_url(url: Option<&str>) {
+    let Some(pane) = std::env::var_os("TMUX_PANE") else {
+        return;
+    };
+    tmuxy_cli(&url_tag_args(&pane.to_string_lossy(), url));
+}
+
+fn url_tag_args(pane: &str, url: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec!["run".into(), "set-option".into(), "-p".into()];
+    if url.is_none() {
+        args.push("-u".into());
+    }
+    args.extend(["-t".into(), pane.into(), "@tmuxy-pane-url".into()]);
+    if let Some(url) = url {
+        args.push(url.into());
+    }
+    args
+}
+
 fn widget_tag_args(pane: &str, on: bool) -> Vec<String> {
     let mut args: Vec<String> = vec!["run".into(), "set-option".into(), "-p".into()];
     if !on {
@@ -540,6 +565,7 @@ fn widget_tag_args(pane: &str, on: bool) -> Vec<String> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Navigation {
     url: String,
+    title: String,
     can_go_back: bool,
     can_go_forward: bool,
 }
@@ -567,7 +593,15 @@ const HEADER_PREFIX: &str = "tmuxy:browser ";
 
 /// Write the toolbar row and the title that carries the address.
 fn header(size: &PaneSize, nav: &Navigation, color_filter: bool, viewport: Viewport) {
-    let title: String = nav.url.chars().filter(|c| !c.is_control()).collect();
+    // The pane is named after the page, the way a browser tab is; the address
+    // has a tag of its own (`@tmuxy-pane-url`). A page with no `<title>` is
+    // called by its address.
+    let name = if nav.title.trim().is_empty() {
+        &nav.url
+    } else {
+        &nav.title
+    };
+    let title: String = name.chars().filter(|c| !c.is_control()).collect();
     write_out(&format!(
         "\x1b]2;{title}\x07\x1b[1;1H\x1b[2K{}\x1b[{};1H",
         header_line(nav, color_filter, viewport),
@@ -601,6 +635,7 @@ async fn navigation(page: &chromiumoxide::page::Page) -> Option<Navigation> {
     let entry = history.entries.get(index)?;
     Some(Navigation {
         url: entry.url.clone(),
+        title: entry.title.clone(),
         can_go_back: history.entries[..index].iter().any(|e| is_page(&e.url)),
         can_go_forward: index + 1 < history.entries.len(),
     })
@@ -638,8 +673,11 @@ async fn header_loop(
             }
             if moved || resized_page {
                 // The page moved, by a verb or by a link inside it, or changed
-                // size; the restore tag follows it.
+                // size; the address bar and the restore tag follow it.
                 let url = is_page(&nav.url).then_some(nav.url.as_str());
+                if moved {
+                    tag_url(url);
+                }
                 announce_restore(
                     named_session.as_deref(),
                     color_filter,
@@ -768,6 +806,7 @@ pub async fn run(
     done.store(true, Ordering::Relaxed);
     header_task.abort();
     tag_pane(false);
+    tag_url(None);
     resizes.abort();
     if let Some(drawer) = drawer {
         drawer.abort();
@@ -1043,9 +1082,8 @@ async fn run_line(
     match verbs::parse(line) {
         // The pane's own verb: where the picture sits is this program's call.
         Ok(verbs::Verb::Viewport { viewport: next }) => {
-            // A fixed size leaves margins the old picture would show through:
-            // the screen is cleared and the toolbar row redrawn with it.
-            write_out(term::CLEAR);
+            // No clear: the new picture covers the old one, and the image
+            // parser retires a picture another is drawn over.
             viewport.send_replace(next);
             let page = layout(size, next);
             match session
@@ -1147,8 +1185,7 @@ pub async fn forward_mouse(
     row: u16,
     pressed: bool,
 ) {
-    // The toolbar row, the status row and a fixed page's margins are tmuxy's,
-    // not the page's.
+    // The toolbar row and a fixed page's margins are tmuxy's, not the page's.
     if !on_picture(col, row, layout) {
         return;
     }
@@ -1197,7 +1234,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_status_row_is_not_part_of_the_picture() {
+    fn the_picture_covers_everything_under_the_toolbar_row() {
         let size = PaneSize {
             cols: 80,
             rows: 24,
@@ -1206,11 +1243,11 @@ mod tests {
         };
         assert_eq!(
             size.image_rows(),
-            22,
-            "a row each for the toolbar and status"
+            23,
+            "the toolbar row is the app's; the status row is under the picture"
         );
         assert_eq!(layout(size, Viewport::Auto).page_w, 640);
-        assert_eq!(layout(size, Viewport::Auto).page_h, 352);
+        assert_eq!(layout(size, Viewport::Auto).page_h, 368);
     }
 
     /// A one-row pane would otherwise ask for a zero-height viewport, which
@@ -1242,7 +1279,7 @@ mod tests {
             drawn.starts_with("\x1b[?25l\x1b[2;1H"),
             "the cursor must be at the picture's corner, or tmuxy anchors the picture somewhere new each time"
         );
-        assert!(drawn.contains("width=10;height=3"), "{drawn}");
+        assert!(drawn.contains("width=10;height=4"), "{drawn}");
         assert!(drawn.ends_with('\x07'), "the OSC must be terminated");
         assert!(drawn.contains("inline=1"), "{drawn}");
         assert!(
@@ -1366,7 +1403,7 @@ mod tests {
     fn a_fixed_viewport_is_drawn_at_its_own_aspect_and_clicked_through_it() {
         let size = PaneSize {
             cols: 160,
-            rows: 42,
+            rows: 41,
             cell_w: 8,
             cell_h: 16,
         };
@@ -1489,6 +1526,36 @@ mod tests {
 
     /// The tag is what lets the app draw a toolbar over row 1; it is set and
     /// cleared through the CLI (`run-shell`), never by pane output.
+    /// The address bar reads the page's address from its own tag; the CLI
+    /// quotes it, so `&` and `#` in a URL stay one argument.
+    #[test]
+    fn the_address_is_tagged_and_untagged_through_the_cli() {
+        assert_eq!(
+            url_tag_args("%3", Some("https://example.com/?a=1&b#c")),
+            [
+                "run",
+                "set-option",
+                "-p",
+                "-t",
+                "%3",
+                "@tmuxy-pane-url",
+                "https://example.com/?a=1&b#c"
+            ]
+        );
+        assert_eq!(
+            url_tag_args("%3", None),
+            [
+                "run",
+                "set-option",
+                "-p",
+                "-u",
+                "-t",
+                "%3",
+                "@tmuxy-pane-url"
+            ]
+        );
+    }
+
     #[test]
     fn the_live_tag_is_set_and_cleared_through_the_cli() {
         assert_eq!(
@@ -1522,6 +1589,7 @@ mod tests {
     fn the_toolbar_row_says_which_way_history_goes() {
         let nav = Navigation {
             url: "https://example.com/".into(),
+            title: "Example Domain".into(),
             can_go_back: true,
             can_go_forward: false,
         };
@@ -1539,9 +1607,10 @@ mod tests {
         );
     }
 
-    /// A click on the toolbar or status row is the app's, not the page's.
+    /// A click on the toolbar row is the app's, not the page's; the status
+    /// row is under the picture, so a click there is the page's.
     #[test]
-    fn the_rows_around_the_picture_take_no_clicks_through_to_the_page() {
+    fn the_toolbar_row_takes_no_clicks_through_to_the_page() {
         let size = PaneSize {
             cols: 80,
             rows: 10,
@@ -1549,11 +1618,17 @@ mod tests {
             cell_h: 16,
         };
         let page = layout(size, Viewport::Auto);
-        assert_eq!(size.image_rows(), 8);
+        assert_eq!(size.image_rows(), 9);
         assert!(!on_picture(1, 1, page), "row 1 is the toolbar's");
         assert!(on_picture(1, 2, page));
-        assert!(on_picture(80, 9, page));
-        assert!(!on_picture(1, 10, page), "row 10 is the status row");
+        assert!(
+            on_picture(80, 10, page),
+            "the status row is under the picture"
+        );
+        assert!(
+            !on_picture(81, 5, page),
+            "past the last column is off the page"
+        );
     }
 
     /// Every tab starts on `about:blank`; the first real page has nowhere to
