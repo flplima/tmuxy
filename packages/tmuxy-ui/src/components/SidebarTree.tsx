@@ -66,8 +66,8 @@ import {
 import {
   PANE_STATE_GLYPH,
   PANE_STATE_LABEL,
-  aggregatePaneState,
   paneStateFor,
+  tabPaneStates,
   type PaneStateName,
 } from '../utils/paneState';
 import { PaneContextMenu } from './PaneContextMenu';
@@ -181,19 +181,15 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
 
   // What each tab rolls up to: how many panes it holds and the most
   // attention-worthy state among them. Collapsed, this is all a tab shows.
-  const tabSummaries = useMemo(() => {
-    const out = new Map<WindowId, { count: number; state: PaneStateName }>();
-    for (const window of windows) {
-      const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
-      out.set(window.id, {
-        count: windowPanes.length,
-        state: aggregatePaneState(
-          windowPanes.map((p) => paneStateFor(p, unreadPaneIds.includes(p.tmuxId))),
-        ),
-      });
-    }
-    return out;
-  }, [windows, panes, unreadPaneIds]);
+  const tabSummaries = useMemo(
+    () =>
+      tabPaneStates(
+        windows.map((w) => w.id),
+        panes,
+        unreadPaneIds,
+      ),
+    [windows, panes, unreadPaneIds],
+  );
 
   // Flatten into the ordered row list (also the keyboard nav order): this
   // session's tabs in strip order, each followed by its panes.

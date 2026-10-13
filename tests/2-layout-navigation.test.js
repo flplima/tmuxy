@@ -1436,8 +1436,8 @@ describe('Scenario 5: Pane Groups', () => {
     expect(tabs.find((t) => t.active).background).not.toBe(tabs.find((t) => !t.active).background);
 
     // Step 4b: The group parks its members in hidden tmux windows, which take
-    // window indices of their own. A tab opened now must still read "2:", by
-    // its position in the strip — it shipped reading "5:", the tmux index.
+    // window indices of their own. A tab opened now must still read ➋, by its
+    // position in the strip — it shipped reading "5:", the tmux index.
     const groupWindowId = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.activeWindowId ?? null,
     );
@@ -1447,17 +1447,17 @@ describe('Scenario 5: Pane Groups', () => {
     const tabLabels = () =>
       ctx.page.evaluate(() =>
         [...document.querySelectorAll('.tab-list .tab-name')].map((el) =>
-          (el.querySelector('.tab-name-label')?.textContent || el.textContent || '').trim(),
+          (el.querySelector('.tab-mark')?.textContent || '').trim(),
         ),
       );
     await waitForCondition(
       ctx.page,
       async () => {
         const labels = await tabLabels();
-        return labels.length === 2 && /^1:/.test(labels[0]) && /^2:/.test(labels[1]);
+        return labels.length === 2 && labels[0] === '➊' && labels[1] === '➋';
       },
       10000,
-      async () => `the tab strip to read 1:, 2: (saw ${JSON.stringify(await tabLabels())})`,
+      async () => `the tab strip to read ➊, ➋ (saw ${JSON.stringify(await tabLabels())})`,
     );
     // Back to the group's tab, by its stable id, for the rest of the scenario.
     await ctx.page.click(`.tab-list .tab-name[data-window-id="${groupWindowId}"]`);
@@ -3968,10 +3968,37 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       );
 
     await waitForBadge('working');
+    // The tab says so too, in place of its number: the spinning ring.
+    const tabMark = () =>
+      ctx.page.evaluate(() => {
+        const el = document.querySelector('.tab-name-active .tab-mark');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const ring = getComputedStyle(el, '::after');
+        return {
+          text: el.textContent,
+          state: [...el.classList].find((c) => c.startsWith('is-')) ?? null,
+          spinning: ring.animationName !== 'none' && ring.content !== 'none',
+          visible: r.width > 0 && r.height > 0,
+        };
+      });
+    const waitForTabMark = (expected) =>
+      waitForCondition(
+        ctx.page,
+        async () => {
+          const now = await tabMark();
+          return Boolean(now?.visible) && Object.entries(expected).every(([k, v]) => now[k] === v);
+        },
+        20000,
+        async () =>
+          `the tab mark to be ${JSON.stringify(expected)} (now ${JSON.stringify(await tabMark())})`,
+      );
+    await waitForTabMark({ state: 'is-working', spinning: true, text: '' });
 
     // The agent finishes while the user is in the other pane: unread.
     fs.writeFileSync(go, '');
     await waitForBadge('unread');
+    await waitForTabMark({ state: 'is-unread', text: '●' });
 
     // The user sees the mark and clicks the row: seen, so idle.
     await ctx.page.click(`[data-testid="tree-pane-${agentPane}"]`);
@@ -3982,5 +4009,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       'the agent’s pane to be active again',
     );
     await waitForBadge('idle');
+    // All idle again: the tab shows its number.
+    await waitForTabMark({ state: null, text: '➊' });
   }, 120000);
 });

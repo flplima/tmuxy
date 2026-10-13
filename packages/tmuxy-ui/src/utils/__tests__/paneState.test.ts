@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { pid } from '../../test/wire';
+import { pid, wid } from '../../test/wire';
 import {
   PANE_STATES,
   PANE_STATE_TIER,
   aggregatePaneState,
+  circledNumber,
   nextUnreadPaneIds,
+  tabPaneStates,
   normalizePaneState,
   paneStateFor,
   type PaneStateName,
@@ -114,5 +116,28 @@ describe('nextUnreadPaneIds', () => {
   it('does not mark a pane that was only ever idle, or one that closed', () => {
     expect(nextUnreadPaneIds([], [pane('%1', null)], [pane('%1', 'idle')], null)).toEqual([]);
     expect(nextUnreadPaneIds([pid('%1')], [pane('%1', 'idle')], [], null)).toEqual([]);
+  });
+});
+
+describe('tabPaneStates', () => {
+  it('rolls each tab up to its most attention-worthy pane, a question ahead of work', () => {
+    const panes = [
+      { tmuxId: pid('%1'), windowId: wid('@1'), paneState: 'working' },
+      { tmuxId: pid('%2'), windowId: wid('@1'), paneState: 'needs-input' },
+      { tmuxId: pid('%3'), windowId: wid('@2'), paneState: 'working' },
+      { tmuxId: pid('%4'), windowId: wid('@3'), paneState: null },
+    ];
+    const states = tabPaneStates([wid('@1'), wid('@2'), wid('@3')], panes, [pid('%4')]);
+    expect(states.get(wid('@1'))).toEqual({ count: 2, state: 'needs-input' });
+    expect(states.get(wid('@2'))?.state).toBe('working');
+    expect(states.get(wid('@3'))?.state).toBe('unread');
+  });
+});
+
+describe('circledNumber', () => {
+  it('circles one to twenty, and writes the rest plainly', () => {
+    expect([1, 2, 10].map(circledNumber)).toEqual(['➊', '➋', '➓']);
+    expect([11, 20].map(circledNumber)).toEqual(['⓫', '⓴']);
+    expect(circledNumber(21)).toBe('21');
   });
 });

@@ -17,7 +17,7 @@
  */
 
 import type { TmuxPane } from '../domain/client';
-import type { PaneId } from '../domain/ids';
+import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 import { paneAskFor } from './paneAsk';
 
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
@@ -142,4 +142,38 @@ export function aggregatePaneState(states: readonly PaneStateName[]): PaneStateN
     if (PANE_STATE_TIER[state] < PANE_STATE_TIER[best]) best = state;
   }
   return best;
+}
+
+/**
+ * What each tab rolls up to: how many panes it holds, and the most
+ * attention-worthy state among them (`aggregatePaneState`'s order, so a
+ * question or a failure outranks a pane that is merely working). Placeholder
+ * panes — optimistic stand-ins not yet confirmed by tmux — are not counted.
+ */
+export function tabPaneStates(
+  windowIds: readonly WindowId[],
+  panes: readonly (StatePane & Pick<TmuxPane, 'windowId'>)[],
+  unreadPaneIds: readonly PaneId[],
+): Map<WindowId, { count: number; state: PaneStateName }> {
+  const out = new Map<WindowId, { count: number; state: PaneStateName }>();
+  for (const id of windowIds) {
+    const windowPanes = panes.filter((p) => p.windowId === id && !isPlaceholderId(p.tmuxId));
+    out.set(id, {
+      count: windowPanes.length,
+      state: aggregatePaneState(
+        windowPanes.map((p) => paneStateFor(p, unreadPaneIds.includes(p.tmuxId))),
+      ),
+    });
+  }
+  return out;
+}
+
+/**
+ * A tab's position as a circled numeral — ➊ to ➓, then ⓫ to ⓴ — and as a plain
+ * number past those.
+ */
+export function circledNumber(n: number): string {
+  if (n >= 1 && n <= 10) return String.fromCodePoint(0x278a + n - 1);
+  if (n >= 11 && n <= 20) return String.fromCodePoint(0x24eb + n - 11);
+  return String(n);
 }
