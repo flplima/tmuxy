@@ -59,6 +59,15 @@
   padding-left: var(--spacing-lg);
 }
 
+/* The divider's upper half lights with the column it belongs to. */
+.statusbar-cluster-left.is-docked.is-focused {
+  border-right-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+}
+
+.statusbar-cluster-right.is-docked.is-focused {
+  border-left-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+}
+
 /* Sidebar title — the column's label, since a docked column has no header of
    its own. Brightness is the focus cue (see SidebarTitle.tsx). */
 .sidebar-title {

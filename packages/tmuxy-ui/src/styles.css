@@ -2201,18 +2201,34 @@
   align-self: flex-end;
 }
 
-/* The divider faces the pane grid. It stays a flat gray in EVERY state: focus
-   is shown by the title's brightness and where the cursor sits (see
-   SidebarTitle.tsx), so a column that lights up its own edge would be saying
-   the same thing twice — and saying it in the accent an active PANE border
-   uses, which means something else. The matching half of this line is drawn by
-   the header cluster above (.statusbar-cluster-*.is-docked). */
+/* A column shows whether it has the keyboard the way a pane does: its content
+   dims to the inactive pane opacity while the keyboard is elsewhere, and its
+   divider — the full-height line facing the pane grid — takes the active
+   pane's border colour while it holds the keyboard. The matching half of the
+   line is drawn by the header cluster above (.statusbar-cluster-*.is-docked). */
+.sidebar-column > .sidebar-body {
+  opacity: var(--inactive-text-opacity);
+  transition: opacity var(--transition-active);
+}
+
+.sidebar-column.is-focused > .sidebar-body {
+  opacity: var(--active-text-opacity);
+}
+
 .sidebar-column-left {
   border-right: 1px solid var(--border-medium);
 }
 
 .sidebar-column-right {
   border-left: 1px solid var(--border-medium);
+}
+
+.sidebar-column-left.is-focused {
+  border-right-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+}
+
+.sidebar-column-right.is-focused {
+  border-left-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
 }
 
 /* Narrow windows: the column floats over the panes and the tab strip above
