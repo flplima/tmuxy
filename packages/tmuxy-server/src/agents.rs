@@ -246,10 +246,21 @@ fn is_ours(handler: &Value) -> bool {
         .is_some_and(|c| c.contains(HOOK_VERB) && c.contains("tmuxy"))
 }
 
+/// The hook's command. Guarded, because an agent's settings often live in a
+/// dotfiles repo shared with machines that have no tmuxy (or an older one
+/// without `agent hook`): there it does nothing and still succeeds, rather
+/// than report a failed hook on every event.
+fn hook_command(agent: Agent, event: &str, tmuxy: &str) -> String {
+    format!(
+        "command -v {tmuxy} >/dev/null 2>&1 && {tmuxy}{HOOK_VERB}{} {event} 2>/dev/null || true",
+        agent.name()
+    )
+}
+
 fn handler(agent: Agent, hook: &Hook, tmuxy: &str) -> Value {
     json!({
         "type": "command",
-        "command": format!("{tmuxy}{HOOK_VERB}{} {}", agent.name(), hook.event),
+        "command": hook_command(agent, hook.event, tmuxy),
         "timeout": hook.timeout,
     })
 }
@@ -485,7 +496,8 @@ enum AgentVerb {
         /// Replace a `tmuxy` skill tmuxy did not write (it is moved aside).
         #[arg(long)]
         force: bool,
-        /// The command the hooks run tmuxy with. Set by the `tmuxy` CLI.
+        /// The command the hooks run tmuxy with: `tmuxy` on PATH, so the
+        /// same settings work on every machine they are synced to.
         #[arg(long, hide = true, default_value = "tmuxy")]
         hook_command: String,
     },
@@ -781,7 +793,7 @@ mod tests {
         assert_eq!(stop[0]["hooks"][0]["command"], "say done");
         assert_eq!(
             stop[1]["hooks"][0]["command"],
-            "/bin/tmuxy agent hook claude Stop"
+            hook_command(Agent::Claude, "Stop", "/bin/tmuxy")
         );
         assert_eq!(
             doc["hooks"]["Notification"][0]["matcher"],
@@ -808,7 +820,7 @@ mod tests {
         assert_eq!(doc["hooks"]["Stop"].as_array().unwrap().len(), 2);
         assert_eq!(
             doc["hooks"]["Stop"][1]["hooks"][0]["command"],
-            "/usr/local/bin/tmuxy agent hook claude Stop"
+            hook_command(Agent::Claude, "Stop", "/usr/local/bin/tmuxy")
         );
 
         uninstall(&places, &which(&[Agent::Claude])).unwrap();
@@ -831,7 +843,7 @@ mod tests {
         assert_eq!(doc["browser-cleanup"]["Stop"][0]["command"], "reap");
         assert_eq!(
             doc["tmuxy"]["Stop"][0]["command"],
-            "tmuxy agent hook agy Stop"
+            hook_command(Agent::Agy, "Stop", "tmuxy")
         );
         assert_eq!(hooked_events(&doc, Agent::Agy), 3);
 
@@ -849,7 +861,7 @@ mod tests {
         assert_eq!(doc["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"], 3);
         assert_eq!(
             doc["hooks"]["PermissionRequest"][0]["hooks"][0]["command"],
-            "tmuxy agent hook codex PermissionRequest"
+            hook_command(Agent::Codex, "PermissionRequest", "tmuxy")
         );
         assert_eq!(
             places.skill_dir(Agent::Codex, Scope::Home),

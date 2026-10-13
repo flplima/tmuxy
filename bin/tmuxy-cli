@@ -252,9 +252,6 @@ cmd_agent() {
   case "$verb" in
     install|uninstall|status)
       find_server_cmd
-      if [ "$verb" = install ]; then
-        exec "${SERVER_CMD[@]}" agent install --hook-command "$(_agent_hook_command)" "$@"
-      fi
       exec "${SERVER_CMD[@]}" agent "$verb" "$@"
       ;;
     ""|--help|-h)
@@ -284,12 +281,6 @@ EOF
   esac
 }
 
-# The command installed hooks run tmuxy with: this script, resolved. Not the
-# `tmuxy` on PATH, which in the desktop app is the app binary, one more
-# process in front of every hook.
-_agent_hook_command() {
-  shquote "$SELF"
-}
 
 cmd_skill() {
   case "${1:-}" in

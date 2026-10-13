@@ -3,8 +3,6 @@ const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 
-const CLI_PATH = path.resolve(__dirname, '../../bin/tmuxy-cli');
-
 /**
  * `tmuxy agent hook` sets the pane state in a background job (so the agent
  * never waits on tmux), so its tmux calls land after the CLI has returned:
@@ -45,12 +43,10 @@ function hook(agent, event, state, where, extraEnv = {}) {
 }
 
 describe('tmuxy agent', () => {
-  test('install hands the server binary this script as the hooks’ command', () => {
+  test('install, uninstall and status are the server binary’s', () => {
     const { stdout, exitCode } = runCLI(['agent', 'install', 'claude', '--dry-run']);
     expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe(
-      `mock-server-started agent install --hook-command '${CLI_PATH}' claude --dry-run`,
-    );
+    expect(stdout.trim()).toBe('mock-server-started agent install claude --dry-run');
   });
 
   test('a hook sets the pane state the event means, once per change', async () => {
