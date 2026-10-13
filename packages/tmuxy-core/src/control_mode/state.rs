@@ -900,7 +900,6 @@ impl PaneState {
             pane_widget: self.pane_widget.clone(),
             pane_restore: self.pane_restore.clone(),
             pane_url: self.pane_url.clone(),
-            program_status: self.osc_parser.program_status.shown(),
         })
     }
 }
@@ -1322,7 +1321,6 @@ fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
         pane_widget: None,
         pane_restore: None,
         pane_url: None,
-        program_status: None,
     }
 }
 
@@ -2904,16 +2902,7 @@ impl StateAggregator {
             debug!(pane = %pane_id, cols = width, rows = height, "pane resized");
         }
         pane.active = active;
-        let command = pane_command(command, pane_widget.as_deref());
-        // The pane is back at its shell: the program that said it was working
-        // or blocked has ended (OSC 7501's lifetime rule). Not on any change
-        // of command: the poll lags, so a program that reports in its first
-        // second is first SEEN as the shell becoming that program, and that
-        // change must not end what it just reported.
-        if !is_new_pane && pane.command != command && crate::constants::is_shell_name(&command) {
-            pane.osc_parser.program_status.end_transient();
-        }
-        pane.command = command;
+        pane.command = pane_command(command, pane_widget.as_deref());
         pane.title = if is_graphics_payload(&title) {
             String::new()
         } else {
@@ -3375,9 +3364,6 @@ impl StateAggregator {
         if prev.pane_url != curr.pane_url {
             delta.pane_url = Some(curr.pane_url.clone());
         }
-        if prev.program_status != curr.program_status {
-            delta.program_status = Some(curr.program_status.clone());
-        }
         if prev.selection_present != curr.selection_present {
             delta.selection_present = Some(curr.selection_present);
         }
@@ -3584,54 +3570,6 @@ mod tests {
     /// middle of writing a frame when the resize reaches the pane. Dropping the
     /// half already read left vt100 printing the rest of the base64 as text,
     /// over the rows the picture was meant to cover.
-    #[test]
-    fn a_program_status_lasts_as_long_as_the_program_that_reported_it() {
-        use super::super::program_status::StatusState;
-        let line = |command: &str| {
-            format!("%3,0,0,0,80,24,0,0,1,{command},,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,,,")
-        };
-        let mut agg = StateAggregator::new();
-        agg.parse_list_panes_line(&line("claude"));
-        let pane = agg.panes.get_mut("%3").expect("pane parsed");
-        // Wrapped in tmux's passthrough, as a program inside tmux may send it.
-        pane.process_output(b"\x1bPtmux;\x1b\x1b]7501;state=working:app=claude-code\x07\x1b\\");
-        pane.process_output(b"\x1b]7501;state=error:id=build\x1b\\after");
-        let shown = pane.osc_parser.program_status.shown().expect("a status");
-        assert_eq!(shown.state, StatusState::Error, "the most urgent record");
-        assert_eq!(
-            shown.app.as_deref(),
-            Some("claude-code"),
-            "inherited from the root"
-        );
-        let text: String = pane.get_content()[0]
-            .iter()
-            .map(|c| c.char.clone())
-            .collect();
-        assert!(
-            text.starts_with("after"),
-            "the escape reaches no cell: {text:?}"
-        );
-
-        // A resize redraws the screen; it does not end the program.
-        pane.resize(60, 20);
-        assert!(pane.osc_parser.program_status.shown().is_some());
-
-        // The pane's command catching up with the program changes nothing.
-        agg.parse_list_panes_line(&line("node"));
-        assert!(agg.panes["%3"].osc_parser.program_status.shown().is_some());
-
-        // Back at the shell: `working` ends, `error` stays until cleared.
-        agg.parse_list_panes_line(&line("zsh"));
-        let pane = agg.panes.get_mut("%3").expect("pane parsed");
-        assert_eq!(
-            pane.osc_parser.program_status.shown().map(|s| s.state),
-            Some(StatusState::Error)
-        );
-        pane.process_output(b"\x1b]7501;state=clear:id=build\x07");
-        let pane = agg.panes.get("%3").expect("pane parsed");
-        assert_eq!(pane.osc_parser.program_status.shown(), None);
-    }
-
     #[test]
     fn a_resize_mid_frame_does_not_spill_the_frame_as_text() {
         let mut pane = PaneState::new(pid("%1"), 40, 10);

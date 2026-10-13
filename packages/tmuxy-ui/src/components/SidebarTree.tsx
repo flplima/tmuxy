@@ -55,8 +55,7 @@ import {
   selectRepositories,
   useReadOnly,
 } from '../machines/AppContext';
-import { paneRowLines, getTabIcon, programStatusIcon } from './paneTabDisplay';
-import type { WireProgramStatus } from '../domain/wire';
+import { paneRowLines, getTabIcon } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
 import {
   findPaneGitContext,
@@ -118,26 +117,6 @@ function rowKey(r: Row): string {
 }
 
 /** The state indicator at a row's right edge. `working` is drawn by CSS. */
-/**
- * The pane's icon, when its program has said what it is doing (OSC 7501): the
- * state in place of the process icon, with the program's own words on hover.
- */
-function ProgramStatusIcon({ status }: { status: WireProgramStatus }) {
-  const { glyph, label } = programStatusIcon(status);
-  return (
-    <Tooltip label={label}>
-      <span
-        className={`sidebar-tree-icon sidebar-tree-status is-${status.state}`}
-        role="img"
-        aria-label={label}
-        data-testid="tree-program-status"
-      >
-        {glyph}
-      </span>
-    </Tooltip>
-  );
-}
-
 function StateBadge({ state }: { state: PaneStateName }) {
   const label = PANE_STATE_LABEL[state];
   return (
@@ -592,14 +571,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                 </span>
               </Tooltip>
             )}
-            {row.pane.programStatus ? (
-              <ProgramStatusIcon status={row.pane.programStatus} />
-            ) : (
-              icon && (
-                <span className="sidebar-tree-icon" aria-hidden="true">
-                  {icon}
-                </span>
-              )
+            {icon && (
+              <span className="sidebar-tree-icon" aria-hidden="true">
+                {icon}
+              </span>
             )}
             {/* Two lines: what the pane IS on the first, what it is SHOWING on
                 the second. The id leads the first line, dim — it is what tells

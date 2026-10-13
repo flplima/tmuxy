@@ -3,12 +3,9 @@
 //! Parses OSC sequences from raw terminal output:
 //! - OSC 8: Hyperlinks (URL associations per text region)
 //! - OSC 52: Clipboard operations
-//! - OSC 7501: Program status (`program_status`), and OSC 133 `A`, which ends it
 
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use super::program_status::ProgramStatusRecords;
 
 /// Upper bound on a buffered incomplete OSC sequence carried across `process()`
 /// calls. tmux emits `%output` in bounded chunks and a real OSC (hyperlink URL,
@@ -89,10 +86,6 @@ pub struct OscParser {
     /// the next `process()` call so the sequence isn't torn (header rendered as
     /// garbage, payload lost).
     pending: Vec<u8>,
-    /// What the program says it is doing (OSC 7501). Kept across `reset`:
-    /// a resize or a capture refill redraws the screen, it does not end the
-    /// program.
-    pub program_status: ProgramStatusRecords,
 }
 
 impl OscParser {
@@ -248,10 +241,6 @@ impl OscParser {
         let mut i = 0;
 
         while i < content.len() {
-            // RIS forgets every status record; vt100 still resets the screen.
-            if content[i] == 0x1B && content.get(i + 1) == Some(&b'c') {
-                self.program_status.reset();
-            }
             // Check for ESC sequence start
             if content[i] == 0x1B && i + 1 < content.len() && content[i + 1] == b']' {
                 // OSC sequence: ESC ] ... ST or ESC ] ... BEL
@@ -322,18 +311,6 @@ impl OscParser {
         // OSC 52 (Clipboard): 52 ; Pc ; Pd
         if let Some(rest) = content_str.strip_prefix("52;") {
             self.parse_osc52(rest);
-            return;
-        }
-
-        // OSC 7501 (Program status): key=value pairs, `:`-separated.
-        if let Some(rest) = content_str.strip_prefix("7501;") {
-            self.program_status.apply(rest);
-            return;
-        }
-
-        // OSC 133 `A`: a new prompt. Whatever was working or blocked is over.
-        if content_str == "133;A" || content_str.starts_with("133;A;") {
-            self.program_status.end_transient();
             return;
         }
 

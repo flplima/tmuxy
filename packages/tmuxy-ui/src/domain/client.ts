@@ -11,7 +11,7 @@
 
 import { Schema } from 'effect';
 import { GroupId, PaneId, WindowId, paneNumber } from './ids';
-import { PaneContent, PaneTree, WindowType, WireProgramStatus, type ServerState } from './wire';
+import { PaneContent, PaneTree, WindowType, type ServerState } from './wire';
 
 /** A required field, read from the wire key `key`. */
 const from = <K extends string, S extends Schema.Schema.All>(key: K, schema: S) =>
@@ -120,8 +120,6 @@ export const TmuxPane = Schema.mutable(
     paneWidget: optionalFrom('pane_widget', Schema.NullOr(Schema.String)),
     /** `@tmuxy-pane-url`: what a live browser pane is showing (its address bar). */
     url: optionalFrom('pane_url', Schema.NullOr(Schema.String)),
-    /** OSC 7501: what the program in the pane says it is doing. */
-    programStatus: optionalFrom('program_status', Schema.NullOr(WireProgramStatus)),
   }),
 );
 export type TmuxPane = Schema.Schema.Type<typeof TmuxPane>;

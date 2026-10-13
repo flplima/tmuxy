@@ -17,7 +17,6 @@ mod log;
 mod octal;
 mod osc;
 mod parser;
-pub mod program_status;
 mod state;
 
 // Native async/pty transport, gated behind the `native` feature.

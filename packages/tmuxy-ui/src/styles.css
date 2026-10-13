@@ -2684,52 +2684,6 @@
   opacity: 0.85;
 }
 
-/* A program's own status (OSC 7501) in the icon's place. The same box as a
-   process icon, so a row does not shift when a program starts reporting. */
-.sidebar-tree-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1em;
-  opacity: 1;
-}
-
-.sidebar-tree-status.is-blocked {
-  color: var(--accent-amber);
-}
-
-.sidebar-tree-status.is-error {
-  color: var(--accent-red, #e06c75);
-}
-
-.sidebar-tree-status.is-done {
-  color: var(--accent-green);
-}
-
-.sidebar-tree-status.is-idle {
-  color: var(--text-dimmed);
-}
-
-/* Working spins, like the pane-state badge: motion means "busy". */
-.sidebar-tree-status.is-working::before {
-  content: '';
-  display: inline-block;
-  box-sizing: border-box;
-  width: 0.8em;
-  height: 0.8em;
-  border: 1.5px solid var(--accent-blue-light);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: sidebar-tree-spin 0.8s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-tree-status.is-working::before {
-    border-top-color: var(--accent-blue-light);
-    animation: none;
-  }
-}
-
 /* The tree's key legend, pinned under the rows while the column has focus.
    Same row height and inset as a tree row so it reads as part of the tree. */
 .sidebar-tree-hint {
