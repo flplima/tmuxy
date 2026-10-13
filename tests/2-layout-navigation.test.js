@@ -4021,3 +4021,67 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
     await waitForMark(tabMark, { state: null, text: '➊' }, 'the tab');
   }, 120000);
 });
+
+describe('Scenario 6l: The tree lists panes in grid order', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('panes read left to right as in the grid, and the list follows a swap', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page);
+
+    // Two panes side by side.
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+
+    const treeOpen = () =>
+      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+    if (!(await treeOpen())) await sendPrefixCommand(ctx.page, 't');
+    await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
+
+    // What the grid shows, left to right, and what the tree lists.
+    const order = () =>
+      ctx.page.evaluate(() => {
+        const { activeWindowId, panes } = window.app.getSnapshot().context;
+        const grid = panes
+          .filter((p) => p.windowId === activeWindowId)
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+          .map((p) => p.tmuxId);
+        const tree = [
+          ...document.querySelectorAll(
+            `[data-testid="tree-tab-${activeWindowId}"] ~ .sidebar-tree-pane`,
+          ),
+        ]
+          .map((el) => el.getAttribute('data-pane-id'))
+          .filter((id) => grid.includes(id));
+        return { grid, tree };
+      });
+    const waitForTreeInGridOrder = (what) =>
+      waitForCondition(
+        ctx.page,
+        async () => {
+          const { grid, tree } = await order();
+          return grid.length === 2 && JSON.stringify(grid) === JSON.stringify(tree);
+        },
+        15000,
+        async () => `${what} (now ${JSON.stringify(await order())})`,
+      );
+    await waitForTreeInGridOrder('the tree to list the panes left to right');
+    const before = (await order()).grid;
+
+    // The user swaps them: the list follows the grid, not the panes' ids.
+    await typeInTerminal(ctx.page, `'${TMUXY_CLI}' pane swap ${before[0]} ${before[1]}`);
+    await pressEnter(ctx.page);
+    await waitForCondition(
+      ctx.page,
+      async () => JSON.stringify((await order()).grid) === JSON.stringify([...before].reverse()),
+      15000,
+      'the swap to land in the grid',
+    );
+    await waitForTreeInGridOrder('the tree to follow the swap');
+  }, 120000);
+});

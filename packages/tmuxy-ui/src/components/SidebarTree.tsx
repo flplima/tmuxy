@@ -65,6 +65,7 @@ import {
 } from './gitContext';
 import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor, tabPaneStates } from '../utils/paneState';
+import { inGridOrder } from '../utils/gridOrder';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { TmuxPane, TmuxWindow } from '../machines/types';
@@ -187,7 +188,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       const isCollapsed = collapsed.has(window.id);
       out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
       if (isCollapsed) return;
-      const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
+      // In the order they sit in the grid, so the list follows the layout as
+      // it changes (a split, a swap, a move) rather than tmux's creation order.
+      const windowPanes = inGridOrder(
+        panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p)),
+      );
       windowPanes.forEach((pane, i) => {
         out.push({ kind: 'pane', pane, window, last: i === windowPanes.length - 1 });
       });
