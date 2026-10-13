@@ -567,9 +567,11 @@ pub async fn sse_handler(
                             // buffer above what we've already sent so the client
                             // recovers without waiting for the next full snapshot.
                             // If the gap exceeds the buffer, replay covers the
-                            // buffered tail and the next StateUpdate::Full fills
-                            // the rest. The `seq <= last_replayed` dedup below
-                            // absorbs any overlap with resumed delivery.
+                            // buffered tail only: the client's sequencer sees the
+                            // jump in ids and refetches a full state (C1 in
+                            // `docs/INVARIANTS.md`). The `seq <= last_replayed`
+                            // dedup below absorbs any overlap with resumed
+                            // delivery.
                             warn!(conn_id, lagged = n, "client lagged; replaying ring buffer");
                             for (seq, msg) in session_broadcast.replay_since(last_replayed) {
                                 let event_type = sse_event_type(&msg);
@@ -2388,11 +2390,14 @@ mod tests {
     /// A slow consumer — a backgrounded tab, a stalled TCP window — stops
     /// draining its broadcast receiver while tmux keeps producing. Tokio drops
     /// the overflow and reports `Lagged`; the handler then replays the ring
-    /// buffer. The invariant is that the client's event stream has no gap and
-    /// no duplicate across that recovery, because a gap is state silently
-    /// diverging from tmux.
+    /// buffer above what it already sent. What that promises (S2 in
+    /// `docs/INVARIANTS.md`): everything the ring still holds reaches the
+    /// client once and in order, and the only gap is below the ring's oldest
+    /// entry — a gap the client's sequencer sees in the ids and answers with
+    /// a refetch. Here the client falls further behind than the ring, so that
+    /// gap exists; what must never happen is a second gap or a repeat.
     #[tokio::test]
-    async fn a_client_that_stops_reading_recovers_from_the_ring_with_no_gap() {
+    async fn a_client_that_stops_reading_gets_the_ring_tail_once_with_the_gap_below_it() {
         let b = crate::state::SessionBroadcast::new();
         let mut rx = b.subscribe();
 
@@ -2434,27 +2439,28 @@ mod tests {
             last_replayed = seq;
         }
 
+        let oldest = b.oldest_seq().unwrap();
         let newest = b.broadcast("final".into());
         for (seq, _) in b.replay_since(last_replayed) {
             received.push(seq);
         }
 
-        // The tail is contiguous and each event was delivered once.
+        // Each event was delivered once, the stream ends on the newest, and
+        // the one gap sits exactly where the ring could not help: between
+        // the last event read before the lag and the ring's oldest entry.
         let unique: std::collections::BTreeSet<u64> = received.iter().copied().collect();
         assert_eq!(unique.len(), received.len(), "an event was delivered twice");
         assert_eq!(*received.last().unwrap(), newest);
-        let tail: Vec<u64> = received
-            .iter()
-            .copied()
-            .skip_while(|s| *s < newest - 10)
+        assert!(
+            oldest > 4,
+            "the ring should have outrun the client: {oldest}"
+        );
+        let gaps: Vec<(u64, u64)> = received
+            .windows(2)
+            .filter(|pair| pair[1] != pair[0] + 1)
+            .map(|pair| (pair[0], pair[1]))
             .collect();
-        for pair in tail.windows(2) {
-            assert_eq!(
-                pair[1],
-                pair[0] + 1,
-                "gap in the recovered stream: {tail:?}"
-            );
-        }
+        assert_eq!(gaps, vec![(3, oldest)], "stream: {received:?}");
     }
 
     /// A client that fell further behind than the buffer cannot be resumed

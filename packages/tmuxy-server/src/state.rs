@@ -163,27 +163,37 @@ mod broadcast_tests {
     }
 
     /// S1: the ring is sorted and gap-free however many threads broadcast at
-    /// once — the monitor and the initial-sync task do.
+    /// once — the monitor and the initial-sync task do. A stress run, not an
+    /// exhaustive one: the threads are released together and the run is
+    /// repeated, which makes the old interleaving (a seq taken, then the ring
+    /// written under a separate lock) likely rather than certain to show.
+    /// What makes it impossible is `broadcast` taking the seq and writing the
+    /// ring under one lock, which review has to hold.
     #[test]
     fn concurrent_broadcasters_keep_the_ring_in_order() {
-        let b = std::sync::Arc::new(SessionBroadcast::new());
         let per_thread = EVENT_BUFFER_SIZE / 4;
-        let threads: Vec<_> = (0..4)
-            .map(|t| {
-                let b = std::sync::Arc::clone(&b);
-                std::thread::spawn(move || {
-                    for i in 0..per_thread {
-                        b.broadcast(format!("t{t}-{i}"));
-                    }
+        for _round in 0..25 {
+            let b = std::sync::Arc::new(SessionBroadcast::new());
+            let gate = std::sync::Arc::new(std::sync::Barrier::new(4));
+            let threads: Vec<_> = (0..4)
+                .map(|t| {
+                    let b = std::sync::Arc::clone(&b);
+                    let gate = std::sync::Arc::clone(&gate);
+                    std::thread::spawn(move || {
+                        gate.wait();
+                        for i in 0..per_thread {
+                            b.broadcast(format!("t{t}-{i}"));
+                        }
+                    })
                 })
-            })
-            .collect();
-        for t in threads {
-            t.join().unwrap();
+                .collect();
+            for t in threads {
+                t.join().unwrap();
+            }
+            let seqs: Vec<u64> = b.replay_since(0).into_iter().map(|(s, _)| s).collect();
+            let expected: Vec<u64> = (1..=(4 * per_thread) as u64).collect();
+            assert_eq!(seqs, expected, "the ring is out of order or has a gap");
         }
-        let seqs: Vec<u64> = b.replay_since(0).into_iter().map(|(s, _)| s).collect();
-        let expected: Vec<u64> = (1..=(4 * per_thread) as u64).collect();
-        assert_eq!(seqs, expected, "the ring is out of order or has a gap");
     }
 
     #[test]

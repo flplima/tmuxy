@@ -1624,34 +1624,64 @@ mod tests {
         }
     }
 
+    fn response(output: &str) -> ControlModeEvent {
+        ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success: true,
+        }
+    }
+
     /// M1: the commands a step puts on the wire come out in the order the
-    /// aggregator returned their effects — the window tags of
-    /// `AdoptUntaggedWindows` before the re-list of `RefreshAfterWindowAdd`,
-    /// the re-list before any capture, and nothing interleaved.
+    /// aggregator returned their effects, for every command-bearing effect —
+    /// the window tags of `AdoptUntaggedWindows` before the re-list of
+    /// `RefreshAfterWindowAdd`, the re-list of `RefreshPanes` before its
+    /// captures, a `ResumePane` as the step's last command, a `CommandReply`
+    /// putting nothing on the wire — and nothing interleaved.
     #[tokio::test]
     async fn a_step_sends_its_effects_commands_in_effect_order() {
         let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let title = tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
+        let events = [
+            // A pane the monitor knows, as the initial sync leaves one.
+            ControlModeEvent::WindowAdd {
+                window_id: "@0".parse().unwrap(),
+            },
+            response("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,"),
+            response("TMUXY_CAP_BEGIN 0\n"),
+            response("$ \n"),
+            response("TMUXY_CAP_END\n"),
+            // Adopt, then the window re-list.
+            ControlModeEvent::WindowAdd {
+                window_id: "@1".parse().unwrap(),
+            },
+            // A reply block: resolved in the monitor, nothing sent.
+            response("TMUXY_RPY_BEGIN 4\n"),
+            response("ok\n"),
+            response("TMUXY_RPY_END 4\n"),
+            // A pane refresh: the pane re-list, then the capture.
+            ControlModeEvent::SubscriptionChanged {
+                name: title.to_string(),
+                pane_id: "%0".parse().unwrap(),
+            },
+            // Flow control: the resume.
+            ControlModeEvent::Pause {
+                pane_id: "%0".parse().unwrap(),
+            },
+            ControlModeEvent::WindowClose {
+                window_id: "@1".parse().unwrap(),
+            },
+        ];
+        let count = events.len();
         let link = Scripted {
-            events: [
-                ControlModeEvent::WindowAdd {
-                    window_id: "@1".parse().unwrap(),
-                },
-                ControlModeEvent::Output {
-                    pane_id: "%0".parse().unwrap(),
-                    content: b"hello".to_vec(),
-                },
-                ControlModeEvent::WindowClose {
-                    window_id: "@1".parse().unwrap(),
-                },
-            ]
-            .into_iter()
-            .collect(),
+            events: events.into_iter().collect(),
             sent: std::sync::Arc::clone(&sent),
         };
         let (_tx, rx) = mpsc::channel(1);
         let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
         let mut rs = RunState::new(&monitor.config, Instant::now());
-        for _ in 0..3 {
+        for _ in 0..count {
             let event = monitor.connection.recv().await;
             assert!(monitor.on_control_event(&Quiet, &mut rs, event).await);
         }
@@ -1668,9 +1698,12 @@ mod tests {
                 "a step's commands left the effect order: {step:?}"
             );
         }
-        // The window-add step is the one with two command-bearing effects,
-        // so the check above is not vacuous there: a tag, then the re-list.
-        let window_add = &steps[1];
+        // Each multi-effect step, named, so the check above is not vacuous.
+        let ranks_of = |step: &[&String]| step.iter().map(|c| rank(c)).collect::<Vec<_>>();
+        // Steps are numbered by event: the window add is the 6th, the reply's
+        // three blocks the 7th to 9th, the title change the 10th, the pause
+        // the 11th.
+        let window_add = &steps[6];
         let first_list = window_add
             .iter()
             .position(|c| *c == tmux_formats::LIST_PANES_CMD)
@@ -1678,6 +1711,21 @@ mod tests {
         assert!(
             first_list > 0 && rank(window_add[0]) == 0,
             "the tags should go out before the re-list: {window_add:?}"
+        );
+        for reply_step in &steps[7..10] {
+            assert!(reply_step.is_empty(), "a reply block sent {reply_step:?}");
+        }
+        let refresh = &steps[10];
+        assert_eq!(
+            ranks_of(refresh),
+            [3, 3, 4],
+            "the pane refresh should re-list before it captures: {refresh:?}"
+        );
+        let pause = &steps[11];
+        assert_eq!(
+            ranks_of(pause),
+            [5],
+            "a pause should answer with the resume alone: {pause:?}"
         );
     }
 
