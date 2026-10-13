@@ -16,6 +16,7 @@ const PROCESS_ICONS: Record<string, string> = {
   vi: '\ue62b', //  nf-seti-vim
   vim: '\ue62b', //  nf-seti-vim
   nvim: '\ue62b', //  nf-seti-vim
+  browser: '\uf0ac', //  nf-fa-globe — a live browser pane (`tmuxy browser`)
   docker: '\u{f0868}', // 󰡨 nf-md-docker
   node: '\ue718', //  nf-dev-nodejs_small
   python: '\ue73c', //  nf-dev-python

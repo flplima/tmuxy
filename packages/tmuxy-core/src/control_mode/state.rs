@@ -1227,6 +1227,19 @@ fn normalize_pane_command(command: &str) -> String {
     command.to_string()
 }
 
+/// The command a pane is named by, once its widget tag is known.
+///
+/// A live browser pane runs the server binary (`tmuxy-server`, or `tmuxy` in
+/// the desktop app), which names nothing the user did: it is a browser. The tag
+/// (`browser-live`, set by `tmuxy browser` through the CLI) is what says so —
+/// never the output — so a plain `tmuxy-server` run in a shell keeps its name.
+fn pane_command(command: String, widget: Option<&str>) -> String {
+    if widget == Some("browser-live") {
+        return "browser".to_string();
+    }
+    command
+}
+
 /// Is this string nothing but a dotted run of digits (`2.1.280`, `0.9`)?
 fn is_version_string(value: &str) -> bool {
     let mut parts = value.split('.');
@@ -2889,7 +2902,7 @@ impl StateAggregator {
             debug!(pane = %pane_id, cols = width, rows = height, "pane resized");
         }
         pane.active = active;
-        pane.command = command;
+        pane.command = pane_command(command, pane_widget.as_deref());
         pane.title = if is_graphics_payload(&title) {
             String::new()
         } else {
@@ -3700,6 +3713,25 @@ mod tests {
     #[test]
     fn a_bare_version_command_is_named_claude() {
         assert_eq!(normalize_pane_command("2.1.280"), "claude");
+    }
+
+    /// A browser pane runs the server binary; every surface that names a pane
+    /// by its command (the tree, the tabs) said `tmuxy-server` instead.
+    #[test]
+    fn a_live_browser_pane_is_named_browser_not_after_its_binary() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(
+            "%3,0,0,0,80,24,0,0,1,tmuxy-server,Example,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,browser-live,,https://example.com/",
+        );
+        assert_eq!(agg.panes.get("%3").expect("pane parsed").command, "browser");
+        agg.parse_list_panes_line(
+            "%4,0,0,0,80,24,0,0,1,tmuxy-server,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,,,",
+        );
+        assert_eq!(
+            agg.panes.get("%4").expect("pane parsed").command,
+            "tmuxy-server",
+            "untagged, it is just a program running in a shell"
+        );
         assert_eq!(normalize_pane_command("0.9"), "claude");
 
         // Anything a real executable is plausibly called stays untouched,
