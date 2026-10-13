@@ -2474,10 +2474,12 @@
   overflow: hidden;
 }
 
-/* Tabs are the tree's headings: full-strength text. */
+/* Tabs are the tree's headings: full-strength text on a faint band of the
+   theme's foreground, so the eye finds where each tab starts. */
 .sidebar-tree-tab {
   color: var(--term-white);
   opacity: 0.75;
+  background: color-mix(in srgb, var(--term-foreground) 5%, transparent);
 }
 
 /* Panes recede under their tab, so scanning the tree reads tab names first.
@@ -2516,6 +2518,8 @@
 
 .sidebar-tree-line > .sidebar-tree-name {
   flex: 0 1 auto;
+  /* Regular weight: only a tab's name, the tree's heading, is bold. */
+  font-weight: normal;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2534,8 +2538,10 @@
   opacity: 0.7;
 }
 
+/* The path takes 70% of the line and the branch the rest — whether or not
+   there is a branch — so paths line up from row to row. */
 .sidebar-tree-cwd {
-  flex: 1 1 auto;
+  flex: 0 0 70%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2596,23 +2602,24 @@
   border-top-width: 1px;
 }
 
+/* Hover, as on the tab strip. */
 .sidebar-tree-tab:hover,
 .sidebar-tree-pane:hover {
-  background: var(--accent-blue-bg);
+  background: var(--bg-medium);
 }
 
 /* Where the keyboard actually is. The active tab and the active pane inside it
-   both go green, so the eye lands on the pair. */
+   both take the theme's accent (gruvbox's yellow, the default's green) — the
+   colour of the active tab on the strip and of the active pane's frame — so
+   the eye lands on the pair. */
 .sidebar-tree-tab.is-active,
 .sidebar-tree-pane.is-active {
-  color: var(--accent-green);
+  color: var(--theme-accent);
   opacity: 1;
 }
 
-/* ...and the pane keeps a rail on the LEFT edge, because "green" alone reads
-   the same as the tab above it. The two edges answer different questions: the
-   rail says the keyboard is HERE, the state indicator on the right says what
-   the pane is doing. */
+/* ...and the pane keeps a rail on the LEFT edge, because the accent colour
+   alone reads the same as the tab above it: the rail says the keyboard is HERE. */
 .sidebar-tree-rail {
   flex: 0 0 2px;
   align-self: stretch;
@@ -2622,7 +2629,7 @@
 }
 
 .sidebar-tree-pane.is-active > .sidebar-tree-rail {
-  background: var(--accent-green);
+  background: var(--theme-accent);
 }
 
 /* A tab's window id and a pane's id, held at the right edge and quieter than
@@ -2700,11 +2707,11 @@
    drawn only then. */
 .sidebar-column.is-focused .sidebar-tree-tab.is-selected,
 .sidebar-column.is-focused .sidebar-tree-pane.is-selected {
-  background: var(--accent-blue-bg-hover);
+  background: var(--bg-highlight);
 }
 
 .sidebar-tree-tab.is-drop-target {
-  outline: 1px dashed var(--accent-green);
+  outline: 1px dashed var(--theme-accent);
   outline-offset: -1px;
 }
 
@@ -2747,19 +2754,21 @@
   white-space: nowrap;
 }
 
-/* A row's git context: the branch (or short head) of the worktree its pane's
-   cwd sits in, from the host's worktree discovery (docs/TMUX.md "Sessions
-   tree"). A tab shows one only when every pane in it shares that worktree. */
+/* A pane's git context: the branch (or short head) of the worktree its cwd
+   sits in, from the host's worktree discovery (docs/TMUX.md "Sessions tree"),
+   in the 30% of the line the path leaves it. */
 .sidebar-tree-git {
-  flex: 0 1 auto;
-  margin-left: auto;
+  flex: 0 0 30%;
+  box-sizing: border-box;
   padding-left: var(--spacing-sm);
-  max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.85em;
-  opacity: 0.7;
+  text-align: right;
+}
+
+.sidebar-tree-git.is-empty::before {
+  content: none;
 }
 
 .sidebar-tree-git::before {

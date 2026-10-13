@@ -156,11 +156,15 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     },
     [git],
   );
+  // The branch's slot is held even outside a repository, so every row's path
+  // gets the same width and the columns line up down the tree.
   const badgeSpan = (badge: { text: string; title: string } | null) =>
-    badge && (
+    badge ? (
       <Tooltip label={badge.title}>
         <span className="sidebar-tree-git">{badge.text}</span>
       </Tooltip>
+    ) : (
+      <span className="sidebar-tree-git is-empty" aria-hidden="true" />
     );
 
   // What each tab rolls up to: how many panes it holds and the most
