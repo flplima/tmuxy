@@ -69,6 +69,25 @@ describe('StateSequencer', () => {
     expect(now._tag === 'State' && now.state.active_pane_id).toBe('%5');
   });
 
+  it('a delta lost right after a numbered sync point is a gap, not a delta applied over the hole', () => {
+    // A full state numbered by the stream: the next delta has to follow it.
+    const stream = new StateSequencer();
+    stream.receive({ type: 'full', state: { ...state(), seq: 7 } });
+    expect(stream.receive(delta(9))).toEqual({ _tag: 'Resync' });
+
+    // An adopted answer after a gap, numbered: the same rule.
+    stream.adopt({ ...state('%4'), seq: 12 });
+    expect(stream.receive(delta(14, { active_pane_id: '%9' }))).toEqual({ _tag: 'Resync' });
+    stream.adopt({ ...state('%4'), seq: 14 });
+    expect(stream.receive(delta(15, { active_pane_id: '%9' }))).toMatchObject({ _tag: 'State' });
+
+    // A state no stream numbered (a fixture, an engine) starts the count at
+    // the next delta, whatever its number.
+    const unnumbered = new StateSequencer();
+    unnumbered.receive(full());
+    expect(unnumbered.receive(delta(9))).toMatchObject({ _tag: 'State', seq: 9 });
+  });
+
   it('ignores a delta before any full state', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(new StateSequencer().receive(delta(1))).toEqual({ _tag: 'Ignore' });

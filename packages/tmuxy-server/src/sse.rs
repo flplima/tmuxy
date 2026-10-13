@@ -1904,6 +1904,7 @@ mod tests {
                             total_width: size.0,
                             total_height: size.1,
                             focus_request: None,
+                            seq: 0,
                         });
                     }
                     _ => {}
@@ -2649,6 +2650,60 @@ mod tests {
         );
         state.shutdown.cancel();
     }
+
+    /// S2, through the handler: a client whose stream is not read while the
+    /// session broadcasts more than the ring holds is served, once it reads,
+    /// everything the ring still has — once each, in order — and nothing it
+    /// could not have: no id below the ring's oldest, no repeat where the
+    /// replay and the resumed channel overlap.
+    #[tokio::test]
+    async fn a_lagged_stream_is_served_the_ring_tail_once_in_order() {
+        use futures_util::StreamExt;
+
+        let state = Arc::new(AppState::new());
+        let broadcast = {
+            let mut conns = SessionConnections::new();
+            conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
+            let broadcast = Arc::clone(&conns.broadcast);
+            state.sessions.write().await.insert("s".to_string(), conns);
+            broadcast
+        };
+
+        // The handler subscribes before it returns; the body is not read
+        // until the session has outrun the channel and the ring.
+        let response = sse_handler(
+            State(Arc::clone(&state)),
+            Query(SessionQuery {
+                session: Some("s".to_string()),
+            }),
+            HeaderMap::new(),
+        )
+        .await;
+        let mut newest = 0;
+        for i in 0..(crate::state::EVENT_BUFFER_SIZE + 50) {
+            newest = broadcast.broadcast(format!("{{\"type\":\"m{i}\"}}"));
+        }
+        let oldest = broadcast.oldest_seq().unwrap();
+
+        let mut body = response.into_body().into_data_stream();
+        let mut text = String::new();
+        while !text.contains(&format!("id: {newest}\n")) {
+            let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+                .await
+                .expect("the newest broadcast never arrived")
+                .expect("the stream ended before the newest broadcast")
+                .expect("the body failed");
+            text.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        let ids: Vec<u64> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("id: "))
+            .map(|id| id.parse().unwrap())
+            .collect();
+        let expected: Vec<u64> = (oldest..=newest).collect();
+        assert_eq!(ids, expected, "the lagged stream served: {ids:?}");
+        state.shutdown.cancel();
+    }
 }
 
 /// Canonical wire-shape fixtures, written by Rust and read back by the
@@ -2899,6 +2954,7 @@ mod protocol_fixtures {
             total_width: 80,
             total_height: 50,
             focus_request: Some("left".to_string()),
+            seq: 41,
         }
     }
 

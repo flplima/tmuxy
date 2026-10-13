@@ -3147,8 +3147,9 @@ impl StateAggregator {
         // First state or no previous state - send full
         let prev = match &self.prev_state {
             None => {
-                self.prev_state = Some(current.clone());
                 self.delta_seq = 1;
+                current.seq = 1;
+                self.prev_state = Some(current.clone());
                 return Some(crate::StateUpdate::Full { state: current });
             }
             Some(prev) => prev,
@@ -3264,9 +3265,11 @@ impl StateAggregator {
             return None;
         }
 
-        // Has real changes — assign seq, update prev_state
+        // Has real changes — assign seq, update prev_state. The full state
+        // sent in the delta's place below carries the same number.
         self.delta_seq += 1;
         delta.seq = self.delta_seq;
+        current.seq = self.delta_seq;
         self.prev_state = Some(current.clone());
 
         // If delta is too large (> 50% of panes changed), send full state instead
@@ -3563,6 +3566,7 @@ impl StateAggregator {
             total_width,
             total_height,
             focus_request: self.focus_request.clone(),
+            seq: self.delta_seq,
         }
     }
 }

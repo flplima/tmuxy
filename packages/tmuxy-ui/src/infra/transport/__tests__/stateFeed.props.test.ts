@@ -7,10 +7,14 @@
  * orderings: an answer landing after the stream had moved on, a gap during a
  * refetch, a refetch that failed and was never asked for again. So here the
  * server is a model — emission `i` sets the active pane to `%i`, a logical
- * clock — and fast-check picks which emissions are lost, when each answer
- * resolves and whether it fails. Whatever it picks, what the subscriber sees
- * must never go backwards, never be a state nothing delivered, ask for at
- * most one refetch per loss (plus one per failed answer), and end on the
+ * clock, and each delta also adds a window and removes an older one, so the
+ * state is the sum of every delta since the last full state and a delta
+ * silently skipped leaves a trace the next one does not erase — and
+ * fast-check picks which emissions are lost, when each answer resolves and
+ * whether it fails. Whatever it picks, what the subscriber sees must never go
+ * backwards, must always be exactly the server's state at its clock, must ask
+ * for at most one refetch per loss (plus one per failed answer and one per
+ * answer older than the stream it is adopted into), and must end on the
  * server's last emission.
  */
 
@@ -24,20 +28,45 @@ import { type DriverEvent, type TransportEvent } from '../events';
 import { StateSequencer } from '../stateSequencer';
 import type { SequencedAdapter } from '../driver';
 
+const win = (k: number) => ({
+  id: `@${k}`,
+  index: k,
+  name: 'w',
+  active: k === 1,
+  window_type: 'tab',
+});
+/** The windows open after emission `i`: `@1` always, and the last three added. */
+const windowsAt = (i: number) => {
+  const ids = ['@1'];
+  for (let k = Math.max(2, i - 2); k <= i; k += 1) ids.push(`@${k}`);
+  return ids;
+};
 /** The server's state after emission `i`: the active pane is the clock. */
 const serverState = (i: number) => ({
   session_name: 'tmuxy',
   active_window_id: '@1',
   active_pane_id: `%${i}`,
   panes: [],
-  windows: [{ id: '@1', index: 1, name: 'main', active: true, window_type: 'tab' }],
+  windows: windowsAt(i).map((id) => win(Number(id.slice(1)))),
   total_width: 80,
   total_height: 24,
+  seq: i,
 });
 const fullAt = (i: number) => ({ type: 'full', state: serverState(i) });
-const deltaAt = (i: number) => ({ type: 'delta', delta: { seq: i, active_pane_id: `%${i}` } });
+/** Delta `i` opens window `@i` and closes `@(i-3)`: what it does is not undone by the next. */
+const deltaAt = (i: number) => ({
+  type: 'delta',
+  delta: {
+    seq: i,
+    active_pane_id: `%${i}`,
+    new_windows: [win(i)],
+    ...(i - 3 >= 2 ? { windows: { [`@${i - 3}`]: null } } : {}),
+  },
+});
 const clock = (state: { active_pane_id: string | null }) =>
   Number(String(state.active_pane_id).slice(1));
+const windowIds = (state: { windows: ReadonlyArray<{ id: string }> }) =>
+  state.windows.map((w) => w.id).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
 
 /** What the server does at emission `i`: a delta, a full state, or a delta the wire loses. */
 type Step = 'delta' | 'full' | 'drop';
@@ -126,14 +155,17 @@ function openFeed() {
     model.pending[n].resolve(raw);
   };
   const fail = (n: number) => model.pending[n].reject(new Error('refetch failed'));
-  const clocks = () => seen.flatMap((e) => (e._tag === 'State' ? [clock(e.state)] : []));
+  const paints = () =>
+    seen.flatMap((e) =>
+      e._tag === 'State' ? [{ clock: clock(e.state), windows: windowIds(e.state) }] : [],
+    );
   return {
     ready,
     push,
     settled,
     answer,
     fail,
-    clocks,
+    paints,
     fetches: () => model.pending.length,
     dispose: () => runtime.dispose(),
   };
@@ -169,6 +201,7 @@ describe('the state feed stage, under any interleaving of the stream and the ans
             done: boolean;
           }> = [];
           let failures = 0;
+          let staleAnswers = 0;
           let i = 0;
           /**
            * Answer every refetch whose time has come, with the server's state
@@ -185,6 +218,10 @@ describe('the state feed stage, under any interleaving of the stream and the ans
               if (s.ok) {
                 const asOf = Math.max(s.from, i - s.stale);
                 delivered.add(asOf);
+                // An answer older than the stream, adopted after a gap, is a
+                // sync point the next delta does not follow: one more refetch
+                // is the right answer, not a delta applied over the hole.
+                if (asOf < i) staleAnswers += 1;
                 feed.answer(n, serverState(asOf));
               } else {
                 failures += 1;
@@ -220,16 +257,22 @@ describe('the state feed stage, under any interleaving of the stream and the ans
             if (feed.fetches() === scheduled.length) break;
           }
 
-          const painted = feed.clocks();
+          const paints = feed.paints();
+          const painted = paints.map((p) => p.clock);
           for (let n = 1; n < painted.length; n += 1) {
             expect(painted[n], `painted ${painted.join(',')} after ${steps.join(',')}`).toBe(
               Math.max(painted[n], painted[n - 1]),
             );
           }
-          for (const k of painted) {
+          for (const { clock: k, windows } of paints) {
             expect(delivered.has(k), `clock ${k} was painted but never delivered`).toBe(true);
+            // The whole state, not just the clock: a delta skipped on the
+            // way to this paint leaves a window open or missing here.
+            expect(windows, `the paint at clock ${k} is not the server's state`).toEqual(
+              windowsAt(k),
+            );
           }
-          expect(feed.fetches()).toBeLessThanOrEqual(dropped.size + failures);
+          expect(feed.fetches()).toBeLessThanOrEqual(dropped.size + failures + staleAnswers);
           expect(painted[painted.length - 1]).toBe(i);
         } finally {
           await feed.dispose();

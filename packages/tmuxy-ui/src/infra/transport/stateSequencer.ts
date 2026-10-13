@@ -58,8 +58,9 @@ export class StateSequencer {
       seq = update.delta.seq;
       this.lastDeltaSeq = seq;
     } else {
-      // A full state is a fresh sync point.
-      this.lastDeltaSeq = null;
+      // A full state is a fresh sync point, numbered when the stream numbers
+      // it, so the delta right after it is checked like any other.
+      this.lastDeltaSeq = update.state.seq ?? null;
       this.synced = true;
       this.diverged = false;
     }
@@ -76,11 +77,13 @@ export class StateSequencer {
    */
   adopt(raw: unknown): ServerState {
     const synced = this.synced;
-    const state = adoptInitialState(decodeServerStateOrThrow(raw), this.state, synced);
+    const answer = decodeServerStateOrThrow(raw);
+    const state = adoptInitialState(answer, this.state, synced);
     this.state = state;
     // A synced stream carries on from its own sequence; an adopted answer
-    // starts one.
-    if (!synced) this.lastDeltaSeq = null;
+    // starts one at the answer's own number, so a delta the stream lost
+    // between the answer and now is a gap, not something applied over it.
+    if (!synced) this.lastDeltaSeq = answer.seq ?? null;
     this.diverged = false;
     return state;
   }

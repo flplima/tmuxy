@@ -278,7 +278,7 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 2. **Incremental updates** — The backend sends `TmuxDelta` updates with sequence numbers. The frontend merges these via `handleStateUpdate()` in `tmuxy-ui/src/domain/deltaProtocol.ts`. Only changed fields are transmitted.
 
-3. **Sequence gaps** — If a delta arrives with an unexpected sequence number, the frontend requests a full resync.
+3. **Sequence gaps** — If a delta arrives with an unexpected sequence number, the frontend requests a full resync. A full state and the `get_initial_state` answer carry the sequence number they were taken at (`seq` on `TmuxState`), so the delta right after either is checked the same way: a delta lost between a sync point and the next delta is a gap, never a delta merged over a hole.
 
 4. **Optimistic reconciliation** — Every dispatched op stays in `TmuxClientModel.ops` until a server state update either matches it (the predicted real id appears in `committed`) or it stale-expires after `OP_STALE_TIMEOUT_MS`. Multiple in-flight ops are reconciled in dispatch order, each claiming its own real id so concurrent Split / NewWindow ops don't collide. On `TmuxError`, the store rolls the patch back immediately and surfaces `OpRejectedByTmux { stderr }` to the caller.
 
