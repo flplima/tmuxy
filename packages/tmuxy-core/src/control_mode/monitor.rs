@@ -8,7 +8,8 @@
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
 use super::state::{
-    capture_command, capture_command_range, ChangeType, SideEffect, StateAggregator,
+    capture_command, capture_command_range, pane_refresh_commands, window_relist_commands,
+    ChangeType, SideEffect, StateAggregator,
 };
 use crate::constants::tmux_formats;
 use crate::error::TmuxError;
@@ -593,25 +594,12 @@ impl TmuxMonitor {
             .send_command("refresh-client -f pause-after=5")
             .await?;
 
-        // Panes BEFORE windows — the same load-bearing order
-        // `refresh_after_window_add` documents: emitting window state before
-        // its panes exist would surface a window with missing panes. The wasm
-        // mirror (`tmuxy-wasm/src/lib.rs`) uses the same order.
-        self.connection
-            .send_command(tmux_formats::LIST_PANES_CMD)
-            .await?;
-
-        self.connection
-            .send_command(tmux_formats::LIST_WINDOWS_CMD)
-            .await?;
-
-        // Hidden pane-group members live in the stash session; enumerate them so
-        // a group tab strip has every member. Sent AFTER windows — it's
-        // independent of the load-bearing panes-before-windows ordering — and
-        // returns empty (not an error) when no stash session exists.
-        self.connection
-            .send_command(tmux_formats::LIST_STASH_PANES_CMD)
-            .await?;
+        // Panes before windows, then the stash session's hidden pane-group
+        // members (empty, not an error, when there is no stash session): the
+        // one order `window_relist_commands` documents.
+        for cmd in window_relist_commands() {
+            self.connection.send_command(&cmd).await?;
+        }
 
         // Title changes have no notification of their own; this asks tmux to
         // send one (see SUBSCRIBE_PANE_TITLES_CMD).
@@ -785,8 +773,10 @@ impl TmuxMonitor {
     ///
     /// Drives the sans-IO aggregator via `step(event) -> StepResult` and runs
     /// every typed `SideEffect` the result describes. The aggregator emits
-    /// effects in the load-bearing order documented on `state::SideEffect`;
-    /// the dispatcher below preserves that ordering 1:1, so:
+    /// effects in the load-bearing order documented on `state::SideEffect`
+    /// (A1 in `docs/INVARIANTS.md`); the dispatcher below is one `for` over
+    /// that list, each effect awaited before the next, which is what keeps
+    /// the order 1:1 (M1), so:
     ///   1. Foreign `%session-changed` events are filtered before mutation.
     ///   2. `AdoptUntaggedWindows` runs first so emissions reflect tagged state.
     ///   3. Images / clipboard fire before list-pane refreshes.
@@ -1053,13 +1043,7 @@ impl TmuxMonitor {
     /// window leaves the new pane absent from `self.panes` until list-panes restores
     /// it; list-windows would otherwise emit state with the pane missing.
     async fn refresh_after_window_add<E: StateEmitter>(&mut self, emitter: &E) {
-        // Stash query LAST — it's independent of the load-bearing
-        // panes-before-windows ordering this method documents.
-        let cmds = vec![
-            tmux_formats::LIST_PANES_CMD.to_string(),
-            tmux_formats::LIST_WINDOWS_CMD.to_string(),
-            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-        ];
+        let cmds = window_relist_commands();
         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
             emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
         }
@@ -1071,13 +1055,7 @@ impl TmuxMonitor {
     /// the updated `tmux_cursor_x/y` when capture responses arrive.
     async fn refresh_panes<E: StateEmitter>(&mut self, emitter: &E, pane_ids: &[PaneId]) {
         let queued_panes = self.aggregator.queue_captures(pane_ids);
-
-        let mut commands: Vec<String> = vec![
-            tmux_formats::LIST_PANES_CMD.to_string(),
-            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-        ];
-        commands.extend(queued_panes.iter().map(capture_command));
-
+        let commands = pane_refresh_commands(&queued_panes);
         if let Err(e) = self.connection.send_commands_batch(&commands).await {
             emitter.emit_error(format!("Failed to batch capture panes: {}", e));
         }

@@ -1431,6 +1431,31 @@ pub fn capture_command(pane_id: &PaneId) -> String {
     marker_wrapped_capture(pane_id, "")
 }
 
+/// The re-list a window add or close needs, and the initial sync sends:
+/// panes BEFORE windows (M2 in `docs/INVARIANTS.md`). A window emitted before
+/// its panes are listed is a window with panes missing; the stash list is
+/// independent of that order and goes last. The native monitor and the wasm
+/// host both send exactly this.
+pub fn window_relist_commands() -> [String; 3] {
+    [
+        crate::constants::tmux_formats::LIST_PANES_CMD.to_string(),
+        crate::constants::tmux_formats::LIST_WINDOWS_CMD.to_string(),
+        crate::constants::tmux_formats::LIST_STASH_PANES_CMD.to_string(),
+    ]
+}
+
+/// The batch that refreshes `queued` panes: `list-panes` BEFORE every
+/// `capture-pane` (M3 in `docs/INVARIANTS.md`), so the cursor positions the
+/// captures are placed against are the ones tmux reports now.
+pub fn pane_refresh_commands(queued: &[PaneId]) -> Vec<String> {
+    let mut commands = vec![
+        crate::constants::tmux_formats::LIST_PANES_CMD.to_string(),
+        crate::constants::tmux_formats::LIST_STASH_PANES_CMD.to_string(),
+    ];
+    commands.extend(queued.iter().map(capture_command));
+    commands
+}
+
 /// `capture_command` for an explicit scrollback range (copy-mode sync).
 pub fn capture_command_range(pane_id: &PaneId, start: i64, end: i64) -> String {
     marker_wrapped_capture(pane_id, &format!(" -S {start} -E {end}"))

@@ -21,9 +21,9 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
-use tmuxy_core::constants::tmux_formats;
 use tmuxy_core::control_mode::{
-    capture_command, ControlModeEvent, Parser, SideEffect, StateAggregator,
+    pane_refresh_commands, window_relist_commands, ControlModeEvent, Parser, SideEffect,
+    StateAggregator,
 };
 use tmuxy_core::StateUpdate;
 
@@ -72,22 +72,12 @@ impl Session {
                 SideEffect::SendTmuxCommand(cmd) => out.commands.push(cmd),
                 SideEffect::AdoptUntaggedWindows(cmds) => out.commands.extend(cmds),
                 SideEffect::RefreshAfterWindowAdd => {
-                    out.commands.push(tmux_formats::LIST_PANES_CMD.to_string());
-                    out.commands
-                        .push(tmux_formats::LIST_WINDOWS_CMD.to_string());
-                    // Stash query last — independent of panes-before-windows.
-                    out.commands
-                        .push(tmux_formats::LIST_STASH_PANES_CMD.to_string());
+                    out.commands.extend(window_relist_commands());
                 }
                 SideEffect::RefreshPanes { pane_ids } => {
                     let queued = self.agg.queue_captures(&pane_ids);
                     if !queued.is_empty() {
-                        out.commands.push(tmux_formats::LIST_PANES_CMD.to_string());
-                        out.commands
-                            .push(tmux_formats::LIST_STASH_PANES_CMD.to_string());
-                        for id in &queued {
-                            out.commands.push(capture_command(id));
-                        }
+                        out.commands.extend(pane_refresh_commands(&queued));
                     }
                 }
                 SideEffect::ResumePane(id) => {
@@ -179,14 +169,10 @@ impl WasmTmux {
 
     /// The commands a host should send once after attaching, to do a full sync
     /// (list-panes + list-windows) — tmux doesn't replay these on attach, so
-    /// without them there's no active window/pane. Order matches the native
-    /// monitor (panes before windows).
+    /// without them there's no active window/pane. The order is the native
+    /// monitor's (panes before windows).
     pub fn initial_sync(&self) -> Vec<String> {
-        vec![
-            tmux_formats::LIST_PANES_CMD.to_string(),
-            tmux_formats::LIST_WINDOWS_CMD.to_string(),
-            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-        ]
+        window_relist_commands().to_vec()
     }
 
     /// Parse raw `capture-pane -p -e` scrollback text into structured cells.

@@ -39,5 +39,6 @@ pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
 pub use state::{
     accepted_clipboard_write, capture_command, capture_command_range, normalize_capture_bytes,
-    reply_wrapped_lines, ChangeType, SideEffect, StateAggregator, StepResult, MAX_CLIPBOARD_BYTES,
+    pane_refresh_commands, reply_wrapped_lines, window_relist_commands, ChangeType, SideEffect,
+    StateAggregator, StepResult, MAX_CLIPBOARD_BYTES,
 };
