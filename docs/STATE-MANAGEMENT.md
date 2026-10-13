@@ -292,3 +292,4 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 - [DATA-FLOW.md](DATA-FLOW.md) — the delta protocol and transports these updates travel over
 - [TMUX.md](TMUX.md) — control-mode routing and the `@tmuxy-*` tags the window state is built from
 - [COPY-MODE.md](COPY-MODE.md) — the client-owned `copyMode` slice
+- [INVARIANTS.md](INVARIANTS.md) — the promises the aggregator, the monitor and the client model make to each other, and what tests them

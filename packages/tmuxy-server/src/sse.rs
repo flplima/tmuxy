@@ -2458,9 +2458,10 @@ mod tests {
     }
 
     /// A client that fell further behind than the buffer cannot be resumed
-    /// without a gap, and must be told to resync rather than served a partial
-    /// replay. This is the "Connecting… forever" shape: the buffer answers, the
-    /// client believes it is caught up, and the UI never matches tmux again.
+    /// without a gap, so it is served no replay at all and waits for the next
+    /// full state (S3 in `docs/INVARIANTS.md`). A partial replay would be the
+    /// "Connecting… forever" shape: the buffer answers, the client believes it
+    /// is caught up, and the UI never matches tmux again.
     #[test]
     fn a_client_beyond_the_buffer_is_not_resumed_from_it() {
         let b = crate::state::SessionBroadcast::new();

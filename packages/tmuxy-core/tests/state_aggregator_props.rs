@@ -176,11 +176,43 @@ proptest! {
         }
     }
 
-    /// Out-of-order capture queue: queue_captures is idempotent against
-    /// repeats — already-queued pane ids are skipped, never duplicated. This
-    /// protects the FIFO matching scheme described in `queue_captures`'s
-    /// docblock; a duplicate enqueue would shift every subsequent capture
-    /// response onto the wrong pane.
+    /// A1 in `docs/INVARIANTS.md`: whatever the event and whatever came
+    /// before it, a step's effects come in the order `step_at` documents —
+    /// adopt, then images and clipboard, then commands and replies, then the
+    /// window re-list, then pane refreshes, then flow resume, then the emit.
+    /// The monitor dispatches them one to one in that order, so an effect out
+    /// of place here is a command tmux sees out of place.
+    #[test]
+    fn effects_within_a_step_follow_the_documented_order(
+        events in prop::collection::vec(any_event_strategy(), 1..40),
+    ) {
+        fn rank(effect: &SideEffect) -> u8 {
+            match effect {
+                SideEffect::AdoptUntaggedWindows(_) => 0,
+                SideEffect::StoreImages { .. } | SideEffect::WriteClipboard { .. } => 1,
+                SideEffect::SendTmuxCommand(_) | SideEffect::CommandReply { .. } => 2,
+                SideEffect::RefreshAfterWindowAdd => 3,
+                SideEffect::RefreshPanes { .. } => 4,
+                SideEffect::ResumePane(_) => 5,
+                SideEffect::EmitState { .. } => 6,
+            }
+        }
+        let mut agg = StateAggregator::new();
+        for ev in events {
+            let result = agg.step(ev);
+            let ranks: Vec<u8> = result.effects.iter().map(rank).collect();
+            prop_assert!(ranks.windows(2).all(|pair| pair[0] <= pair[1]),
+                "effects out of their documented order: {:?}", result.effects);
+            prop_assert!(
+                ranks.iter().filter(|r| **r == 6).count() <= 1,
+                "a step emits at most once: {:?}", result.effects);
+        }
+    }
+
+    /// queue_captures is idempotent against repeats — already-queued pane ids
+    /// are skipped, never duplicated. A capture response is routed to its pane
+    /// by marker (A4 in `docs/INVARIANTS.md`); a duplicate enqueue would send
+    /// tmux a second capture whose answer the first one's marker then claims.
     #[test]
     fn queue_captures_is_idempotent_across_repeats(
         pane_ids in prop::collection::vec(

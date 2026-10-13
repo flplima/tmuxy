@@ -356,3 +356,4 @@ Like every route it is gated by the optional `--password` Basic auth, but has no
 - [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — what the state updates flowing over these transports contain
 - [TMUX.md](TMUX.md) — why mutations must ride control mode rather than a subprocess
 - [SECURITY.md](SECURITY.md) — what the unauthenticated `POST /commands` endpoint exposes
+- [INVARIANTS.md](INVARIANTS.md) — the sequencing promises the stream makes (`S` and `C` rows) and what tests them

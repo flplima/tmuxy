@@ -56,7 +56,7 @@ Jobs that need tmux build **3.7a** from source and cache it (`e2e`, `desktop`, `
 
 ### Red-Main Policy & Bug-Fix Attribution
 
-The rules for a red `main` — fix or quarantine within 24 hours, no features on a red main, quarantine only through the bounded lists — and the `[missed-by: <layer>]` tag every bug-fix commit carries live in `AGENTS.md` (Testing & Bug Fixes). One addition that matters here: **re-runs are not fixes.** Clicking re-run on a failing job masks a race and degrades confidence in CI; fix the synchronization or the wait condition instead.
+The rules for a red `main` — fix or quarantine within 24 hours, no features on a red main, quarantine only through the bounded lists — and the `[missed-by: <layer>]` and `[invariant: <id>]` tags a bug-fix commit carries live in `AGENTS.md` (Testing & Bug Fixes). The ids point at rows of [INVARIANTS.md](INVARIANTS.md), where each cross-layer promise names the test that holds it; a row whose kind is ordering or liveness wants a property or interleaving test, since one scripted ordering only proves the bug it was written for. One addition that matters here: **re-runs are not fixes.** Clicking re-run on a failing job masks a race and degrades confidence in CI; fix the synchronization or the wait condition instead.
 
 ### Local Gates
 
@@ -460,3 +460,4 @@ When CI's E2E or latency job fails, its last step prints the tail of the server 
 - [PERFORMANCE.md](PERFORMANCE.md) — the benchmark and probe harnesses that share this infrastructure
 - [COPY-MODE.md](COPY-MODE.md) — how to drive copy mode from a test through real user input
 - [TMUX.md](TMUX.md) — the control-mode constraints test sessions must respect
+- [INVARIANTS.md](INVARIANTS.md) — the cross-layer promises and which test enforces each; the `—` cells are where a new property test belongs
