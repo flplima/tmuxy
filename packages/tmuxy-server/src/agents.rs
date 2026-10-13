@@ -358,6 +358,11 @@ fn read_doc(path: &Path) -> Result<Map<String, Value>, String> {
 /// Write `doc` if it differs from what is on disk, keeping the previous file
 /// as `<name>.tmuxy-bak`. Returns whether it wrote.
 fn write_doc(path: &Path, doc: &Map<String, Value>) -> Result<bool, String> {
+    // A settings file kept in a dotfiles repo is a symlink into it: write
+    // through to the file it points at, or the rename below would replace
+    // the link with a copy and cut the file off from the repo.
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let path = resolved.as_path();
     let text = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())? + "\n";
     let old = std::fs::read_to_string(path).ok();
     if old.as_deref() == Some(text.as_str()) {
@@ -887,6 +892,25 @@ mod tests {
 
         uninstall(&places, &skill_only).unwrap();
         assert!(!dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_settings_file_that_is_a_symlink_stays_one() {
+        let places = scratch("symlink");
+        let path = places.hooks_file(Agent::Claude, Scope::Home);
+        let real = places.home.join("dotfiles/claude-settings.json");
+        std::fs::create_dir_all(real.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&real, "{\"theme\": \"dark\"}\n").unwrap();
+        std::os::unix::fs::symlink(&real, &path).unwrap();
+
+        install(&places, &which(&[Agent::Claude]), false, "tmuxy").unwrap();
+        assert!(std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(hooked_events(&read_doc(&real).unwrap(), Agent::Claude), 8);
     }
 
     #[test]
