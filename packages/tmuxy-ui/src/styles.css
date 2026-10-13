@@ -2471,6 +2471,13 @@
 
 /* ---- Left column: the tab/pane tree widget ---- */
 .sidebar-tree {
+  /* The tree's rhythm: rows a little tighter than a terminal line, a pane's
+     second and third lines tighter still (they belong to the line above
+     them, not to the next pane), and a small gap between one pane and the
+     next and before each tab. */
+  --tree-row: calc(var(--line-height-terminal) * 0.85);
+  --tree-sub-line: calc(var(--line-height-terminal) * 0.7);
+  --tree-gap: 3px;
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2502,7 +2509,7 @@
 .sidebar-tree-pane {
   display: flex;
   align-items: center;
-  height: var(--line-height-terminal);
+  height: var(--tree-row);
   padding: 0 var(--spacing-2xl);
   cursor: pointer;
   white-space: nowrap;
@@ -2510,7 +2517,12 @@
 }
 
 /* Tabs are the tree's headings: full-strength text on a faint band of the
-   theme's foreground, so the eye finds where each tab starts. */
+   theme's foreground, so the eye finds where each tab starts, with a little
+   room above every tab after the first. */
+.sidebar-tree-tab:not(:first-child) {
+  margin-top: calc(var(--tree-gap) * 2);
+}
+
 .sidebar-tree-tab {
   color: var(--term-white);
   opacity: 0.75;
@@ -2529,11 +2541,11 @@
   position: relative;
   align-items: flex-start;
   height: auto;
-  min-height: var(--line-height-terminal);
+  min-height: var(--tree-row);
+  padding-bottom: var(--tree-gap);
   color: var(--text-dimmed);
   /* A pane's second and third lines sit closer than rows do: they belong to
      the line above them, not to the next pane. */
-  --tree-sub-line: calc(var(--line-height-terminal) * 0.78);
 }
 
 /* The label column: the two lines stack, and each truncates on its own. */
@@ -2548,7 +2560,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  line-height: var(--line-height-terminal);
+  line-height: var(--tree-row);
 }
 
 .sidebar-tree-line > .sidebar-tree-name {
@@ -2564,6 +2576,12 @@
    survives (`…/projects/tmuxy/`), and its branch held at the right. The path
    is set right-to-left only so the ellipsis lands at its start; the marks
    around the text keep its slashes in order. */
+/* The lines under a pane's first sit two columns in, under its name. */
+.sidebar-tree-where,
+.sidebar-tree-title {
+  padding-left: 2ch;
+}
+
 .sidebar-tree-where {
   display: flex;
   align-items: center;
@@ -2622,17 +2640,17 @@
 
 .sidebar-tree-branch::before {
   top: 0;
-  bottom: 0;
+  bottom: calc(-1 * var(--tree-gap));
   border-left-width: 1px;
 }
 
 .sidebar-tree-branch.is-last::before {
   bottom: auto;
-  height: calc(var(--line-height-terminal) / 2);
+  height: calc(var(--tree-row) / 2);
 }
 
 .sidebar-tree-branch::after {
-  top: calc(var(--line-height-terminal) / 2);
+  top: calc(var(--tree-row) / 2);
   right: 0;
   border-top-width: 1px;
 }
@@ -2651,20 +2669,6 @@
 .sidebar-tree-pane.is-active {
   color: var(--theme-accent);
   opacity: 1;
-}
-
-/* ...and the pane keeps a rail on the LEFT edge, because the accent colour
-   alone reads the same as the tab above it: the rail says the keyboard is HERE. */
-.sidebar-tree-rail {
-  flex: 0 0 2px;
-  align-self: stretch;
-  margin-right: var(--spacing-sm);
-  border-radius: 1px;
-  background: transparent;
-}
-
-.sidebar-tree-pane.is-active > .sidebar-tree-rail {
-  background: var(--theme-accent);
 }
 
 /* A tab's window id and a pane's id, held at the right edge and quieter than
@@ -2702,6 +2706,10 @@
 
 .sidebar-tree-chevron:hover {
   opacity: 1;
+}
+
+.sidebar-tree-tab > .sidebar-tree-id {
+  font-weight: bold;
 }
 
 /* How many panes a tab holds — the other half of what a collapsed tab shows. */
@@ -2760,24 +2768,6 @@
   padding-right: var(--spacing-md);
   font-family: var(--font-mono);
   opacity: 0.85;
-}
-
-/* The tree's key legend, pinned under the rows while the column has focus.
-   Same row height and inset as a tree row so it reads as part of the tree. */
-.sidebar-tree-hint {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  gap: var(--spacing-lg);
-  height: var(--line-height-terminal);
-  align-items: center;
-  padding: 0 var(--spacing-2xl);
-  margin-top: var(--spacing-lg);
-  font-size: 0.85em;
-  color: var(--text-subtle);
-  background: var(--term-background);
-  white-space: nowrap;
-  overflow: hidden;
 }
 
 /* See .sidebar-header-title: min-width:0 is required for the ellipsis. */

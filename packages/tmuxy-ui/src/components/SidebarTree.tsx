@@ -543,9 +543,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               setDropWindowId(null);
             }}
           >
-            {/* Where the keyboard is. The left edge answers that; the right
-                edge answers what the pane is doing. */}
-            <span className="sidebar-tree-rail" aria-hidden="true" />
             <span
               className={`sidebar-tree-branch${row.last ? ' is-last' : ''}`}
               aria-hidden="true"
@@ -588,16 +585,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           </div>
         );
       })}
-      {/* The tree's commands, shown only while it has the keyboard — an idle
-          column listing keys it doesn't currently take would be noise. */}
-      {focused && (
-        <div className="sidebar-tree-hint" aria-hidden="true">
-          <span>j/k move</span>
-          <span>⏎ open</span>
-          <span>h/l fold</span>
-          <span>q close</span>
-        </div>
-      )}
       {menu?.kind === 'pane' && (
         <PaneContextMenu paneId={menu.paneId} x={menu.x} y={menu.y} onClose={closeMenu} />
       )}
