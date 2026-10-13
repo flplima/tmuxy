@@ -2465,16 +2465,18 @@ mod tests {
     #[test]
     fn a_client_beyond_the_buffer_is_not_resumed_from_it() {
         let b = crate::state::SessionBroadcast::new();
-        for i in 0..(crate::state::EVENT_BUFFER_SIZE + 20) {
+        for i in 1..=(crate::state::EVENT_BUFFER_SIZE + 20) {
             b.broadcast(format!("m{i}"));
         }
         let oldest = b.oldest_seq();
-        assert_eq!(oldest, Some(20));
+        assert_eq!(oldest, Some(21));
 
         // Disconnected at seq 5, far behind the buffer's floor: no replay.
         assert!(!can_replay_from(Some(5), oldest));
-        // Disconnected at 19 — the buffer still holds its successor.
-        assert!(can_replay_from(Some(19), oldest));
+        // Disconnected at 19: its successor has left the buffer.
+        assert!(!can_replay_from(Some(19), oldest));
+        // Disconnected at 20 — the buffer still holds its successor.
+        assert!(can_replay_from(Some(20), oldest));
         assert!(can_replay_from(Some(100), oldest));
         // A first connection sends no Last-Event-Id, and an empty buffer has
         // nothing to serve; both take the full-snapshot path.
@@ -2584,6 +2586,63 @@ mod tests {
             "the stream should have served its prologue, got: {text}"
         );
     }
+
+    /// S2: a client that subscribed before the session's first broadcast gets
+    /// that broadcast. The live loop dedupes against "the last seq replayed",
+    /// kept as a number whose 0 means none — which is exactly the id the first
+    /// event used to carry, so the first event of every session was dropped
+    /// for every subscriber the ring had not served.
+    #[tokio::test]
+    async fn the_first_broadcast_reaches_a_client_that_subscribed_before_it() {
+        use futures_util::StreamExt;
+
+        let state = Arc::new(AppState::new());
+        let broadcast = {
+            let mut conns = SessionConnections::new();
+            conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
+            let broadcast = Arc::clone(&conns.broadcast);
+            state.sessions.write().await.insert("s".to_string(), conns);
+            broadcast
+        };
+
+        let response = sse_handler(
+            State(Arc::clone(&state)),
+            Query(SessionQuery {
+                session: Some("s".to_string()),
+            }),
+            HeaderMap::new(),
+        )
+        .await;
+        let mut body = response.into_body().into_data_stream();
+        // The prologue (connection-info) is served before the live loop
+        // subscribes; read past it so the broadcasts below are live ones.
+        let mut text = String::new();
+        while !text.contains("event: connection-info") {
+            let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+                .await
+                .expect("the prologue never arrived")
+                .expect("the stream ended during its prologue")
+                .expect("the body failed");
+            text.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        tokio::task::yield_now().await;
+
+        let first = broadcast.broadcast("{\"type\":\"first\"}".to_string());
+        let second = broadcast.broadcast("{\"type\":\"second\"}".to_string());
+        while !text.contains(&format!("id: {second}")) {
+            let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+                .await
+                .expect("the second broadcast never arrived")
+                .expect("the stream ended before the second broadcast")
+                .expect("the body failed");
+            text.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        assert!(
+            text.contains(&format!("id: {first}")),
+            "the first broadcast (seq {first}) was dropped: {text}"
+        );
+        state.shutdown.cancel();
+    }
 }
 
 /// Canonical wire-shape fixtures, written by Rust and read back by the
@@ -2617,11 +2676,38 @@ mod protocol_fixtures {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol-fixtures")
     }
 
+    /// The same value with every object's keys sorted. The wire types hold
+    /// panes and windows in `HashMap`s, whose order differs from run to run,
+    /// and this crate's `serde_json` keeps insertion order — so without this
+    /// the fixture would match only on the runs that happened to iterate the
+    /// way the committed file did.
+    fn canonical(value: &serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut sorted: Vec<(&String, &serde_json::Value)> = map.iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                serde_json::Value::Object(
+                    sorted
+                        .into_iter()
+                        .map(|(k, v)| (k.clone(), canonical(v)))
+                        .collect(),
+                )
+            }
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.iter().map(canonical).collect())
+            }
+            other => other.clone(),
+        }
+    }
+
     /// Write `value` to `name` when regenerating, otherwise assert the
     /// committed file is byte-for-byte what the code emits today.
     fn assert_fixture(name: &str, value: &serde_json::Value) {
         let path = fixture_dir().join(name);
-        let rendered = format!("{}\n", serde_json::to_string_pretty(value).unwrap());
+        let rendered = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&canonical(value)).unwrap()
+        );
         if std::env::var("UPDATE_PROTOCOL_FIXTURES").is_ok() {
             std::fs::create_dir_all(fixture_dir()).unwrap();
             std::fs::write(&path, &rendered).unwrap();

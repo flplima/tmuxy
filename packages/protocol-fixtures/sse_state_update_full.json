@@ -1,16 +1,15 @@
 {
-  "event": "state-update",
   "data": {
-    "type": "full",
     "state": {
-      "session_name": "tmuxy",
-      "active_window_id": "@1",
       "active_pane_id": "%2",
+      "active_window_id": "@1",
+      "focus_request": "left",
       "panes": [
         {
-          "id": 2,
-          "tmux_id": "%2",
-          "window_id": "@1",
+          "active": true,
+          "alternate_on": true,
+          "border_title": "border",
+          "command": "zsh",
           "content": [
             [
               {
@@ -24,129 +23,130 @@
               {
                 "c": "!",
                 "s": {
-                  "fg": {
-                    "r": 200,
-                    "g": 40,
-                    "b": 40
-                  },
                   "bg": 4,
                   "bold": true,
                   "dim": true,
+                  "fg": {
+                    "b": 40,
+                    "g": 40,
+                    "r": 200
+                  },
+                  "inverse": true,
                   "italic": true,
                   "underline": true,
-                  "inverse": true,
                   "url": "https://example.com"
                 }
               }
             ]
           ],
-          "cursor_x": 2,
-          "cursor_y": 0,
-          "width": 80,
-          "height": 24,
-          "x": 0,
-          "y": 0,
-          "active": true,
-          "command": "zsh",
-          "title": "pane title",
-          "border_title": "border",
-          "group_id": "g5",
-          "in_mode": true,
           "copy_cursor_x": 3,
           "copy_cursor_y": 4,
-          "alternate_on": true,
-          "mouse_any_flag": true,
-          "marked": true,
-          "paused": true,
+          "cursor_hidden": true,
+          "cursor_shape": 6,
+          "cursor_x": 2,
+          "cursor_y": 0,
+          "group_id": "g5",
+          "height": 24,
           "history_size": 1234,
+          "id": 2,
+          "images": [
+            {
+              "col": 4,
+              "height_cells": 5,
+              "id": 7,
+              "protocol": "kitty",
+              "row": 3,
+              "width_cells": 10
+            }
+          ],
+          "in_mode": true,
+          "marked": true,
+          "mouse_any_flag": true,
+          "pane_ask": "eyJ0b2tlbiI6ImExIn0=",
+          "pane_state": "working",
+          "pane_widget": "browser",
+          "paused": true,
           "selection_present": true,
           "selection_start_x": 1,
           "selection_start_y": -2,
-          "images": [
-            {
-              "id": 7,
-              "row": 3,
-              "col": 4,
-              "width_cells": 10,
-              "height_cells": 5,
-              "protocol": "kitty"
-            }
-          ],
-          "cursor_shape": 6,
-          "cursor_hidden": true,
-          "pane_state": "working",
-          "pane_ask": "eyJ0b2tlbiI6ImExIn0=",
-          "pane_widget": "browser"
+          "title": "pane title",
+          "tmux_id": "%2",
+          "width": 80,
+          "window_id": "@1",
+          "x": 0,
+          "y": 0
         },
         {
-          "id": 3,
-          "tmux_id": "%3",
-          "window_id": "@1",
+          "active": false,
+          "alternate_on": false,
+          "border_title": "",
+          "command": "nvim",
           "content": [
             []
           ],
-          "cursor_x": 0,
-          "cursor_y": 0,
-          "width": 80,
-          "height": 24,
-          "x": 0,
-          "y": 25,
-          "active": false,
-          "command": "nvim",
-          "title": "",
-          "border_title": "",
-          "in_mode": false,
           "copy_cursor_x": 0,
           "copy_cursor_y": 0,
-          "alternate_on": false,
+          "cursor_hidden": false,
+          "cursor_shape": 0,
+          "cursor_x": 0,
+          "cursor_y": 0,
+          "height": 24,
+          "history_size": 0,
+          "id": 3,
+          "in_mode": false,
           "mouse_any_flag": false,
           "paused": false,
-          "history_size": 0,
           "selection_present": false,
           "selection_start_x": 0,
           "selection_start_y": 0,
-          "cursor_shape": 0,
-          "cursor_hidden": false
+          "title": "",
+          "tmux_id": "%3",
+          "width": 80,
+          "window_id": "@1",
+          "x": 0,
+          "y": 25
         }
       ],
+      "session_name": "tmuxy",
+      "total_height": 50,
+      "total_width": 80,
       "windows": [
         {
+          "active": true,
+          "active_pane_id": "%2",
+          "collapsible": true,
           "id": "@1",
           "index": 0,
           "name": "main",
-          "active": true,
-          "window_type": "tab",
-          "collapsible": true,
-          "zoomed": true,
-          "active_pane_id": "%2",
           "pane_tree": {
-            "vertical": false,
             "children": [
               "%1",
               "%2"
-            ]
-          }
+            ],
+            "vertical": false
+          },
+          "window_type": "tab",
+          "zoomed": true
         },
         {
+          "active": false,
+          "float_bg": "dim",
+          "float_drawer": "bottom",
+          "float_height": 20,
+          "float_noheader": true,
+          "float_parent": "@1",
+          "float_width": 60,
           "id": "@2",
           "index": 1,
           "name": "float",
-          "active": false,
-          "window_type": "float",
-          "float_parent": "@1",
-          "float_width": 60,
-          "float_height": 20,
-          "float_drawer": "bottom",
-          "float_bg": "dim",
-          "float_noheader": true,
           "sidebar_cols": 30,
           "sidebar_hidden": true,
+          "window_type": "float",
           "zoomed": false
         }
-      ],
-      "total_width": 80,
-      "total_height": 50,
-      "focus_request": "left"
-    }
-  }
+      ]
+    },
+    "type": "full"
+  },
+  "event": "state-update"
 }
