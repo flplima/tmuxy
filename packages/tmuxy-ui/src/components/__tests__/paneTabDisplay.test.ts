@@ -5,6 +5,7 @@ import {
   getTabLabel,
   getTabIcon,
   paneRowLines,
+  programStatusIcon,
   splitTitleIcon,
 } from '../paneTabDisplay';
 import type { TmuxPane } from '../../domain/client';
@@ -189,5 +190,31 @@ describe('paneRowLines', () => {
       process: 'shell',
       title: 'some title',
     });
+  });
+});
+
+describe('programStatusIcon (OSC 7501)', () => {
+  it('names what a blocked program waits on, and says it in the program’s words', () => {
+    expect(
+      programStatusIcon({ state: 'blocked', kind: 'permission', app: 'terraform', msg: 'Apply?' }),
+    ).toEqual({ glyph: '\uf256', label: 'terraform: Waiting for permission — Apply?' });
+    expect(programStatusIcon({ state: 'blocked', kind: 'auth' }).glyph).toBe('\uf084');
+    expect(programStatusIcon({ state: 'blocked', kind: 'question' }).glyph).toBe('\uf128');
+    expect(programStatusIcon({ state: 'blocked' }).glyph).toBe('\uf04c');
+  });
+
+  it('spins for working (no glyph), with its progress', () => {
+    expect(programStatusIcon({ state: 'working', app: 'brew', progress: 40 })).toEqual({
+      glyph: '',
+      label: 'brew: Working 40%',
+    });
+  });
+
+  it('marks done and error, and shows a title before the message', () => {
+    expect(programStatusIcon({ state: 'done', title: 'US East', msg: 'Healthy' })).toEqual({
+      glyph: '\uf00c',
+      label: 'Done — US East — Healthy',
+    });
+    expect(programStatusIcon({ state: 'error' }).glyph).toBe('\uf00d');
   });
 });

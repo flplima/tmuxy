@@ -2720,6 +2720,7 @@ mod protocol_fixtures {
                     pane_widget: Some("browser".to_string()),
                     pane_restore: None,
                     pane_url: None,
+                    program_status: None,
                     group_pos: None,
                 },
                 TmuxPane {
@@ -2757,6 +2758,7 @@ mod protocol_fixtures {
                     pane_widget: None,
                     pane_restore: None,
                     pane_url: None,
+                    program_status: None,
                     group_pos: None,
                 },
             ],
@@ -2837,6 +2839,7 @@ mod protocol_fixtures {
                 pane_widget: Some(Some("browser".to_string())),
                 pane_restore: None,
                 pane_url: None,
+                program_status: None,
                 group_pos: None,
                 in_mode: Some(false),
                 copy_cursor_x: Some(7),
@@ -2925,6 +2928,7 @@ mod protocol_fixtures {
                 pane_widget: None,
                 pane_restore: None,
                 pane_url: None,
+                program_status: None,
                 group_pos: None,
             }]),
             new_windows: Some(vec![TmuxWindow {

@@ -6,6 +6,7 @@
  */
 
 import type { TmuxPane } from '../domain/client';
+import type { WireProgramStatus } from '../domain/wire';
 import { getWidget } from './widgets';
 
 const PROCESS_ICONS: Record<string, string> = {
@@ -161,4 +162,62 @@ export function paneRowLines(
   if (pane.inMode) return { process, title: '[COPY MODE]' };
   const title = splitTitleIcon(titleOverride || pane.title || '').text.trim();
   return { process, title: title === process ? '' : title };
+}
+
+/** How a program's OSC 7501 state reads, for a tooltip. */
+const PROGRAM_STATE_LABEL: Record<WireProgramStatus['state'], string> = {
+  idle: 'Idle',
+  working: 'Working',
+  done: 'Done',
+  blocked: 'Blocked',
+  error: 'Error',
+};
+
+const BLOCKED_LABEL: Record<NonNullable<WireProgramStatus['kind']>, string> = {
+  permission: 'Waiting for permission',
+  question: 'Waiting for an answer',
+  auth: 'Waiting to log in',
+};
+
+/**
+ * The icon for what a program says it is doing (OSC 7501), and the words for
+ * it. `working` draws no glyph: it is the spinning ring the CSS paints, the
+ * tree's one animated mark, so motion keeps meaning "busy".
+ */
+export function programStatusIcon(status: WireProgramStatus): { glyph: string; label: string } {
+  const glyph = (() => {
+    switch (status.state) {
+      case 'working':
+        return '';
+      case 'idle':
+        return '\uf10c'; //  nf-fa-circle_o
+      case 'done':
+        return '\uf00c'; //  nf-fa-check
+      case 'error':
+        return '\uf00d'; //  nf-fa-times
+      case 'blocked':
+        switch (status.kind) {
+          case 'permission':
+            return '\uf256'; //  nf-fa-hand_paper_o
+          case 'question':
+            return '\uf128'; //  nf-fa-question
+          case 'auth':
+            return '\uf084'; //  nf-fa-key
+          default:
+            return '\uf04c'; //  nf-fa-pause
+        }
+    }
+  })();
+  const state =
+    status.state === 'blocked' && status.kind
+      ? BLOCKED_LABEL[status.kind]
+      : PROGRAM_STATE_LABEL[status.state];
+  const head = [
+    status.app ? `${status.app}: ${state}` : state,
+    status.progress !== undefined ? `${status.progress}%` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const label = [head, status.title, status.msg].filter(Boolean).join(' — ');
+  return { glyph, label };
 }

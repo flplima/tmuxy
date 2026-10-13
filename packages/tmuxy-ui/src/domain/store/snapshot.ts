@@ -69,6 +69,10 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     (prev.paneState ?? null) === (next.paneState ?? null) &&
     (prev.paneAsk ?? null) === (next.paneAsk ?? null) &&
     (prev.paneWidget ?? null) === (next.paneWidget ?? null) &&
+    // Same for the address a browser pane reports and a program's OSC 7501
+    // status: either can change while nothing else about the pane does.
+    (prev.url ?? null) === (next.url ?? null) &&
+    JSON.stringify(prev.programStatus ?? null) === JSON.stringify(next.programStatus ?? null) &&
     prev.windowId === next.windowId &&
     (prev.images === next.images ||
       JSON.stringify(prev.images ?? null) === JSON.stringify(next.images ?? null));

@@ -103,6 +103,21 @@ export type WindowType = Schema.Schema.Type<typeof WindowType>;
 
 const OptionalNull = <S extends Schema.Schema.Any>(s: S) => Schema.optional(Schema.NullOr(s));
 
+/**
+ * What the program in a pane says it is doing — OSC 7501, the Program Status
+ * Protocol (`tmuxy-core/src/control_mode/program_status.rs`). The pane's most
+ * urgent record; `msg` and `title` are already decoded.
+ */
+export const WireProgramStatus = Schema.Struct({
+  state: Schema.Literal('idle', 'working', 'done', 'blocked', 'error'),
+  kind: Schema.optional(Schema.Literal('permission', 'question', 'auth')),
+  app: Schema.optional(Schema.String),
+  progress: Schema.optional(Schema.Number),
+  title: Schema.optional(Schema.String),
+  msg: Schema.optional(Schema.String),
+});
+export type WireProgramStatus = Schema.Schema.Type<typeof WireProgramStatus>;
+
 /** A pane as the server sends it. */
 export const WirePane = Schema.Struct({
   id: Schema.Number,
@@ -147,6 +162,8 @@ export const WirePane = Schema.Struct({
   pane_restore: OptionalNull(Schema.String),
   /** `@tmuxy-pane-url`: the address a live browser pane is showing. */
   pane_url: OptionalNull(Schema.String),
+  /** OSC 7501: what the program in the pane says it is doing. */
+  program_status: OptionalNull(WireProgramStatus),
 });
 export type WirePane = Schema.Schema.Type<typeof WirePane>;
 /** A pane before decoding: what a sandbox engine or a fixture builds. */
@@ -256,6 +273,7 @@ export const PaneDelta = Schema.Struct({
   pane_widget: OptionalNull(Schema.String),
   pane_restore: OptionalNull(Schema.String),
   pane_url: OptionalNull(Schema.String),
+  program_status: OptionalNull(WireProgramStatus),
 });
 export type PaneDelta = Schema.Schema.Type<typeof PaneDelta>;
 

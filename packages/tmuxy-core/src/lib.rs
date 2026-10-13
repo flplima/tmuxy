@@ -365,6 +365,10 @@ pub struct TmuxPane {
     /// the app's address bar over it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_url: Option<String>,
+    /// What the program in the pane says it is doing (OSC 7501): its most
+    /// urgent record. See `control_mode::program_status`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program_status: Option<control_mode::program_status::ProgramStatus>,
 }
 
 /// Window type discriminator. Floats and sidebars carry it as the
@@ -588,6 +592,9 @@ pub struct PaneDelta {
     /// `@tmuxy-pane-url` (only if changed); nested like `pane_widget`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pane_url: Option<Option<String>>,
+    /// OSC 7501 status (only if changed); nested like `pane_widget`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program_status: Option<Option<control_mode::program_status::ProgramStatus>>,
     /// Copy mode state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_mode: Option<bool>,
