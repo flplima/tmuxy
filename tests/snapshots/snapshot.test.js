@@ -244,6 +244,7 @@ test('UI matches tmux: structure, then the tab strip against the visible windows
     const tabEls = Array.from(document.querySelectorAll('.tab-list .tab-name'));
     const domTabs = tabEls.map((el) => ({
       name: el.querySelector('.tab-name-label')?.textContent || el.textContent || '',
+      mark: el.querySelector('.tab-mark')?.textContent || '',
       active: el.classList.contains('tab-name-active'),
     }));
 
@@ -258,10 +259,9 @@ test('UI matches tmux: structure, then the tab strip against the visible windows
   // tab so the strip reads the same however many tabs there are).
   for (let i = 0; i < strip.visibleWindows.length; i++) {
     const win = strip.visibleWindows[i];
-    // DOM tabs show "visualIndex:name" where visualIndex = position + 1
-    const visualIndex = i + 1;
-    const expectedTabName = `${visualIndex}:${win.name}`;
-    expect(strip.domTabs[i].name).toBe(expectedTabName);
+    // DOM tabs show their position (1-based) as a circled numeral, then the name
+    expect(strip.domTabs[i].name).toBe(win.name);
+    expect(strip.domTabs[i].mark).toBe(String.fromCodePoint(0x278a + i));
     expect(strip.domTabs[i].active).toBe(win.active);
   }
 

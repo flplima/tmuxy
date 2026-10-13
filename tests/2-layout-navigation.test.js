@@ -1436,8 +1436,8 @@ describe('Scenario 5: Pane Groups', () => {
     expect(tabs.find((t) => t.active).background).not.toBe(tabs.find((t) => !t.active).background);
 
     // Step 4b: The group parks its members in hidden tmux windows, which take
-    // window indices of their own. A tab opened now must still read "2:", by
-    // its position in the strip — it shipped reading "5:", the tmux index.
+    // window indices of their own. A tab opened now must still read ➋, by its
+    // position in the strip — it shipped reading "5:", the tmux index.
     const groupWindowId = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.activeWindowId ?? null,
     );
@@ -1447,17 +1447,17 @@ describe('Scenario 5: Pane Groups', () => {
     const tabLabels = () =>
       ctx.page.evaluate(() =>
         [...document.querySelectorAll('.tab-list .tab-name')].map((el) =>
-          (el.querySelector('.tab-name-label')?.textContent || el.textContent || '').trim(),
+          (el.querySelector('.tab-mark')?.textContent || '').trim(),
         ),
       );
     await waitForCondition(
       ctx.page,
       async () => {
         const labels = await tabLabels();
-        return labels.length === 2 && /^1:/.test(labels[0]) && /^2:/.test(labels[1]);
+        return labels.length === 2 && labels[0] === '➊' && labels[1] === '➋';
       },
       10000,
-      async () => `the tab strip to read 1:, 2: (saw ${JSON.stringify(await tabLabels())})`,
+      async () => `the tab strip to read ➊, ➋ (saw ${JSON.stringify(await tabLabels())})`,
     );
     // Back to the group's tab, by its stable id, for the rest of the scenario.
     await ctx.page.click(`.tab-list .tab-name[data-window-id="${groupWindowId}"]`);
@@ -3946,34 +3946,70 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       10000,
       'the other pane to be active',
     );
-    await sendPrefixCommand(ctx.page, 't');
+    // Open the tree with its key — unless an earlier test left it open, when
+    // the same key would close it.
+    const treeOpen = () =>
+      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+    if (!(await treeOpen())) await sendPrefixCommand(ctx.page, 't');
+    await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
-    const badge = () =>
-      ctx.page.evaluate((id) => {
-        const el = document.querySelector(`[data-testid="tree-pane-${id}"] .sidebar-tree-state`);
+    // A state mark wherever it is drawn: the tree row and the pane's header
+    // (in the icon's place), and the tab (in its number's). Idle draws none.
+    const mark = (selector) =>
+      ctx.page.evaluate((sel) => {
+        const el = document.querySelector(sel);
         if (!el) return null;
         const r = el.getBoundingClientRect();
-        const state = [...el.classList].find((c) => c.startsWith('is-'));
-        return { state, visible: r.width > 0 && r.height > 0 && r.left >= 0 };
-      }, agentPane);
-    const waitForBadge = (state) =>
+        return {
+          state: [...el.classList].find((c) => c.startsWith('is-'))?.slice(3) ?? null,
+          text: el.textContent,
+          visible: r.width > 0 && r.height > 0 && r.left >= 0,
+        };
+      }, selector);
+    const rowMark = `[data-testid="tree-pane-${agentPane}"] .sidebar-tree-state`;
+    const tabMark = '.tab-name-active .tab-mark';
+    const headerMark = `[data-pane-tab="${agentPane}"] .pane-tab-icon`;
+    const SPINNER = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/;
+    const waitForMark = (selector, expected, what) =>
       waitForCondition(
         ctx.page,
         async () => {
-          const now = await badge();
-          return now?.state === `is-${state}` && now.visible;
+          const now = await mark(selector);
+          // An idle pane row draws no mark at all — its process icon is back.
+          if (!now) return expected.state === null && expected.text === undefined;
+          if (now.state !== expected.state) return false;
+          if (expected.state && !now.visible) return false;
+          if (expected.text instanceof RegExp) return expected.text.test(now.text);
+          return expected.text === undefined || now.text === expected.text;
         },
         20000,
-        async () => `the agent's tree row to read ${state} (now ${JSON.stringify(await badge())})`,
+        async () =>
+          `${what} to be ${expected.state ?? 'idle'} (now ${JSON.stringify(await mark(selector))})`,
       );
 
-    await waitForBadge('working');
+    // Working: the same text spinner on the tree row, the tab (in place of its
+    // number) and the pane's header (in place of its icon) — and it turns.
+    await waitForMark(rowMark, { state: 'working', text: SPINNER }, 'the tree row');
+    await waitForMark(tabMark, { state: 'working', text: SPINNER }, 'the tab');
+    await waitForMark(headerMark, { state: 'working', text: SPINNER }, 'the pane header');
+    const frames = new Set();
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        frames.add((await mark(tabMark))?.text);
+        return frames.size > 1;
+      },
+      5000,
+      async () => `the spinner to turn (saw ${JSON.stringify([...frames])})`,
+    );
 
     // The agent finishes while the user is in the other pane: unread.
     fs.writeFileSync(go, '');
-    await waitForBadge('unread');
+    await waitForMark(rowMark, { state: 'unread', text: '●' }, 'the tree row');
+    await waitForMark(tabMark, { state: 'unread', text: '●' }, 'the tab');
 
-    // The user sees the mark and clicks the row: seen, so idle.
+    // The user sees the mark and clicks the row: seen, so idle — no mark on
+    // the row, and the tab shows its number again.
     await ctx.page.click(`[data-testid="tree-pane-${agentPane}"]`);
     await waitForCondition(
       ctx.page,
@@ -3981,6 +4017,71 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       10000,
       'the agent’s pane to be active again',
     );
-    await waitForBadge('idle');
+    await waitForMark(rowMark, { state: null }, 'the tree row');
+    await waitForMark(tabMark, { state: null, text: '➊' }, 'the tab');
+  }, 120000);
+});
+
+describe('Scenario 6l: The tree lists panes in grid order', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('panes read left to right as in the grid, and the list follows a swap', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page);
+
+    // Two panes side by side.
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+
+    const treeOpen = () =>
+      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+    if (!(await treeOpen())) await sendPrefixCommand(ctx.page, 't');
+    await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
+
+    // What the grid shows, left to right, and what the tree lists.
+    const order = () =>
+      ctx.page.evaluate(() => {
+        const { activeWindowId, panes } = window.app.getSnapshot().context;
+        const grid = panes
+          .filter((p) => p.windowId === activeWindowId)
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+          .map((p) => p.tmuxId);
+        const tree = [
+          ...document.querySelectorAll(
+            `[data-testid="tree-tab-${activeWindowId}"] ~ .sidebar-tree-pane`,
+          ),
+        ]
+          .map((el) => el.getAttribute('data-pane-id'))
+          .filter((id) => grid.includes(id));
+        return { grid, tree };
+      });
+    const waitForTreeInGridOrder = (what) =>
+      waitForCondition(
+        ctx.page,
+        async () => {
+          const { grid, tree } = await order();
+          return grid.length === 2 && JSON.stringify(grid) === JSON.stringify(tree);
+        },
+        15000,
+        async () => `${what} (now ${JSON.stringify(await order())})`,
+      );
+    await waitForTreeInGridOrder('the tree to list the panes left to right');
+    const before = (await order()).grid;
+
+    // The user swaps them: the list follows the grid, not the panes' ids.
+    await typeInTerminal(ctx.page, `'${TMUXY_CLI}' pane swap ${before[0]} ${before[1]}`);
+    await pressEnter(ctx.page);
+    await waitForCondition(
+      ctx.page,
+      async () => JSON.stringify((await order()).grid) === JSON.stringify([...before].reverse()),
+      15000,
+      'the swap to land in the grid',
+    );
+    await waitForTreeInGridOrder('the tree to follow the swap');
   }, 120000);
 });

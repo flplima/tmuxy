@@ -10,15 +10,16 @@ const { runCLI } = require('./helpers/run-cli');
  */
 async function callsAfterHook(logFile, count) {
   const deadline = Date.now() + 10000;
-  for (;;) {
-    const lines = fs.existsSync(logFile)
+  const read = () =>
+    fs.existsSync(logFile)
       ? fs.readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean)
       : [];
-    if (lines.length >= count || Date.now() > deadline) {
-      return lines.map((line) => JSON.parse(line).args);
-    }
+  let lines = read();
+  while (lines.length < count && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
+    lines = read();
   }
+  return lines.map((line) => JSON.parse(line).args);
 }
 
 function scratch() {
@@ -79,7 +80,9 @@ describe('tmuxy agent', () => {
     expect(stdout.trim()).toBe('{}');
     // No pane at all: an agent in a terminal outside tmux.
     expect(hook('claude', 'Stop', 'idle', where, { TMUX: '', TMUX_PANE: '' }).exitCode).toBe(0);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Nothing was handed to the background job that sets the state: it would
+    // have recorded the state it wanted first, under TMPDIR, and there is none.
+    expect(fs.readdirSync(where.dir).filter((f) => f.startsWith('tmuxy-agent-'))).toEqual([]);
     expect(fs.existsSync(where.log)).toBe(false);
   });
 

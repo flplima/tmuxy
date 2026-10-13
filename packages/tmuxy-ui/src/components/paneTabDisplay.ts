@@ -7,6 +7,7 @@
 
 import type { TmuxPane } from '../domain/client';
 import { getWidget } from './widgets';
+import { circledNumber } from '../utils/paneState';
 
 const PROCESS_ICONS: Record<string, string> = {
   zsh: '\ue795', //  nf-custom-terminal
@@ -79,6 +80,49 @@ export function splitTitleIcon(text: string): { icon: string | null; text: strin
   if (text[end] !== ' ') return { icon: null, text };
   const rest = text.slice(end + 1).trim();
   return rest ? { icon: text.slice(0, end), text: rest } : { icon: null, text };
+}
+
+/**
+ * A tab named with an emoji first (`🚀 deploy`) wears that emoji as its icon:
+ * the first grapheme, when it is a pictograph or a flag, and the rest of the
+ * name after it. Anything else leaves the name whole.
+ */
+export function splitLeadingEmoji(name: string): { emoji: string | null; rest: string } {
+  const points = [...name];
+  if (!points[0] || !/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(points[0])) {
+    return { emoji: null, rest: name };
+  }
+  // One emoji may be several code points: a flag is two regional indicators,
+  // and a variation selector, a skin tone or a ZWJ joining the next pictograph
+  // all belong to the glyph before them.
+  let end = 1;
+  if (
+    /\p{Regional_Indicator}/u.test(points[0]) &&
+    /\p{Regional_Indicator}/u.test(points[1] ?? '')
+  ) {
+    end = 2;
+  }
+  while (end < points.length) {
+    const p = points[end];
+    if (p === '\ufe0f' || /\p{Emoji_Modifier}/u.test(p)) end += 1;
+    else if (p === '\u200d' && end + 1 < points.length) end += 2;
+    else break;
+  }
+  const emoji = points.slice(0, end).join('');
+  return { emoji, rest: name.slice(emoji.length).trimStart() };
+}
+
+/**
+ * A tab's icon and the name shown beside it — the same on the tab strip and in
+ * the tree: the emoji its name starts with (and the rest of the name), else
+ * its position as a circled numeral (and the whole name).
+ */
+export function tabIcon(name: string, position: number): { icon: string; label: string } {
+  const { emoji, rest } = splitLeadingEmoji(name);
+  return {
+    icon: emoji ?? circledNumber(position),
+    label: (emoji ? rest : name) || `Tab ${position}`,
+  };
 }
 
 /**

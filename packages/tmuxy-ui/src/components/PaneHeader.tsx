@@ -19,6 +19,8 @@ import {
 } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
+import { PaneStateMark } from './PaneStateMark';
+import { paneStateFor } from '../utils/paneState';
 import { InlineRename } from './InlineRename';
 import type { TmuxPane } from '../domain/client';
 import { Tooltip } from './Tooltip';
@@ -72,6 +74,9 @@ const PaneTab = memo(function PaneTab({
 }) {
   const icon = getTabIcon(pane, widgetName, titleOverride);
   const text = getTabLabel(pane, titleOverride);
+  // What the pane is doing takes the icon's place while it is anything but idle.
+  const unread = useAppSelector((ctx) => ctx.unreadPaneIds.includes(pane.tmuxId));
+  const state = paneStateFor(pane, unread);
 
   return (
     <div
@@ -84,7 +89,11 @@ const PaneTab = memo(function PaneTab({
       aria-label={`Pane ${pane.tmuxId}`}
       data-pane-tab={pane.tmuxId}
     >
-      {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
+      {state !== 'idle' ? (
+        <PaneStateMark state={state} className="pane-tab-icon pane-tab-state" />
+      ) : (
+        icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>
+      )}
       {renaming ? (
         <InlineRename
           className="pane-tab-input"

@@ -341,6 +341,16 @@ struct RunState {
 }
 
 impl RunState {
+    /// Ask for a metadata re-sync `METADATA_SYNC_DELAY` from now — unless one
+    /// is already due, which stands. Pushing it back on every event made it a
+    /// debounce, and a pane that never stops printing (an agent's spinner)
+    /// starved it: titles and `@tmuxy-pane-state` froze for as long as the
+    /// program kept drawing, which is exactly while it was working.
+    fn schedule_metadata_sync(&mut self, now: tokio::time::Instant) {
+        self.metadata_sync_at
+            .get_or_insert(now + METADATA_SYNC_DELAY);
+    }
+
     /// `now_std` is the std clock the throttle/debounce deadlines are computed
     /// from (the tests pass explicit instants); `now_async` is the tokio
     /// reactor's monotonic clock the sync and heartbeat timers sleep against.
@@ -1112,7 +1122,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // (`renumber-windows on`), and `%window-close` carries no indices — so
         // schedule the same deferred refresh a window event as for output.
         if is_output_event || matches!(change, ChangeType::Window) {
-            rs.metadata_sync_at = Some(tokio::time::Instant::now() + METADATA_SYNC_DELAY);
+            rs.schedule_metadata_sync(tokio::time::Instant::now());
         }
 
         if is_output_event {
@@ -1968,6 +1978,18 @@ mod tests {
         };
         let rs = RunState::new(&cfg, now);
         (cfg, rs)
+    }
+
+    #[test]
+    fn a_pane_that_keeps_printing_does_not_starve_the_metadata_sync() {
+        let (_, mut rs) = run_state_with_now(Instant::now());
+        let start = tokio::time::Instant::now();
+        rs.schedule_metadata_sync(start);
+        // Output every 100 ms for a second: the sync stays due at the first deadline.
+        for tick in 1..=10 {
+            rs.schedule_metadata_sync(start + Duration::from_millis(100 * tick));
+        }
+        assert_eq!(rs.metadata_sync_at, Some(start + METADATA_SYNC_DELAY));
     }
 
     #[test]

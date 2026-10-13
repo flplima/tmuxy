@@ -2682,25 +2682,22 @@ mod protocol_fixtures {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol-fixtures")
     }
 
-    /// The same value with every object's keys sorted. The wire types hold
-    /// panes and windows in `HashMap`s, whose order differs from run to run,
-    /// and this crate's `serde_json` keeps insertion order — so without this
-    /// the fixture would match only on the runs that happened to iterate the
-    /// way the committed file did.
-    fn canonical(value: &serde_json::Value) -> serde_json::Value {
+    /// `value` with every object's keys in order. serde_json keeps insertion
+    /// order (the agent installer needs it), and a `HashMap` field — a delta's
+    /// windows — inserts in no fixed order, so the file is rendered sorted.
+    fn sorted_keys(value: &serde_json::Value) -> serde_json::Value {
         match value {
             serde_json::Value::Object(map) => {
-                let mut sorted: Vec<(&String, &serde_json::Value)> = map.iter().collect();
-                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
                 serde_json::Value::Object(
-                    sorted
-                        .into_iter()
-                        .map(|(k, v)| (k.clone(), canonical(v)))
+                    keys.into_iter()
+                        .map(|k| (k.clone(), sorted_keys(&map[k])))
                         .collect(),
                 )
             }
             serde_json::Value::Array(items) => {
-                serde_json::Value::Array(items.iter().map(canonical).collect())
+                serde_json::Value::Array(items.iter().map(sorted_keys).collect())
             }
             other => other.clone(),
         }
@@ -2712,7 +2709,7 @@ mod protocol_fixtures {
         let path = fixture_dir().join(name);
         let rendered = format!(
             "{}\n",
-            serde_json::to_string_pretty(&canonical(value)).unwrap()
+            serde_json::to_string_pretty(&sorted_keys(value)).unwrap()
         );
         if std::env::var("UPDATE_PROTOCOL_FIXTURES").is_ok() {
             std::fs::create_dir_all(fixture_dir()).unwrap();

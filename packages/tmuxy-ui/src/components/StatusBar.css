@@ -59,6 +59,15 @@
   padding-left: var(--spacing-lg);
 }
 
+/* The divider's upper half lights with the column it belongs to. */
+.statusbar-cluster-left.is-docked.is-focused {
+  border-right-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+}
+
+.statusbar-cluster-right.is-docked.is-focused {
+  border-left-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+}
+
 /* Sidebar title — the column's label, since a docked column has no header of
    its own. Brightness is the focus cue (see SidebarTitle.tsx). */
 .sidebar-title {
@@ -194,6 +203,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The tab's mark: its icon (the emoji its name starts with, else its circled
+   position ➊ ➋ …), or the state of its busiest pane. A size up from the name,
+   in a box of its own so a state glyph and a numeral take the same room, and
+   in the tab's own colour — the theme says which tab is active, not the mark. */
+.tab-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 1em;
+  font-size: 1.25em;
+  line-height: 1;
 }
 
 /* A tab's state flags — stacked panes, a zoomed pane. Quiet next to the

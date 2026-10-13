@@ -844,17 +844,20 @@ export const PaneStateIsWhatThePaneDeclares: Story = {
       { timeout: 6000, interval: 100 },
     );
 
-    // The indicator is really drawn, at the right edge, inside the column.
+    // The indicator is really drawn, in the pane's icon place: on the first
+    // line, just ahead of the process name, as on the pane's own header.
     const badge = paneRow(blocked).querySelector(
       '.sidebar-tree-state.is-needs-input',
     ) as HTMLElement;
     expect(badge).not.toBeNull();
     const badgeBox = badge.getBoundingClientRect();
-    const rowBox = paneRow(blocked).getBoundingClientRect();
+    const name = paneRow(blocked).querySelector('.sidebar-tree-line .sidebar-tree-name')!;
+    const nameBox = name.getBoundingClientRect();
     expect(badgeBox.width).toBeGreaterThan(0);
-    expect(badgeBox.right).toBeLessThanOrEqual(rowBox.right + 1);
-    // Right edge, not left: it is the last thing on the row.
-    expect(badgeBox.left).toBeGreaterThan(rowBox.left + rowBox.width / 2);
+    expect(badgeBox.right).toBeLessThanOrEqual(nameBox.left + 1);
+    expect(
+      Math.abs(badgeBox.top + badgeBox.height / 2 - (nameBox.top + nameBox.height / 2)),
+    ).toBeLessThan(nameBox.height / 2);
 
     // The tab shows the most attention-worthy state among its panes, so the
     // blocked pane wins over the working one.

@@ -59,6 +59,8 @@ export const StatusBar = memo(function StatusBar({
   const { leftOpen, rightOpen, overlay, leftWidth, rightWidth } =
     useAppSelector(selectSidebarLayout);
   const readOnly = useReadOnly();
+  const leftFocused = useAppSelector((ctx) => ctx.leftSidebarFocused);
+  const rightFocused = useAppSelector((ctx) => ctx.rightSidebarFocused);
 
   // On the desktop, mousedown on empty bar space hands the click to the OS as
   // a window drag via startDragging(). That swallows the native dblclick before
@@ -94,7 +96,9 @@ export const StatusBar = memo(function StatusBar({
   const defaultContent = (
     <>
       <div
-        className={`statusbar-cluster statusbar-cluster-left${dockedLeft ? ' is-docked' : ''}`}
+        className={`statusbar-cluster statusbar-cluster-left${dockedLeft ? ' is-docked' : ''}${
+          dockedLeft && leftFocused ? ' is-focused' : ''
+        }`}
         style={dockedLeft ? { flex: `0 0 ${leftCluster}px`, width: leftCluster } : undefined}
       >
         {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
@@ -118,7 +122,9 @@ export const StatusBar = memo(function StatusBar({
         <TabOverviewToggle />
       </div>
       <div
-        className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}`}
+        className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}${
+          dockedRight && rightFocused ? ' is-focused' : ''
+        }`}
         style={dockedRight ? { flex: `0 0 ${rightCluster}px`, width: rightCluster } : undefined}
       >
         {dockedRight && <SidebarTitle side="right" />}

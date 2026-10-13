@@ -57,6 +57,10 @@ import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
 import { InlineRename } from './InlineRename';
 import { isModelWindowId, type WindowId } from '../domain/ids';
+import { PaneStateMark } from './PaneStateMark';
+import { tabIcon } from './paneTabDisplay';
+import { tabPaneStates, type PaneStateName } from '../utils/paneState';
+import type { AppMachineContext } from '../machines/types';
 
 /**
  * How long the strip keeps checking that the current tab is still in view
@@ -87,10 +91,47 @@ interface TabContextMenuState {
  * model tick; the shallow selectors below keep re-renders to actual window
  * changes, and the memo shields against parent re-renders.
  */
+/** Each tab's rolled-up pane state, as `<window id>=<state>` entries: equal
+ *  item by item across updates that change pane content but no state, so the
+ *  strip holds still. */
+function selectTabStates(context: AppMachineContext): string[] {
+  const states = tabPaneStates(
+    context.windows.map((w) => w.id),
+    context.panes,
+    context.unreadPaneIds,
+  );
+  return [...states].map(([id, { state }]) => `${id}=${state}`);
+}
+
+/**
+ * The tab's mark: what its busiest pane is doing — the tree's marks, with a
+ * question or a failure ahead of work in progress — and while all of them are
+ * idle, the tab's icon (`tabIcon`).
+ */
+function TabMark({ icon, state }: { icon: string; state: PaneStateName }) {
+  if (state !== 'idle') return <PaneStateMark state={state} className="tab-mark" />;
+  return (
+    <span className="tab-mark" aria-hidden="true">
+      {icon}
+    </span>
+  );
+}
+
 export const WindowTabs = memo(function WindowTabs() {
   const send = useAppSend();
   const readOnly = useReadOnly();
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
+  const tabStateEntries = useAppSelectorShallow(selectTabStates);
+  const tabStates = useMemo(
+    () =>
+      new Map(
+        tabStateEntries.map((entry) => {
+          const at = entry.indexOf('=');
+          return [entry.slice(0, at), entry.slice(at + 1) as PaneStateName];
+        }),
+      ),
+    [tabStateEntries],
+  );
   const tabDrop = useAppSelector(selectTabDrop);
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const listRef = useRef<HTMLDivElement>(null);
@@ -399,9 +440,15 @@ export const WindowTabs = memo(function WindowTabs() {
                   onCancel={() => setRenamingId(null)}
                 />
               ) : (
-                <span className="tab-name-label">
-                  {visualIndex}:{window.name || `Tab ${visualIndex}`}
-                </span>
+                (() => {
+                  const { icon, label } = tabIcon(window.name, visualIndex);
+                  return (
+                    <>
+                      <TabMark icon={icon} state={tabStates.get(window.id) ?? 'idle'} />
+                      <span className="tab-name-label">{label}</span>
+                    </>
+                  );
+                })()
               )}
               {/* What this tab is doing that its name does not say. Both are
                   window state, so a background tab shows them too. */}
