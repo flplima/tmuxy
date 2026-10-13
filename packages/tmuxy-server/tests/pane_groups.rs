@@ -44,8 +44,15 @@ impl Server {
             "-y",
             "40",
         ]);
-        // What a monitor publishes on attach, for the hook's run-shell.
+        // What a monitor publishes on attach, for the hook's run-shell: the
+        // binary AND its subcommand, as the pair `session::server_command_env`
+        // writes — unset here, since `tmuxy-server` takes its verbs directly.
+        // A shell inside the desktop app exports TMUXY_SERVER_SUBCOMMAND=server
+        // for its own binary, and the tmux server this test starts hands that
+        // to every hook; publishing only the binary left the hook running
+        // `tmuxy-server server group close`, which is no command at all.
         server.tmux(&["set-environment", "-g", "TMUXY_SERVER_BIN", bin()]);
+        server.tmux(&["set-environment", "-g", "-u", "TMUXY_SERVER_SUBCOMMAND"]);
         server
     }
 
