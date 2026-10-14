@@ -4110,6 +4110,33 @@ mod tests {
         assert!(agg.pending_captures.is_empty());
     }
 
+    /// What tmux actually sends for a capture of a pane that is gone: the
+    /// `capture-pane` block is an `%error`, and the END marker never comes —
+    /// a control-mode line is one command group, and an error drops the rest
+    /// of the group (`cmdq_remove_group`). The pane is released on the error
+    /// alone, and the next unrelated block is not taken for its content.
+    #[test]
+    fn a_failed_capture_releases_its_pane_without_an_end_marker() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        agg.queue_captures(&[pid("%9")]);
+
+        let block = |output: &str, success: bool| ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success,
+        };
+        agg.process_event(block(&format!("{CAPTURE_BEGIN_MARKER} 9\n"), true));
+        agg.process_event(block("can't find pane: %9\n", false));
+        assert!(agg.pending_captures.is_empty());
+        assert!(agg.capture_armed.is_none());
+
+        let r = agg.process_event(block("GHOST\n", true));
+        assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
+        assert!(agg.pending_captures.is_empty());
+    }
+
     #[test]
     fn osc52_clipboard_write_propagates_to_result() {
         // OSC 52 base64-encoded "hello world" payload — what an app like
