@@ -35,10 +35,14 @@ export type FeedEvent = DriverEvent | typeof RESYNCED;
 
 /**
  * Sequence the raw states on `feed`. `resync` refetches a full state (already
- * adopted by `sequencer`), or None when it cannot yet. Once it is adopted, a
- * mark goes on the back of `feed`: the state published there is the
- * sequencer's at that point, which includes any delta queued ahead of the
- * mark — the answer alone would be older than what was already painted.
+ * adopted by `sequencer`), or None when it cannot yet. A delta that arrives
+ * while the refetch is out is held by the sequencer, never published, and
+ * starts no second refetch. Once the answer is adopted, a mark goes on the
+ * back of `feed`: the state published there is the sequencer's at that point
+ * — the answer, the held deltas above its number, and any delta queued ahead
+ * of the mark — so the answer alone is never painted over something newer.
+ * A hole among the held deltas leaves the sequencer diverged, and the mark
+ * asks for the one more refetch that loss needs.
  */
 export const sequenceStateUpdates = (
   feed: Queue.Queue<FeedEvent>,

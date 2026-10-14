@@ -80,9 +80,10 @@ export function adoptInitialState(
  * dropped or reordered the seq jumps, and applying it to stale state silently
  * diverges the client — so the adapter should refetch a full snapshot instead.
  *
- * `prevSeq` is the last applied delta seq, or `null` right after a full state
- * (a fresh sync point, which never reports a gap). A seq that goes backwards or
- * repeats is also treated as a gap.
+ * `prevSeq` is the seq the delta must follow — the last applied delta's, or
+ * the number a full state or adopted answer carries — or `null` after a sync
+ * point no stream numbered, which never reports a gap. A seq that goes
+ * backwards or repeats is also treated as a gap.
  */
 export function isDeltaSeqGap(prevSeq: number | null, delta: ServerDelta): boolean {
   return prevSeq !== null && delta.seq !== prevSeq + 1;

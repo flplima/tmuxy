@@ -13,9 +13,10 @@
  * fast-check picks which emissions are lost, when each answer resolves and
  * whether it fails. Whatever it picks, what the subscriber sees must never go
  * backwards, must always be exactly the server's state at its clock, must ask
- * for at most one refetch per loss (plus one per failed answer and one per
- * answer older than the stream it is adopted into), and must end on the
- * server's last emission.
+ * for at most one refetch per loss (plus one per failed answer — an answer
+ * older than the stream costs none, since the deltas the stream delivered
+ * above its number apply on top of it), and must end on the server's last
+ * emission.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -201,7 +202,6 @@ describe('the state feed stage, under any interleaving of the stream and the ans
             done: boolean;
           }> = [];
           let failures = 0;
-          let staleAnswers = 0;
           let i = 0;
           /**
            * Answer every refetch whose time has come, with the server's state
@@ -216,12 +216,11 @@ describe('the state feed stage, under any interleaving of the stream and the ans
               if (s.done || s.at > i) continue;
               s.done = true;
               if (s.ok) {
+                // An answer older than the stream is a numbered sync point:
+                // the deltas delivered above its number apply on top of it,
+                // and only a delta lost among them costs another refetch.
                 const asOf = Math.max(s.from, i - s.stale);
                 delivered.add(asOf);
-                // An answer older than the stream, adopted after a gap, is a
-                // sync point the next delta does not follow: one more refetch
-                // is the right answer, not a delta applied over the hole.
-                if (asOf < i) staleAnswers += 1;
                 feed.answer(n, serverState(asOf));
               } else {
                 failures += 1;
@@ -272,7 +271,7 @@ describe('the state feed stage, under any interleaving of the stream and the ans
               windowsAt(k),
             );
           }
-          expect(feed.fetches()).toBeLessThanOrEqual(dropped.size + failures + staleAnswers);
+          expect(feed.fetches()).toBeLessThanOrEqual(dropped.size + failures);
           expect(painted[painted.length - 1]).toBe(i);
         } finally {
           await feed.dispose();
