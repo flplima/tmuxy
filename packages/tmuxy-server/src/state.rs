@@ -21,11 +21,12 @@ use tokio_util::sync::CancellationToken;
 use crate::request_guard::HostPolicy;
 
 /// Number of recent broadcast messages retained per session for
-/// `Last-Event-Id` replay and lagged-subscriber recovery. Sized to match the
-/// broadcast channel capacity so a client that lags by up to a full buffer can
-/// recover from the ring without waiting for the next full state snapshot; a
-/// larger gap is covered by the next `StateUpdate::Full` broadcast.
-pub const EVENT_BUFFER_SIZE: usize = 100;
+/// `Last-Event-Id` replay and lagged-subscriber recovery. A power of two, so
+/// it is exactly the broadcast channel's capacity (tokio rounds that up) and a
+/// client that lags by up to a full buffer recovers from the ring without a
+/// refetch; a larger gap reaches the client as a jump in delta seqs, which its
+/// sequencer answers with a full-state refetch (S2 in `docs/INVARIANTS.md`).
+pub const EVENT_BUFFER_SIZE: usize = 128;
 
 /// A broadcast message tagged with its monotonic per-session sequence id.
 /// The id is mirrored as the SSE `id:` field so the browser persists it
@@ -40,9 +41,12 @@ type TaggedEvent = (u64, String);
 /// briefly to push to a small VecDeque; contention on it is negligible.
 pub struct SessionBroadcast {
     /// Tokio broadcast channel — each subscribed client gets its own
-    /// 100-message lag buffer here. The capacity matches `EVENT_BUFFER_SIZE`
-    /// so a client that hit `RecvError::Lagged` replays from `recent` (the SSE
-    /// handler's `Lagged` arm calls `replay_since`).
+    /// `EVENT_BUFFER_SIZE`-message lag buffer here. The capacity matches the
+    /// ring exactly (tokio rounds a channel's capacity up to a power of two,
+    /// so the constant is one) so a client that hit `RecvError::Lagged` is
+    /// served from `recent` everything the channel still had (the SSE
+    /// handler's `Lagged` arm calls `replay_since`); a ring smaller than the
+    /// channel would drop, on every lag, events the channel still held.
     pub tx: broadcast::Sender<TaggedEvent>,
     /// Monotonic per-session counter — `fetch_add(1)` produces the next id.
     /// Ids start at 1: the stream handler keeps "the last seq I sent" as a

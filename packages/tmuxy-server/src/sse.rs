@@ -513,8 +513,9 @@ pub async fn sse_handler(
         // dump everything in the ring buffer above that seq before entering the
         // live loop. If the requested seq is older than the buffer head (or no
         // header at all), we can't fill the gap from cache alone — the live
-        // stream will just resume from the next event, and the client falls
-        // back to its full state on the next StateUpdate::Full broadcast.
+        // stream just resumes from the next event, whose delta seq the
+        // client's sequencer sees as a gap and answers with a refetch (S3 and
+        // C1 in `docs/INVARIANTS.md`).
         // Only advance past events we actually replayed from the ring buffer.
         // Seeding this from a stale Last-Event-Id would make the live loop's
         // `seq <= last_replayed` dedupe drop every fresh event when the buffer
@@ -568,8 +569,10 @@ pub async fn sse_handler(
                             // recovers without waiting for the next full snapshot.
                             // If the gap exceeds the buffer, replay covers the
                             // buffered tail only: the client's sequencer sees the
-                            // jump in ids and refetches a full state (C1 in
-                            // `docs/INVARIANTS.md`). The `seq <= last_replayed`
+                            // jump in delta seqs (it never reads these ids) and
+                            // refetches a full state (C1 in `docs/INVARIANTS.md`);
+                            // a lag that drops only other events is not seen by
+                            // anything. The `seq <= last_replayed`
                             // dedup below absorbs any overlap with resumed
                             // delivery.
                             warn!(conn_id, lagged = n, "client lagged; replaying ring buffer");
