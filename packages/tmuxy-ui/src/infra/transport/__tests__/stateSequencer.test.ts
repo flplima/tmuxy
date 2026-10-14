@@ -69,6 +69,75 @@ describe('StateSequencer', () => {
     expect(now._tag === 'State' && now.state.active_pane_id).toBe('%5');
   });
 
+  it('a delta lost right after a numbered sync point is a gap, not a delta applied over the hole', () => {
+    // A full state numbered by the stream: the next delta has to follow it.
+    const stream = new StateSequencer();
+    stream.receive({ type: 'full', state: { ...state(), seq: 7 } });
+    expect(stream.receive(delta(9))).toEqual({ _tag: 'Resync' });
+
+    // An adopted answer after a gap, numbered: the same rule.
+    stream.adopt({ ...state('%4'), seq: 12 });
+    expect(stream.receive(delta(14, { active_pane_id: '%9' }))).toEqual({ _tag: 'Resync' });
+    stream.adopt({ ...state('%4'), seq: 14 });
+    expect(stream.receive(delta(15, { active_pane_id: '%9' }))).toMatchObject({ _tag: 'State' });
+
+    // A state no stream numbered (a fixture, an engine) starts the count at
+    // the next delta, whatever its number.
+    const unnumbered = new StateSequencer();
+    unnumbered.receive(full());
+    expect(unnumbered.receive(delta(9))).toMatchObject({ _tag: 'State', seq: 9 });
+  });
+
+  it('the deltas the stream delivers while a refetch is out apply on top of its numbered answer', () => {
+    const stream = new StateSequencer();
+    stream.receive({ type: 'full', state: { ...state(), seq: 1 } });
+    // Delta 2 is lost; 3, 4 and 5 arrive while the refetch is out.
+    expect(stream.receive(delta(3, { active_pane_id: '%3' }))).toEqual({ _tag: 'Resync' });
+    expect(stream.receive(delta(4, { active_pane_id: '%4' }))).toEqual({ _tag: 'Resync' });
+    expect(stream.receive(delta(5, { active_pane_id: '%5' }))).toEqual({ _tag: 'Resync' });
+    // The answer was taken at 3: 4 and 5 are applied on it, 3 is already in it.
+    expect(stream.adopt({ ...state('%3'), seq: 3 }).active_pane_id).toBe('%5');
+    expect(stream.current()).toMatchObject({ _tag: 'State' });
+    expect(stream.receive(delta(6, { active_pane_id: '%6' }))).toMatchObject({ _tag: 'State' });
+
+    // A hole among the held deltas is a delta lost during the refetch: the
+    // answer is adopted up to the hole, and the stream is still not caught up.
+    expect(stream.receive(delta(8))).toEqual({ _tag: 'Resync' });
+    expect(stream.receive(delta(10, { active_pane_id: '%10' }))).toEqual({ _tag: 'Resync' });
+    expect(stream.adopt({ ...state('%7'), seq: 7 }).active_pane_id).toBe('%7');
+    expect(stream.current()).toEqual({ _tag: 'Resync' });
+    expect(stream.adopt({ ...state('%10'), seq: 10 }).active_pane_id).toBe('%10');
+    expect(stream.current()).toMatchObject({ _tag: 'State' });
+    expect(stream.receive(delta(11))).toMatchObject({ _tag: 'State', seq: 11 });
+
+    // An unnumbered answer cannot place them: the next live delta starts the count.
+    const unnumbered = new StateSequencer();
+    unnumbered.receive(full());
+    unnumbered.receive(delta(1));
+    expect(unnumbered.receive(delta(3, { active_pane_id: '%3' }))).toEqual({ _tag: 'Resync' });
+    expect(unnumbered.adopt(state('%9')).active_pane_id).toBe('%9');
+    expect(unnumbered.receive(delta(4))).toMatchObject({ _tag: 'State', seq: 4 });
+  });
+
+  it('holds a bounded number of deltas, the newest, while a refetch is out', () => {
+    const stream = new StateSequencer();
+    stream.receive({ type: 'full', state: { ...state(), seq: 1 } });
+    // Delta 2 is lost; 3..=300 arrive while the refetch hangs.
+    for (let seq = 3; seq <= 300; seq += 1) {
+      expect(stream.receive(delta(seq, { active_pane_id: `%${seq}` }))).toEqual({
+        _tag: 'Resync',
+      });
+    }
+    // An answer older than the oldest delta still held cannot be caught up:
+    // one more refetch, as before deltas were held at all.
+    expect(stream.adopt({ ...state('%3'), seq: 3 }).active_pane_id).toBe('%3');
+    expect(stream.current()).toEqual({ _tag: 'Resync' });
+    // An answer within the held window is caught up to the newest delta.
+    expect(stream.adopt({ ...state('%100'), seq: 100 }).active_pane_id).toBe('%300');
+    expect(stream.current()).toMatchObject({ _tag: 'State' });
+    expect(stream.receive(delta(301))).toMatchObject({ _tag: 'State', seq: 301 });
+  });
+
   it('ignores a delta before any full state', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(new StateSequencer().receive(delta(1))).toEqual({ _tag: 'Ignore' });

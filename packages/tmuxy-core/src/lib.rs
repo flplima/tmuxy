@@ -496,6 +496,12 @@ pub struct TmuxState {
     /// [`constants::tmux_options::FOCUS_REQUEST`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focus_request: Option<String>,
+    /// The emission counter this state was taken at: the delta that follows
+    /// it carries `seq + 1`, so a client can tell a delta lost right after a
+    /// full state or an initial-state answer from the next one. 0 for a
+    /// state no stream has numbered yet.
+    #[serde(default)]
+    pub seq: u64,
 }
 
 /// Serialize a line-number-keyed map with STRING keys. serde_json does this

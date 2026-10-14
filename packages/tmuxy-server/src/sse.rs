@@ -513,8 +513,9 @@ pub async fn sse_handler(
         // dump everything in the ring buffer above that seq before entering the
         // live loop. If the requested seq is older than the buffer head (or no
         // header at all), we can't fill the gap from cache alone — the live
-        // stream will just resume from the next event, and the client falls
-        // back to its full state on the next StateUpdate::Full broadcast.
+        // stream just resumes from the next event, whose delta seq the
+        // client's sequencer sees as a gap and answers with a refetch (S3 and
+        // C1 in `docs/INVARIANTS.md`).
         // Only advance past events we actually replayed from the ring buffer.
         // Seeding this from a stale Last-Event-Id would make the live loop's
         // `seq <= last_replayed` dedupe drop every fresh event when the buffer
@@ -567,9 +568,13 @@ pub async fn sse_handler(
                             // buffer above what we've already sent so the client
                             // recovers without waiting for the next full snapshot.
                             // If the gap exceeds the buffer, replay covers the
-                            // buffered tail and the next StateUpdate::Full fills
-                            // the rest. The `seq <= last_replayed` dedup below
-                            // absorbs any overlap with resumed delivery.
+                            // buffered tail only: the client's sequencer sees the
+                            // jump in delta seqs (it never reads these ids) and
+                            // refetches a full state (C1 in `docs/INVARIANTS.md`);
+                            // a lag that drops only other events is not seen by
+                            // anything. The `seq <= last_replayed`
+                            // dedup below absorbs any overlap with resumed
+                            // delivery.
                             warn!(conn_id, lagged = n, "client lagged; replaying ring buffer");
                             for (seq, msg) in session_broadcast.replay_since(last_replayed) {
                                 let event_type = sse_event_type(&msg);
@@ -1902,6 +1907,7 @@ mod tests {
                             total_width: size.0,
                             total_height: size.1,
                             focus_request: None,
+                            seq: 0,
                         });
                     }
                     _ => {}
@@ -2388,11 +2394,14 @@ mod tests {
     /// A slow consumer — a backgrounded tab, a stalled TCP window — stops
     /// draining its broadcast receiver while tmux keeps producing. Tokio drops
     /// the overflow and reports `Lagged`; the handler then replays the ring
-    /// buffer. The invariant is that the client's event stream has no gap and
-    /// no duplicate across that recovery, because a gap is state silently
-    /// diverging from tmux.
+    /// buffer above what it already sent. What that promises (S2 in
+    /// `docs/INVARIANTS.md`): everything the ring still holds reaches the
+    /// client once and in order, and the only gap is below the ring's oldest
+    /// entry — a gap the client's sequencer sees in the ids and answers with
+    /// a refetch. Here the client falls further behind than the ring, so that
+    /// gap exists; what must never happen is a second gap or a repeat.
     #[tokio::test]
-    async fn a_client_that_stops_reading_recovers_from_the_ring_with_no_gap() {
+    async fn a_client_that_stops_reading_gets_the_ring_tail_once_with_the_gap_below_it() {
         let b = crate::state::SessionBroadcast::new();
         let mut rx = b.subscribe();
 
@@ -2434,46 +2443,50 @@ mod tests {
             last_replayed = seq;
         }
 
+        let oldest = b.oldest_seq().unwrap();
         let newest = b.broadcast("final".into());
         for (seq, _) in b.replay_since(last_replayed) {
             received.push(seq);
         }
 
-        // The tail is contiguous and each event was delivered once.
+        // Each event was delivered once, the stream ends on the newest, and
+        // the one gap sits exactly where the ring could not help: between
+        // the last event read before the lag and the ring's oldest entry.
         let unique: std::collections::BTreeSet<u64> = received.iter().copied().collect();
         assert_eq!(unique.len(), received.len(), "an event was delivered twice");
         assert_eq!(*received.last().unwrap(), newest);
-        let tail: Vec<u64> = received
-            .iter()
-            .copied()
-            .skip_while(|s| *s < newest - 10)
+        assert!(
+            oldest > 4,
+            "the ring should have outrun the client: {oldest}"
+        );
+        let gaps: Vec<(u64, u64)> = received
+            .windows(2)
+            .filter(|pair| pair[1] != pair[0] + 1)
+            .map(|pair| (pair[0], pair[1]))
             .collect();
-        for pair in tail.windows(2) {
-            assert_eq!(
-                pair[1],
-                pair[0] + 1,
-                "gap in the recovered stream: {tail:?}"
-            );
-        }
+        assert_eq!(gaps, vec![(3, oldest)], "stream: {received:?}");
     }
 
     /// A client that fell further behind than the buffer cannot be resumed
-    /// without a gap, and must be told to resync rather than served a partial
-    /// replay. This is the "Connecting… forever" shape: the buffer answers, the
-    /// client believes it is caught up, and the UI never matches tmux again.
+    /// without a gap, so it is served no replay at all and waits for the next
+    /// full state (S3 in `docs/INVARIANTS.md`). A partial replay would be the
+    /// "Connecting… forever" shape: the buffer answers, the client believes it
+    /// is caught up, and the UI never matches tmux again.
     #[test]
     fn a_client_beyond_the_buffer_is_not_resumed_from_it() {
         let b = crate::state::SessionBroadcast::new();
-        for i in 0..(crate::state::EVENT_BUFFER_SIZE + 20) {
+        for i in 1..=(crate::state::EVENT_BUFFER_SIZE + 20) {
             b.broadcast(format!("m{i}"));
         }
         let oldest = b.oldest_seq();
-        assert_eq!(oldest, Some(20));
+        assert_eq!(oldest, Some(21));
 
         // Disconnected at seq 5, far behind the buffer's floor: no replay.
         assert!(!can_replay_from(Some(5), oldest));
-        // Disconnected at 19 — the buffer still holds its successor.
-        assert!(can_replay_from(Some(19), oldest));
+        // Disconnected at 19: its successor has left the buffer.
+        assert!(!can_replay_from(Some(19), oldest));
+        // Disconnected at 20 — the buffer still holds its successor.
+        assert!(can_replay_from(Some(20), oldest));
         assert!(can_replay_from(Some(100), oldest));
         // A first connection sends no Last-Event-Id, and an empty buffer has
         // nothing to serve; both take the full-snapshot path.
@@ -2582,6 +2595,117 @@ mod tests {
             text.contains("event: connection-info"),
             "the stream should have served its prologue, got: {text}"
         );
+    }
+
+    /// S2: a client that subscribed before the session's first broadcast gets
+    /// that broadcast. The live loop dedupes against "the last seq replayed",
+    /// kept as a number whose 0 means none — which is exactly the id the first
+    /// event used to carry, so the first event of every session was dropped
+    /// for every subscriber the ring had not served.
+    #[tokio::test]
+    async fn the_first_broadcast_reaches_a_client_that_subscribed_before_it() {
+        use futures_util::StreamExt;
+
+        let state = Arc::new(AppState::new());
+        let broadcast = {
+            let mut conns = SessionConnections::new();
+            conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
+            let broadcast = Arc::clone(&conns.broadcast);
+            state.sessions.write().await.insert("s".to_string(), conns);
+            broadcast
+        };
+
+        let response = sse_handler(
+            State(Arc::clone(&state)),
+            Query(SessionQuery {
+                session: Some("s".to_string()),
+            }),
+            HeaderMap::new(),
+        )
+        .await;
+        let mut body = response.into_body().into_data_stream();
+        // The prologue (connection-info) is served before the live loop
+        // subscribes; read past it so the broadcasts below are live ones.
+        let mut text = String::new();
+        while !text.contains("event: connection-info") {
+            let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+                .await
+                .expect("the prologue never arrived")
+                .expect("the stream ended during its prologue")
+                .expect("the body failed");
+            text.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        tokio::task::yield_now().await;
+
+        let first = broadcast.broadcast("{\"type\":\"first\"}".to_string());
+        let second = broadcast.broadcast("{\"type\":\"second\"}".to_string());
+        while !text.contains(&format!("id: {second}")) {
+            let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+                .await
+                .expect("the second broadcast never arrived")
+                .expect("the stream ended before the second broadcast")
+                .expect("the body failed");
+            text.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        assert!(
+            text.contains(&format!("id: {first}")),
+            "the first broadcast (seq {first}) was dropped: {text}"
+        );
+        state.shutdown.cancel();
+    }
+
+    /// S2, through the handler: a client whose stream is not read while the
+    /// session broadcasts more than the ring holds is served, once it reads,
+    /// everything the ring still has — once each, in order — and nothing it
+    /// could not have: no id below the ring's oldest, no repeat where the
+    /// replay and the resumed channel overlap.
+    #[tokio::test]
+    async fn a_lagged_stream_is_served_the_ring_tail_once_in_order() {
+        use futures_util::StreamExt;
+
+        let state = Arc::new(AppState::new());
+        let broadcast = {
+            let mut conns = SessionConnections::new();
+            conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
+            let broadcast = Arc::clone(&conns.broadcast);
+            state.sessions.write().await.insert("s".to_string(), conns);
+            broadcast
+        };
+
+        // The handler subscribes before it returns; the body is not read
+        // until the session has outrun the channel and the ring.
+        let response = sse_handler(
+            State(Arc::clone(&state)),
+            Query(SessionQuery {
+                session: Some("s".to_string()),
+            }),
+            HeaderMap::new(),
+        )
+        .await;
+        let mut newest = 0;
+        for i in 0..(crate::state::EVENT_BUFFER_SIZE + 50) {
+            newest = broadcast.broadcast(format!("{{\"type\":\"m{i}\"}}"));
+        }
+        let oldest = broadcast.oldest_seq().unwrap();
+
+        let mut body = response.into_body().into_data_stream();
+        let mut text = String::new();
+        while !text.contains(&format!("id: {newest}\n")) {
+            let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+                .await
+                .expect("the newest broadcast never arrived")
+                .expect("the stream ended before the newest broadcast")
+                .expect("the body failed");
+            text.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        let ids: Vec<u64> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("id: "))
+            .map(|id| id.parse().unwrap())
+            .collect();
+        let expected: Vec<u64> = (oldest..=newest).collect();
+        assert_eq!(ids, expected, "the lagged stream served: {ids:?}");
+        state.shutdown.cancel();
     }
 }
 
@@ -2833,6 +2957,7 @@ mod protocol_fixtures {
             total_width: 80,
             total_height: 50,
             focus_request: Some("left".to_string()),
+            seq: 41,
         }
     }
 

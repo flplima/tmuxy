@@ -1431,6 +1431,31 @@ pub fn capture_command(pane_id: &PaneId) -> String {
     marker_wrapped_capture(pane_id, "")
 }
 
+/// The re-list a window add or close needs, and the initial sync sends:
+/// panes BEFORE windows (M2 in `docs/INVARIANTS.md`). A window emitted before
+/// its panes are listed is a window with panes missing; the stash list is
+/// independent of that order and goes last. The native monitor and the wasm
+/// host both send exactly this.
+pub fn window_relist_commands() -> [String; 3] {
+    [
+        crate::constants::tmux_formats::LIST_PANES_CMD.to_string(),
+        crate::constants::tmux_formats::LIST_WINDOWS_CMD.to_string(),
+        crate::constants::tmux_formats::LIST_STASH_PANES_CMD.to_string(),
+    ]
+}
+
+/// The batch that refreshes `queued` panes: `list-panes` BEFORE every
+/// `capture-pane` (M3 in `docs/INVARIANTS.md`), so the cursor positions the
+/// captures are placed against are the ones tmux reports now.
+pub fn pane_refresh_commands(queued: &[PaneId]) -> Vec<String> {
+    let mut commands = vec![
+        crate::constants::tmux_formats::LIST_PANES_CMD.to_string(),
+        crate::constants::tmux_formats::LIST_STASH_PANES_CMD.to_string(),
+    ];
+    commands.extend(queued.iter().map(capture_command));
+    commands
+}
+
 /// `capture_command` for an explicit scrollback range (copy-mode sync).
 pub fn capture_command_range(pane_id: &PaneId, start: i64, end: i64) -> String {
     marker_wrapped_capture(pane_id, &format!(" -S {start} -E {end}"))
@@ -3122,8 +3147,9 @@ impl StateAggregator {
         // First state or no previous state - send full
         let prev = match &self.prev_state {
             None => {
-                self.prev_state = Some(current.clone());
                 self.delta_seq = 1;
+                current.seq = 1;
+                self.prev_state = Some(current.clone());
                 return Some(crate::StateUpdate::Full { state: current });
             }
             Some(prev) => prev,
@@ -3239,9 +3265,11 @@ impl StateAggregator {
             return None;
         }
 
-        // Has real changes — assign seq, update prev_state
+        // Has real changes — assign seq, update prev_state. The full state
+        // sent in the delta's place below carries the same number.
         self.delta_seq += 1;
         delta.seq = self.delta_seq;
+        current.seq = self.delta_seq;
         self.prev_state = Some(current.clone());
 
         // If delta is too large (> 50% of panes changed), send full state instead
@@ -3538,6 +3566,7 @@ impl StateAggregator {
             total_width,
             total_height,
             focus_request: self.focus_request.clone(),
+            seq: self.delta_seq,
         }
     }
 }
@@ -4078,6 +4107,33 @@ mod tests {
         let r = agg.process_event(response("GHOST\n"));
         assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
         agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+        assert!(agg.pending_captures.is_empty());
+    }
+
+    /// What tmux actually sends for a capture of a pane that is gone: the
+    /// `capture-pane` block is an `%error`, and the END marker never comes —
+    /// a control-mode line is one command group, and an error drops the rest
+    /// of the group (`cmdq_remove_group`). The pane is released on the error
+    /// alone, and the next unrelated block is not taken for its content.
+    #[test]
+    fn a_failed_capture_releases_its_pane_without_an_end_marker() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        agg.queue_captures(&[pid("%9")]);
+
+        let block = |output: &str, success: bool| ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success,
+        };
+        agg.process_event(block(&format!("{CAPTURE_BEGIN_MARKER} 9\n"), true));
+        agg.process_event(block("can't find pane: %9\n", false));
+        assert!(agg.pending_captures.is_empty());
+        assert!(agg.capture_armed.is_none());
+
+        let r = agg.process_event(block("GHOST\n", true));
+        assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
         assert!(agg.pending_captures.is_empty());
     }
 

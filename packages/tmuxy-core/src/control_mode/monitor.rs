@@ -8,12 +8,14 @@
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
 use super::state::{
-    capture_command, capture_command_range, ChangeType, SideEffect, StateAggregator,
+    capture_command, capture_command_range, pane_refresh_commands, window_relist_commands,
+    ChangeType, SideEffect, StateAggregator,
 };
 use crate::constants::tmux_formats;
 use crate::error::TmuxError;
 use crate::{PaneId, StateUpdate, WindowId};
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, instrument, trace, warn};
@@ -436,9 +438,9 @@ impl RunState {
 /// - Connecting to tmux in control mode
 /// - Processing events and aggregating state
 /// - Emitting state changes via the StateEmitter trait
-pub struct TmuxMonitor {
+pub struct TmuxMonitor<C: ControlLink = ControlModeConnection> {
     /// Connection to tmux control mode
-    connection: ControlModeConnection,
+    connection: C,
 
     /// State aggregator
     aggregator: StateAggregator,
@@ -494,7 +496,36 @@ pub struct TmuxMonitor {
     pending_state_requests: Vec<oneshot::Sender<crate::TmuxState>>,
 }
 
-impl TmuxMonitor {
+/// The control-mode link the monitor drives: the `tmux -CC` PTY, or a
+/// scripted one in a test, so the order the dispatcher sends commands in
+/// (M1 in `docs/INVARIANTS.md`) can be read back without a tmux.
+pub trait ControlLink: Send {
+    fn send_command(&mut self, cmd: &str) -> impl Future<Output = Result<(), TmuxError>> + Send;
+    fn send_commands_batch(
+        &mut self,
+        commands: &[String],
+    ) -> impl Future<Output = Result<(), TmuxError>> + Send;
+    /// The next control-mode event; `None` once the link is closed.
+    fn recv(&mut self) -> impl Future<Output = Option<ControlModeEvent>> + Send;
+    fn graceful_close(&mut self) -> impl Future<Output = ()> + Send;
+}
+
+impl ControlLink for ControlModeConnection {
+    async fn send_command(&mut self, cmd: &str) -> Result<(), TmuxError> {
+        ControlModeConnection::send_command(self, cmd).await
+    }
+    async fn send_commands_batch(&mut self, commands: &[String]) -> Result<(), TmuxError> {
+        ControlModeConnection::send_commands_batch(self, commands).await
+    }
+    async fn recv(&mut self) -> Option<ControlModeEvent> {
+        ControlModeConnection::recv(self).await
+    }
+    async fn graceful_close(&mut self) {
+        ControlModeConnection::graceful_close(self).await
+    }
+}
+
+impl TmuxMonitor<ControlModeConnection> {
     /// Connect to a tmux session in control mode.
     /// Returns the monitor and a sender for sending commands to it.
     ///
@@ -525,29 +556,36 @@ impl TmuxMonitor {
         };
 
         let (command_tx, command_rx) = mpsc::channel(32);
+        Ok((Self::over(connection, config, command_rx), command_tx))
+    }
+}
 
-        Ok((
-            Self {
-                connection,
-                aggregator: {
-                    let mut agg = StateAggregator::new();
-                    if config.observer {
-                        agg.set_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
-                    }
-                    agg
-                },
-                config,
-                command_rx,
-                logged_adoption: false,
-                client_size: None,
-                resize_attempts: HashMap::new(),
-                resize_given_up: HashSet::new(),
-                pending_replies: HashMap::new(),
-                next_reply_id: 0,
-                pending_state_requests: Vec::new(),
+impl<C: ControlLink> TmuxMonitor<C> {
+    /// A monitor over an already open link.
+    fn over(
+        connection: C,
+        config: MonitorConfig,
+        command_rx: mpsc::Receiver<MonitorCommand>,
+    ) -> Self {
+        Self {
+            connection,
+            aggregator: {
+                let mut agg = StateAggregator::new();
+                if config.observer {
+                    agg.set_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
+                }
+                agg
             },
-            command_tx,
-        ))
+            config,
+            command_rx,
+            logged_adoption: false,
+            client_size: None,
+            resize_attempts: HashMap::new(),
+            resize_given_up: HashSet::new(),
+            pending_replies: HashMap::new(),
+            next_reply_id: 0,
+            pending_state_requests: Vec::new(),
+        }
     }
 
     /// Synchronize initial state by querying tmux.
@@ -603,25 +641,12 @@ impl TmuxMonitor {
             .send_command("refresh-client -f pause-after=5")
             .await?;
 
-        // Panes BEFORE windows — the same load-bearing order
-        // `refresh_after_window_add` documents: emitting window state before
-        // its panes exist would surface a window with missing panes. The wasm
-        // mirror (`tmuxy-wasm/src/lib.rs`) uses the same order.
-        self.connection
-            .send_command(tmux_formats::LIST_PANES_CMD)
-            .await?;
-
-        self.connection
-            .send_command(tmux_formats::LIST_WINDOWS_CMD)
-            .await?;
-
-        // Hidden pane-group members live in the stash session; enumerate them so
-        // a group tab strip has every member. Sent AFTER windows — it's
-        // independent of the load-bearing panes-before-windows ordering — and
-        // returns empty (not an error) when no stash session exists.
-        self.connection
-            .send_command(tmux_formats::LIST_STASH_PANES_CMD)
-            .await?;
+        // Panes before windows, then the stash session's hidden pane-group
+        // members (empty, not an error, when there is no stash session): the
+        // one order `window_relist_commands` documents.
+        for cmd in window_relist_commands() {
+            self.connection.send_command(&cmd).await?;
+        }
 
         // Title changes have no notification of their own; this asks tmux to
         // send one (see SUBSCRIBE_PANE_TITLES_CMD).
@@ -795,8 +820,10 @@ impl TmuxMonitor {
     ///
     /// Drives the sans-IO aggregator via `step(event) -> StepResult` and runs
     /// every typed `SideEffect` the result describes. The aggregator emits
-    /// effects in the load-bearing order documented on `state::SideEffect`;
-    /// the dispatcher below preserves that ordering 1:1, so:
+    /// effects in the load-bearing order documented on `state::SideEffect`
+    /// (A1 in `docs/INVARIANTS.md`); the dispatcher below is one `for` over
+    /// that list, each effect awaited before the next, which is what keeps
+    /// the order 1:1 (M1), so:
     ///   1. Foreign `%session-changed` events are filtered before mutation.
     ///   2. `AdoptUntaggedWindows` runs first so emissions reflect tagged state.
     ///   3. Images / clipboard fire before list-pane refreshes.
@@ -1063,13 +1090,7 @@ impl TmuxMonitor {
     /// window leaves the new pane absent from `self.panes` until list-panes restores
     /// it; list-windows would otherwise emit state with the pane missing.
     async fn refresh_after_window_add<E: StateEmitter>(&mut self, emitter: &E) {
-        // Stash query LAST — it's independent of the load-bearing
-        // panes-before-windows ordering this method documents.
-        let cmds = vec![
-            tmux_formats::LIST_PANES_CMD.to_string(),
-            tmux_formats::LIST_WINDOWS_CMD.to_string(),
-            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-        ];
+        let cmds = window_relist_commands();
         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
             emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
         }
@@ -1081,13 +1102,7 @@ impl TmuxMonitor {
     /// the updated `tmux_cursor_x/y` when capture responses arrive.
     async fn refresh_panes<E: StateEmitter>(&mut self, emitter: &E, pane_ids: &[PaneId]) {
         let queued_panes = self.aggregator.queue_captures(pane_ids);
-
-        let mut commands: Vec<String> = vec![
-            tmux_formats::LIST_PANES_CMD.to_string(),
-            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-        ];
-        commands.extend(queued_panes.iter().map(capture_command));
-
+        let commands = pane_refresh_commands(&queued_panes);
         if let Err(e) = self.connection.send_commands_batch(&commands).await {
             emitter.emit_error(format!("Failed to batch capture panes: {}", e));
         }
@@ -1568,7 +1583,285 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::initial_resize_command;
+    use super::*;
+
+    /// One log of everything that leaves the monitor, in the order it left:
+    /// the commands the link sends and what the emitter is handed, so an
+    /// effect that reaches the UI can be placed against one that reaches
+    /// tmux. `<step>` marks each time the monitor asks for the next event.
+    type Log = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+    /// An emitter that logs every effect it is handed, as a mark.
+    struct Recording(Log);
+    impl super::super::log::LogSink for Recording {}
+    impl StateEmitter for Recording {
+        fn emit_state(&self, _update: StateUpdate) {
+            self.0.lock().unwrap().push("<emit>".to_string());
+        }
+        fn emit_error(&self, error: String) {
+            panic!("unexpected error: {error}");
+        }
+        fn store_images(
+            &self,
+            _pane_id: &PaneId,
+            images: Vec<(u32, super::super::images::StoredImage)>,
+        ) {
+            assert!(
+                !images.is_empty(),
+                "an empty image store reached the emitter"
+            );
+            self.0.lock().unwrap().push("<images>".to_string());
+        }
+        fn write_clipboard(&self, pane_id: Option<&PaneId>, text: String) {
+            let from = pane_id.map_or("buffer".to_string(), |p| p.to_string());
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("<clipboard {from} {text}>"));
+        }
+    }
+
+    /// A link that logs every command in the order it was sent.
+    struct Scripted {
+        events: std::collections::VecDeque<ControlModeEvent>,
+        sent: Log,
+    }
+    impl ControlLink for Scripted {
+        async fn send_command(&mut self, cmd: &str) -> Result<(), TmuxError> {
+            self.sent.lock().unwrap().push(cmd.to_string());
+            Ok(())
+        }
+        async fn send_commands_batch(&mut self, commands: &[String]) -> Result<(), TmuxError> {
+            self.sent.lock().unwrap().extend(commands.iter().cloned());
+            Ok(())
+        }
+        async fn recv(&mut self) -> Option<ControlModeEvent> {
+            self.sent.lock().unwrap().push("<step>".to_string());
+            self.events.pop_front()
+        }
+        async fn graceful_close(&mut self) {}
+    }
+
+    /// Where a log entry sits in the effect order of A1: window tags, then
+    /// images and clipboard writes, then the aggregator's own commands, then
+    /// re-lists, then captures, a flow resume, the state emission last.
+    fn rank(entry: &str) -> u8 {
+        if entry.starts_with("set-option -w") {
+            0
+        } else if entry == "<images>" || entry.starts_with("<clipboard") {
+            1
+        } else if entry == tmux_formats::LIST_PANES_CMD
+            || entry == tmux_formats::LIST_WINDOWS_CMD
+            || entry == tmux_formats::LIST_STASH_PANES_CMD
+        {
+            3
+        } else if entry.contains("capture-pane") {
+            4
+        } else if entry.starts_with("refresh-client -A") {
+            5
+        } else if entry == "<emit>" {
+            6
+        } else {
+            2
+        }
+    }
+
+    fn response(output: &str) -> ControlModeEvent {
+        ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success: true,
+        }
+    }
+
+    /// M1: everything a step hands out — to tmux or to the emitter — leaves
+    /// in the order the aggregator returned its effects, one entry per effect
+    /// that reaches a boundary: the window tags of `AdoptUntaggedWindows`
+    /// before the re-list of `RefreshAfterWindowAdd` before the `EmitState`,
+    /// the images of `StoreImages` and the text of `WriteClipboard` handed to
+    /// the emitter, the re-list of `RefreshPanes` before its captures, a
+    /// `ResumePane` ahead of the emission, a `SendTmuxCommand` sent as given,
+    /// a `CommandReply` resolving its waiter and putting nothing on the wire
+    /// — and nothing interleaved. The order itself is A1's property; this is
+    /// the dispatch of every variant, scripted once, end to end.
+    #[tokio::test]
+    async fn a_step_sends_its_effects_commands_in_effect_order() {
+        let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let title = tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
+        let events = [
+            // Two panes the monitor knows, as the initial sync leaves them,
+            // the second in copy mode so a paste buffer is worth reading.
+            ControlModeEvent::WindowAdd {
+                window_id: "@0".parse().unwrap(),
+            },
+            response(
+                "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
+                 %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,",
+            ),
+            // The session is on @0. The capture this queues for its active
+            // pane is the one the list already queued, answered below.
+            ControlModeEvent::SessionWindowChanged {
+                session_id: "$0".to_string(),
+                window_id: "@0".parse().unwrap(),
+            },
+            response("TMUXY_CAP_BEGIN 0\n"),
+            response("$ \n"),
+            response("TMUXY_CAP_END\n"),
+            // The user is in %0: a clipboard write from %0 is honoured
+            // (`accepted_clipboard_write` takes the active pane's only).
+            ControlModeEvent::WindowPaneChanged {
+                window_id: "@0".parse().unwrap(),
+                pane_id: "%0".parse().unwrap(),
+            },
+            // Adopt, then the window re-list, then the emission.
+            ControlModeEvent::WindowAdd {
+                window_id: "@1".parse().unwrap(),
+            },
+            // A reply block: resolved in the monitor, nothing sent.
+            response("TMUXY_RPY_BEGIN 4\n"),
+            response("ok\n"),
+            response("TMUXY_RPY_END 4\n"),
+            // An inline image: stored, the output's emission deferred.
+            ControlModeEvent::Output {
+                pane_id: "%0".parse().unwrap(),
+                content: b"\x1b]1337;File=inline=1;width=10;height=5:iVBORw0KGgo=\x07".to_vec(),
+            },
+            // An OSC 52 write from the pane.
+            ControlModeEvent::Output {
+                pane_id: "%0".parse().unwrap(),
+                content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
+            },
+            // A pane refresh: the pane re-list, then the capture.
+            ControlModeEvent::SubscriptionChanged {
+                name: title.to_string(),
+                pane_id: "%0".parse().unwrap(),
+            },
+            // Flow control: the resume.
+            ControlModeEvent::Pause {
+                pane_id: "%0".parse().unwrap(),
+            },
+            // A yank: the aggregator's own command to read the buffer, and
+            // the read's three blocks, the middle one a clipboard write.
+            ControlModeEvent::PasteBufferChanged {
+                buffer_name: "buffer0".to_string(),
+            },
+            response("TMUXY_BUF_BEGIN\n"),
+            response("yanked\n"),
+            response("TMUXY_BUF_END\n"),
+            ControlModeEvent::WindowClose {
+                window_id: "@1".parse().unwrap(),
+            },
+        ];
+        let count = events.len();
+        let link = Scripted {
+            events: events.into_iter().collect(),
+            sent: std::sync::Arc::clone(&log),
+        };
+        let (_tx, rx) = mpsc::channel(1);
+        let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+        let (reply_tx, mut reply_rx) = oneshot::channel();
+        monitor.pending_replies.insert(
+            4,
+            (ReplyWaiter::Caller(reply_tx), tokio::time::Instant::now()),
+        );
+        let emitter = Recording(std::sync::Arc::clone(&log));
+        let mut rs = RunState::new(&monitor.config, Instant::now());
+        for _ in 0..count {
+            let event = monitor.connection.recv().await;
+            assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+        }
+
+        let log = log.lock().unwrap().clone();
+        let steps: Vec<Vec<&String>> = log
+            .split(|c| c == "<step>")
+            .map(|step| step.iter().collect())
+            .collect();
+        for step in &steps {
+            let ranks: Vec<u8> = step.iter().map(|c| rank(c)).collect();
+            assert!(
+                ranks.windows(2).all(|pair| pair[0] <= pair[1]),
+                "a step's effects left the effect order: {step:?}"
+            );
+        }
+        // Every rank is in the log, so the check above covers every effect
+        // that reaches a boundary.
+        for wanted in 0..=6 {
+            assert!(
+                log.iter().any(|c| rank(c) == wanted),
+                "no effect of rank {wanted} reached a boundary: {log:?}"
+            );
+        }
+        // Each multi-effect step, named, so the check above is not vacuous.
+        let ranks_of = |step: &[&String]| step.iter().map(|c| rank(c)).collect::<Vec<_>>();
+        // Steps are numbered by event: the window focus change is the 3rd,
+        // the pane focus change the 7th, the window add the 8th, the reply's three blocks
+        // the 9th to 11th, the image the 12th, the OSC 52 the 13th, the title
+        // change the 14th, the pause the 15th, the yank the 16th and its read
+        // the 17th to 19th, the window close the 20th.
+        let window_add = &steps[8];
+        let first_list = window_add
+            .iter()
+            .position(|c| *c == tmux_formats::LIST_PANES_CMD)
+            .unwrap_or_else(|| panic!("no re-list after the window add: {window_add:?}"));
+        assert!(
+            first_list > 0 && rank(window_add[0]) == 0,
+            "the tags should go out before the re-list: {window_add:?}"
+        );
+        assert_eq!(
+            window_add.last().map(|c| c.as_str()),
+            Some("<emit>"),
+            "the window add should emit after its re-list: {window_add:?}"
+        );
+        for reply_step in &steps[9..12] {
+            assert!(reply_step.is_empty(), "a reply block sent {reply_step:?}");
+        }
+        let reply = reply_rx
+            .try_recv()
+            .expect("the reply block resolved its waiter");
+        assert_eq!((reply.output.as_str(), reply.error), ("ok\n", None));
+        assert_eq!(
+            steps[12].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+            ["<images>"],
+            "an inline image should reach the emitter alone, its emission deferred"
+        );
+        assert_eq!(
+            steps[13].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+            ["<clipboard %0 hello world>"],
+            "an OSC 52 write should reach the emitter with the pane that asked"
+        );
+        let refresh = &steps[14];
+        assert_eq!(
+            ranks_of(refresh),
+            [3, 3, 4],
+            "the pane refresh should re-list before it captures: {refresh:?}"
+        );
+        let pause = &steps[15];
+        assert_eq!(
+            ranks_of(pause),
+            [5, 6],
+            "a pause should answer with the resume, then its emission: {pause:?}"
+        );
+        let yank = &steps[16];
+        assert!(
+            ranks_of(yank) == [2] && yank[0].contains("show-buffer"),
+            "a yank should send the buffer read alone: {yank:?}"
+        );
+        assert_eq!(
+            steps[17..20]
+                .iter()
+                .map(|s| s.iter().map(|c| c.as_str()).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            [vec![], vec!["<clipboard buffer yanked>"], vec![]],
+            "the buffer read should hand its content to the clipboard, once"
+        );
+        let window_close = &steps[20];
+        assert_eq!(
+            window_close.last().map(|c| c.as_str()),
+            Some("<emit>"),
+            "the window close should end on its emission: {window_close:?}"
+        );
+    }
 
     /// SEC-14: `GET /events?session=` lets a client pick the name, and an
     /// unquoted one carrying `;` used to be parsed by control mode as a
@@ -1749,8 +2042,6 @@ mod tests {
             "set-option -p -t %3 remain-on-exit on"
         ));
     }
-
-    use super::*;
 
     #[test]
     fn test_is_multi_step_run_shell_matches_pane_group_scripts() {

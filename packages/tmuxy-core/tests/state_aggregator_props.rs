@@ -64,6 +64,166 @@ fn any_event_strategy() -> impl Strategy<Value = ControlModeEvent> {
     ]
 }
 
+/// A `%begin`/`%end` block as the parser hands it over.
+fn response(output: &str) -> ControlModeEvent {
+    ControlModeEvent::CommandResponse {
+        timestamp: 0,
+        command_num: 0,
+        output: output.to_string(),
+        success: true,
+    }
+}
+
+/// A pane the aggregator knows (`%0`, `%1`, `%2` in window `@0`, `%2` in copy
+/// mode), the window active with `%0` focused — what an attached monitor has
+/// after its initial sync, and what the output, clipboard, image, paste
+/// buffer, pause and refresh paths all gate on.
+fn seeded_aggregator() -> StateAggregator {
+    let mut agg = StateAggregator::new();
+    agg.step(ControlModeEvent::WindowAdd {
+        window_id: "@0".parse().unwrap(),
+    });
+    agg.step(response(
+        "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
+         %1,1,0,13,80,11,0,0,0,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
+         %2,2,40,13,40,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,",
+    ));
+    agg.step(ControlModeEvent::SessionWindowChanged {
+        session_id: "$0".to_string(),
+        window_id: "@0".parse().unwrap(),
+    });
+    agg.step(ControlModeEvent::WindowPaneChanged {
+        window_id: "@0".parse().unwrap(),
+        pane_id: "%0".parse().unwrap(),
+    });
+    agg
+}
+
+/// Events that reach every effect of A1, as short runs (a reply is its three
+/// blocks): plain and clipboard-writing output, window adds and closes (the
+/// adopt and the re-list), focus changes, reply markers, the pane-title
+/// subscription (a pane refresh) and flow control (a resume).
+fn seam_event_strategy() -> impl Strategy<Value = Vec<ControlModeEvent>> {
+    let known_pane = || prop::sample::select(vec!["%0", "%1", "%2", "%9"]);
+    let title = tmuxy_core::constants::tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
+    prop_oneof![
+        3 => output_event_strategy().prop_map(|e| vec![e]),
+        1 => known_pane().prop_map(|p| vec![ControlModeEvent::Output {
+            pane_id: p.parse().unwrap(),
+            content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
+        }]),
+        1 => structural_event_strategy().prop_map(|e| vec![e]),
+        1 => known_pane().prop_map(|p| vec![ControlModeEvent::WindowPaneChanged {
+            window_id: "@0".parse().unwrap(),
+            pane_id: p.parse().unwrap(),
+        }]),
+        1 => (1u64..9).prop_map(|id| vec![
+            response(&format!("TMUXY_RPY_BEGIN {id}\n")),
+            response("ok\n"),
+            response(&format!("TMUXY_RPY_END {id}\n")),
+        ]),
+        1 => known_pane().prop_map(move |p| vec![ControlModeEvent::SubscriptionChanged {
+            name: title.to_string(),
+            pane_id: p.parse().unwrap(),
+        }]),
+        1 => known_pane().prop_map(|p| vec![ControlModeEvent::Pause {
+            pane_id: p.parse().unwrap(),
+        }]),
+        1 => known_pane().prop_map(|p| vec![ControlModeEvent::Continue {
+            pane_id: p.parse().unwrap(),
+        }]),
+        1 => known_pane().prop_map(|p| vec![ControlModeEvent::Output {
+            pane_id: p.parse().unwrap(),
+            content: b"\x1b]1337;File=inline=1;width=10;height=5:iVBORw0KGgo=\x07".to_vec(),
+        }]),
+        1 => Just(vec![ControlModeEvent::PasteBufferChanged {
+            buffer_name: "buffer0".to_string(),
+        }]),
+    ]
+}
+
+/// The effect's variant, for the coverage check.
+fn effect_kind(effect: &SideEffect) -> &'static str {
+    match effect {
+        SideEffect::AdoptUntaggedWindows(_) => "AdoptUntaggedWindows",
+        SideEffect::StoreImages { .. } => "StoreImages",
+        SideEffect::WriteClipboard { .. } => "WriteClipboard",
+        SideEffect::SendTmuxCommand(_) => "SendTmuxCommand",
+        SideEffect::CommandReply { .. } => "CommandReply",
+        SideEffect::RefreshAfterWindowAdd => "RefreshAfterWindowAdd",
+        SideEffect::RefreshPanes { .. } => "RefreshPanes",
+        SideEffect::ResumePane(_) => "ResumePane",
+        SideEffect::EmitState { .. } => "EmitState",
+    }
+}
+
+/// Where an effect sits in the order A1 documents.
+fn effect_rank(effect: &SideEffect) -> u8 {
+    match effect {
+        SideEffect::AdoptUntaggedWindows(_) => 0,
+        SideEffect::StoreImages { .. } | SideEffect::WriteClipboard { .. } => 1,
+        SideEffect::SendTmuxCommand(_) | SideEffect::CommandReply { .. } => 2,
+        SideEffect::RefreshAfterWindowAdd => 3,
+        SideEffect::RefreshPanes { .. } => 4,
+        SideEffect::ResumePane(_) => 5,
+        SideEffect::EmitState { .. } => 6,
+    }
+}
+
+/// The property below is only as strong as the effects its events reach, so
+/// one fixed run through the same seed and event shapes has to produce every
+/// rank of A1: adopt, clipboard, reply, re-list, pane refresh, resume, emit.
+#[test]
+fn the_seam_events_reach_every_effect_of_a1() {
+    let title = tmuxy_core::constants::tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
+    let mut agg = seeded_aggregator();
+    let script = vec![
+        ControlModeEvent::WindowAdd {
+            window_id: "@1".parse().unwrap(),
+        },
+        ControlModeEvent::Output {
+            pane_id: "%0".parse().unwrap(),
+            content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
+        },
+        response("TMUXY_RPY_BEGIN 4\n"),
+        response("ok\n"),
+        response("TMUXY_RPY_END 4\n"),
+        ControlModeEvent::SubscriptionChanged {
+            name: title.to_string(),
+            pane_id: "%1".parse().unwrap(),
+        },
+        ControlModeEvent::Pause {
+            pane_id: "%2".parse().unwrap(),
+        },
+        ControlModeEvent::Output {
+            pane_id: "%1".parse().unwrap(),
+            content: b"\x1b]1337;File=inline=1;width=10;height=5:iVBORw0KGgo=\x07".to_vec(),
+        },
+        ControlModeEvent::PasteBufferChanged {
+            buffer_name: "buffer0".to_string(),
+        },
+    ];
+    let mut seen = HashSet::new();
+    for ev in script {
+        for effect in agg.step(ev).effects {
+            seen.insert(effect_kind(&effect));
+        }
+    }
+    for kind in [
+        "AdoptUntaggedWindows",
+        "StoreImages",
+        "WriteClipboard",
+        "SendTmuxCommand",
+        "CommandReply",
+        "RefreshAfterWindowAdd",
+        "RefreshPanes",
+        "ResumePane",
+        "EmitState",
+    ] {
+        assert!(seen.contains(kind), "no event reached {kind}: {seen:?}");
+    }
+}
+
 proptest! {
     /// `step` must never panic on any sequence of synthetic events.
     /// The aggregator wraps vt100 in a panic guard (`safe_process` in
@@ -176,11 +336,32 @@ proptest! {
         }
     }
 
-    /// Out-of-order capture queue: queue_captures is idempotent against
-    /// repeats — already-queued pane ids are skipped, never duplicated. This
-    /// protects the FIFO matching scheme described in `queue_captures`'s
-    /// docblock; a duplicate enqueue would shift every subsequent capture
-    /// response onto the wrong pane.
+    /// A1 in `docs/INVARIANTS.md`: whatever the event and whatever came
+    /// before it, a step's effects come in the order `step_at` documents —
+    /// adopt, then images and clipboard, then commands and replies, then the
+    /// window re-list, then pane refreshes, then flow resume, then the emit.
+    /// The monitor dispatches them one to one in that order, so an effect out
+    /// of place here is a command tmux sees out of place.
+    #[test]
+    fn effects_within_a_step_follow_the_documented_order(
+        runs in prop::collection::vec(seam_event_strategy(), 1..30),
+    ) {
+        let mut agg = seeded_aggregator();
+        for ev in runs.into_iter().flatten() {
+            let result = agg.step(ev);
+            let ranks: Vec<u8> = result.effects.iter().map(effect_rank).collect();
+            prop_assert!(ranks.windows(2).all(|pair| pair[0] <= pair[1]),
+                "effects out of their documented order: {:?}", result.effects);
+            prop_assert!(
+                ranks.iter().filter(|r| **r == 6).count() <= 1,
+                "a step emits at most once: {:?}", result.effects);
+        }
+    }
+
+    /// queue_captures is idempotent against repeats — already-queued pane ids
+    /// are skipped, never duplicated. A capture response is routed to its pane
+    /// by marker (A4 in `docs/INVARIANTS.md`); a duplicate enqueue would send
+    /// tmux a second capture whose answer the first one's marker then claims.
     #[test]
     fn queue_captures_is_idempotent_across_repeats(
         pane_ids in prop::collection::vec(

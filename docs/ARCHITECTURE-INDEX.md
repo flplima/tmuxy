@@ -27,6 +27,7 @@ Feature-to-files retrieval map for agents.
 | Rich rendering / OSC / image protocols                      | `docs/RICH-RENDERING.md`                                                                                                                                                                                                                                         |
 | Performance harnesses                                       | `perf`<br>`packages/tmuxy-ui/scripts`                                                                                                                                                                                                                            |
 | E2E and helper layers                                       | `tests`<br>`tests/helpers`                                                                                                                                                                                                                                       |
+| Cross-layer invariants and the test holding each            | `docs/INVARIANTS.md`                                                                                                                                                                                                                                             |
 
 ## Related docs
 

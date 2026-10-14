@@ -21,11 +21,12 @@ use tokio_util::sync::CancellationToken;
 use crate::request_guard::HostPolicy;
 
 /// Number of recent broadcast messages retained per session for
-/// `Last-Event-Id` replay and lagged-subscriber recovery. Sized to match the
-/// broadcast channel capacity so a client that lags by up to a full buffer can
-/// recover from the ring without waiting for the next full state snapshot; a
-/// larger gap is covered by the next `StateUpdate::Full` broadcast.
-pub const EVENT_BUFFER_SIZE: usize = 100;
+/// `Last-Event-Id` replay and lagged-subscriber recovery. A power of two, so
+/// it is exactly the broadcast channel's capacity (tokio rounds that up) and a
+/// client that lags by up to a full buffer recovers from the ring without a
+/// refetch; a larger gap reaches the client as a jump in delta seqs, which its
+/// sequencer answers with a full-state refetch (S2 in `docs/INVARIANTS.md`).
+pub const EVENT_BUFFER_SIZE: usize = 128;
 
 /// A broadcast message tagged with its monotonic per-session sequence id.
 /// The id is mirrored as the SSE `id:` field so the browser persists it
@@ -40,11 +41,17 @@ type TaggedEvent = (u64, String);
 /// briefly to push to a small VecDeque; contention on it is negligible.
 pub struct SessionBroadcast {
     /// Tokio broadcast channel — each subscribed client gets its own
-    /// 100-message lag buffer here. The capacity matches `EVENT_BUFFER_SIZE`
-    /// so a client that hit `RecvError::Lagged` replays from `recent` (the SSE
-    /// handler's `Lagged` arm calls `replay_since`).
+    /// `EVENT_BUFFER_SIZE`-message lag buffer here. The capacity matches the
+    /// ring exactly (tokio rounds a channel's capacity up to a power of two,
+    /// so the constant is one) so a client that hit `RecvError::Lagged` is
+    /// served from `recent` everything the channel still had (the SSE
+    /// handler's `Lagged` arm calls `replay_since`); a ring smaller than the
+    /// channel would drop, on every lag, events the channel still held.
     pub tx: broadcast::Sender<TaggedEvent>,
     /// Monotonic per-session counter — `fetch_add(1)` produces the next id.
+    /// Ids start at 1: the stream handler keeps "the last seq I sent" as a
+    /// plain number whose 0 means "nothing yet", so an id of 0 would be the
+    /// one event every fresh subscriber drops.
     pub seq: AtomicU64,
     /// Ring buffer of the most recent `EVENT_BUFFER_SIZE` tagged messages.
     /// Front = oldest, back = newest. Used to resume a client that
@@ -57,22 +64,32 @@ impl SessionBroadcast {
         let (tx, _) = broadcast::channel(EVENT_BUFFER_SIZE);
         Self {
             tx,
-            seq: AtomicU64::new(0),
+            seq: AtomicU64::new(1),
             recent: StdMutex::new(VecDeque::with_capacity(EVENT_BUFFER_SIZE)),
         }
     }
 
     /// Broadcast a payload to every subscriber and store it in the ring buffer.
     /// Returns the sequence id assigned to this message.
+    ///
+    /// The id is taken, the ring written and the channel sent under the one
+    /// lock: the monitor and the initial-sync task broadcast concurrently, and
+    /// `replay_since` and `oldest_seq` read the ring as sorted (S1 in
+    /// `docs/INVARIANTS.md`). An id taken before the lock could be pushed
+    /// after a higher one.
     pub fn broadcast(&self, payload: String) -> u64 {
+        let Ok(mut buf) = self.recent.lock() else {
+            // A poisoned ring is a panicked broadcaster; the stream must go on.
+            let id = self.seq.fetch_add(1, Ordering::SeqCst);
+            let _ = self.tx.send((id, payload));
+            return id;
+        };
         let id = self.seq.fetch_add(1, Ordering::SeqCst);
         let entry: TaggedEvent = (id, payload);
-        if let Ok(mut buf) = self.recent.lock() {
-            if buf.len() == EVENT_BUFFER_SIZE {
-                buf.pop_front();
-            }
-            buf.push_back(entry.clone());
+        if buf.len() == EVENT_BUFFER_SIZE {
+            buf.pop_front();
         }
+        buf.push_back(entry.clone());
         let _ = self.tx.send(entry);
         id
     }
@@ -113,39 +130,74 @@ impl Default for SessionBroadcast {
 mod broadcast_tests {
     use super::*;
 
+    /// S1: ids count up from 1 — 0 is what a stream that has sent nothing
+    /// remembers, and an id equal to it would never be delivered.
     #[test]
-    fn seqs_are_monotonic() {
+    fn seqs_are_monotonic_from_one() {
         let b = SessionBroadcast::new();
-        assert_eq!(b.broadcast("a".into()), 0);
-        assert_eq!(b.broadcast("b".into()), 1);
-        assert_eq!(b.broadcast("c".into()), 2);
+        assert_eq!(b.broadcast("a".into()), 1);
+        assert_eq!(b.broadcast("b".into()), 2);
+        assert_eq!(b.broadcast("c".into()), 3);
     }
 
     #[test]
     fn replay_since_returns_strictly_newer() {
         let b = SessionBroadcast::new();
-        for i in 0..5 {
+        for i in 1..=5 {
             b.broadcast(format!("m{}", i));
         }
-        let replay = b.replay_since(2);
-        // expects seq 3 and 4
+        let replay = b.replay_since(3);
         assert_eq!(replay.len(), 2);
-        assert_eq!(replay[0].0, 3);
-        assert_eq!(replay[0].1, "m3");
-        assert_eq!(replay[1].0, 4);
-        assert_eq!(replay[1].1, "m4");
+        assert_eq!(replay[0].0, 4);
+        assert_eq!(replay[0].1, "m4");
+        assert_eq!(replay[1].0, 5);
+        assert_eq!(replay[1].1, "m5");
     }
 
     #[test]
     fn ring_buffer_drops_oldest_at_capacity() {
         let b = SessionBroadcast::new();
-        for i in 0..(EVENT_BUFFER_SIZE + 5) {
+        for i in 1..=(EVENT_BUFFER_SIZE + 5) {
             b.broadcast(format!("m{}", i));
         }
-        assert_eq!(b.oldest_seq(), Some(5));
-        let replay = b.replay_since(4);
+        assert_eq!(b.oldest_seq(), Some(6));
+        let replay = b.replay_since(5);
         assert_eq!(replay.len(), EVENT_BUFFER_SIZE);
-        assert_eq!(replay[0].0, 5);
+        assert_eq!(replay[0].0, 6);
+    }
+
+    /// S1: the ring is sorted and gap-free however many threads broadcast at
+    /// once — the monitor and the initial-sync task do. A stress run, not an
+    /// exhaustive one: the threads are released together and the run is
+    /// repeated, which makes the old interleaving (a seq taken, then the ring
+    /// written under a separate lock) likely rather than certain to show.
+    /// What makes it impossible is `broadcast` taking the seq and writing the
+    /// ring under one lock, which review has to hold.
+    #[test]
+    fn concurrent_broadcasters_keep_the_ring_in_order() {
+        let per_thread = EVENT_BUFFER_SIZE / 4;
+        for _round in 0..25 {
+            let b = std::sync::Arc::new(SessionBroadcast::new());
+            let gate = std::sync::Arc::new(std::sync::Barrier::new(4));
+            let threads: Vec<_> = (0..4)
+                .map(|t| {
+                    let b = std::sync::Arc::clone(&b);
+                    let gate = std::sync::Arc::clone(&gate);
+                    std::thread::spawn(move || {
+                        gate.wait();
+                        for i in 0..per_thread {
+                            b.broadcast(format!("t{t}-{i}"));
+                        }
+                    })
+                })
+                .collect();
+            for t in threads {
+                t.join().unwrap();
+            }
+            let seqs: Vec<u64> = b.replay_since(0).into_iter().map(|(s, _)| s).collect();
+            let expected: Vec<u64> = (1..=(4 * per_thread) as u64).collect();
+            assert_eq!(seqs, expected, "the ring is out of order or has a gap");
+        }
     }
 
     #[test]

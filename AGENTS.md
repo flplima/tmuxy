@@ -12,6 +12,7 @@ See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs
 See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback rendering and native browser scrolling in copy mode.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
+See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, read-only) and the test that holds each one.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
@@ -118,6 +119,15 @@ Tag every bug-fix commit (`🐛`) with the test layer that should have caught th
 - Format: `🐛 <description> [missed-by: <layer>]`
 - Example layers: `[missed-by: unit-tests]`, `[missed-by: e2e]`, `[missed-by: storybook-probe]`, `[missed-by: rust-tests]`, `[missed-by: cli]`, `[missed-by: WebKit]`, or `[missed-by: none]`.
 - An answer of `[missed-by: none]` means a gap exists in the testing architecture (e.g. process lifecycle, system fonts) and highlights where a new test tier or harness belongs.
+
+### Bug-Fix Commit Tagging: Invariant
+
+A bug on a seam between layers — the aggregator's effect order, the server stream, the client's sequencer or model, read-only gating, session restore — broke a promise one layer makes to another. Those promises are listed in [docs/INVARIANTS.md](docs/INVARIANTS.md), each with the test that holds it. A bug-fix commit on a seam cites the row it violated, or adds one:
+
+- Format: `🐛 <description> [missed-by: <layer>] [invariant: <id>]`
+- An existing id means the claim was written down but its enforcer let the bug through: strengthen that row's test (an ordering or liveness row wants a property or interleaving test, not one more scripted run) and keep the row's `Enforced by` cell current.
+- A new id means the claim was never written down: add the row with the fix, and the test that now holds it.
+- A row's `Enforced by` cell names a test by file and title. Rename the test, update the cell. A `—` cell is an honest statement that nothing checks the claim; never fill it with a test that does not assert it.
 
 Before wrapping up a task, run local checks that mirror CI lint gates:
 

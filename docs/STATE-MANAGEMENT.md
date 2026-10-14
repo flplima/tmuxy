@@ -36,7 +36,7 @@ The bridge between the sans-IO state machine and a live `tmux -CC` subprocess. R
 
 The reconnect loop in the server/Tauri paths re-creates the monitor on disconnect. The monitor reads the system clock directly; the time-based policies it applies (`RunState`, the aggregator's `step_at`/`tick`) take an explicit instant, which is how their tests drive time without a tmux.
 
-See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method per `select!` arm is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants.
+See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method per `select!` arm is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants. The monitor is generic over its link to tmux (`ControlLink`): the real control-mode PTY in production, a scripted one in tests, which is how the order it puts commands on the wire is asserted without a tmux (see [INVARIANTS.md](INVARIANTS.md), M1).
 
 ### MonitorCommand
 
@@ -278,7 +278,7 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 2. **Incremental updates** — The backend sends `TmuxDelta` updates with sequence numbers. The frontend merges these via `handleStateUpdate()` in `tmuxy-ui/src/domain/deltaProtocol.ts`. Only changed fields are transmitted.
 
-3. **Sequence gaps** — If a delta arrives with an unexpected sequence number, the frontend requests a full resync.
+3. **Sequence gaps** — If a delta arrives with an unexpected sequence number, the frontend requests a full resync. A full state and the `get_initial_state` answer carry the sequence number they were taken at (`seq` on `TmuxState`), so the delta right after either is checked the same way: a delta lost between a sync point and the next delta is a gap, never a delta merged over a hole.
 
 4. **Optimistic reconciliation** — Every dispatched op stays in `TmuxClientModel.ops` until a server state update either matches it (the predicted real id appears in `committed`) or it stale-expires after `OP_STALE_TIMEOUT_MS`. Multiple in-flight ops are reconciled in dispatch order, each claiming its own real id so concurrent Split / NewWindow ops don't collide. On `TmuxError`, the store rolls the patch back immediately and surfaces `OpRejectedByTmux { stderr }` to the caller.
 
@@ -292,3 +292,4 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 - [DATA-FLOW.md](DATA-FLOW.md) — the delta protocol and transports these updates travel over
 - [TMUX.md](TMUX.md) — control-mode routing and the `@tmuxy-*` tags the window state is built from
 - [COPY-MODE.md](COPY-MODE.md) — the client-owned `copyMode` slice
+- [INVARIANTS.md](INVARIANTS.md) — the promises the aggregator, the monitor and the client model make to each other, and what tests them

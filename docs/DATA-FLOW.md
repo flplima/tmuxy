@@ -38,7 +38,7 @@ The adapter reopens a dropped stream on an exponential backoff (1s, 2s, 4s … c
 
 ### SSE resync via `Last-Event-Id`
 
-Every event the server broadcasts is tagged with a monotonic per-session sequence id (set as the SSE `id:` field). `EventSource` persists the last received id across reconnects and sends it back as the `Last-Event-Id` request header on retry. The server keeps a small ring buffer of recent events per session and replays everything strictly newer than the supplied id before resuming the live stream. If the client's id is older than the buffer head (long disconnect), the next full-state snapshot covers the gap — no client-side panic, no data corruption.
+Every event the server broadcasts is tagged with a monotonic per-session sequence id (set as the SSE `id:` field). `EventSource` persists the last received id across reconnects and sends it back as the `Last-Event-Id` request header on retry. The server keeps a small ring buffer of recent events per session and replays everything strictly newer than the supplied id before resuming the live stream. If the client's id is older than the buffer head (long disconnect), nothing is replayed: the first live delta's `seq` does not follow the client's last one, and the sequencer refetches a full state — no client-side panic, no data corruption.
 
 This is independent from the delta protocol's own `seq` field: the SSE id keeps the _transport_ in sync after a reconnect; the delta `seq` keeps the _application state_ in sync after each individual update.
 
@@ -157,7 +157,7 @@ Frontend
 
 After the initial full state snapshot, the server sends incremental deltas to minimize bandwidth:
 
-- Each delta has a `seq` number for ordering
+- Each delta has a `seq` number for ordering; a full state and the `get_initial_state` answer carry the `seq` they were taken at, so the delta right after either one is checked against it
 - Deltas contain only changed fields: modified panes (content, cursor, metadata), added/removed panes, added/removed windows, active pane/window changes, status line changes
 - The frontend merges deltas into its cached state via `handleStateUpdate()` in `tmuxy-ui/src/domain/deltaProtocol.ts`
 - If a delta arrives with a sequence gap, the client requests a full state resync
@@ -356,3 +356,4 @@ Like every route it is gated by the optional `--password` Basic auth, but has no
 - [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — what the state updates flowing over these transports contain
 - [TMUX.md](TMUX.md) — why mutations must ride control mode rather than a subprocess
 - [SECURITY.md](SECURITY.md) — what the unauthenticated `POST /commands` endpoint exposes
+- [INVARIANTS.md](INVARIANTS.md) — the sequencing promises the stream makes (`S` and `C` rows) and what tests them

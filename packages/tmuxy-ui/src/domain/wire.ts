@@ -212,6 +212,13 @@ export const ServerState = Schema.Struct({
    * unsets the tmux option, which clears the field on the next poll.
    */
   focus_request: Schema.optional(Schema.String),
+  /**
+   * The stream's counter when this state was taken: the delta that follows
+   * it carries `seq + 1`, so a delta lost right after a full state or an
+   * adopted answer is a gap like any other. Absent from a state no stream
+   * numbers (a fixture, an engine); the next delta then starts the count.
+   */
+  seq: Schema.optional(Schema.Number),
 });
 export type ServerState = Schema.Schema.Type<typeof ServerState>;
 /** A full state before decoding: what an engine or a fixture builds, ids as plain strings. */
