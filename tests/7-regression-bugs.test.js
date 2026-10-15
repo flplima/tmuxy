@@ -718,12 +718,15 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
     const visibleTab = () =>
       page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
 
+    // A fresh session holds one tab. Wait for the strip to draw it: setup only
+    // waits for the session and a pane, and counting before the strip renders
+    // read 0 on a slow runner and threw every later count off by one.
+    await waitForWindowCount(page, 1);
     // Two more tabs, created the way a user does: the "+" button.
-    const startCount = (await page.$$('.tab-list .tab-name')).length;
     await page.click('.tab-add');
-    await waitForWindowCount(page, startCount + 1);
+    await waitForWindowCount(page, 2);
     await page.click('.tab-add');
-    await waitForWindowCount(page, startCount + 2);
+    await waitForWindowCount(page, 3);
 
     // Land on the LAST tab by clicking it in the strip. No pane is clicked, so
     // nothing re-points tmux at this window behind the scenes.
