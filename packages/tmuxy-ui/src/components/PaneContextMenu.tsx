@@ -1,23 +1,13 @@
 /**
- * PaneContextMenu - Right-click context menu for pane operations
- *
- * A floating surface anchored at the point that was right-clicked
- * (components/floating/Menu) — the same object as every other menu and the tab
- * preview, so opening it puts whichever of those was up away.
+ * PaneContextMenu — the right-click (and ⋮) menu of one pane: the pane spec
+ * without the navigation items, drawn at the pointer.
  */
 
 import { FloatingMenu } from './floating/Menu';
-import {
-  useAppSend,
-  useAppSelector,
-  selectKeyBindings,
-  selectIsSinglePane,
-  selectMarkedPaneId,
-} from '../machines/AppContext';
-import { executeMenuAction } from './menus/menuActions';
-import { PaneMenuItems } from './menus/PaneMenuItems';
+import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { paneMenuSpec } from '../domain/menus/paneMenu';
+import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';
-import type { WidgetMenuItem } from './widgets';
 import type { PaneId } from '../domain/ids';
 
 interface PaneContextMenuProps {
@@ -31,36 +21,32 @@ interface PaneContextMenuProps {
 
 export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
   const send = useAppSend();
-  const keybindings = useAppSelector(selectKeyBindings);
-  const isSinglePane = useAppSelector(selectIsSinglePane);
-  const markedPaneId = useAppSelector(selectMarkedPaneId);
   const inGroup = useAppSelector((ctx) =>
     Object.values(ctx.paneGroups).some((g) => g.paneIds.length > 1 && g.paneIds.includes(paneId)),
   );
   // A pane running a widget gets that widget's own section at the top.
   const widgetItems = useWidgetMenuItems(paneId);
+  const spec = useAppSelector((ctx) =>
+    paneMenuSpec(ctx, { paneId, widgetItems, navigation: false, rename: Boolean(onRename) }),
+  );
 
-  const handleAction = (actionId: string) => {
-    if (actionId === 'pane-close') {
-      // Route through group-aware CLOSE_PANE instead of raw kill-pane.
-      // Don't FOCUS_PANE first — that would switch to a hidden group window
-      // and confuse the close script's visibility logic.
-      send({ type: 'CLOSE_PANE', paneId });
-    } else {
-      // The menu's actions run on the focused pane. A group member is brought
-      // into view the way clicking its tab does — `FOCUS_PANE` on a parked
-      // member would race the swap, and the action would land on the member
-      // that was showing instead of the one the menu was opened for.
+  const dispatch = useMenuDispatch({
+    // Route Close Pane through group-aware CLOSE_PANE instead of raw
+    // kill-pane. Don't FOCUS_PANE first — that would switch to a hidden
+    // group window and confuse the close script's visibility logic.
+    closeTarget: paneId,
+    // The menu's other actions run on the focused pane. A group member is
+    // brought into view the way clicking its tab does — `FOCUS_PANE` on a
+    // parked member would race the swap, and the action would land on the
+    // member that was showing instead of the one the menu was opened for.
+    before: (actionId) => {
+      if (actionId === 'pane-close') return;
       send(inGroup ? { type: 'SELECT_PANE_GROUP_TAB', paneId } : { type: 'FOCUS_PANE', paneId });
-      executeMenuAction(send, actionId);
-    }
-    onClose();
-  };
-
-  const handleWidgetAction = (item: WidgetMenuItem) => {
-    send(item.event);
-    onClose();
-  };
+    },
+    onLocal: (id) => {
+      if (id === 'pane-rename') onRename?.();
+    },
+  });
 
   return (
     <FloatingMenu
@@ -69,23 +55,10 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
       anchor={{ kind: 'point', x, y }}
       onClose={onClose}
     >
-      <PaneMenuItems
-        keybindings={keybindings}
-        isSinglePane={isSinglePane}
-        widgetItems={widgetItems}
-        onWidgetAction={handleWidgetAction}
-        isMarked={markedPaneId === paneId}
-        hasMarked={markedPaneId !== null}
-        navigation={false}
-        onRename={
-          onRename &&
-          (() => {
-            onRename();
-            onClose();
-          })
-        }
-        onAction={handleAction}
-      />
+      {renderSpec(spec, (action) => {
+        dispatch(action);
+        onClose();
+      })}
     </FloatingMenu>
   );
 }

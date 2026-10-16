@@ -1,64 +1,41 @@
 /**
- * AppMenu - Application-level hamburger menu with submenus
- *
- * A floating surface hanging off the hamburger (components/floating/Menu), the
- * same object as the context menus and the tab preview: one of them is open at
- * a time, and they arrive and leave the same way.
- * Submenus: Pane, Tab, Session, Theme, View, Debug, Help
- * Keybinding labels are derived from server-provided keybindings.
- *
- * On macOS Tauri this hamburger is not rendered — `StatusBar` swaps it for the
- * traffic-light spacer and the app uses the native macOS menu bar built in the
- * Tauri layer (`gui.rs` `build_app_menu` / `handle_menu_event`). The web build
- * and non-macOS Tauri (which have no native menu bar) render it as the primary
- * app menu.
+ * AppMenu — the hamburger: the application menu where there is no native
+ * menu bar (the web, the demo, Linux). The items are the `appMenuSpec`
+ * (domain/menus), rendered by the floating menu; what this component adds is
+ * what only a surface can — the two dialogs, the clipboard, and the desktop
+ * window verbs that answer with the OS.
  */
 
-import { useRef, useState } from 'react';
-import {
-  FloatingMenu,
-  MenuItem,
-  SubMenu,
-  MenuDivider,
-  MenuHeader,
-  MenuRadioGroup,
-} from '../floating/Menu';
-import {
-  useAppActor,
-  useAppSend,
-  useAppSelector,
-  useAppSelectorShallow,
-  useAppConfig,
-  useReadOnly,
-  selectKeyBindings,
-  selectIsSinglePane,
-  selectMarkedPaneId,
-  selectWindows,
-  selectThemeName,
-  selectThemeMode,
-  selectAvailableThemes,
-  selectTraceSettings,
-  selectCursorBlink,
-} from '../../machines/AppContext';
-import type { TraceLevel } from '../../machines/types';
-import { isTauri } from '../../utils/platform';
-import { restartApp } from '../../utils/restartApp';
-import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { FloatingMenu } from '../floating/Menu';
 import { Modal } from '../Modal';
 import {
-  activeCloseTarget,
-  executeMenuAction,
-  MENU_OPS,
-  STACK_TOGGLE_KEY_OP,
-  TAB_RENAME_KEY_OP,
-} from './menuActions';
-import { TmuxOp } from '../../domain/commands';
-import { PaneMenuItems } from './PaneMenuItems';
+  useAppSend,
+  useAppActor,
+  useAppSelector,
+  selectMarkedPaneId,
+} from '../../machines/AppContext';
+import { isTauri } from '../../utils/platform';
+import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
+import {
+  closeGuiWindow,
+  focusGuiWindow,
+  getWindowStyle,
+  listGuiWindows,
+  newGuiWindow,
+  quitApp,
+  revealLogFile,
+  setWindowStyle,
+  type GuiWindowInfo,
+  type WindowStyleSlug,
+} from '../../utils/guiWindows';
+import { appMenuSpec } from '../../domain/menus/appMenu';
+import { windowMenuSpec } from '../../domain/menus/windowMenu';
+import { renderSpec, useMenuDispatch } from './SpecMenu';
+import { useMenuEnv } from './menuEnv';
+import { activeCloseTarget } from './menuActions';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
-import type { WidgetMenuItem } from '../widgets';
-import { KeyLabel } from './KeyLabel';
-import { WindowMenu } from './WindowMenu';
 import './AppMenu.css';
 
 export function AppMenu() {
@@ -71,41 +48,76 @@ export function AppMenu() {
 
   const send = useAppSend();
   const actor = useAppActor();
-  const { isDemo } = useAppConfig();
-  const readOnly = useReadOnly();
-  const keybindings = useAppSelector(selectKeyBindings);
-  const isSinglePane = useAppSelector(selectIsSinglePane);
-  const markedPaneId = useAppSelector(selectMarkedPaneId);
-  const windows = useAppSelectorShallow(selectWindows);
-  const themeName = useAppSelector(selectThemeName);
-  const themeMode = useAppSelector(selectThemeMode);
-  const availableThemes = useAppSelector(selectAvailableThemes);
-  // A theme whose file the server has not described (a list from an adapter
-  // without the file) is taken to support both modes, as before.
-  const themeHasMode = (mode: 'dark' | 'light') => {
-    const modes = availableThemes.find((t) => t.name === themeName)?.modes;
-    return modes === undefined || modes.includes(mode);
-  };
-  const cursorBlink = useAppSelector(selectCursorBlink);
+  const env = useMenuEnv();
   const activePaneId = useAppSelector((c) => c.activePaneId);
+  const focusedFloatPaneId = useAppSelector((c) => c.focusedFloatPaneId);
+  const sessionName = useAppSelector((c) => c.sessionName);
+  const tracePath = useAppSelector((c) => c.traceSettings?.path ?? null);
+  // Read so the Pane submenu's Mark/Unmark follows the marked pane live.
+  useAppSelector(selectMarkedPaneId);
   // Widgets contribute their own items for whichever pane is active, the same
   // section the pane's ⋮ menu shows.
   const widgetItems = useWidgetMenuItems(activePaneId);
-  const focusedFloatPaneId = useAppSelector((c) => c.focusedFloatPaneId);
-  const trace = useAppSelector(selectTraceSettings);
 
-  const isSingleWindow = windows.filter((w) => w.windowType === 'tab').length <= 1;
-  const activeWindowId = useAppSelector((c) => c.activeWindowId);
-  const sessionName = useAppSelector((c) => c.sessionName);
-  const activeTabStacked = Boolean(windows.find((w) => w.id === activeWindowId)?.collapsible);
+  // The desktop's Window submenu: both lists are read when it opens rather
+  // than held, since windows come and go from other windows and the style
+  // is the OS's answer.
+  const [windows, setWindows] = useState<GuiWindowInfo[]>([]);
+  const [style, setStyle] = useState<WindowStyleSlug>('normal');
+  const refreshWindows = useCallback(() => {
+    void listGuiWindows().then(setWindows);
+    void getWindowStyle().then(setStyle);
+  }, []);
+
+  // The spec is derived from the whole context, so it is built only while
+  // the menu is up — the button alone has nothing to derive. A state change
+  // while it is up re-renders the item list through the selector.
+  const spec = useAppSelector((ctx) =>
+    menuOpen
+      ? appMenuSpec(ctx, env, {
+          widgetItems,
+          // OS windows are the desktop app's to manage; a browser tab has none.
+          windowMenu: isTauri() ? windowMenuSpec(env, { windows, style }) : undefined,
+        })
+      : [],
+  );
+
   // The two dialogs the menu opens: one asks before a destructive act, the
   // other says which build this is.
   const [confirmKill, setConfirmKill] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
 
-  const handleAction = (actionId: string) => {
-    executeMenuAction(send, actionId, activeCloseTarget(activePaneId, focusedFloatPaneId));
+  const report: ClipboardReport = {
+    onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
+    onFailed: (text) => send({ type: 'NOTIFY', text }),
   };
+
+  const dispatch = useMenuDispatch({
+    closeTarget: activeCloseTarget(activePaneId, focusedFloatPaneId),
+    onLocal: (id) => {
+      if (id === 'confirm-kill-session') setConfirmKill(true);
+      else if (id === 'about') setAboutOpen(true);
+      else if (id === 'debug-copy-state') copyAppState(actor.getSnapshot().context, report);
+      else if (id === 'trace-copy-path') copyTracePath(tracePath, report);
+      else if (id === 'help-reveal-log-file') revealLogFile();
+      else if (id === 'window-refresh') refreshWindows();
+      else if (id === 'window-new') newGuiWindow();
+      else if (id === 'window-close') closeGuiWindow();
+      else if (id === 'quit') quitApp();
+      else if (id.startsWith('window-style:')) {
+        const slug = id.slice('window-style:'.length) as WindowStyleSlug;
+        setWindowStyle(slug);
+        setStyle(slug);
+      } else if (id.startsWith('window-focus:'))
+        focusGuiWindow(Number(id.slice('window-focus:'.length)));
+    },
+  });
+
+  // Rendering reads the Window lists: a stale list on first open is one the
+  // user sees for a moment, so they are fetched once the desktop menu mounts.
+  useEffect(() => {
+    if (isTauri()) refreshWindows();
+  }, [refreshWindows]);
 
   return (
     <>
@@ -133,268 +145,7 @@ export function AppMenu() {
           // reopens it: the button is the menu's own, not "outside" it.
           ignoreRef={buttonRef}
         >
-          {!readOnly && (
-            <SubMenu label="Pane">
-              <PaneMenuItems
-                keybindings={keybindings}
-                isSinglePane={isSinglePane}
-                widgetItems={widgetItems}
-                onWidgetAction={(item: WidgetMenuItem) => send(item.event)}
-                isMarked={markedPaneId !== null && markedPaneId === activePaneId}
-                hasMarked={markedPaneId !== null}
-                onAction={handleAction}
-              />
-            </SubMenu>
-          )}
-
-          <SubMenu label="Tab">
-            {!readOnly && (
-              <MenuItem onClick={() => handleAction('tab-new')}>
-                New Tab
-                <KeyLabel keybindings={keybindings} op={TmuxOp.NewWindow()} />
-              </MenuItem>
-            )}
-            <MenuItem onClick={() => handleAction('tab-overview')}>
-              Show All Tabs
-              <span className="menu-keybinding">ctrl+0</span>
-            </MenuItem>
-            <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
-              Next Tab
-              <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-next']} />
-            </MenuItem>
-            <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
-              Previous Tab
-              <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-previous']} />
-            </MenuItem>
-            <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
-              Last Tab
-              <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-last']} />
-            </MenuItem>
-            {!readOnly && (
-              <>
-                <MenuDivider />
-                {/* A window option, so a checkbox: on, only the row holding the
-                    active pane stays expanded (docs/TMUX.md). */}
-                <MenuItem
-                  type="checkbox"
-                  checked={activeTabStacked}
-                  onClick={() => handleAction('tab-stack-toggle')}
-                >
-                  Stacked Panes
-                  <KeyLabel keybindings={keybindings} op={STACK_TOGGLE_KEY_OP} />
-                </MenuItem>
-                <MenuItem onClick={() => handleAction('tab-rename')}>
-                  Rename Tab
-                  <KeyLabel keybindings={keybindings} op={TAB_RENAME_KEY_OP} />
-                </MenuItem>
-                <MenuDivider />
-                <MenuItem onClick={() => handleAction('tab-close')}>
-                  Close Tab
-                  <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-close']} />
-                </MenuItem>
-              </>
-            )}
-          </SubMenu>
-
-          {!readOnly && (
-            <SubMenu label="Session">
-              <MenuItem onClick={() => handleAction('session-new')} disabled={isDemo}>
-                New Session
-              </MenuItem>
-              <MenuItem onClick={() => handleAction('session-rename')} disabled={isDemo}>
-                Rename Session
-                <KeyLabel keybindings={keybindings} op={MENU_OPS['session-rename']} />
-              </MenuItem>
-              <MenuItem onClick={() => handleAction('session-detach')} disabled={isDemo}>
-                Detach Session
-                <KeyLabel
-                  keybindings={keybindings}
-                  op={TmuxOp.RawCommand({ command: 'detach-client' })}
-                />
-              </MenuItem>
-              {/* Destructive and one click away: it asks first. */}
-              <MenuItem onClick={() => setConfirmKill(true)} disabled={isDemo}>
-                Kill Session…
-              </MenuItem>
-            </SubMenu>
-          )}
-
-          {/* OS windows are the desktop app's to manage; a browser tab has none. */}
-          {isTauri() && <WindowMenu />}
-
-          <SubMenu label="Theme">
-            {/* A mode the current theme declares no palette for is greyed out:
-                picking it would draw the page in the browser's defaults. */}
-            <MenuItem
-              onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}
-              disabled={!themeHasMode('dark')}
-            >
-              {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
-            </MenuItem>
-            <MenuItem
-              onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}
-              disabled={!themeHasMode('light')}
-            >
-              {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
-            </MenuItem>
-            <MenuItem
-              onClick={() => send({ type: 'SET_THEME_MODE', mode: 'auto' })}
-              disabled={!themeHasMode('dark') || !themeHasMode('light')}
-            >
-              {themeMode === 'auto' ? '\u25CF ' : '\u25CB '}System
-            </MenuItem>
-            {availableThemes.length > 0 && <MenuDivider />}
-            {availableThemes.map((t) => (
-              <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
-                {themeName === t.name ? '\u2713 ' : '\u2003 '}
-                {t.displayName}
-              </MenuItem>
-            ))}
-          </SubMenu>
-
-          <SubMenu label="View">
-            {!readOnly && (
-              <>
-                <MenuItem onClick={() => handleAction('view-layout-even-horizontal')}>
-                  Even Horizontal
-                </MenuItem>
-                <MenuItem onClick={() => handleAction('view-layout-even-vertical')}>
-                  Even Vertical
-                </MenuItem>
-                <MenuItem onClick={() => handleAction('view-layout-main-horizontal')}>
-                  Main Horizontal
-                </MenuItem>
-                <MenuItem onClick={() => handleAction('view-layout-main-vertical')}>
-                  Main Vertical
-                </MenuItem>
-                <MenuItem onClick={() => handleAction('view-layout-tiled')}>Tiled</MenuItem>
-                <MenuDivider />
-              </>
-            )}
-            <MenuItem onClick={() => send({ type: 'INCREASE_FONT_SIZE' })}>
-              Make Text Bigger
-            </MenuItem>
-            <MenuItem onClick={() => send({ type: 'DECREASE_FONT_SIZE' })}>
-              Make Text Smaller
-            </MenuItem>
-            <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>
-              Make Text Normal Size
-            </MenuItem>
-            {!readOnly && (
-              <>
-                <MenuDivider />
-                {/* One switch for the machine, written back to the tmuxy config —
-                not a per-client preference like the theme. */}
-                <MenuItem
-                  type="checkbox"
-                  checked={cursorBlink}
-                  onClick={() => send({ type: 'TOGGLE_CURSOR_BLINK' })}
-                >
-                  Blinking Cursor
-                </MenuItem>
-              </>
-            )}
-          </SubMenu>
-
-          {/*
-        Debug — the local action trace and nothing else (docs/TELEMETRY.md).
-        Settings are read on open rather than held: the backend is the
-        authority (a DO_NOT_TRACK kill switch can refuse an enable), and the
-        native macOS menu can flip the same switch behind this one's back.
-      */}
-          {!readOnly && (
-            <SubMenu
-              label="Debug"
-              onMenuChange={(e) => {
-                if (e.open) send({ type: 'FETCH_TRACE_SETTINGS' });
-              }}
-            >
-              <MenuItem
-                type="checkbox"
-                checked={trace?.enabled ?? false}
-                disabled={trace?.locked ?? false}
-                onClick={(e) => send({ type: 'SET_TRACE_ENABLED', enabled: !!e.checked })}
-              >
-                Enable Traces
-              </MenuItem>
-
-              <MenuDivider />
-              <MenuHeader>Trace Level</MenuHeader>
-              <MenuRadioGroup
-                value={trace?.level ?? 'shape'}
-                onRadioChange={(e) =>
-                  send({ type: 'SET_TRACE_LEVEL', level: e.value as TraceLevel })
-                }
-              >
-                <MenuItem type="radio" value="shape" disabled={!trace?.enabled}>
-                  Shape
-                </MenuItem>
-                <MenuItem type="radio" value="labeled" disabled={!trace?.enabled}>
-                  Labeled
-                </MenuItem>
-                <MenuItem type="radio" value="full" disabled={!trace?.enabled}>
-                  Full
-                </MenuItem>
-              </MenuRadioGroup>
-
-              <MenuDivider />
-              {/* The trace file lives on the machine running the backend, so only the
-              desktop app can open it — a browser tab cannot. */}
-              {isTauri() && (
-                <MenuItem
-                  disabled={!trace?.enabled}
-                  onClick={() => send({ type: 'OPEN_TRACE_FILE' })}
-                >
-                  Open trace.ndjson
-                </MenuItem>
-              )}
-              <MenuItem
-                disabled={!trace?.enabled || !trace?.path}
-                onClick={() =>
-                  copyTracePath(trace?.path ?? null, {
-                    onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
-                    onFailed: (text) => send({ type: 'NOTIFY', text }),
-                  })
-                }
-              >
-                Copy trace.ndjson Path
-              </MenuItem>
-
-              <MenuItem
-                onClick={() =>
-                  copyAppState(actor.getSnapshot().context, {
-                    onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
-                    onFailed: (text) => send({ type: 'NOTIFY', text }),
-                  })
-                }
-              >
-                Copy App State
-              </MenuItem>
-            </SubMenu>
-          )}
-
-          <SubMenu label="Help">
-            <MenuItem onClick={() => handleAction('help-github')}>
-              Tmuxy on GitHub<span className="menu-external">{'\u2197'}</span>
-            </MenuItem>
-            <MenuItem onClick={() => handleAction('help-report-bug')}>
-              Report a Bug<span className="menu-external">{'\u2197'}</span>
-            </MenuItem>
-            <MenuDivider />
-            <MenuItem onClick={() => setAboutOpen(true)}>About tmuxy</MenuItem>
-          </SubMenu>
-
-          {/* The app's own items, last \u2014 where a menu with no menu bar puts
-              them. On macOS the native `tmuxy` menu carries the same ones. */}
-          {!readOnly && !isDemo && (
-            <>
-              <MenuDivider />
-              <MenuItem onClick={() => handleAction('session-reload-config')}>
-                Reload Config
-              </MenuItem>
-              {isTauri() && <MenuItem onClick={restartApp}>Restart App</MenuItem>}
-            </>
-          )}
+          {renderSpec(spec, dispatch)}
         </FloatingMenu>
       )}
       {confirmKill &&
@@ -413,7 +164,7 @@ export function AppMenu() {
                 className="is-destructive"
                 onClick={() => {
                   setConfirmKill(false);
-                  handleAction('session-kill');
+                  dispatch({ kind: 'action', id: 'session-kill' });
                 }}
               >
                 Kill Session
@@ -431,8 +182,8 @@ export function AppMenu() {
               The missing tmux GUI. Session <strong>{sessionName}</strong>.
             </p>
             <div className="app-menu-dialog-actions">
-              <button type="button" onClick={() => handleAction('help-github')}>
-                GitHub {'\u2197'}
+              <button type="button" onClick={() => dispatch({ kind: 'action', id: 'help-github' })}>
+                GitHub {'↗'}
               </button>
               <button type="button" onClick={() => setAboutOpen(false)}>
                 OK

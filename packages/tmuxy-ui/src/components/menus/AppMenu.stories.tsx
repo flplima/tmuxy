@@ -115,12 +115,13 @@ export const ThemeSubmenu: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
     await userEvent.click(menu.getByRole('menuitem', { name: 'Theme' }));
 
-    // Mode toggles always render; the active mode carries the filled marker.
-    const dark = await waitFor(() => menu.getByRole('menuitem', { name: /dark mode/i }));
-    expect(menu.getByRole('menuitem', { name: /light mode/i })).toBeInTheDocument();
-    expect(
-      `${dark.textContent}${menu.getByRole('menuitem', { name: /light mode/i }).textContent}`,
-    ).toContain('●');
+    // The modes are checkbox items: exactly one of them is checked, the one
+    // the page is in.
+    const dark = await waitFor(() => menu.getByRole('menuitemcheckbox', { name: /dark mode/i }));
+    const light = menu.getByRole('menuitemcheckbox', { name: /light mode/i });
+    expect(menu.getByRole('menuitemcheckbox', { name: /system/i })).toBeInTheDocument();
+    const checked = [dark, light].filter((el) => el.getAttribute('aria-checked') === 'true');
+    expect(checked).toHaveLength(1);
   },
 };
 

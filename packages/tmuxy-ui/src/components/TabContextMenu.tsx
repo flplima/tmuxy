@@ -1,42 +1,28 @@
 /**
- * TabContextMenu - Right-click context menu for tab (window) operations.
- *
- * Extracted from WindowTabs so the sidebar tree's tab rows get the identical
- * menu. Mounted only while the caller wants it, anchored at the point that was
- * right-clicked — or, when the tab's preview was up, AT THE CARD: the strip
- * hands over the card's box (`morphFrom`) and the menu grows out of it rather
- * than appearing beside the ghost of something that just vanished.
+ * TabContextMenu — the right-click menu of one tab: the tab spec without the
+ * navigation items, about the tab it was opened on. Opened under the tab it
+ * grew out of (the tab preview turns into it) or at the pointer.
  */
 
-import { FloatingMenu, MenuItem, MenuDivider } from './floating/Menu';
-import {
-  useAppSend,
-  useAppSelector,
-  useAppSelectorShallow,
-  selectKeyBindings,
-  selectWindows,
-} from '../machines/AppContext';
-import {
-  executeMenuAction,
-  MENU_OPS,
-  STACK_TOGGLE_KEY_OP,
-  TAB_RENAME_KEY_OP,
-} from './menus/menuActions';
+import { FloatingMenu } from './floating/Menu';
+import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { tabMenuSpec } from '../domain/menus/tabMenu';
+import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
+import { useMenuEnv } from './menus/menuEnv';
 import { TmuxOp } from '../domain/commands';
-import { KeyLabel } from './menus/KeyLabel';
 import type { WindowId } from '../domain/ids';
 
 interface TabContextMenuProps {
-  /** tmux window index the actions target (Close/Rename operate on this tab). */
+  /** tmux window id the actions target (Close/Rename operate on this tab). */
   windowId: WindowId;
   x: number;
   y: number;
-  /** The tab's button, when the menu is replacing that tab's preview card. */
+  /** The tab's own element, when the menu is the preview card becoming the menu. */
   anchorEl?: HTMLElement | null;
-  /** The preview card's box, when this menu is what it turns into. */
+  /** Where the preview card was, for the menu to grow out of. */
   morphFrom?: DOMRect | null;
   onClose: () => void;
-  /** Start renaming this tab where it is drawn; the caller owns the field. */
+  /** Start renaming this tab in the strip; the strip owns the field. */
   onRename: () => void;
 }
 
@@ -44,50 +30,36 @@ export function TabContextMenu({
   windowId,
   x,
   y,
-  anchorEl = null,
-  morphFrom = null,
+  anchorEl,
+  morphFrom,
   onClose,
   onRename,
 }: TabContextMenuProps) {
   const send = useAppSend();
-  const keybindings = useAppSelector(selectKeyBindings);
-  const allWindows = useAppSelectorShallow(selectWindows);
-  const target = allWindows.find((w) => w.id === windowId);
-  const collapsible = Boolean(target?.collapsible);
+  const env = useMenuEnv();
+  const spec = useAppSelector((ctx) => tabMenuSpec(ctx, env, { windowId, navigation: false }));
+  const collapsible = useAppSelector((ctx) =>
+    Boolean(ctx.windows.find((w) => w.id === windowId)?.collapsible),
+  );
 
-  const handleAction = (actionId: string) => {
-    executeMenuAction(send, actionId);
-    onClose();
-  };
-
-  const handleCloseSpecificTab = () => {
-    send({ type: 'DISPATCH_OP', op: TmuxOp.KillWindow({ windowId }) });
-    onClose();
-  };
-
-  // Collapsible panes: a window option the backend reads (docs/TMUX.md). On,
-  // only the active pane's first-level row stays expanded; off evens the rows
-  // back out.
-  const handleToggleCollapsible = () => {
-    if (!target) return;
-    send({
-      type: 'DISPATCH_OP',
-      op: TmuxOp.SetWindowTag({
-        windowId: target.id,
-        tag: 'collapsible',
-        value: collapsible ? null : '1',
-      }),
-    });
-    onClose();
-  };
-
-  // Renaming happens in the tab itself — the strip owns the field, because
-  // that is where the name is. A prompt at the bottom of the window asked you
-  // to type a new name a long way from the thing being named.
-  const handleRenameSpecificTab = () => {
-    onRename();
-    onClose();
-  };
+  const dispatch = useMenuDispatch({
+    onLocal: (id) => {
+      if (id === 'tab-rename') onRename();
+      // Stacked panes: a window option the backend reads (docs/TMUX.md). On,
+      // only the active pane's first-level row stays expanded; off evens the
+      // rows back out.
+      if (id === 'tab-stack-toggle') {
+        send({
+          type: 'DISPATCH_OP',
+          op: TmuxOp.SetWindowTag({
+            windowId,
+            tag: 'collapsible',
+            value: collapsible ? null : '1',
+          }),
+        });
+      }
+    },
+  });
 
   return (
     <FloatingMenu
@@ -102,27 +74,10 @@ export function TabContextMenu({
       morphFrom={morphFrom}
       onClose={onClose}
     >
-      <MenuItem onClick={() => handleAction('tab-new')}>
-        New Tab
-        <KeyLabel keybindings={keybindings} op={TmuxOp.NewWindow()} />
-      </MenuItem>
-      <MenuDivider />
-      {/* A window option, so a checkbox: on, only the row holding the active
-          pane stays expanded (docs/TMUX.md). */}
-      <MenuItem type="checkbox" checked={collapsible} onClick={handleToggleCollapsible}>
-        Stacked Panes
-        <KeyLabel keybindings={keybindings} op={STACK_TOGGLE_KEY_OP} />
-      </MenuItem>
-
-      <MenuItem onClick={handleRenameSpecificTab}>
-        Rename Tab
-        <KeyLabel keybindings={keybindings} op={TAB_RENAME_KEY_OP} />
-      </MenuItem>
-      <MenuDivider />
-      <MenuItem onClick={handleCloseSpecificTab}>
-        Close Tab
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-close']} />
-      </MenuItem>
+      {renderSpec(spec, (action) => {
+        dispatch(action);
+        onClose();
+      })}
     </FloatingMenu>
   );
 }

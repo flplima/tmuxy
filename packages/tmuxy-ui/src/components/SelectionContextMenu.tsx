@@ -7,10 +7,12 @@
  */
 
 import { useEffect } from 'react';
-import { FloatingMenu, MenuItem } from './floating/Menu';
-import { useAppSend, useReadOnly } from '../machines/AppContext';
+import { FloatingMenu } from './floating/Menu';
+import { useAppSend } from '../machines/AppContext';
 import { TmuxOp } from '../domain/commands';
-import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
+import { selectionMenuSpec } from '../domain/menus/selectionMenu';
+import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
+import { useMenuEnv } from './menus/menuEnv';
 import { flashCopiedRange } from '../utils/copyFlash';
 import { writeClipboard } from '../utils/clipboard';
 import type { PaneId } from '../domain/ids';
@@ -28,13 +30,9 @@ interface SelectionContextMenuProps {
 /**
  * Pin the browser's selection to `range` for as long as the menu is mounted.
  *
- * The menu takes focus when it opens and every item takes it on hover, and
- * WebKit collapses the document selection whenever focus moves — Chrome
- * leaves it alone — so on the desktop the text the user had just
- * right-clicked vanished under the menu that was about it. The range comes
- * from the right-click itself (reading the selection here would be too
- * late: the menu has focus before this effect runs), and whenever the
- * selection collapses while the menu is up, it is put back.
+ * WebKit collapses the selection on any focus move, and the menu takes focus
+ * when it opens; putting the range back on every `selectionchange` keeps the
+ * text the menu is about highlighted until it closes.
  */
 function useSelectionPinned(range: Range | null): void {
   useEffect(() => {
@@ -60,15 +58,24 @@ export function SelectionContextMenu({
   onClose,
 }: SelectionContextMenuProps) {
   const send = useAppSend();
-  const readOnly = useReadOnly();
+  const env = useMenuEnv();
   useSelectionPinned(selectionRange);
+  const spec = selectionMenuSpec(env);
 
   // Either action is the end of the selection's job: the scrollback view (or
   // copy mode) closes with the menu.
-  const exitAndClose = () => {
-    send({ type: 'EXIT_COPY_MODE', paneId });
-    onClose();
-  };
+  const dispatch = useMenuDispatch({
+    onLocal: (id) => {
+      if (id === 'copy') {
+        writeClipboard(selectedText, paneId);
+        flashCopiedRange(selectionRange);
+      } else if (id === 'send-keys') {
+        send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: paneId, text: selectedText }) });
+      }
+      send({ type: 'EXIT_COPY_MODE', paneId });
+      onClose();
+    },
+  });
 
   return (
     <FloatingMenu
@@ -77,30 +84,7 @@ export function SelectionContextMenu({
       anchor={{ kind: 'point', x, y }}
       onClose={onClose}
     >
-      <MenuItem
-        onClick={() => {
-          writeClipboard(selectedText, paneId);
-          flashCopiedRange(selectionRange);
-          exitAndClose();
-        }}
-      >
-        <CopyIcon />
-        Copy
-      </MenuItem>
-      {!readOnly && (
-        <MenuItem
-          onClick={() => {
-            send({
-              type: 'DISPATCH_OP',
-              op: TmuxOp.SendText({ target: paneId, text: selectedText }),
-            });
-            exitAndClose();
-          }}
-        >
-          <SendKeysIcon />
-          Send keys
-        </MenuItem>
-      )}
+      {renderSpec(spec, dispatch)}
     </FloatingMenu>
   );
 }

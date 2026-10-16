@@ -20,19 +20,16 @@
  * a form needs somewhere to type, so that one item opens a pane.
  *
  * The other session verbs (new, rename, detach, kill) live in the app menu,
- * where the rest of the session's commands are.
+ * where the rest of the session's commands are. The list itself is the
+ * `sessionSwitcherSpec` (domain/menus).
  */
 
 import type React from 'react';
-import { FloatingMenu, MenuItem, MenuDivider, MenuHeader } from './floating/Menu';
-import {
-  useAppSend,
-  useAppSelector,
-  useAppSelectorShallow,
-  useReadOnly,
-  selectSessions,
-} from '../machines/AppContext';
-import { isTauri } from '../utils/platform';
+import { FloatingMenu } from './floating/Menu';
+import { useAppSelector } from '../machines/AppContext';
+import { sessionSwitcherSpec } from '../domain/menus/sessionSwitcher';
+import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
+import { useMenuEnv } from './menus/menuEnv';
 
 interface SessionMenuProps {
   /**
@@ -49,49 +46,11 @@ interface SessionMenuProps {
 }
 
 export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
-  const send = useAppSend();
-  const readOnly = useReadOnly();
+  const env = useMenuEnv();
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
-  const sessions = useAppSelectorShallow(selectSessions);
-  const servers = useAppSelectorShallow((ctx) => ctx.servers);
   const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
-  const restorable = useAppSelectorShallow((ctx) => ctx.restorableSessions);
-
-  // Before the poll has answered — and on a sandbox that enumerates nothing —
-  // the attached session is still the one we know for certain.
-  const names = sessions.length > 0 ? sessions.map((s) => s.sessionName) : [sessionName];
-
-  const switchTo = (name: string) => {
-    if (name !== sessionName) send({ type: 'SWITCH_SESSION', sessionName: name });
-    onClose();
-  };
-
-  // A session that is not running but has a snapshot is offered beside the
-  // ones that are: choosing it rebuilds the session and then switches to it.
-  // Dimmed, like Zellij's session manager draws an exited session, because
-  // it is a thing that COULD exist rather than one that does. A viewer gets
-  // no such item — a rebuild is a write.
-  const exited = readOnly
-    ? []
-    : restorable.filter((r) => !names.includes(r.name)).map((r) => r.name);
-  const restore = (name: string) => {
-    send({ type: 'RESTORE_SESSION', sessionName: name });
-    onClose();
-  };
-
-  const connectTo = (serverId: string) => {
-    if (serverId !== currentServerId) send({ type: 'CONNECT_SERVER', serverId });
-    onClose();
-  };
-
-  const openConnect = () => {
-    send({ type: 'OPEN_CONNECT_FLOAT' });
-    onClose();
-  };
-
-  // A desktop list always holds at least localhost, so "more than one" is
-  // what makes the section worth drawing; a web client's list is empty.
-  const showServers = isTauri() && servers.length > 1;
+  const spec = useAppSelector((ctx) => sessionSwitcherSpec(ctx, env));
+  const dispatch = useMenuDispatch();
 
   return (
     <FloatingMenu
@@ -101,63 +60,15 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
       onClose={onClose}
       ignoreRef={anchorRef}
     >
-      <MenuHeader>Sessions</MenuHeader>
-      {names.map((name) => {
-        const current = name === sessionName;
-        return (
-          <MenuItem
-            key={name}
-            onClick={() => switchTo(name)}
-            // Switching is a `switch-client`: a change to this client alone,
-            // which is why a viewer may do it as freely as a writer.
-            data-session-name={name}
-            data-current={current || undefined}
-          >
-            {/* The same filled/hollow mark the theme items use, so "which one
-                am I on" reads the same everywhere in the menus. */}
-            {current ? '● ' : '○ '}
-            {name}
-          </MenuItem>
-        );
+      {renderSpec(spec, (action) => {
+        // Picking the session or server already attached changes nothing.
+        const same =
+          action.kind === 'event' &&
+          ((action.event.type === 'SWITCH_SESSION' && action.event.sessionName === sessionName) ||
+            (action.event.type === 'CONNECT_SERVER' && action.event.serverId === currentServerId));
+        if (!same) dispatch(action);
+        onClose();
       })}
-      {exited.map((name) => (
-        <MenuItem
-          key={`restore-${name}`}
-          className="is-restorable"
-          onClick={() => restore(name)}
-          data-restore-session={name}
-        >
-          {'◌ '}
-          {name}
-        </MenuItem>
-      ))}
-      {showServers && (
-        <>
-          <MenuDivider />
-          <MenuHeader>Servers</MenuHeader>
-          {servers.map((server) => (
-            <MenuItem
-              key={server.id}
-              onClick={() => connectTo(server.id)}
-              data-server-id={server.id}
-            >
-              {server.id === currentServerId ? '\u25CF ' : '\u25CB '}
-              {server.label}
-            </MenuItem>
-          ))}
-        </>
-      )}
-      {/* Reaching a new machine is the desktop app's: the backend retargets
-          its monitor at the new socket, which a web client — served by a
-          server pinned to one socket at launch — has no way to do. */}
-      {isTauri() && !readOnly && (
-        <>
-          <MenuDivider />
-          <MenuItem onClick={openConnect} data-testid="session-menu-connect">
-            Connect over SSH…
-          </MenuItem>
-        </>
-      )}
     </FloatingMenu>
   );
 }

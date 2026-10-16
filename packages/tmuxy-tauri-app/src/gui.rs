@@ -962,7 +962,7 @@ pub(crate) fn refresh_menu(app: &tauri::AppHandle) {
 /// Reveal the app's log file (`tmuxy_core::paths::log_file`, the `tracing`
 /// lines stderr would have shown) in the platform file manager: selected in
 /// Finder on macOS, its directory opened elsewhere.
-fn reveal_log_file() {
+pub(crate) fn reveal_log_file() {
     let path = tmuxy_core::paths::log_file();
     #[cfg(target_os = "macos")]
     {
@@ -1379,6 +1379,9 @@ pub fn run() {
             // (the native macOS menu bar drives them directly).
             commands::new_window,
             commands::focus_window,
+            commands::close_window,
+            commands::quit_app,
+            commands::reveal_log_file,
             commands::list_gui_windows,
             commands::set_window_style,
             commands::get_window_style,

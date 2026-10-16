@@ -13,7 +13,9 @@
 
 import { memo, useRef, useState } from 'react';
 import { useAppSend, useReadOnly } from '../../../machines/AppContext';
-import { FloatingMenu, MenuItem, MenuRadioGroup } from '../../floating/Menu';
+import { FloatingMenu } from '../../floating/Menu';
+import { renderSpec, useMenuDispatch } from '../../menus/SpecMenu';
+import { browserSizeMenuSpec } from '../../../domain/menus/browserSizeMenu';
 import { Tooltip } from '../../Tooltip';
 import { BrowserNav } from './BrowserNav';
 import { ThemeColorFilter } from './TmuxyBrowser';
@@ -42,6 +44,7 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
   const readOnly = useReadOnly();
   const sizeButton = useRef<HTMLButtonElement>(null);
   const [sizeMenuOpen, setSizeMenuOpen] = useState(false);
+  const dispatch = useMenuDispatch();
   const verb = (line: string) => send({ type: 'WRITE_TO_PANE', paneId, data: verbLine(line) });
   const current = LIVE_VIEWPORTS.find((v) => v.value === header.viewport) ?? LIVE_VIEWPORTS[0];
 
@@ -71,16 +74,7 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
           ignoreRef={sizeButton}
           onClose={() => setSizeMenuOpen(false)}
         >
-          <MenuRadioGroup
-            value={header.viewport}
-            onRadioChange={({ value }) => verb(`viewport ${value}`)}
-          >
-            {LIVE_VIEWPORTS.map((option) => (
-              <MenuItem key={option.value} type="radio" value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </MenuRadioGroup>
+          {renderSpec(browserSizeMenuSpec(paneId, header.viewport), dispatch)}
         </FloatingMenu>
       )}
     </>
