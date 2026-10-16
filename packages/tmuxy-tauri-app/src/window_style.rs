@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 /// The twelve styles iTerm2 offers, in its own menu order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -157,13 +157,56 @@ pub fn apply(window: &WebviewWindow, style: WindowStyle) -> tauri::Result<()> {
     };
 
     // A style is a whole shape, so every one of them starts from a plain
-    // window: leaving full screen or a maximized frame first, and giving the
-    // title bar back unless the style is the one that takes it away.
-    window.set_fullscreen(false)?;
-    if window.is_maximized()? {
+    // window: leaving full screen or a maximized frame first. Both leave
+    // through an animation, and a frame or a style mask set while one is in
+    // flight is applied to the window as it was mid-flight — which left the
+    // title bar as a bare strip above a pushed-down page. So the rest waits
+    // for the exit to land, off this thread; tauri's window calls are safe
+    // from any thread.
+    let leaving_fullscreen = window.is_fullscreen()?;
+    let leaving_maximized = !leaving_fullscreen && window.is_maximized()?;
+    if leaving_fullscreen {
+        window.set_fullscreen(false)?;
+    } else if leaving_maximized {
         window.unmaximize()?;
     }
-    window.set_decorations(style != WindowStyle::NoTitleBar)?;
+    if leaving_fullscreen || leaving_maximized {
+        let window = window.clone();
+        std::thread::spawn(move || {
+            settle(&window, |w| {
+                !(w.is_fullscreen().unwrap_or(false) || w.is_maximized().unwrap_or(false))
+            });
+            if let Err(e) = finish(&window, style, remembered, &styles, &label) {
+                tracing::warn!(target: TRACE_TARGET, error = %e, "window style not applied");
+            }
+        });
+        return Ok(());
+    }
+    finish(window, style, remembered, &styles, &label)
+}
+
+const TRACE_TARGET: &str = "tmuxy_tauri_app::window_style";
+
+/// Wait for an animated window change to land: polls `done` for up to a
+/// second, which covers macOS's full-screen exit. Past that the style is
+/// applied anyway rather than lost.
+fn settle(window: &WebviewWindow, done: impl Fn(&WebviewWindow) -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+    while !done(window) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The style's own step, on a window that is neither full screen nor
+/// maximized any more.
+fn finish(
+    window: &WebviewWindow,
+    style: WindowStyle,
+    remembered: Option<Frame>,
+    styles: &WindowStyles,
+    label: &str,
+) -> tauri::Result<()> {
+    set_title_bar(window, style != WindowStyle::NoTitleBar)?;
 
     match style {
         WindowStyle::Normal => {
@@ -172,14 +215,14 @@ pub fn apply(window: &WebviewWindow, style: WindowStyle) -> tauri::Result<()> {
                 window.set_size(size)?;
             }
             if let Ok(mut guard) = styles.0.write() {
-                if let Some(record) = guard.get_mut(&label) {
+                if let Some(record) = guard.get_mut(label) {
                     record.normal = None;
                 }
             }
         }
         WindowStyle::FullScreen => window.set_fullscreen(true)?,
         WindowStyle::Maximized => window.maximize()?,
-        // The title bar is the only thing this one changes; `set_decorations`
+        // The title bar is the only thing this one changes; `set_title_bar`
         // above has already done it.
         WindowStyle::NoTitleBar => {}
         docked => {
@@ -189,7 +232,32 @@ pub fn apply(window: &WebviewWindow, style: WindowStyle) -> tauri::Result<()> {
             }
         }
     }
+    // The page reserves room for the traffic lights; it has to know when
+    // there are none.
+    let _ = window.emit_to(label, "window-style", style.slug());
+    tracing::debug!(target: TRACE_TARGET, style = style.slug(), "window style applied");
     Ok(())
+}
+
+/// Give the window its title bar, or take it away.
+///
+/// On macOS the title bar is transparent and full-size (`TitleBarStyle::
+/// Overlay`): the page paints under it and the status bar IS the title bar,
+/// so there is nothing to remove but the three window buttons. Rewriting the
+/// decorations instead (`set_decorations`) rebuilt the style mask WITHOUT
+/// the full-size-content bit, and the window came back with a real, bare
+/// title-bar strip above a pushed-down page and the buttons sitting in it.
+/// Elsewhere the title bar is the window manager's own, and decorations are
+/// the only handle on it.
+#[cfg(target_os = "macos")]
+fn set_title_bar(window: &WebviewWindow, shown: bool) -> tauri::Result<()> {
+    crate::titlebar::set_buttons_hidden(window, !shown);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_title_bar(window: &WebviewWindow, shown: bool) -> tauri::Result<()> {
+    window.set_decorations(shown)
 }
 
 fn current_frame(window: &WebviewWindow) -> Option<Frame> {

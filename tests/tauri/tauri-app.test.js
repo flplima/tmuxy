@@ -593,6 +593,50 @@ describe('GUI windows', () => {
     await invokeCommand(driver, 'set_window_style', { style: 'normal' });
     expect(await invokeCommand(driver, 'get_window_style')).toBe('normal');
 
+    // No Title Bar and back, also out of full screen and out of a maximized
+    // frame: after each Normal the page is as tall as it was before the cycle
+    // (the content view is still full-size — rewriting the decorations used to
+    // put a real title-bar strip above the page on macOS and cost it that
+    // height; `outerHeight` is 0 in WebKit, so the page's own height is the
+    // measure) and the room the status bar keeps for the traffic lights is
+    // back; with no title bar the room is gone. The chrome itself is macOS's:
+    // elsewhere (CI runs this suite under Xvfb) only the reported style is
+    // asserted.
+    const chrome = () =>
+      driver.execute(() => ({
+        inner: window.innerHeight,
+        spacer: document.querySelector('.traffic-light-spacer')?.getBoundingClientRect().width ?? 0,
+      }));
+    const before = await chrome();
+    const settled = async (style) => {
+      // Full screen enters and leaves with an animation; the style lands after it.
+      for (let i = 0; i < 40; i++) {
+        if ((await invokeCommand(driver, 'get_window_style')) === style) break;
+        await driver.pause(250);
+      }
+      await driver.pause(style === 'full-screen' ? 2000 : 500);
+      expect(await invokeCommand(driver, 'get_window_style')).toBe(style);
+    };
+    for (const cycle of [
+      ['no-title-bar', 'normal'],
+      ['full-screen', 'no-title-bar', 'normal'],
+      ['full-width-top', 'no-title-bar', 'maximized', 'normal'],
+    ]) {
+      for (const style of cycle) {
+        await invokeCommand(driver, 'set_window_style', { style });
+        await settled(style);
+        if (process.platform !== 'darwin') continue;
+        const seen = await chrome();
+        if (style === 'no-title-bar') {
+          expect(seen.spacer).toBe(0);
+        }
+        if (style === 'normal') {
+          expect(seen.inner).toBe(before.inner);
+          expect(seen.spacer).toBe(before.spacer);
+        }
+      }
+    }
+
     // A style nobody defines is refused rather than silently ignored.
     //
     // The refusal arrives as `{ __error }`, not as a rejected promise:

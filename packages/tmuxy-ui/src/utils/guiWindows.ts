@@ -8,6 +8,7 @@
  * browser tab — the web build's one window is the browser's business.
  */
 
+import { useEffect, useState } from 'react';
 import { isTauri } from './platform';
 
 /** One row of the Window menu. */
@@ -77,4 +78,32 @@ export function setWindowStyle(style: WindowStyleSlug): void {
 /** The style this window is in — `normal` in a browser, which has no styles. */
 export function getWindowStyle(): Promise<WindowStyleSlug> {
   return desktop<WindowStyleSlug>('get_window_style', 'normal');
+}
+
+/**
+ * The style this window is in, kept current: the desktop app announces each
+ * change (`window-style`) once it has landed, whichever menu asked for it.
+ * `normal` in a browser.
+ */
+export function useWindowStyle(): WindowStyleSlug {
+  const [style, setStyle] = useState<WindowStyleSlug>('normal');
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | null = null;
+    let gone = false;
+    void getWindowStyle().then((s) => {
+      if (!gone) setStyle(s);
+    });
+    void import('@tauri-apps/api/event').then(({ listen }) =>
+      listen<WindowStyleSlug>('window-style', (e) => setStyle(e.payload)).then((off) => {
+        if (gone) off();
+        else unlisten = off;
+      }),
+    );
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
+  }, []);
+  return style;
 }

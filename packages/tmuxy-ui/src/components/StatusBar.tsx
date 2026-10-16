@@ -34,6 +34,7 @@ import { TabOverviewToggle } from './TabOverviewToggle';
 import { NewTabButton } from './NewTabButton';
 import { TabStripScroll } from './TabStripScroll';
 import { SidebarTitle } from './SidebarTitle';
+import { useWindowStyle } from '../utils/guiWindows';
 import './StatusBar.css';
 
 /** Interactive chrome inside the bar — clicks on these never drag or zoom the window. */
@@ -86,6 +87,7 @@ export const StatusBar = memo(function StatusBar({
   // an overlaying one carries its own header instead, so the header here
   // stays in its closed shape.
   const dockedLeft = leftOpen && !overlay;
+  const windowStyle = useWindowStyle();
   const dockedRight = rightOpen && !overlay;
   // The bar's own 12px inset already covers the gap between the window edge and
   // the column's outer edge, so a cluster spans the column MINUS that inset in
@@ -101,7 +103,13 @@ export const StatusBar = memo(function StatusBar({
         }`}
         style={dockedLeft ? { flex: `0 0 ${leftCluster}px`, width: leftCluster } : undefined}
       >
-        {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
+        {/* Room for the traffic lights — unless the No Title Bar style has
+            hidden them, when the bar starts at the window's edge. */}
+        {isMacTauri ? (
+          windowStyle !== 'no-title-bar' && <div className="traffic-light-spacer" />
+        ) : (
+          <AppMenu />
+        )}
         <SidebarToggle side="left" />
         {dockedLeft && <SidebarTitle side="left" />}
       </div>

@@ -81,6 +81,36 @@ pub fn set_height(window: &WebviewWindow, height: f64, action_id: Option<&str>) 
     apply(window, action_id);
 }
 
+/// Hide or show the three window buttons — the "No Title Bar" window style.
+/// The title bar itself is transparent and stays: on macOS the buttons are
+/// the only visible part of it, and the style mask is left alone (see
+/// `window_style::set_title_bar`). Hidden buttons keep their frames, so the
+/// re-centring on resize and focus goes on applying to them unseen.
+#[cfg(target_os = "macos")]
+pub fn set_buttons_hidden(window: &WebviewWindow, hidden: bool) {
+    use objc2_app_kit::{NSWindow, NSWindowButton};
+
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let Ok(ns_window) = target.ns_window() else {
+            return;
+        };
+        // SAFETY: `ns_window` is the live NSWindow behind a tauri WebviewWindow
+        // and this runs on the main thread (`run_on_main_thread`).
+        let ns_window: &NSWindow = unsafe { &*(ns_window as *const NSWindow) };
+        for kind in [
+            NSWindowButton::CloseButton,
+            NSWindowButton::MiniaturizeButton,
+            NSWindowButton::ZoomButton,
+        ] {
+            if let Some(button) = ns_window.standardWindowButton(kind) {
+                button.setHidden(hidden);
+            }
+        }
+        tracing::debug!(target: TRACE_TARGET, hidden, "traffic lights hidden");
+    });
+}
+
 /// Only macOS draws native window buttons over the status bar; elsewhere the
 /// bar owns its whole height and there is nothing to align.
 #[cfg(not(target_os = "macos"))]
