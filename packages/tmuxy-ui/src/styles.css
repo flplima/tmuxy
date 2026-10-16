@@ -2753,9 +2753,32 @@
   background: var(--bg-highlight);
 }
 
+/* The tab a dragged pane is over: the row it would join, lit as the strip
+   lights its tab. */
 .sidebar-tree-tab.is-drop-target {
   outline: 1px dashed var(--theme-accent);
   outline-offset: -1px;
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  opacity: 1;
+}
+
+/* A tab row being dragged up or down the tree rides with the pointer above
+   its neighbours; the bar marks the edge of the tab it would precede, or the
+   trailing edge of the last tab. */
+.sidebar-tree-tab.is-dragging {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  background: var(--bg-medium);
+  cursor: grabbing;
+}
+
+.sidebar-tree-tab.is-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent-green);
+}
+
+.sidebar-tree-tab.is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent-green);
 }
 
 .sidebar-tree-pane.is-dragging {

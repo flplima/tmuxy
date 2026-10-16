@@ -68,9 +68,10 @@ interface UseReorderDragOptions {
   cardSelector: string;
   /**
    * `x` for cards on one row (only horizontal position decides where a card
-   * lands); `xy` for a wrapped grid, where the nearest row is picked first.
+   * lands); `y` for cards in one column; `xy` for a wrapped grid, where the
+   * nearest row is picked first.
    */
-  axis: 'x' | 'xy';
+  axis: 'x' | 'y' | 'xy';
   /** A viewer may press (and so click), but a press never becomes a drag. */
   readOnly: boolean;
   /** An active drag ended somewhere other than where it began. */
@@ -104,19 +105,35 @@ export function useReorderDrag({
     const at = cards.indexOf(card);
     const rect = card.getBoundingClientRect();
     const neighbour = cards[at + 1] ?? cards[at - 1];
-    if (!neighbour) return rect.width;
+    const size = axis === 'y' ? rect.height : rect.width;
+    if (!neighbour) return size;
     const other = neighbour.getBoundingClientRect();
-    const gap = other.left >= rect.right ? other.left - rect.right : rect.left - other.right;
-    return rect.width + Math.max(0, gap);
+    const gap =
+      axis === 'y'
+        ? other.top >= rect.bottom
+          ? other.top - rect.bottom
+          : rect.top - other.bottom
+        : other.left >= rect.right
+          ? other.left - rect.right
+          : rect.left - other.right;
+    return size + Math.max(0, gap);
   };
 
+  /**
+   * A card's centre as `dropIndex` compares it: along one axis the position
+   * is in `x` (a column's cards are turned on their side); on a grid, both.
+   */
   const centersExcluding = (windowId: WindowId) =>
     Array.from(containerRef.current?.querySelectorAll<HTMLElement>(cardSelector) ?? [])
       .filter((c) => c.dataset.windowId !== windowId)
       .map((c) => {
         const r = c.getBoundingClientRect();
+        if (axis === 'y') return { x: r.top + r.height / 2, y: 0 };
         return { x: r.left + r.width / 2, y: axis === 'xy' ? r.top + r.height / 2 : 0 };
       });
+
+  const pointerPoint = (e: ReactPointerEvent<HTMLElement>) =>
+    axis === 'y' ? { x: e.clientY, y: 0 } : { x: e.clientX, y: axis === 'xy' ? e.clientY : 0 };
 
   /**
    * Begin a press on the card at `index`. The caller has already decided the
@@ -167,10 +184,7 @@ export function useReorderDrag({
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
       active = true;
     }
-    const overIndex = dropIndex(centersExcluding(drag.windowId), {
-      x: e.clientX,
-      y: axis === 'xy' ? e.clientY : 0,
-    });
+    const overIndex = dropIndex(centersExcluding(drag.windowId), pointerPoint(e));
     setDrag({ ...drag, dx, dy, overIndex, active });
   };
 

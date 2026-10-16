@@ -14,7 +14,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, within, userEvent, waitFor } from 'storybook/test';
+import { expect, within, userEvent, waitFor, fireEvent } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
 
 const meta: Meta<typeof AppHarness> = {
@@ -314,6 +314,94 @@ export const DragPaneToAnotherTab: Story = {
       },
       { timeout: 6000 },
     );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Drag a tab row up the tree → the tabs reorder, shown before tmux answers
+// ---------------------------------------------------------------------------
+
+export const DragTabRowToReorder: Story = {
+  args: {
+    height: 500,
+    initCommands: ['rename-window one', 'new-window', 'rename-window two'],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle tree sidebar/i },
+      { timeout: 8000 },
+    );
+    await userEvent.click(toggle);
+    const tree = await waitForTree();
+
+    const tabs = () => app().context.windows.filter((w) => w.windowType === 'tab');
+    const [first, second] = tabs();
+    const firstRow = tree.querySelector(`[data-testid="tree-tab-${first.id}"]`) as HTMLElement;
+    const secondRow = tree.querySelector(`[data-testid="tree-tab-${second.id}"]`) as HTMLElement;
+    expect(firstRow).not.toBeNull();
+    expect(secondRow).not.toBeNull();
+
+    const centre = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    };
+    const from = centre(secondRow);
+    const to = centre(firstRow);
+    const pointer = { pointerId: 1, pointerType: 'mouse', button: 0, isPrimary: true };
+    fireEvent.pointerDown(secondRow, { ...pointer, clientX: from.x, clientY: from.y });
+    fireEvent.pointerMove(secondRow, { ...pointer, clientX: from.x, clientY: to.y - 4 });
+    // Mid-drag: the row rides with the pointer and the first tab carries the
+    // drop bar — the tree says where the drop lands before it lands.
+    await waitFor(() => {
+      expect(secondRow).toHaveClass('is-dragging');
+      expect(firstRow).toHaveClass('is-drop-before');
+    });
+    expect(centre(secondRow).y).toBeLessThan(from.y - 10);
+
+    fireEvent.pointerUp(secondRow, { ...pointer, clientX: from.x, clientY: to.y - 4 });
+    fireEvent.click(secondRow, { clientX: from.x, clientY: to.y - 4 });
+    // The order is the dropped one at once (predicted), in the model and in
+    // the tree; the drop was not a click, so the active tab did not change.
+    await waitFor(() => {
+      expect(tabs().map((w) => w.id)).toEqual([second.id, first.id]);
+      const rows = [...tree.querySelectorAll('.sidebar-tree-tab[data-window-id]')].map(
+        (el) => (el as HTMLElement).dataset.windowId,
+      );
+      expect(rows).toEqual([second.id, first.id]);
+    });
+    expect(tree.querySelector('.is-dragging, .is-drop-before, .is-drop-after')).toBeNull();
+    expect(app().context.activeWindowId).toBe(second.id);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// The tree sits on the column's surface: nothing between paints a background
+// ---------------------------------------------------------------------------
+
+export const TreeSitsOnTheSidebarSurface: Story = {
+  args: { height: 400 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle tree sidebar/i },
+      { timeout: 8000 },
+    );
+    await userEvent.click(toggle);
+    const tree = await waitForTree();
+    // From the tree up to the column's body, every element is see-through:
+    // the body — which paints the theme's terminal background at the pane
+    // opacity from the config's `@tmuxy-*` values — is the one surface the
+    // tree sits on, so the tree looks like the rest of the column.
+    const transparent = 'rgba(0, 0, 0, 0)';
+    let el: HTMLElement | null = tree;
+    while (el && !el.classList.contains('sidebar-body')) {
+      expect(getComputedStyle(el).backgroundColor, el.className).toBe(transparent);
+      el = el.parentElement;
+    }
+    expect(el).not.toBeNull();
   },
 };
 

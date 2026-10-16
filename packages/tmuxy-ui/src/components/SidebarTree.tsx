@@ -38,7 +38,10 @@
  *    is deliberately NOT a tree key: a sidebar pane may run a program that needs
  *    it, so no sidebar ever claims Escape for itself.
  *  - drag a pane node onto a different tab → `join-pane` moves the pane into that
- *    tab (optimistically, via the store).
+ *    tab; the tree lists it under the new tab from the drop on.
+ *  - drag a tab row up or down → the tabs reorder (`REORDER_TAB`, the strip's
+ *    own move, predicted), the same press-and-drag the strip and the overview
+ *    take.
  *  - right-click a pane or tab row → the same context menu the pane header /
  *    window tabs show (PaneContextMenu / TabContextMenu).
  */
@@ -71,6 +74,7 @@ import { TabContextMenu } from './TabContextMenu';
 import type { TmuxPane, TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
+import { useReorderDrag } from '../hooks/useReorderDrag';
 
 /**
  * A flattened, keyboard-navigable row: the attached session's tabs, each with
@@ -182,8 +186,26 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
 
   // Flatten into the ordered row list (also the keyboard nav order): this
   // session's tabs in strip order, each followed by its panes.
+  // A pane dropped on another tab is shown under that tab from the drop on,
+  // not from tmux's answer on: `join-pane` has no geometry the client could
+  // predict for the grid, so the move is held here, for the tree alone, until
+  // the pane's window agrees or the pane is gone.
+  const [pendingMove, setPendingMove] = useState<{ paneId: PaneId; windowId: WindowId } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!pendingMove) return;
+    const pane = panes.find((p) => p.tmuxId === pendingMove.paneId);
+    if (!pane || pane.windowId === pendingMove.windowId) setPendingMove(null);
+  }, [panes, pendingMove]);
+
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
+    const placed = pendingMove
+      ? panes.map((p) =>
+          p.tmuxId === pendingMove.paneId ? { ...p, windowId: pendingMove.windowId } : p,
+        )
+      : panes;
     windows.forEach((window, i) => {
       const isCollapsed = collapsed.has(window.id);
       out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
@@ -191,14 +213,14 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       // In the order they sit in the grid, so the list follows the layout as
       // it changes (a split, a swap, a move) rather than tmux's creation order.
       const windowPanes = inGridOrder(
-        panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p)),
+        placed.filter((p) => p.windowId === window.id && !isPlaceholderPane(p)),
       );
       windowPanes.forEach((pane, i) => {
         out.push({ kind: 'pane', pane, window, last: i === windowPanes.length - 1 });
       });
     });
     return out;
-  }, [windows, panes, collapsed]);
+  }, [windows, panes, collapsed, pendingMove]);
 
   // Keyboard selection cursor, kept on a stable row identity across refreshes.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -240,6 +262,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // moves the source there (the source window closes if it was its last pane).
   const movePaneToTab = useCallback(
     (paneId: PaneId, targetWindowId: WindowId) => {
+      setPendingMove({ paneId, windowId: targetWindowId });
       send({ type: 'DISPATCH_OP', op: TmuxOp.JoinPane({ paneId, windowId: targetWindowId }) });
       send({ type: 'SELECT_TAB', windowId: targetWindowId });
     },
@@ -359,6 +382,22 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const [dragPaneId, setDragPaneId] = useState<PaneId | null>(null);
   const [dropWindowId, setDropWindowId] = useState<string | null>(null);
 
+  // A tab row dragged up or down the tree reorders the tabs, the same press
+  // and drag the strip and the Tab Overview take, over the tab rows alone:
+  // the tree is one column, so only the vertical position decides.
+  const treeRef = useRef<HTMLDivElement>(null);
+  const tabReorder = useReorderDrag({
+    containerRef: treeRef,
+    cardSelector: '.sidebar-tree-tab[data-window-id]',
+    axis: 'y',
+    readOnly,
+    onReorder: (windowId, toIndex) => send({ type: 'REORDER_TAB', windowId, toIndex }),
+  });
+  // A drop never doubles as a select: the click the browser fires after the
+  // release is swallowed once.
+  const suppressClickRef = useRef(false);
+  const tabCount = windows.length;
+
   // Right-click context menu (pane or tab), anchored at the cursor.
   const [menu, setMenu] = useState<MenuState>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -378,7 +417,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
 
   // Keep the keyboard cursor in view: a long tree scrolls inside the column,
   // and j/k past the fold used to leave the selection out of sight.
-  const treeRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!focused) return;
     treeRef.current
@@ -408,6 +446,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           const summary = tabSummaries.get(row.window.id);
           const { icon: tabMark, label } = tabIcon(row.window.name, row.position);
           const tabState = !summary || summary.state === 'working' ? 'idle' : summary.state;
+          const tabIndex = row.position - 1;
+          const isDragged = tabReorder.dragging?.windowId === row.window.id;
+          const dropBefore = tabReorder.dropMarkerAt === tabIndex;
+          const dropAfter = tabReorder.dropMarkerAt === tabCount && tabIndex === tabCount - 1;
           return (
             <div
               key={`w${key}`}
@@ -419,11 +461,34 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               aria-selected={isSelected}
               className={`sidebar-tree-tab${isActive ? ' is-active' : ''}${
                 isSelected ? ' is-selected' : ''
-              }${isDropTarget ? ' is-drop-target' : ''}${row.collapsed ? ' is-collapsed' : ''}`}
+              }${isDropTarget ? ' is-drop-target' : ''}${row.collapsed ? ' is-collapsed' : ''}${
+                isDragged ? ' is-dragging' : ''
+              }${dropBefore ? ' is-drop-before' : ''}${dropAfter ? ' is-drop-after' : ''}`}
+              style={
+                isDragged ? { transform: `translateY(${tabReorder.dragging!.dy}px)` } : undefined
+              }
               data-window-id={row.window.id}
               data-collapsed={row.collapsed}
               data-testid={`tree-tab-${row.window.id}`}
-              onClick={() => activate(row)}
+              onPointerDown={(e) => {
+                // The chevron folds, the field renames, a right-click menus:
+                // none of them starts a drag.
+                if (readOnly || e.button !== 0 || renamingWindowId === row.window.id) return;
+                if ((e.target as HTMLElement).closest('button')) return;
+                tabReorder.handlePointerDown(e, row.window.id, tabIndex);
+              }}
+              onPointerMove={tabReorder.handlePointerMove}
+              onPointerUp={(e) => {
+                if (tabReorder.handlePointerUp(e)?.active) suppressClickRef.current = true;
+              }}
+              onPointerCancel={tabReorder.handlePointerCancel}
+              onClick={() => {
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false;
+                  return;
+                }
+                activate(row);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
