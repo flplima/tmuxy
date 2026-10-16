@@ -2682,8 +2682,9 @@ describe('Scenario 11b: Pasting into a tab rename field', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    const tab = await ctx.page.$('.tab-name:not(.tab-add)');
-    expect(tab).not.toBeNull();
+    // The strip draws its tab from the first state; on a slow runner that
+    // can land after the page is otherwise ready.
+    const tab = await ctx.page.waitForSelector('.tab-name:not(.tab-add)', { timeout: 10000 });
     await tab.click({ button: 'right' });
     await ctx.page.waitForSelector('[role="menu"]', { timeout: 5000 });
     const renameItem = await ctx.page.evaluateHandle(
