@@ -16,7 +16,12 @@ import {
   selectKeyBindings,
   selectWindows,
 } from '../machines/AppContext';
-import { executeMenuAction, MENU_OPS } from './menus/menuActions';
+import {
+  executeMenuAction,
+  MENU_OPS,
+  STACK_TOGGLE_KEY_OP,
+  TAB_RENAME_KEY_OP,
+} from './menus/menuActions';
 import { TmuxOp } from '../domain/commands';
 import { KeyLabel } from './menus/KeyLabel';
 import type { WindowId } from '../domain/ids';
@@ -47,7 +52,6 @@ export function TabContextMenu({
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const allWindows = useAppSelectorShallow(selectWindows);
-  const isSingleWindow = allWindows.filter((w) => w.windowType === 'tab').length <= 1;
   const target = allWindows.find((w) => w.id === windowId);
   const collapsible = Boolean(target?.collapsible);
 
@@ -103,30 +107,16 @@ export function TabContextMenu({
         <KeyLabel keybindings={keybindings} op={TmuxOp.NewWindow()} />
       </MenuItem>
       <MenuDivider />
-      <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
-        Next Tab
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-next']} />
-      </MenuItem>
-      <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
-        Previous Tab
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-previous']} />
-      </MenuItem>
-      <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
-        Last Tab
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-last']} />
-      </MenuItem>
-      <MenuDivider />
-      <MenuItem onClick={handleToggleCollapsible}>
-        Toggle stacked Panes
-        <KeyLabel
-          keybindings={keybindings}
-          op={TmuxOp.RawCommand({ command: 'tmuxy-stack-toggle' })}
-        />
+      {/* A window option, so a checkbox: on, only the row holding the active
+          pane stays expanded (docs/TMUX.md). */}
+      <MenuItem type="checkbox" checked={collapsible} onClick={handleToggleCollapsible}>
+        Stacked Panes
+        <KeyLabel keybindings={keybindings} op={STACK_TOGGLE_KEY_OP} />
       </MenuItem>
 
       <MenuItem onClick={handleRenameSpecificTab}>
         Rename Tab
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-rename']} />
+        <KeyLabel keybindings={keybindings} op={TAB_RENAME_KEY_OP} />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={handleCloseSpecificTab}>

@@ -30,6 +30,7 @@ import {
   getActivePaneInGroup,
 } from './selectors';
 import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
+import { copyAppState } from '../utils/copyAppState';
 import type { Layer } from 'effect';
 import type { TmuxTransport } from '../infra/transport/TmuxTransport';
 import { transportForEnvironment } from '../infra/transport/layers';
@@ -201,11 +202,19 @@ export function AppProvider({
     (window as unknown as { tmuxyMenuAction: (actionId: string) => void }).tmuxyMenuAction = (
       actionId: string,
     ) => {
-      const { activePaneId, focusedFloatPaneId } = actorRef.getSnapshot().context;
+      const { context } = actorRef.getSnapshot();
+      // The one item that reads the whole context rather than sending an event.
+      if (actionId === 'debug-copy-state') {
+        copyAppState(context, {
+          onCopied: (text) => actorRef.send({ type: 'SHOW_STATUS_MESSAGE', text }),
+          onFailed: (text) => actorRef.send({ type: 'NOTIFY', text }),
+        });
+        return;
+      }
       executeMenuAction(
         actorRef.send,
         actionId,
-        activeCloseTarget(activePaneId, focusedFloatPaneId),
+        activeCloseTarget(context.activePaneId, context.focusedFloatPaneId),
       );
     };
   }, [actorRef]);

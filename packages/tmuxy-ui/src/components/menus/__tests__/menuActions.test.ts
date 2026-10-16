@@ -48,6 +48,17 @@ describe('executeMenuAction pane-close routing', () => {
     }
   });
 
+  // Rename Tab renames in the strip, where the name is — not in tmux's prompt
+  // at the bottom of the window; Stacked Panes flips the active tab's option.
+  it('routes Rename Tab and Stacked Panes to the machine, not to a tmux command', () => {
+    const send = vi.fn();
+    executeMenuAction(send, 'tab-rename');
+    expect(send).toHaveBeenCalledWith({ type: 'RENAME_ACTIVE_TAB' });
+    executeMenuAction(send, 'tab-stack-toggle');
+    expect(send).toHaveBeenCalledWith({ type: 'TOGGLE_STACKED_PANES' });
+    expect('tab-rename' in MENU_OPS).toBe(false);
+  });
+
   it('opens github URL for help-github', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     executeMenuAction(vi.fn(), 'help-github');

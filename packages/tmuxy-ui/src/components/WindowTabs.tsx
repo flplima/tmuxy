@@ -138,6 +138,14 @@ export const WindowTabs = memo(function WindowTabs() {
   const suppressClickRef = useRef(false);
   // The tab being renamed, if any: the field takes the label's place.
   const [renamingId, setRenamingId] = useState<WindowId | null>(null);
+  // Rename Tab from the app menu or the native menu bar asks the strip for
+  // the field, the same way the tab's own context menu opens it.
+  const tabRenameRequest = useAppSelector((c) => c.tabRenameRequest);
+  useEffect(() => {
+    if (!tabRenameRequest) return;
+    setRenamingId(tabRenameRequest);
+    send({ type: 'TAB_RENAME_REQUEST_TAKEN' });
+  }, [tabRenameRequest, send]);
   // The tab whose picture is showing, and the timer waiting to show the first.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);

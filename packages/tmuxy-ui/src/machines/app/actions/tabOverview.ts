@@ -14,7 +14,7 @@
  */
 
 import { assign, sendTo } from 'xstate';
-import { act, type Ctx } from '../actionTypes';
+import { act, assignCtx, type Ctx } from '../actionTypes';
 import { isPlaceholderId } from '../../../domain/ids';
 import { selectVisibleWindows } from '../../selectors';
 import { reorderOp } from '../../../utils/tabOverview';
@@ -97,6 +97,37 @@ export const tabOverviewActions = {
     enqueue.raise({ type: 'DISPATCH_OP', op });
     // The cursor follows the tab the user just moved.
     enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
+  }),
+
+  /**
+   * Rename Tab from the app menu or the native menu bar: the strip opens its
+   * field on the active tab, the same one its context menu opens, instead of
+   * the tmux prompt at the bottom of the window asking for a name a long way
+   * from the thing being named.
+   */
+  tabOverview_requestRename: assignCtx(({ context }) => ({
+    tabRenameRequest:
+      context.activeWindowId && !isPlaceholderId(context.activeWindowId)
+        ? context.activeWindowId
+        : null,
+  })),
+
+  tabOverview_renameRequestTaken: assignCtx(() => ({ tabRenameRequest: null })),
+
+  /** Stacked panes on the active tab: a window option the backend reads (docs/TMUX.md). */
+  tabOverview_toggleStacked: act(({ context, enqueue }) => {
+    const window = context.windows.find((w) => w.id === context.activeWindowId);
+    if (!window || isPlaceholderId(window.id)) return;
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_OP' as const,
+        op: TmuxOp.SetWindowTag({
+          windowId: window.id,
+          tag: 'collapsible',
+          value: window.collapsible ? null : '1',
+        }),
+      }),
+    );
   }),
 
   /** The slot's ✕ (and the tab strip's): close that tab, not the current one. */

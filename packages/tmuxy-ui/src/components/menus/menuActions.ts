@@ -40,7 +40,6 @@ export const MENU_OPS = {
   'tab-next': TmuxOp.SelectWindow({ target: 'next' }),
   'tab-previous': TmuxOp.SelectWindow({ target: 'previous' }),
   'tab-last': TmuxOp.LastWindow(),
-  'tab-rename': renameWindowPrompt(),
   'tab-close': TmuxOp.KillWindow({ windowId: null }),
   'session-rename': renameSessionPrompt(),
   'session-kill': TmuxOp.KillSession({ name: null }),
@@ -57,6 +56,16 @@ export const MENU_OPS = {
 } as const satisfies Record<string, TmuxOp>;
 
 export type MenuOpId = keyof typeof MENU_OPS;
+
+/**
+ * What `prefix ,` is bound to, for the Rename Tab items' key hint. The item
+ * itself renames in the strip (`RENAME_ACTIVE_TAB`); the binding still opens
+ * tmux's prompt, and the hint names the binding.
+ */
+export const TAB_RENAME_KEY_OP = renameWindowPrompt();
+
+/** What `prefix S` is bound to, for the Stacked Panes items' key hint. */
+export const STACK_TOGGLE_KEY_OP = TmuxOp.RawCommand({ command: 'tmuxy-stack-toggle' });
 
 const isMenuOp = (actionId: string): actionId is MenuOpId => actionId in MENU_OPS;
 
@@ -107,6 +116,12 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       break;
     case 'tab-overview':
       send({ type: 'TOGGLE_TAB_OVERVIEW' });
+      break;
+    case 'tab-rename':
+      send({ type: 'RENAME_ACTIVE_TAB' });
+      break;
+    case 'tab-stack-toggle':
+      send({ type: 'TOGGLE_STACKED_PANES' });
       break;
     case 'restart-app':
       restartApp();

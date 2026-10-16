@@ -411,8 +411,7 @@ export function createKeyboardActor() {
 
       // Font size shortcuts (CmdOrCtrl + = / + / - / 0). Handled here rather
       // than via the native menu accelerator because the menu only exists on
-      // macOS, and Cmd+= alone isn't reliably caught by Tauri's "CmdOrCtrl+Plus"
-      // mapping — that string targets Cmd+Shift+=.
+      // macOS; the menu's own `CmdOrCtrl+=` label names the same key.
       if ((event.ctrlKey || event.metaKey) && !event.altKey) {
         if (event.key === '=' || event.key === '+') {
           event.preventDefault();

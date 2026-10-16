@@ -81,8 +81,25 @@ fn sync_trace_menu(app: &tauri::AppHandle) {
 fn build_app_menu<M: Manager<tauri::Wry>>(
     app: &M,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+    // The app's own items by HIG: About, then what acts on the app itself
+    // (the config it runs tmux with, the process), then the standard rest.
     let app_menu = SubmenuBuilder::new(app, "tmuxy")
         .about(None)
+        .separator()
+        .item(&MenuItem::with_id(
+            app,
+            "session-reload-config",
+            "Reload Config",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "restart-app",
+            "Restart App",
+            true,
+            None::<&str>,
+        )?)
         .separator()
         .hide()
         .hide_others()
@@ -96,14 +113,14 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .item(&MenuItem::with_id(
             app,
             "pane-split-below",
-            "Split Below",
+            "Split Pane Below",
             true,
             None::<&str>,
         )?)
         .item(&MenuItem::with_id(
             app,
             "pane-split-right",
-            "Split Right",
+            "Split Pane Right",
             true,
             None::<&str>,
         )?)
@@ -137,6 +154,38 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
             true,
             None::<&str>,
         )?)
+        .separator()
+        // The marked pane: the in-app menu shows Mark or Unmark by state; a
+        // native item carries none, so both are offered.
+        .item(&MenuItem::with_id(
+            app,
+            "pane-mark",
+            "Mark Pane",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-unmark",
+            "Unmark Pane",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-swap-marked",
+            "Swap with Marked Pane",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-join-marked",
+            "Join Marked Pane Here",
+            true,
+            None::<&str>,
+        )?)
+        .separator()
         .item(&MenuItem::with_id(
             app,
             "pane-move-new-tab",
@@ -147,7 +196,7 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .item(&MenuItem::with_id(
             app,
             "pane-add-to-group",
-            "Add to Group",
+            "Add Pane to Group",
             true,
             None::<&str>,
         )?)
@@ -162,7 +211,7 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .item(&MenuItem::with_id(
             app,
             "pane-paste",
-            "Paste Buffer",
+            "Paste",
             true,
             None::<&str>,
         )?)
@@ -200,6 +249,13 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
             true,
             Some("CmdOrCtrl+T"),
         )?)
+        .item(&MenuItem::with_id(
+            app,
+            "tab-overview",
+            "Show All Tabs",
+            true,
+            None::<&str>,
+        )?)
         .separator()
         .item(&MenuItem::with_id(
             app,
@@ -223,6 +279,13 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
             None::<&str>,
         )?)
         .separator()
+        .item(&MenuItem::with_id(
+            app,
+            "tab-stack-toggle",
+            "Stacked Panes",
+            true,
+            None::<&str>,
+        )?)
         .item(&MenuItem::with_id(
             app,
             "tab-rename",
@@ -266,48 +329,45 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .item(&MenuItem::with_id(
             app,
             "session-kill",
-            "Kill Session",
-            true,
-            None::<&str>,
-        )?)
-        .separator()
-        .item(&MenuItem::with_id(
-            app,
-            "session-reload-config",
-            "Reload Config",
+            "Kill Session…",
             true,
             None::<&str>,
         )?)
         .build()?;
 
     // --- Theme ---
-    // Mirrors the web hamburger menu's Theme submenu: light/dark mode toggle,
-    // then one item per *.css under ~/.config/tmuxy/themes/. Theme list is
-    // captured at app startup; changing the directory at runtime won't update
-    // the menu until next launch (acceptable v1 — themes don't churn often).
-    let mut theme_builder = SubmenuBuilder::new(app, "Theme")
-        .item(&MenuItem::with_id(
+    // Mirrors the web hamburger menu's Theme submenu: the mode, then one item
+    // per *.css under ~/.config/tmuxy/themes/. The check marks come from the
+    // persisted choice (`tmuxy.state.json`, written by every pick), and the
+    // menu is rebuilt by `refresh_menu` on each focus, so a theme added to the
+    // directory shows up without a relaunch.
+    let chosen = tmuxy_core::session::read_managed_state();
+    let mode = chosen.theme_mode.as_deref().unwrap_or("dark");
+    let theme = chosen.theme.as_deref().unwrap_or("default");
+    let mut theme_builder = SubmenuBuilder::new(app, "Theme");
+    for (id, label, value) in [
+        ("theme-mode-dark", "Dark Mode", "dark"),
+        ("theme-mode-light", "Light Mode", "light"),
+        ("theme-mode-auto", "System", "auto"),
+    ] {
+        theme_builder = theme_builder.item(&CheckMenuItem::with_id(
             app,
-            "theme-mode-dark",
-            "Dark Mode",
+            id,
+            label,
             true,
+            mode == value,
             None::<&str>,
-        )?)
-        .item(&MenuItem::with_id(
-            app,
-            "theme-mode-light",
-            "Light Mode",
-            true,
-            None::<&str>,
-        )?)
-        .separator();
+        )?);
+    }
+    theme_builder = theme_builder.separator();
     for name in tmuxy_core::session::list_themes() {
         let label = tmuxy_core::theme::display_theme_name(&name);
-        theme_builder = theme_builder.item(&MenuItem::with_id(
+        theme_builder = theme_builder.item(&CheckMenuItem::with_id(
             app,
             format!("theme-set-{}", name),
             label,
             true,
+            name == theme,
             None::<&str>,
         )?);
     }
@@ -360,7 +420,7 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
             "view-font-bigger",
             "Make Text Bigger",
             true,
-            Some("CmdOrCtrl+Plus"),
+            Some("CmdOrCtrl+="),
         )?)
         .item(&MenuItem::with_id(
             app,
@@ -372,7 +432,7 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .item(&MenuItem::with_id(
             app,
             "view-font-reset",
-            "Reset Text Size",
+            "Make Text Normal Size",
             true,
             Some("CmdOrCtrl+0"),
         )?)
@@ -390,11 +450,9 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .build()?;
 
     // --- Edit (standard macOS) ---
-    let edit_menu = SubmenuBuilder::new(app, "Edit")
-        .copy()
-        .paste()
-        .select_all()
-        .build()?;
+    // No Select All: over a terminal grid it selects the whole document,
+    // which means nothing.
+    let edit_menu = SubmenuBuilder::new(app, "Edit").copy().paste().build()?;
 
     // --- Window ---
     // iTerm2's shape: a new OS window, the window styles, the standard macOS
@@ -430,7 +488,15 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .minimize()
         .maximize()
         .separator()
-        .close_window();
+        // Not the predefined item: its accelerator is Cmd+W, which is Close
+        // Tab's. Closing the OS window takes the shift.
+        .item(&MenuItem::with_id(
+            app,
+            "window-close",
+            "Close Window",
+            true,
+            Some("CmdOrCtrl+Shift+W"),
+        )?);
 
     let open_windows = windows::list(app);
     if !open_windows.is_empty() {
@@ -512,7 +578,13 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         None::<&str>,
     )?;
 
-    let restart_app = MenuItem::with_id(app, "restart-app", "Restart App", true, None::<&str>)?;
+    let copy_state = MenuItem::with_id(
+        app,
+        "debug-copy-state",
+        "Copy App State",
+        true,
+        None::<&str>,
+    )?;
 
     let debug_menu = SubmenuBuilder::new(app, "Debug")
         .item(&trace_toggle)
@@ -524,8 +596,7 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
         .separator()
         .item(&trace_open)
         .item(&trace_copy_path)
-        .separator()
-        .item(&restart_app)
+        .item(&copy_state)
         .build()?;
 
     // Keep the handles: clicking any of these has to re-render the others
@@ -551,6 +622,13 @@ fn build_app_menu<M: Manager<tauri::Wry>>(
             app,
             "help-github",
             "Tmuxy on GitHub",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "help-report-bug",
+            "Report a Bug",
             true,
             None::<&str>,
         )?)
@@ -586,6 +664,10 @@ const FRONTEND_MENU_ACTIONS: &[&str] = &[
     "pane-previous",
     "pane-swap-prev",
     "pane-swap-next",
+    "pane-mark",
+    "pane-unmark",
+    "pane-swap-marked",
+    "pane-join-marked",
     "pane-move-new-tab",
     "pane-add-to-group",
     "pane-copy-mode",
@@ -594,6 +676,8 @@ const FRONTEND_MENU_ACTIONS: &[&str] = &[
     "pane-close",
     "view-zoom",
     "tab-new",
+    "tab-overview",
+    "tab-stack-toggle",
     "tab-next",
     "tab-previous",
     "tab-last",
@@ -609,6 +693,8 @@ const FRONTEND_MENU_ACTIONS: &[&str] = &[
     "view-layout-main-horizontal",
     "view-layout-main-vertical",
     "view-layout-tiled",
+    "help-report-bug",
+    "debug-copy-state",
 ];
 
 /// Handle native menu item clicks.
@@ -627,6 +713,12 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
     if id == "window-new" {
         if let Err(e) = windows::open(app_handle) {
             show_status_message(app_handle, &e);
+        }
+        return;
+    }
+    if id == "window-close" {
+        if let Some(window) = windows::focused(app_handle) {
+            let _ = window.close();
         }
         return;
     }
@@ -736,6 +828,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
             "theme-mode-light" => {
                 Some("window.app?.send({ type: 'SET_THEME_MODE', mode: 'light' })")
             }
+            "theme-mode-auto" => Some("window.app?.send({ type: 'SET_THEME_MODE', mode: 'auto' })"),
             other if other.starts_with("theme-set-") => {
                 let name = &other["theme-set-".len()..];
                 // JSON-encode the theme name so quotes/special chars in

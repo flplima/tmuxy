@@ -44,8 +44,12 @@ export const SinglePane: Story = {
     expect(closeItem.querySelector('.menu-keybinding')?.textContent).toBe('ctrl+a x');
     expect(menu.getByRole('menuitem', { name: /split pane below/i })).toBeInTheDocument();
 
-    // Pane navigation needs a second pane.
-    expect(menu.getByRole('menuitem', { name: /next pane/i })).toHaveAttribute(
+    // A context menu is about the pane it was opened on: navigation between
+    // panes and the adjacent swaps are the app menu's, not this one's.
+    expect(menu.queryByRole('menuitem', { name: /next pane/i })).toBeNull();
+    expect(menu.queryByRole('menuitem', { name: /swap with previous/i })).toBeNull();
+    // The marked-pane items need a marked pane.
+    expect(menu.getByRole('menuitem', { name: /swap with marked pane/i })).toHaveAttribute(
       'aria-disabled',
       'true',
     );
@@ -62,10 +66,11 @@ export const MultiPane: Story = {
     const canvas = within(canvasElement);
     const menu = within(document.body);
 
-    // Once the split lands, navigation items become enabled.
+    // Once the split lands, the menu is up with the pane's own items.
     await waitFor(() => {
-      const nextPane = menu.getByRole('menuitem', { name: /next pane/i });
-      expect(nextPane).not.toHaveAttribute('aria-disabled');
+      expect(menu.getByRole('menuitem', { name: /move to new tab/i })).not.toHaveAttribute(
+        'aria-disabled',
+      );
     });
 
     // Selecting an item fires the host's onClose (menu dismissed).

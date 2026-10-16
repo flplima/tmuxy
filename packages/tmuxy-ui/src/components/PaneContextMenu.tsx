@@ -76,6 +76,7 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
         onWidgetAction={handleWidgetAction}
         isMarked={markedPaneId === paneId}
         hasMarked={markedPaneId !== null}
+        navigation={false}
         onRename={
           onRename &&
           (() => {

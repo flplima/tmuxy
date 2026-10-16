@@ -27,6 +27,12 @@ interface PaneMenuItemsProps {
   isMarked?: boolean;
   /** Some pane (possibly another one) is marked, so swap/join with it make sense. */
   hasMarked?: boolean;
+  /**
+   * Next / Previous Pane and the adjacent swaps. The app menu offers them; a
+   * context menu is about the pane it was opened on, so it leaves them out
+   * and fits on the screen.
+   */
+  navigation?: boolean;
   onAction: (actionId: string) => void;
 }
 
@@ -38,6 +44,7 @@ export function PaneMenuItems({
   onRename,
   isMarked = false,
   hasMarked = false,
+  navigation = true,
   onAction,
 }: PaneMenuItemsProps) {
   return (
@@ -73,24 +80,28 @@ export function PaneMenuItems({
         <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-split-right']} />
       </MenuItem>
       <MenuDivider />
-      <MenuItem onClick={() => onAction('pane-next')} disabled={isSinglePane}>
-        Next Pane
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-next']} />
-      </MenuItem>
-      <MenuItem onClick={() => onAction('pane-previous')} disabled={isSinglePane}>
-        Previous Pane
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-previous']} />
-      </MenuItem>
-      <MenuDivider />
-      <MenuItem onClick={() => onAction('pane-swap-prev')} disabled={isSinglePane}>
-        Swap with Previous
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-swap-prev']} />
-      </MenuItem>
-      <MenuItem onClick={() => onAction('pane-swap-next')} disabled={isSinglePane}>
-        Swap with Next
-        <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-swap-next']} />
-      </MenuItem>
-      <MenuDivider />
+      {navigation && (
+        <>
+          <MenuItem onClick={() => onAction('pane-next')} disabled={isSinglePane}>
+            Next Pane
+            <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-next']} />
+          </MenuItem>
+          <MenuItem onClick={() => onAction('pane-previous')} disabled={isSinglePane}>
+            Previous Pane
+            <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-previous']} />
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem onClick={() => onAction('pane-swap-prev')} disabled={isSinglePane}>
+            Swap with Previous
+            <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-swap-prev']} />
+          </MenuItem>
+          <MenuItem onClick={() => onAction('pane-swap-next')} disabled={isSinglePane}>
+            Swap with Next
+            <KeyLabel keybindings={keybindings} op={MENU_OPS['pane-swap-next']} />
+          </MenuItem>
+          <MenuDivider />
+        </>
+      )}
       {isMarked ? (
         <MenuItem onClick={() => onAction('pane-unmark')}>
           Unmark Pane

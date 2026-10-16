@@ -441,6 +441,8 @@ export interface AppMachineContext {
    */
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
+  /** A tab the strip has been asked to open its rename field for; null once it has. */
+  tabRenameRequest: WindowId | null;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /**
@@ -854,6 +856,12 @@ export type SelectTabByPositionEvent = { type: 'SELECT_TAB_BY_POSITION'; positio
 export type ReorderTabEvent = { type: 'REORDER_TAB'; windowId: WindowId; toIndex: number };
 /** Close a specific tab (kill-window on that window, not the current one). */
 export type CloseTabEvent = { type: 'CLOSE_TAB'; windowId: WindowId };
+/** Rename the active tab in the strip itself (an app-menu or native-menu Rename Tab). */
+export type RenameActiveTabEvent = { type: 'RENAME_ACTIVE_TAB' };
+/** The strip opened the field the request asked for. */
+export type TabRenameRequestTakenEvent = { type: 'TAB_RENAME_REQUEST_TAKEN' };
+/** Flip the active tab's stacked (collapsible) panes. */
+export type ToggleStackedPanesEvent = { type: 'TOGGLE_STACKED_PANES' };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string };
 
 // Browser widget (components/widgets/browser). Sent by the widget's own pane
@@ -1301,6 +1309,9 @@ export type AppMachineEvent =
   | SelectTabByPositionEvent
   | ReorderTabEvent
   | CloseTabEvent
+  | RenameActiveTabEvent
+  | TabRenameRequestTakenEvent
+  | ToggleStackedPanesEvent
   | WriteToPaneEvent
   | BrowserZoomEvent
   | BrowserReloadEvent

@@ -19,4 +19,7 @@ export const tabOverviewGlobalEvents = {
   SELECT_TAB_BY_POSITION: { actions: 'tabOverview_selectByPosition' },
   REORDER_TAB: { guard: notReadOnly, actions: 'tabOverview_reorder' },
   CLOSE_TAB: { guard: notReadOnly, actions: 'tabOverview_closeTab' },
+  RENAME_ACTIVE_TAB: { guard: notReadOnly, actions: 'tabOverview_requestRename' },
+  TAB_RENAME_REQUEST_TAKEN: { actions: 'tabOverview_renameRequestTaken' },
+  TOGGLE_STACKED_PANES: { guard: notReadOnly, actions: 'tabOverview_toggleStacked' },
 } as const;

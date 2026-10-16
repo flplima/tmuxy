@@ -44,7 +44,15 @@ import type { TraceLevel } from '../../machines/types';
 import { isTauri } from '../../utils/platform';
 import { restartApp } from '../../utils/restartApp';
 import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
-import { activeCloseTarget, executeMenuAction, MENU_OPS } from './menuActions';
+import { createPortal } from 'react-dom';
+import { Modal } from '../Modal';
+import {
+  activeCloseTarget,
+  executeMenuAction,
+  MENU_OPS,
+  STACK_TOGGLE_KEY_OP,
+  TAB_RENAME_KEY_OP,
+} from './menuActions';
 import { TmuxOp } from '../../domain/commands';
 import { PaneMenuItems } from './PaneMenuItems';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
@@ -87,6 +95,13 @@ export function AppMenu() {
   const trace = useAppSelector(selectTraceSettings);
 
   const isSingleWindow = windows.filter((w) => w.windowType === 'tab').length <= 1;
+  const activeWindowId = useAppSelector((c) => c.activeWindowId);
+  const sessionName = useAppSelector((c) => c.sessionName);
+  const activeTabStacked = Boolean(windows.find((w) => w.id === activeWindowId)?.collapsible);
+  // The two dialogs the menu opens: one asks before a destructive act, the
+  // other says which build this is.
+  const [confirmKill, setConfirmKill] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   const handleAction = (actionId: string) => {
     executeMenuAction(send, actionId, activeCloseTarget(activePaneId, focusedFloatPaneId));
@@ -157,9 +172,20 @@ export function AppMenu() {
             </MenuItem>
             {!readOnly && (
               <>
+                <MenuDivider />
+                {/* A window option, so a checkbox: on, only the row holding the
+                    active pane stays expanded (docs/TMUX.md). */}
+                <MenuItem
+                  type="checkbox"
+                  checked={activeTabStacked}
+                  onClick={() => handleAction('tab-stack-toggle')}
+                >
+                  Stacked Panes
+                  <KeyLabel keybindings={keybindings} op={STACK_TOGGLE_KEY_OP} />
+                </MenuItem>
                 <MenuItem onClick={() => handleAction('tab-rename')}>
                   Rename Tab
-                  <KeyLabel keybindings={keybindings} op={MENU_OPS['tab-rename']} />
+                  <KeyLabel keybindings={keybindings} op={TAB_RENAME_KEY_OP} />
                 </MenuItem>
                 <MenuDivider />
                 <MenuItem onClick={() => handleAction('tab-close')}>
@@ -186,12 +212,9 @@ export function AppMenu() {
                   op={TmuxOp.RawCommand({ command: 'detach-client' })}
                 />
               </MenuItem>
-              <MenuItem onClick={() => handleAction('session-kill')} disabled={isDemo}>
-                Kill Session
-              </MenuItem>
-              <MenuDivider />
-              <MenuItem onClick={() => handleAction('session-reload-config')} disabled={isDemo}>
-                Reload Config
+              {/* Destructive and one click away: it asks first. */}
+              <MenuItem onClick={() => setConfirmKill(true)} disabled={isDemo}>
+                Kill Session…
               </MenuItem>
             </SubMenu>
           )}
@@ -232,10 +255,6 @@ export function AppMenu() {
           <SubMenu label="View">
             {!readOnly && (
               <>
-                <MenuItem onClick={() => handleAction('view-zoom')}>
-                  Zoom Pane
-                  <KeyLabel keybindings={keybindings} op={MENU_OPS['view-zoom']} />
-                </MenuItem>
                 <MenuItem onClick={() => handleAction('view-layout-even-horizontal')}>
                   Even Horizontal
                 </MenuItem>
@@ -351,9 +370,6 @@ export function AppMenu() {
               >
                 Copy App State
               </MenuItem>
-
-              <MenuDivider />
-              <MenuItem onClick={restartApp}>Restart App</MenuItem>
             </SubMenu>
           )}
 
@@ -364,9 +380,67 @@ export function AppMenu() {
             <MenuItem onClick={() => handleAction('help-report-bug')}>
               Report a Bug<span className="menu-external">{'\u2197'}</span>
             </MenuItem>
+            <MenuDivider />
+            <MenuItem onClick={() => setAboutOpen(true)}>About tmuxy</MenuItem>
           </SubMenu>
+
+          {/* The app's own items, last \u2014 where a menu with no menu bar puts
+              them. On macOS the native `tmuxy` menu carries the same ones. */}
+          {!readOnly && !isDemo && (
+            <>
+              <MenuDivider />
+              <MenuItem onClick={() => handleAction('session-reload-config')}>
+                Reload Config
+              </MenuItem>
+              {isTauri() && <MenuItem onClick={restartApp}>Restart App</MenuItem>}
+            </>
+          )}
         </FloatingMenu>
       )}
+      {confirmKill &&
+        createPortal(
+          <Modal open title="Kill Session" width={360} onClose={() => setConfirmKill(false)}>
+            <p className="app-menu-dialog-text">
+              Kill session <strong>{sessionName}</strong>? Every window and pane in it closes, and
+              what is running in them is ended.
+            </p>
+            <div className="app-menu-dialog-actions">
+              <button type="button" onClick={() => setConfirmKill(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="is-destructive"
+                onClick={() => {
+                  setConfirmKill(false);
+                  handleAction('session-kill');
+                }}
+              >
+                Kill Session
+              </button>
+            </div>
+          </Modal>,
+          document.body,
+        )}
+      {aboutOpen &&
+        createPortal(
+          <Modal open title="About tmuxy" width={360} onClose={() => setAboutOpen(false)}>
+            <p className="app-menu-dialog-text">
+              <strong>tmuxy</strong> {__APP_VERSION__}
+              <br />
+              The missing tmux GUI. Session <strong>{sessionName}</strong>.
+            </p>
+            <div className="app-menu-dialog-actions">
+              <button type="button" onClick={() => handleAction('help-github')}>
+                GitHub {'\u2197'}
+              </button>
+              <button type="button" onClick={() => setAboutOpen(false)}>
+                OK
+              </button>
+            </div>
+          </Modal>,
+          document.body,
+        )}
     </>
   );
 }

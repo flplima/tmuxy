@@ -121,6 +121,7 @@ export const FIELD_OWNERS = {
   collapsedTabIds: 'groupsAndFloats',
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
+  tabRenameRequest: 'tabOverview',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -202,6 +203,7 @@ export function createInitialContext(): AppMachineContext {
     collapsedTabIds: [],
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
+    tabRenameRequest: null,
     enableAnimations: false,
     animationsAllowed: true,
     cursorBlink: true,
