@@ -288,6 +288,12 @@
   transition: none;
 }
 
+/* A neighbour sliding out of the dragged tab's way, or back: the order the
+   drop would make, shown as it is being made. */
+.tab-name.is-making-way {
+  transition: transform 120ms ease-out;
+}
+
 /* Where the dragged tab would land: a bar on the leading edge of the tab it
    would precede, or on the trailing edge of the last tab. */
 .tab-name.is-drop-before {

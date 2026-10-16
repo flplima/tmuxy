@@ -38,6 +38,27 @@ export interface ReorderDragState {
   overIndex: number;
   /** True once the threshold / long-press turned the press into a drag. */
   active: boolean;
+  /**
+   * The room the card takes along the axis, gap included: what a sibling
+   * moves by to make way for it, or to close up behind it.
+   */
+  size: number;
+}
+
+/**
+ * How far sibling `index` (its index among ALL cards, the dragged one
+ * included) slides to show the order the drop would make: -1 or +1 times the
+ * dragged card's `size`, 0 for a card the drag does not pass.
+ */
+export function siblingShift(drag: ReorderDragState, index: number): number {
+  if (index === drag.fromIndex) return 0;
+  if (drag.fromIndex < drag.overIndex + 1 && index > drag.fromIndex && index <= drag.overIndex) {
+    return -1;
+  }
+  if (drag.overIndex < drag.fromIndex && index >= drag.overIndex && index < drag.fromIndex) {
+    return 1;
+  }
+  return 0;
 }
 
 interface UseReorderDragOptions {
@@ -75,6 +96,20 @@ export function useReorderDrag({
 
   useEffect(() => clearLongPress, [clearLongPress]);
 
+  /** The card's width along the axis plus the gap to its neighbour. */
+  const cardExtent = (card: HTMLElement): number => {
+    const cards = Array.from(
+      containerRef.current?.querySelectorAll<HTMLElement>(cardSelector) ?? [],
+    );
+    const at = cards.indexOf(card);
+    const rect = card.getBoundingClientRect();
+    const neighbour = cards[at + 1] ?? cards[at - 1];
+    if (!neighbour) return rect.width;
+    const other = neighbour.getBoundingClientRect();
+    const gap = other.left >= rect.right ? other.left - rect.right : rect.left - other.right;
+    return rect.width + Math.max(0, gap);
+  };
+
   const centersExcluding = (windowId: WindowId) =>
     Array.from(containerRef.current?.querySelectorAll<HTMLElement>(cardSelector) ?? [])
       .filter((c) => c.dataset.windowId !== windowId)
@@ -103,6 +138,7 @@ export function useReorderDrag({
       dy: 0,
       overIndex: index,
       active: false,
+      size: cardExtent(e.currentTarget),
     };
     setDrag(state);
     if (e.pointerType === 'touch' && !readOnly) {

@@ -616,6 +616,19 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
     );
     const lifted = (await strip()).find((t) => t.id === dragged);
     expect(lifted.x).toBeLessThan(before[2].x - 20);
+    // The two tabs it passed have slid right by its width: the strip shows
+    // the order the drop will make while the drag is still on.
+    await waitForCondition(
+      page,
+      async () => {
+        const now = await strip();
+        return before
+          .slice(0, 2)
+          .every((t) => now.find((n) => n.id === t.id).x > t.x + before[2].w - 4);
+      },
+      3000,
+      'the passed tabs to make way for the dragged one',
+    );
     await page.mouse.up();
 
     await waitForCondition(

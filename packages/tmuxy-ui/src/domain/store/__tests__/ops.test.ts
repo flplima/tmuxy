@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
 import { predict, reconcile } from '../ops';
 import { parseCommandToOp } from '../parseCommand';
+import { TmuxOp } from '../../commands';
 import { makePendingOp } from '../model';
 import {
   EMPTY_SNAPSHOT,
@@ -407,6 +408,69 @@ describe('KillWindow / RenameWindow predict', () => {
     expect(reconcile(pendingOp, snap, undefined, 100)._tag).toBe('pending');
     const confirmed = { ...snap, windows: [{ ...snap.windows[0], name: 'STORY_TAB' }] };
     expect(reconcile(pendingOp, confirmed, undefined, 100)._tag).toBe('matched');
+  });
+});
+
+describe('MoveWindow predict (tab reorder)', () => {
+  const win = (id: WindowId, index: number) => ({
+    id,
+    index,
+    name: `w${index}`,
+    active: index === 1,
+    windowType: 'tab' as const,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
+  });
+  const snap: TmuxSnapshot = {
+    ...EMPTY_SNAPSHOT,
+    windows: [win(wid('@0'), 1), win(wid('@1'), 2), win(wid('@2'), 3)],
+    activeWindowId: wid('@0'),
+  };
+  const order = (s: TmuxSnapshot) => s.windows.map((w) => w.id);
+
+  it('shows the dropped order at once, numbered in strip order, and holds it until tmux agrees', () => {
+    const op = TmuxOp.MoveWindow({ windowId: wid('@2'), anchorId: wid('@0'), placement: 'before' });
+    const result = predict(op, snap, CTX, 'mv1' as OpId)!;
+    const patched = result.patch(snap);
+    expect(order(patched)).toEqual([wid('@2'), wid('@0'), wid('@1')]);
+    expect(patched.windows.map((w) => w.index)).toEqual([1, 2, 3]);
+
+    const pendingOp = makePendingOp({
+      id: 'mv1' as OpId,
+      op,
+      command: 'x',
+      patch: result.patch,
+      meta: result.meta,
+      now: 0,
+    });
+    // tmux has not echoed the move: the old order is not the answer.
+    expect(reconcile(pendingOp, snap, undefined, 100)._tag).toBe('pending');
+    expect(reconcile(pendingOp, patched, undefined, 100)._tag).toBe('matched');
+    // The window went away meanwhile: nothing left to wait for.
+    const gone = { ...snap, windows: snap.windows.filter((w) => w.id !== wid('@2')) };
+    expect(reconcile(pendingOp, gone, undefined, 100)._tag).toBe('matched');
+  });
+
+  it('moves after an anchor too, and predicts nothing for a window tmux does not have', () => {
+    const after = predict(
+      TmuxOp.MoveWindow({ windowId: wid('@0'), anchorId: wid('@1'), placement: 'after' }),
+      snap,
+      CTX,
+      'mv2' as OpId,
+    )!;
+    expect(order(after.patch(snap))).toEqual([wid('@1'), wid('@0'), wid('@2')]);
+    expect(
+      predict(
+        TmuxOp.MoveWindow({ windowId: wid('@7'), anchorId: wid('@0'), placement: 'before' }),
+        snap,
+        CTX,
+        'mv3' as OpId,
+      ),
+    ).toBe(null);
   });
 });
 

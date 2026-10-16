@@ -73,6 +73,8 @@ export function predict(
       return predictKillWindow(op, snapshot);
     case 'RenameWindow':
       return predictRenameWindow(op, snapshot);
+    case 'MoveWindow':
+      return predictMoveWindow(op, snapshot);
     case 'ZoomToggle':
       return predictZoomToggle(op, snapshot);
     case 'GroupSwitch':
@@ -127,6 +129,8 @@ export function reconcile(
       return reconcileKillWindow(meta, committed.windows);
     case 'RenameWindow':
       return reconcileRenameWindow(meta, committed.windows);
+    case 'MoveWindow':
+      return reconcileMoveWindow(meta, committed.windows);
     case 'ZoomToggle':
       return reconcileZoomToggle(meta, committed.panes, now - pending.createdAt);
     case 'GroupSwitch':
@@ -937,6 +941,53 @@ function reconcileRenameWindow(
   if (!window) return { _tag: 'matched' };
   if (window.name === name) return { _tag: 'matched' };
   return { _tag: 'pending' };
+}
+
+// ============================================
+// MoveWindow (tab reorder)
+// ============================================
+
+/**
+ * A dragged tab is already where the pointer left it when the drop commits,
+ * so the strip must not jump back to the old order while `move-window`
+ * travels: the windows are reordered here, keeping their index numbers in
+ * strip order (`renumber-windows` is what tmux will do), and held until the
+ * server's order agrees.
+ */
+function predictMoveWindow(
+  op: TmuxOpOf<'MoveWindow'>,
+  snapshot: TmuxSnapshot,
+): PredictResult | null {
+  if (isPlaceholderId(op.windowId) || isPlaceholderId(op.anchorId)) return null;
+  if (op.windowId === op.anchorId) return null;
+  const moving = snapshot.windows.find((w) => w.id === op.windowId);
+  if (!moving || !snapshot.windows.some((w) => w.id === op.anchorId)) return null;
+
+  const patch: Patch = (s) => {
+    const rest = s.windows.filter((w) => w.id !== op.windowId);
+    const anchorAt = rest.findIndex((w) => w.id === op.anchorId);
+    if (anchorAt === -1) return s;
+    const at = op.placement === 'before' ? anchorAt : anchorAt + 1;
+    const ordered = [...rest.slice(0, at), moving, ...rest.slice(at)];
+    const indices = s.windows.map((w) => w.index).sort((a, b) => a - b);
+    return { ...s, windows: ordered.map((w, i) => ({ ...w, index: indices[i] })) };
+  };
+  return {
+    patch,
+    meta: { movedWindowId: op.windowId, anchorId: op.anchorId, placement: op.placement },
+  };
+}
+
+function reconcileMoveWindow(
+  meta: Readonly<Record<string, unknown>>,
+  windows: ReadonlyArray<TmuxWindow>,
+): ReconcileVerdict {
+  const moved = windows.findIndex((w) => w.id === meta.movedWindowId);
+  const anchor = windows.findIndex((w) => w.id === meta.anchorId);
+  // Either window gone: there is no order left to wait for.
+  if (moved === -1 || anchor === -1) return { _tag: 'matched' };
+  const landed = meta.placement === 'before' ? moved + 1 === anchor : anchor + 1 === moved;
+  return landed ? { _tag: 'matched' } : { _tag: 'pending' };
 }
 
 // ============================================

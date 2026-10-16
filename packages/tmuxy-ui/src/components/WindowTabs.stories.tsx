@@ -202,6 +202,8 @@ export const Reorder: Story = {
     fireEvent.pointerMove(dashboard, { ...pointer, clientX: from.x - 2, clientY: from.y });
     expect(dashboard).not.toHaveClass('is-dragging');
 
+    const welcomeAt = centre(welcome).x;
+    const featuresAt = centre(features).x;
     fireEvent.pointerMove(dashboard, { ...pointer, clientX: to.x - 10, clientY: to.y });
     await waitFor(() => {
       expect(dashboard).toHaveClass('is-dragging');
@@ -209,6 +211,12 @@ export const Reorder: Story = {
     });
     // The lifted tab has moved left with the pointer.
     expect(centre(dashboard).x).toBeLessThan(from.x - 20);
+    // And the two it passed have slid right to make way: the strip already
+    // shows the order the drop will make.
+    await waitFor(() => {
+      expect(centre(welcome).x).toBeGreaterThan(welcomeAt + 10);
+      expect(centre(features).x).toBeGreaterThan(featuresAt + 10);
+    });
 
     fireEvent.pointerUp(dashboard, { ...pointer, clientX: to.x - 10, clientY: to.y });
     // The browser follows a release with a click; after a drop it is swallowed.

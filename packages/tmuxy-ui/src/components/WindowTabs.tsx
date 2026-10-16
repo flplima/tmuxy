@@ -51,7 +51,7 @@ import {
 import { TabContextMenu } from './TabContextMenu';
 import { haptics } from '../utils/haptics';
 import { LogProfiler } from '../utils/renderLog';
-import { useReorderDrag } from '../hooks/useReorderDrag';
+import { siblingShift, useReorderDrag } from '../hooks/useReorderDrag';
 import type { TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
@@ -395,11 +395,21 @@ export const WindowTabs = memo(function WindowTabs() {
         {visibleWindows.map((window, idx) => {
           const visualIndex = idx + 1;
           const isDragged = dragging?.windowId === window.id;
+          // The strip shows the order the drop would make while the drag is
+          // on: every tab the dragged one has passed slides out of its way by
+          // the dragged tab's width, so the drop only confirms what is seen.
+          const shift = dragging && !isDragged ? siblingShift(dragging, idx) : 0;
+          const style = isDragged
+            ? { transform: `translateX(${dragging!.dx}px)` }
+            : dragging
+              ? { transform: `translateX(${shift * dragging.size}px)` }
+              : undefined;
           const className = [
             'tab-name',
             window.active ? 'tab-name-active' : '',
             previewId === window.id ? 'is-previewing' : '',
             isDragged ? 'is-dragging' : '',
+            dragging && !isDragged ? 'is-making-way' : '',
             tabDrop?.kind === 'tab' && tabDrop.windowId === window.id ? 'is-pane-drop-target' : '',
             dropMarkerAt === idx ? 'is-drop-before' : '',
             dropMarkerAt === visibleWindows.length && idx === visibleWindows.length - 1
@@ -413,7 +423,7 @@ export const WindowTabs = memo(function WindowTabs() {
               key={window.id}
               data-window-id={window.id}
               className={className}
-              style={isDragged ? { transform: `translateX(${dragging!.dx}px)` } : undefined}
+              style={style}
               onPointerDown={(e) => handlePointerDown(e, idx)}
               onPointerMove={reorder.handlePointerMove}
               onPointerUp={handlePointerUp}

@@ -92,7 +92,9 @@ export const tabOverviewActions = {
     const visible = selectVisibleWindows(context);
     const op = reorderOp(visible, event.windowId, event.toIndex);
     if (!op) return;
-    enqueue(sendTo('tmux', { type: 'SEND_OP' as const, op }));
+    // Routed through the store: the strip shows the new order from the drop
+    // on, not from tmux's echo on.
+    enqueue.raise({ type: 'DISPATCH_OP', op });
     // The cursor follows the tab the user just moved.
     enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
   }),
