@@ -2261,7 +2261,12 @@ mod tests {
                 .with_read_only(true)
                 .with_session_pin(Some("shared".into())),
         );
-        let queries = session_answering_queries(&viewer, "shared", "nord\nlight\n").await;
+        let queries = session_answering_queries(
+            &viewer,
+            "shared",
+            "@tmuxy-theme=nord\n@tmuxy-theme-mode=light\n",
+        )
+        .await;
 
         let first = theme_settings_for(&viewer, "shared").await.unwrap();
         let second = theme_settings_for(&viewer, "shared").await.unwrap();
