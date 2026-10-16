@@ -46,6 +46,7 @@ const {
   afterFrames,
   showsShellPrompt,
   waitForCondition,
+  pasteText,
   DELAYS,
 } = require('./helpers');
 
@@ -2651,6 +2652,73 @@ describe('Scenario 11: Status Bar', () => {
     await waitForWindowCount(ctx.page, 1);
     expect(await ctx.session.getWindowCount()).toBe(1);
   }, 180000);
+});
+
+// ==================== Scenario 11b: Rename field keeps its paste ====================
+
+describe('Scenario 11b: Pasting into a tab rename field', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // The clipboard went to the pane: the window-level paste listener took
+  // every paste, the rename field included, and the shell got the new name.
+  test('right-click → Rename Tab → paste stays in the field, the pane receives nothing', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    const tab = await ctx.page.$('.tab-name:not(.tab-add)');
+    expect(tab).not.toBeNull();
+    await tab.click({ button: 'right' });
+    await ctx.page.waitForSelector('[role="menu"]', { timeout: 5000 });
+    const renameItem = await ctx.page.evaluateHandle(
+      () =>
+        Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) =>
+          (el.textContent || '').startsWith('Rename Tab'),
+        ) ?? null,
+    );
+    expect(await renameItem.evaluate((el) => el !== null)).toBe(true);
+    await renameItem.asElement().click();
+    await ctx.page.waitForSelector('[data-testid="inline-rename"]', { timeout: 5000 });
+    expect(
+      await ctx.page.evaluate(
+        () => document.activeElement?.getAttribute('data-testid') === 'inline-rename',
+      ),
+    ).toBe(true);
+
+    // The paste is the field's: the app does not take it, and the field keeps
+    // the focus to receive it.
+    const TOKEN = `PASTED_NAME_${Date.now()}`;
+    expect(await pasteText(ctx.page, TOKEN)).toBe(false);
+    expect(
+      await ctx.page.evaluate(
+        () => document.activeElement?.getAttribute('data-testid') === 'inline-rename',
+      ),
+    ).toBe(true);
+
+    // Back to the shell: the next command runs on a line the token never reached.
+    await ctx.page.keyboard.press('Escape');
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate(() => document.querySelector('[data-testid="inline-rename"]') === null),
+      5000,
+      'the rename field to close',
+    );
+    await focusPage(ctx.page);
+    const DONE = `DONE_${Date.now()}`;
+    await typeInTerminal(ctx.page, `echo ${DONE}`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, DONE);
+    const screen = await ctx.page.evaluate(() =>
+      Array.from(document.querySelectorAll('[role="log"]'))
+        .map((el) => el.textContent || '')
+        .join('\n'),
+    );
+    expect(screen).not.toContain(TOKEN);
+  }, 60000);
 });
 
 // ==================== Scenario 23: Window Tab Input Routing ====================

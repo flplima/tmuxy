@@ -532,6 +532,29 @@ describe('keyboardActor — desktop IME', () => {
     textarea.remove();
   });
 
+  // A rename field is a real input: what is pasted into it stays there. The
+  // window listener used to take every paste for the pane, field or not.
+  it('leaves a paste into a real form control in the browser', () => {
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    handle.events.length = 0;
+
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: { getData: () => 'New name' },
+    });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(sendCommands(handle.events)).toEqual([]);
+    input.remove();
+
+    // The pane's paste still goes to tmux.
+    pasteText('for the pane');
+    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'for the pane'"]);
+  });
+
   it('leaves composition from a real form control in the browser', () => {
     const textarea = document.createElement('textarea');
     document.body.appendChild(textarea);

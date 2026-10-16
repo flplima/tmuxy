@@ -962,6 +962,9 @@ export function createKeyboardActor() {
 
     const handlePaste = (event: ClipboardEvent) => {
       if (!enabled) return;
+      // A paste into a real field (a rename, a form) is the field's: the
+      // browser inserts it there. Only the pane surfaces hand it to tmux.
+      if (isRealFormControl(event.target)) return;
       event.preventDefault();
       const text = event.clipboardData?.getData('text/plain');
       if (!text) return;

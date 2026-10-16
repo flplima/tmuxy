@@ -101,6 +101,62 @@ export const Multiple: Story = {
 };
 
 /**
+ * Renaming a tab in place, then pasting: the clipboard belongs to the field.
+ * The keyboard actor's window-level paste listener used to take it for the
+ * pane — the rename field stayed empty and the shell got the text.
+ */
+export const RenameWithPaste: Story = {
+  render: () => (
+    <ProviderHarness
+      height={60}
+      initCommands={['rename-window welcome', 'new-window', 'rename-window features']}
+    >
+      <WindowTabs />
+    </ProviderHarness>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const features = await waitFor(
+      () => {
+        const tab = canvas.getAllByRole('tab').find((t) => /features/i.test(t.textContent ?? ''));
+        expect(tab).toBeDefined();
+        return tab!;
+      },
+      { timeout: 5000 },
+    );
+
+    // Right-click → Rename Tab opens the field with the name selected.
+    await userEvent.pointer({ keys: '[MouseRight]', target: features });
+    const rename = await waitFor(
+      () => within(document.body).getByRole('menuitem', { name: /rename tab/i }),
+      { timeout: 3000 },
+    );
+    await userEvent.click(rename);
+    const field = await waitFor(() => canvas.getByTestId('inline-rename') as HTMLInputElement, {
+      timeout: 3000,
+    });
+    expect(document.activeElement).toBe(field);
+
+    // A paste into the field is the browser's to insert: nothing stops it,
+    // and the field keeps the focus.
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { getData: () => 'pasted name' },
+    });
+    field.dispatchEvent(paste);
+    expect(paste.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(field);
+
+    // Escape puts the tab back as it was.
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(canvas.queryByTestId('inline-rename')).toBeNull();
+    });
+    expect(features).toHaveTextContent(/features/i);
+  },
+};
+
+/**
  * Dragging a tab along the strip: past the threshold it lifts and rides with
  * the pointer, the tab it would precede shows the drop bar, and releasing it
  * is a reorder rather than a click — the active tab stays the active tab.
