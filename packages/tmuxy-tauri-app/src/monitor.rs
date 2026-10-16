@@ -668,6 +668,33 @@ pub async fn emit_config_settings(app: &AppHandle, monitor: &MonitorState) {
     emit_theme_settings(app, &tx).await;
 }
 
+/// What a user's edit under the config dir does to the running app, as the
+/// web server does it: a saved stylesheet tells every webview to re-fetch
+/// its CSS (`tmux-css-changed`); a saved `tmuxy.conf` is sourced on the
+/// monitor and followed by the settings it may have changed.
+pub async fn apply_config_change(
+    app: &AppHandle,
+    monitor: &MonitorState,
+    change: transport::ConfigChange,
+) {
+    match change {
+        transport::ConfigChange::Css => {
+            if let Err(e) = app.emit("tmux-css-changed", ()) {
+                tracing::warn!(error = %e, "could not announce the saved stylesheet");
+            }
+        }
+        transport::ConfigChange::Conf => {
+            let Some(tx) = monitor.tx() else {
+                return;
+            };
+            match transport::source_config(&tx).await {
+                Ok(()) => emit_config_settings(app, monitor).await,
+                Err(e) => tracing::warn!(error = %e, "could not source the saved tmuxy.conf"),
+            }
+        }
+    }
+}
+
 /// Push the theme + appearance settings so the frontend re-applies them, and
 /// put every window's blur where `@tmuxy-blur` now says.
 async fn emit_theme_settings(app: &AppHandle, tx: &MonitorCommandSender) {

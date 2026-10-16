@@ -6,7 +6,11 @@ import type { CommandFailure, KeyBindings } from '../../../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
 import type { TraceSettings } from '../../../../machines/types';
 import { DemoTmux } from './DemoTmux';
-import { saveThemeToStorage, loadThemeFromStorage } from '../../../../utils/themeManager';
+import {
+  saveThemeToStorage,
+  loadThemeFromStorage,
+  parseThemeMode,
+} from '../../../../utils/themeManager';
 
 const DEFAULT_KEYBINDINGS: KeyBindings = {
   prefix_key: 'C-a',
@@ -267,14 +271,13 @@ export class DemoAdapter implements TmuxAdapter {
         const saved = loadThemeFromStorage();
         saveThemeToStorage(
           name || saved?.theme || 'default',
-          (mode === 'light' ? 'light' : mode === 'dark' ? 'dark' : null) ?? saved?.mode ?? 'dark',
+          mode === undefined ? (saved?.mode ?? 'dark') : parseThemeMode(mode),
         );
         return null as T;
       }
       case 'set_theme_mode': {
-        const setMode = (args?.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light';
         const prev = loadThemeFromStorage();
-        saveThemeToStorage(prev?.theme || 'default', setMode);
+        saveThemeToStorage(prev?.theme || 'default', parseThemeMode(args?.mode));
         return null as T;
       }
 

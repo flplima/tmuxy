@@ -112,6 +112,12 @@ export class TauriAdapter implements SequencedAdapter {
         this.events.emit(TransportEvent.ThemeSettings({ settings })),
       );
 
+      // A stylesheet under the config dir was saved: fetch the CSS again.
+      const unlistenCss = await listen('tmux-css-changed', () =>
+        this.events.emit(TransportEvent.CssChanged()),
+      );
+      this.unlistenFns.push(unlistenCss);
+
       // Streaming connection-time progress (each command + output)
       await on('tmux-log', LogEvent, (payload) =>
         this.events.emit(TransportEvent.Log({ kind: payload.kind, message: payload.message })),

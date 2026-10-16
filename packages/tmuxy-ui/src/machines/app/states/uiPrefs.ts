@@ -21,6 +21,7 @@ export const uiPrefsState = {
     THEME_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptThemeSettings' },
     TOGGLE_CURSOR_BLINK: { guard: notReadOnly, actions: 'uiPrefs_toggleCursorBlink' },
     THEMES_LIST_RECEIVED: { actions: 'uiPrefs_setAvailableThemes' },
+    CSS_CHANGED: { actions: 'uiPrefs_reloadCss' },
     INCREASE_FONT_SIZE: { actions: 'uiPrefs_increaseFontSize' },
     DECREASE_FONT_SIZE: { actions: 'uiPrefs_decreaseFontSize' },
     RESET_FONT_SIZE: { actions: 'uiPrefs_resetFontSize' },

@@ -15,6 +15,8 @@ import { act, assignCtx } from '../actionTypes';
 import {
   applyTheme,
   applyThemeMode,
+  applyCssVars,
+  reloadThemeCss,
   saveThemeToStorage,
   loadThemeFromStorage,
 } from '../../../utils/themeManager';
@@ -73,9 +75,11 @@ export const uiPrefsActions = {
 
   uiPrefs_acceptThemeSettings: act(({ event, enqueue }) => {
     if (event.type !== 'THEME_SETTINGS_RECEIVED') return;
-    // The appearance has no client-side setting: the config is its only
-    // source, so it always applies (and re-applies after a source-file).
+    // The appearance and the CSS variables have no client-side setting: the
+    // config is their only source, so they always apply (and re-apply after
+    // a source-file).
     if (event.appearance) applyAppearance(event.appearance);
+    if (event.cssVars) applyCssVars(event.cssVars);
     enqueue(
       assign({
         animationsAllowed: event.appearance?.animations ?? true,
@@ -116,6 +120,13 @@ export const uiPrefsActions = {
   uiPrefs_setAvailableThemes: assignCtx(({ event }) => {
     if (event.type !== 'THEMES_LIST_RECEIVED') return {};
     return { availableThemes: event.themes };
+  }),
+
+  // A stylesheet under the config dir was saved: fetch the CSS again, and the
+  // list, since the save may have been a theme added or removed.
+  uiPrefs_reloadCss: act(({ enqueue }) => {
+    reloadThemeCss();
+    enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
   }),
 
   // --- Local action tracing (docs/TELEMETRY.md) -----------------------------

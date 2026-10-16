@@ -427,11 +427,17 @@ async fn serve(
     // that one monitor for its whole life; nothing a client does starts or
     // stops it.
     crate::sse::start_viewer_monitor(&state).await;
+    crate::sse::watch_config_dir(state.clone()).await;
     let routes = crate::state::api_routes(listen.policy.clone(), read_only);
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),
+        // The user's stylesheets are the server's to serve in dev mode too:
+        // Vite only knows the bundled copies under `public/`.
         Frontend::Dev => routes.fallback_service(tower::service_fn(|req: Request| async move {
-            Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
+            Ok::<_, std::convert::Infallible>(match serve_user_css(req.uri().path()) {
+                Some(response) => response,
+                None => dev::proxy_to_vite(req).await,
+            })
         })),
     }
     .with_state(state.clone());
@@ -474,6 +480,28 @@ async fn serve(
     }
 }
 
+/// The user's stylesheets — `/themes/<name>.css` and `/custom.css` — from
+/// the config dir, as `session::resolve_user_css` reads them (a built-in
+/// theme name falls back to the bundled copy). `None` for any other path. Not
+/// cached: a save is meant to show on the next fetch.
+fn serve_user_css(path: &str) -> Option<Response> {
+    let path = path.trim_start_matches('/');
+    if path != "custom.css" && !path.starts_with("themes/") {
+        return None;
+    }
+    Some(match tmuxy_core::session::resolve_user_css(path) {
+        Some(data) => {
+            let mut response = build_response(StatusCode::OK, "text/css; charset=utf-8", data);
+            response.headers_mut().insert(
+                axum::http::header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-store"),
+            );
+            response
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    })
+}
+
 /// Serve files from embedded frontend assets (SPA with index.html fallback)
 async fn serve_embedded(uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
@@ -482,27 +510,11 @@ async fn serve_embedded(uri: axum::http::Uri) -> Response {
     // Response::builder().body() returns Err only for invalid header values, which
     // none of these literal mime types can produce — fall back to a 500 on the
     // off-chance the embedded asset's mime string somehow becomes invalid.
-    if let Some(file) = FrontendAssets::get(path) {
+    if let Some(response) = serve_user_css(path) {
+        response
+    } else if let Some(file) = FrontendAssets::get(path) {
         let mime = tmuxy_core::mime::content_type_for_path(path);
         build_response(StatusCode::OK, mime, file.data.into_owned())
-    } else if path.starts_with("themes/") && path.ends_with(".css") {
-        // Custom theme CSS not in the embedded bundle — try ~/.config/tmuxy/themes/.
-        // Canonicalize and confirm the resolved path stays under the themes dir:
-        // axum doesn't normalize `..`, so `themes/../../../etc/foo.css` would
-        // otherwise escape config_dir() and read any .css file on disk.
-        let themes_dir = tmuxy_core::session::config_dir().join("themes");
-        let served = themes_dir.canonicalize().ok().and_then(|canon_themes| {
-            tmuxy_core::session::config_dir()
-                .join(path)
-                .canonicalize()
-                .ok()
-                .filter(|p| p.starts_with(&canon_themes))
-                .and_then(|p| std::fs::read(&p).ok())
-        });
-        match served {
-            Some(data) => build_response(StatusCode::OK, "text/css; charset=utf-8", data),
-            None => StatusCode::NOT_FOUND.into_response(),
-        }
     } else if let Some(index) = FrontendAssets::get("index.html") {
         // SPA fallback
         build_response(

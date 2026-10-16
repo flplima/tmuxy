@@ -195,10 +195,16 @@ const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../../.devcontainer/.tmux
 /// for the user's customizations.
 const DEFAULT_USER_CONF: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
 
+/// The guide to personalizing tmuxy, written to the config dir as
+/// `README.md` so a user — or an agent working in a pane — finds every
+/// file, option and workflow next to the files themselves. App-owned and
+/// refreshed like the defaults.
+const CONFIG_README: &str = include_str!("../assets/config-README.md");
+
 /// Bundled theme CSS files, embedded at compile time. Mirrored to
-/// ~/.config/tmuxy/themes/ on first run by [`ensure_themes`] so the user
-/// can edit them in place; future versions can also load custom themes
-/// dropped into that directory.
+/// ~/.config/tmuxy/themes/ on every launch by [`ensure_themes`] — app-owned
+/// there, like the defaults conf — and served from that directory first by
+/// [`resolve_user_css`], which is also where a user's own theme lives.
 const BUNDLED_THEMES: &[(&str, &str)] = &[
     (
         "default.css",
@@ -513,6 +519,7 @@ pub fn ensure_config() -> PathBuf {
 
     write_app_owned_conf(&defaults_path, DEFAULT_DEFAULTS_CONF);
     write_app_owned_conf(&dir.join("tmuxy.essentials.conf"), DEFAULT_ESSENTIALS_CONF);
+    write_app_owned_conf(&dir.join("README.md"), CONFIG_README);
     write_user_conf_bridge(&dir);
 
     // Create the user-editable conf only if it doesn't exist.
@@ -685,10 +692,16 @@ mod name_tests {
     }
 }
 
-/// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and is
-/// populated with the bundled theme CSS files. Existing files are NOT
-/// overwritten so the user's edits survive across upgrades. Returns the
-/// path to the themes directory.
+/// The first line of every built-in theme file in the config dir: the file is
+/// the app's, refreshed on every launch like `tmuxy.defaults.conf`, so an edit
+/// to it is lost on the next start. A custom theme is a copy under a new name.
+const BUILT_IN_THEME_HEADER: &str =
+    "/* Shipped by tmuxy and rewritten on every launch — copy this file to a new name to customize it. */\n";
+
+/// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and holds
+/// the bundled theme CSS files, each rewritten to this build's copy. Any
+/// other `*.css` there is the user's and is left alone. Returns the path to
+/// the themes directory.
 pub fn ensure_themes() -> PathBuf {
     let themes_dir = config_dir().join("themes");
 
@@ -698,15 +711,176 @@ pub fn ensure_themes() -> PathBuf {
     }
 
     for (name, content) in BUNDLED_THEMES {
-        let path = themes_dir.join(name);
-        if !path.exists() {
-            if let Err(e) = std::fs::write(&path, content) {
-                warn!(?path, error = %e, "could not write bundled theme");
-            }
-        }
+        write_app_owned_conf(
+            &themes_dir.join(name),
+            &format!("{BUILT_IN_THEME_HEADER}{content}"),
+        );
     }
 
     themes_dir
+}
+
+/// Whether `name` can be a theme's file stem or a `--css-variable` suffix:
+/// letters, digits, `-` and `_` only, so it can neither leave the themes
+/// directory nor end a CSS declaration.
+pub fn is_safe_css_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
+/// The stylesheet a client asked for by its path under the app's origin —
+/// `themes/<name>.css` or `custom.css` — as both transports serve it: the
+/// user's file in the config dir first, else the bundled copy of a built-in
+/// theme. A missing `custom.css` is an empty sheet, so the page never has a
+/// failed request for the file most users never write. `None` is a path
+/// that is not one of these.
+pub fn resolve_user_css(path: &str) -> Option<Vec<u8>> {
+    resolve_user_css_in(&config_dir(), path)
+}
+
+fn resolve_user_css_in(dir: &Path, path: &str) -> Option<Vec<u8>> {
+    let path = path.trim_start_matches('/');
+    if path == "custom.css" {
+        return Some(std::fs::read(dir.join("custom.css")).unwrap_or_default());
+    }
+    let stem = path
+        .strip_prefix("themes/")
+        .and_then(|file| file.strip_suffix(".css"))
+        .filter(|stem| is_safe_css_name(stem))?;
+    let file = format!("{stem}.css");
+    if let Ok(bytes) = std::fs::read(dir.join("themes").join(&file)) {
+        return Some(bytes);
+    }
+    BUNDLED_THEMES
+        .iter()
+        .find(|(name, _)| *name == file)
+        .map(|(_, content)| content.as_bytes().to_vec())
+}
+
+/// The colour modes a theme supports: `dark` when its `:root.theme-dark`
+/// block declares something, `light` likewise. Every bundled theme carries a
+/// `theme-light` selector, but one with an empty block has no light palette,
+/// and switching to it would draw the page in the browser's defaults.
+pub fn theme_modes(css: &str) -> Vec<&'static str> {
+    ["dark", "light"]
+        .into_iter()
+        .filter(|mode| {
+            css.match_indices(&format!(".theme-{mode}")).any(|(at, _)| {
+                let rest = &css[at..];
+                let Some(open) = rest.find('{') else {
+                    return false;
+                };
+                let body = &rest[open + 1..];
+                let close = body.find('}').unwrap_or(body.len());
+                body[..close].contains("--")
+            })
+        })
+        .collect()
+}
+
+/// What the user can edit under the config dir to restyle or reconfigure a
+/// running app, reduced to two numbers that change whenever one of those
+/// files does: every `*.css` (the themes and `custom.css`) in one, the tmux
+/// config in the other. A poll of these is how both hosts notice an edit,
+/// with no file-watching dependency and no interest in which file it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ConfigStamps {
+    pub css: u128,
+    pub conf: u128,
+}
+
+fn file_stamp(path: &Path) -> u128 {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return 0;
+    };
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    modified ^ (u128::from(meta.len()) << 64)
+}
+
+pub fn config_stamps() -> ConfigStamps {
+    let dir = config_dir();
+    let mut css = file_stamp(&dir.join("custom.css"));
+    if let Ok(entries) = std::fs::read_dir(dir.join("themes")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("css") {
+                css = css.wrapping_add(file_stamp(&path));
+            }
+        }
+    }
+    ConfigStamps {
+        css,
+        conf: file_stamp(&dir.join("tmuxy.conf")),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod user_css_tests {
+    use super::*;
+
+    #[test]
+    fn a_css_name_cannot_leave_the_themes_dir_or_end_a_declaration() {
+        for ok in ["nord", "my_theme-2", "a"] {
+            assert!(is_safe_css_name(ok), "{ok:?}");
+        }
+        for bad in ["", "../x", "a/b", "a;b", "a b", "a}b", "ünï"] {
+            assert!(!is_safe_css_name(bad), "{bad:?}");
+        }
+        let dir = Path::new("/nonexistent");
+        assert!(resolve_user_css_in(dir, "themes/../tmuxy.conf").is_none());
+        assert!(resolve_user_css_in(dir, "themes/nord.css/../../x.css").is_none());
+        assert!(resolve_user_css_in(dir, "tmuxy.conf").is_none());
+    }
+
+    #[test]
+    fn the_users_file_is_served_first_and_a_built_in_falls_back_to_the_bundle() {
+        let dir = std::env::temp_dir().join(format!("tmuxy-css-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            resolve_user_css_in(&dir, "/themes/nord.css").as_deref(),
+            Some(BUNDLED_THEMES[5].1.as_bytes())
+        );
+        assert_eq!(resolve_user_css_in(&dir, "custom.css"), Some(Vec::new()));
+        assert!(resolve_user_css_in(&dir, "themes/mine.css").is_none());
+
+        std::fs::create_dir_all(dir.join("themes")).unwrap();
+        std::fs::write(dir.join("themes/mine.css"), "a").unwrap();
+        std::fs::write(dir.join("themes/nord.css"), "b").unwrap();
+        std::fs::write(dir.join("custom.css"), "c").unwrap();
+        assert_eq!(
+            resolve_user_css_in(&dir, "themes/mine.css"),
+            Some(b"a".to_vec())
+        );
+        assert_eq!(
+            resolve_user_css_in(&dir, "themes/nord.css"),
+            Some(b"b".to_vec())
+        );
+        assert_eq!(resolve_user_css_in(&dir, "custom.css"), Some(b"c".to_vec()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_theme_supports_the_modes_whose_blocks_declare_something() {
+        assert_eq!(
+            theme_modes(":root.theme-dark {\n  --a: 1;\n}\n:root.theme-light {\n}\n"),
+            vec!["dark"]
+        );
+        assert_eq!(
+            theme_modes(":root.theme-dark { --a: 1 } :root.theme-light { --a: 2 }"),
+            vec!["dark", "light"]
+        );
+        assert!(theme_modes("body { color: red }").is_empty());
+        for (name, css) in BUNDLED_THEMES {
+            assert!(theme_modes(css).contains(&"dark"), "{name}");
+        }
+    }
 }
 
 /// The tmux global environment variables naming the binary that runs this

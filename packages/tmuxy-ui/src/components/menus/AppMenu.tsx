@@ -72,6 +72,12 @@ export function AppMenu() {
   const themeName = useAppSelector(selectThemeName);
   const themeMode = useAppSelector(selectThemeMode);
   const availableThemes = useAppSelector(selectAvailableThemes);
+  // A theme whose file the server has not described (a list from an adapter
+  // without the file) is taken to support both modes, as before.
+  const themeHasMode = (mode: 'dark' | 'light') => {
+    const modes = availableThemes.find((t) => t.name === themeName)?.modes;
+    return modes === undefined || modes.includes(mode);
+  };
   const cursorBlink = useAppSelector(selectCursorBlink);
   const activePaneId = useAppSelector((c) => c.activePaneId);
   // Widgets contribute their own items for whichever pane is active, the same
@@ -194,11 +200,25 @@ export function AppMenu() {
           {isTauri() && <WindowMenu />}
 
           <SubMenu label="Theme">
-            <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
+            {/* A mode the current theme declares no palette for is greyed out:
+                picking it would draw the page in the browser's defaults. */}
+            <MenuItem
+              onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}
+              disabled={!themeHasMode('dark')}
+            >
               {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
             </MenuItem>
-            <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
+            <MenuItem
+              onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}
+              disabled={!themeHasMode('light')}
+            >
               {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
+            </MenuItem>
+            <MenuItem
+              onClick={() => send({ type: 'SET_THEME_MODE', mode: 'auto' })}
+              disabled={!themeHasMode('dark') || !themeHasMode('light')}
+            >
+              {themeMode === 'auto' ? '\u25CF ' : '\u25CB '}System
             </MenuItem>
             {availableThemes.length > 0 && <MenuDivider />}
             {availableThemes.map((t) => (

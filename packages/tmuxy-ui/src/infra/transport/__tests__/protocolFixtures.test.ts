@@ -165,6 +165,7 @@ describe('Rust → TypeScript protocol fixtures', () => {
       'state-update',
       'keybindings',
       'theme-settings',
+      'css-changed',
       'tmux-error',
       'clipboard',
       'log',
@@ -176,6 +177,8 @@ describe('Rust → TypeScript protocol fixtures', () => {
       ['connection-info', Schema.decodeUnknownSync(ConnectionInfo)],
       ['keybindings', Schema.decodeUnknownSync(KeyBindings)],
       ['theme-settings', Schema.decodeUnknownSync(ThemeSettings)],
+      // A notification with nothing to decode: the listener takes no payload.
+      ['css-changed', Schema.decodeUnknownSync(Schema.NullOr(Schema.Unknown))],
       ['tmux-error', Schema.decodeUnknownSync(MessageFrame)],
       ['clipboard', Schema.decodeUnknownSync(ClipboardEvent)],
       ['log', Schema.decodeUnknownSync(LogEvent)],

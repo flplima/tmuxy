@@ -23,7 +23,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::command::ClientCommand;
-use crate::state::{AppState, SessionConnections};
+use crate::state::{AppState, SessionBroadcast, SessionConnections};
 
 // ============================================
 // SSE State Emitter (Adapter Pattern)
@@ -204,6 +204,10 @@ enum SseEvent {
     /// pushed after the config is sourced so option changes apply live.
     #[serde(rename = "theme-settings")]
     ThemeSettings(serde_json::Value),
+    /// A theme file or `custom.css` under the config dir was saved: the
+    /// client re-fetches its stylesheets and the themes list.
+    #[serde(rename = "css-changed")]
+    CssChanged,
     #[serde(rename = "log")]
     Log { kind: LogKind, message: String },
     #[serde(rename = "fatal")]
@@ -931,6 +935,72 @@ async fn broadcast_theme_settings(state: &Arc<AppState>, session: &str) {
     if let Some(session_conn) = sessions.get(session) {
         session_conn.broadcast.broadcast(msg);
         debug!(%session, "broadcast refreshed theme settings");
+    }
+}
+
+/// Watch the config dir for the user's edits, for the life of the server. A
+/// saved stylesheet is announced to every session's clients; a saved
+/// `tmuxy.conf` is sourced on each session's monitor and followed by the
+/// bindings and theme settings it may have changed — what a client's own
+/// `source-file` gets. A viewer's server sources nothing: its clients cannot
+/// change the session, and neither should a file on its host.
+pub async fn watch_config_dir(state: Arc<AppState>) {
+    let shutdown = state.shutdown.clone();
+    let watcher = state.clone();
+    state
+        .spawn(async move {
+            tokio::select! {
+                _ = transport::watch_config(|change| {
+                    let state = watcher.clone();
+                    tokio::spawn(async move { apply_config_change(&state, change).await });
+                }) => {}
+                _ = shutdown.cancelled() => {}
+            }
+        })
+        .await;
+}
+
+async fn apply_config_change(state: &Arc<AppState>, change: transport::ConfigChange) {
+    let sessions: Vec<(String, Arc<SessionBroadcast>, Option<MonitorCommandSender>)> = state
+        .sessions
+        .read()
+        .await
+        .iter()
+        .map(|(name, conns)| {
+            (
+                name.clone(),
+                conns.broadcast.clone(),
+                conns.monitor_command_tx.clone(),
+            )
+        })
+        .collect();
+    match change {
+        transport::ConfigChange::Css => {
+            let Some(msg) = encode_event(&SseEvent::CssChanged) else {
+                return;
+            };
+            for (session, broadcast, _) in &sessions {
+                broadcast.broadcast(msg.clone());
+                debug!(%session, "broadcast css-changed");
+            }
+        }
+        transport::ConfigChange::Conf => {
+            if state.read_only {
+                return;
+            }
+            for (session, _, tx) in &sessions {
+                let Some(tx) = tx else { continue };
+                match transport::source_config(tx).await {
+                    Ok(()) => info!(%session, "sourced the saved tmuxy.conf"),
+                    Err(e) => {
+                        warn!(%session, error = %e, "could not source the saved tmuxy.conf");
+                        continue;
+                    }
+                }
+                refresh_keybindings(state, session).await;
+                broadcast_theme_settings(state, session).await;
+            }
+        }
     }
 }
 
@@ -3173,6 +3243,7 @@ mod protocol_fixtures {
                 "mode": "dark",
                 "opacity": 0.9,
             })),
+            SseEvent::CssChanged,
             SseEvent::Log {
                 kind: LogKind::Command,
                 message: "tmux has-session -t tmuxy".to_string(),

@@ -964,6 +964,24 @@ pub fn run() {
         // window is in.
         .manage(windows::GuiWindows::default())
         .manage(WindowStyles::default())
+        // The user's stylesheets — `/themes/<name>.css` and `/custom.css` —
+        // from the config dir, as the web server serves them. The bundled
+        // frontend only carries the built-in themes, so a theme the user made
+        // was a 404 here and the page lost its colours.
+        .register_uri_scheme_protocol("tmuxycss", |_ctx, request| {
+            let path = request.uri().path().to_string();
+            let builder = tauri::http::Response::builder().header("Cache-Control", "no-store");
+            match tmuxy_core::session::resolve_user_css(&path) {
+                Some(css) => builder
+                    .status(tauri::http::StatusCode::OK)
+                    .header("Content-Type", "text/css; charset=utf-8")
+                    .body(css),
+                None => builder
+                    .status(tauri::http::StatusCode::NOT_FOUND)
+                    .body(Vec::new()),
+            }
+            .unwrap_or_default()
+        })
         // Pictures a pane drew (Kitty, iTerm2, Sixel) are decoded by the
         // monitor and kept in MonitorState; the webview fetches them through
         // this scheme. The web build serves the same bytes over
@@ -1212,6 +1230,20 @@ pub fn run() {
             let connect_watch_state = monitor_state.clone();
             tauri::async_runtime::spawn(async move {
                 monitor::poll_connect_requests(connect_watch_state).await;
+            });
+            // Watch the config dir for the user's edits: a saved stylesheet
+            // is announced to the webviews, a saved tmuxy.conf is sourced.
+            let config_watch_app = app.handle().clone();
+            let config_watch_state = monitor_state.clone();
+            tauri::async_runtime::spawn(async move {
+                tmuxy_core::transport::watch_config(|change| {
+                    let app = config_watch_app.clone();
+                    let monitor = config_watch_state.clone();
+                    tauri::async_runtime::spawn(async move {
+                        monitor::apply_config_change(&app, &monitor, change).await;
+                    });
+                })
+                .await;
             });
             tauri::async_runtime::spawn(async move {
                 monitor::start_monitoring(app_handle, monitor_state).await;

@@ -385,6 +385,8 @@ export const ThemeSettings = Schema.Struct({
   theme: Schema.optional(Schema.String),
   mode: Schema.optional(Schema.String),
   appearance: Schema.optional(Appearance),
+  /** The `@tmuxy-css-<name>` options: `--<name>` declared over the theme, under `custom.css`. */
+  cssVars: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
 });
 export type ThemeSettings = Schema.Schema.Type<typeof ThemeSettings>;
 

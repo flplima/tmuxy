@@ -549,6 +549,59 @@ pub fn is_source_file(command: &str) -> bool {
 /// starts in the background (`run-shell -b`, hooks).
 pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
+/// Source the user's `tmuxy.conf` over the control-mode connection and wait
+/// for it to settle, as a client's own `source-file` would. The caller then
+/// pushes what a config can change — the bindings, the theme and appearance
+/// settings — exactly as it does after that client command.
+pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError> {
+    let Some(path) = crate::session::get_config_path() else {
+        return Err(CommandError::unavailable("tmuxy.conf does not exist"));
+    };
+    run(
+        tx,
+        &format!("source-file {}", tmux_quote(&path.to_string_lossy())),
+    )
+    .await?;
+    tokio::time::sleep(SOURCE_FILE_SETTLE).await;
+    Ok(())
+}
+
+// ============================================
+// The config directory
+// ============================================
+
+/// What changed under the config dir, from [`watch_config`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigChange {
+    /// A theme file or `custom.css`: clients re-fetch their stylesheets.
+    Css,
+    /// `tmuxy.conf`: the host sources it and pushes the settings it changed.
+    Conf,
+}
+
+/// How often the config dir is looked at. A save shows within this.
+pub const CONFIG_POLL: Duration = Duration::from_secs(1);
+
+/// Watch the config dir for the user's edits, forever: `on_change` is called
+/// once per poll for each kind of file that changed since the last one. A
+/// poll of a few file stamps (`session::config_stamps`) rather than a
+/// native watcher, so both hosts behave the same on every platform.
+pub async fn watch_config(mut on_change: impl FnMut(ConfigChange)) {
+    let mut last = crate::session::config_stamps();
+    let mut tick = tokio::time::interval(CONFIG_POLL);
+    loop {
+        tick.tick().await;
+        let now = crate::session::config_stamps();
+        if now.css != last.css {
+            on_change(ConfigChange::Css);
+        }
+        if now.conf != last.conf {
+            on_change(ConfigChange::Conf);
+        }
+        last = now;
+    }
+}
+
 // ============================================
 // Session snapshots
 // ============================================

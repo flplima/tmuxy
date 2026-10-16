@@ -22,6 +22,8 @@ export type TransportEvent = Data.TaggedEnum<{
   KeyBindings: { readonly keybindings: KeyBindings };
   /** Theme + appearance pushed after the config is (re)sourced. */
   ThemeSettings: { readonly settings: ThemeSettings };
+  /** A stylesheet under the config dir was saved: fetch the CSS again. */
+  CssChanged: Record<never, never>;
   /** Connection-time log: each tmux command and its output. */
   Log: { readonly kind: LogEntryKind; readonly message: string };
   /** A backend error for the user (a rejected command, a failed sync). */

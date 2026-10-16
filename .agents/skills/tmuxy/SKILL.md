@@ -50,4 +50,16 @@ tmuxy widget browser <file|url> # the same, spelled out
 tmuxy queue push <name> <msg|-> # push to a named queue (alias: send; `tmuxy q` = `tmuxy queue`)
 tmuxy queue pop <name>          # block and pop oldest message (also: peek, list, clear)
 tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
+tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
 ```
+
+## Personalizing tmuxy
+
+Everything the user can change lives in `~/.config/tmuxy/`; its `README.md` is the
+guide — read it before changing a theme, a colour or the tmux config. In short:
+
+- Never edit an app-owned file (the built-in `themes/*.css`, `tmuxy.defaults.conf`):
+  it is rewritten on every launch. Copy a theme to a new name instead.
+- Small tweaks: `custom.css` (any CSS), or `set -g @tmuxy-css-<variable> <value>` in
+  `tmuxy.conf`. Options are `@tmuxy-*` in `tmuxy.conf`; `tmuxy config reload` applies it.
+- A saved theme or `custom.css` repaints every open window by itself.

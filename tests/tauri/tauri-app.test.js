@@ -12,6 +12,9 @@
  */
 
 const { execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   createSession,
   waitForAppReady,
@@ -443,6 +446,54 @@ describe('State Sync', () => {
     // The tab the user was looking at is untouched: the tree went into the
     // sidebar window, it did not stay behind as a pane here.
     expect(await getPaneCount(driver)).toBe(panesBefore);
+  });
+
+  // The desktop app serves no HTTP: a theme the user copied into the config
+  // dir reaches the webview through the `tmuxycss:` scheme, or not at all —
+  // the bundled frontend only carries the built-in themes, and picking a
+  // custom one used to 404 and leave the page in the browser's defaults.
+  test('a theme copied into the config dir is listed with its modes and served to the webview', async () => {
+    const themes = path.join(
+      process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
+      'tmuxy',
+      'themes',
+    );
+    fs.mkdirSync(themes, { recursive: true });
+    const mine = path.join(themes, 'e2e-tauri.css');
+    fs.writeFileSync(mine, ':root.theme-dark {\n  --term-background: #123456;\n}\n');
+    try {
+      await setupApp();
+
+      const listed = await invokeCommand(driver, 'get_themes_list');
+      expect(listed.find((t) => t.name === 'e2e-tauri')).toEqual({
+        name: 'e2e-tauri',
+        displayName: 'E2e Tauri',
+        modes: ['dark'],
+      });
+
+      // Picked the way the Theme menu picks it; the page resolves the file's
+      // own value once the scheme has served it.
+      await driver.execute(() => window.app.send({ type: 'SET_THEME', name: 'e2e-tauri' }));
+      let resolved = '';
+      for (let i = 0; i < 40 && resolved !== '#123456'; i++) {
+        resolved = await driver.execute(() =>
+          getComputedStyle(document.documentElement).getPropertyValue('--term-background').trim(),
+        );
+        if (resolved !== '#123456') await driver.pause(250);
+      }
+      expect(resolved).toBe('#123456');
+      const href = await driver.execute(
+        () => document.getElementById('tmuxy-theme')?.getAttribute('href') ?? null,
+      );
+      expect(href).toContain('tmuxycss');
+      expect(href).toContain('/themes/e2e-tauri.css');
+    } finally {
+      // The pick was persisted for the next launch: put the default back.
+      if (driver) {
+        await driver.execute(() => window.app.send({ type: 'SET_THEME', name: 'default' }));
+      }
+      fs.rmSync(mine, { force: true });
+    }
   });
 });
 

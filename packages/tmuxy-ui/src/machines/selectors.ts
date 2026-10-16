@@ -26,6 +26,7 @@ import {
 } from './constants';
 import type { PaneId, WindowId } from '../domain/ids';
 import type { PaneTree } from '../domain/wire';
+import type { ThemeInfo, ThemeMode } from '../utils/themeManager';
 
 // ============================================
 // Pane Selectors
@@ -959,13 +960,11 @@ export function selectThemeName(context: AppMachineContext): string {
   return context.themeName;
 }
 
-export function selectThemeMode(context: AppMachineContext): 'dark' | 'light' {
+export function selectThemeMode(context: AppMachineContext): ThemeMode {
   return context.themeMode;
 }
 
-export function selectAvailableThemes(
-  context: AppMachineContext,
-): Array<{ name: string; displayName: string }> {
+export function selectAvailableThemes(context: AppMachineContext): ThemeInfo[] {
   return context.availableThemes;
 }
 

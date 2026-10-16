@@ -7,6 +7,7 @@
 import type { CopyModeState } from '../domain/copyMode';
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { ServerState, KeyBindings, KeyBinding, Appearance } from '../domain/wire';
+import type { ThemeInfo, ThemeMode } from '../utils/themeManager';
 import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
 import type { GroupDrop } from '../utils/groupDrop';
 import type { AskAnswer } from '../utils/paneAsk';
@@ -508,10 +509,10 @@ export interface AppMachineContext {
   notifications: AppNotification[];
   /** Current theme name */
   themeName: string;
-  /** Current theme mode */
-  themeMode: 'dark' | 'light';
+  /** Current theme mode: a palette, or `auto` for the operating system's */
+  themeMode: ThemeMode;
   /** Available themes from server */
-  availableThemes: Array<{ name: string; displayName: string }>;
+  availableThemes: ThemeInfo[];
   /**
    * Local action tracing as the backend last reported it, or null before the
    * Debug menu has asked. Never assumed from the client side: an enable can be
@@ -1129,19 +1130,23 @@ export type LogAppendEvent = {
 
 // Theme events
 export type SetThemeEvent = { type: 'SET_THEME'; name: string };
-export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: 'dark' | 'light' };
+export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: ThemeMode };
 export type ToggleCursorBlinkEvent = { type: 'TOGGLE_CURSOR_BLINK' };
 export type ThemeSettingsReceivedEvent = {
   type: 'THEME_SETTINGS_RECEIVED';
   theme: string;
-  mode: 'dark' | 'light';
+  mode: ThemeMode;
   /** Surface opacities from tmuxy.conf; absent from adapters without a config. */
   appearance?: Appearance;
+  /** The `@tmuxy-css-<name>` options from tmuxy.conf, `--<name>` each. */
+  cssVars?: Readonly<Record<string, string>>;
 };
 export type ThemesListReceivedEvent = {
   type: 'THEMES_LIST_RECEIVED';
-  themes: Array<{ name: string; displayName: string }>;
+  themes: ThemeInfo[];
 };
+/** A stylesheet under the config dir was saved: fetch the CSS and the list again. */
+export type CssChangedEvent = { type: 'CSS_CHANGED' };
 
 // Trackpad gestures (see machines/actors/gestureActor.ts)
 
@@ -1317,6 +1322,7 @@ export type AppMachineEvent =
   | ToggleCursorBlinkEvent
   | ThemeSettingsReceivedEvent
   | ThemesListReceivedEvent
+  | CssChangedEvent
   | FetchTraceSettingsEvent
   | TraceSettingsReceivedEvent
   | SetTraceEnabledEvent

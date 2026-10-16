@@ -224,7 +224,7 @@ export function createInitialContext(): AppMachineContext {
     statusMessage: null,
     notifications: [],
     themeName: loadThemeFromStorage()?.theme ?? 'default',
-    themeMode: loadThemeFromStorage()?.mode ?? ('dark' as const),
+    themeMode: loadThemeFromStorage()?.mode ?? 'dark',
     availableThemes: [],
     traceSettings: null,
     appFocused: true,

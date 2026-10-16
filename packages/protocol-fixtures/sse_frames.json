@@ -45,6 +45,10 @@
     "event": "theme-settings"
   },
   {
+    "data": null,
+    "event": "css-changed"
+  },
+  {
     "data": {
       "kind": "command",
       "message": "tmux has-session -t tmuxy"

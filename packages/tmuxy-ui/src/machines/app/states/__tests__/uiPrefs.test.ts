@@ -94,11 +94,37 @@ describe('uiPrefs state', () => {
   it('THEMES_LIST_RECEIVED populates availableThemes', () => {
     const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
     const themes = [
-      { name: 'dark', displayName: 'Dark' },
-      { name: 'light', displayName: 'Light' },
+      { name: 'dark', displayName: 'Dark', modes: ['dark'] },
+      { name: 'light', displayName: 'Light', modes: ['dark', 'light'] },
     ];
     const ctx = sendAndGetContext(actor, { type: 'THEMES_LIST_RECEIVED', themes });
     expect(ctx.availableThemes).toEqual(themes);
+  });
+
+  it('THEME_SETTINGS_RECEIVED declares the config CSS variables, and CSS_CHANGED re-fetches the sheets', () => {
+    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
+      themeName: 'nord',
+      themeMode: 'dark',
+    });
+    sendAndGetContext(actor, { type: 'SET_THEME', name: 'nord' });
+    sendAndGetContext(actor, {
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'nord',
+      mode: 'dark',
+      cssVars: { 'term-background': '#101010' },
+    });
+    const declared = () => document.getElementById('tmuxy-css-vars')?.textContent ?? '';
+    expect(declared()).toContain('--term-background: #101010;');
+
+    const href = () => document.getElementById('tmuxy-theme')?.getAttribute('href');
+    const before = href();
+    expect(before).toContain('/themes/nord.css');
+    const ctx = sendAndGetContext(actor, { type: 'CSS_CHANGED' });
+    expect(href()).not.toBe(before);
+    expect(href()).toContain('/themes/nord.css?v=');
+    // The name and the inline variables survive the re-fetch.
+    expect(ctx.themeName).toBe('nord');
+    expect(declared()).toContain('--term-background: #101010;');
   });
 
   it('INCREASE_FONT_SIZE bumps baseFontSize', () => {

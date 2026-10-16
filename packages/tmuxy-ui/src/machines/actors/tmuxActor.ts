@@ -10,6 +10,7 @@ import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/TmuxTransport';
 import { TransportEvent } from '../../infra/transport/events';
+import { parseThemeMode, type ThemeInfo } from '../../utils/themeManager';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(
@@ -133,8 +134,9 @@ export function createTmuxActor(runtime: AppRuntime) {
       parent.send({
         type: 'THEME_SETTINGS_RECEIVED',
         theme: settings.theme || 'default',
-        mode: (settings.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
+        mode: parseThemeMode(settings.mode),
         appearance: settings.appearance,
+        cssVars: settings.cssVars,
       });
 
     /** Each pushed event as the parent's event. */
@@ -157,6 +159,7 @@ export function createTmuxActor(runtime: AppRuntime) {
         parent.send({ type: reconnecting ? 'TMUX_RECONNECTING' : 'TMUX_RECONNECTED' }),
       KeyBindings: ({ keybindings }) => parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings }),
       ThemeSettings: ({ settings }) => themeSettingsReceived(settings),
+      CssChanged: () => parent.send({ type: 'CSS_CHANGED' }),
       ConnectionInfo: ({ defaultShell, readOnly }) =>
         parent.send({ type: 'CONNECTION_INFO', defaultShell, readOnly }),
       // OSC 52 clipboard requests from terminal applications.
@@ -326,9 +329,7 @@ export function createTmuxActor(runtime: AppRuntime) {
         );
       } else if (event.type === 'FETCH_THEMES_LIST') {
         run(
-          withTransport((t) =>
-            t.invoke<Array<{ name: string; displayName: string }>>('get_themes_list', {}),
-          ),
+          withTransport((t) => t.invoke<ThemeInfo[]>('get_themes_list', {})),
           {
             onSuccess: (themes) =>
               parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] }),

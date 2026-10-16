@@ -124,6 +124,22 @@ Widget state that outlives a render — the browser's per-pane history and zoom 
 machine's `browser` slice rather than in the component, so the menu and the pane read the
 same source of truth. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md).
 
+## The user's config directory
+
+Everything a user can change lives in `~/.config/tmuxy/` (`$XDG_CONFIG_HOME/tmuxy`), materialized by `tmuxy-core/src/session.rs` at every launch of either host. Two kinds of file live there, and the kind decides what an edit means:
+
+| File                                                | Owner | On launch                                   |
+| --------------------------------------------------- | ----- | ------------------------------------------- |
+| `tmuxy.conf`                                        | user  | created once from a template, never touched |
+| `custom.css`, `themes/<own name>.css`               | user  | left alone                                  |
+| `tmuxy.defaults.conf`, `tmuxy.essentials.conf`      | app   | rewritten to this build's copy              |
+| `themes/<built-in>.css`                             | app   | rewritten, with a header saying so          |
+| `tmuxy.user.conf`                                   | app   | regenerated from the `use-tmux-conf` choice |
+| `tmuxy.state.json`                                  | app   | choices made in the menus, re-applied after the conf |
+| `README.md`, `bin/`                                 | app   | rewritten                                   |
+
+The user never overrides what the app bundles; they copy a built-in theme to a new name, write `custom.css`, or set options in `tmuxy.conf`. CSS applies in that order, most specific first: `custom.css` → the `@tmuxy-css-<variable>` options → the theme file. Every edit is live: both hosts watch the directory and either push `css-changed` or source the conf (see [DATA-FLOW.md](DATA-FLOW.md)). The `README.md` written there is the user-facing guide, and the one the bundled agent skill points at.
+
 ## Multi-Client Viewport Sizing
 
 Like native tmux, when multiple browser clients connect to the same session, the session is sized to the **smallest client's viewport**. Each client reports its viewport size, the server computes the minimum, and sends a resize command through the monitor's control mode connection. Resize commands must go through control mode — external `tmux resize-window` commands are ignored when a control mode client is attached. Clients of a `--read-only` server are the exception: they report no viewport and draw the session at whatever size its writers gave it, scaled to fit.

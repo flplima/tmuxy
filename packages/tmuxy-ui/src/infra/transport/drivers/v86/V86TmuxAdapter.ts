@@ -24,7 +24,11 @@ import { TransportEvent } from '../../events';
 import { isPaneId } from '../../../../domain/ids';
 import type { CommandFailure, KeyBindings } from '../../../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
-import { saveThemeToStorage, loadThemeFromStorage } from '../../../../utils/themeManager';
+import {
+  saveThemeToStorage,
+  loadThemeFromStorage,
+  parseThemeMode,
+} from '../../../../utils/themeManager';
 import { unescapeLiteralText } from '../../keyBatching';
 import { quote } from '../../../../domain/commands';
 import {
@@ -264,14 +268,12 @@ export class V86TmuxAdapter implements TmuxAdapter {
       }
       case 'set_theme': {
         const name = (args?.name as string) || loadThemeFromStorage()?.theme || 'default';
-        const mode = (args?.mode as string) === 'light' ? 'light' : 'dark';
-        saveThemeToStorage(name, mode);
+        saveThemeToStorage(name, parseThemeMode(args?.mode));
         this.engine.send(`set -g @tmuxy-theme ${name}`);
         return null as T;
       }
       case 'set_theme_mode': {
-        const mode = (args?.mode as string) === 'light' ? 'light' : 'dark';
-        saveThemeToStorage(loadThemeFromStorage()?.theme || 'default', mode);
+        saveThemeToStorage(loadThemeFromStorage()?.theme || 'default', parseThemeMode(args?.mode));
         return null as T;
       }
       case 'set_cursor_blink': {

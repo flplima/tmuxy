@@ -52,6 +52,7 @@ const STREAM_EVENTS = [
   'state-update',
   'keybindings',
   'theme-settings',
+  'css-changed',
   'tmux-error',
   'clipboard',
   'log',
@@ -392,6 +393,8 @@ export class HttpAdapter implements SequencedAdapter {
       on('theme-settings', ThemeSettings, (settings) =>
         this.events.emit(TransportEvent.ThemeSettings({ settings })),
       );
+
+      es.addEventListener('css-changed', () => this.events.emit(TransportEvent.CssChanged()));
 
       // Backend errors for the user (a rejected command, a failed sync). The
       // wire name is `tmux-error`, not `error`: a server event named `error`

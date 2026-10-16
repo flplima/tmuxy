@@ -10,7 +10,8 @@ The web version uses two HTTP endpoints on the Axum server:
 
 - `connection-info` — Connection ID, default shell, and whether the server is read-only (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
-- `theme-settings` — Theme name/mode and appearance (surface opacities, blur flag) from tmux config; re-sent after a `source-file`
+- `theme-settings` — Theme name/mode, appearance (surface opacities, blur flag) and the `@tmuxy-css-*` variables from tmux config; re-sent after a `source-file`, and after the server itself sources a saved `tmuxy.conf`
+- `css-changed` — A stylesheet under the user's config dir (`themes/*.css`, `custom.css`) was saved; the client re-fetches its stylesheets and the themes list. No payload
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
 - `ping` — keepalive on an idle stream, once a second; the client times a silent link out by it (see Reconnecting below)
@@ -81,7 +82,7 @@ Against a `tmuxy server --read-only` the server side is a different shape: one m
 2. `monitor::start_monitoring()` spawns a background task that connects to tmux control mode
 3. On connection failure: exponential backoff (100ms to 10s max); after 5 consecutive failures the monitor **parks** — the loop stays alive but stops retrying until a user-requested reconnect (`tmuxy connect` or the sidebar server picker) revives it (see `packages/tmuxy-tauri-app/src/monitor.rs`)
 4. Once connected: emits keybindings, then enters the monitor event loop
-5. Frontend's `TauriAdapter.connect()` sets up event listeners for `tmux-state-update`, `tmux-keybindings`, `tmux-theme-settings`, and `tmux-error`
+5. Frontend's `TauriAdapter.connect()` sets up event listeners for `tmux-state-update`, `tmux-keybindings`, `tmux-theme-settings`, `tmux-css-changed`, and `tmux-error`
 6. No explicit disconnect — the monitor runs for the app's lifetime
 
 ## State Update Flow
@@ -345,6 +346,9 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 | `/commands`                        | POST   | tmux commands (no authentication unless `--password` is set — see SECURITY.md) |
 | `/api/browse/{*path}`              | GET    | Read a file at a path-shaped URL, typed by extension                           |
 | `/api/images/{pane_id}/{image_id}` | GET    | Serve a decoded inline-image blob                                              |
+| `/themes/{name}.css`, `/custom.css` | GET   | The user's stylesheets from the config dir (a built-in theme name falls back to the bundled copy) |
+
+The stylesheet routes are answered by `tmuxy_core::session::resolve_user_css` in both builds: the web server serves them at the app's origin (ahead of the embedded bundle, and ahead of the Vite proxy in dev mode), the desktop app over its `tmuxycss:` scheme, and `tmuxy-ui/src/utils/themeManager.ts` picks between the two. Both hosts poll the config dir once a second (`transport::watch_config`): a saved stylesheet becomes a `css-changed` push, a saved `tmuxy.conf` is sourced on the control-mode connection and followed by the `keybindings` and `theme-settings` pushes a client's own `source-file` gets. `tmuxy config reload` is that second path — it marks the file modified and nothing more. See [ARCHITECTURE.md](ARCHITECTURE.md) for what the config dir holds.
 
 The file route exists for widget rendering: the browser widget frames it. The path lives in the URL rather than a query string, so a framed page's relative links resolve to the files beside it, and the response carries a real content type (see `tmuxy-core/src/mime.rs`) so HTML renders as a page instead of as source. The desktop app serves no HTTP; it answers the same requests over its `tmuxyfile:` scheme, and the frontend picks between the two in `tmuxy-ui/src/utils/fileUrl.ts` — the same split `Terminal.tsx` makes for inline images.
 

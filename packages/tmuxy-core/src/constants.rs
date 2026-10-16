@@ -128,8 +128,11 @@ pub mod tmux_options {
 
     /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
     pub const THEME: &str = "@tmuxy-theme";
-    /// Theme mode: `dark` / `light`.
+    /// Theme mode: `dark` / `light` / `auto` (follow the OS).
     pub const THEME_MODE: &str = "@tmuxy-theme-mode";
+    /// `@tmuxy-css-<variable> <value>`: one CSS variable set on the page over
+    /// the theme file — see [`crate::theme::CSS_VAR_PREFIX`].
+    pub const CSS_VAR_PREFIX: &str = "@tmuxy-css-";
 
     /// Appearance: background alpha (0.0–1.0) of each surface, on every
     /// platform — see [`crate::theme::Appearance`].
