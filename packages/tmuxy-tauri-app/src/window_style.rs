@@ -52,23 +52,13 @@ pub const ALL: [WindowStyle; 12] = [
     WindowStyle::Right,
 ];
 
-/// Prefix every style's menu id carries.
-const ID_PREFIX: &str = "window-style-";
-
 impl WindowStyle {
-    /// Menu item id — `window-style-full-width-top`.
-    pub fn id(self) -> String {
-        format!("{ID_PREFIX}{}", self.slug())
-    }
-
-    /// The style a menu id names, or `None` for an id that is not a style.
-    pub fn from_id(id: &str) -> Option<Self> {
-        let slug = id.strip_prefix(ID_PREFIX)?;
+    /// The style a slug names, or `None` for a slug that is not a style.
+    pub fn from_slug(slug: &str) -> Option<Self> {
         ALL.into_iter().find(|style| style.slug() == slug)
     }
 
-    /// The style's slug — its menu id without the prefix, and the value the
-    /// frontend's Window menu exchanges.
+    /// The style's slug — the value the frontend's Window menu exchanges.
     pub fn slug(self) -> &'static str {
         match self {
             Self::Normal => "normal",
@@ -83,24 +73,6 @@ impl WindowStyle {
             Self::Bottom => "bottom",
             Self::Left => "left",
             Self::Right => "right",
-        }
-    }
-
-    /// Menu label, verbatim from iTerm2.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Normal => "Normal",
-            Self::FullScreen => "Full Screen",
-            Self::Maximized => "Maximized",
-            Self::NoTitleBar => "No Title Bar",
-            Self::FullWidthTop => "Full-Width Top of Screen",
-            Self::FullWidthBottom => "Full-Width Bottom of Screen",
-            Self::FullHeightLeft => "Full-Height Left of Screen",
-            Self::FullHeightRight => "Full-Height Right of Screen",
-            Self::Top => "Top of Screen",
-            Self::Bottom => "Bottom of Screen",
-            Self::Left => "Left of Screen",
-            Self::Right => "Right of Screen",
         }
     }
 }
@@ -360,10 +332,10 @@ mod tests {
     }
 
     #[test]
-    fn every_style_round_trips_through_its_menu_id() {
+    fn every_style_round_trips_through_its_slug() {
         for style in ALL {
-            assert_eq!(WindowStyle::from_id(&style.id()), Some(style));
+            assert_eq!(WindowStyle::from_slug(style.slug()), Some(style));
         }
-        assert_eq!(WindowStyle::from_id("window-new"), None);
+        assert_eq!(WindowStyle::from_slug("window-new"), None);
     }
 }

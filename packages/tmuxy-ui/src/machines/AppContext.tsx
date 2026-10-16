@@ -29,8 +29,6 @@ import {
   selectPaneGroupPanes as selectPaneGroupPanesFn,
   getActivePaneInGroup,
 } from './selectors';
-import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
-import { copyAppState } from '../utils/copyAppState';
 import type { Layer } from 'effect';
 import type { TmuxTransport } from '../infra/transport/TmuxTransport';
 import { transportForEnvironment } from '../infra/transport/layers';
@@ -196,27 +194,6 @@ export function AppProvider({
       return originalSend(event as Parameters<typeof originalSend>[0]);
     };
     (window as unknown as { app: typeof actorRef }).app = actorRef;
-    // Let the Tauri native menu reuse the exact same action dispatch the
-    // in-app menu uses, so its items (including `tab-new`) route through the
-    // control-mode-safe adapter path instead of raw external tmux subprocesses.
-    (window as unknown as { tmuxyMenuAction: (actionId: string) => void }).tmuxyMenuAction = (
-      actionId: string,
-    ) => {
-      const { context } = actorRef.getSnapshot();
-      // The one item that reads the whole context rather than sending an event.
-      if (actionId === 'debug-copy-state') {
-        copyAppState(context, {
-          onCopied: (text) => actorRef.send({ type: 'SHOW_STATUS_MESSAGE', text }),
-          onFailed: (text) => actorRef.send({ type: 'NOTIFY', text }),
-        });
-        return;
-      }
-      executeMenuAction(
-        actorRef.send,
-        actionId,
-        activeCloseTarget(context.activePaneId, context.focusedFloatPaneId),
-      );
-    };
   }, [actorRef]);
 
   return (

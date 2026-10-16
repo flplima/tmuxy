@@ -646,4 +646,45 @@ describe('GUI windows', () => {
     expect(refused.__error).toMatch(/unknown window style/i);
     expect(refused.__kind).toBe('invalid');
   }, 120000);
+
+  // The menus are the page's: one spec per surface, and on macOS the menu bar
+  // is set from it. A WebDriver cannot click a native menu, so the suite tests
+  // the seam — the bar's spec holds the app's items in their places, and the
+  // platform takes the menu (macOS; Linux has no menu bar to set).
+  test('the native menu bar is built from the menu spec and the platform takes it', async () => {
+    await setupApp();
+
+    let ids = [];
+    for (let i = 0; i < 40 && ids.length === 0; i++) {
+      ids = await driver.execute(() => window.tmuxyMenus?.barIds() ?? []);
+      if (ids.length === 0) await driver.pause(250);
+    }
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'menu-app',
+        'session-reload-config',
+        'restart-app',
+        'menu-pane',
+        'pane-split-below',
+        'tab-overview',
+        'tab-stack-toggle',
+        'window-close',
+        'trace-enabled',
+        'help-about',
+      ]),
+    );
+    // A context menu is about its thing: nothing of the app section in the
+    // pane menu, and nothing twice in the bar.
+    expect(new Set(ids).size).toBe(ids.length);
+
+    if (process.platform === 'darwin') {
+      const set = await driver.executeAsync((done) => {
+        window.tmuxyMenus
+          .rebuild()
+          .then((ok) => done(ok))
+          .catch((e) => done(`error: ${e?.message ?? e}`));
+      });
+      expect(set).toBe(true);
+    }
+  }, 120000);
 });

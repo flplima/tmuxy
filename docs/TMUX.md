@@ -170,7 +170,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 The Tauri `run_tmux_command` handler (`packages/tmuxy-tauri-app/src/commands.rs`) routes through `command_router::route_command` like the web server, so a `new-window`/`neww` reaches the control-mode connection as the `splitw ; breakp` rewrite.
 
-The native desktop menu (`packages/tmuxy-tauri-app/src/gui.rs`) does **not** run tmux commands itself. It dispatches every tmux-affecting menu item to the frontend via `window.tmuxyMenuAction`, which routes through the same control-mode-safe adapter path as the in-app menu (including the `new-window` rewrite and the `@tmuxy-window-type` tag).
+The native desktop menus (the macOS menu bar and the native popups) are built by the frontend from its menu spec (`packages/tmuxy-ui/src/domain/menus/`, rendered natively by `infra/menus/nativeMenu.ts`), so every item's callback runs in the page and dispatches through `executeMenuAction` — the same control-mode-safe adapter path as the in-app menu (including the `new-window` rewrite and the `@tmuxy-window-type` tag). The Rust side holds no menu of its own.
 
 ## Targeting: Use Stable IDs, Not Indices
 

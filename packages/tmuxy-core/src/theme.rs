@@ -47,6 +47,8 @@ pub struct Appearance {
     /// Pinch in on an unzoomed tab opens the "all tabs" view
     /// (`@tmuxy-gesture-pinch-overview`).
     pub gesture_pinch_overview: bool,
+    /// The desktop app draws its menus natively (`@tmuxy-native-menus`).
+    pub native_menus: bool,
 }
 
 /// Widest "all tabs" grid the option accepts; past this a card is too small
@@ -68,6 +70,7 @@ impl Default for Appearance {
             gesture_swipe_tabs: true,
             gesture_pinch_zoom: true,
             gesture_pinch_overview: true,
+            native_menus: true,
         }
     }
 }
@@ -106,7 +109,7 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
 
 /// Every option the theme settings are read from, in the order the query
 /// prints them.
-const SETTINGS_OPTIONS: [&str; 14] = [
+const SETTINGS_OPTIONS: [&str; 15] = [
     tmux_options::THEME,
     tmux_options::THEME_MODE,
     tmux_options::OPACITY,
@@ -121,6 +124,7 @@ const SETTINGS_OPTIONS: [&str; 14] = [
     tmux_options::GESTURE_SWIPE_TABS,
     tmux_options::GESTURE_PINCH_ZOOM,
     tmux_options::GESTURE_PINCH_OVERVIEW,
+    tmux_options::NATIVE_MENUS,
 ];
 
 /// The prefix of the options that each set one CSS variable on the page:
@@ -227,6 +231,7 @@ fn parse_settings(output: &str) -> serde_json::Value {
             value(tmux_options::GESTURE_PINCH_OVERVIEW),
             defaults.gesture_pinch_overview,
         ),
+        native_menus: parse_flag(value(tmux_options::NATIVE_MENUS), defaults.native_menus),
     };
     let css_vars = parse_css_vars(lines.iter().copied());
     serde_json::json!({

@@ -377,6 +377,8 @@ export const Appearance = Schema.Struct({
   gesturePinchZoom: Schema.Boolean,
   /** Pinch in opens the "all tabs" view (`@tmuxy-gesture-pinch-overview`). */
   gesturePinchOverview: Schema.Boolean,
+  /** The desktop app draws its menus natively (`@tmuxy-native-menus`); absent from older servers. */
+  nativeMenus: Schema.optional(Schema.Boolean),
 });
 export type Appearance = Schema.Schema.Type<typeof Appearance>;
 

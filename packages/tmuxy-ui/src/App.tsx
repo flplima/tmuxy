@@ -8,6 +8,8 @@
 import { type ReactNode, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
 import { StatusBar } from './components/StatusBar';
+import { NativeMenuBar } from './components/menus/NativeMenuBar';
+import { isTauri } from './utils/platform';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
@@ -138,6 +140,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}
     >
       <StatusBar renderTabline={renderTabline} />
+      {isTauri() && <NativeMenuBar />}
       <div className="app-body">
         {/* Sidebars: fixed-width, full-height columns when open, each holding
             one real tmux pane. As flex siblings they shrink the pane container,

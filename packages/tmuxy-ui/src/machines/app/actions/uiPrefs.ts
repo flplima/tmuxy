@@ -90,6 +90,7 @@ export const uiPrefsActions = {
           pinchZoom: event.appearance?.gesturePinchZoom ?? true,
           pinchOverview: event.appearance?.gesturePinchOverview ?? true,
         },
+        nativeMenus: event.appearance?.nativeMenus ?? true,
       }),
     );
     // localStorage takes precedence — server defaults only apply when

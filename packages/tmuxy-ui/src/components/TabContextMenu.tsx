@@ -11,6 +11,7 @@ import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
 import { TmuxOp } from '../domain/commands';
 import type { WindowId } from '../domain/ids';
+import { belowElement, useNativeMenu } from './menus/useNativeMenu';
 
 interface TabContextMenuProps {
   /** tmux window id the actions target (Close/Rename operate on this tab). */
@@ -61,6 +62,14 @@ export function TabContextMenu({
     },
   });
 
+  const choose = (action: Parameters<typeof dispatch>[0]) => {
+    dispatch(action);
+    onClose();
+  };
+  // Natively the preview card just closes: a native menu grows out of nothing.
+  const inApp = useNativeMenu(spec, choose, anchorEl ? belowElement(anchorEl) : { x, y }, onClose);
+  if (!inApp) return null;
+
   return (
     <FloatingMenu
       // One floating surface at a time: opening this puts away the tab preview
@@ -74,10 +83,7 @@ export function TabContextMenu({
       morphFrom={morphFrom}
       onClose={onClose}
     >
-      {renderSpec(spec, (action) => {
-        dispatch(action);
-        onClose();
-      })}
+      {renderSpec(spec, choose)}
     </FloatingMenu>
   );
 }

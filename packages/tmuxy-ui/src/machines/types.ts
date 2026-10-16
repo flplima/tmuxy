@@ -465,6 +465,8 @@ export interface AppMachineContext {
   tabOverviewCols: number;
   /** Which trackpad gestures the config allows (`@tmuxy-gesture-*`); all on by default. */
   gestureFlags: GestureFlags;
+  /** The desktop app draws its menus natively (`@tmuxy-native-menus`). */
+  nativeMenus: boolean;
   /** The trackpad gesture being drawn right now, or null with the fingers off the pad. */
   gesture: GestureState | null;
   /** Keybindings received from the server */

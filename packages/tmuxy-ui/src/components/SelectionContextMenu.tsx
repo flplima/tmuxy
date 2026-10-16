@@ -16,6 +16,7 @@ import { useMenuEnv } from './menus/menuEnv';
 import { flashCopiedRange } from '../utils/copyFlash';
 import { writeClipboard } from '../utils/clipboard';
 import type { PaneId } from '../domain/ids';
+import { useNativeMenu } from './menus/useNativeMenu';
 
 interface SelectionContextMenuProps {
   paneId: PaneId;
@@ -76,6 +77,9 @@ export function SelectionContextMenu({
       onClose();
     },
   });
+
+  const inApp = useNativeMenu(spec, dispatch, { x, y }, onClose);
+  if (!inApp) return null;
 
   return (
     <FloatingMenu

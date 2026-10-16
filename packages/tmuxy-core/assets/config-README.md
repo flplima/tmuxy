@@ -84,6 +84,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-gesture-swipe-tabs`      | on      | Two-finger slide left/right switches tabs.                          |
 | `@tmuxy-gesture-pinch-zoom`      | on      | Pinch out zooms a pane, pinch in unzooms it.                        |
 | `@tmuxy-gesture-pinch-overview`  | on      | Pinch in on an unzoomed tab opens the "all tabs" view.              |
+| `@tmuxy-native-menus`            | on      | Desktop app: native menu bar and popups; off keeps the in-app menus. |
 | `@tmuxy-css-<variable>`          | —       | One CSS variable, see above.                                        |
 
 A theme or mode picked in the app's menu is stored in `tmuxy.state.json` and

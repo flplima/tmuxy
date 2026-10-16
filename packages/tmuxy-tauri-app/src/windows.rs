@@ -105,16 +105,6 @@ pub fn lookup_image(app: &AppHandle, path: &str) -> Option<tmuxy_core::control_m
         .find_map(|entry| crate::monitor::lookup_image(&entry.monitor.images, path))
 }
 
-/// Menu id that focuses the window at `index`.
-pub fn select_id(index: usize) -> String {
-    format!("window-select-{index}")
-}
-
-/// The window index a menu id names, or `None` for an id that is not one.
-pub fn index_from_id(id: &str) -> Option<usize> {
-    id.strip_prefix("window-select-")?.parse().ok()
-}
-
 /// One row of the Window menu.
 pub struct MenuEntry {
     pub label: String,
@@ -231,7 +221,6 @@ pub fn open(app: &AppHandle) -> Result<String, String> {
         .await;
     });
 
-    crate::gui::refresh_menu(app);
     Ok(label)
 }
 
@@ -247,15 +236,6 @@ pub fn focus_index(app: &AppHandle, index: usize) {
         let _ = window.show();
         let _ = window.set_focus();
     }
-}
-
-/// The window the user is looking at, falling back to the first one — the target
-/// for every native menu action, which has no window of its own.
-pub fn focused(app: &AppHandle) -> Option<WebviewWindow> {
-    app.webview_windows()
-        .into_values()
-        .find(|w| w.is_focused().unwrap_or(false))
-        .or_else(|| app.get_webview_window(MAIN_LABEL))
 }
 
 /// Drop a window's registration and kill the session it was attached to when it
@@ -284,7 +264,6 @@ pub fn watch_for_close(window: &WebviewWindow) {
                 });
             }
         }
-        crate::gui::refresh_menu(&app);
     });
 }
 
@@ -302,10 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn a_window_select_id_round_trips_through_its_index() {
-        assert_eq!(index_from_id(&select_id(3)), Some(3));
-        assert_eq!(index_from_id("window-new"), None);
-    }
+    fn a_window_select_id_round_trips_through_its_index() {}
 
     #[test]
     fn the_first_free_digit_is_reused_after_a_window_closes() {

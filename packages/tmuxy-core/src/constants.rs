@@ -159,6 +159,9 @@ pub mod tmux_options {
     pub const GESTURE_PINCH_ZOOM: &str = "@tmuxy-gesture-pinch-zoom";
     /// `on`/`off`: pinching in on an unzoomed tab opens the "all tabs" view.
     pub const GESTURE_PINCH_OVERVIEW: &str = "@tmuxy-gesture-pinch-overview";
+    /// `on`/`off`: the desktop app draws its menus natively (the macOS menu
+    /// bar, native popups everywhere). Off keeps the themed in-app menus.
+    pub const NATIVE_MENUS: &str = "@tmuxy-native-menus";
 }
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /

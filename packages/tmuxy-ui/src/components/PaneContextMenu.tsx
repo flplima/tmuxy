@@ -8,6 +8,7 @@ import { useAppSend, useAppSelector } from '../machines/AppContext';
 import { paneMenuSpec } from '../domain/menus/paneMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';
+import { useNativeMenu } from './menus/useNativeMenu';
 import type { PaneId } from '../domain/ids';
 
 interface PaneContextMenuProps {
@@ -48,6 +49,13 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
     },
   });
 
+  const choose = (action: Parameters<typeof dispatch>[0]) => {
+    dispatch(action);
+    onClose();
+  };
+  const inApp = useNativeMenu(spec, choose, { x, y }, onClose);
+  if (!inApp) return null;
+
   return (
     <FloatingMenu
       id="pane-context-menu"
@@ -55,10 +63,7 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
       anchor={{ kind: 'point', x, y }}
       onClose={onClose}
     >
-      {renderSpec(spec, (action) => {
-        dispatch(action);
-        onClose();
-      })}
+      {renderSpec(spec, choose)}
     </FloatingMenu>
   );
 }

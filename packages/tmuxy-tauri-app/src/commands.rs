@@ -411,11 +411,10 @@ pub fn list_gui_windows(app: tauri::AppHandle) -> Vec<Value> {
 /// silently ignored, so a typo in the UI shows up as a snackbar.
 #[tauri::command]
 pub fn set_window_style(window: tauri::WebviewWindow, style: String) -> Result<(), CommandError> {
-    let style = crate::window_style::WindowStyle::from_id(&format!("window-style-{style}"))
+    let style = crate::window_style::WindowStyle::from_slug(&style)
         .ok_or_else(|| CommandError::invalid(format!("unknown window style '{style}'")))?;
     crate::window_style::apply(&window, style)
         .map_err(|e| CommandError::unavailable(e.to_string()))?;
-    crate::gui::refresh_menu(&window.app_handle().clone());
     Ok(())
 }
 

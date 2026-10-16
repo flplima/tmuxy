@@ -35,9 +35,10 @@ of the plan are implemented; see [§ Using it](#using-it).
 - **Turn it on (app):** the **Debug** menu — `Enable Traces`, then a level, and
   `Open trace.ndjson` / `Copy trace.ndjson Path` to get at the file. The switch
   gates every item below it, and the choice is remembered for next launch. It is
-  the same menu on macOS (native menu bar) and elsewhere (the in-app hamburger),
-  and a browser client sees it too, minus `Open` — the file is on the machine
-  running the backend, not the one running the browser.
+  the same menu on macOS (native menu bar) and elsewhere (the in-app hamburger)
+  — one spec, `debugMenuSpec` in `tmuxy-ui/src/domain/menus/appMenu.ts`, so the
+  two cannot disagree — and a browser client sees it too, minus `Open` — the
+  file is on the machine running the backend, not the one running the browser.
 - **Turn it on (server):** `tmuxy server --trace` (default file under the state
   dir) or `tmuxy server --trace /path/to/trace.ndjson`.
 - **Turn it off:** off by default on release builds. The Debug menu's switch

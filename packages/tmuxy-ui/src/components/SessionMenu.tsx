@@ -30,6 +30,7 @@ import { useAppSelector } from '../machines/AppContext';
 import { sessionSwitcherSpec } from '../domain/menus/sessionSwitcher';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
+import { belowElement, useNativeMenu } from './menus/useNativeMenu';
 
 interface SessionMenuProps {
   /**
@@ -52,6 +53,18 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
   const spec = useAppSelector((ctx) => sessionSwitcherSpec(ctx, env));
   const dispatch = useMenuDispatch();
 
+  const choose = (action: Parameters<typeof dispatch>[0]) => {
+    // Picking the session or server already attached changes nothing.
+    const same =
+      action.kind === 'event' &&
+      ((action.event.type === 'SWITCH_SESSION' && action.event.sessionName === sessionName) ||
+        (action.event.type === 'CONNECT_SERVER' && action.event.serverId === currentServerId));
+    if (!same) dispatch(action);
+    onClose();
+  };
+  const inApp = useNativeMenu(spec, choose, belowElement(anchorRef.current), onClose);
+  if (!inApp) return null;
+
   return (
     <FloatingMenu
       id="session-menu"
@@ -60,15 +73,7 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
       onClose={onClose}
       ignoreRef={anchorRef}
     >
-      {renderSpec(spec, (action) => {
-        // Picking the session or server already attached changes nothing.
-        const same =
-          action.kind === 'event' &&
-          ((action.event.type === 'SWITCH_SESSION' && action.event.sessionName === sessionName) ||
-            (action.event.type === 'CONNECT_SERVER' && action.event.serverId === currentServerId));
-        if (!same) dispatch(action);
-        onClose();
-      })}
+      {renderSpec(spec, choose)}
     </FloatingMenu>
   );
 }

@@ -170,12 +170,6 @@ export class TauriAdapter implements SequencedAdapter {
           inv('record_trace', { events }).catch(() => {}),
         );
       });
-      // The native Debug menu can flip the switch behind the frontend's
-      // back; gui.rs calls this after a toggle so the client tracer starts
-      // or stops shipping in the same beat as the backend.
-      (window as { tmuxyTraceSync?: (on: boolean) => void }).tmuxyTraceSync = (on) =>
-        tracer.setServerEnabled(on);
-
       // Backfill keybindings: the backend's first `tmux-keybindings` event
       // can fire before this listener is attached (especially on a fresh
       // launch where the WebView is still booting). Without this fetch the

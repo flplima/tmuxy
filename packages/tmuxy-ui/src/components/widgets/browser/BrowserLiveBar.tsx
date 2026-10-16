@@ -15,6 +15,7 @@ import { memo, useRef, useState } from 'react';
 import { useAppSend, useReadOnly } from '../../../machines/AppContext';
 import { FloatingMenu } from '../../floating/Menu';
 import { renderSpec, useMenuDispatch } from '../../menus/SpecMenu';
+import { belowElement, useNativeMenu } from '../../menus/useNativeMenu';
 import { browserSizeMenuSpec } from '../../../domain/menus/browserSizeMenu';
 import { Tooltip } from '../../Tooltip';
 import { BrowserNav } from './BrowserNav';
@@ -44,7 +45,6 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
   const readOnly = useReadOnly();
   const sizeButton = useRef<HTMLButtonElement>(null);
   const [sizeMenuOpen, setSizeMenuOpen] = useState(false);
-  const dispatch = useMenuDispatch();
   const verb = (line: string) => send({ type: 'WRITE_TO_PANE', paneId, data: verbLine(line) });
   const current = LIVE_VIEWPORTS.find((v) => v.value === header.viewport) ?? LIVE_VIEWPORTS[0];
 
@@ -66,16 +66,12 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
         </button>
       </Tooltip>
       {sizeMenuOpen && (
-        <FloatingMenu
-          id="browser-viewport-menu"
-          label="Page size"
-          testId="browser-viewport-menu"
-          anchor={{ kind: 'element', element: sizeButton.current }}
-          ignoreRef={sizeButton}
+        <SizeMenu
+          paneId={paneId}
+          viewport={header.viewport}
+          button={sizeButton}
           onClose={() => setSizeMenuOpen(false)}
-        >
-          {renderSpec(browserSizeMenuSpec(paneId, header.viewport), dispatch)}
-        </FloatingMenu>
+        />
       )}
     </>
   );
@@ -103,3 +99,37 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
     </div>
   );
 });
+
+/** The page-size menu: native on the desktop, the floating menu elsewhere. */
+function SizeMenu({
+  paneId,
+  viewport,
+  button,
+  onClose,
+}: {
+  paneId: PaneId;
+  viewport: string;
+  button: React.RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+}) {
+  const dispatch = useMenuDispatch();
+  const spec = browserSizeMenuSpec(paneId, viewport);
+  const choose = (action: Parameters<typeof dispatch>[0]) => {
+    dispatch(action);
+    onClose();
+  };
+  const inApp = useNativeMenu(spec, choose, belowElement(button.current), onClose);
+  if (!inApp) return null;
+  return (
+    <FloatingMenu
+      id="browser-viewport-menu"
+      label="Page size"
+      testId="browser-viewport-menu"
+      anchor={{ kind: 'element', element: button.current }}
+      ignoreRef={button}
+      onClose={onClose}
+    >
+      {renderSpec(spec, choose)}
+    </FloatingMenu>
+  );
+}

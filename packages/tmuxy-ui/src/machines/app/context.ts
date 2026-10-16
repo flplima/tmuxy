@@ -142,6 +142,7 @@ export const FIELD_OWNERS = {
   cursorBlink: 'uiPrefs',
   tabOverviewCols: 'uiPrefs',
   gestureFlags: 'uiPrefs',
+  nativeMenus: 'uiPrefs',
   gesture: 'gestures',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
@@ -209,6 +210,7 @@ export function createInitialContext(): AppMachineContext {
     cursorBlink: true,
     tabOverviewCols: 3,
     gestureFlags: { swipeTabs: true, pinchZoom: true, pinchOverview: true },
+    nativeMenus: true,
     gesture: null,
     keybindings: null,
     copyModeStates: {},
