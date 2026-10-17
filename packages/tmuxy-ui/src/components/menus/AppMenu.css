@@ -45,7 +45,7 @@
 }
 
 .app-menu-dialog-actions button {
-  padding: var(--spacing-sm) var(--spacing-lg);
+  padding: var(--spacing-xs) var(--spacing-lg);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   background: var(--bg-medium);

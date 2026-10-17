@@ -52,7 +52,7 @@ const containerStyle: React.CSSProperties = {
   color: '#e6edf3',
   background: 'rgba(13, 17, 23, 0.86)',
   border: '1px solid rgba(240, 246, 252, 0.15)',
-  borderRadius: 6,
+  borderRadius: 'var(--radius-lg)',
   padding: '6px 8px',
   minWidth: 172,
   pointerEvents: 'auto',
@@ -103,7 +103,7 @@ export function PerfHud() {
           color: 'inherit',
           background: 'rgba(240,246,252,0.08)',
           border: '1px solid rgba(240,246,252,0.15)',
-          borderRadius: 4,
+          borderRadius: 'var(--radius-md)',
           padding: '2px 0',
           cursor: 'pointer',
         }}

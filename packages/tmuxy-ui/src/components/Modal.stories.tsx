@@ -32,7 +32,7 @@ const Demo = ({
         hideHeader={hideHeader}
         width={420}
       >
-        <div style={{ padding: 20, color: 'var(--text-default)' }}>
+        <div style={{ padding: 20, color: 'var(--text-primary)' }}>
           <p>This is modal body content. Click outside, or hit ×.</p>
         </div>
       </Modal>

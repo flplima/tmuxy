@@ -39,7 +39,7 @@
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   background-color: color-mix(in srgb, var(--term-background) 88%, transparent);
-  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.3));
+  box-shadow: var(--shadow-sm);
   text-align: center;
 }
 
@@ -52,7 +52,7 @@
 
 .ask-overlay-description {
   margin: 0;
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-md);
   line-height: 1.4;
   color: var(--text-muted);
   word-break: break-word;
@@ -73,7 +73,7 @@
   background-color: transparent;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-md);
   cursor: pointer;
 }
 
@@ -93,7 +93,7 @@
    hold the keyboard shows the buttons alone. */
 .ask-overlay-hint {
   margin: 2px 0 0;
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-md);
   color: var(--text-muted);
 }
 

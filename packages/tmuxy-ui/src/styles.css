@@ -128,10 +128,11 @@
      independent of font size. Keep in sync with CHAR_HEIGHT (constants/layout.ts). */
   --pane-header-height: var(--line-height-terminal);
 
-  /* Border Radius */
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
+  /* Border Radius — every corner is square, as in a terminal. The names stay
+     so each rounded-looking surface still says which size it would take. */
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
 
   /* Transitions */
   --transition-fast: 0.1s ease;
@@ -159,10 +160,11 @@
      on zoom-in (0 = to a point). */
   --zoom-collapse-scale: 0.4;
 
-  /* Shadows */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  /* Shadows — a hard offset block, never blurred and never stacked, like a
+     TUI window's drop shadow. Light faces use 0.25 (themes/*.css). */
+  --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
 
   /* Z-index */
   --z-base: 1;
@@ -828,7 +830,7 @@
   position: fixed;
   z-index: 1260;
   pointer-events: none;
-  border-radius: 1px;
+  border-radius: var(--radius-sm);
 }
 
 /* Animations off: the copied text holds a steady highlight for the same time. */
@@ -883,7 +885,7 @@
   border: 1px dashed var(--accent-green);
   background: var(--accent-green-bg);
   opacity: 0.3;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   z-index: 1;
   pointer-events: none;
   box-sizing: border-box;
@@ -1159,7 +1161,7 @@
   margin-left: var(--spacing-lg);
   padding: 0 5px;
   border: none;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--theme-accent);
   color: #000;
   font-size: 0.8em;
@@ -1349,7 +1351,7 @@
   background: var(--term-background);
   color: var(--theme-accent);
   padding: 0 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .statusline-hint-desc {
@@ -1360,7 +1362,7 @@
   background: var(--term-background);
   color: var(--theme-accent);
   padding: 0 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-weight: bold;
 }
 
@@ -1477,9 +1479,7 @@
    so overflow:hidden doesn't clip borders */
 .float-modal .modal-container {
   border: 1px solid var(--accent-green);
-  box-shadow:
-    var(--shadow-lg),
-    0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
   animation: float-appear 200ms ease-out both;
 }
 
@@ -1652,7 +1652,7 @@
   height: 1.5em;
   padding: 0;
   border: none;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-primary);
   font: inherit;
@@ -1694,7 +1694,7 @@
   min-width: 0;
   padding: 0 6px;
   border: none;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
   font: inherit;
@@ -1786,7 +1786,7 @@
 
 .widget-session-heading {
   padding: 0 var(--spacing-2xl);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
   font-size: 0.85em;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1857,7 +1857,7 @@
 }
 
 .widget-session-actions kbd {
-  padding: 0 var(--spacing-sm);
+  padding: 0 var(--spacing-xs);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
   background: var(--bg-medium);
@@ -1887,7 +1887,7 @@
 }
 
 .widget-session-field input {
-  padding: var(--spacing-sm);
+  padding: var(--spacing-xs);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
   background: var(--bg-dark);
@@ -1907,7 +1907,7 @@
 
 .widget-session-error {
   padding: 0 var(--spacing-2xl);
-  color: var(--accent-red, #e06c75);
+  color: var(--error-color);
   font-size: 0.85em;
 }
 
@@ -1945,7 +1945,7 @@
 
 .widget-markdown::-webkit-scrollbar-thumb {
   background: var(--term-bright-black);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .widget-markdown h1,
@@ -1998,7 +1998,7 @@
   background: var(--bg-medium);
   color: var(--term-bright-cyan);
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 0.9em;
 }
@@ -2006,7 +2006,7 @@
 .widget-markdown-pre {
   background: var(--bg-dark);
   border: 1px solid var(--border-medium);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 12px 16px;
   overflow-x: auto;
   margin: 0 0 16px;
@@ -2078,7 +2078,7 @@
 
 .widget-markdown img {
   max-width: 100%;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
 }
 
 .widget-markdown-empty {
@@ -2094,7 +2094,7 @@
   color: var(--term-red);
   background: var(--bg-dark-alt);
   padding: 8px 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-family: var(--font-mono);
   font-size: 0.85em;
   white-space: pre-wrap;
@@ -2435,7 +2435,7 @@
 }
 
 .sidebar-start-failed-title {
-  color: var(--accent-red, #e06c75);
+  color: var(--error-color);
 }
 
 .sidebar-start-failed code {
@@ -2444,7 +2444,7 @@
 
 .sidebar-start-failed-close {
   align-self: flex-start;
-  padding: var(--spacing-sm) var(--spacing-xl);
+  padding: var(--spacing-xs) var(--spacing-xl);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   background: var(--bg-medium);
@@ -2677,7 +2677,7 @@
 .sidebar-tree-id {
   flex: 0 0 auto;
   margin-left: auto;
-  padding-left: var(--spacing-sm);
+  padding-left: var(--spacing-xs);
   font-size: 0.85em;
   font-weight: normal;
   opacity: 0.55;
@@ -2715,7 +2715,7 @@
 /* How many panes a tab holds — the other half of what a collapsed tab shows. */
 .sidebar-tree-count {
   flex: 0 0 auto;
-  padding-left: var(--spacing-sm);
+  padding-left: var(--spacing-xs);
   font-size: 0.85em;
   opacity: 0.6;
 }
@@ -2808,7 +2808,7 @@
 .sidebar-tree-git {
   flex: 0 0 30%;
   box-sizing: border-box;
-  padding-left: var(--spacing-sm);
+  padding-left: var(--spacing-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2891,7 +2891,7 @@
 .tab-overview-slot.is-dragging {
   opacity: 0.85;
   z-index: 1;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  box-shadow: var(--shadow-lg);
   transition: none;
 }
 

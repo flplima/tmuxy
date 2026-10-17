@@ -18,7 +18,7 @@
   background: var(--bg-dark);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-lg);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  box-shadow: var(--shadow-md);
   /* The card takes the pointer: it holds a close button, and reaching for one
      must not be what dismisses it. */
   pointer-events: auto;
@@ -47,7 +47,7 @@
   aspect-ratio: var(--tab-overview-aspect, 16 / 9);
   overflow: hidden;
   border-radius: var(--radius-sm);
-  background: var(--bg-darkest, var(--bg-dark));
+  background: var(--bg-dark);
 }
 
 /* Closing the tab from its own picture. It has a row of its own above the

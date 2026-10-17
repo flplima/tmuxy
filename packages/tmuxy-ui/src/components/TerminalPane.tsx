@@ -489,7 +489,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                 minHeight: 30,
                 height: `calc((100% - 8px) * ${thumbPct / 100})`,
                 backgroundColor: 'rgba(255, 255, 255, 0.4)',
-                borderRadius: 100,
+                borderRadius: 'var(--radius-lg)',
                 opacity: 0,
                 transition: 'opacity 300ms ease-out',
                 pointerEvents: 'none',

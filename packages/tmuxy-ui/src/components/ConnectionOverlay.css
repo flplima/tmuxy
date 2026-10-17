@@ -57,7 +57,7 @@
   padding: 20px 28px;
   border-radius: var(--radius-md);
   background-color: color-mix(in srgb, var(--term-background) 85%, transparent);
-  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.3));
+  box-shadow: var(--shadow-sm);
 }
 
 .connection-spinner {
@@ -89,7 +89,7 @@
   max-width: 80ch;
   text-align: center;
   word-break: break-word;
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-md);
   color: var(--text-muted);
 }
 
@@ -101,7 +101,7 @@
   background-color: var(--bg-highlight-alt, transparent);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-md);
   cursor: pointer;
 }
 
@@ -113,7 +113,7 @@
 
 .connection-overlay-details {
   width: 100%;
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-md);
   color: var(--text-muted);
 }
 

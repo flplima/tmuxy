@@ -78,9 +78,9 @@
      as one. */
   --pane-focus-border: var(--term-yellow);
 
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
 }
 
 /* Gruvbox dark: the active pane's TITLE is in the yellow accent — the same
@@ -167,9 +167,9 @@
      header's text as in dark mode. */
   --pane-focus-border: var(--term-yellow);
 
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.25);
+  --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
 }
 
 /* Gruvbox light: same treatment as dark — the accent for the active pane's
