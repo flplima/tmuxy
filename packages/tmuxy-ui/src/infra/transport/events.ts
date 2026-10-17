@@ -34,6 +34,8 @@ export type TransportEvent = Data.TaggedEnum<{
   Detached: { readonly reason: string | null };
   /** An OSC 52 clipboard write from a terminal application. */
   Clipboard: { readonly paneId: PaneId | null; readonly text: string };
+  /** A message tmux showed this client (`display-message`). */
+  Message: { readonly text: string };
 }>;
 
 export const TransportEvent = Data.taggedEnum<TransportEvent>();

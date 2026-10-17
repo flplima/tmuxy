@@ -164,6 +164,8 @@ export function createTmuxActor(runtime: AppRuntime) {
         parent.send({ type: 'CONNECTION_INFO', defaultShell, readOnly }),
       // OSC 52 clipboard requests from terminal applications.
       Clipboard: ({ paneId, text }) => parent.send({ type: 'TMUX_CLIPBOARD', paneId, text }),
+      // `display-message` output: a notice in the snackbar, not an error.
+      Message: ({ text }) => parent.send({ type: 'NOTIFY', text, kind: 'info' }),
     });
 
     logInfo('Connecting to tmux backend...');

@@ -4,8 +4,9 @@
  * Layout: [left: hints (prefix/copy-mode aware)] [center: status messages] [right: host + session]
  *
  * - Command mode replaces the whole bar with a full-width prompt input (like tmux prefix+:)
- * - Center shows only temporary display-message output; the raw tmux status
- *   line is NOT rendered — hardcoded hints (left) and host/session (right) stand in
+ * - Center shows only the client's own temporary status ("Copied …"); the raw
+ *   tmux status line is NOT rendered — hardcoded hints (left) and host/session
+ *   (right) stand in. tmux's `display-message` output goes to the snackbar.
  * - Host is clickable (desktop: open the connect float); session opens the session float
  */
 
@@ -246,7 +247,7 @@ export function TmuxStatusBar() {
           setMenuOpen(!menuOpen);
         };
 
-  // Center area: only show status messages (temporary display-message output).
+  // Center area: only the client's own temporary status ("Copied …").
   // The tmux status line content is not displayed — we use hardcoded hints (left)
   // and hostname/session (right) instead.
   const centerContent = statusMessage ? (

@@ -283,6 +283,18 @@ impl StateEmitter for TauriEmitter {
         }
     }
 
+    /// A message tmux showed this client (`display-message`); the frontend
+    /// puts it in the snackbar.
+    fn show_message(&self, text: String) {
+        let payload = serde_json::json!({ "text": text });
+        if let Err(e) = self
+            .app
+            .emit_to(self.label.as_str(), "tmux-message", &payload)
+        {
+            eprintln!("Failed to emit message: {}", e);
+        }
+    }
+
     /// Re-emit keybindings after sync_initial_state has source-file'd
     /// the user's tmuxy.conf. Without this, the frontend latches the
     /// prefix it read before the config was sourced — which is the

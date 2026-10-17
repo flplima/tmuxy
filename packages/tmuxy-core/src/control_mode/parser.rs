@@ -89,6 +89,13 @@ pub enum ControlModeEvent {
     /// Flow control: pane continued
     Continue { pane_id: PaneId },
 
+    /// A `display-message` aimed at this client (tmux 3.4+): `%message text`.
+    /// tmux writes the text as it is, unescaped; the parser strips control
+    /// characters and caps the length (`MAX_MESSAGE_CHARS`). One this client
+    /// ran itself comes inside its command's response block instead (see
+    /// `message_line`).
+    Message { text: String },
+
     /// Control mode client exiting
     Exit { reason: Option<String> },
 
@@ -292,6 +299,11 @@ impl Parser {
             });
         }
 
+        // %message text
+        if let Some(text) = message_line(line) {
+            return Some(ControlModeEvent::Message { text });
+        }
+
         // %client-detached / %client-session-changed are intentionally
         // ignored: they describe OTHER clients on the same server, and no
         // consumer (aggregator, monitor, wasm) has ever acted on them. They
@@ -447,9 +459,60 @@ impl Default for Parser {
     }
 }
 
+/// The longest `%message` text kept, in characters; the rest is cut and an
+/// ellipsis marks the cut. A message is a line on the screen, not a document.
+pub const MAX_MESSAGE_CHARS: usize = 500;
+
+/// The text of a `%message` line, cleaned (`clean_message`); `None` for any
+/// other line.
+///
+/// A message from a `display-message` this client ran itself arrives INSIDE
+/// that command's `%begin`/`%end` block, where the parser takes every line as
+/// response text — so the monitor also looks for it in the output of the
+/// commands it sent.
+pub fn message_line(line: &str) -> Option<String> {
+    line.strip_prefix(crate::constants::control_events::MESSAGE)
+        .map(clean_message)
+}
+
+/// A `%message` body as it can be shown: a tab becomes a space, every other
+/// control character is dropped, and the text is capped at
+/// `MAX_MESSAGE_CHARS`. tmux writes the text unescaped, so there is nothing
+/// to decode.
+fn clean_message(raw: &str) -> String {
+    let mut chars = raw
+        .chars()
+        .map(|c| if c == '\t' { ' ' } else { c })
+        .filter(|c| !c.is_control());
+    let mut text: String = chars.by_ref().take(MAX_MESSAGE_CHARS).collect();
+    if chars.next().is_some() {
+        text.push('…');
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_message_is_kept_as_tmux_wrote_it_less_control_characters() {
+        let mut parser = Parser::new();
+        let parse = |parser: &mut Parser, line: &str| match parser.parse_line(line) {
+            Some(ControlModeEvent::Message { text }) => text,
+            other => panic!("expected Message, got {other:?}"),
+        };
+        assert_eq!(parse(&mut parser, "%message build done"), "build done");
+        // Unescaped: a backslash and an octal-looking run stay literal.
+        assert_eq!(
+            parse(&mut parser, r"%message back\slash \012 é"),
+            r"back\slash \012 é"
+        );
+        assert_eq!(parse(&mut parser, "%message a\tb\x07c\x1b[1m"), "a bc[1m");
+        let long = parse(&mut parser, &format!("%message {}", "x".repeat(600)));
+        assert_eq!(long.chars().count(), MAX_MESSAGE_CHARS + 1);
+        assert!(long.ends_with('…'));
+    }
 
     #[test]
     fn test_parse_output() {

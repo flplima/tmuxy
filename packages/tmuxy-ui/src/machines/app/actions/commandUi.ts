@@ -50,7 +50,7 @@ export const commandUiActions = {
     if (!finalCommand.trim()) return;
 
     // The same path as a key binding or a menu item: the intercepts
-    // (copy-mode, nested command-prompt, display-message, tab/group nav)
+    // (copy-mode, nested command-prompt, tab/group nav)
     // and the store's optimistic prediction.
     enqueue(raise({ type: 'SEND_TMUX_COMMAND', command: finalCommand }));
   }),

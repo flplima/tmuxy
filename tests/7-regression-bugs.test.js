@@ -830,3 +830,81 @@ describe('Scenario: a rejected tmux command is reported in the snackbar', () => 
     );
   }, 60000);
 });
+
+// ==================== Scenario: display-message reaches the snackbar ====================
+//
+// tmux hands a control client its `display-message` output as a `%message`
+// notification. It used to be dropped as an unknown line, so a build script's
+// `tmux display-message "build done"` showed nothing, and the command prompt's
+// own `display-message` was answered by the client, unexpanded.
+
+describe('Scenario: tmux display-message shows in the snackbar as a notice', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('from a pane’s shell and from the prompt: a notice top-right, formats expanded by tmux, gone on its own', async () => {
+    if (ctx.skipIfNotReady()) return;
+    // `%message` exists from tmux 3.4; before it a display-message aimed at a
+    // control client shows nothing (docs/STATE-MANAGEMENT.md).
+    const [major, minor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);
+    if (major === 3 && minor < 4) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    const findNotice = async (text) => {
+      for (const item of await page.$$('[data-testid="snackbar-item"][role="status"]')) {
+        if ((await item.evaluate((el) => el.textContent)).includes(text)) return item;
+      }
+      return null;
+    };
+
+    // From the pane's shell, as a build script would.
+    const fromShell = `BUILD_DONE_${Date.now()}`;
+    await typeInTerminal(page, `tmux display-message ${fromShell}`);
+    await pressEnter(page);
+    await waitForCondition(
+      page,
+      async () => (await findNotice(fromShell)) !== null,
+      10000,
+      'the shell’s message in the snackbar',
+    );
+    const item = await findNotice(fromShell);
+    const box = await item.boundingBox();
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y).toBeLessThan(viewport.height / 4);
+    const statusText = await page.$eval('[data-testid="tmux-status-bar"]', (el) => el.textContent);
+    expect(statusText).not.toContain(fromShell);
+
+    // From the command prompt: tmux expands the format, not the client.
+    const fromPrompt = `PROMPT_${Date.now()}`;
+    await tmuxCommandKeyboard(page, `display-message '${fromPrompt} #{session_name}'`);
+    await waitForCondition(
+      page,
+      async () => (await findNotice(fromPrompt)) !== null,
+      10000,
+      async () =>
+        `the prompt’s message in the snackbar (shown: ${JSON.stringify(
+          await page.$$eval('[data-testid="snackbar-item"]', (items) =>
+            items.map((i) => `${i.getAttribute('role')}: ${i.textContent}`),
+          ),
+        )})`,
+    );
+    const promptNotice = await (
+      await findNotice(fromPrompt)
+    ).evaluate((el) => el.querySelector('.snackbar-text').textContent);
+    expect(promptNotice).toBe(`${fromPrompt} ${ctx.session.name}`);
+
+    // A notice ages out by itself.
+    await waitForCondition(
+      page,
+      async () => (await findNotice(fromShell)) === null,
+      20000,
+      'the shell’s notice to clear by itself',
+    );
+  }, 90000);
+});

@@ -35,6 +35,13 @@
   animation: snackbar-in 0.15s ease-out;
 }
 
+/* A tmux message (`display-message`): the same card in the theme's neutral
+   border. The red left edge means error and only error. */
+.snackbar.is-info {
+  border: 1px solid var(--border-light);
+  background-color: var(--term-background);
+}
+
 .snackbar-text {
   flex: 1 1 auto;
   min-width: 0;

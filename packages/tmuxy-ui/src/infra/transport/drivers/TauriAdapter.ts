@@ -8,6 +8,7 @@ import {
   LogEvent,
   MessageFrame,
   ThemeSettings,
+  TmuxMessageEvent,
 } from '../../../domain/wire';
 import { Schema } from 'effect';
 import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
@@ -129,6 +130,12 @@ export class TauriAdapter implements SequencedAdapter {
       // write (HttpAdapter has the same listener).
       await on('tmux-clipboard', ClipboardEvent, (payload) =>
         this.events.emit(TransportEvent.Clipboard({ paneId: payload.pane_id, text: payload.text })),
+      );
+
+      // `display-message` output, forwarded by monitor.rs (HttpAdapter has
+      // the same listener).
+      await on('tmux-message', TmuxMessageEvent, (payload) =>
+        this.events.emit(TransportEvent.Message({ text: payload.text })),
       );
 
       // Backend gave up reconnecting — terminal state, no further events.

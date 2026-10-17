@@ -146,6 +146,11 @@ pub trait StateEmitter: super::log::LogSink {
     /// yank. Default implementation discards the request.
     fn write_clipboard(&self, _pane_id: Option<&PaneId>, _text: String) {}
 
+    /// Called when tmux shows this client a message (`display-message`, or
+    /// tmux's own notices), already cleaned by the parser. Default
+    /// implementation discards it.
+    fn show_message(&self, _text: String) {}
+
     /// Called after initial state sync completes (config sourced, settings enforced).
     /// Default implementation does nothing.
     fn on_initial_sync_complete(&self) {}
@@ -884,6 +889,15 @@ impl<C: ControlLink> TmuxMonitor<C> {
             }
         }
 
+        // A message is for the person, not the tree: it goes straight to the
+        // emitter and the aggregator never sees it.
+        if let ControlModeEvent::Message { text } = event {
+            if !text.is_empty() {
+                emitter.show_message(text);
+            }
+            return true;
+        }
+
         let step = self.aggregator.step_at(event, Instant::now());
 
         for effect in step.effects {
@@ -935,6 +949,15 @@ impl<C: ControlLink> TmuxMonitor<C> {
                             let _ = reply.send(CommandReply { output, error });
                         }
                         Some((ReplyWaiter::ReportFailure, _)) => {
+                            // A `display-message` this client ran is answered
+                            // inside its own block, so it is here as output,
+                            // not as a notification. Nothing else reads this
+                            // output; a caller's reply is left as tmux sent it.
+                            for text in output.lines().filter_map(super::parser::message_line) {
+                                if !text.is_empty() {
+                                    emitter.show_message(text);
+                                }
+                            }
                             if let Some(error) = error {
                                 emitter.emit_error(error);
                             }
@@ -1619,6 +1642,59 @@ mod tests {
                 .unwrap()
                 .push(format!("<clipboard {from} {text}>"));
         }
+        fn show_message(&self, text: String) {
+            self.0.lock().unwrap().push(format!("<message {text}>"));
+        }
+    }
+
+    /// A `%message` goes to the emitter and nowhere else: no command to tmux,
+    /// no state emission — and an empty one (all control characters) is
+    /// dropped rather than shown as a blank notice. One this client ran
+    /// itself arrives inside the command's reply block, and is shown from
+    /// there.
+    #[tokio::test]
+    async fn a_message_reaches_the_emitter_alone() {
+        let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events = [
+            ControlModeEvent::Message {
+                text: "build done".to_string(),
+            },
+            ControlModeEvent::Message {
+                text: String::new(),
+            },
+            // `display-message 'hi #{session_name}'` sent by the client.
+            response("TMUXY_RPY_BEGIN 4\n"),
+            response("%message hi tmuxy"),
+            response("TMUXY_RPY_END 4\n"),
+        ];
+        let count = events.len();
+        let link = Scripted {
+            events: events.into_iter().collect(),
+            sent: std::sync::Arc::clone(&log),
+        };
+        let (_tx, rx) = mpsc::channel(1);
+        let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+        monitor
+            .pending_replies
+            .insert(4, (ReplyWaiter::ReportFailure, tokio::time::Instant::now()));
+        let emitter = Recording(std::sync::Arc::clone(&log));
+        let mut rs = RunState::new(&monitor.config, Instant::now());
+        for _ in 0..count {
+            let event = monitor.connection.recv().await;
+            assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+        }
+        assert_eq!(
+            *log.lock().unwrap(),
+            [
+                "<step>",
+                "<message build done>",
+                "<step>",
+                "<step>",
+                "<step>",
+                "<step>",
+                "<message hi tmuxy>"
+            ]
+        );
     }
 
     /// A link that logs every command in the order it was sent.

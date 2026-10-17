@@ -207,8 +207,6 @@ export type TmuxOp = Data.TaggedEnum<{
     readonly initial: string;
     readonly template: string | null;
   };
-  /** Show a message on the status line. */
-  DisplayMessage: { readonly message: string };
 
   /** A string the client did not originate and cannot name; sent verbatim. */
   RawCommand: { readonly command: string };
@@ -463,8 +461,6 @@ export function toTmuxCommand(op: TmuxOp): string {
         ...(op.initial ? [`-I "${op.initial}"`] : []),
         ...(op.template === null ? [] : [`"${op.template}"`]),
       ].join(' ');
-    case 'DisplayMessage':
-      return `display-message ${quote(op.message)}`;
     case 'RawCommand':
       return op.command;
   }

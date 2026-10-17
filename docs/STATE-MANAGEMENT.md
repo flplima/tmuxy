@@ -232,7 +232,7 @@ The frontend splits along one line: `src/domain/` is pure — branded ids (`ids.
 
 Failures are one tagged union (`infra/transport/AdapterError.ts`): `TmuxError` when tmux itself refused a command (the server's `kind: "tmux"`), `TransportError` for everything a transport reports otherwise (no monitor, a timeout, a malformed or forbidden request), `ProtocolError` for a payload that does not decode, and `Cancelled`. The tmux actor turns a failure into `TMUX_ERROR { error }`, a display string for the snackbar.
 
-### Errors the user sees
+### Errors and messages the user sees
 
 There is one surface for errors: the snackbar (`components/Snackbar.tsx`),
 stacked in the top-right corner of the app chrome, each entry with a close
@@ -241,11 +241,23 @@ button and an expiry. It renders the `notifications` field, owned by the
 raises `NOTIFY { text }` — the connected-state `TMUX_ERROR` handler (backend
 errors, rejected commands, optimistic rollbacks), a refused clipboard write,
 a menu action that cannot run on this transport. The same text arriving while
-still on screen refreshes the entry rather than stacking a duplicate. The
-status line (`statusMessage`, commandUi) is for status — "Copied …",
-`display-message` output — never errors. While the app is still connecting,
-the connection overlay shows the transient `error` instead, so the same
-message is not shown twice.
+still on screen refreshes the entry rather than stacking a duplicate.
+
+tmux's own messages share the corner. A `display-message` aimed at the
+control client reaches it as a `%message` notification (tmux 3.4+; older tmux
+sends nothing). The parser strips its control characters and caps its length,
+the monitor hands it straight to the emitter (`show_message`, never through
+the aggregator), and it goes out as `tmux-message` on SSE and on the desktop
+event channel. The tmux actor raises `NOTIFY { text, kind: 'info' }`: the same
+card in a neutral border, a `status` rather than an `alert`. Because the client
+no longer intercepts `display-message`, tmux expands its formats
+(`display-message '#{pane_current_path}'` shows the path). With a second client
+attached, tmux sends the message to the most recently active one.
+
+The status line (`statusMessage`, commandUi) is for the client's own status —
+"Copied …" — never errors. While the app is still connecting, the connection
+overlay shows the transient `error` instead, so the same message is not shown
+twice.
 
 ### React Integration
 

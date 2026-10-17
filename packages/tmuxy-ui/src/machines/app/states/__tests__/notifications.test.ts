@@ -21,6 +21,13 @@ describe('notifications state', () => {
     expect(ctx.notifications.map((n) => n.text)).toEqual(["can't find window: @9"]);
   });
 
+  it('an entry is an error unless NOTIFY says info, and the two kinds never merge', () => {
+    const actor = mount();
+    actor.send({ type: 'NOTIFY', text: 'build done' });
+    const ctx = sendAndGetContext(actor, { type: 'NOTIFY', text: 'build done', kind: 'info' });
+    expect(ctx.notifications.map((n) => n.kind)).toEqual(['error', 'info']);
+  });
+
   it('notifications stack oldest first', () => {
     const actor = mount();
     actor.send({ type: 'NOTIFY', text: 'first' });

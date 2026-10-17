@@ -166,14 +166,19 @@ export interface ResizeState {
 // App Machine Types
 // ============================================
 
+/** An error the user has to see, or a message tmux showed them (`display-message`). */
+export type NotificationKind = 'error' | 'info';
+
 /**
- * An error the user needs to see, shown as a snackbar in the top-right of the
- * app chrome until dismissed or aged out. The status line is for status
- * ("Copied …", `display-message` output); errors come here.
+ * A snackbar entry in the top-right of the app chrome, shown until dismissed
+ * or aged out: an error, or a tmux message. The status line keeps only the
+ * client's own status ("Copied …").
  */
+
 export interface AppNotification {
   id: number;
   text: string;
+  kind: NotificationKind;
   timestamp: number;
 }
 
@@ -507,9 +512,9 @@ export interface AppMachineContext {
     input: string;
     template: string | null;
   } | null;
-  /** Temporary status message (from display-message) */
+  /** The client's own temporary status on the status line ("Copied …") */
   statusMessage: { text: string; timestamp: number } | null;
-  /** Errors on screen, oldest first (see AppNotification) */
+  /** Snackbar entries on screen, oldest first (see AppNotification) */
   notifications: AppNotification[];
   /** Current theme name */
   themeName: string;
@@ -1043,7 +1048,8 @@ export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string
 export type ClearStatusMessageEvent = { type: 'CLEAR_STATUS_MESSAGE' };
 
 // Snackbar events
-export type NotifyEvent = { type: 'NOTIFY'; text: string };
+/** `kind` defaults to `error`. */
+export type NotifyEvent = { type: 'NOTIFY'; text: string; kind?: NotificationKind };
 export type DismissNotificationEvent = { type: 'DISMISS_NOTIFICATION'; id: number };
 
 // Focus events (for keyboard capture gating)

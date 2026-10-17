@@ -157,9 +157,6 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
         template: op.template,
       });
       return;
-    case 'DisplayMessage':
-      enqueue.raise({ type: 'SHOW_STATUS_MESSAGE', text: op.message });
-      return;
     case 'SelectWindow': {
       // Shares the optimistic flip and lastActivePaneByWindow bookkeeping
       // with a click on the tab.

@@ -405,6 +405,9 @@ export const MessageFrame = Schema.Struct({ message: Schema.String });
 /** The connection ended, with tmux's `%exit` reason when it gave one. */
 export const DetachedEvent = Schema.Struct({ reason: Schema.NullishOr(Schema.String) });
 
+/** A message tmux showed this client (`display-message`): SSE and desktop `tmux-message`. */
+export const TmuxMessageEvent = Schema.Struct({ text: Schema.String });
+
 /** The pane a clipboard write came from; the paste-buffer mirror has none and sends `''`. */
 const ClipboardSource = Schema.transform(
   Schema.Union(Schema.Literal(''), PaneId),

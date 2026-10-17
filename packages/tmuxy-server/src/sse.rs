@@ -173,6 +173,10 @@ impl StateEmitter for SseEmitter {
             text,
         });
     }
+
+    fn show_message(&self, text: String) {
+        self.send_event(&SseEvent::Message { text });
+    }
 }
 
 // ============================================
@@ -222,6 +226,11 @@ enum SseEvent {
     /// Frontend mirrors the text into the system clipboard via navigator.clipboard.
     #[serde(rename = "clipboard")]
     Clipboard { pane_id: String, text: String },
+    /// A message tmux showed this client (`display-message`). Named
+    /// `tmux-message`, never `message`: that is `EventSource`'s default event
+    /// type, which `onmessage` would receive as well.
+    #[serde(rename = "tmux-message")]
+    Message { text: String },
 }
 
 // ============================================
@@ -2460,6 +2469,19 @@ mod tests {
         assert_eq!(parsed["event"], "clipboard");
         assert_eq!(parsed["data"]["pane_id"], "%4");
         assert_eq!(parsed["data"]["text"], "hello world");
+    }
+
+    /// A tmux message goes out as `tmux-message` `{ text }` — never as
+    /// `message`, which `EventSource.onmessage` would also receive.
+    #[test]
+    fn message_event_serializes_with_expected_shape() {
+        let evt = SseEvent::Message {
+            text: "build done".to_string(),
+        };
+        let parsed: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&evt).unwrap()).unwrap();
+        assert_eq!(parsed["event"], "tmux-message");
+        assert_eq!(parsed["data"]["text"], "build done");
     }
 
     // ----------------------------------------------------------------

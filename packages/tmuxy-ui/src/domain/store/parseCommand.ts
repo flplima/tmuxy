@@ -54,22 +54,6 @@ function parseCommandPrompt(command: string): TmuxOp {
   return TmuxOp.CommandPrompt({ prompt, initial, template });
 }
 
-/** `display-message [flags] message`; with `-p` (print) it is tmux's, not the status line's. */
-function parseDisplayMessage(command: string): TmuxOp {
-  const tokens = words(command);
-  let i = 1;
-  while (i < tokens.length) {
-    const token = tokens[i++];
-    if (token === '-p') break;
-    if (token.startsWith('-')) {
-      if (/^-[tFc]$/.test(token) && i < tokens.length) i++;
-    } else {
-      return TmuxOp.DisplayMessage({ message: token });
-    }
-  }
-  return TmuxOp.RawCommand({ command });
-}
-
 /** Commands that are exactly one bare verb (or its alias). */
 const BARE: ReadonlyArray<[RegExp, () => TmuxOp]> = [
   [/^(new-window|neww)(\s|$)/, () => TmuxOp.NewWindow()],
@@ -254,10 +238,6 @@ export function parseCommandToOp(command: string): TmuxOp {
   if (copyMode) return TmuxOp.EnterCopyMode({ paneId: isPaneId(copyMode[1]) ? copyMode[1] : null });
 
   if (/^command-prompt\b/.test(trimmed)) return parseCommandPrompt(trimmed);
-  if (/^(display-message|display)(\s|$)/.test(trimmed)) {
-    const op = parseDisplayMessage(trimmed);
-    return op._tag === 'RawCommand' ? TmuxOp.RawCommand({ command }) : op;
-  }
 
   return TmuxOp.RawCommand({ command });
 }

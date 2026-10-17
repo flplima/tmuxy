@@ -1,6 +1,7 @@
 /**
  * Snackbar stories — the error corner: one entry, a stack, and the close
- * button. Errors are raised through the machine exactly as the app does.
+ * button; and a tmux message beside an error. Entries are raised through the
+ * machine exactly as the app does.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -64,5 +65,49 @@ export const Stacked: Story = {
     expect(body.getAllByRole('alert').map((a) => a.textContent)).not.toContain(
       expect.stringContaining(ERRORS[1]),
     );
+  },
+};
+
+/** A tmux `display-message`, as the tmux actor raises it on `%message`. */
+function MessageTrigger({ text }: { text: string }) {
+  const send = useAppSend();
+  return (
+    <button type="button" onClick={() => send({ type: 'NOTIFY', text, kind: 'info' })}>
+      {text}
+    </button>
+  );
+}
+
+const MESSAGE = 'build done';
+
+/**
+ * A tmux message is a status, not an alert: announced politely, and drawn
+ * without the red edge that means error — while an error beside it keeps it.
+ */
+export const TmuxMessage: Story = {
+  render: () => (
+    <ProviderHarness height={320}>
+      <div style={{ display: 'flex', gap: 8, padding: 12 }}>
+        <MessageTrigger text={MESSAGE} />
+        <Triggers errors={[ERRORS[0]]} />
+      </div>
+      <Snackbar />
+    </ProviderHarness>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('button', { name: MESSAGE }));
+    await userEvent.click(canvas.getByRole('button', { name: ERRORS[0] }));
+    // The stack is fixed to the viewport, so look it up from the document.
+    const stack = within(await within(document.body).findByTestId('snackbar'));
+    const message = await stack.findByRole('status');
+    const error = await stack.findByRole('alert');
+    expect(message).toHaveTextContent(MESSAGE);
+    expect(message.getBoundingClientRect().width).toBeGreaterThan(0);
+    const edge = (el: HTMLElement) => parseFloat(getComputedStyle(el).borderLeftWidth);
+    expect(edge(message)).toBeLessThan(edge(error));
+    await userEvent.click(within(message).getByRole('button', { name: /dismiss/i }));
+    await waitFor(() => expect(stack.queryByRole('status')).toBeNull());
+    expect(stack.getByRole('alert')).toHaveTextContent(ERRORS[0]);
   },
 };

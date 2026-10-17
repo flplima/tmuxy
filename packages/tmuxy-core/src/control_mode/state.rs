@@ -2393,6 +2393,10 @@ impl StateAggregator {
                 ..Default::default()
             },
 
+            // A message is for the person, not the tree; the monitor hands it
+            // to the emitter before a step is taken.
+            ControlModeEvent::Message { .. } => ProcessEventResult::default(),
+
             // ============================================
             // Flow Control Events (tmux 3.2+ pause-after)
             // ============================================

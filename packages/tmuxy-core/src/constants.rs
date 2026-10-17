@@ -405,6 +405,7 @@ pub mod control_events {
     pub const SUBSCRIPTION_CHANGED: &str = "%subscription-changed ";
     pub const PAUSE: &str = "%pause ";
     pub const CONTINUE: &str = "%continue ";
+    pub const MESSAGE: &str = "%message ";
     pub const EXIT: &str = "%exit";
 }
 

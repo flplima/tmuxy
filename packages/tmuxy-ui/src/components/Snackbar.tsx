@@ -1,12 +1,13 @@
 /**
- * Snackbar — the errors the user has to see, stacked in the top-right corner
- * of the app chrome.
+ * Snackbar — what the user has to see, stacked in the top-right corner of the
+ * app chrome: the errors, and the messages tmux shows this client
+ * (`display-message`).
  *
  * Renders `notifications` from the machine (see states/notifications.ts):
  * oldest at the top, each with a close button; an entry also ages out on its
- * own. Nothing here decides what is an error — anything that raises NOTIFY
- * ends up in this corner, and status that is not an error stays on the
- * status line.
+ * own. An error is an alert with the red edge; a tmux message is a status in
+ * the theme's neutral border, so it is neither styled nor announced as a
+ * failure.
  */
 
 import { useAppSelector, useAppSend, selectNotifications } from '../machines/AppContext';
@@ -20,7 +21,12 @@ export function Snackbar() {
   return (
     <div className="snackbar-stack" data-testid="snackbar" role="region" aria-label="Notifications">
       {notifications.map((n) => (
-        <div key={n.id} className="snackbar" role="alert" data-testid="snackbar-item">
+        <div
+          key={n.id}
+          className={`snackbar${n.kind === 'info' ? ' is-info' : ''}`}
+          role={n.kind === 'info' ? 'status' : 'alert'}
+          data-testid="snackbar-item"
+        >
           <span className="snackbar-text">{n.text}</span>
           <button
             type="button"

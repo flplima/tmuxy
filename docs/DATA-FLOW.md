@@ -14,6 +14,7 @@ The web version uses two HTTP endpoints on the Axum server:
 - `css-changed` — A stylesheet under the user's config dir (`themes/*.css`, `custom.css`) was saved; the client re-fetches its stylesheets and the themes list. No payload
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
+- `tmux-message` — `{ text }`, a `display-message` tmux showed this client (its `%message` notification), shown in the snackbar. Named `tmux-message`, never `message`: that is `EventSource`'s default event type, which `onmessage` receives too. The desktop app emits the same name.
 - `ping` — keepalive on an idle stream, once a second; the client times a silent link out by it (see Reconnecting below)
 - `log`, `tmux-error`, `fatal` — Diagnostic and error notifications. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
 

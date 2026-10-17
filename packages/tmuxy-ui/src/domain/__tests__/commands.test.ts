@@ -201,7 +201,6 @@ const cases: Array<[TmuxOp, string]> = [
   // Client-side
   [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \'%%\'"'],
   [renameSessionPrompt(), 'command-prompt -I "#S" "rename-session -- \'%%\'"'],
-  [TmuxOp.DisplayMessage({ message: 'hi' }), "display-message 'hi'"],
   [TmuxOp.RawCommand({ command: 'choose-tree' }), 'choose-tree'],
 ];
 
@@ -338,7 +337,6 @@ describe('binding strings round-trip through their op', () => {
     `run-shell "${S}/pane-group-next #{pane_id}"`,
     `run-shell "${S}/pane-group-prev %3"`,
     'command-prompt -I "#W" "rename-window -- \'%%\'"',
-    "display-message 'Config reloaded!'",
   ];
 
   it.each(bindings)('%s', (binding) => {
@@ -363,7 +361,14 @@ describe('binding strings round-trip through their op', () => {
   });
 
   it('keeps what it cannot name as a raw command', () => {
-    for (const command of ['choose-tree', 'resize-pane -L 5', 'display-message -p "#S"']) {
+    // `display-message` is tmux's to run, so tmux expands its formats and
+    // answers with a `%message` the snackbar shows.
+    for (const command of [
+      'choose-tree',
+      'resize-pane -L 5',
+      'display-message -p "#S"',
+      "display-message 'Config reloaded!'",
+    ]) {
       expect(parseCommandToOp(command)).toEqual(TmuxOp.RawCommand({ command }));
     }
   });

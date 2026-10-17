@@ -1,11 +1,12 @@
 /**
- * notifications state — the errors the user has to see.
+ * notifications state — what the user has to see in the snackbar.
  *
- * Owns context field: notifications. Anything that used to put an error on
- * the status line raises NOTIFY instead; the Snackbar component renders the
+ * Owns context field: notifications. Errors raise NOTIFY (kind `error`, the
+ * default); a message tmux shows this client (`display-message`, arriving as
+ * `%message`) raises it with kind `info`. The Snackbar component renders the
  * list in the top-right corner of the app chrome, newest at the bottom, each
- * with a close button. Status that is not an error ("Copied …",
- * `display-message` output) stays on the status line (commandUi).
+ * with a close button. The client's own status ("Copied …") stays on the
+ * status line (commandUi).
  * Action implementations live in ../actions/notifications.ts.
  */
 

@@ -27,10 +27,11 @@ export const notificationsActions = {
   notifications_push: act(({ event, context, enqueue }) => {
     if (event.type !== 'NOTIFY') return;
     const now = Date.now();
-    const existing = context.notifications.find((n) => n.text === event.text);
+    const kind = event.kind ?? 'error';
+    const existing = context.notifications.find((n) => n.text === event.text && n.kind === kind);
     const entry: AppNotification = existing
       ? { ...existing, timestamp: now }
-      : { id: nextNotificationId++, text: event.text, timestamp: now };
+      : { id: nextNotificationId++, text: event.text, kind, timestamp: now };
     const others = context.notifications.filter((n) => n.id !== entry.id);
     const evicted = others.slice(0, Math.max(0, others.length + 1 - MAX_NOTIFICATIONS));
     for (const n of evicted) enqueue(cancel(timerId(n.id)));

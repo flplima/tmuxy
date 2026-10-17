@@ -10,6 +10,7 @@ import {
   LogEvent,
   MessageFrame,
   ThemeSettings,
+  TmuxMessageEvent,
 } from '../../../domain/wire';
 import { StateSequencer } from '../stateSequencer';
 import { decodeEvent } from '../wireDecode';
@@ -55,6 +56,7 @@ const STREAM_EVENTS = [
   'css-changed',
   'tmux-error',
   'clipboard',
+  'tmux-message',
   'log',
   'detached',
   'fatal',
@@ -408,6 +410,12 @@ export class HttpAdapter implements SequencedAdapter {
       // Mirrored into the system clipboard via navigator.clipboard.writeText.
       on('clipboard', ClipboardEvent, (data) =>
         this.events.emit(TransportEvent.Clipboard({ paneId: data.pane_id, text: data.text })),
+      );
+
+      // `display-message` output: the wire name is `tmux-message`, not
+      // `message`, which every EventSource also dispatches to `onmessage`.
+      on('tmux-message', TmuxMessageEvent, (data) =>
+        this.events.emit(TransportEvent.Message({ text: data.text })),
       );
 
       on('log', LogEvent, (data) =>
