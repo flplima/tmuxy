@@ -61,11 +61,11 @@
 
 /* The divider's upper half lights with the column it belongs to. */
 .statusbar-cluster-left.is-docked.is-focused {
-  border-right-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+  border-right-color: var(--pane-focus-border);
 }
 
 .statusbar-cluster-right.is-docked.is-focused {
-  border-left-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+  border-left-color: var(--pane-focus-border);
 }
 
 /* Sidebar title — the column's label, since a docked column has no header of
@@ -89,7 +89,7 @@
    have it at a time, which is what makes it mean "here". */
 .sidebar-title.is-focused {
   opacity: 1;
-  color: var(--tab-active-text, var(--term-white));
+  color: var(--tab-active-text);
 }
 
 .sidebar-title-text {
@@ -256,13 +256,12 @@
   opacity: 0.8;
 }
 
-/* Active tab: brightness only. A filled pill would compete with the active
-   pane's own border for "where am I", and the tab strip is the coarser of the
-   two — so it states it more quietly. A theme may give it its accent colour
-   (--tab-active-text). */
+/* Active tab: full brightness in the theme's accent, no filled pill. A pill
+   would compete with the active pane's own border for "where am I", and the
+   tab strip is the coarser of the two — so it states it more quietly. */
 .tab-name-active {
   opacity: 1;
-  color: var(--tab-active-text, var(--term-white));
+  color: var(--tab-active-text);
 }
 
 /* ...unless the keyboard has gone to a sidebar. The accent follows the focus,

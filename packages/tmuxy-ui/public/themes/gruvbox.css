@@ -41,10 +41,10 @@
   --border-medium: #3c3836;
   --border-light: #504945;
 
-  /* The accent: the current tab in the app header and the active pane's
-     header text both take gruvbox's yellow. */
-  --tab-active-text: var(--term-yellow);
-  --pane-header-text-active: var(--tab-active-text);
+  /* The accent: gruvbox's yellow, for the current tab, the active pane's
+     outline and its title alike. */
+  --theme-accent: var(--term-yellow);
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: #928374;
 
   --accent-green: #98971a;
@@ -70,30 +70,12 @@
   /* Status bar: dark gray (instead of olive green) */
   --tmux-status-bg: #3c3836;
 
-  /* Inactive pane bar/outline: gruvbox bg-highlight — a step lighter than
-     `--border-medium` (which inactive panes use) so the bar reads clearly
-     without being a hard white box. */
-  --pane-active-border: #504945;
-  /* Active pane outline: gruvbox yellow, the theme's accent — the same
-     colour the active header's text takes, so the frame and its title read
-     as one. */
-  --pane-focus-border: var(--term-yellow);
 
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
 }
 
-/* Gruvbox dark: the active pane's TITLE is in the yellow accent — the same
-   yellow as the pane's outline and the current tab in the app header.
-   Its title alone: a group's other members are not the pane in view and read
-   as inactive, and the ⋮/✕ are chrome rather than content — painting those
-   accent made three different things shout the same colour. */
-:root.theme-dark .pane-header-active .pane-tab-selected,
-:root.theme-dark .pane-header-active .pane-tab-selected .pane-tab-title,
-:root.theme-dark .pane-header-active .pane-tab-selected .pane-tab-icon {
-  color: var(--tab-active-text);
-}
 
 :root.theme-light {
   --term-black: #fbf1c7;
@@ -130,13 +112,13 @@
   --text-muted: #665c54;
   --text-dimmed: #928374;
   --text-subtle: #a89984;
-  --text-dark: #fbf1c7;
 
   --border-medium: #d5c4a1;
   --border-light: #c9b89a;
 
-  --tab-active-text: var(--term-yellow);
-  --pane-header-text-active: var(--tab-active-text);
+  /* Gruvbox's yellow, a shade darker so it reads at 4.5:1 on the cream. */
+  --theme-accent: #8b5b0f;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: #928374;
 
   --accent-green: #797403;
@@ -163,21 +145,8 @@
   --tmux-status-bg: #3c3836;
   --text-dark: #ebdbb2;
 
-  /* Inactive pane bar/outline: one step lighter than the light-mode border. */
-  --pane-active-border: #a89984;
-  /* Active pane outline: light mode's yellow accent, matching the active
-     header's text as in dark mode. */
-  --pane-focus-border: var(--term-yellow);
 
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.25);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
-}
-
-/* Gruvbox light: same treatment as dark — the accent for the active pane's
-   title alone, not for the rest of the header. */
-:root.theme-light .pane-header-active .pane-tab-selected,
-:root.theme-light .pane-header-active .pane-tab-selected .pane-tab-title,
-:root.theme-light .pane-header-active .pane-tab-selected .pane-tab-icon {
-  color: var(--tab-active-text);
 }

@@ -58,6 +58,7 @@
   --pane-header-text-inactive: var(--fallout-fg-dim);
 
   --accent-green: var(--fallout-fg);
+  --theme-accent: var(--accent-green);
   --accent-orange: var(--text-primary);
   --accent-green-bg: #0d2a0d;
 
@@ -82,6 +83,9 @@
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
+
+  /* The CRT glow on terminal text. */
+  --terminal-text-glow: 0 0 5px rgba(51, 255, 51, 0.5);
 }
 
 :root.theme-light {
@@ -140,6 +144,7 @@
   --pane-header-text-inactive: var(--fallout-light-fg-dim);
 
   --accent-green: var(--fallout-light-fg);
+  --theme-accent: var(--accent-green);
   --accent-orange: var(--text-primary);
   --accent-green-bg: #b5b890;
 
@@ -164,26 +169,4 @@
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.25);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
-}
-
-:root.theme-dark body {
-  background: radial-gradient(ellipse at center, #0f2a0f 0%, #0a1a0a 50%, #050d05 100%);
-}
-
-:root.theme-light body {
-  background: var(--fallout-light-bg);
-}
-
-:root.theme-dark .pane-container,
-:root.theme-dark .terminal-container,
-:root.theme-dark .pane-scroll-container,
-:root.theme-dark .pane-layout-item,
-:root.theme-dark .float-content,
-:root.theme-dark .modal-container {
-  background: transparent;
-}
-
-:root.theme-dark .terminal-content,
-:root.theme-dark .pane-container .terminal-line {
-  text-shadow: 0 0 5px rgba(51, 255, 51, 0.5);
 }

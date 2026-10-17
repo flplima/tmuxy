@@ -155,12 +155,13 @@ export const PaneHeaderGrayAndGruvboxAccent: Story = {
       { timeout: 8000 },
     );
 
-    // Gruvbox, light: its light gray, still the yellow accent.
+    // Gruvbox, light: its light gray, and the accent — a darker yellow, so it
+    // reads at 4.5:1 on the cream.
     app().send({ type: 'SET_THEME_MODE', mode: 'light' });
     await waitFor(
       () => {
         const title = expectBars([0xd5, 0xc4, 0xa1]);
-        expect(title.rgb).toEqual(resolve('var(--term-yellow)'));
+        expect(title.rgb).toEqual([0x8b, 0x5b, 0x0f]);
       },
       { timeout: 8000 },
     );

@@ -44,6 +44,7 @@
   --pane-header-text-inactive: #6272a4;
 
   --accent-green: #50fa7b;
+  --theme-accent: var(--accent-green);
   --accent-orange: #ffb86c;
   --accent-green-bg: #1a3d2a;
 
@@ -113,7 +114,8 @@
   --pane-header-text-active: #282a36;
   --pane-header-text-inactive: #8e8e93;
 
-  --accent-green: #00a152;
+  --accent-green: #007c3f;
+  --theme-accent: var(--accent-green);
   --accent-orange: #c2410c;
   --accent-green-bg: #e6f5ec;
 
@@ -133,7 +135,7 @@
   --cursor-text: #f8f8f2;
   --cursor-inactive: #8e8e93;
 
-  --tmux-status-bg: #00a152;
+  --tmux-status-bg: #007c3f;
 
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.25);
