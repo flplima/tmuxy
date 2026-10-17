@@ -28,6 +28,7 @@ import {
 } from '../machines/AppContext';
 import { LogProfiler } from '../utils/renderLog';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
+import { CONTAINER_PADDING_X } from '../constants';
 import type { FloatPaneState } from '../machines/types';
 import type { TmuxPane } from '../machines/types';
 
@@ -137,11 +138,12 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
     );
   }
 
-  // Regular centered float
+  // Regular float, centred on the container's content box — the box the grid
+  // fills. The overlay spans the padding box, so the side padding is added back.
   const terminalRows = Math.floor(floatState.height / charHeight);
   const floatWidth = floatState.width;
   const floatHeight = floatState.height + headerHeight;
-  const left = Math.max(0, (containerWidth - floatWidth) / 2);
+  const left = CONTAINER_PADDING_X + Math.max(0, (containerWidth - floatWidth) / 2);
   const top = Math.max(0, (containerHeight - floatHeight) / 2);
 
   return (

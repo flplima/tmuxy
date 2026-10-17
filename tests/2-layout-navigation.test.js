@@ -112,6 +112,33 @@ const focusedFloatPaneId = (page) =>
   page.evaluate(() => window.app?.getSnapshot()?.context?.focusedFloatPaneId ?? null);
 
 /**
+ * How far the float's centre sits from the centre of the pane container's
+ * content box (the box the grid fills), in pixels, with the container's width
+ * so a caller can tell a resize arrived.
+ */
+const floatCentreOffset = (page) =>
+  page.evaluate(() => {
+    const float = document.querySelector('.float-modal .modal-container');
+    const container = document.querySelector('.pane-container');
+    if (!float || !container) return null;
+    const f = float.getBoundingClientRect();
+    const c = container.getBoundingClientRect();
+    const pad = getComputedStyle(container);
+    const left = c.x + parseFloat(pad.paddingLeft);
+    const right = c.right - parseFloat(pad.paddingRight);
+    const top = c.y + parseFloat(pad.paddingTop);
+    const bottom = c.bottom - parseFloat(pad.paddingBottom);
+    return {
+      dx: f.x + f.width / 2 - (left + right) / 2,
+      dy: f.y + f.height / 2 - (top + bottom) / 2,
+      containerWidth: Math.round(c.width),
+    };
+  });
+
+const isCentred = (offset) =>
+  offset !== null && Math.abs(offset.dx) <= 1 && Math.abs(offset.dy) <= 1;
+
+/**
  * Open a float the way a user does — `tmuxy pane float` typed at the prompt —
  * and return once it is on screen with a real size and holds the keyboard
  * focus. Returns the focused float's pane id.
@@ -1849,9 +1876,14 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('CLI float → visually visible → header structure → auto-focus → type command → output visible → input isolation → close button → background restored → Escape and backdrop close too', async () => {
+  test('CLI float → visually visible → centred in the container, again after a resize → header structure → auto-focus → type command → output visible → input isolation → close button → background restored → Escape and backdrop close too', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
+
+    // The float is opened from the right half of a split, so a float anchored
+    // to the pane it came from would sit off the container's centre.
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
 
     // Record background pane ID
     const bgPaneId = await ctx.session.getActivePaneId();
@@ -1908,6 +1940,33 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     expect(parseFloat(floatStyle.borderBottom)).toBeGreaterThanOrEqual(1);
     expect(parseFloat(floatStyle.borderLeft)).toBeGreaterThanOrEqual(1);
     expect(floatStyle.boxShadow).not.toBe('none');
+
+    // Step 3b2: The float sits at the centre of the pane container, and comes
+    // back to it once the window is resized.
+    const opened = await floatCentreOffset(ctx.page);
+    expect(Math.abs(opened.dx)).toBeLessThanOrEqual(1);
+    expect(Math.abs(opened.dy)).toBeLessThanOrEqual(1);
+    const viewport = ctx.page.viewportSize();
+    await ctx.page.setViewportSize({ width: viewport.width - 280, height: viewport.height - 80 });
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const offset = await floatCentreOffset(ctx.page);
+        return offset?.containerWidth !== opened.containerWidth && isCentred(offset);
+      },
+      10000,
+      'the float to re-centre in the resized container',
+    );
+    await ctx.page.setViewportSize(viewport);
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const offset = await floatCentreOffset(ctx.page);
+        return offset?.containerWidth === opened.containerWidth && isCentred(offset);
+      },
+      10000,
+      'the float to re-centre once the window is back to its size',
+    );
 
     // Step 3c: Float pane header icon is NOT a button (no role="button")
     const iconIsStatic = await ctx.page.evaluate(() => {

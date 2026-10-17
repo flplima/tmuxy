@@ -135,15 +135,18 @@ export function buildFloatPanesFromWindows(
       };
     } else {
       // Default dimensions: requested size, else the pane's actual size. Cap
-      // to leave margin around the container edges.
+      // to leave margin around the container edges, in whole cells so the
+      // float centres with the remainder split evenly on both sides.
       const isHorizontalDrawer = drawer === 'left' || drawer === 'right';
       const isVerticalDrawer = drawer === 'top' || drawer === 'bottom';
       const defaultWidth = isVerticalDrawer
         ? containerWidth
-        : (metaWidth ?? Math.min(pane.width * charWidth, containerWidth - 100));
+        : (metaWidth ??
+          Math.min(pane.width, Math.floor((containerWidth - 100) / charWidth)) * charWidth);
       const defaultHeight = isHorizontalDrawer
         ? containerHeight
-        : (metaHeight ?? Math.min(pane.height * charHeight, containerHeight - 100));
+        : (metaHeight ??
+          Math.min(pane.height, Math.floor((containerHeight - 100) / charHeight)) * charHeight);
       floatPanes[paneId] = {
         paneId,
         parentWindowId: window.floatParent ?? null,
