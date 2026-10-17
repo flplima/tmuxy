@@ -2272,6 +2272,10 @@
      top/bottom pair and leave the column a header-row short at the bottom. */
   height: auto;
   z-index: 30;
+  /* Docked, a column is chrome and lets the window's ground show through;
+     over the panes it has to bring that ground with it, opaque, or the panes
+     would read through the tree. */
+  background-color: rgb(var(--window-bg-rgb));
 }
 
 .sidebar-column-left.is-overlay {
