@@ -1,0 +1,49 @@
+/* OfferBanner — one terminal row along the bottom of a restored pane. Sits
+   inside `.pane-content`, which is positioned, under the pane header. */
+
+.offer-banner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 39;
+  display: flex;
+  gap: 1ch;
+  align-items: center;
+  height: var(--line-height-terminal);
+  padding: 0 1ch;
+  border-top: 1px solid var(--theme-accent);
+  background-color: var(--term-background);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  white-space: nowrap;
+}
+
+.offer-banner button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.offer-banner-run {
+  color: var(--theme-accent);
+  font-weight: 700;
+}
+
+/* The command is cut at the end in a pane too narrow for it; the banner's
+   label carries it whole. */
+.offer-banner-command {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+}
+
+.offer-banner-dismiss {
+  color: var(--text-muted);
+}

@@ -216,16 +216,19 @@ server does not answer them, for the same reason it does not serve the file
 routes (SEC-11) — a viewer is shown one session's screen, not the directories
 and commands of every pane on the machine.
 
-A restore runs what a snapshot says only in the sense that a shell line is
-TYPED at each pane's prompt, never run, unless `--run` is given. A program that
+A restore runs what a snapshot says only in the sense that each pane OFFERS
+its shell line, never runs it, unless `--run` is given: the line is hung on the
+pane as an `@tmuxy-ask` question of kind `offer`, shown as a one-line banner,
+and runs only when the user presses Enter on it or clicks it. Nothing is typed
+into the shell, so nothing reaches it before the user has read it. A program that
 was running when the snapshot was taken is not evidence that it should run
 again; `rm -rf …` was also running. The one exception is a window tmuxy draws
 as its own chrome: a sidebar comes back running its widget (`tmuxy widget
 tree`), because that is tmuxy's program, not the user's, and what `ps` finds
 in such a window (the helper the widget sleeps in) is never recorded. A word a
 program declared through `@tmuxy-pane-restore` is written back onto the
-restored pane as well as typed, so the next save still carries it when the
-user has not acted on the offer. What `ps` finds is also held to an age: a
+restored pane as well as offered, and an offer nobody has answered is saved
+with the pane, so the next restore offers it again rather than losing it. What `ps` finds is also held to an age: a
 foreground program younger than two seconds is a prompt's helper (`git
 status`, `id -Gn`) as often as a program the user just started, so it is left
 out and the keeper looks again once that age has passed. While a restore is rebuilding a session the autosave is held, and a shutdown in that window skips its last save: half a session must never become the latest snapshot. Snapshot files are

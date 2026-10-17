@@ -36,7 +36,7 @@ enum SessionVerb {
     /// Rebuild a session from its latest snapshot. Refuses a running session.
     Restore {
         name: String,
-        /// Run each pane's program instead of leaving it typed at the prompt.
+        /// Run each pane's program instead of offering it in a banner.
         #[arg(long)]
         run: bool,
     },

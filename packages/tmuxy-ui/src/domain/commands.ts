@@ -135,6 +135,11 @@ export type TmuxOp = Data.TaggedEnum<{
    * first: the overlay comes down the instant the user chooses.
    */
   AnswerAsk: { readonly paneId: PaneId; readonly token: string; readonly answer: string };
+  /**
+   * Answer a restore's offer: withdraw it, and on `run` type the command and
+   * run it. No process waits on an offer, so the answer is the work itself.
+   */
+  AnswerOffer: { readonly paneId: PaneId; readonly command: string; readonly run: boolean };
   /** Take back what a pane declared about itself (`@tmuxy-pane-state`). */
   ClearPaneState: { readonly paneId: PaneId };
 
@@ -388,6 +393,14 @@ export function toTmuxCommand(op: TmuxOp): string {
         `set-option -pu -t ${op.paneId} @tmuxy-ask`,
         `set-option -p -t ${op.paneId} @tmuxy-ask-answer ${quote(`${op.token}:${op.answer}`)}`,
       ]);
+    case 'AnswerOffer':
+      return op.run
+        ? list([
+            `set-option -pu -t ${op.paneId} @tmuxy-ask`,
+            `send-keys -t ${op.paneId} -l ${quote(op.command)}`,
+            `send-keys -t ${op.paneId} Enter`,
+          ])
+        : `set-option -pu -t ${op.paneId} @tmuxy-ask`;
     case 'ClearPaneState':
       return `set-option -pu -t ${op.paneId} @tmuxy-pane-state`;
     case 'NewWindow':

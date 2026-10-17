@@ -16,7 +16,7 @@
 
 import { sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
-import { paneAskFor, type AskAnswer } from '../../../utils/paneAsk';
+import { paneAskFor, paneSendFor, type AskAnswer } from '../../../utils/paneAsk';
 import { TmuxOp } from '../../../domain/commands';
 import { visibleFloats } from '../../selectors';
 import type { PaneId } from '../../../domain/ids';
@@ -56,7 +56,14 @@ export const askActions = {
     enqueue(
       sendTo('tmux', {
         type: 'SEND_OP' as const,
-        op: TmuxOp.AnswerAsk({ paneId: event.paneId, token: ask.token, answer: event.answer }),
+        op:
+          ask.kind === 'offer'
+            ? TmuxOp.AnswerOffer({
+                paneId: event.paneId,
+                command: ask.command,
+                run: event.answer === 'yes',
+              })
+            : TmuxOp.AnswerAsk({ paneId: event.paneId, token: ask.token, answer: event.answer }),
       }),
     );
     enqueue.assign(({ context: ctx }) => {
@@ -79,7 +86,9 @@ export const askActions = {
     );
     for (const pane of context.panes) {
       if (pane.windowId !== context.activeWindowId && !onScreen.has(pane.tmuxId)) continue;
-      if (!paneAskFor(pane)) continue;
+      // Sends only: allowing what an agent asked is the shortcut's job, and
+      // re-running every restored program at once is not.
+      if (!paneSendFor(pane)) continue;
       enqueue.raise({
         type: 'ANSWER_ASK' as const,
         paneId: pane.tmuxId,

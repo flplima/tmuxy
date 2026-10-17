@@ -29,6 +29,11 @@ function isolatedEnv({ socket, stateDir }) {
   const env = { ...process.env, TMUX_SOCKET: socket, TMUXY_STATE_DIR: stateDir };
   delete env.TMUX;
   delete env.TMUX_PANE;
+  // A suite run from inside tmuxy inherits the binary the RUNNING tmuxy
+  // published, and the CLI's server verbs would run that build instead of
+  // the one under test.
+  delete env.TMUXY_SERVER_BIN;
+  delete env.TMUXY_SERVER_SUBCOMMAND;
   // The shared suite's server runs with both off (helpers/tmux-socket.js, and
   // the CI job's env); this server exists to do exactly those two things.
   delete env.TMUXY_NO_SNAPSHOT;

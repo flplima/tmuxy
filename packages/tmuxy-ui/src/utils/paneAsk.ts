@@ -21,7 +21,8 @@
 import type { TmuxPane } from '../domain/client';
 
 /** A send waiting on a pane for the user's answer. */
-export interface PaneAsk {
+export interface SendAsk {
+  kind: 'send';
   /**
    * Identifies the question, so an answer can be pinned to the one that was on
    * screen. A question withdrawn and replaced while the user was reading gets
@@ -33,6 +34,21 @@ export interface PaneAsk {
   /** The `send-keys` arguments, verbatim: literal text and key names. */
   keys: string[];
 }
+
+/**
+ * A command a session restore offers to run again in a pane it brought back
+ * (`tmuxy-core`'s `offer_payload`). No process waits on it: the client that
+ * answers runs it (yes) or drops it (no) itself. Drawn as a one-line banner.
+ */
+export interface OfferAsk {
+  kind: 'offer';
+  token: string;
+  /** The shell line to run, as the pane will receive it. */
+  command: string;
+}
+
+/** A question waiting on a pane. */
+export type PaneAsk = SendAsk | OfferAsk;
 
 /** What the user chose. Written back as `<token>:<answer>`. */
 export type AskAnswer = 'yes' | 'no';
@@ -60,11 +76,20 @@ export function decodePaneAsk(raw: string | null | undefined): PaneAsk | null {
   try {
     const parsed: unknown = JSON.parse(json);
     if (!parsed || typeof parsed !== 'object') return null;
-    const { token, caller, keys } = parsed as Record<string, unknown>;
+    const { token, kind, caller, keys, command } = parsed as Record<string, unknown>;
     if (typeof token !== 'string' || !token) return null;
+    if (kind === 'offer') {
+      if (typeof command !== 'string' || !command) return null;
+      return { kind: 'offer', token, command };
+    }
     if (!Array.isArray(keys) || keys.length === 0) return null;
     if (!keys.every((key): key is string => typeof key === 'string')) return null;
-    return { token, caller: typeof caller === 'string' && caller ? caller : 'a script', keys };
+    return {
+      kind: 'send',
+      token,
+      caller: typeof caller === 'string' && caller ? caller : 'a script',
+      keys,
+    };
   } catch {
     return null;
   }
@@ -73,6 +98,18 @@ export function decodePaneAsk(raw: string | null | undefined): PaneAsk | null {
 /** The question waiting on a pane, or null when none is. */
 export function paneAskFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): PaneAsk | null {
   return decodePaneAsk(pane?.paneAsk);
+}
+
+/** A send waiting on a pane, or null — an offer is not one. */
+export function paneSendFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): SendAsk | null {
+  const ask = paneAskFor(pane);
+  return ask?.kind === 'send' ? ask : null;
+}
+
+/** A restore's offer waiting on a pane, or null. */
+export function paneOfferFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): OfferAsk | null {
+  const ask = paneAskFor(pane);
+  return ask?.kind === 'offer' ? ask : null;
 }
 
 /** Key names `send-keys` turns into a character rather than a chord. */

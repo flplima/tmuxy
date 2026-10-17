@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { decodePaneAsk, paneAskFor, sentText, sentTextIsLong } from '../paneAsk';
+import {
+  decodePaneAsk,
+  paneAskFor,
+  paneOfferFor,
+  paneSendFor,
+  sentText,
+  sentTextIsLong,
+} from '../paneAsk';
 
 /** Encode a payload the way `bin/tmuxy/send` does. */
 function encode(payload: unknown): string {
@@ -13,7 +20,12 @@ describe('decodePaneAsk', () => {
     const ask = decodePaneAsk(
       encode({ token: '3-4821', caller: 'claude', keys: ['npm test', 'Enter'] }),
     );
-    expect(ask).toEqual({ token: '3-4821', caller: 'claude', keys: ['npm test', 'Enter'] });
+    expect(ask).toEqual({
+      kind: 'send',
+      token: '3-4821',
+      caller: 'claude',
+      keys: ['npm test', 'Enter'],
+    });
   });
 
   it('survives the characters that would break the list-panes row', () => {
@@ -21,14 +33,18 @@ describe('decodePaneAsk', () => {
     // a quote breaks the JSON. Base64 is what makes both harmless — this is
     // the reason the payload is encoded at all.
     const keys = ['echo "build, test, deploy" it\'s all', 'Enter'];
-    expect(decodePaneAsk(encode({ token: 't', caller: 'claude', keys }))?.keys).toEqual(keys);
+    expect(paneSendFor({ paneAsk: encode({ token: 't', caller: 'claude', keys }) })?.keys).toEqual(
+      keys,
+    );
   });
 
   it('decodes the keys as UTF-8, not as one byte per character', () => {
     // atob yields bytes; read as Latin-1 an accent comes back as mojibake, and
     // what the user is asked to allow is not what would be sent.
     const keys = ['echo suíte 🚀'];
-    expect(decodePaneAsk(encode({ token: 't', caller: 'claude', keys }))?.keys).toEqual(keys);
+    expect(paneSendFor({ paneAsk: encode({ token: 't', caller: 'claude', keys }) })?.keys).toEqual(
+      keys,
+    );
   });
 
   it('treats an unset option as no question', () => {
@@ -51,7 +67,21 @@ describe('decodePaneAsk', () => {
   });
 
   it('names an unknown caller rather than leaving a blank in the question', () => {
-    expect(decodePaneAsk(encode({ token: 't', keys: ['ls'] }))?.caller).toBe('a script');
+    expect(paneSendFor({ paneAsk: encode({ token: 't', keys: ['ls'] }) })?.caller).toBe('a script');
+  });
+
+  it('reads a restore offer as its own kind, never as a send', () => {
+    const paneAsk = encode({ token: 'restore-0-1', kind: 'offer', command: 'htop -d 5' });
+    expect(decodePaneAsk(paneAsk)).toEqual({
+      kind: 'offer',
+      token: 'restore-0-1',
+      command: 'htop -d 5',
+    });
+    expect(paneOfferFor({ paneAsk })?.command).toBe('htop -d 5');
+    expect(paneSendFor({ paneAsk })).toBeNull();
+    // An offer with nothing to run is not an offer.
+    expect(decodePaneAsk(encode({ token: 't', kind: 'offer', command: '' }))).toBeNull();
+    expect(paneOfferFor({ paneAsk: encode({ token: 't', keys: ['ls'] }) })).toBeNull();
   });
 });
 

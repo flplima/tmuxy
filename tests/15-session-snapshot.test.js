@@ -5,7 +5,7 @@
  * way a user does, lose the tmux server, start tmuxy again, and find the same
  * session — the split, the float, the second tab, the pane group, the sidebar
  * column, the browser pane — with every pane in its directory and its program
- * offered at the prompt rather than run.
+ * offered in a banner rather than run.
  *
  * It runs on a server of its own (`isolatedServer`): the point of the test is
  * `kill-server`, which the shared suite server cannot survive. The proof that
@@ -13,7 +13,8 @@
  * snapshot itself: the restored session is saved again and must equal what
  * was saved before the kill, tag for tag and layout for layout. The UI is
  * then checked for what a user would look for — the float on screen, the
- * offered command at the prompt — rather than for DOM presence.
+ * offered command's banner, and the command running once it is taken —
+ * rather than for DOM presence.
  */
 
 const fs = require('fs');
@@ -57,10 +58,12 @@ function comparable(shape) {
     windows: shape.windows.map((w) => ({
       ...w,
       layout: layoutTree(w.layout),
-      panes: w.panes.map(({ command, ...pane }) => pane),
+      // A restore offers what was running rather than running it, so what
+      // was a `command` before comes back as an `offer` (checked apart).
+      panes: w.panes.map(({ command, offer, ...pane }) => pane),
     })),
     // The group's member parked out of view comes back parked, in its group.
-    hidden: (shape.hidden ?? []).map(({ command, ...member }) => member),
+    hidden: (shape.hidden ?? []).map(({ command, offer, ...member }) => member),
   };
 }
 
@@ -141,7 +144,9 @@ describe('Scenario 32: Session snapshots', () => {
     //    tmux's command parser reads as a block unless they are quoted.
     srv.cli(['pane', 'split', '-h']);
     srv.cli(['pane', 'group', 'add']);
-    srv.cli(['pane', 'float', '--width', '60', '--height', '20']);
+    // An interactive float answers with its pane's id.
+    const floatPane = srv.cli(['pane', 'float', '--width', '60', '--height', '20']).trim();
+    expect(floatPane).toMatch(/^%\d+$/);
     // `tab create` answers with the new window's id, which is how it is
     // selected later: a bare index is tmux's and depends on `base-index`.
     const secondTab = srv.cli(['tab', 'create']);
@@ -156,6 +161,9 @@ describe('Scenario 32: Session snapshots', () => {
     );
     // What a pane says it should come back as.
     srv.cli(['pane', 'restore-cmd', 'echo restored-ok', '%0']);
+    // And a program that says nothing: the save finds it with `ps`. Sent
+    // with tmux's own send-keys, which asks no one.
+    srv.cli(['run', 'send-keys', '-t', floatPane, 'sleep 600', 'Enter']);
     // A browser pane writes that tag itself, with the page it is on.
     const engine = engineOrSkip();
     if (engine) {
@@ -199,6 +207,7 @@ describe('Scenario 32: Session snapshots', () => {
           panes.some((p) => p.options && p.options['@tmuxy-group-id']) &&
           (shape.hidden ?? []).length === 1 &&
           panes.some((p) => p.restore_command === 'echo restored-ok') &&
+          panes.some((p) => (p.command ?? []).join(' ') === 'sleep 600') &&
           (!engine || panes.some((p) => (p.restore_command ?? '').startsWith('tmuxy browser')))
         );
       },
@@ -247,11 +256,34 @@ describe('Scenario 32: Session snapshots', () => {
       () =>
         `the restored session to match the one that was lost\nwanted: ${wanted}\ngot:    ${JSON.stringify(saved())}\nserver: ${srv.serverLog()}`,
     );
+    // A program found running before is offered, not run, so the restored
+    // pane sits at its shell — and the save still remembers the offer, or a
+    // second restart would lose it.
+    // The offers are set at the end of the rebuild, after the shape the
+    // wait above matched, so the save that shows them is a later one.
+    const ranBefore = before.windows.flatMap((w) =>
+      // A pane that names its own restore word keeps that instead.
+      w.panes.filter((p) => p.command && !p.restore_command).map((p) => [w.index, p.index]),
+    );
+    expect(ranBefore.length).toBeGreaterThan(0);
+    const offerAt = (shape, [wi, pi]) =>
+      shape.windows.find((w) => w.index === wi)?.panes.find((p) => p.index === pi)?.offer;
+    await waitForCondition(
+      page,
+      () => {
+        srv.cli(['session', 'save', SESSION]);
+        const after = shapeOf(latest);
+        return ranBefore.every((at) => Boolean(offerAt(after, at)));
+      },
+      30000,
+      () =>
+        `every program found running to be saved as an offer after the restore\nbefore: ${JSON.stringify(before.windows)}\nafter:  ${JSON.stringify(shapeOf(latest).windows)}`,
+    );
 
     // 6. And what the user sees: the float is on screen over the tab it was
     //    opened from (a float shows only over its parent tab, and the session
     //    came back on the tab that was current), and the program is offered
-    //    at the prompt — typed, not run.
+    //    in a banner — neither typed nor run until the user takes it.
     //    The first tab is the lowest index the strip lists, whatever
     //    `base-index` made that number.
     const listed = srv.cli(['tab', 'list', '--json']);
@@ -284,12 +316,74 @@ describe('Scenario 32: Session snapshots', () => {
           },
         )}\nserver: ${srv.serverLog()}`,
     );
-    // Read as the user reads it: the pane is half the width beside its split,
-    // so the prompt and the offered line can wrap across rows.
-    const offered = srv.cli(['pane', 'capture', '%0']);
-    expect(offered.replace(/\n/g, '')).toContain('echo restored-ok');
-    // Typed, not run: the command's own output would be a row of its own.
-    expect(offered.split('\n').map((row) => row.trim())).not.toContain('restored-ok');
+    // The offer is a banner along the bottom of its pane, on screen, and
+    // nothing has been typed into the shell or run.
+    const banner = '[data-pane-offer="%0"]';
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          const r = el?.getBoundingClientRect();
+          return !!r && r.width > 40 && r.height > 8 && el.textContent.includes('echo restored-ok');
+        }, banner),
+      30000,
+      'the offer banner on the restored pane',
+    );
+    const before6 = srv.cli(['pane', 'capture', '%0']);
+    expect(before6).not.toContain('echo restored-ok');
+    // The float over the tab carries its own offer (the sleep). Dismissing it
+    // drops it without typing anything; then the float is closed by its
+    // backdrop, the way a user gets back to the tab under it.
+    const floatOffer = '.float-container [data-pane-offer]';
+    await page.click(`${floatOffer} .offer-banner-dismiss`);
+    await waitForCondition(
+      page,
+      () => page.evaluate((sel) => document.querySelector(sel) === null, floatOffer),
+      15000,
+      "the float's offer to leave once dismissed",
+    );
+    const backdrop = await page.evaluate(() => {
+      const r = document.querySelector('.modal-backdrop').getBoundingClientRect();
+      return { x: r.left + 8, y: r.top + 8 };
+    });
+    await page.mouse.click(backdrop.x, backdrop.y);
+    await waitForCondition(
+      page,
+      () => page.evaluate(() => document.querySelector('.float-container') === null),
+      15000,
+      'the float to close',
+    );
+    // A new browser has no docking remembered, so the restored tree column
+    // overlays the panes; it is closed from its own header.
+    if (await page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen)) {
+      await page.click('button[aria-label="Close the tree sidebar"]');
+      await waitForCondition(
+        page,
+        () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === false),
+        15000,
+        'the tree column to close',
+      );
+    }
+    // Taking the offer runs it: the banner goes, and the output is a row.
+    await page.click(`${banner} .offer-banner-run`);
+    await waitForCondition(
+      page,
+      () => page.evaluate((sel) => document.querySelector(sel) === null, banner),
+      15000,
+      'the banner to leave once the offer is taken',
+    );
+    await waitForCondition(
+      page,
+      () =>
+        srv
+          .cli(['pane', 'capture', '%0'])
+          .split('\n')
+          .map((row) => row.trim())
+          .includes('restored-ok'),
+      15000,
+      () => `the offered command to run\npane: ${srv.cli(['pane', 'capture', '%0'])}`,
+    );
 
     // 7. An exited session with a snapshot is offered in the session menu,
     //    opened from the status line with the tree sidebar closed (the menu

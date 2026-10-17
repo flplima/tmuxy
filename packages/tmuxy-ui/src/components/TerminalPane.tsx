@@ -45,6 +45,8 @@ import { useHeldWhileSelected } from '../hooks/useHeldWhileSelected';
 import { LogProfiler } from '../utils/renderLog';
 import { RowEdges } from './RowEdges';
 import { AskOverlay } from './AskOverlay';
+import { OfferBanner } from './OfferBanner';
+import { paneSendFor } from '../utils/paneAsk';
 import { isCollapsedPane } from '../constants';
 import { extractSelectedText } from '../utils/copyMode';
 import { themeFilterId } from '../utils/themeColorFilter';
@@ -442,7 +444,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     // cursor the user is actually looking at. A pane asking
                     // whether to allow a send draws none either: the cursor
                     // paints above every pane and would sit on the blur.
-                    isActive={holdsKeyboard && !copyState && !pane.paneAsk}
+                    isActive={holdsKeyboard && !copyState && !paneSendFor(pane)}
                     width={pane.width}
                     height={pane.height}
                     inMode={pane.inMode}
@@ -469,6 +471,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
               inside it (not over the whole pane) so the header stays legible
               — that is where the pane's title and its close button live. */}
           <AskOverlay paneId={paneId} />
+          <OfferBanner paneId={paneId} />
 
           {liveHeader && !copyState && (
             <BrowserLiveBar

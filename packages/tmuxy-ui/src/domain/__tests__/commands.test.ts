@@ -94,6 +94,14 @@ const cases: Array<[TmuxOp, string]> = [
     "set-option -pu -t %3 @tmuxy-ask \\; set-option -p -t %3 @tmuxy-ask-answer 't1:yes'",
   ],
   [TmuxOp.ClearPaneState({ paneId: pid('%3') }), 'set-option -pu -t %3 @tmuxy-pane-state'],
+  [
+    TmuxOp.AnswerOffer({ paneId: pid('%3'), command: "htop -d 5; echo 'done'", run: true }),
+    "set-option -pu -t %3 @tmuxy-ask \\; send-keys -t %3 -l 'htop -d 5; echo '\\''done'\\''' \\; send-keys -t %3 Enter",
+  ],
+  [
+    TmuxOp.AnswerOffer({ paneId: pid('%3'), command: 'htop', run: false }),
+    'set-option -pu -t %3 @tmuxy-ask',
+  ],
 
   // Windows
   [TmuxOp.NewWindow(), 'new-window'],

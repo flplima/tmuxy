@@ -14,6 +14,7 @@ import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
+import { OfferBanner } from './OfferBanner';
 import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import { getWidget } from './widgets';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
@@ -183,6 +184,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
               question on it — and it is drawn over the tab, so leaving it out
               would put a question on screen with no way to answer it. */}
           <AskOverlay paneId={pane.tmuxId} />
+          <OfferBanner paneId={pane.tmuxId} />
         </div>
       </div>
     </Modal>

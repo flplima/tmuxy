@@ -18,7 +18,7 @@
 
 import type { TmuxPane } from '../domain/client';
 import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
-import { paneAskFor } from './paneAsk';
+import { paneSendFor } from './paneAsk';
 
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
 
@@ -99,7 +99,7 @@ export function paneStateFor(
   pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>,
   unread = false,
 ): PaneStateName {
-  if (paneAskFor(pane)) return 'needs-input';
+  if (paneSendFor(pane)) return 'needs-input';
   const declared = normalizePaneState(pane.paneState);
   return declared === 'idle' && unread ? 'unread' : declared;
 }

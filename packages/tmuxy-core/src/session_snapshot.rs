@@ -30,7 +30,9 @@ pub const SNAPSHOT_VERSION: u32 = 1;
 
 /// How many snapshots to keep per session, however old.
 pub const KEEP_AT_LEAST: usize = 5;
-/// Snapshots older than this are pruned, down to `KEEP_AT_LEAST`.
+/// Past the last `KEEP_AT_LEAST`, one snapshot per hour is kept for this long…
+pub const KEEP_HOURLY_SECS: u64 = 24 * 60 * 60;
+/// …and one per day for this long; anything older is pruned.
 pub const KEEP_FOR_SECS: u64 = 30 * 24 * 60 * 60;
 
 /// The pane option a program sets to say how to bring itself back.
@@ -77,6 +79,9 @@ pub struct HiddenMember {
     pub command: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restore_command: Option<String>,
+    /// A command a restore offered and nobody has answered yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<String>,
 }
 
 impl HiddenMember {
@@ -85,7 +90,10 @@ impl HiddenMember {
         if let Some(restore) = &self.restore_command {
             return Some(restore.clone());
         }
-        self.command.as_ref().map(|argv| shell_join(argv))
+        self.command
+            .as_ref()
+            .map(|argv| shell_join(argv))
+            .or_else(|| self.offer.clone())
     }
 }
 
@@ -139,15 +147,24 @@ pub struct PaneSnapshot {
     /// The last lines of the pane, only when a save asked for them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scrollback: Option<Vec<String>>,
+    /// A command a restore offered and nobody has answered yet: still at its
+    /// shell, so nothing else says what the pane was for. Offered again on
+    /// the next restore, so a second restart does not lose it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<String>,
 }
 
 impl PaneSnapshot {
-    /// What is offered at the prompt: the program's own word first.
+    /// What is offered at the prompt: the program's own word first, then what
+    /// was found running, then an offer still waiting from the last restore.
     pub fn offered_command(&self) -> Option<String> {
         if let Some(restore) = &self.restore_command {
             return Some(restore.clone());
         }
-        self.command.as_ref().map(|argv| shell_join(argv))
+        self.command
+            .as_ref()
+            .map(|argv| shell_join(argv))
+            .or_else(|| self.offer.clone())
     }
 }
 
@@ -175,7 +192,9 @@ macro_rules! pane_record_format {
         concat!(
             "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
             "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
-            "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos}"
+            "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos},",
+            // Base64, so it holds no comma.
+            "#{@tmuxy-ask}"
         )
     };
 }
@@ -267,12 +286,19 @@ pub fn hidden_members(
     parked.sort_by_key(|(p, _)| crate::groups::order_key(p.group_pos, &p.id));
     parked
         .into_iter()
-        .map(|(p, group_id)| HiddenMember {
-            group_id: group_id.clone(),
-            position: p.group_pos,
-            cwd: p.cwd.clone(),
-            command: commands.get(&p.id).cloned(),
-            restore_command: p.restore_command.clone(),
+        .map(|(p, group_id)| {
+            let command = commands.get(&p.id).cloned();
+            HiddenMember {
+                group_id: group_id.clone(),
+                position: p.group_pos,
+                cwd: p.cwd.clone(),
+                offer: p
+                    .offer
+                    .clone()
+                    .filter(|_| command.is_none() && p.restore_command.is_none()),
+                command,
+                restore_command: p.restore_command.clone(),
+            }
         })
         .collect()
 }
@@ -315,6 +341,8 @@ pub struct PaneRecord {
     pub restore_command: Option<String>,
     pub group_id: Option<GroupId>,
     pub group_pos: Option<u32>,
+    /// The command an unanswered restore offer holds (see [`offer_payload`]).
+    pub offer: Option<String>,
 }
 
 fn opt(field: &str) -> Option<String> {
@@ -373,7 +401,7 @@ pub fn parse_panes(output: &str) -> Vec<PaneRecord> {
         .lines()
         .filter_map(|line| {
             let parts: Vec<&str> = line.split(',').collect();
-            if parts.len() != 10 {
+            if parts.len() != 11 {
                 return None;
             }
             Some(PaneRecord {
@@ -387,6 +415,7 @@ pub fn parse_panes(output: &str) -> Vec<PaneRecord> {
                 restore_command: opt(parts[7]),
                 group_id: GroupId::parse(parts[8].trim()).ok(),
                 group_pos: parts[9].trim().parse().ok(),
+                offer: offered_by(parts[10].trim()),
             })
         })
         .collect()
@@ -419,11 +448,18 @@ pub fn assemble(
                     // A sidebar is tmuxy's: what runs in it is the widget
                     // the client started (or, on the right, a shell), never
                     // the helper the widget happens to be sleeping in.
-                    let (command, restore_command) = match w.window_type.as_deref() {
-                        Some("sidebar-left") => (None, Some(LEFT_SIDEBAR_WIDGET.to_string())),
-                        Some("sidebar-right") => (None, None),
-                        _ => (commands.get(&p.id).cloned(), p.restore_command.clone()),
+                    let (command, restore_command, offer) = match w.window_type.as_deref() {
+                        Some("sidebar-left") => (None, Some(LEFT_SIDEBAR_WIDGET.to_string()), None),
+                        Some("sidebar-right") => (None, None, None),
+                        _ => (
+                            commands.get(&p.id).cloned(),
+                            p.restore_command.clone(),
+                            p.offer.clone(),
+                        ),
                     };
+                    // An old offer only says what the pane was for while
+                    // nothing else does.
+                    let offer = offer.filter(|_| command.is_none() && restore_command.is_none());
                     PaneSnapshot {
                         index: p.index,
                         active: p.active,
@@ -432,6 +468,7 @@ pub fn assemble(
                         restore_command,
                         options,
                         scrollback: None,
+                        offer,
                     }
                 })
                 .collect();
@@ -733,20 +770,35 @@ fn dated_files(dir: &Path, session: &str) -> Vec<PathBuf> {
     files
 }
 
-/// Keep the last `KEEP_AT_LEAST`, and anything younger than `KEEP_FOR_SECS`.
+/// Thin a session's snapshots out with age: the last `KEEP_AT_LEAST`
+/// always; past those, the newest of each hour for a day, then the newest of
+/// each day for `KEEP_FOR_SECS`; nothing older. A save writes on every
+/// structural change, so a busy hour leaves dozens of files, and only the
+/// last one of any of them is worth going back to.
 pub fn prune(dir: &Path, session: &str, now: u64) {
     let files = dated_files(dir, session);
-    let cutoff = stamp(now.saturating_sub(KEEP_FOR_SECS));
-    let keep_from = files.len().saturating_sub(KEEP_AT_LEAST);
-    for (i, file) in files.iter().enumerate() {
-        if i >= keep_from {
-            break;
-        }
+    let stamp_of = |file: &PathBuf| -> String {
         let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let file_stamp = name
-            .trim_start_matches(&format!("{session}."))
-            .trim_end_matches(".json");
-        if file_stamp < cutoff.as_str() {
+        name.trim_start_matches(&format!("{session}."))
+            .trim_end_matches(".json")
+            .to_string()
+    };
+    let hourly_cutoff = stamp(now.saturating_sub(KEEP_HOURLY_SECS));
+    let daily_cutoff = stamp(now.saturating_sub(KEEP_FOR_SECS));
+    // `YYYYMMDDTHH` and `YYYYMMDD`: the hour and the day a stamp falls in.
+    let mut hours = std::collections::HashSet::new();
+    let mut days = std::collections::HashSet::new();
+    for (age, file) in files.iter().rev().enumerate() {
+        let file_stamp = stamp_of(file);
+        let hour = file_stamp.get(..11).unwrap_or("").to_string();
+        let day = file_stamp.get(..8).unwrap_or("").to_string();
+        let keep = age < KEEP_AT_LEAST
+            || (file_stamp >= hourly_cutoff && !hours.contains(&hour))
+            || (file_stamp >= daily_cutoff && !days.contains(&day));
+        if keep {
+            hours.insert(hour);
+            days.insert(day);
+        } else {
             let _ = std::fs::remove_file(file);
         }
     }
@@ -917,6 +969,49 @@ fn argv(words: &[&str]) -> TmuxArgv {
     words.iter().map(|w| (*w).to_string()).collect()
 }
 
+/// A restored pane's command, brought back. Run at once when asked to (or
+/// for tmuxy's own sidebar widget); otherwise OFFERED: hung on the pane as an
+/// `@tmuxy-ask` question of kind `offer`, which the client draws as a
+/// one-line banner and answers by running or dropping it. Typing it instead
+/// raced the shell's start-up and showed it twice, and left nothing that said
+/// the pane still owed an answer.
+fn offer_steps(pane: &str, command: &str, run: bool, token: &str) -> Vec<Step> {
+    if run {
+        return vec![
+            Step::Run(argv(&["send-keys", "-t", pane, "-l", command])),
+            Step::Run(argv(&["send-keys", "-t", pane, "Enter"])),
+        ];
+    }
+    vec![Step::Run(argv(&[
+        "set-option",
+        "-p",
+        "-t",
+        pane,
+        tmux_options::ASK,
+        &offer_payload(token, command),
+    ]))]
+}
+
+/// The `@tmuxy-ask` value of an offer: base64 of `{token, kind, command}`,
+/// the shape `tmuxy pane send` writes for its own questions.
+pub fn offer_payload(token: &str, command: &str) -> String {
+    use base64::Engine;
+    let json = serde_json::json!({ "token": token, "kind": "offer", "command": command });
+    base64::engine::general_purpose::STANDARD.encode(json.to_string())
+}
+
+/// The command an `@tmuxy-ask` value offers, when it is an offer at all.
+pub fn offered_by(ask: &str) -> Option<String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(ask).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    if value.get("kind")?.as_str()? != "offer" {
+        return None;
+    }
+    let command = value.get("command")?.as_str()?;
+    (!command.is_empty()).then(|| command.to_string())
+}
+
 /// The tmux commands that rebuild a session from its snapshot, in order.
 ///
 /// Why the shape is what it is:
@@ -929,8 +1024,9 @@ fn argv(words: &[&str]) -> TmuxArgv {
 ///     number of panes takes its old layout exactly.
 ///   * `@tmuxy-float-parent` is a window ID, which does not survive. It is
 ///     looked up (`Ask`) by the parent's index after every window exists.
-///   * Each offered command is typed with `send-keys -l`, not run; `run` adds
-///     the Enter. A program that was running is not proof it should run again.
+///   * Each offered command is offered (`offer_steps`), not typed or run;
+///     `run` types it and adds the Enter. A program that was running is not
+///     proof it should run again.
 ///   * A pane with saved scrollback starts as `cat` of that text and then the
 ///     shell, so what was on screen is on screen again above a fresh prompt.
 pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
@@ -1111,10 +1207,12 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             ])));
         }
         if let Some(cmd) = member.offered_command() {
-            steps.push(Step::Run(argv(&["send-keys", "-t", &pane, "-l", &cmd])));
-            if options.run {
-                steps.push(Step::Run(argv(&["send-keys", "-t", &pane, "Enter"])));
-            }
+            steps.extend(offer_steps(
+                &pane,
+                &cmd,
+                options.run,
+                &format!("restore-{key}"),
+            ));
         }
         parked_windows.insert(w.index);
     }
@@ -1184,10 +1282,8 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
                         word,
                     ])));
                 }
-                steps.push(Step::Run(argv(&["send-keys", "-t", &pane, "-l", &cmd])));
-                if options.run || chrome {
-                    steps.push(Step::Run(argv(&["send-keys", "-t", &pane, "Enter"])));
-                }
+                let token = format!("restore-{}-{}", w.index, p.index);
+                steps.extend(offer_steps(&pane, &cmd, options.run || chrome, &token));
             }
         }
     }
@@ -1664,9 +1760,9 @@ mod tests {
 
     #[test]
     fn a_pane_record_keeps_a_comma_in_its_path_and_its_restore_command() {
-        let out = "%5,@1,0,1,4242,/dev/ttys003,/Users/x/a%2Cb,claude --resume abc%2Cdef,g2,\n\
+        let out = "%5,@1,0,1,4242,/dev/ttys003,/Users/x/a%2Cb,claude --resume abc%2Cdef,g2,,\n\
                    garbage line\n\
-                   %6,@1,1,0,4300,/dev/ttys004,/tmp,,,";
+                   %6,@1,1,0,4300,/dev/ttys004,/tmp,,,,";
         let panes = parse_panes(out);
         assert_eq!(panes.len(), 2);
         assert_eq!(panes[0].cwd, "/Users/x/a,b");
@@ -1771,6 +1867,7 @@ mod tests {
             restore_command: Some("claude --resume abc".into()),
             options: BTreeMap::new(),
             scrollback: None,
+            offer: None,
         };
         assert_eq!(
             pane.offered_command().as_deref(),
@@ -1813,6 +1910,7 @@ mod tests {
                             restore_command: None,
                             options: group.clone(),
                             scrollback: None,
+                            offer: None,
                         },
                         PaneSnapshot {
                             index: 1,
@@ -1822,6 +1920,7 @@ mod tests {
                             restore_command: None,
                             options: BTreeMap::new(),
                             scrollback: None,
+                            offer: None,
                         },
                     ],
                 },
@@ -1841,6 +1940,7 @@ mod tests {
                         restore_command: Some("tmuxy browser".into()),
                         options: BTreeMap::new(),
                         scrollback: None,
+                        offer: None,
                     }],
                 },
             ],
@@ -1850,6 +1950,7 @@ mod tests {
                 cwd: "/srv".into(),
                 command: Some(vec!["htop".into()]),
                 restore_command: None,
+                offer: None,
             }],
         }
     }
@@ -1937,15 +2038,23 @@ mod tests {
         );
     }
 
+    /// A command is offered, not typed: hung on the pane as an `offer`
+    /// question for the client's banner, so nothing reaches a shell that is
+    /// still starting. `--run` types and runs it.
     #[test]
-    fn commands_are_typed_not_run_unless_asked() {
-        let typed = joined(&plan(&fixture(), &RestoreOptions::default()));
-        assert!(typed.contains(&"run: send-keys -t work:0.1 -l vim a".to_string()));
+    fn commands_are_offered_not_typed_unless_asked() {
+        let offered = joined(&plan(&fixture(), &RestoreOptions::default()));
+        let vim = offer_payload("restore-0-1", "vim a");
+        assert!(offered.contains(&format!("run: set-option -p -t work:0.1 @tmuxy-ask {vim}")));
+        let browser = offer_payload("restore-2-0", "tmuxy browser");
         assert!(
-            typed.contains(&"run: send-keys -t work:2.0 -l tmuxy browser".to_string()),
+            offered.contains(&format!(
+                "run: set-option -p -t work:2.0 @tmuxy-ask {browser}"
+            )),
             "the restore tag wins"
         );
-        assert!(!typed.iter().any(|l| l.ends_with(" Enter")));
+        assert!(!offered.iter().any(|l| l.contains("send-keys -t work:0.1")));
+        assert!(!offered.iter().any(|l| l.ends_with(" Enter")));
         let run = joined(&plan(
             &fixture(),
             &RestoreOptions {
@@ -1953,10 +2062,62 @@ mod tests {
                 ..Default::default()
             },
         ));
+        assert!(run.contains(&"run: send-keys -t work:0.1 -l vim a".to_string()));
         assert!(run.contains(&"run: send-keys -t work:0.1 Enter".to_string()));
+        assert!(!run.iter().any(|l| l.contains("@tmuxy-ask")));
     }
 
-    /// A program's own word is typed AND written back as the pane's tag, so
+    #[test]
+    fn an_offer_round_trips_through_its_payload() {
+        let payload = offer_payload("restore-0-1", "claude --resume a, b");
+        assert!(!payload.contains(','), "base64 rides a comma-split record");
+        assert_eq!(
+            offered_by(&payload).as_deref(),
+            Some("claude --resume a, b")
+        );
+        // A send waiting on the user is a question, not an offer.
+        use base64::Engine;
+        let send = base64::engine::general_purpose::STANDARD
+            .encode(r#"{"token":"t","caller":"claude","keys":["ls"]}"#);
+        assert_eq!(offered_by(&send), None);
+        assert_eq!(offered_by(""), None);
+        assert_eq!(offered_by("not base64!"), None);
+    }
+
+    /// The second restart: a pane restored with an offer nobody answered is
+    /// at its shell, so `ps` finds nothing. The save still records the offer,
+    /// and the next restore offers it again.
+    #[test]
+    fn an_unanswered_offer_survives_the_next_save_and_restore() {
+        let offer = offer_payload("restore-0-1", "htop -d 5");
+        let windows = parse_windows("@1,0,1,,,,,,,,,,,,9c3a%2C80x24%2C0%2C0%2C5,main");
+        let panes = parse_panes(&format!("%5,@1,0,1,100,/dev/ttys001,/tmp,,,,{offer}"));
+        assert_eq!(panes[0].offer.as_deref(), Some("htop -d 5"));
+        let snap = assemble("work", 1, windows, panes, &HashMap::new());
+        let pane = &snap.windows[0].panes[0];
+        assert_eq!(pane.offered_command().as_deref(), Some("htop -d 5"));
+        let lines = joined(&plan(&snap, &RestoreOptions::default()));
+        let again = offer_payload("restore-0-0", "htop -d 5");
+        assert!(lines.contains(&format!(
+            "run: set-option -p -t work:0.0 @tmuxy-ask {again}"
+        )));
+        // What is found running still wins over an old offer.
+        let mut running = HashMap::new();
+        running.insert(pid("%5"), vec!["vim".to_string()]);
+        let panes = parse_panes(&format!("%5,@1,0,1,100,/dev/ttys001,/tmp,,,,{offer}"));
+        let windows = parse_windows("@1,0,1,,,,,,,,,,,,9c3a%2C80x24%2C0%2C0%2C5,main");
+        let snap = assemble("work", 1, windows, panes, &running);
+        assert_eq!(
+            snap.windows[0].panes[0].offered_command().as_deref(),
+            Some("vim")
+        );
+        assert_eq!(
+            snap.windows[0].panes[0].offer, None,
+            "nothing stale is kept"
+        );
+    }
+
+    /// A program's own word is offered AND written back as the pane's tag, so
     /// a save after the restore still carries it; a sidebar's widget is run,
     /// not offered, because it is tmuxy's own window.
     #[test]
@@ -1978,6 +2139,7 @@ mod tests {
                 restore_command: Some(LEFT_SIDEBAR_WIDGET.into()),
                 options: BTreeMap::new(),
                 scrollback: None,
+                offer: None,
             }],
         });
         let lines = joined(&plan(&snapshot, &RestoreOptions::default()));
@@ -1987,7 +2149,10 @@ mod tests {
             .expect("the browser pane's word is written back");
         assert_eq!(
             lines[i_tag + 1],
-            "run: send-keys -t work:2.0 -l tmuxy browser"
+            format!(
+                "run: set-option -p -t work:2.0 @tmuxy-ask {}",
+                offer_payload("restore-2-0", "tmuxy browser")
+            )
         );
         assert!(!lines.contains(&"run: send-keys -t work:2.0 Enter".to_string()));
         // A discovered command is not a tag: nothing is written for vim.
@@ -2023,7 +2188,7 @@ mod tests {
             )
         ));
         let panes =
-            parse_panes("%5,@1,0,1,100,/dev/ttys001,/tmp,,,\n%6,@2,0,1,200,/dev/ttys002,/tmp,,,");
+            parse_panes("%5,@1,0,1,100,/dev/ttys001,/tmp,,,,\n%6,@2,0,1,200,/dev/ttys002,/tmp,,,,");
         let mut commands = HashMap::new();
         commands.insert(pid("%5"), vec!["vim".to_string()]);
         commands.insert(pid("%6"), vec!["sleep".to_string(), "3600".to_string()]);
@@ -2100,7 +2265,13 @@ mod tests {
             lines[i_park + 2],
             "run: set-option -gu @tmuxy-restore-answer"
         );
-        assert_eq!(lines[i_park + 3], "run: send-keys -t #HID0# -l htop");
+        assert_eq!(
+            lines[i_park + 3],
+            format!(
+                "run: set-option -p -t #HID0# @tmuxy-ask {}",
+                offer_payload("restore-HID0", "htop")
+            )
+        );
         // Window 0 gets its layout back after the park.
         assert!(lines[i_park + 4..]
             .iter()
@@ -2149,10 +2320,10 @@ mod tests {
     fn only_members_of_this_sessions_groups_are_recorded_hidden() {
         let snap = fixture();
         let stash = parse_panes(
-            "%9,@20,0,1,900,/dev/ttys009,/srv,,g1,\n\
-             %3,@21,0,1,300,/dev/ttys003,/opt,claude --resume x,g1,\n\
-             %7,@22,0,1,700,/dev/ttys007,/x,,g8,\n\
-             %1,@1,0,1,100,/dev/ttys001,/,,,",
+            "%9,@20,0,1,900,/dev/ttys009,/srv,,g1,,\n\
+             %3,@21,0,1,300,/dev/ttys003,/opt,claude --resume x,g1,,\n\
+             %7,@22,0,1,700,/dev/ttys007,/x,,g8,,\n\
+             %1,@1,0,1,100,/dev/ttys001,/,,,,",
         );
         let mut commands = HashMap::new();
         commands.insert(pid("%9"), vec!["htop".to_string()]);
@@ -2166,6 +2337,7 @@ mod tests {
                     cwd: "/opt".into(),
                     command: None,
                     restore_command: Some("claude --resume x".into()),
+                    offer: None,
                 },
                 HiddenMember {
                     group_id: gid("g1"),
@@ -2173,6 +2345,7 @@ mod tests {
                     cwd: "/srv".into(),
                     command: Some(vec!["htop".into()]),
                     restore_command: None,
+                    offer: None,
                 },
             ],
             "pane-id order, other groups and the placeholder left out"
@@ -2313,7 +2486,7 @@ mod tests {
             ]
             .join("\n"),
         );
-        let panes = parse_panes("%5,@1,0,1,1,/dev/ttys1,/a,,,\n%6,@3,0,1,2,/dev/ttys2,/b,,g1,\n%4,@1,1,0,3,/dev/ttys3,/c,,,");
+        let panes = parse_panes("%5,@1,0,1,1,/dev/ttys1,/a,,,,\n%6,@3,0,1,2,/dev/ttys2,/b,,g1,,\n%4,@1,1,0,3,/dev/ttys3,/c,,,,");
         let mut commands = HashMap::new();
         commands.insert(pid("%5"), vec!["vim".to_string()]);
         let snap = assemble("work", 7, windows, panes, &commands);
@@ -2380,6 +2553,61 @@ mod tests {
         assert_eq!(read_latest(&dir, "nobody").unwrap(), None);
         assert!(forget(&dir, "work") >= 2);
         assert_eq!(read_latest(&dir, "work").unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A busy afternoon leaves a file per save; what survives is the last
+    /// five, one per hour for the day, one per day for the month.
+    #[test]
+    fn pruning_thins_out_with_age() {
+        let dir = std::env::temp_dir().join(format!("tmuxy-thin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Half past the hour, so twenty minutes of saves stay in one hour.
+        let now = 1_759_622_400u64 + 1800;
+        let hour = 3600;
+        let day = 86_400;
+        // Twenty saves a minute apart in the last half hour…
+        for i in 0..20u64 {
+            std::fs::write(dir.join(snapshot_file_name("s", now - i * 60)), "{}").unwrap();
+        }
+        // …three in each of the five hours before…
+        for h in 1..=5u64 {
+            for m in 0..3u64 {
+                std::fs::write(
+                    dir.join(snapshot_file_name("s", now - h * hour - m * 60)),
+                    "{}",
+                )
+                .unwrap();
+            }
+        }
+        // …two on each of three earlier days, and one past the month.
+        for d in 2..=4u64 {
+            for m in 0..2u64 {
+                std::fs::write(
+                    dir.join(snapshot_file_name("s", now - d * day - m * 60)),
+                    "{}",
+                )
+                .unwrap();
+            }
+        }
+        std::fs::write(
+            dir.join(snapshot_file_name("s", now - KEEP_FOR_SECS - day)),
+            "{}",
+        )
+        .unwrap();
+        prune(&dir, "s", now);
+        let left: Vec<String> = dated_files(&dir, "s")
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        // 5 newest (all in the current hour), then the newest of each of the
+        // five hours before, then the newest of each of the three days.
+        assert_eq!(left.len(), 5 + 5 + 3, "{left:?}");
+        assert!(left.last().unwrap().contains(&stamp(now)));
+        assert!(!left
+            .iter()
+            .any(|f| f.contains(&stamp(now - KEEP_FOR_SECS - day))));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

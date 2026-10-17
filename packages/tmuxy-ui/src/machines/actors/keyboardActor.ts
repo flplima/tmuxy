@@ -703,7 +703,8 @@ export function createKeyboardActor() {
       // before anything else because Enter is otherwise a keystroke.
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.altKey) {
         const anyPending = livePanes.some(
-          (pane) => pane.windowId === liveActiveWindowId && decodePaneAsk(pane.paneAsk),
+          (pane) =>
+            pane.windowId === liveActiveWindowId && decodePaneAsk(pane.paneAsk)?.kind === 'send',
         );
         if (anyPending) {
           event.preventDefault();
@@ -725,7 +726,22 @@ export function createKeyboardActor() {
         ? decodePaneAsk(livePanes.find((pane) => pane.tmuxId === askPaneId)?.paneAsk)
         : null;
       const plainKey = !event.ctrlKey && !event.metaKey && !event.altKey;
-      if (askPaneId && pendingAsk && plainKey) {
+      // A restore's offer is a banner, not a modal: Enter runs it, Escape
+      // drops it, and any other key drops it AND goes on to the shell — the
+      // user has started doing something else, and the prompt is theirs.
+      if (askPaneId && pendingAsk?.kind === 'offer' && plainKey) {
+        if (event.key === 'Enter' || event.key === 'Escape') {
+          event.preventDefault();
+          input.parent.send({
+            type: 'ANSWER_ASK',
+            paneId: askPaneId,
+            answer: event.key === 'Enter' ? 'yes' : 'no',
+          });
+          return;
+        }
+        input.parent.send({ type: 'ANSWER_ASK', paneId: askPaneId, answer: 'no' });
+      }
+      if (askPaneId && pendingAsk?.kind === 'send' && plainKey) {
         const move = (to: AskAnswer) => {
           event.preventDefault();
           input.parent.send({ type: 'MOVE_ASK_SELECTION', paneId: askPaneId, to });

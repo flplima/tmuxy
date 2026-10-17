@@ -270,3 +270,68 @@ export const LongSendScrollsBetweenTheQuestionAndTheAnswers: Story = {
     await waitForNoOverlay(target);
   },
 };
+
+// ---------------------------------------------------------------------------
+// A restore's offer: a one-line banner, not a modal
+// ---------------------------------------------------------------------------
+
+/** What a session restore hangs on a pane it brought back (`offer_payload`). */
+function offerPane(paneId: string, command: string): void {
+  const json = JSON.stringify({ token: `restore-${paneId}`, kind: 'offer', command });
+  const payload = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
+  win().app.send({
+    type: 'SEND_TMUX_COMMAND',
+    command: `set-option -p -t ${paneId} @tmuxy-ask ${payload}`,
+  });
+}
+
+export const RestoreOfferIsABannerAnyKeyDismisses: Story = {
+  args: {},
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'A command a restore offers sits in one row along the bottom of its pane: the pane stays readable and its cursor stays lit. Escape drops it, and so does any other key — which then goes on to the shell, because the user has started doing something else.',
+      },
+    },
+  },
+  play: async () => {
+    const target = app().context.activePaneId!;
+    offerPane(target, 'claude --resume abc123');
+    const banner = await waitFor(
+      () => {
+        const el = document.querySelector(`[data-pane-offer="${target}"]`) as HTMLElement | null;
+        if (!el) throw new Error('no banner yet');
+        return el;
+      },
+      { timeout: 8000, interval: 100 },
+    );
+    expect(banner.textContent).toBe('↵ to run:claude --resume abc123· esc to dismiss');
+    // One row, at the bottom of the pane, over nothing but that row.
+    const pane = document.querySelector(`[data-pane-id="${target}"]`)!.getBoundingClientRect();
+    const box = banner.getBoundingClientRect();
+    expect(box.height).toBeLessThan(40);
+    expect(Math.abs(box.bottom - pane.bottom)).toBeLessThan(6);
+    // No question overlay: an offer blurs nothing.
+    expect(document.querySelector(`[data-pane-ask="${target}"]`)).toBeNull();
+
+    const user = userEvent.setup({ delay: 5 });
+    await user.keyboard('{Escape}');
+    await waitFor(
+      () => expect(document.querySelector(`[data-pane-offer="${target}"]`)).toBeNull(),
+      { timeout: 8000, interval: 100 },
+    );
+
+    // Typing something else drops it too.
+    offerPane(target, 'htop');
+    await waitFor(
+      () => expect(document.querySelector(`[data-pane-offer="${target}"]`)).not.toBeNull(),
+      { timeout: 8000, interval: 100 },
+    );
+    await user.keyboard('l');
+    await waitFor(
+      () => expect(document.querySelector(`[data-pane-offer="${target}"]`)).toBeNull(),
+      { timeout: 8000, interval: 100 },
+    );
+  },
+};

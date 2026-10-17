@@ -26,7 +26,7 @@
 
 import { memo } from 'react';
 import { useAppSend, useAppSelector, usePane, useReadOnly } from '../machines/AppContext';
-import { paneAskFor, sentText, sentTextIsLong } from '../utils/paneAsk';
+import { paneSendFor, sentText, sentTextIsLong } from '../utils/paneAsk';
 import type { AskAnswer } from '../utils/paneAsk';
 import './AskOverlay.css';
 import type { PaneId } from '../domain/ids';
@@ -45,7 +45,7 @@ export const AskOverlay = memo(function AskOverlay({ paneId }: AskOverlayProps) 
   const send = useAppSend();
   const readOnly = useReadOnly();
   const selected = useAppSelector((context) => context.askSelections[paneId] ?? 'yes');
-  const ask = paneAskFor(pane);
+  const ask = paneSendFor(pane);
 
   if (!pane || !ask) return null;
 
