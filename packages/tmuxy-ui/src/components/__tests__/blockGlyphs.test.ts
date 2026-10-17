@@ -81,8 +81,8 @@ describe('blockGlyphs', () => {
     // The foreground is often inherited rather than an explicit colour, so the
     // substitution must survive a var() reference — hence color-mix over
     // relative-colour syntax for shades.
-    const s = blockGlyphStyle('▒', 'var(--terminal-fg, #fff)')!;
-    expect(s.backgroundImage).toContain('var(--terminal-fg, #fff) 50%');
+    const s = blockGlyphStyle('▒', 'var(--term-foreground)')!;
+    expect(s.backgroundImage).toContain('var(--term-foreground) 50%');
   });
 
   it('returns null for characters the font should draw', () => {

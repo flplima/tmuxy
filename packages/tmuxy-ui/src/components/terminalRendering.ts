@@ -47,8 +47,8 @@ function applyStyleToElement(
 
   if (style.inverse) {
     const tmp = fg;
-    fg = bg || 'var(--terminal-bg, #000)';
-    bg = tmp || 'var(--terminal-fg, #fff)';
+    fg = bg || 'var(--term-background)';
+    bg = tmp || 'var(--term-foreground)';
   }
 
   if (!selected) {
@@ -117,7 +117,7 @@ export function rowEdgeBackground(style: CellStyle | undefined): string | undefi
   if (!style) return undefined;
   const fg = style.fg !== undefined ? cellColorToCss(style.fg) : '';
   const bg = style.bg !== undefined ? cellColorToCss(style.bg) : '';
-  const painted = style.inverse ? fg || 'var(--terminal-fg, #fff)' : bg;
+  const painted = style.inverse ? fg || 'var(--term-foreground)' : bg;
   return painted || undefined;
 }
 

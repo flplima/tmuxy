@@ -88,8 +88,8 @@ function buildCellStyle(style: CellStyle): CSSProperties {
     // Swap fg/bg for inverse
     const fg = css.color;
     const bg = css.backgroundColor;
-    css.color = bg || 'var(--terminal-bg, #000)';
-    css.backgroundColor = fg || 'var(--terminal-fg, #fff)';
+    css.color = bg || 'var(--term-background)';
+    css.backgroundColor = fg || 'var(--term-foreground)';
   }
 
   return css;
@@ -234,7 +234,7 @@ export const TerminalLine = memo(
         if (blockCh) {
           const painted = blockGlyphStyle(
             blockCh,
-            (style.color as string) ?? 'var(--terminal-fg, #fff)',
+            (style.color as string) ?? 'var(--term-foreground)',
           );
           if (painted) {
             style = { ...style, ...painted, color: 'transparent' };
