@@ -99,6 +99,18 @@ export const tabOverviewActions = {
     enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
   }),
 
+  /** TAB mode's `<` / `>`: the active tab one place along the strip. */
+  tabOverview_moveActive: act(({ context, event, enqueue }) => {
+    if (event.type !== 'MOVE_ACTIVE_TAB' || !context.activeWindowId) return;
+    const from = selectVisibleWindows(context).findIndex((w) => w.id === context.activeWindowId);
+    if (from === -1) return;
+    enqueue.raise({
+      type: 'REORDER_TAB',
+      windowId: context.activeWindowId,
+      toIndex: from + event.by,
+    });
+  }),
+
   /**
    * Rename Tab from the app menu or the native menu bar: the strip opens its
    * field on the active tab, the same one its context menu opens, instead of

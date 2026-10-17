@@ -32,7 +32,17 @@
           "key": "M-Left",
           "repeat": true
         }
-      ]
+      ],
+      "tables": {
+        "pane": [
+          {
+            "command": "kill-pane \\; switch-client -T pane",
+            "description": "kill-pane \\; switch-client -T pane",
+            "key": "x",
+            "repeat": false
+          }
+        ]
+      }
     },
     "event": "keybindings"
   },
@@ -73,5 +83,11 @@
       "text": "copied"
     },
     "event": "clipboard"
+  },
+  {
+    "data": {
+      "text": "build done"
+    },
+    "event": "tmux-message"
   }
 ]

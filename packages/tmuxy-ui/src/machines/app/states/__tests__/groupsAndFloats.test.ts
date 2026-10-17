@@ -4,6 +4,7 @@ import { assign } from 'xstate';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from '../groupsAndFloats';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
 import { SIDEBAR_MOTION_SETTLE_MS } from '../../../constants';
+import { createInitialContext } from '../../context';
 const groupsAndFloatsGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { FloatPaneState } from '../../../types';
@@ -97,6 +98,21 @@ describe('groupsAndFloats state', () => {
     expect(ctx.focusedFloatPaneId).toBeNull();
   });
 
+  it('the sidebar key on an open column docks it, and a reload finds it docked', () => {
+    localStorage.clear();
+    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+      leftSidebarOpen: true,
+    });
+    let ctx = sendAndGetContext(actor, { type: 'SIDEBAR_KEY', side: 'left' });
+    expect(ctx.leftSidebarFixed).toBe(true);
+    expect(ctx.rightSidebarFixed).toBe(false);
+    expect(createInitialContext().leftSidebarFixed).toBe(true);
+
+    ctx = sendAndGetContext(actor, { type: 'SIDEBAR_KEY', side: 'left' });
+    expect(ctx.leftSidebarFixed).toBe(false);
+    expect(createInitialContext().leftSidebarFixed).toBe(false);
+  });
+
   describe('sidebar motion', () => {
     // The toggles also handle SET_TARGET_SIZE here so the test can see the
     // settled size the motion predicts (appMachine owns the real handler).
@@ -111,8 +127,10 @@ describe('groupsAndFloats state', () => {
       }),
     };
     // A 1000px body, 10px cells, 24px rows: the grid is 100 cols wide with
-    // nothing docked and 35 narrower once the 35-col dock is open.
+    // nothing docked and 35 narrower once the 35-col dock is open (fixed, so
+    // it docks rather than overlaying).
     const measured = {
+      rightSidebarFixed: true,
       bodyWidth: 1000 + 24,
       containerWidth: 1000,
       containerHeight: 480,

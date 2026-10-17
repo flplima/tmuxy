@@ -128,6 +128,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   const prefixActive = useAppSelector((ctx) => ctx.prefixActive);
+  const keyTable = useAppSelector((ctx) => ctx.keyTable);
+  const prefixRepeatOnly = useAppSelector((ctx) => ctx.prefixRepeatOnly);
 
   const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
 
@@ -274,11 +276,17 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const stateRef = useRef({ rows, selectedIndex, activate, send, toggleCollapse });
   stateRef.current = { rows, selectedIndex, activate, send, toggleCollapse };
   // Read inside the capture listener, which is installed once per focus.
-  const prefixRef = useRef(prefixActive);
-  prefixRef.current = prefixActive;
+  const bindingKeysRef = useRef<(key: string) => boolean>(() => false);
+  bindingKeysRef.current = (key) =>
+    keyTable !== null || (prefixActive && (!prefixRepeatOnly || prefixRepeatOnly.includes(key)));
   useEffect(() => {
     if (!focused) return;
     const handler = (e: KeyboardEvent) => {
+      // After the prefix, or in a sticky table (PANE, TAB), a key is a
+      // binding's, not the tree's: `prefix p` then `j` moves panes even
+      // with the column focused. In a repeat window (`prefix s` then `s`)
+      // only the repeated key is; anything else is the tree's again.
+      if (bindingKeysRef.current(e.key)) return;
       const {
         rows: rs,
         selectedIndex: idx,
@@ -362,11 +370,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           // while focused, and letting them fall through would type them into
           // the tab's pane behind the column.
           //
-          // A key that could be a BINDING is let through instead — a chord
-          // (ctrl/alt/meta) or the key after the prefix. Swallowing those made
-          // the column a keyboard trap: `prefix t`, the very shortcut that
-          // opened it, could no longer close it.
-          if (!e.ctrlKey && !e.altKey && !e.metaKey && !prefixRef.current) {
+          // A chord (ctrl/alt/meta) could be a BINDING and is let through
+          // instead. Swallowing those made the column a keyboard trap: the
+          // prefix itself could no longer reach the keyboard actor.
+          if (!e.ctrlKey && !e.altKey && !e.metaKey) {
             e.stopImmediatePropagation();
           }
           return;

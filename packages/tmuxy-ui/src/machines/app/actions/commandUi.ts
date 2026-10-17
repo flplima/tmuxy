@@ -1,7 +1,7 @@
 /**
  * Action implementations for the commandUi slice (a root-level `on` block).
  *
- * Owns commandMode, statusMessage, prefixActive.
+ * Owns commandMode, statusMessage, prefixActive, keyTable, keysViewOpen.
  *
  * A submitted command is raised as SEND_TMUX_COMMAND: it is a string the
  * user typed, parsed and routed like a binding (see ../dispatch.ts).
@@ -15,8 +15,20 @@ import { READ_ONLY_NOTICE } from '../../../domain/readOnly';
 export const commandUiActions = {
   commandUi_setPrefixActive: assignCtx(({ event }) => {
     if (event.type !== 'PREFIX_MODE_CHANGE') return {};
-    return { prefixActive: event.active };
+    return {
+      prefixActive: event.active,
+      prefixRepeatOnly: event.active ? (event.repeatOnly ?? null) : null,
+    };
   }),
+
+  commandUi_setKeyTable: assignCtx(({ event }) => {
+    if (event.type !== 'KEY_TABLE_CHANGE') return {};
+    return { keyTable: event.table };
+  }),
+
+  commandUi_toggleKeysView: assignCtx(({ context }) => ({
+    keysViewOpen: !context.keysViewOpen,
+  })),
 
   commandUi_openCommandPrompt: act(({ event, context, enqueue }) => {
     if (event.type !== 'OPEN_COMMAND_PROMPT') return;

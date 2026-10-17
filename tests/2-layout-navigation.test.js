@@ -20,6 +20,7 @@ const {
   splitPaneKeyboard,
   navigatePaneKeyboard,
   sendPrefixCommand,
+  openSidebarKeyboard,
   createWindowKeyboard,
   pressUntilWindowChanged,
   nextWindowKeyboard,
@@ -381,7 +382,7 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
 
     // A chrome window (the right sidebar) takes tmux index 2 BEFORE the tabs
     // that follow, so strip position and tmux index disagree from here on.
-    await sendPrefixCommand(page, 'T', { shift: true });
+    await openSidebarKeyboard(page, 'right', { fixed: true });
     await waitForCondition(page, async () => (await state()).chrome >= 1, 8000, 'the dock window');
     await createWindowKeyboard(page);
     await createWindowKeyboard(page);
@@ -688,11 +689,12 @@ describe('Scenario 4f: Collapsible panes', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  // prefix s turns the window collapsible and adds a first-level row: only the
-  // row holding the active pane stays expanded, the others collapse to one line
-  // per pane. Nested panes inside a row are never touched. prefix S turns it
-  // off and evens the first-level rows out (docs/TMUX.md, "Collapsible panes").
-  test('prefix s ×2 collapses the other rows → nested split + nav leaves the first level alone → ctrl+k expands a row → prefix S evens out', async () => {
+  // PANE mode's s turns the window collapsible and adds a first-level row:
+  // only the row holding the active pane stays expanded, the others collapse
+  // to one line per pane. Nested panes inside a row are never touched. S turns
+  // it off and evens the first-level rows out (docs/TMUX.md, "Collapsible
+  // panes").
+  test('PANE mode s ×2 collapses the other rows → nested split + nav leaves the first level alone → ctrl+k expands a row → PANE mode S evens out', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
@@ -725,11 +727,15 @@ describe('Scenario 4f: Collapsible panes', () => {
         }),
       );
 
-    // Step 1: prefix s twice → three first-level rows, only the newest expanded.
-    await sendPrefixCommand(page, 's');
+    // Step 1: PANE mode's s twice → three first-level rows, only the newest
+    // expanded. The mode is sticky, so the second s needs no prefix; esc
+    // leaves it.
+    await sendPrefixCommand(page, 'p');
+    await page.keyboard.press('s');
     await waitForPaneCount(page, 2);
-    await sendPrefixCommand(page, 's');
+    await page.keyboard.press('s');
     await waitForPaneCount(page, 3);
+    await page.keyboard.press('Escape');
     await waitForCondition(
       page,
       async () => {
@@ -790,8 +796,10 @@ describe('Scenario 4f: Collapsible panes', () => {
       async () => `the middle row to expand (rows: ${JSON.stringify(await rows())})`,
     );
 
-    // Step 4: prefix S turns the feature off and evens the rows out.
-    await sendPrefixCommand(page, 'S', { shift: true });
+    // Step 4: PANE mode's S turns the feature off and evens the rows out.
+    await sendPrefixCommand(page, 'p');
+    await page.keyboard.press('Shift+S');
+    await page.keyboard.press('Escape');
     await waitForCondition(
       page,
       async () => {
@@ -2393,7 +2401,7 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
     // With the dock open, nav right from the rightmost pane goes into it.
     await navigatePaneKeyboard(ctx.page, 'right');
     await until('nav right to reach the right pane again', (w) => w.activeX > 0);
-    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    await openSidebarKeyboard(ctx.page, 'right', { fixed: true });
     await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
     // Opening the dock hands it the keyboard once its pane exists, a beat
     // after the column draws; a nav pressed before then goes to the grid.
@@ -2406,7 +2414,7 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
       (w) => w.dockFocused === true,
     );
 
-    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    await ctx.page.click('button[aria-label="Toggle terminal sidebar"]');
   }, 180000);
 });
 
@@ -2727,6 +2735,158 @@ describe('Scenario 11: Status Bar', () => {
 });
 
 // ==================== Scenario 11b: Rename field keeps its paste ====================
+
+describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('prefix p: the PANE chip, x closes panes until esc → prefix t: the TAB chip, c opens a tab → prefix s overlays the tree, prefix s again docks it → prefix S S docks the terminal → prefix ? lists PANE', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    // What the status line shows: its mode, the chip as drawn, and whether
+    // the host and session are on screen.
+    const statusLine = () =>
+      page.evaluate(() => {
+        const hints = document.querySelector('[data-testid="statusline-hints"]');
+        const chip = hints?.querySelector('.statusline-mode');
+        const chipBox = chip?.getBoundingClientRect();
+        const right = document.querySelector('.tmux-statusline-right')?.getBoundingClientRect();
+        return {
+          mode: hints?.getAttribute('data-mode') ?? null,
+          chip: chip?.textContent ?? null,
+          chipVisible: !!chipBox && chipBox.width > 0 && chipBox.height > 0,
+          hostShown: !!right && right.width > 0,
+        };
+      });
+
+    // PANE mode: sticky, so x twice closes two panes without the prefix again.
+    await splitPaneKeyboard(page, 'vertical');
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 3);
+    await sendPrefixCommand(page, 'p');
+    await waitForCondition(
+      page,
+      async () => (await statusLine()).chip === 'PANE',
+      5000,
+      'the PANE chip',
+    );
+    expect(await statusLine()).toMatchObject({ chipVisible: true, hostShown: false });
+    await page.keyboard.press('x');
+    await waitForPaneCount(page, 2);
+    await page.keyboard.press('x');
+    await waitForPaneCount(page, 1);
+    expect((await statusLine()).chip).toBe('PANE');
+    await page.keyboard.press('Escape');
+    await waitForCondition(
+      page,
+      async () => {
+        const line = await statusLine();
+        return line.mode === 'normal' && line.hostShown;
+      },
+      5000,
+      'the normal line, host and session back',
+    );
+
+    // TAB mode: c opens a tab and the mode stays.
+    await sendPrefixCommand(page, 't');
+    await waitForCondition(
+      page,
+      async () => (await statusLine()).chip === 'TAB',
+      5000,
+      'the TAB chip',
+    );
+    await page.keyboard.press('c');
+    await waitForWindowCount(page, 2);
+    expect((await statusLine()).chip).toBe('TAB');
+    await page.keyboard.press('Escape');
+    await waitForCondition(
+      page,
+      async () => (await statusLine()).mode === 'normal',
+      5000,
+      'TAB mode to end',
+    );
+
+    // A column, and the grid of the tab in view.
+    const column = (side) =>
+      page.evaluate((s) => {
+        const el = document.querySelector(`.sidebar-column-${s}`);
+        if (!el) return null;
+        const box = el.getBoundingClientRect();
+        const grid = [...document.querySelectorAll('.pane-layout-item')]
+          .filter((p) => !p.classList.contains('pane-window-hidden'))
+          .map((p) => p.getBoundingClientRect());
+        return {
+          overlay: el.classList.contains('is-overlay'),
+          left: box.left,
+          right: box.right,
+          width: box.width,
+          gridLeft: Math.min(...grid.map((g) => g.left)),
+          gridRight: Math.max(...grid.map((g) => g.right)),
+        };
+      }, side);
+
+    // prefix s: the tree opens over the panes.
+    await openSidebarKeyboard(page, 'left');
+    await waitForCondition(
+      page,
+      async () => {
+        const c = await column('left');
+        return c !== null && c.overlay && c.width > 50 && c.gridLeft < c.right - 1;
+      },
+      15000,
+      'the tree overlaying the panes',
+    );
+    // prefix s on the open column: it docks, and the grid moves out from under it.
+    await openSidebarKeyboard(page, 'left');
+    await waitForCondition(
+      page,
+      async () => {
+        const c = await column('left');
+        return c !== null && !c.overlay && c.gridLeft >= c.right - 1;
+      },
+      15000,
+      async () => `the tree docked beside the grid (${JSON.stringify(await column('left'))})`,
+    );
+
+    // prefix S S: the terminal opens and docks at once, the grid ending where it starts.
+    await openSidebarKeyboard(page, 'right', { fixed: true });
+    await waitForCondition(
+      page,
+      async () => {
+        const c = await column('right');
+        return c !== null && !c.overlay && c.width > 50 && c.gridRight <= c.left + 1;
+      },
+      20000,
+      async () => `the terminal docked beside the grid (${JSON.stringify(await column('right'))})`,
+    );
+
+    // prefix ?: every key, table by table; esc closes it.
+    await sendPrefixCommand(page, '?', { shift: true });
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate(() => {
+          const view = document.querySelector('[data-testid="keys-view"]');
+          const box = view?.getBoundingClientRect();
+          return !!box && box.width > 0 && /PANE/.test(view.textContent);
+        }),
+      5000,
+      'the keys view listing the PANE table',
+    );
+    await page.keyboard.press('Escape');
+    await waitForCondition(
+      page,
+      () => page.evaluate(() => !document.querySelector('[data-testid="keys-view"]')),
+      5000,
+      'the keys view to close',
+    );
+  }, 180000);
+});
 
 describe('Scenario 11b: Pasting into a tab rename field', () => {
   const ctx = createTestContext();
@@ -3387,7 +3547,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Ctrl+h blurs → prefix T hides, reopen keeps the shell', async () => {
+  test('prefix S docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Ctrl+h blurs → the toggle hides it, prefix S reopens the same shell', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -3398,7 +3558,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
 
     // Step 1: Open the dock via the real keybinding. First open also CREATES
     // its tmux window, so this covers the create path.
-    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    await openSidebarKeyboard(ctx.page, 'right', { fixed: true });
 
     // Step 2: The column docks against the right edge of the viewport, full
     // height — a flex sibling of the pane area, not an overlay.
@@ -3630,10 +3790,11 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     );
     expect(openAfterBlur).toBe(true);
 
-    // Step 8: prefix T HIDES the column but keeps the shell alive — reopening
-    // shows the same terminal, scrollback and all. Both ways the column SLIDES:
-    // its width eases to zero and back, and the pane container's width eases
-    // with it, rather than either jumping between the two layouts.
+    // Step 8: the header toggle HIDES the column but keeps the shell alive —
+    // prefix S reopens the same terminal, scrollback and all. Both ways the
+    // column SLIDES: its width eases to zero and back, and the pane
+    // container's width eases with it, rather than either jumping between
+    // the two layouts.
     const dockWidth = await ctx.page.evaluate(() =>
       Math.round(
         document.querySelector('[data-testid="right-sidebar-content"]').getBoundingClientRect()
@@ -3642,7 +3803,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     );
     const closing = await sampleSidebarSlide(
       ctx.page,
-      () => sendPrefixCommand(ctx.page, 'T', { shift: true }),
+      () => ctx.page.click('button[aria-label="Toggle terminal sidebar"]'),
       '[data-testid="right-sidebar-content"]',
     );
     expect(slideProblem(closing.column, -1)).toBeNull();
@@ -3660,7 +3821,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
 
     const opening = await sampleSidebarSlide(
       ctx.page,
-      () => sendPrefixCommand(ctx.page, 'T', { shift: true }),
+      () => sendPrefixCommand(ctx.page, 'S', { shift: true }),
       '[data-testid="right-sidebar-content"]',
     );
     expect(slideProblem(opening.column, +1)).toBeNull();
@@ -3777,8 +3938,8 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await ctx.session.runCommand(`set-option -q -p -t ${ctx.session.name} allow-set-title off`);
     await ctx.session.runCommand(`select-pane -t ${ctx.session.name} -T '${longTitle}'`);
 
-    // Step 1: Open the sidebar via the real keybinding (prefix t).
-    await sendPrefixCommand(ctx.page, 't');
+    // Step 1: Open the sidebar via the real keybinding (prefix s).
+    await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
 
     // Step 2: The FIXED sidebar column appears docked at the left edge (it is
     // a flex sibling of the pane area, not an overlay — panes reflow beside it).
@@ -4088,10 +4249,10 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       'the other pane to be active',
     );
     // Open the tree with its key — unless an earlier test left it open, when
-    // the same key would close it.
+    // the same key would free it to overlay the panes.
     const treeOpen = () =>
       ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
-    if (!(await treeOpen())) await sendPrefixCommand(ctx.page, 't');
+    if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
     // A state mark wherever it is drawn: the tree row and the pane's header
@@ -4206,7 +4367,7 @@ describe('Scenario 6m: Dragging in the tree moves panes between tabs and reorder
     );
     expect(secondWindowId).not.toBe(firstWindowId);
 
-    await sendPrefixCommand(ctx.page, 't');
+    await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
     await ctx.page.waitForSelector(`[data-testid="tree-tab-${secondWindowId}"]`, {
       timeout: 20000,
     });
@@ -4324,7 +4485,7 @@ describe('Scenario 6l: The tree lists panes in grid order', () => {
 
     const treeOpen = () =>
       ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
-    if (!(await treeOpen())) await sendPrefixCommand(ctx.page, 't');
+    if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
     // What the grid shows, left to right, and what the tree lists.

@@ -375,6 +375,16 @@ export interface AppMachineContext {
    */
   leftSidebarOpen: boolean;
   /**
+   * Whether an open left column docks beside the grid and reflows it (fixed)
+   * or overlays the panes, which is where a column starts: one key to look,
+   * the same key twice to keep. `prefix s` while it is open flips it. A window
+   * too narrow to dock always overlays. Client-side, like the keys that set
+   * it.
+   */
+  leftSidebarFixed: boolean;
+  /** The same for the right column (`prefix S` while it is open). */
+  rightSidebarFixed: boolean;
+  /**
    * Whether the tree column holds keyboard focus. While true, keys drive the
    * tree widget (j/k/Enter/l/q) instead of reaching a tab's pane.
    */
@@ -532,6 +542,12 @@ export interface AppMachineContext {
   appFocused: boolean;
   /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */
   prefixActive: boolean;
+  /** While the prefix is a repeat window, the only keys it still takes. */
+  prefixRepeatOnly: readonly string[] | null;
+  /** The sticky key table in force — `pane`, `tab` — or null (keyboardActor). */
+  keyTable: string | null;
+  /** Whether the keys view (`prefix ?`) is open. */
+  keysViewOpen: boolean;
   /** Base font size for terminal text in pixels */
   baseFontSize: number;
   /** Timestamp of last layout command (for debouncing rapid layout changes) */
@@ -738,7 +754,19 @@ export type ResizeEndEvent = { type: 'RESIZE_END' };
 // Keyboard events
 /** A key the keyboard actor consumed; the drag and resize machines cancel on Escape. */
 export type KeyPressEvent = { type: 'KEY_PRESS'; key: string };
-export type PrefixModeChangeEvent = { type: 'PREFIX_MODE_CHANGE'; active: boolean };
+/**
+ * The prefix was armed or released. `repeatOnly` names the keys a repeat
+ * window (after `prefix s`) still takes; any other key goes on as typed.
+ */
+export type PrefixModeChangeEvent = {
+  type: 'PREFIX_MODE_CHANGE';
+  active: boolean;
+  repeatOnly?: readonly string[] | null;
+};
+/** The keyboard entered a sticky key table, or left it (null). */
+export type KeyTableChangeEvent = { type: 'KEY_TABLE_CHANGE'; table: string | null };
+/** Open or close the keys view (`prefix ?`). */
+export type ToggleKeysViewEvent = { type: 'TOGGLE_KEYS_VIEW' };
 
 // UI config events
 export type SetCharSizeEvent = {
@@ -819,6 +847,8 @@ export type ToggleTabCollapseEvent = { type: 'TOGGLE_TAB_COLLAPSE'; windowId: Wi
 
 // Right sidebar (the pinned terminal — a `sidebar-right`-typed tmux window)
 export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
+/** `prefix s` / `prefix S`: open that column, or fix/free it when it is open. */
+export type SidebarKeyEvent = { type: 'SIDEBAR_KEY'; side: 'left' | 'right' };
 /** Re-derive the dock's row count and tell tmux when it changed. */
 export type SyncDockRowsEvent = { type: 'SYNC_DOCK_ROWS' };
 /**
@@ -861,6 +891,8 @@ export type TabOverviewActivateEvent = { type: 'TAB_OVERVIEW_ACTIVATE'; index?: 
 export type SelectTabByPositionEvent = { type: 'SELECT_TAB_BY_POSITION'; position: number };
 /** Put a tab at a new strip position (0-based among the other tabs). */
 export type ReorderTabEvent = { type: 'REORDER_TAB'; windowId: WindowId; toIndex: number };
+/** TAB mode's `<` / `>`: the active tab one place along the strip. */
+export type MoveActiveTabEvent = { type: 'MOVE_ACTIVE_TAB'; by: -1 | 1 };
 /** Close a specific tab (kill-window on that window, not the current one). */
 export type CloseTabEvent = { type: 'CLOSE_TAB'; windowId: WindowId };
 /** Rename the active tab in the strip itself (an app-menu or native-menu Rename Tab). */
@@ -1291,6 +1323,7 @@ export type AppMachineEvent =
   | CloseFloatEvent
   | CloseTopFloatEvent
   | ToggleLeftSidebarEvent
+  | SidebarKeyEvent
   | ToggleTabCollapseEvent
   | FocusLeftSidebarEvent
   | BlurLeftSidebarEvent
@@ -1316,6 +1349,7 @@ export type AppMachineEvent =
   | TabOverviewActivateEvent
   | SelectTabByPositionEvent
   | ReorderTabEvent
+  | MoveActiveTabEvent
   | CloseTabEvent
   | RenameActiveTabEvent
   | TabRenameRequestTakenEvent
@@ -1350,6 +1384,8 @@ export type AppMachineEvent =
   | AppFocusEvent
   | AppBlurEvent
   | PrefixModeChangeEvent
+  | KeyTableChangeEvent
+  | ToggleKeysViewEvent
   | MoveAskSelectionEvent
   | AnswerAskEvent
   | AnswerVisibleAsksEvent

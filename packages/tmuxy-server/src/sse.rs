@@ -3264,6 +3264,16 @@ mod protocol_fixtures {
                     description: "pane left".to_string(),
                     repeat: true,
                 }],
+                tables: [(
+                    "pane".to_string(),
+                    vec![tmuxy_core::KeyBinding {
+                        key: "x".to_string(),
+                        command: "kill-pane \\; switch-client -T pane".to_string(),
+                        description: "kill-pane \\; switch-client -T pane".to_string(),
+                        repeat: false,
+                    }],
+                )]
+                .into(),
             }),
             SseEvent::ThemeSettings(serde_json::json!({
                 "name": "default",
@@ -3284,6 +3294,9 @@ mod protocol_fixtures {
             SseEvent::Clipboard {
                 pane_id: "%2".parse().unwrap(),
                 text: "copied".to_string(),
+            },
+            SseEvent::Message {
+                text: "build done".to_string(),
             },
         ]
     }

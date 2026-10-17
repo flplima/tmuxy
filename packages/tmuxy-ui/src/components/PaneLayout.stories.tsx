@@ -63,9 +63,9 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     app().send({ type: 'SET_THEME', name: 'gruvbox' });
     await waitFor(() => expect(activeOutline()).toBe('rgb(215, 153, 33)'), { timeout: 8000 });
 
-    // While the tree holds the keyboard (prefix t) no pane is green.
+    // While the tree holds the keyboard (prefix s) no pane is green.
     const user = userEvent.setup({ delay: 5 });
-    await user.keyboard('{Control>}a{/Control}t');
+    await user.keyboard('{Control>}a{/Control}s');
     await waitFor(() => expect(document.querySelector('.sidebar-tree')).not.toBeNull(), {
       timeout: 8000,
     });

@@ -1,8 +1,12 @@
 /**
  * TmuxStatusBar - Bottom status bar with keybinding hints, host, and session
  *
- * Layout: [left: hints (prefix/copy-mode aware)] [center: status messages] [right: host + session]
+ * Layout: [left: hints] [center: status messages] [right: host + session]
  *
+ * - The left side follows the mode: normal-mode hints, or a mode's name as an
+ *   inverse chip and its keys (PREFIX, COPY, and the sticky PANE and TAB
+ *   tables). In a mode the host and session are hidden — the line is the
+ *   mode's until it ends (statusLineHints.ts).
  * - Command mode replaces the whole bar with a full-width prompt input (like tmux prefix+:)
  * - Center shows only the client's own temporary status ("Copied …"); the raw
  *   tmux status line is NOT rendered — hardcoded hints (left) and host/session
@@ -21,32 +25,39 @@ import {
   selectSessionName,
   selectKeyBindings,
   selectPrefixActive,
+  selectKeyTable,
   selectActivePaneCopyMode,
   useReadOnly,
 } from '../machines/AppContext';
 import { formatPrefixKey } from './menus/keybindingLabel';
+import { HINT_SEPARATOR, MODE_HINTS, normalHints, type Hint } from './statusLineHints';
 import { SessionMenu } from './SessionMenu';
 import { isTauri } from '../utils/platform';
 import type { KeyBindings } from '../machines/types';
 
-const PREFIX_HINTS = [
-  { key: '-', label: 'split h' },
-  { key: '|', label: 'split v' },
-  { key: 'x', label: 'close pane' },
-  { key: 'c', label: 'new tab' },
-];
-
 function Separator() {
-  return <span style={{ opacity: 0.3, padding: '0 0.35em' }}>⋅</span>;
+  return <span className="statusline-separator">{HINT_SEPARATOR}</span>;
 }
 
-function Key({ children, active }: { children: string; active?: boolean }) {
+/**
+ * One line of hints: in a mode, its name as an inverse chip and then its
+ * keys; in normal mode, the keys alone. See statusLineHints.ts for what each
+ * mode says and the 80-column rule.
+ */
+function HintLine({ hints, mode }: { hints: readonly Hint[]; mode: string | null }) {
   return (
-    <>
-      <span className="statusline-bracket">[</span>
-      <kbd className={active ? 'statusline-prefix-active' : undefined}>{children}</kbd>
-      <span className="statusline-bracket">]</span>
-    </>
+    <span className="statusline-hints" data-testid="statusline-hints" data-mode={mode ?? 'normal'}>
+      {mode && <span className="statusline-mode">{mode.toUpperCase()}</span>}
+      {hints.map((hint, i) => (
+        <span key={hint.key}>
+          {(mode || i > 0) && <Separator />}
+          <span className="statusline-bracket">[</span>
+          <kbd>{hint.key}</kbd>
+          <span className="statusline-bracket">]</span>{' '}
+          <span className="statusline-hint-desc">{hint.label}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -75,80 +86,9 @@ function navHintKey(rootBindings: KeyBindings['root_bindings']): string | null {
   return null;
 }
 
-function StatusLineHints({
-  keybindings,
-  prefixActive,
-}: {
-  keybindings: KeyBindings | null;
-  prefixActive: boolean;
-}) {
-  if (!keybindings) return null;
-
-  const prefix = formatPrefixKey(keybindings.prefix_key);
-
-  if (prefixActive) {
-    return (
-      <span className="statusline-hints">
-        <Key active>{prefix}</Key>
-        <Separator />
-        {PREFIX_HINTS.map(({ key, label }, i) => (
-          <span key={key}>
-            {i > 0 && <Separator />}
-            <Key>{key}</Key> <span className="statusline-hint-desc">{label}</span>
-          </span>
-        ))}
-      </span>
-    );
-  }
-
-  // The nav hint names whatever key is actually bound: a user's own config
-  // may move it off the default.
-  const navKey = navHintKey(keybindings.root_bindings);
-
-  const hasTabs = keybindings.root_bindings.some(
-    (b) => /^C-[0-9]$/.test(b.key) && b.command.includes('select-window'),
-  );
-
-  return (
-    <span className="statusline-hints">
-      <Key>{prefix}</Key> <span className="statusline-hint-desc">prefix</span>
-      {navKey && (
-        <>
-          <Separator />
-          <Key>{navKey}</Key> <span className="statusline-hint-desc">pane nav</span>
-        </>
-      )}
-      {hasTabs && (
-        <>
-          <Separator />
-          <Key>ctrl+&lt;1-9&gt;</Key> <span className="statusline-hint-desc">tabs</span>
-          {' · '}
-          <Key>ctrl+0</Key> <span className="statusline-hint-desc">all tabs</span>
-        </>
-      )}
-    </span>
-  );
-}
-
-const COPY_MODE_HINTS = [
-  { key: 'hjkl', label: 'nav' },
-  { key: 'v', label: 'select' },
-  { key: 'y', label: 'copy' },
-  { key: 'esc', label: 'quit' },
-];
-
-function CopyModeHints() {
-  return (
-    <span className="statusline-hints">
-      <span className="statusline-copy-mode-label">[COPY MODE]</span>
-      {COPY_MODE_HINTS.map(({ key, label }) => (
-        <span key={key}>
-          <Separator />
-          <Key>{key}</Key> <span className="statusline-hint-desc">{label}</span>
-        </span>
-      ))}
-    </span>
-  );
+/** The keys a mode lists: its own, or none for a table the line knows nothing about. */
+function modeHints(mode: string): readonly Hint[] {
+  return MODE_HINTS[mode] ?? [];
 }
 
 function CommandModeInput({
@@ -207,6 +147,7 @@ export function TmuxStatusBar() {
   const sessionName = useAppSelector(selectSessionName);
   const keybindings = useAppSelector(selectKeyBindings);
   const prefixActive = useAppSelector(selectPrefixActive);
+  const keyTable = useAppSelector(selectKeyTable);
   const inCopyMode = useAppSelector(selectActivePaneCopyMode);
   const send = useAppSend();
   const readOnly = useReadOnly();
@@ -254,6 +195,17 @@ export function TmuxStatusBar() {
     <pre className="tmux-status-bar-content tmux-status-message">{statusMessage.text}</pre>
   ) : null;
 
+  // The mode in force, by the table it is: a sticky table (PANE, TAB), else
+  // the prefix, else copy mode. While one is on the line is the mode's.
+  const mode = keyTable ?? (prefixActive ? 'prefix' : inCopyMode ? 'copy' : null);
+  // The nav hint names whatever key is actually bound: a user's own config
+  // may move it off the default.
+  const hints = mode
+    ? modeHints(mode)
+    : keybindings
+      ? normalHints(formatPrefixKey(keybindings.prefix_key), navHintKey(keybindings.root_bindings))
+      : null;
+
   return (
     <div className="tmux-status-bar" data-testid="tmux-status-bar">
       {/* Full width, whatever the pane grid measures: with a sidebar open the
@@ -261,14 +213,10 @@ export function TmuxStatusBar() {
           left edge and the host/session at its right. */}
       <div className="tmux-statusline-inner">
         <div className="tmux-statusline-left">
-          {inCopyMode ? (
-            <CopyModeHints />
-          ) : (
-            <StatusLineHints keybindings={keybindings} prefixActive={prefixActive} />
-          )}
+          {hints && <HintLine hints={hints} mode={mode} />}
         </div>
         <div className="tmux-statusline-center">{centerContent}</div>
-        <div className="tmux-statusline-right" ref={switcherRef}>
+        <div className="tmux-statusline-right" ref={switcherRef} hidden={mode !== null}>
           <span
             className={`statusline-host${handleSwitcherClick ? ' statusline-clickable' : ''}`}
             onClick={handleSwitcherClick}

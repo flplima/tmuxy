@@ -358,6 +358,51 @@ key still works, it is just several hundred milliseconds slower. Any classifier
 that keys off a bound command must match the **expanded** form (and may accept
 the alias too, for commands built in-code).
 
+## Key Tables Are the Client's
+
+tmuxy answers keys itself — the browser or webview holds the keyboard, and
+control mode has no key handling to give it — so the prefix and every table
+beyond it run in the client's keyboard actor
+(`tmuxy-ui/src/machines/actors/keyboardActor.ts`), from the bindings the server
+reads with one `list-keys` and sends whole (`KeyBindings` in
+`tmuxy-core/src/transport.rs`: prefix, root, and every other table by name;
+copy mode's tables stay out, copy mode being the client's too).
+
+A binding enters a table the tmux way, with `switch-client -T <table>`
+(`bind p switch-client -T pane` in `tmuxy.defaults.conf`). The client reads the
+switch out of the binding and keeps the table as its own state; only the rest
+of the binding goes to tmux (`tmuxy-ui/src/domain/keyTables.ts`). A table is
+**sticky** for as long as each key's binding enters it again
+(`bind -T pane x kill-pane \; switch-client -T pane`) — again exactly how tmux
+does it — and `Esc`, a key the table does not bind, or a binding that names no
+table leaves it. So the same config drives a raw `tmux attach` the same way.
+
+The defaults:
+
+```
+  prefix (ctrl+a)          the short menu
+    -  |   split           c   new tab        s / S   the left / right sidebar
+    p      PANE mode       t   TAB mode       ?       every key, table by table
+
+  PANE (sticky)                             TAB (sticky)
+    h j k l   focus          H J K L  resize    h l   prev / next     c   new
+    - |       split          x        close     ,     rename          x   close
+    z         zoom           s / S    stack     1-9   go              < > move (client)
+    = group   < > swap       f float  b break   o     overview (client)
+    m mark    , rename       g join
+```
+
+A few keys have no tmux command behind them and are answered by the client in
+whichever table they belong to: `prefix s` / `S` (open a sidebar over the
+panes; the same key again while it is open docks it, and again frees it — the
+prefix stays armed for that one key, tmux's repeat, and any other key goes on
+as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
+`prefix ?` (the keys view), and TAB's `<` / `>` (move the tab along the strip,
+which skips the windows floats and sidebars occupy where a relative
+`swap-window` would not). The status line names the mode in force and shows a
+handful of its keys, each line fitting 80 columns
+(`tmuxy-ui/src/components/statusLineHints.ts`).
+
 ## Client-Side Placeholder Substitution
 
 Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{pane_width}`, and `#{pane_height}` in **every outgoing command** with the active pane's values (`appMachine`'s SEND_TMUX_COMMAND handler). This is deliberate — prefix-binding commands are written against these placeholders — but it means text typed or pasted into a terminal containing those three exact placeholders is substituted before tmux ever sees it, on every transport (server, Tauri, v86).
@@ -471,7 +516,7 @@ A window tagged `@tmuxy-collapsible` keeps only the **first-level** row that hol
 
 The backend owns the reshaping (`tmuxy-core/src/layout.rs`, `collapsible_layout_commands` in `control_mode/state.rs`): it parses the layout string, edits the first-level heights, re-serialises it with tmux's checksum and sends `select-layout`. It runs on focus changes, layout changes and option changes, and is idempotent, so the `%layout-change` its own command causes never echoes another. Zoomed windows are left alone.
 
-`prefix s` (`tmuxy-stack`) sets the option and adds a full-width row below (`split-window -v -f`); `prefix S` (`tmuxy-stack-off`) unsets it, and the backend evens the first-level rows back out. The tab's context menu toggles the same option.
+PANE mode's `s` (`tmuxy-stack`) sets the option and adds a full-width row below (`split-window -v -f`); its `S` (`tmuxy-stack-toggle`) flips it, and turning it off evens the first-level rows back out. The tab's context menu toggles the same option.
 
 ### The marked pane
 

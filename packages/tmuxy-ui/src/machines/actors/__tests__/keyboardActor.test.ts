@@ -196,6 +196,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'C-a',
+        tables: {},
         prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
         root_bindings: [{ key: 'C-n', command: 'next-window' }],
       },
@@ -224,6 +225,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'C-a',
+        tables: {},
         prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
         root_bindings: [],
       },
@@ -255,6 +257,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'C-a',
+        tables: {},
         prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
         root_bindings: [],
       },
@@ -285,6 +288,7 @@ describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', ()
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'C-a',
+        tables: {},
         prefix_bindings: [],
         root_bindings: [{ key: 'C-2', command: 'select-window -t 2' }],
       },
@@ -664,6 +668,7 @@ describe('keyboardActor — desktop IME', () => {
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'C-a',
+        tables: {},
         prefix_bindings: [{ key: 'c', command: 'new-window', description: 'new window' }],
         root_bindings: [],
       },
@@ -691,6 +696,7 @@ describe('keyboardActor — desktop IME', () => {
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'C-a',
+        tables: {},
         prefix_bindings: [],
         root_bindings: [{ key: 'c', command: 'display-message root', description: 'root' }],
       },
@@ -715,6 +721,7 @@ describe('keyboardActor — desktop IME', () => {
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'a',
+        tables: {},
         prefix_bindings: [],
         root_bindings: [],
       },
@@ -729,7 +736,11 @@ describe('keyboardActor — desktop IME', () => {
     if (!prefix.defaultPrevented) insertText(input, 'a');
 
     expect(prefix.defaultPrevented).toBe(true);
-    expect(handle.events).toContainEqual({ type: 'PREFIX_MODE_CHANGE', active: true });
+    expect(handle.events).toContainEqual({
+      type: 'PREFIX_MODE_CHANGE',
+      active: true,
+      repeatOnly: null,
+    });
     expect(sendCommands(handle.events)).toEqual([]);
   });
 
@@ -844,6 +855,7 @@ describe('keyboardActor — desktop IME', () => {
       type: 'UPDATE_KEYBINDINGS',
       keybindings: {
         prefix_key: 'C-a',
+        tables: {},
         prefix_bindings: [{ key: 'c', command: 'new-window', description: 'new window' }],
         root_bindings: [
           { key: 'F2', command: 'display-message root', description: 'root binding' },
@@ -863,5 +875,90 @@ describe('keyboardActor — desktop IME', () => {
       'send-keys -t tmuxy C-a',
     ]);
     expect(sendCommands(handle.events).join('\n')).not.toContain(placeholder);
+  });
+});
+
+describe('keyboardActor — sticky key tables and the sidebar keys', () => {
+  const PIN = 'select-window -t @0 \\; select-pane -t %1 \\; ';
+  const keybindings = {
+    prefix_key: 'C-a',
+    prefix_bindings: [{ key: 'p', command: 'switch-client -T pane', description: '' }],
+    root_bindings: [],
+    tables: {
+      pane: [
+        { key: 'x', command: 'kill-pane \\; switch-client -T pane', description: '' },
+        { key: 'z', command: 'resize-pane -Z', description: '' },
+      ],
+    },
+  };
+  const tableChanges = (events: Array<{ type: string; [k: string]: unknown }>) =>
+    events.filter((e) => e.type === 'KEY_TABLE_CHANGE').map((e) => e.table);
+
+  it('prefix p enters PANE; a key that re-enters it repeats, and the switch never reaches tmux', () => {
+    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
+    child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'p' });
+    expect(tableChanges(events)).toEqual(['pane']);
+    expect(sendCommands(events)).toEqual([]);
+
+    pressKey({ key: 'x' });
+    pressKey({ key: 'x' });
+    expect(sendCommands(events)).toEqual([`${PIN}kill-pane`, `${PIN}kill-pane`]);
+    expect(tableChanges(events)).toEqual(['pane']);
+
+    pressKey({ key: 'Escape' });
+    expect(tableChanges(events)).toEqual(['pane', null]);
+    // Out of the table, x is typed again.
+    pressKey({ key: 'x' });
+    expect(lastSendCommand(events)).toBe("send-keys -t %1 -l -- 'x'");
+    actor.stop();
+  });
+
+  it('a binding that names no table, or a key the table does not bind, leaves it', () => {
+    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
+    child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'p' });
+    pressKey({ key: 'z' });
+    expect(lastSendCommand(events)).toBe(`${PIN}resize-pane -Z`);
+    expect(tableChanges(events)).toEqual(['pane', null]);
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'p' });
+    const sent = sendCommands(events).length;
+    pressKey({ key: 'q' });
+    expect(sendCommands(events)).toHaveLength(sent);
+    expect(tableChanges(events)).toEqual(['pane', null, 'pane', null]);
+    actor.stop();
+  });
+
+  it('prefix s opens the column, s again reaches it, and any other key is typed as usual', () => {
+    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
+    child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
+    const sidebarKeys = () => events.filter((e) => e.type === 'SIDEBAR_KEY');
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 's' });
+    pressKey({ key: 's' });
+    expect(sidebarKeys()).toEqual([
+      { type: 'SIDEBAR_KEY', side: 'left' },
+      { type: 'SIDEBAR_KEY', side: 'left' },
+    ]);
+
+    // After the repeat, a different key is not a prefix binding: it is typed.
+    pressKey({ key: 'j' });
+    expect(lastSendCommand(events)).toBe("send-keys -t %1 -l -- 'j'");
+    expect(sidebarKeys()).toHaveLength(2);
+
+    // The prefix inside a repeat window starts a fresh prefix: it is not a
+    // double prefix sending a literal C-a to the pane.
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 's' });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 's' });
+    expect(sidebarKeys()).toHaveLength(4);
+    expect(sendCommands(events)).not.toContain('send-keys -t %1 C-a');
+    actor.stop();
   });
 });

@@ -1,13 +1,16 @@
 /**
  * commandUi state — a root-level `on` slice for command mode and status messages.
  *
- * Owns context fields: commandMode, statusMessage, prefixActive.
+ * Owns context fields: commandMode, statusMessage, prefixActive, keyTable,
+ * keysViewOpen.
  * Action implementations live in ../actions/commandUi.ts.
  */
 
 export const commandUiState = {
   on: {
     PREFIX_MODE_CHANGE: { actions: 'commandUi_setPrefixActive' },
+    KEY_TABLE_CHANGE: { actions: 'commandUi_setKeyTable' },
+    TOGGLE_KEYS_VIEW: { actions: 'commandUi_toggleKeysView' },
     OPEN_COMMAND_PROMPT: { actions: 'commandUi_openCommandPrompt' },
     COMMAND_MODE_SUBMIT: { actions: 'commandUi_submitCommandMode' },
     COMMAND_MODE_CANCEL: { actions: 'commandUi_cancelCommandMode' },

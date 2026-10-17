@@ -5,6 +5,8 @@
  * - When Ctrl+A (prefix key) is pressed, we enter "prefix mode"
  * - The next key triggers the corresponding tmux command directly
  * - This is necessary because send-keys bypasses tmux's prefix handling
+ * - A binding's `switch-client -T <table>` enters a sticky key table (PANE,
+ *   TAB) the same way, kept here rather than sent (domain/keyTables.ts)
  *
  * IME Composition Handling:
  * - During IME composition (CJK input, dead keys), we suppress individual keydowns
@@ -42,6 +44,7 @@ import { terminalTextOf } from '../../utils/nativeSelection';
 import { focusGuiWindow, newGuiWindow } from '../../utils/guiWindows';
 import { isTauri } from '../../utils/platform';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
+import { splitTableSwitch } from '../../domain/keyTables';
 import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 
@@ -100,6 +103,60 @@ const KEY_MAP: Record<string, string> = {
   F11: 'F11',
   F12: 'F12',
 };
+
+/**
+ * The tmux name a key is bound under in a key table: DOM names mapped to
+ * tmux's, and a shifted character as the character — automation (and some
+ * browsers) report Shift+' as `'` with shiftKey set rather than as `"`.
+ */
+function bindingKeyOf(event: KeyboardEvent): string {
+  const SHIFTED: Record<string, string> = {
+    "'": '"', // Shift+' = " (horizontal split)
+    '5': '%', // Shift+5 = % (vertical split)
+    '7': '&', // Shift+7 = & (kill window)
+    '1': '!', // Shift+1 = ! (break pane)
+    '[': '{', // Shift+[ = { (swap pane up)
+    ']': '}', // Shift+] = } (swap pane down)
+    '/': '?', // Shift+/ = ? (the keys view)
+    ';': ':', // Shift+; = : (command prompt)
+    ',': '<', // Shift+, = < (swap left)
+    '.': '>', // Shift+. = > (swap right)
+    '\\': '|', // Shift+\ = | (split right)
+  };
+  if (event.shiftKey && SHIFTED[event.key]) return SHIFTED[event.key];
+  return KEY_MAP[event.key] ?? event.key;
+}
+
+/**
+ * Keys the client answers itself, by table: what they open has no tmux window
+ * or pane behind it (a sidebar's open/fixed state, the Tab Overview, the keys
+ * view), so there is no binding for tmux to run.
+ */
+type ClientKey =
+  | 'left-sidebar'
+  | 'right-sidebar'
+  | 'tab-overview'
+  | 'keys-view'
+  | 'tab-left'
+  | 'tab-right';
+
+/**
+ * Moving a tab along the strip is the client's too: the strip's order skips
+ * the windows tmuxy keeps for floats and sidebars, which a relative
+ * `swap-window` would not. Those two keep TAB mode on, as its bindings do.
+ */
+const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
+  prefix: { s: 'left-sidebar', S: 'right-sidebar', w: 'tab-overview', '?': 'keys-view' },
+  tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
+};
+
+const STICKY_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set(['tab-left', 'tab-right']);
+
+/**
+ * How long the prefix stays armed after `prefix s` / `prefix S`, so the same
+ * key again (`prefix s s`) reaches the column it just opened.
+ */
+const SIDEBAR_REPEAT_MS = 600;
 
 /**
  * macOS Option+key produces special Unicode characters instead of altKey=true
@@ -263,6 +320,8 @@ export function createKeyboardActor() {
     let prefixBindings: Map<string, string> = new Map();
     let prefixRepeatKeys: Set<string> = new Set();
     let rootBindings: Map<string, string> = new Map();
+    /** Every other table a binding can enter (`switch-client -T`), by name. */
+    let tableBindings: Map<string, Map<string, string>> = new Map();
 
     // Prefix key timeout (tmux default is 500ms, we use 8000ms so the hint is
     // readable and users have time to choose a binding)
@@ -331,6 +390,9 @@ export function createKeyboardActor() {
     // timer or fire the event — the "state with a timeout" that the scattered
     // boolean + setTimeout used to model by hand.
     let prefixActive = false;
+    // While set, the prefix is armed for these keys only — tmux's repeat
+    // mode: any other key ends it and is handled as if no prefix came first.
+    let prefixRepeatOnly: ReadonlySet<string> | null = null;
     let prefixTimer: ReturnType<typeof setTimeout> | null = null;
     const clearPrefixTimer = () => {
       if (prefixTimer) {
@@ -342,25 +404,63 @@ export function createKeyboardActor() {
       get active() {
         return prefixActive;
       },
-      enter() {
+      get repeatOnly() {
+        return prefixRepeatOnly;
+      },
+      enter(timeoutMs = PREFIX_TIMEOUT_MS, repeatOnly: ReadonlySet<string> | null = null) {
         prefixActive = true;
-        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: true });
+        prefixRepeatOnly = repeatOnly;
+        input.parent.send({
+          type: 'PREFIX_MODE_CHANGE',
+          active: true,
+          repeatOnly: repeatOnly ? [...repeatOnly] : null,
+        });
         clearPrefixTimer();
         prefixTimer = setTimeout(() => {
           prefixActive = false;
+          prefixRepeatOnly = null;
           prefixTimer = null;
           input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
-        }, PREFIX_TIMEOUT_MS);
+        }, timeoutMs);
       },
       // Leave prefix mode. notify=false is the silent teardown path.
       exit(notify = true) {
         const wasActive = prefixActive;
         prefixActive = false;
+        prefixRepeatOnly = null;
         clearPrefixTimer();
         if (notify && wasActive) {
           input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
         }
       },
+    };
+
+    // The sticky key table in force (PANE, TAB, …), or null. Entered from a
+    // binding's own `switch-client -T` (see domain/keyTables.ts); the machine
+    // hears of every change so the status line can name the mode.
+    let keyTable: string | null = null;
+    const setKeyTable = (table: string | null) => {
+      if (table === keyTable) return;
+      keyTable = table;
+      input.parent.send({ type: 'KEY_TABLE_CHANGE', table });
+    };
+
+    /** A key the client answers itself (see CLIENT_KEYS). */
+    const runClientKey = (key: ClientKey) => {
+      switch (key) {
+        case 'left-sidebar':
+          return input.parent.send({ type: 'SIDEBAR_KEY', side: 'left' });
+        case 'right-sidebar':
+          return input.parent.send({ type: 'SIDEBAR_KEY', side: 'right' });
+        case 'tab-overview':
+          return input.parent.send({ type: 'TOGGLE_TAB_OVERVIEW' });
+        case 'keys-view':
+          return input.parent.send({ type: 'TOGGLE_KEYS_VIEW' });
+        case 'tab-left':
+          return input.parent.send({ type: 'MOVE_ACTIVE_TAB', by: -1 });
+        case 'tab-right':
+          return input.parent.send({ type: 'MOVE_ACTIVE_TAB', by: 1 });
+      }
     };
 
     // Every consumed key is reported to the machine: the drag and resize
@@ -466,6 +566,7 @@ export function createKeyboardActor() {
       let liveCopyStates: Record<PaneId, CopyModeState> | undefined;
       let liveAskSelections: Record<PaneId, AskAnswer> = {};
       let livePanes: ReadonlyArray<LivePane> = [];
+      let keysViewOpen = false;
       try {
         const snapshot = input.parent.getSnapshot() as {
           context?: {
@@ -474,6 +575,7 @@ export function createKeyboardActor() {
             copyModeStates?: Record<PaneId, CopyModeState>;
             askSelections?: Record<PaneId, AskAnswer>;
             panes?: ReadonlyArray<LivePane>;
+            keysViewOpen?: boolean;
           };
         };
         const ctx = snapshot?.context;
@@ -482,8 +584,21 @@ export function createKeyboardActor() {
         liveCopyStates = ctx?.copyModeStates;
         if (ctx?.panes) livePanes = ctx.panes;
         if (ctx?.askSelections) liveAskSelections = ctx.askSelections;
+        keysViewOpen = ctx?.keysViewOpen === true;
       } catch (_) {
         /* keep the cached closure values */
+      }
+
+      // The keys view (`prefix ?`) is modal, as a question on a pane is:
+      // `esc` or `q` closes it, and any other plain key goes nowhere — the
+      // panes under its scrim are not being typed into. Chords (the prefix
+      // among them) still work, so `prefix ?` closes it again.
+      if (keysViewOpen && !event.ctrlKey && !event.metaKey && !event.altKey && !prefixMode.active) {
+        event.preventDefault();
+        if (event.key === 'Escape' || event.key === 'q') {
+          input.parent.send({ type: 'TOGGLE_KEYS_VIEW' });
+        }
+        return;
       }
 
       /**
@@ -528,6 +643,19 @@ export function createKeyboardActor() {
         // Nothing known about the window: the pane pin at least aims at the
         // right pane if tmux is already on its window.
         return pinPrefix(null, pane);
+      };
+
+      /**
+       * Send a binding, pinned (see `bindingPin`). A table switch in it is the
+       * client's to keep, so it is taken out and returned rather than sent:
+       * the table it enters, null for root, undefined when it names none.
+       */
+      const runBinding = (binding: string): string | null | undefined => {
+        const { command, table } = splitTableSwitch(binding);
+        if (command) {
+          input.parent.send({ type: 'SEND_TMUX_COMMAND', command: `${bindingPin()}${command}` });
+        }
+        return table;
       };
 
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode
@@ -743,7 +871,7 @@ export function createKeyboardActor() {
       // program running in the pinned dock (vim, lazygit, fzf) receives it,
       // and the tree column's own key handler decides what it means for the
       // tree. Leaving a column is Ctrl+h / Ctrl+l, a click, or the tree's `q`.
-      if (event.key === 'Escape' && focusedFloatPaneId) {
+      if (event.key === 'Escape' && focusedFloatPaneId && keyTable === null) {
         input.parent.send({ type: 'CLOSE_FLOAT', paneId: focusedFloatPaneId });
         return;
       }
@@ -751,12 +879,22 @@ export function createKeyboardActor() {
       // Format the key to check against bindings
       const formattedKey = formatTmuxKey(event);
 
+      // In a repeat window (after `prefix s`), a key other than the repeated
+      // one ends it and goes on as if no prefix had come first — the tree or
+      // the pane gets it, as tmux hands it to the root table. The prefix key
+      // itself starts a fresh prefix rather than counting as a double one.
+      if (prefixMode.active && prefixMode.repeatOnly) {
+        if (!prefixMode.repeatOnly.has(bindingKeyOf(event))) prefixMode.exit();
+      }
+
       // Check for prefix key (dynamic, from server)
       // Ignore auto-repeated prefix key events — holding Ctrl+A too long
       // would trigger the "double prefix" handler, resetting prefix mode
       // before the user can press the binding key.
       if (formattedKey === prefixKey && !event.repeat) {
         event.preventDefault();
+        // The prefix leaves a sticky table, as it does in tmux.
+        setKeyTable(null);
         if (prefixMode.active) {
           // Double prefix sends literal prefix key to the shell
           prefixMode.exit();
@@ -781,65 +919,39 @@ export function createKeyboardActor() {
         // Every key after the prefix is consumed, bound or not (tmux ignores an
         // unbound one) — it must never fall through as typed text.
         event.preventDefault();
-        // Determine the binding key — map DOM key values to tmux key names
-        let bindingKey = KEY_MAP[event.key] ?? event.key;
+        const bindingKey = bindingKeyOf(event);
 
-        // Handle shifted characters - browsers may send the base key with shiftKey=true
-        // instead of the shifted character (especially with Playwright/automation)
-        if (event.shiftKey && event.key.length === 1) {
-          const shiftedKeys: Record<string, string> = {
-            "'": '"', // Shift+' = " (horizontal split)
-            '5': '%', // Shift+5 = % (vertical split)
-            '7': '&', // Shift+7 = & (kill window)
-            '1': '!', // Shift+1 = ! (break pane)
-            '[': '{', // Shift+[ = { (swap pane up)
-            ']': '}', // Shift+] = } (swap pane down)
-            '/': '?', // Shift+/ = ? (list keys)
-            ';': ':', // Shift+; = : (command prompt)
-          };
-          if (shiftedKeys[event.key]) {
-            bindingKey = shiftedKeys[event.key];
+        // `prefix s` / `prefix S` open the left / right sidebar, and the same
+        // key again while it is open fixes or frees it (`prefix s s`) — so
+        // the prefix stays armed for a moment. `prefix w` is tmux's own
+        // "choose window" key; here it opens the Tab Overview. `prefix ?` is
+        // the keys view. None of them has anything for tmux to run.
+        const clientKey = CLIENT_KEYS.prefix[bindingKey];
+        if (clientKey) {
+          runClientKey(clientKey);
+          if (clientKey === 'left-sidebar' || clientKey === 'right-sidebar') {
+            prefixMode.enter(SIDEBAR_REPEAT_MS, new Set([bindingKey]));
+          } else {
+            prefixMode.exit();
           }
-        }
-
-        // `prefix t` toggles the left sidebar (the tree) and `prefix T` the
-        // right one (the pinned dock). Handled client-side (like the header
-        // buttons) so they never reach tmux and work for web clients
-        // regardless of any server-side binding for those keys.
-        // `prefix w` is tmux's own "choose window" key; here it opens the Tab
-        // Overview, the same view ctrl+0 toggles.
-        if (bindingKey === 't' || bindingKey === 'T' || bindingKey === 'w') {
-          input.parent.send({
-            type:
-              bindingKey === 't'
-                ? 'TOGGLE_LEFT_SIDEBAR'
-                : bindingKey === 'T'
-                  ? 'TOGGLE_RIGHT_SIDEBAR'
-                  : 'TOGGLE_TAB_OVERVIEW',
-          });
-          prefixMode.exit();
           notifyKeyPress(event);
           return;
         }
 
         const bindingCommand = prefixBindings.get(bindingKey);
         if (bindingCommand) {
-          // Prefix-pin to the window and pane the user sees (see `bindingPin`).
-          // Most prefix bindings (e.g., `split-window`, `kill-pane`) have no
-          // `-t` target and run against tmux's server-side current window/pane,
-          // which can lag the user's perceived focus right after a window switch
-          // or pane-group swap. For bindings that carry their own target (e.g.,
-          // `select-pane -L`), the prepend is a harmless no-op.
-          const command = `${bindingPin()}${bindingCommand}`;
-          input.parent.send({
-            type: 'SEND_TMUX_COMMAND',
-            command,
-          });
-
-          // Re-enter prefix mode for repeat (-r) bindings, matching tmux behavior.
-          // This lets users press e.g. prefix+o o o to cycle panes without
-          // re-pressing the prefix key each time.
-          if (prefixRepeatKeys.has(bindingKey)) {
+          // Pinned to the window and pane the user sees (see `bindingPin`):
+          // most prefix bindings (`split-window`, `kill-pane`) carry no `-t`
+          // and run against tmux's current window/pane, which can lag the
+          // user's focus right after a tab switch or pane-group swap.
+          const table = runBinding(bindingCommand);
+          if (table) {
+            // `prefix p` / `prefix t`: a sticky table, until `esc`.
+            prefixMode.exit();
+            setKeyTable(table);
+          } else if (prefixRepeatKeys.has(bindingKey)) {
+            // Repeat (-r) bindings re-arm the prefix, as in tmux: prefix+o o o
+            // cycles panes without pressing the prefix again.
             prefixMode.enter();
           } else {
             prefixMode.exit();
@@ -851,6 +963,26 @@ export function createKeyboardActor() {
 
         // Unknown binding - just ignore (like tmux does)
         prefixMode.exit();
+        notifyKeyPress(event);
+        return;
+      }
+
+      // A sticky key table (PANE, TAB): every key is the table's. A binding
+      // that enters the table again keeps it, as tmux does; `esc`, a key the
+      // table does not bind, or a binding that names no table leaves it.
+      if (keyTable !== null) {
+        event.preventDefault();
+        const bindingKey = bindingKeyOf(event);
+        const clientKey = CLIENT_KEYS[keyTable]?.[bindingKey];
+        if (event.key === 'Escape') {
+          setKeyTable(null);
+        } else if (clientKey) {
+          runClientKey(clientKey);
+          if (!STICKY_CLIENT_KEYS.has(clientKey)) setKeyTable(null);
+        } else {
+          const binding = tableBindings.get(keyTable)?.get(bindingKey);
+          setKeyTable(binding ? (runBinding(binding) ?? null) : null);
+        }
         notifyKeyPress(event);
         return;
       }
@@ -875,12 +1007,10 @@ export function createKeyboardActor() {
         event.preventDefault();
         // Same pin as prefix bindings — root bindings (bind -n) also run
         // against tmux's server-side current window/pane and need the
-        // post-tab-switch / post-group-swap race guarded the same way.
-        const command = `${bindingPin()}${rootCommand}`;
-        input.parent.send({
-          type: 'SEND_TMUX_COMMAND',
-          command,
-        });
+        // post-tab-switch / post-group-swap race guarded the same way. One may
+        // enter a table too (`bind -n F1 switch-client -T pane`).
+        const table = runBinding(rootCommand);
+        if (table) setKeyTable(table);
 
         notifyKeyPress(event);
         return;
@@ -1079,6 +1209,12 @@ export function createKeyboardActor() {
         prefixBindings = new Map(kb.prefix_bindings.map((b) => [b.key, b.command]));
         prefixRepeatKeys = new Set(kb.prefix_bindings.filter((b) => b.repeat).map((b) => b.key));
         rootBindings = new Map(kb.root_bindings.map((b) => [b.key, b.command]));
+        tableBindings = new Map(
+          Object.entries(kb.tables).map(([name, bindings]) => [
+            name,
+            new Map(bindings.map((b) => [b.key, b.command])),
+          ]),
+        );
       } else if (event.type === 'UPDATE_ENABLED') {
         enabled = event.enabled;
       } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {

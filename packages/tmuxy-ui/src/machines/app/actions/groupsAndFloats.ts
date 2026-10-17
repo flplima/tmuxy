@@ -20,6 +20,7 @@ import {
   visibleFloats,
 } from '../../selectors';
 import { calculateTargetSize } from '../../../utils/layout';
+import { saveSidebarFixed } from '../../../utils/sidebarDock';
 import { SIDEBAR_MOTION_SETTLE_MS } from '../../constants';
 
 /**
@@ -258,6 +259,29 @@ export const groupsAndFloatsActions = {
       ? context.collapsedTabIds.filter((id) => id !== windowId)
       : [...context.collapsedTabIds, windowId];
     enqueue(assign({ collapsedTabIds }));
+  }),
+
+  /**
+   * `prefix s` / `prefix S`: open that column, or — when it is already open —
+   * fix it beside the grid (docked, reflowing the panes) or free it to
+   * overlay them. One key to look, the same key twice to keep; this browser
+   * remembers which (`utils/sidebarDock`).
+   */
+  groupsAndFloats_sidebarKey: act(({ context, event, enqueue }) => {
+    if (event.type !== 'SIDEBAR_KEY') return;
+    const left = event.side === 'left';
+    if (!(left ? context.leftSidebarOpen : context.rightSidebarOpen)) {
+      enqueue.raise({
+        type: left ? ('TOGGLE_LEFT_SIDEBAR' as const) : ('TOGGLE_RIGHT_SIDEBAR' as const),
+      });
+      return;
+    }
+    const fixed = {
+      left: left ? !context.leftSidebarFixed : context.leftSidebarFixed,
+      right: left ? context.rightSidebarFixed : !context.rightSidebarFixed,
+    };
+    saveSidebarFixed(fixed);
+    enqueue(assign({ leftSidebarFixed: fixed.left, rightSidebarFixed: fixed.right }));
   }),
 
   groupsAndFloats_toggleLeftSidebar: act(({ context, enqueue }) => {

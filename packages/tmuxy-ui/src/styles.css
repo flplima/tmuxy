@@ -1324,14 +1324,27 @@
   flex-shrink: 0;
 }
 
-/* Keybinding hints */
+/* In a mode the line is the mode's: no host or session. */
+.tmux-statusline-right[hidden] {
+  display: none;
+}
+
+/* Keybinding hints: the terminal's size on the terminal's row, so the hints,
+   the centre and the labels share one baseline. Every line is written to fit
+   80 columns with 1ch either side (components/statusLineHints.ts). */
 .statusline-hints {
   color: var(--text-dark);
-  font-size: calc(var(--tmuxy-font-size, 15px) * 0.73);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
   font-family: var(--font-mono);
-  white-space: nowrap;
+  white-space: pre;
   overflow: hidden;
-  padding: 0 var(--spacing-lg);
+  padding: 0 1ch;
+  /* Keys are read glyph by glyph: FiraCode would draw `-|` as one arrow. */
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
 }
 
 @media (pointer: coarse), (max-width: 600px) {
@@ -1351,33 +1364,25 @@
   font-weight: normal;
 }
 
-/* Prefix armed, and copy mode: the two states the status line shouts about.
-   Both are inverse-video chips — the terminal convention for "a mode is on" —
-   drawn in the THEME's colours rather than in a literal black and green. The
-   hardcoded pair was the default theme's palette written out, so every other
-   colourscheme got a green chip on a bar that had nothing green in it.
-
-   The ground is the terminal background, which is the darkest tone on a dark
-   theme and the lightest on a light one, so the chip sits apart from the
-   status bar under it in both; the text is the theme's accent, the same colour
-   the active pane's title takes. */
-.statusline-hints .statusline-prefix-active {
+/* A mode (PREFIX, COPY, PANE, TAB) names itself in an uppercase inverse-video
+   chip — the terminal convention for "a mode is on" — drawn in the THEME's
+   colours: the terminal background, the darkest tone on a dark theme and the
+   lightest on a light one, so the chip sits apart from the band under it; the
+   text is the theme's accent, the colour the active pane's title takes. */
+.statusline-mode {
   background: var(--term-background);
   color: var(--theme-accent);
   padding: 0 3px;
   border-radius: var(--radius-sm);
+  font-weight: bold;
 }
 
 .statusline-hint-desc {
   opacity: 0.7;
 }
 
-.statusline-copy-mode-label {
-  background: var(--term-background);
-  color: var(--theme-accent);
-  padding: 0 3px;
-  border-radius: var(--radius-sm);
-  font-weight: bold;
+.statusline-separator {
+  opacity: 0.3;
 }
 
 /* Host and session labels */
@@ -1388,6 +1393,10 @@
   font-size: var(--tmuxy-font-size, 15px);
   padding: var(--spacing-md) var(--spacing-lg);
   border-radius: var(--radius-md);
+}
+
+.statusline-session {
+  font-weight: bold;
 }
 
 .statusline-clickable {
@@ -2355,18 +2364,15 @@
 /* min-width:0 is what actually enables the ellipsis: a flex item defaults to
    min-width:auto and refuses to shrink below its text, so without it a long
    title overflows the column instead of truncating. */
+/* Holds the column's SidebarTitle, which dims itself while the column does
+   not have the keyboard. */
 .sidebar-header-title {
+  display: flex;
+  justify-content: center;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: center;
-  opacity: 0.75;
-}
-
-.sidebar-column.is-focused .sidebar-header-title {
-  opacity: 1;
 }
 
 .sidebar-header-close {

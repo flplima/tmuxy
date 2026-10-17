@@ -484,14 +484,39 @@ fn describe_binding(command_name: &str, command: &str) -> String {
     }
 }
 
-/// The prefix key and the prefix/root tables, as the client's keyboard
-/// handling reads them. The wire shape of the SSE `keybindings` frame and the
-/// desktop's `tmux-keybindings` event.
+/// The prefix key and the key tables, as the client's keyboard handling reads
+/// them. The wire shape of the SSE `keybindings` frame and the desktop's
+/// `tmux-keybindings` event.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBindings {
     pub prefix_key: String,
     pub prefix_bindings: Vec<KeyBinding>,
     pub root_bindings: Vec<KeyBinding>,
+    /// Every other table a binding can enter with `switch-client -T` — the
+    /// sticky PANE and TAB modes among them — by name. tmux's own copy-mode
+    /// tables are left out: copy mode is the client's.
+    #[serde(default)]
+    pub tables: std::collections::BTreeMap<String, Vec<KeyBinding>>,
+}
+
+/// Tables `KeyBindings::tables` leaves out: the two it has fields for, and
+/// copy mode's, which the client handles itself.
+const UNLISTED_TABLES: [&str; 4] = ["prefix", "root", "copy-mode", "copy-mode-vi"];
+
+/// The table a `list-keys` line binds in, whether or not it carries `-r`.
+fn binding_table(line: &str) -> Option<&str> {
+    let mut parts = line.split_whitespace();
+    if parts.next() != Some("bind-key") {
+        return None;
+    }
+    let mut next = parts.next()?;
+    if next == "-r" {
+        next = parts.next()?;
+    }
+    if next != "-T" {
+        return None;
+    }
+    parts.next()
 }
 
 /// tmux's own prefix, for a server that answers nothing.
@@ -502,12 +527,9 @@ impl KeyBindings {
     /// yields tmux's defaults (prefix `C-b`, no tables) rather than an error:
     /// the client keeps working, and the next refresh corrects it.
     pub async fn read(tx: &MonitorCommandSender) -> Self {
-        match query(
-            tx,
-            "show-options -gv prefix ; list-keys -T prefix ; list-keys -T root",
-        )
-        .await
-        {
+        // Every table in one list: asking for a table by name is an error when
+        // it does not exist, and an error ends the command list.
+        match query(tx, "show-options -gv prefix ; list-keys").await {
             Ok(output) => Self::parse(&output),
             Err(e) => {
                 tracing::warn!(error = %e, "could not read key bindings");
@@ -526,10 +548,19 @@ impl KeyBindings {
             .filter(|p| !p.is_empty() && !p.starts_with("bind-key"))
             .unwrap_or(DEFAULT_PREFIX)
             .to_string();
+        let names: std::collections::BTreeSet<&str> = output
+            .lines()
+            .filter_map(binding_table)
+            .filter(|table| !UNLISTED_TABLES.contains(table))
+            .collect();
         Self {
             prefix_key,
             prefix_bindings: parse_bindings("prefix", output),
             root_bindings: parse_bindings("root", output),
+            tables: names
+                .into_iter()
+                .map(|name| (name.to_string(), parse_bindings(name, output)))
+                .collect(),
         }
     }
 }
@@ -782,6 +813,30 @@ bind-key    -T prefix \\% send-keys %";
         assert!(parsed.prefix_bindings[1].repeat);
         assert_eq!(parsed.root_bindings.len(), 1);
         assert_eq!(parsed.root_bindings[0].key, "C-Left");
+        assert!(parsed.tables.is_empty());
+    }
+
+    /// A table a binding enters with `switch-client -T` comes through by name,
+    /// `-r` or not; copy mode's tables stay out — copy mode is the client's.
+    #[test]
+    fn key_bindings_carry_every_other_table_but_copy_modes() {
+        let parsed = KeyBindings::parse(
+            "C-a\n\
+             bind-key    -T copy-mode-vi v send-keys -X begin-selection\n\
+             bind-key    -T pane x kill-pane \\; switch-client -T pane\n\
+             bind-key -r -T pane H resize-pane -L 5 \\; switch-client -T pane\n\
+             bind-key    -T prefix p switch-client -T pane\n\
+             bind-key    -T tab c new-window\n",
+        );
+        assert_eq!(
+            parsed.tables.keys().collect::<Vec<_>>(),
+            [&"pane".to_string(), &"tab".to_string()]
+        );
+        let pane = &parsed.tables["pane"];
+        assert_eq!(pane.len(), 2);
+        assert_eq!(pane[0].command, "kill-pane \\; switch-client -T pane");
+        assert!(pane[1].repeat);
+        assert_eq!(parsed.prefix_bindings.len(), 1);
     }
 
     #[tokio::test]

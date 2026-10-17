@@ -3,11 +3,12 @@
  * two sidebar columns.
  *
  * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId,
- * leftSidebarOpen, leftSidebarFocused, rightSidebarOpen, rightSidebarFocused,
- * sidebarMotion, leftSidebarClosing, rightSidebarClosing.
+ * leftSidebarOpen, leftSidebarFixed, leftSidebarFocused, rightSidebarOpen,
+ * rightSidebarFixed, rightSidebarFocused, sidebarMotion, leftSidebarClosing,
+ * rightSidebarClosing.
  *
  * - groupsAndFloatsGlobalEvents: spread into machine root on:
- *   (OPEN_CONNECT_FLOAT, TOGGLE_LEFT_SIDEBAR — pure
+ *   (OPEN_CONNECT_FLOAT, TOGGLE_LEFT_SIDEBAR, SIDEBAR_KEY — pure
  *    side-effect dispatches that work in any state).
  *
  * - groupsAndFloatsIdleEvents: spread into states.idle.on
@@ -31,6 +32,10 @@ export const groupsAndFloatsGlobalEvents = {
   TOGGLE_LEFT_SIDEBAR: {
     guard: notReadOnly,
     actions: 'groupsAndFloats_toggleLeftSidebar',
+  },
+  SIDEBAR_KEY: {
+    guard: notReadOnly,
+    actions: 'groupsAndFloats_sidebarKey',
   },
   TOGGLE_TAB_COLLAPSE: { actions: 'groupsAndFloats_toggleTabCollapse' },
   SIDEBAR_START_TIMEOUT: { actions: 'groupsAndFloats_sidebarStartTimeout' },

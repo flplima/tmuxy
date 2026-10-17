@@ -344,11 +344,16 @@ export const KeyBinding = Schema.Struct({
 });
 export type KeyBinding = Schema.Schema.Type<typeof KeyBinding>;
 
-/** The prefix key and the prefix/root tables. */
+/**
+ * The prefix key and the key tables: prefix and root, and by name every other
+ * table a binding can enter with `switch-client -T` (the sticky PANE and TAB
+ * modes among them).
+ */
 export const KeyBindings = Schema.Struct({
   prefix_key: Schema.String,
   prefix_bindings: Schema.Array(KeyBinding),
   root_bindings: Schema.Array(KeyBinding),
+  tables: Schema.Record({ key: Schema.String, value: Schema.Array(KeyBinding) }),
 });
 export type KeyBindings = Schema.Schema.Type<typeof KeyBindings>;
 

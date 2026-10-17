@@ -34,8 +34,15 @@ function sidebarWindow(side: 'left' | 'right', extra: Partial<TmuxWindow> = {}):
   };
 }
 
+/** Both columns fixed, so the width rule is what decides; a test frees one itself. */
 function ctx(overrides: Partial<AppMachineContext>): AppMachineContext {
-  return { ...createInitialContext(), charWidth: CHAR, ...overrides };
+  return {
+    ...createInitialContext(),
+    charWidth: CHAR,
+    leftSidebarFixed: true,
+    rightSidebarFixed: true,
+    ...overrides,
+  };
 }
 
 /** The pane container's content width for a body of `bodyWidth` with `dockedPx` taken by columns. */
@@ -54,6 +61,20 @@ describe('selectSidebarLayout', () => {
       }),
     );
     expect(layout).toMatchObject({ leftOpen: true, overlay: false, leftWidth: 30 * CHAR });
+  });
+
+  it('overlays a column the user freed (prefix s s) even where it would dock', () => {
+    const body = 1280;
+    const layout = selectSidebarLayout(
+      ctx({
+        leftSidebarOpen: true,
+        leftSidebarFixed: false,
+        windows: [sidebarWindow('left')],
+        bodyWidth: body,
+        containerWidth: containerFor(body, 0),
+      }),
+    );
+    expect(layout).toMatchObject({ leftOpen: true, overlay: true });
   });
 
   it('overlays when the panes would be left with 60 columns or fewer', () => {

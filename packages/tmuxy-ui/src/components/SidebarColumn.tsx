@@ -28,6 +28,7 @@
 import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { SidebarTree } from './SidebarTree';
+import { SidebarTitle } from './SidebarTitle';
 import { useAppSelector, selectSidebarCellMetrics } from '../machines/AppContext';
 import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
@@ -50,8 +51,6 @@ interface SidebarColumnProps {
   pane: TmuxPane | null;
   /** The column was asked to open but its pane never appeared (see SIDEBAR_START_TIMEOUT). */
   startFailed: boolean;
-  /** Header label in overlay layout — the app header has no room for it there. */
-  title: string;
   /** Focus request from a click anywhere in the column. */
   onFocus: () => void;
   /** The overlay header's close button (and the failure state's). */
@@ -70,7 +69,6 @@ export const SidebarColumn = memo(function SidebarColumn({
   focused,
   pane,
   startFailed,
-  title,
   onFocus,
   onClose,
   closeLabel,
@@ -123,7 +121,11 @@ export const SidebarColumn = memo(function SidebarColumn({
     >
       {overlay && (
         <div className="sidebar-header">
-          <span className="sidebar-header-title">{title}</span>
+          {/* The same title the app header carries for a docked column, the
+              session switcher on the left one included. */}
+          <span className="sidebar-header-title">
+            <SidebarTitle side={side} />
+          </span>
           <Tooltip label={closeLabel}>
             <button
               type="button"

@@ -25,7 +25,6 @@
 
 import { memo, useCallback } from 'react';
 import { SidebarColumn } from './SidebarColumn';
-import { sidebarShellTitle } from './paneTabDisplay';
 import {
   useAppSend,
   useAppSelector,
@@ -76,7 +75,6 @@ function SidebarInner({ side }: { side: 'left' | 'right' }) {
   const startFailed = useAppSelector((ctx) =>
     side === 'left' ? ctx.leftSidebarStartFailed : ctx.rightSidebarStartFailed,
   );
-  const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const pane = useAppSelector(selectPane);
 
   const handleFocus = useCallback(() => send({ type: focusEvent }), [send, focusEvent]);
@@ -94,9 +92,6 @@ function SidebarInner({ side }: { side: 'left' | 'right' }) {
       focused={focused}
       pane={pane}
       startFailed={startFailed}
-      // The tree's column is named after the session it lists; the terminal's
-      // after what it is running.
-      title={side === 'left' ? sessionName : sidebarShellTitle(pane)}
       onFocus={handleFocus}
       onClose={handleClose}
       closeLabel={closeLabel}

@@ -123,6 +123,7 @@ export {
   selectGesturePaneId,
   selectSidebarFocused,
   selectPrefixActive,
+  selectKeyTable,
   selectActivePaneCopyMode,
   selectThemeName,
   selectThemeMode,

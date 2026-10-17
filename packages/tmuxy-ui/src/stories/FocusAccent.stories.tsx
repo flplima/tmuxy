@@ -66,7 +66,7 @@ export const TheAccentFollowsTheKeyboard: Story = {
     await waitFor(() => expect(colourOf(activeTab())).toBe(accentPainted));
 
     // Open the tree column and focus it.
-    await userEvent.keyboard('{Control>}a{/Control}t');
+    await userEvent.keyboard('{Control>}a{/Control}s');
     const title = await waitFor(
       () => {
         const el = canvasElement.querySelector<HTMLElement>('[data-testid="sidebar-title-left"]');

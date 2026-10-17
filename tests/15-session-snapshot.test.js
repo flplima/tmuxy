@@ -19,7 +19,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { getBrowser, waitForCondition, sendPrefixCommand } = require('./helpers');
+const { getBrowser, waitForCondition, openSidebarKeyboard } = require('./helpers');
 const { TMUXY_PORT } = require('./helpers/config');
 const { isolatedServer } = require('./helpers/snapshot-server');
 
@@ -147,7 +147,7 @@ describe('Scenario 32: Session snapshots', () => {
     const secondTab = srv.cli(['tab', 'create']);
     // The sidebar column is a window of its own, opened from the client.
     await page.bringToFront();
-    await sendPrefixCommand(page, 't');
+    await openSidebarKeyboard(page, 'left', { fixed: true });
     await waitForCondition(
       page,
       () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true),
@@ -296,7 +296,11 @@ describe('Scenario 32: Session snapshots', () => {
     //    must read the list as it opens, not wait for the tree's poll), and
     //    choosing it rebuilds the session and switches to it.
     if (await page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen)) {
-      await sendPrefixCommand(page, 't');
+      // A docked column closes from its toggle; an overlaying one covers the
+      // toggle with its backdrop and closes from its own header instead.
+      const headerClose = page.locator('button[aria-label="Close the tree sidebar"]');
+      if (await headerClose.isVisible()) await headerClose.click();
+      else await page.click('button[aria-label="Toggle tree sidebar"]');
       await waitForCondition(
         page,
         () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === false),

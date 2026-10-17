@@ -140,17 +140,37 @@ watch one session, each on its own tab (Window ▸ New Window).
 
 With the prefix (`Ctrl+a`):
 
-| Keys             | Action                                       |
-| ---------------- | -------------------------------------------- |
-| `-` / `"`        | Split below                                  |
-| `\|` / `\` / `%` | Split to the right                           |
-| `c`              | New tab                                      |
-| `=`              | Add a pane to the current pane's group       |
-| `s` / `S`        | Stack a new row / toggle stacking the window |
-| `H/J/K/L`        | Resize the pane                              |
-| `<` / `>`        | Swap with the previous / next pane           |
-| `z`              | Zoom / unzoom                                |
-| `r`              | Reload the config                            |
+| Keys             | Action                                                                   |
+| ---------------- | ------------------------------------------------------------------------ |
+| `-` / `"`        | Split below                                                              |
+| `\|` / `\` / `%` | Split to the right                                                       |
+| `c`              | New tab                                                                  |
+| `p`              | PANE mode (below)                                                        |
+| `t`              | TAB mode (below)                                                         |
+| `s` / `S`        | Open the tree / the pinned terminal; the same key again docks it (`s s`) |
+| `=`              | Add a pane to the current pane's group                                   |
+| `H/J/K/L`        | Resize the pane                                                          |
+| `<` / `>`        | Swap with the previous / next pane                                       |
+| `z`              | Zoom / unzoom                                                            |
+| `?`              | Every key, table by table                                                |
+
+A sidebar opens over the panes; pressing its key again while it is open docks
+it beside them, and again frees it. PANE and TAB are sticky modes: keys are
+plain letters and repeat until `Esc`, and the status line names the mode.
+
+| PANE (`p`) | Action                       | TAB (`t`) | Action                    |
+| ---------- | ---------------------------- | --------- | ------------------------- |
+| `h/j/k/l`  | Focus left/down/up/right     | `h` / `l` | Previous / next tab       |
+| `H/J/K/L`  | Resize                       | `c`       | New tab                   |
+| `-` / `\|` | Split below / right          | `,`       | Rename                    |
+| `x`        | Close                        | `x`       | Close                     |
+| `z`        | Zoom / unzoom                | `1`…`9`   | Go to tab 1…9             |
+| `s` / `S`  | Stack a new row / toggle it  | `<` / `>` | Move the tab left / right |
+| `=`        | Add to the group             | `o`       | Show every tab            |
+| `<` / `>`  | Swap with previous / next    |           |                           |
+| `f` / `b`  | New float / break to a tab   |           |                           |
+| `m` / `,`  | Mark / rename                |           |                           |
+| `g`        | Join a pane from another tab |           |                           |
 
 Everything is also reachable from a shell through the `tmuxy` CLI
 (`tmuxy --help` lists it all):

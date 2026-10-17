@@ -6,6 +6,7 @@ import type { CommandFailure, KeyBindings } from '../../../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
 import type { TraceSettings } from '../../../../machines/types';
 import { DemoTmux } from './DemoTmux';
+import { STICKY_TABLE_ENTRIES, STICKY_TABLES } from '../stickyTables';
 import {
   saveThemeToStorage,
   loadThemeFromStorage,
@@ -22,7 +23,7 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: '%', command: 'split-window -h', description: 'Split vertically' },
     { key: 'c', command: 'new-window', description: 'New window' },
     { key: 'n', command: 'next-window', description: 'Next window' },
-    { key: 'p', command: 'previous-window', description: 'Previous window' },
+    ...STICKY_TABLE_ENTRIES,
     { key: 'x', command: 'kill-pane', description: 'Kill pane' },
     { key: '&', command: 'kill-window', description: 'Kill window' },
     { key: 'o', command: 'select-pane -t :.+', description: 'Next pane' },
@@ -40,8 +41,6 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: 'J', command: 'resize-pane -D 5', description: 'Resize down' },
     { key: 'K', command: 'resize-pane -U 5', description: 'Resize up' },
     { key: 'L', command: 'resize-pane -R 5', description: 'Resize right' },
-    { key: 'r', command: 'source-file ~/.tmuxy.conf', description: 'Reload config' },
-    { key: 'S', command: 'setw synchronize-panes', description: 'Sync panes' },
     { key: '=', command: 'tmuxy-pane-group-add', description: 'Add to pane group' },
     { key: '[', command: 'copy-mode -t demo', description: 'Enter copy mode' },
     { key: 'Space', command: 'next-layout', description: 'Next layout' },
@@ -92,6 +91,7 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: 'C-8', command: 'select-window -t 8', description: 'Window 8' },
     { key: 'C-9', command: 'select-window -t 9', description: 'Window 9' },
   ],
+  tables: STICKY_TABLES,
 };
 
 export interface DemoAdapterOptions {

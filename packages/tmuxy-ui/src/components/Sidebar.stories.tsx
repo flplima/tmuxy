@@ -5,7 +5,7 @@
  * in a fixed-width, full-height column that flexes the pane area — no tmux
  * window/pane, no `tmuxy tree` TUI. The tree is derived from the demo's
  * `context.windows`/`context.panes`, so these stories exercise the real user
- * chain: TOGGLE_LEFT_SIDEBAR (button or `prefix t`) → column opens → tree lists every
+ * chain: TOGGLE_LEFT_SIDEBAR (button or `prefix s`) → column opens → tree lists every
  * tab and its panes → clicking / keyboard-navigating a node activates it through
  * the same events the rest of the UI uses.
  *
@@ -16,6 +16,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor, fireEvent } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
+import { fixColumn } from '../stories/fixColumn';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/Sidebar',
@@ -124,23 +125,41 @@ export const OpenShowsTree: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// `prefix t` toggles the sidebar (keyboard user path)
+// `prefix s` opens the sidebar; the same key again frees or fixes it
 // ---------------------------------------------------------------------------
 
-export const OpenViaPrefixT: Story = {
+export const OpenViaPrefixS: Story = {
   args: { height: 500, initCommands: ['rename-window editor'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
     const user = userEvent.setup({ delay: 5 });
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('t');
+    const prefix = () => user.keyboard('{Control>}a{/Control}');
+    const column = () => document.querySelector('.sidebar-column-left') as HTMLElement;
+    // Docked, the grid starts where the column ends; overlaying, under it.
+    const gridUnderColumn = () => {
+      const pane = canvasElement.querySelector('.pane-layout-item')!.getBoundingClientRect();
+      return pane.left < column().getBoundingClientRect().right - 1;
+    };
+
+    // One key to look: the column opens over the panes.
+    await prefix();
+    await user.keyboard('s');
     await waitForTree();
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('t');
-    await waitFor(() => expect(document.querySelector('.sidebar-tree')).toBeNull(), {
-      timeout: 5000,
-    });
+    await waitFor(() => expect(column()).toHaveClass('is-overlay'), { timeout: 5000 });
+    await waitFor(() => expect(gridUnderColumn()).toBe(true), { timeout: 5000 });
+
+    // The same key twice to keep (`prefix s s`): it docks, and the grid
+    // reflows beside it.
+    await user.keyboard('s');
+    await waitFor(() => expect(column()).not.toHaveClass('is-overlay'), { timeout: 5000 });
+    await waitFor(() => expect(gridUnderColumn()).toBe(false), { timeout: 5000 });
+
+    // `prefix s` on an open, fixed column frees it to overlay again.
+    await prefix();
+    await user.keyboard('s');
+    await waitFor(() => expect(column()).toHaveClass('is-overlay'), { timeout: 5000 });
+    await waitFor(() => expect(gridUnderColumn()).toBe(true), { timeout: 5000 });
   },
 };
 
@@ -392,10 +411,27 @@ export const TreeSitsOnTheChrome: Story = {
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
-    // From the tree up to and including the column, every element is
+    const column = document.querySelector('.sidebar-column-left') as HTMLElement;
+    const transparent = 'rgba(0, 0, 0, 0)';
+
+    // Over the panes, the column brings the window's ground with it — the
+    // panes must not read through the tree.
+    await waitFor(() => expect(column).toHaveClass('is-overlay'));
+    const windowGround = document.createElement('span');
+    windowGround.style.backgroundColor = 'rgb(var(--window-bg-rgb))';
+    document.body.appendChild(windowGround);
+    expect(getComputedStyle(column).backgroundColor).toBe(
+      getComputedStyle(windowGround).backgroundColor,
+    );
+    windowGround.remove();
+
+    // Fixed (`prefix s` on the open column), it docks beside the grid, and
+    // from the tree up to and including the column every element is
     // see-through: a sidebar is chrome, so the window's ground runs on behind
     // it and only the panes are dark.
-    const transparent = 'rgba(0, 0, 0, 0)';
+    await userEvent.keyboard('{Control>}a{/Control}');
+    await userEvent.keyboard('s');
+    await waitFor(() => expect(column).not.toHaveClass('is-overlay'));
     let el: HTMLElement | null = tree;
     while (el && !el.classList.contains('sidebar-column')) {
       expect(getComputedStyle(el).backgroundColor, el.className).toBe(transparent);
@@ -453,6 +489,9 @@ export const FixedSidebarReflowsPanes: Story = {
       },
       { timeout: 8000 },
     );
+    // A column opens over the panes; `prefix s` on the open column fixes it.
+    await userEvent.keyboard('{Control>}a{/Control}');
+    await userEvent.keyboard('s');
 
     // After: the sidebar is a real column, and every pane sits to the RIGHT of
     // it (no overlap) while still reaching the same right edge (fills the space
@@ -615,6 +654,9 @@ export const RightColumnSlideDoesNotMoveTheLeftEdge: Story = {
       return rects.length ? Math.min(...rects.map((r) => r.left)) : null;
     };
     await waitFor(() => expect(leftEdge()).not.toBeNull(), { timeout: 8000 });
+    // A docked dock is what resizes the pane area.
+    await fixColumn(canvasElement, 'right');
+    await waitFor(() => expect(leftEdge()).not.toBeNull(), { timeout: 8000 });
 
     const before = leftEdge()!;
     const samples: number[] = [];
@@ -743,6 +785,8 @@ export const DragResizesTheColumn: Story = {
   args: { height: 500 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    // A docked column, so the grid gives up what the column takes.
+    await fixColumn(canvasElement, 'left');
     const toggle = await canvas.findByRole(
       'button',
       { name: /toggle tree sidebar/i },
@@ -1089,9 +1133,12 @@ export const TogglesKeepTheirPlace: Story = {
   play: async ({ canvasElement }) => {
     // The click that opens a column must close it from the same spot: the
     // tree's toggle stays at the header's left end and the dock's at its
-    // right end, whether the columns are open or closed.
+    // right end, whether the columns are open or closed. Both columns fixed,
+    // so both can be open at once (overlaying, only one shows).
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
+    await fixColumn(canvasElement, 'left');
+    await fixColumn(canvasElement, 'right');
     const left = await canvas.findByRole('button', { name: /toggle tree sidebar/i });
     const right = await canvas.findByRole('button', { name: /toggle terminal sidebar/i });
     const place = () => ({

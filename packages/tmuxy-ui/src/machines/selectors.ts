@@ -293,6 +293,8 @@ export const selectSidebarLayout = createMemoizedSelector(
     [
       ctx.leftSidebarOpen,
       ctx.rightSidebarOpen,
+      ctx.leftSidebarFixed,
+      ctx.rightSidebarFixed,
       ctx.leftSidebarClosing,
       ctx.rightSidebarClosing,
       ctx.sidebarMotion,
@@ -352,7 +354,15 @@ export const selectSidebarLayout = createMemoizedSelector(
         ? context.bodyWidth
         : context.containerWidth + 2 * CONTAINER_PADDING_X + docked;
     const remaining = bodyWidth - 2 * CONTAINER_PADDING_X - docked;
-    const overlay = docked > 0 && remaining / charWidth <= SIDEBAR_OVERLAY_MIN_COLS;
+    // A column the user has not fixed (`prefix s s`) overlays even where there
+    // is room to dock it; a window too narrow to dock overlays every column.
+    // A viewer cannot fix or free anything, so the writer's columns dock for
+    // it whenever they fit.
+    const freed =
+      !context.readOnly &&
+      (((leftOpen || leftClosing) && !context.leftSidebarFixed) ||
+        ((rightOpen || rightClosing) && !context.rightSidebarFixed));
+    const overlay = docked > 0 && (freed || remaining / charWidth <= SIDEBAR_OVERLAY_MIN_COLS);
 
     // Overlaying columns stack on each other and hide the whole tab, so at most
     // one is shown; the tree wins because it is how you get anywhere else.
@@ -923,6 +933,11 @@ export function selectNotifications(context: AppMachineContext) {
 
 export function selectPrefixActive(context: AppMachineContext): boolean {
   return context.prefixActive;
+}
+
+/** The sticky key table in force (`pane`, `tab`), or null. */
+export function selectKeyTable(context: AppMachineContext): string | null {
+  return context.keyTable;
 }
 
 /**

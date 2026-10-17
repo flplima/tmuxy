@@ -15,6 +15,7 @@ import {
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
 import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
+import { loadSidebarFixed } from '../../utils/sidebarDock';
 import { loadThemeFromStorage } from '../../utils/themeManager';
 
 /**
@@ -106,8 +107,10 @@ export const FIELD_OWNERS = {
   floatPanes: 'groupsAndFloats',
   focusedFloatPaneId: 'groupsAndFloats',
   leftSidebarOpen: 'groupsAndFloats',
+  leftSidebarFixed: 'groupsAndFloats',
   leftSidebarFocused: 'groupsAndFloats',
   rightSidebarOpen: 'groupsAndFloats',
+  rightSidebarFixed: 'groupsAndFloats',
   rightSidebarFocused: 'groupsAndFloats',
   leftSidebarStartFailed: 'groupsAndFloats',
   rightSidebarStartFailed: 'groupsAndFloats',
@@ -127,6 +130,9 @@ export const FIELD_OWNERS = {
   commandMode: 'commandUi',
   statusMessage: 'commandUi',
   prefixActive: 'commandUi',
+  prefixRepeatOnly: 'commandUi',
+  keyTable: 'commandUi',
+  keysViewOpen: 'commandUi',
 
   // ---- notifications ----
   notifications: 'notifications',
@@ -154,6 +160,7 @@ export const FIELD_OWNERS = {
  * not module load — which matters for tests that stub localStorage.
  */
 export function createInitialContext(): AppMachineContext {
+  const sidebarFixed = loadSidebarFixed();
   return {
     connected: false,
     error: null,
@@ -189,8 +196,10 @@ export function createInitialContext(): AppMachineContext {
     floatPanes: {},
     focusedFloatPaneId: null,
     leftSidebarOpen: false,
+    leftSidebarFixed: sidebarFixed.left,
     leftSidebarFocused: false,
     rightSidebarOpen: false,
+    rightSidebarFixed: sidebarFixed.right,
     rightSidebarFocused: false,
     leftSidebarStartFailed: false,
     rightSidebarStartFailed: false,
@@ -233,6 +242,9 @@ export function createInitialContext(): AppMachineContext {
     traceSettings: null,
     appFocused: true,
     prefixActive: false,
+    prefixRepeatOnly: null,
+    keyTable: null,
+    keysViewOpen: false,
     baseFontSize: loadFontSizeFromStorage(),
   };
 }

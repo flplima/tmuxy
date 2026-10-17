@@ -27,6 +27,7 @@ import {
   MessageFrame,
   ServerState as ServerStateSchema,
   ThemeSettings,
+  TmuxMessageEvent,
   type ServerState,
 } from '../../../domain/wire';
 import { handleStateUpdate, applyDelta } from '../../../domain/deltaProtocol';
@@ -168,6 +169,7 @@ describe('Rust → TypeScript protocol fixtures', () => {
       'css-changed',
       'tmux-error',
       'clipboard',
+      'tmux-message',
       'log',
       'detached',
       'fatal',
@@ -181,6 +183,7 @@ describe('Rust → TypeScript protocol fixtures', () => {
       ['css-changed', Schema.decodeUnknownSync(Schema.NullOr(Schema.Unknown))],
       ['tmux-error', Schema.decodeUnknownSync(MessageFrame)],
       ['clipboard', Schema.decodeUnknownSync(ClipboardEvent)],
+      ['tmux-message', Schema.decodeUnknownSync(TmuxMessageEvent)],
       ['log', Schema.decodeUnknownSync(LogEvent)],
       ['detached', Schema.decodeUnknownSync(DetachedEvent)],
       ['fatal', Schema.decodeUnknownSync(MessageFrame)],

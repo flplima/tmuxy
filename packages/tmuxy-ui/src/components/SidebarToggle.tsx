@@ -25,8 +25,8 @@ interface SidebarToggleProps {
 }
 
 const LABELS = {
-  left: { aria: 'Toggle tree sidebar', title: 'Toggle tree sidebar (prefix t)' },
-  right: { aria: 'Toggle terminal sidebar', title: 'Toggle terminal sidebar (prefix T)' },
+  left: { aria: 'Toggle tree sidebar', title: 'Toggle tree sidebar (prefix s)' },
+  right: { aria: 'Toggle terminal sidebar', title: 'Toggle terminal sidebar (prefix S)' },
 } as const;
 
 export function SidebarToggle({ side }: SidebarToggleProps) {

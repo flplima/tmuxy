@@ -14,6 +14,7 @@ import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
 import { FloatContainer } from './components/FloatPane';
+import { KeysView } from './components/KeysView';
 import { Sidebar } from './components/Sidebar';
 import { SidebarBackdrop } from './components/SidebarBackdrop';
 import { TabOverview } from './components/TabOverview';
@@ -173,6 +174,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
               <TabOverview />
             </PaneFit>
           )}
+          {/* Every binding, table by table (prefix ?) */}
+          {showLayout && <KeysView />}
           {overlayMode && (
             <ConnectionOverlay
               mode={overlayMode}
