@@ -36,7 +36,7 @@
   --term-background: var(--fallout-bg);
 
   --bg-black: var(--fallout-bg);
-  --window-bg-rgb: 10, 26, 10;
+  --window-bg-rgb: 15, 38, 15;
   --bg-dark: #081408;
   --bg-dark-alt: #0c1e0c;
   --bg-medium: var(--fallout-bg-light);
@@ -117,7 +117,7 @@
   --term-background: var(--fallout-light-bg);
 
   --bg-black: var(--fallout-light-bg);
-  --window-bg-rgb: 197, 200, 160;
+  --window-bg-rgb: 184, 187, 149;
   --bg-dark: var(--fallout-light-bg-dark);
   --bg-dark-alt: #bec19a;
   --bg-medium: var(--fallout-light-bg-darker);

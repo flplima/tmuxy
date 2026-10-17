@@ -36,7 +36,7 @@
   --term-background: var(--cold-bg);
 
   --bg-black: var(--cold-bg);
-  --window-bg-rgb: 6, 16, 26;
+  --window-bg-rgb: 12, 26, 42;
   --bg-dark: #050d16;
   --bg-dark-alt: #091620;
   --bg-medium: var(--cold-bg-light);
@@ -117,7 +117,7 @@
   --term-background: var(--cold-light-bg);
 
   --bg-black: var(--cold-light-bg);
-  --window-bg-rgb: 200, 216, 216;
+  --window-bg-rgb: 188, 206, 206;
   --bg-dark: var(--cold-light-bg-dark);
   --bg-dark-alt: #c0d0d0;
   --bg-medium: var(--cold-light-bg-darker);

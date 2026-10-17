@@ -572,6 +572,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         }
 
         const isActive = row.pane.tmuxId === activePaneId;
+        // The current tab's panes read a step brighter than the dimmed rest.
+        const inCurrentTab = row.window.id === activeWindowId;
         const { process, title } = paneRowLines(row.pane);
         const icon = getTabIcon(row.pane);
         const state = paneStateFor(row.pane, unreadPaneIds.includes(row.pane.tmuxId));
@@ -586,8 +588,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             tabIndex={isSelected ? 0 : -1}
             aria-selected={isSelected}
             className={`sidebar-tree-pane${isActive ? ' is-active' : ''}${
-              isSelected ? ' is-selected' : ''
-            }${dragPaneId === row.pane.tmuxId ? ' is-dragging' : ''}`}
+              inCurrentTab ? ' in-current-tab' : ''
+            }${isSelected ? ' is-selected' : ''}${
+              dragPaneId === row.pane.tmuxId ? ' is-dragging' : ''
+            }`}
             data-pane-id={row.pane.tmuxId}
             data-pane-state={state}
             data-testid={`tree-pane-${row.pane.tmuxId}`}

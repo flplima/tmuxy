@@ -88,7 +88,7 @@ export function AppHarness({
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
-        background: 'var(--bg-base, #0f0f12)',
+        background: 'rgb(var(--window-bg-rgb))',
       }}
     >
       <TmuxyProvider transport={transport} config={config}>
@@ -163,10 +163,9 @@ export function V86AppHarness({
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
-        // Theme window background — black by default (matches the terminal's
-        // --window-bg-rgb 0,0,0), so the app box reads as one dark surface and
-        // no chrome gap shows a lighter frame colour behind it.
-        background: 'var(--bg-base, #000)',
+        // The theme's window background, as the page root paints it, so the
+        // chrome around the panes shows the colour the app gives it.
+        background: 'rgb(var(--window-bg-rgb))',
       }}
     >
       <TmuxyProvider transport={transport}>
@@ -206,7 +205,7 @@ export function ProviderHarness({
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
-        background: 'var(--bg-base, #0f0f12)',
+        background: 'rgb(var(--window-bg-rgb))',
       }}
     >
       <TmuxyProvider transport={transport} config={config}>

@@ -377,11 +377,12 @@ export const DragTabRowToReorder: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// The tree sits on the column's surface: nothing between paints a background
+// The tree sits on the chrome: nothing up to the column paints a background,
+// and one row in the whole tree takes the accent
 // ---------------------------------------------------------------------------
 
-export const TreeSitsOnTheSidebarSurface: Story = {
-  args: { height: 400 },
+export const TreeSitsOnTheChrome: Story = {
+  args: { height: 400, initCommands: ['split-window -h', 'new-window'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
@@ -391,17 +392,31 @@ export const TreeSitsOnTheSidebarSurface: Story = {
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
-    // From the tree up to the column's body, every element is see-through:
-    // the body — which paints the theme's terminal background at the pane
-    // opacity from the config's `@tmuxy-*` values — is the one surface the
-    // tree sits on, so the tree looks like the rest of the column.
+    // From the tree up to and including the column, every element is
+    // see-through: a sidebar is chrome, so the window's ground runs on behind
+    // it and only the panes are dark.
     const transparent = 'rgba(0, 0, 0, 0)';
     let el: HTMLElement | null = tree;
-    while (el && !el.classList.contains('sidebar-body')) {
+    while (el && !el.classList.contains('sidebar-column')) {
       expect(getComputedStyle(el).backgroundColor, el.className).toBe(transparent);
       el = el.parentElement;
     }
     expect(el).not.toBeNull();
+    expect(getComputedStyle(el!).backgroundColor).toBe(transparent);
+
+    // The ink ladder: the pane with the keyboard is the one row in its colour,
+    // and the current tab's row above it is not drawn in it.
+    await waitFor(() => expect(tree.querySelectorAll('.sidebar-tree-pane')).toHaveLength(3));
+    const color = (row: Element) => getComputedStyle(row).color;
+    const activePane = tree.querySelector('.sidebar-tree-pane.is-active')!;
+    const rows = [...tree.querySelectorAll('.sidebar-tree-tab, .sidebar-tree-pane')];
+    expect(rows.filter((row) => color(row) === color(activePane))).toHaveLength(1);
+    const currentTab = tree.querySelector('.sidebar-tree-tab.is-active')!;
+    const otherTab = tree.querySelector('.sidebar-tree-tab:not(.is-active)')!;
+    expect(color(currentTab)).not.toBe(color(otherTab));
+    // Only the current tab's row sits on a band.
+    expect(getComputedStyle(currentTab).backgroundColor).not.toBe(transparent);
+    expect(getComputedStyle(otherTab).backgroundColor).toBe(transparent);
   },
 };
 

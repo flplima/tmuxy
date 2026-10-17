@@ -33,10 +33,13 @@
 
   /* Colors - Backgrounds */
   --bg-black: var(--term-black);
-  /* RGB triplet for the app (window chrome) background, composed with
-     --app-opacity via rgba() in standalone.css. Themes override per palette;
-     default theme keeps full black. Panes use --term-background instead. */
-  --window-bg-rgb: 0, 0, 0;
+  /* RGB triplet for the app (window chrome) background — the tab strip, the
+     sidebars, the gaps around the grid — composed with --app-opacity via
+     rgba() in standalone.css. One step lighter than the panes' own
+     --term-background (darker on a light face), never the other way, so the
+     grid reads as the darkest surface cut into the chrome. Themes set it per
+     face. */
+  --window-bg-rgb: 30, 30, 30;
   --bg-dark: #1e1e1e;
   --bg-dark-alt: #252526;
   --bg-medium: #2d2d2d;
@@ -165,6 +168,18 @@
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
+
+  /* Appearance defaults — the same values as tmuxy.defaults.conf, so the look
+     holds before the backend answers and in adapters that have no config (the
+     stories among them). The backend's values override these via
+     applyAppearance(). Per-cell terminal colors set inline by SGR codes
+     render at full alpha, so an explicit cell bg stays opaque on top of the
+     pane surface. */
+  --app-opacity: 0.7;
+  --active-pane-opacity: 1;
+  --inactive-pane-opacity: 0.7;
+  --active-text-opacity: 1;
+  --inactive-text-opacity: 0.7;
 
   /* Z-index */
   --z-base: 1;
@@ -2201,32 +2216,14 @@
   align-self: flex-end;
 }
 
-/* A column shows whether it has the keyboard exactly the way a pane does,
-   from the same settings: its surface is the theme's terminal background at
-   the inactive pane opacity and its content at the inactive text opacity
-   (`@tmuxy-inactive-pane-opacity`, `@tmuxy-inactive-text-opacity`) until it
-   takes the keyboard, when both go to their active values — on the same quick
-   clock a pane's focus change uses. And its divider, the full-height line
-   facing the pane grid, takes the active pane's border colour while it holds
-   the keyboard; the matching half of the line is drawn by the header cluster
-   above (.statusbar-cluster-*.is-docked). */
-.sidebar-column > .sidebar-body {
-  background-color: color-mix(
-    in srgb,
-    var(--term-background) calc(var(--inactive-pane-opacity) * 100%),
-    transparent
-  );
-  transition: background-color var(--transition-active);
-}
-
-.sidebar-column.is-focused > .sidebar-body {
-  background-color: color-mix(
-    in srgb,
-    var(--term-background) calc(var(--active-pane-opacity) * 100%),
-    transparent
-  );
-}
-
+/* A column is chrome: it paints no ground of its own, so the window's grey
+   runs on behind the tree and only the panes are dark. It shows whether it has
+   the keyboard the way a pane's text does, from the same setting: its content
+   sits at the inactive text opacity (`@tmuxy-inactive-text-opacity`) until it
+   takes the keyboard — on the same quick clock a pane's focus change uses. And
+   its divider, the full-height line facing the pane grid, takes the active
+   pane's border colour while it holds the keyboard; the matching half of the
+   line is drawn by the header cluster above (.statusbar-cluster-*.is-docked). */
 .sidebar-column > .sidebar-body > * {
   opacity: var(--inactive-text-opacity);
   transition: opacity var(--transition-active);
@@ -2238,13 +2235,11 @@
 
 /* Animations off (`@tmuxy-animations off`) or reduced motion: the column
    changes in one step. */
-.app-no-animations .sidebar-column > .sidebar-body,
 .app-no-animations .sidebar-column > .sidebar-body > * {
   transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-column > .sidebar-body,
   .sidebar-column > .sidebar-body > * {
     transition: none;
   }
@@ -2516,16 +2511,23 @@
   overflow: hidden;
 }
 
-/* Tabs are the tree's headings: full-strength text on a faint band of the
-   theme's foreground, so the eye finds where each tab starts, with a little
-   room above every tab after the first. */
+/* Tabs are the tree's headings, with a little room above every tab after the
+   first. Four steps of ink, and the tab decides the first three: an inactive
+   tab's row and every pane under it are dimmed as one block, so the current
+   tab is found by brightness before anything is read; the current tab's row
+   is the plain foreground on a faint band of it, its panes a step under; and
+   only the pane that holds the keyboard takes the accent — one row in the
+   whole tree. */
 .sidebar-tree-tab:not(:first-child) {
   margin-top: calc(var(--tree-gap) * 2);
 }
 
 .sidebar-tree-tab {
+  color: var(--text-dimmed);
+}
+
+.sidebar-tree-tab.is-active {
   color: var(--term-white);
-  opacity: 0.75;
   background: color-mix(in srgb, var(--term-foreground) 5%, transparent);
 }
 
@@ -2661,14 +2663,15 @@
   background: var(--bg-medium);
 }
 
-/* Where the keyboard actually is. The active tab and the active pane inside it
-   both take the theme's accent (gruvbox's yellow, the default's green) — the
-   colour of the active tab on the strip and of the active pane's frame — so
-   the eye lands on the pair. */
-.sidebar-tree-tab.is-active,
+.sidebar-tree-pane.in-current-tab {
+  color: var(--text-secondary);
+}
+
+/* Where the keyboard actually is: the theme's accent (gruvbox's yellow, the
+   default's green), the colour of the active pane's frame. After the current
+   tab's pane colour, so it wins over it. */
 .sidebar-tree-pane.is-active {
   color: var(--theme-accent);
-  opacity: 1;
 }
 
 /* A tab's window id and a pane's id, held at the right edge and quieter than
