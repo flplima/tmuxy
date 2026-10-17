@@ -759,7 +759,7 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
     // 2. The sidebar becomes its own window, and leaves no pane behind in any
     // tab. On the desktop transport the break-pane used to fail outright and
     // the tree stayed put as an ordinary pane.
-    await prefixNoPaneClick('t');
+    await prefixNoPaneClick('s');
     await waitForCondition(
       page,
       async () => {

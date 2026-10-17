@@ -46,7 +46,11 @@ function Separator() {
  */
 function HintLine({ hints, mode }: { hints: readonly Hint[]; mode: string | null }) {
   return (
-    <span className="statusline-hints" data-testid="statusline-hints" data-mode={mode ?? 'normal'}>
+    <span
+      className="statusline-hints"
+      data-testid="statusline-hints"
+      data-key-mode={mode ?? 'normal'}
+    >
       {mode && <span className="statusline-mode">{mode.toUpperCase()}</span>}
       {hints.map((hint, i) => (
         <span key={hint.key}>
