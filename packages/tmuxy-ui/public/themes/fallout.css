@@ -58,6 +58,7 @@
   --pane-header-text-inactive: var(--fallout-fg-dim);
 
   --accent-green: var(--fallout-fg);
+  --accent-orange: var(--text-primary);
   --accent-green-bg: #0d2a0d;
 
   --accent-blue-light: rgba(51, 255, 51, 0.8);
@@ -139,6 +140,7 @@
   --pane-header-text-inactive: var(--fallout-light-fg-dim);
 
   --accent-green: var(--fallout-light-fg);
+  --accent-orange: var(--text-primary);
   --accent-green-bg: #b5b890;
 
   --accent-blue-light: rgba(42, 58, 26, 0.7);

@@ -44,6 +44,8 @@
   --pane-header-text-inactive: #4c566a;
 
   --accent-green: #a3be8c;
+  /* nord12, lifted to 4.5:1 on the panes and the chrome. */
+  --accent-orange: #daa18f;
   --accent-green-bg: #2e3a2e;
 
   --accent-blue-light: rgba(129, 161, 193, 0.8);
@@ -113,6 +115,8 @@
   --pane-header-text-inactive: #8891a0;
 
   --accent-green: #6b8a4c;
+  /* nord12, darkened to 4.5:1 on the panes and the chrome. */
+  --accent-orange: #a45036;
   --accent-green-bg: #e5f0dc;
 
   --accent-blue-light: rgba(94, 129, 172, 0.8);

@@ -48,6 +48,7 @@
   --pane-header-text-inactive: #928374;
 
   --accent-green: #98971a;
+  --accent-orange: #fe8019;
   --accent-green-bg: #2a2e1a;
 
   --accent-blue-light: rgba(131, 165, 152, 0.8);
@@ -139,6 +140,7 @@
   --pane-header-text-inactive: #928374;
 
   --accent-green: #797403;
+  --accent-orange: #af3a03;
   --accent-green-bg: #e8e5c0;
 
   --accent-blue-light: rgba(7, 102, 120, 0.8);

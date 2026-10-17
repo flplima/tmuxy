@@ -46,6 +46,7 @@
   --pane-header-text-inactive: var(--term-bright-black);
 
   --accent-green: var(--term-green);
+  --accent-orange: #f0883e;
   /* Active pane outline: the classic tmux green. */
   --pane-focus-border: var(--term-green);
   --accent-green-bg: #1a3d1a;
@@ -117,6 +118,7 @@
   --pane-header-text-inactive: #8e8e93;
 
   --accent-green: #00853e;
+  --accent-orange: #c2410c;
   --accent-green-bg: #e6f5ec;
 
   --accent-blue-light: rgba(64, 120, 242, 0.8);

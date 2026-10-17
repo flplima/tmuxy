@@ -74,11 +74,10 @@
   --accent-blue-bg: rgba(100, 150, 255, 0.1);
   --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
   --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
-  /* Amber reads as "stopped, waiting for you" wherever a status is drawn, and
-     is deliberately NOT --term-yellow (#cdcd00), which is too acid for a dot
-     sitting beside text. Green is unavailable: it already means "the keyboard
-     is here" on an active tab/pane row. */
-  --accent-amber: #e2c08d;
+  /* Orange reads as "stopped, waiting for you": the needs-input mark. Not
+     --term-yellow (#cdcd00), which is too acid beside text, and not green,
+     which already means "the keyboard is here". Light faces take #c2410c. */
+  --accent-orange: #f0883e;
 
   /* Colors - Links */
   --link-color: var(--term-bright-blue);
@@ -2742,10 +2741,38 @@
   text-align: center;
 }
 
-/* A state mark takes its row's colour, as the tab strip's and a pane header's
-   do: the theme already says which row is active, so the mark need not. */
 .pane-tab-state {
   opacity: 1;
+}
+
+/* A state mark — in the tree, on the tab strip, in a pane header — sits in a
+   box sized to its ink with the glyph centred, as .tab-flag does: a Nerd Font
+   icon paints wider than it advances, so as plain text the warning triangle
+   ran into whatever came next. The header's icon slot is already such a box. */
+.pane-state-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  overflow: visible;
+  line-height: 1;
+}
+
+.pane-tab-icon.pane-state-mark {
+  width: 16px;
+  height: 16px;
+}
+
+/* The two marks that want the user take a colour of their own; unread and
+   working keep their row's, since the theme already says which row is
+   active. */
+.pane-state-mark.is-needs-input {
+  color: var(--accent-orange);
+}
+
+.pane-state-mark.is-error {
+  color: var(--error-color);
 }
 
 /* The keyboard cursor. Only meaningful while the column has focus — an idle

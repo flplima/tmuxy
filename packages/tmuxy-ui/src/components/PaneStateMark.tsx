@@ -56,9 +56,10 @@ function Spinner() {
 }
 
 /**
- * `className` places the mark (`sidebar-tree-state`, `tab-mark`, …) and
- * `is-<state>` colours it. `keepSpace` holds an idle mark's box empty, for a
- * column of marks that has to stay aligned.
+ * `className` places the mark (`sidebar-tree-state`, `tab-mark`, …);
+ * `pane-state-mark` boxes it to its ink and `is-<state>` colours it.
+ * `keepSpace` holds an idle mark's box empty, for a column of marks that has
+ * to stay aligned.
  */
 export function PaneStateMark({
   state,
@@ -75,7 +76,7 @@ export function PaneStateMark({
   const label = PANE_STATE_LABEL[state];
   return (
     <Tooltip label={label}>
-      <span className={`${className} is-${state}`} role="img" aria-label={label}>
+      <span className={`${className} pane-state-mark is-${state}`} role="img" aria-label={label}>
         {state === 'working' ? <Spinner /> : PANE_STATE_GLYPH[state]}
       </span>
     </Tooltip>

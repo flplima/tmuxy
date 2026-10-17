@@ -44,6 +44,7 @@
   --pane-header-text-inactive: #414868;
 
   --accent-green: #9ece6a;
+  --accent-orange: #ff9e64;
   --accent-green-bg: #1e2a1e;
 
   --accent-blue-light: rgba(122, 162, 247, 0.8);
@@ -113,6 +114,8 @@
   --pane-header-text-inactive: #8990b3;
 
   --accent-green: #587539;
+  /* Darkened to 4.5:1 on the panes and the chrome. */
+  --accent-orange: #924c00;
   --accent-green-bg: #e0ecd5;
 
   --accent-blue-light: rgba(46, 125, 233, 0.8);

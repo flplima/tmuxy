@@ -44,6 +44,8 @@
   --pane-header-text-inactive: #586e75;
 
   --accent-green: #859900;
+  /* Solarized orange, lifted to 4.5:1 on the panes and the chrome. */
+  --accent-orange: #eb794a;
   --accent-green-bg: #1a2a00;
 
   --accent-blue-light: rgba(38, 139, 210, 0.8);
@@ -113,6 +115,8 @@
   --pane-header-text-inactive: #93a1a1;
 
   --accent-green: #859900;
+  /* Solarized orange, darkened to 4.5:1 on the panes and the chrome. */
+  --accent-orange: #bd4615;
   --accent-green-bg: #eff5d0;
 
   --accent-blue-light: rgba(38, 139, 210, 0.8);

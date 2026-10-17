@@ -42,10 +42,12 @@ export const PANE_STATE_TIER: Record<PaneStateName, number> = {
 };
 
 /** The glyph a state draws: none for `idle`, and `working` is a spinner
- *  (`components/PaneStateMark.tsx`). */
+ *  (`components/PaneStateMark.tsx`). The two that want the user are Nerd Font
+ *  icons from the shipped FiraCode Nerd Font: the filled warning triangle
+ *  (nf-fa-warning) and the filled circled x (nf-fa-times_circle). */
 export const PANE_STATE_GLYPH: Record<PaneStateName, string | null> = {
-  'needs-input': '!',
-  error: '✗',
+  'needs-input': '\u{f071}',
+  error: '\u{f057}',
   unread: '●',
   working: null,
   idle: null,

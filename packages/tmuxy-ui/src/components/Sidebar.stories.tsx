@@ -966,6 +966,38 @@ export const PaneStateIsWhatThePaneDeclares: Story = {
     // blocked pane wins over the working one.
     const tabRow = tree.querySelector(`[data-testid="tree-tab-${windowId}"]`) as HTMLElement;
     expect(tabRow.querySelector('.sidebar-tree-state.is-needs-input')).not.toBeNull();
+
+    // The mark is the Nerd Font warning triangle in the theme's orange, its
+    // whole ink inside its box; a failure is the circled x in the error red.
+    const tokenColor = (token: string) => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${token})`;
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    const inkFits = (mark: HTMLElement) => {
+      const range = document.createRange();
+      range.selectNodeContents(mark);
+      return range.getBoundingClientRect().width <= mark.getBoundingClientRect().width + 0.5;
+    };
+    expect(badge.textContent).toBe('\u{f071}');
+    expect(getComputedStyle(badge).color).toBe(tokenColor('--accent-orange'));
+    expect(inkFits(badge)).toBe(true);
+
+    declare(blocked, 'error');
+    const failed = await waitFor(
+      () => {
+        const mark = paneRow(blocked).querySelector('.sidebar-tree-state.is-error');
+        expect(mark).not.toBeNull();
+        return mark as HTMLElement;
+      },
+      { timeout: 6000, interval: 100 },
+    );
+    expect(failed.textContent).toBe('\u{f057}');
+    expect(getComputedStyle(failed).color).toBe(tokenColor('--error-color'));
+    expect(inkFits(failed)).toBe(true);
   },
 };
 
