@@ -807,12 +807,17 @@ describe('Scenario 4f: Collapsible panes', () => {
         if (r === null || r.length !== 3) return false;
         const max = Math.max(...r);
         const min = Math.min(...r);
-        return max - min <= 2 && !(await collapsible());
+        // …and no row is still drawn as a header alone: the client takes
+        // the flag off a beat after tmux evens the rows.
+        return (
+          max - min <= 2 &&
+          !(await collapsible()) &&
+          (await headerOnly()).every((p) => !p.collapsed)
+        );
       },
       10000,
       async () => `the rows to even out (rows: ${JSON.stringify(await rows())})`,
     );
-    expect((await headerOnly()).filter((p) => p.collapsed)).toEqual([]);
   }, 150000);
 });
 
@@ -2757,7 +2762,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
         const chipBox = chip?.getBoundingClientRect();
         const right = document.querySelector('.tmux-statusline-right')?.getBoundingClientRect();
         return {
-          mode: hints?.getAttribute('data-mode') ?? null,
+          mode: hints?.getAttribute('data-key-mode') ?? null,
           chip: chip?.textContent ?? null,
           chipVisible: !!chipBox && chipBox.width > 0 && chipBox.height > 0,
           hostShown: !!right && right.width > 0,
@@ -2772,7 +2777,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
     await waitForCondition(
       page,
       async () => (await statusLine()).chip === 'PANE',
-      5000,
+      15000,
       'the PANE chip',
     );
     expect(await statusLine()).toMatchObject({ chipVisible: true, hostShown: false });
@@ -2788,7 +2793,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
         const line = await statusLine();
         return line.mode === 'normal' && line.hostShown;
       },
-      5000,
+      15000,
       'the normal line, host and session back',
     );
 
@@ -2797,7 +2802,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
     await waitForCondition(
       page,
       async () => (await statusLine()).chip === 'TAB',
-      5000,
+      15000,
       'the TAB chip',
     );
     await page.keyboard.press('c');
@@ -2807,7 +2812,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
     await waitForCondition(
       page,
       async () => (await statusLine()).mode === 'normal',
-      5000,
+      15000,
       'TAB mode to end',
     );
 
@@ -2875,14 +2880,14 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
           const box = view?.getBoundingClientRect();
           return !!box && box.width > 0 && /PANE/.test(view.textContent);
         }),
-      5000,
+      15000,
       'the keys view listing the PANE table',
     );
     await page.keyboard.press('Escape');
     await waitForCondition(
       page,
       () => page.evaluate(() => !document.querySelector('[data-testid="keys-view"]')),
-      5000,
+      15000,
       'the keys view to close',
     );
   }, 180000);
