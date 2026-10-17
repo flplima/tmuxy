@@ -91,13 +91,13 @@ mod tests {
     }
 
     /// The dispatcher's nouns used to be listed here as well, and the copy
-    /// went stale: `open`, `ask`, `tree`, `browser`, `cleanup` and `config`
+    /// went stale: `open`, `tree`, `browser`, `cleanup` and `config`
     /// were "unknown command" from the desktop binary.
     #[test]
     fn every_dispatcher_noun_is_forwarded() {
         for noun in [
             "pane", "tab", "session", "widget", "nav", "queue", "q", "run", "info", "skill",
-            "open", "ask", "tree", "browser", "cleanup", "config", "--json", "-j",
+            "open", "tree", "browser", "cleanup", "config", "--json", "-j",
         ] {
             assert_eq!(app_command(&args(&[noun, "x"])), None, "{noun}");
         }

@@ -439,8 +439,10 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     // Kept mounted but not the live pane while a view is open:
                     // an active Terminal registers the app's single cursor
                     // anchor, and a hidden one would take it from the copy
-                    // cursor the user is actually looking at.
-                    isActive={holdsKeyboard && !copyState}
+                    // cursor the user is actually looking at. A pane asking
+                    // whether to allow a send draws none either: the cursor
+                    // paints above every pane and would sit on the blur.
+                    isActive={holdsKeyboard && !copyState && !pane.paneAsk}
                     width={pane.width}
                     height={pane.height}
                     inMode={pane.inMode}
@@ -462,11 +464,11 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
               }
             </div>
           </div>
-          {/* The question `tmuxy ask` hung on this pane, over its content.
+          {/* The question `tmuxy pane send -t` hung on this pane, over its content.
               Last inside `.pane-content` so it stacks above the terminal, and
               inside it (not over the whole pane) so the header stays legible
               — that is where the pane's title and its close button live. */}
-          <AskOverlay paneId={paneId} holdsKeyboard={holdsKeyboard} />
+          <AskOverlay paneId={paneId} />
 
           {liveHeader && !copyState && (
             <BrowserLiveBar

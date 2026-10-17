@@ -85,6 +85,10 @@ pub enum ClientCommand {
     SetCursorBlink {
         enabled: bool,
     },
+    /// View menu: whether a send into another pane asks first (`@tmuxy-send-ask`).
+    SetSendAsk {
+        enabled: bool,
+    },
     /// Debug menu: read the trace switch/level/path (docs/TELEMETRY.md).
     GetTraceSettings,
     SetTraceEnabled {

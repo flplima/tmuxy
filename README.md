@@ -180,7 +180,7 @@ tmuxy pane split -h              # split the current pane to the right
 tmuxy pane float htop            # run a command in a float; it closes when htop exits
 tmuxy pane group add             # add a pane to the current pane's group
 tmuxy pane group move %4 0       # move a group member to the front
-tmuxy ask %3 make Enter          # ask the user before typing "make" + Enter into %3
+tmuxy pane send -t %3 make Enter # type into %3; the user allows it there first
 tmuxy session save               # snapshot the session (restored on the next start)
 tmuxy widget tree                # the session/tab/pane tree, as a pane
 ```

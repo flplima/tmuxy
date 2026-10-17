@@ -80,6 +80,8 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-blur`                    | on      | Native blur behind the window (macOS; ignored elsewhere).           |
 | `@tmuxy-animations`              | on      | Layout animations: pane morphs, swaps, resizes, float keyframes.    |
 | `@tmuxy-cursor-blink`            | on      | Blinking cursor, unless an application asks for a steady one.       |
+| `@tmuxy-send-ask`               | on      | `tmuxy pane send` into another pane asks there first.               |
+| `@tmuxy-send-allow`             | —       | Callers (`claude,codex`) and panes (`%3,%5`) that never ask.       |
 | `@tmuxy-tab-overview-cols`       | 3       | Cards per row in the "all tabs" view, 1–12.                         |
 | `@tmuxy-gesture-swipe-tabs`      | on      | Two-finger slide left/right switches tabs.                          |
 | `@tmuxy-gesture-pinch-zoom`      | on      | Pinch out zooms a pane, pinch in unzooms it.                        |

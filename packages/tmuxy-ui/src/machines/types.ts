@@ -337,7 +337,7 @@ export interface AppMachineContext {
   totalHeight: number;
   paneGroups: Record<GroupId, PaneGroup>;
   /**
-   * Which of Yes/No is highlighted on each pane showing a `tmuxy ask`
+   * Which of Yes/No is highlighted on each pane showing a `tmuxy pane send -t`
    * question, keyed by pane id. A pane with no entry starts on `yes` — the
    * answer the keyboard shortcut gives, so the highlight and the shortcut
    * agree before the user has touched anything. Entries are dropped when the
@@ -473,6 +473,12 @@ export interface AppMachineContext {
    * cursor through DECSCUSR.
    */
   cursorBlink: boolean;
+  /**
+   * The config's `@tmuxy-send-ask` switch, flipped from the View menu and
+   * written back to `tmuxy.state.json`: whether `tmuxy pane send` into a
+   * pane the caller does not own asks the user there first.
+   */
+  sendAsk: boolean;
   /**
    * The config's `@tmuxy-tab-overview-cols`: cards per row in the "all tabs"
    * view. Defaults to 3, also on adapters without a config.
@@ -819,7 +825,7 @@ export type SelectPaneGroupTabEvent = { type: 'SELECT_PANE_GROUP_TAB'; paneId: P
 export type CreateTabEvent = { type: 'CREATE_TAB' };
 export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: PaneId };
 
-// Pending confirmations (`tmuxy ask`) — see utils/paneAsk.ts.
+// Pending confirmations (`tmuxy pane send -t`) — see utils/paneAsk.ts.
 /**
  * Move the Yes/No highlight on the question a pane is showing. Lives in the
  * machine rather than in the overlay's own state because the keyboard actor
@@ -1180,6 +1186,7 @@ export type LogAppendEvent = {
 export type SetThemeEvent = { type: 'SET_THEME'; name: string };
 export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: ThemeMode };
 export type ToggleCursorBlinkEvent = { type: 'TOGGLE_CURSOR_BLINK' };
+export type ToggleSendAskEvent = { type: 'TOGGLE_SEND_ASK' };
 export type ThemeSettingsReceivedEvent = {
   type: 'THEME_SETTINGS_RECEIVED';
   theme: string;
@@ -1373,6 +1380,7 @@ export type AppMachineEvent =
   | SetThemeEvent
   | SetThemeModeEvent
   | ToggleCursorBlinkEvent
+  | ToggleSendAskEvent
   | ThemeSettingsReceivedEvent
   | ThemesListReceivedEvent
   | CssChangedEvent

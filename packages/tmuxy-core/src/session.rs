@@ -253,7 +253,7 @@ const BUNDLED_THEMES: &[(&str, &str)] = &[
 const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     ("tmuxy-cli", include_str!("../../../bin/tmuxy-cli")),
     ("tmuxy/_lib", include_str!("../../../bin/tmuxy/_lib")),
-    ("tmuxy/ask", include_str!("../../../bin/tmuxy/ask")),
+    ("tmuxy/send", include_str!("../../../bin/tmuxy/send")),
     (
         "tmuxy/agent-hook",
         include_str!("../../../bin/tmuxy/agent-hook"),
@@ -549,6 +549,10 @@ pub struct ManagedState {
     /// chosen through the app rather than in `tmuxy.conf`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_blink: Option<bool>,
+    /// Whether a send into another pane asks first (`@tmuxy-send-ask`),
+    /// when the user has chosen through the app.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_ask: Option<bool>,
     /// Whether to source the user's own `~/.tmux.conf` on tmuxy's socket.
     ///
     /// Off by default, and deliberately not a tmux option: it decides what goes
@@ -563,11 +567,12 @@ pub struct ManagedState {
 /// control-mode connection right after sourcing the config, which is what
 /// lets a UI choice win over a hand-set value in `tmuxy.conf`.
 pub fn managed_state_commands(state: &ManagedState) -> Vec<String> {
-    let blink = state.cursor_blink.map(|on| if on { "on" } else { "off" });
+    let flag = |on: Option<bool>| on.map(|on| if on { "on" } else { "off" });
     [
         (tmux_options::THEME, state.theme.as_deref()),
         (tmux_options::THEME_MODE, state.theme_mode.as_deref()),
-        (tmux_options::CURSOR_BLINK, blink),
+        (tmux_options::CURSOR_BLINK, flag(state.cursor_blink)),
+        (tmux_options::SEND_ASK, flag(state.send_ask)),
     ]
     .into_iter()
     .filter_map(|(option, value)| {
@@ -606,6 +611,7 @@ pub fn write_managed_state(
     theme: Option<&str>,
     theme_mode: Option<&str>,
     cursor_blink: Option<bool>,
+    send_ask: Option<bool>,
     use_tmux_conf: Option<bool>,
 ) -> std::io::Result<PathBuf> {
     let dir = config_dir();
@@ -621,6 +627,9 @@ pub fn write_managed_state(
     }
     if let Some(b) = cursor_blink {
         state.cursor_blink = Some(b);
+    }
+    if let Some(b) = send_ask {
+        state.send_ask = Some(b);
     }
     if let Some(b) = use_tmux_conf {
         state.use_tmux_conf = Some(b);
@@ -1135,6 +1144,7 @@ mod tests {
             theme: Some("dracula".into()),
             theme_mode: Some("dark".into()),
             cursor_blink: Some(false),
+            send_ask: Some(false),
             use_tmux_conf: Some(true),
         };
         let json = serde_json::to_string(&state).unwrap();
@@ -1142,6 +1152,7 @@ mod tests {
         assert_eq!(parsed.theme.as_deref(), Some("dracula"));
         assert_eq!(parsed.theme_mode.as_deref(), Some("dark"));
         assert_eq!(parsed.cursor_blink, Some(false));
+        assert_eq!(parsed.send_ask, Some(false));
         assert_eq!(parsed.use_tmux_conf, Some(true));
 
         // An older build's file has no such key; the choice is simply unmade.
@@ -1169,6 +1180,7 @@ mod tests {
             theme: Some("tokyo night".into()),
             theme_mode: None,
             cursor_blink: Some(false),
+            send_ask: Some(false),
             use_tmux_conf: Some(true),
         };
         assert_eq!(
@@ -1176,6 +1188,7 @@ mod tests {
             vec![
                 "set-option -g @tmuxy-theme 'tokyo night'".to_string(),
                 "set-option -g @tmuxy-cursor-blink 'off'".to_string(),
+                "set-option -g @tmuxy-send-ask 'off'".to_string(),
             ]
         );
     }

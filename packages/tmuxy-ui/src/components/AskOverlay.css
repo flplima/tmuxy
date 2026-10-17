@@ -1,4 +1,4 @@
-/* AskOverlay — the question `tmuxy ask` hangs on a pane, drawn over the
+/* AskOverlay — a send into this pane waiting on the user, drawn over the
    pane's own blurred content. Sits inside `.pane-content`, which is
    positioned, so it covers the terminal but not the pane header. */
 
@@ -19,7 +19,7 @@
    element is a containing block for its descendants) and would fight the
    glyph-grid rendering. A scrim with a backdrop-filter leaves the terminal
    DOM untouched — the text is still there, still selectable once the question
-   is gone. */
+   is gone. The scrim is the whole ground: the text sits straight on it. */
 .ask-overlay-scrim {
   position: absolute;
   inset: 0;
@@ -28,82 +28,102 @@
   -webkit-backdrop-filter: blur(5px);
 }
 
-.ask-overlay-card {
+.ask-overlay-text {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 10px;
-  max-width: min(70ch, 100%);
-  padding: 16px 22px;
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  background-color: color-mix(in srgb, var(--term-background) 88%, transparent);
-  box-shadow: var(--shadow-sm);
-  text-align: center;
+  width: min(70ch, 100%);
+  max-height: 100%;
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: 1.35;
 }
 
 .ask-overlay-question {
+  flex: 0 0 auto;
   margin: 0;
-  font-size: var(--tmuxy-font-size, 15px);
-  line-height: 1.35;
   word-break: break-word;
 }
 
-.ask-overlay-description {
+.ask-overlay-caller,
+.ask-overlay-command {
+  font-family: inherit;
+  font-weight: 700;
+}
+
+.ask-overlay-caller {
+  color: var(--term-bright-white);
+}
+
+.ask-overlay-command {
+  color: var(--text-dimmed);
+}
+
+/* A long or multi-line send: shown whole, never cut, in a block that scrolls
+   on both axes and is the first thing to give up height in a small pane, so
+   the question above it and the answers below never move. */
+.ask-overlay-command-block {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 128px;
   margin: 0;
-  font-size: var(--font-size-md);
-  line-height: 1.4;
-  color: var(--text-muted);
-  word-break: break-word;
-  white-space: pre-wrap;
+  padding: 0 0 0 2ch;
+  overflow: auto;
+  border-left: 1px solid var(--border-light);
+  color: var(--text-dimmed);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.ask-overlay-command-block::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ask-overlay-command-block::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+}
+
+.ask-overlay-command-block::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .ask-overlay-choices {
+  flex: 0 0 auto;
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
 }
 
 .ask-overlay-choice {
-  min-width: 7ch;
-  padding: 5px 16px;
-  border: 1px solid var(--border-light);
+  display: flex;
+  gap: 1ch;
+  padding: 3px 10px;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   background-color: transparent;
   color: var(--text-primary);
-  font-family: inherit;
-  font-size: var(--font-size-md);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-.ask-overlay-choice:hover {
-  border-color: var(--text-primary);
-}
-
-/* The highlight is the keyboard's cursor, so it has to read as selected even
-   though nothing here holds DOM focus — the pane does, so that a keystroke
-   meant for the question never leaks into the shell underneath. */
-.ask-overlay-choice-selected {
-  border-color: var(--accent-blue-light);
-  background-color: var(--accent-blue-bg-active);
-}
-
-/* The hint is only true where a keyboard is answering; a pane that does not
-   hold the keyboard shows the buttons alone. */
-.ask-overlay-hint {
-  margin: 2px 0 0;
-  font-size: var(--font-size-md);
+.ask-overlay-choice-number {
   color: var(--text-muted);
 }
 
-/* A pane too small for the card still has to say that it is waiting. */
-.ask-overlay-compact .ask-overlay-card {
-  gap: 6px;
-  padding: 8px 12px;
-}
-
-.ask-overlay-compact .ask-overlay-description,
-.ask-overlay-compact .ask-overlay-hint {
-  display: none;
+/* The highlight is the keyboard's cursor, so it has to read as selected even
+   though nothing here holds DOM focus. Inverse video in the theme's accent,
+   like the prefix chip. */
+.ask-overlay-choice-selected,
+.ask-overlay-choice-selected .ask-overlay-choice-number {
+  border-color: var(--theme-accent);
+  background-color: var(--theme-accent);
+  color: var(--term-black);
+  font-weight: 700;
 }

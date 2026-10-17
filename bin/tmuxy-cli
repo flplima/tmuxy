@@ -51,6 +51,9 @@ SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 # the client it spawns inside run-shell. Read-only, and skipped when there
 # is no server to ask. Never for `tmuxy agent`: an agent hook outside any
 # tmuxy pane must change nothing, not some other pane's state.
+# The caller's own pane, before that: `pane send` asks the user before typing
+# into any other.
+export TMUXY_CALLER_PANE="${TMUX_PANE:-}"
 if [ -z "${TMUX_PANE:-}" ] && [ "${1:-}" != agent ]; then
   _outside_pane="$(_tmux list-panes -a \
     -f '#{&&:#{window_active},#{pane_active}}' \
@@ -352,7 +355,7 @@ tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
 tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
 tmuxy pane group add            # group the current pane (members become header tabs)
 tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
-tmuxy ask %id <keys...>         # type into another pane once the user confirms (blocks until answered)
+tmuxy pane send -t %id <keys...># type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy open <file|url|host>      # show an HTML file, a site, a .md file or an image
 tmuxy widget browser <file|url> # the same, spelled out
@@ -388,7 +391,6 @@ Commands:
   skill       Show AI agent guide and safety rules
   agent       Show Claude Code / Codex / Antigravity state in tmuxy (install, uninstall, status)
   pane        Manage panes (split, kill, select, resize, group, float)
-  ask         Send keys to another pane, once the user has confirmed
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
@@ -575,32 +577,6 @@ Examples:
   tmuxy connect default              # attach to your everyday tmux server
   tmuxy connect default work         # ...to its "work" session specifically
   tmuxy connect /tmp/tmux-1000/foo   # attach to a socket by full path
-EOF
-}
-
-usage_ask() {
-  cat <<'EOF'
-Usage: tmuxy ask <%pane> <keys...> [options]
-
-Ask the user to confirm before sending keys to another pane. The target pane
-shows the question over its blurred content; the command blocks until the user
-answers, then sends the keys (yes) or nothing (no) — so a caller knows exactly
-when the command started and can capture the pane afterwards.
-
-Options:
-  --question TEXT      The question to show. Default: the keys themselves.
-  --description TEXT   Extra detail, shown smaller under the question.
-  --timeout SECONDS    Give up after this long. Default: wait forever.
-
-Answering: Enter/y on the focused pane, a click on Yes/No, or Cmd+Enter
-(Ctrl+Enter off macOS) to say yes to every pending question in the tab.
-
-Exit status: 0 sent, 1 declined, 2 timed out or the pane is gone.
-
-Examples:
-  tmuxy ask %3 npm test Enter
-  tmuxy ask %3 'rm -rf dist' Enter --description 'clears the build output'
-  tmuxy ask %3 make deploy Enter --question 'Deploy to production?'
 EOF
 }
 
@@ -834,10 +810,9 @@ cmd_pane() {
 
     send)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane send <keys...>"; return ;;
         "") echo "Error: keys required" >&2; return 1 ;;
       esac
-      _run_safe "send-keys $(shquote "$@")"
+      bash "$SCRIPTS_DIR/send" "$@"
       ;;
 
     paste)
@@ -1490,13 +1465,6 @@ OEOF
   queue|q)
     shift
     cmd_queue "$@"
-    ;;
-  ask)
-    shift
-    case "${1:-}" in
-      --help|-h|"") usage_ask ;;
-      *) exec bash "$SCRIPTS_DIR/ask" "$@" ;;
-    esac
     ;;
   tree)
     shift

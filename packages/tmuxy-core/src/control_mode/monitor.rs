@@ -1369,7 +1369,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // `#{pane_marked}` without any notification, so re-list the
         // panes right behind it or the flag waits for the heartbeat.
         // A PANE-scoped `@tmuxy-*` write needs the same treatment for
-        // the same reason: answering a `tmuxy ask` clears `@tmuxy-ask`,
+        // the same reason: answering a `tmuxy pane send -t` clears `@tmuxy-ask`,
         // and without this the question would stay on screen until the
         // next event moved it. And a pane swap, which tmux 3.2 does not
         // announce at all.
@@ -2098,7 +2098,7 @@ mod tests {
         assert!(!super::writes_tmuxy_option("split-window -h"));
     }
 
-    /// Answering a `tmuxy ask` is a pane-scoped option write, and the question
+    /// Answering a `tmuxy pane send -t` is a pane-scoped option write, and the question
     /// stays on screen until the panes are re-listed behind it.
     #[test]
     fn pane_scoped_option_writes_re_list_the_panes() {

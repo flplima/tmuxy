@@ -124,6 +124,13 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       checked: ctx.cursorBlink,
       action: event({ type: 'TOGGLE_CURSOR_BLINK' }),
     },
+    !env.readOnly && {
+      kind: 'checkbox',
+      id: 'view-send-ask',
+      label: 'Ask Before Sending Keys',
+      checked: ctx.sendAsk,
+      action: event({ type: 'TOGGLE_SEND_ASK' }),
+    },
   ]);
 }
 

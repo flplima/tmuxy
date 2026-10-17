@@ -108,7 +108,7 @@ export const TmuxPane = Schema.mutable(
     paneState: optionalFrom('pane_state', Schema.NullOr(Schema.String)),
     /**
      * The confirmation this pane is waiting on (`@tmuxy-ask`), as the base64
-     * payload `tmuxy ask` wrote. Decoded by `utils/paneAsk.ts`; absent when no
+     * payload `tmuxy pane send -t` wrote. Decoded by `utils/paneAsk.ts`; absent when no
      * question is pending.
      */
     paneAsk: optionalFrom('pane_ask', Schema.NullOr(Schema.String)),

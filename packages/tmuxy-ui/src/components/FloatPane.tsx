@@ -179,10 +179,10 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
             isFocused={isFocused}
             terminalRows={terminalRows}
           />
-          {/* A float is a pane like any other, so `tmuxy ask` can hang a
+          {/* A float is a pane like any other, so `tmuxy pane send -t` can hang a
               question on it — and it is drawn over the tab, so leaving it out
               would put a question on screen with no way to answer it. */}
-          <AskOverlay paneId={pane.tmuxId} holdsKeyboard={isFocused} />
+          <AskOverlay paneId={pane.tmuxId} />
         </div>
       </div>
     </Modal>

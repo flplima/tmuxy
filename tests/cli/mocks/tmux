@@ -98,7 +98,14 @@ case "${1:-}" in
     esac
     ;;
   show-options)
-    # `tmuxy ask` polls @tmuxy-ask-answer until a client writes one. MOCK_TMUX_ANSWER
+    # `pane send` reads its two switches, and the pane states it saves and
+    # restores, from these.
+    case "$*" in
+      *@tmuxy-send-ask) echo "${MOCK_TMUX_SEND_ASK:-}"; exit 0 ;;
+      *@tmuxy-send-allow) echo "${MOCK_TMUX_SEND_ALLOW:-}"; exit 0 ;;
+      *@tmuxy-pane-state) echo "${MOCK_TMUX_PANE_STATE:-}"; exit 0 ;;
+    esac
+    # Asking, it polls @tmuxy-ask-answer until a client writes one. MOCK_TMUX_ANSWER
     # (yes/no) makes this mock play that client: it recovers the token the same
     # way a real one does — from the base64 @tmuxy-ask payload the script just
     # wrote — and answers with it. Unset means no answer yet.

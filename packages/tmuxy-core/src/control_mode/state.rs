@@ -347,7 +347,7 @@ pub struct PaneState {
     pub pane_state: Option<String>,
 
     /// The confirmation this pane is waiting on (`@tmuxy-ask`), verbatim: the
-    /// base64 payload `tmuxy ask` wrote. Decoded by the client, which draws the
+    /// base64 payload `tmuxy pane send -t` wrote. Decoded by the client, which draws the
     /// question over the pane; `None` when nothing is pending.
     pub pane_ask: Option<String>,
     /// `@tmuxy-pane-widget`: which widget this pane is AUTHORISED to render.
@@ -4478,7 +4478,7 @@ mod tests {
 
     #[test]
     fn list_panes_reads_the_ask_tail() {
-        // `tmuxy ask` writes base64, so the payload is inert to the
+        // `tmuxy pane send -t` writes base64, so the payload is inert to the
         // comma-split even when the question itself is full of commas.
         let mut agg = StateAggregator::new();
         agg.parse_list_panes_line(

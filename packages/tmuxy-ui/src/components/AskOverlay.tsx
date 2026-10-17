@@ -1,18 +1,23 @@
 /**
- * AskOverlay — the question a pane is waiting on, drawn over its own content.
+ * AskOverlay — a send waiting on the user, drawn over the target pane.
  *
- * `tmuxy ask %3 npm test Enter`, run from another pane (usually by an agent),
- * does not send the keys. It writes the question to this pane's `@tmuxy-ask`
- * option and blocks; this is what the user sees in answer, and what they
- * choose here is what the waiting command reads back. See `utils/paneAsk.ts`.
+ * `tmuxy pane send -t %3 'npm test' Enter`, run from another pane (usually by
+ * an agent), does not send the keys. It writes the question to this pane's
+ * `@tmuxy-ask` option and blocks; this is what the user sees in answer, and
+ * what they choose here is what the waiting command reads back. See
+ * `utils/paneAsk.ts`.
  *
- * Three ways to answer, all landing on the same machine events:
- *  - click Yes / No;
- *  - the keyboard, while this pane holds it — the arrows or Tab move the
- *    highlight, Enter takes it, Escape declines (`machines/actors/keyboardActor`);
- *  - Cmd+Enter (Ctrl+Enter off macOS) from anywhere in the tab, which says yes
- *    to every question in it — the point of the feature: you agree from the
- *    agent's pane without ever leaving it.
+ * The text sits straight on the blurred pane, with no card: who is asking,
+ * what they want to send, and two numbered answers. A long or multi-line send
+ * gets a block of its own that scrolls, so the question and the answers never
+ * move and the keys are always shown whole.
+ *
+ * Ways to answer, all landing on the same machine events:
+ *  - click an answer;
+ *  - the keyboard, while this pane holds it — ↑/↓ or 1/2 move the highlight,
+ *    Enter takes it, Escape declines (`machines/actors/keyboardActor`);
+ *  - Cmd+Enter (Ctrl+Enter off macOS) from anywhere in the tab, which allows
+ *    every send waiting in it without leaving the agent's pane.
  *
  * Nothing here holds DOM focus. The pane keeps it, so that the keys the user
  * types while reading a question cannot leak into the shell behind the
@@ -21,34 +26,21 @@
 
 import { memo } from 'react';
 import { useAppSend, useAppSelector, usePane, useReadOnly } from '../machines/AppContext';
-import { paneAskFor } from '../utils/paneAsk';
+import { paneAskFor, sentText, sentTextIsLong } from '../utils/paneAsk';
 import type { AskAnswer } from '../utils/paneAsk';
 import './AskOverlay.css';
 import type { PaneId } from '../domain/ids';
 
 interface AskOverlayProps {
   paneId: PaneId;
-  /**
-   * Whether this pane holds the keyboard. Only then is the keyboard hint true
-   * — in any other pane the question is answered by clicking it, or by the
-   * tab-wide shortcut.
-   */
-  holdsKeyboard: boolean;
 }
-
-/**
- * Below this the card's own padding would crowd out the question. A pane that
- * small still says it is waiting; it just drops the detail and the hint.
- */
-const COMPACT_COLS = 40;
-const COMPACT_ROWS = 8;
 
 const CHOICES: ReadonlyArray<{ answer: AskAnswer; label: string }> = [
   { answer: 'yes', label: 'Yes' },
   { answer: 'no', label: 'No' },
 ];
 
-export const AskOverlay = memo(function AskOverlay({ paneId, holdsKeyboard }: AskOverlayProps) {
+export const AskOverlay = memo(function AskOverlay({ paneId }: AskOverlayProps) {
   const pane = usePane(paneId);
   const send = useAppSend();
   const readOnly = useReadOnly();
@@ -57,22 +49,38 @@ export const AskOverlay = memo(function AskOverlay({ paneId, holdsKeyboard }: As
 
   if (!pane || !ask) return null;
 
-  const compact = pane.width < COMPACT_COLS || pane.height < COMPACT_ROWS;
+  const text = sentText(ask.keys);
+  const long = sentTextIsLong(text);
+  const caller = <code className="ask-overlay-caller">{ask.caller}</code>;
 
   return (
     <div
-      className={`ask-overlay ${compact ? 'ask-overlay-compact' : ''}`}
+      className="ask-overlay"
       role="alertdialog"
-      aria-label={ask.question}
+      aria-label={`${ask.caller} wants to send ${text}. Allow?`}
       data-pane-ask={paneId}
       data-ask-selected={selected}
+      // The pane keeps the keyboard: a click on the text must not take focus
+      // from it, or the arrows and Enter would stop reaching the answers.
+      onMouseDown={(e) => e.preventDefault()}
     >
       <div className="ask-overlay-scrim" />
-      <div className="ask-overlay-card">
-        <p className="ask-overlay-question">{ask.question}</p>
-        {ask.description && <p className="ask-overlay-description">{ask.description}</p>}
+      <div className="ask-overlay-text">
+        {long ? (
+          <>
+            <p className="ask-overlay-question">{caller} wants to send:</p>
+            <pre className="ask-overlay-command-block">{text}</pre>
+            <p className="ask-overlay-question">Allow?</p>
+          </>
+        ) : (
+          <p className="ask-overlay-question">
+            {caller} wants to send <code className="ask-overlay-command">{text}</code>.
+            <br />
+            Allow?
+          </p>
+        )}
         <div className="ask-overlay-choices">
-          {CHOICES.map(({ answer, label }) => (
+          {CHOICES.map(({ answer, label }, index) => (
             <button
               key={answer}
               type="button"
@@ -82,22 +90,15 @@ export const AskOverlay = memo(function AskOverlay({ paneId, holdsKeyboard }: As
               data-ask-choice={answer}
               aria-pressed={selected === answer}
               disabled={readOnly}
-              // The pane keeps the keyboard: a focused button would swallow
-              // the arrows that move this highlight, and Enter would then
-              // click whatever the browser focused rather than what the user
-              // can see is selected.
               tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => send({ type: 'MOVE_ASK_SELECTION', paneId, to: answer })}
               onClick={() => send({ type: 'ANSWER_ASK', paneId, answer })}
             >
+              <span className="ask-overlay-choice-number">{index + 1}.</span>
               {label}
             </button>
           ))}
         </div>
-        {holdsKeyboard && (
-          <p className="ask-overlay-hint">←/→ then Enter · ⌘/Ctrl+Enter answers the whole tab</p>
-        )}
       </div>
     </div>
   );

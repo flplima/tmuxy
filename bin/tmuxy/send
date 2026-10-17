@@ -1,0 +1,278 @@
+#!/bin/bash
+# tmuxy pane send — type keys into a pane; into someone else's, only once the
+# user has agreed.
+#
+# Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] <keys...>
+#
+# Into the caller's own pane (no -t, or -t naming it) the keys go at once. Into
+# any other pane they do not: the target pane is put into the "ask state" — the
+# UI blurs its content and asks "`<caller>` wants to send `<keys>`. Allow?" —
+# and this blocks until the user answers, then sends the keys on yes and
+# nothing on no. A caller therefore knows exactly when the command started and
+# can capture the pane afterwards.
+#
+# `set -g @tmuxy-send-ask off` sends without asking; `@tmuxy-send-allow` is a
+# comma list of caller process names (`claude,codex`) and target panes
+# (`%3,%5`) that skip the question while it is on. A send that skips it still
+# marks the target pane unread, so nothing is typed into a pane unseen.
+#
+# Protocol (both ends of it live here and in packages/tmuxy-ui):
+#   @tmuxy-ask         on the target pane — base64 of {token, caller, keys}.
+#                      Base64 because `list-panes` is comma-separated and the
+#                      keys are free text.
+#   @tmuxy-ask-answer  written by the client the user answered in, as
+#                      `<token>:yes` / `<token>:no`. The token pins the answer
+#                      to the question that was on screen.
+#
+# Exit status: 0 when the keys were sent, 1 when the user declined, 2 when the
+# question timed out, the pane went away, or the arguments were wrong.
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib"
+
+# How often the answer option is polled. tmux emits no notification for a user
+# option, so there is nothing to block on: `wait-for` would need the client to
+# signal a channel it has no way to reach from a browser. A read-only
+# `show-options` is cheap and this only runs while a question is on screen.
+POLL_INTERVAL=0.15
+
+usage() {
+  cat <<'EOF'
+Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] <keys...>
+
+Type keys into a pane, as tmux send-keys does: each argument is literal text
+or a key name (Enter, Escape, C-c, ...), with nothing between them.
+
+Into your own pane (no -t) the keys go at once. Into another pane they go
+only once the user allows it there: the pane shows who wants to send what,
+and this blocks until they answer.
+
+Options:
+  -t <pane>            The pane to type into. Default: your own.
+  --timeout SECONDS    Give up on an unanswered question after this long.
+
+Skipping the question:
+  set -g @tmuxy-send-ask off            never ask
+  set -g @tmuxy-send-allow claude,%3    don't ask these callers or panes
+
+Exit status: 0 sent, 1 declined, 2 timed out, no such pane, or bad usage.
+
+Examples:
+  tmuxy pane send ls Enter
+  tmuxy pane send -t %3 'npm test' Enter
+EOF
+}
+
+# --- Arguments ---
+
+TARGET=""
+TIMEOUT=""
+KEYS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help | -h)
+      usage
+      exit 0
+      ;;
+    -t)
+      TARGET="${2:?-t needs a pane}"
+      shift 2
+      ;;
+    --timeout)
+      TIMEOUT="${2:?--timeout needs a value}"
+      shift 2
+      ;;
+    --)
+      shift
+      KEYS+=("$@")
+      break
+      ;;
+    *)
+      KEYS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [ ${#KEYS[@]} -eq 0 ]; then
+  echo "Error: keys required" >&2
+  exit 2
+fi
+if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
+  echo "Error: --timeout takes a positive whole number of seconds" >&2
+  exit 2
+fi
+
+# The pane the caller runs in, as it was before the CLI resolved a default
+# for callers outside any pane (bin/tmuxy-cli exports it).
+OWN_PANE="${TMUXY_CALLER_PANE:-}"
+
+if [ -z "$TARGET" ]; then
+  _run_safe "send-keys $(shquote "${KEYS[@]}")"
+  exit 0
+fi
+
+# The target has to exist before a question is hung on it — a typo'd pane id
+# would otherwise block forever on an option nothing can ever answer.
+if ! resolved="$(_tmux display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)"; then
+  echo "Error: no such pane: $TARGET" >&2
+  exit 2
+fi
+[ -n "$resolved" ] && TARGET="$resolved"
+
+send_keys() {
+  _run_safe "send-keys -t $(shquote "$TARGET") $(shquote "${KEYS[@]}")"
+  echo "sent to $TARGET: ${KEYS[*]}"
+}
+
+if [ "$TARGET" = "$OWN_PANE" ]; then
+  send_keys
+  exit 0
+fi
+
+# Who is asking: the program in front in the caller's pane (an agent's own
+# name, not the shell it runs commands through), else the parent process.
+CALLER=""
+if [ -n "$OWN_PANE" ]; then
+  CALLER="$(_tmux display-message -p -t "$OWN_PANE" '#{pane_current_command}' 2>/dev/null || true)"
+fi
+[ -n "$CALLER" ] || CALLER="$(basename "$(ps -o comm= -p "$PPID" 2>/dev/null || true)")"
+[ -n "$CALLER" ] || CALLER="a script"
+
+# --- Skipping the question ---
+
+pane_option() {
+  _tmux show-options -pqv -t "$1" "$2" 2>/dev/null || true
+}
+
+allowed() {
+  [ "$(_tmux show-options -gqv @tmuxy-send-ask 2>/dev/null || true)" = off ] && return 0
+  local entry list
+  list="$(_tmux show-options -gqv @tmuxy-send-allow 2>/dev/null || true)"
+  IFS=',' read -r -a entries <<<"$list"
+  for entry in "${entries[@]+"${entries[@]}"}"; do
+    entry="${entry// /}"
+    if [ -n "$entry" ] && { [ "$entry" = "$CALLER" ] || [ "$entry" = "$TARGET" ]; }; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+if allowed; then
+  send_keys
+  # Unread, unless the pane already says something louder about itself; the
+  # client clears it once the user looks at the pane.
+  case "$(pane_option "$TARGET" @tmuxy-pane-state)" in
+    "" | idle) _run_safe "set-option -p -t $(shquote "$TARGET") @tmuxy-pane-state unread" ;;
+  esac
+  exit 0
+fi
+
+# --- Payload ---
+
+# JSON-escape a string for the payload: the characters JSON forbids raw, with
+# every other control character dropped. awk/sed rather than python3 or jq
+# because neither is guaranteed here (the v86 guest ships busybox), and the
+# newline join is the same one `tmuxy pane capture --json` uses.
+json_escape() {
+  printf '%s' "$1" \
+    | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]//g' \
+    | awk '{ if (NR > 1) printf "\\n"; printf "%s", $0 }'
+}
+
+# A token unique to this question. Pane ids are never reused within a server
+# and the pid is unique among live processes, so the pair cannot collide with
+# another question on the same pane.
+TOKEN="${TARGET#%}-$$"
+
+KEYS_JSON=""
+for key in "${KEYS[@]}"; do
+  KEYS_JSON="$KEYS_JSON${KEYS_JSON:+,}\"$(json_escape "$key")\""
+done
+PAYLOAD="{\"token\":\"$TOKEN\",\"caller\":\"$(json_escape "$CALLER")\",\"keys\":[$KEYS_JSON]}"
+ENCODED="$(printf '%s' "$PAYLOAD" | base64 | tr -d '\n')"
+
+# --- Ask ---
+
+# While the question is up, the caller's own pane says it is waiting on the
+# user; what it said before comes back afterwards.
+OWN_STATE=""
+[ -n "$OWN_PANE" ] && OWN_STATE="$(pane_option "$OWN_PANE" @tmuxy-pane-state)"
+
+# Clear the question and the caller's waiting mark on ANY exit: an interrupted
+# or killed sender must not leave a question on screen that nothing is
+# listening to any more.
+cleanup() {
+  _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask" 2>/dev/null || true
+  _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer" 2>/dev/null || true
+  if [ -n "$OWN_PANE" ]; then
+    if [ -n "$OWN_STATE" ]; then
+      _run_safe "set-option -p -t $(shquote "$OWN_PANE") @tmuxy-pane-state $(shquote "$OWN_STATE")" 2>/dev/null || true
+    else
+      _run_safe "set-option -pu -t $(shquote "$OWN_PANE") @tmuxy-pane-state" 2>/dev/null || true
+    fi
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# Answer first, question second: a stale answer left by a previous question
+# would otherwise be read as this one's before the poll ever starts.
+_run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer"
+_run_safe "set-option -p -t $(shquote "$TARGET") @tmuxy-ask $(shquote "$ENCODED")"
+if [ -n "$OWN_PANE" ]; then
+  _run_safe "set-option -p -t $(shquote "$OWN_PANE") @tmuxy-pane-state needs-input"
+fi
+
+# Writing to stderr is not only for the user's benefit: it is pane output, and
+# pane output is what makes the backend re-list the panes promptly. Without it
+# a question asked from a silent pane waits for the idle heartbeat to appear.
+echo "tmuxy: waiting for $TARGET to allow sending: ${KEYS[*]}" >&2
+
+# --- Wait ---
+
+deadline=""
+[ -n "$TIMEOUT" ] && deadline=$(($(date +%s) + TIMEOUT))
+
+answer=""
+while :; do
+  # A dead target ends the wait: nothing can answer a question on a pane that
+  # no longer exists.
+  if ! _tmux display-message -p -t "$TARGET" '#{pane_id}' >/dev/null 2>&1; then
+    echo "tmuxy: $TARGET is gone" >&2
+    exit 2
+  fi
+
+  case "$(pane_option "$TARGET" @tmuxy-ask-answer)" in
+    "$TOKEN:yes")
+      answer="yes"
+      break
+      ;;
+    "$TOKEN:no")
+      answer="no"
+      break
+      ;;
+  esac
+
+  if [ -n "$deadline" ] && [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "tmuxy: no answer from $TARGET after ${TIMEOUT}s; nothing sent" >&2
+    exit 2
+  fi
+
+  sleep "$POLL_INTERVAL" 2>/dev/null || sleep 1
+done
+
+# The question is answered; take it off the pane before the keys land, so the
+# user never sees the command typed under a stale overlay.
+cleanup
+trap - EXIT INT TERM
+
+if [ "$answer" = "no" ]; then
+  echo "tmuxy: declined in $TARGET; nothing sent" >&2
+  exit 1
+fi
+
+send_keys

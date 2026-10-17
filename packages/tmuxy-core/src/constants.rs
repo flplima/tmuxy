@@ -104,7 +104,7 @@ pub mod tmux_options {
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
 
-    /// Pane-scoped pending confirmation, set by `tmuxy ask` on the pane the
+    /// Pane-scoped pending confirmation, set by `tmuxy pane send -t` on the pane the
     /// keys are meant for. The value is base64 of a JSON object
     /// (`{token, question, description}`), so the payload survives the
     /// comma-separated `list-panes` format that free text would break.
@@ -112,7 +112,7 @@ pub mod tmux_options {
     pub const ASK: &str = "@tmuxy-ask";
 
     /// Pane-scoped answer to the pending [`ASK`], written by the client the
-    /// user answered in and read back by the waiting `tmuxy ask`. The value is
+    /// user answered in and read back by the waiting `tmuxy pane send`. The value is
     /// `<token>:yes` or `<token>:no` — the token pins the answer to the
     /// question that was on screen, so a stale answer to a question already
     /// withdrawn is ignored rather than acted on. Rust never touches it; it is
@@ -150,6 +150,12 @@ pub mod tmux_options {
     /// specific cursor (DECSCUSR) is still obeyed; this is what happens when
     /// it has not.
     pub const CURSOR_BLINK: &str = "@tmuxy-cursor-blink";
+    /// `on`/`off`: whether `tmuxy pane send` into a pane the caller does
+    /// not own asks the user there first (`bin/tmuxy/send`).
+    pub const SEND_ASK: &str = "@tmuxy-send-ask";
+    /// Comma list of caller process names and target pane ids whose sends
+    /// skip that question. Read by the CLI alone.
+    pub const SEND_ALLOW: &str = "@tmuxy-send-allow";
     /// Integer: how many cards each row of the "all tabs" view holds.
     pub const TAB_OVERVIEW_COLS: &str = "@tmuxy-tab-overview-cols";
     /// `on`/`off`: a two-finger trackpad slide left/right switches tabs.

@@ -345,7 +345,7 @@ pub struct TmuxPane {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_state: Option<String>,
     /// The pending confirmation from `@tmuxy-ask`: the base64 payload
-    /// `tmuxy ask` wrote on the pane the keys are meant for. Carried verbatim —
+    /// `tmuxy pane send -t` wrote on the pane the keys are meant for. Carried verbatim —
     /// the client decodes it and draws the question over the pane's content.
     /// `None` when nothing is pending.
     #[serde(default, skip_serializing_if = "Option::is_none")]

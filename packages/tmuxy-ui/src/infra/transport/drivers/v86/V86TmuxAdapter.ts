@@ -281,6 +281,10 @@ export class V86TmuxAdapter implements TmuxAdapter {
         this.engine.send(`set -g @tmuxy-cursor-blink ${args?.enabled ? 'on' : 'off'}`);
         return null as T;
       }
+      case 'set_send_ask': {
+        this.engine.send(`set -g @tmuxy-send-ask ${args?.enabled ? 'on' : 'off'}`);
+        return null as T;
+      }
       case 'get_scrollback_cells': {
         const paneId = args?.paneId as string;
         const start = (args?.start as number | undefined) ?? -100;

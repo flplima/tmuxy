@@ -281,9 +281,10 @@ export class DemoAdapter implements TmuxAdapter {
         return null as T;
       }
 
-      // The demo has no config to write to, so the blink lives only in the
+      // The demo has no config to write to, so these switches live only in the
       // machine's context for as long as the page is open.
       case 'set_cursor_blink':
+      case 'set_send_ask':
         return null as T;
 
       case 'get_theme_settings': {
@@ -376,7 +377,7 @@ export class DemoAdapter implements TmuxAdapter {
       return;
     }
 
-    // Answering a `tmuxy ask` arrives as ONE compound list (clear the question,
+    // Answering a `tmuxy pane send -t` arrives as ONE compound list (clear the question,
     // then record the answer), which this engine doesn't split on `\;`.
     // Clearing the question is the half that shows: the answer option exists
     // for the waiting CLI, and the demo has no such process.
@@ -441,7 +442,7 @@ export class DemoAdapter implements TmuxAdapter {
 
       // The pane-scoped tmuxy options a process writes about its own pane:
       // `@tmuxy-pane-state` (what it is doing — `tmuxy pane state`) and
-      // `@tmuxy-ask` (a question it wants confirmed — `tmuxy ask`). Only these
+      // `@tmuxy-ask` (a send waiting on the user — `tmuxy pane send -t`). Only these
       // two are honoured; the demo has no general option store.
       //
       // `-u` unsets, which is how a question is answered and how a process
@@ -466,7 +467,7 @@ export class DemoAdapter implements TmuxAdapter {
         const value = unset ? '' : (parts[optIdx + 1] ?? '').replace(/^'(.*)'$/, '$1');
         if (parts[optIdx] === '@tmuxy-pane-state') this.tmux.setPaneState(target, value);
         else if (parts[optIdx] === '@tmuxy-ask') this.tmux.setPaneAsk(target, value);
-        // `@tmuxy-ask-answer` is written for the waiting `tmuxy ask` process to
+        // `@tmuxy-ask-answer` is written for the waiting `tmuxy pane send` process to
         // read; there is no such process in the demo, so recording it would
         // only be state nothing consumes.
         break;

@@ -1,5 +1,5 @@
 /**
- * ask state — pending confirmations raised by `tmuxy ask`.
+ * ask state — pending confirmations raised by `tmuxy pane send -t`.
  *
  * Owns context field: askSelections.
  *

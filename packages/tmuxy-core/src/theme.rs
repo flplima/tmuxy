@@ -38,6 +38,8 @@ pub struct Appearance {
     /// Whether the cursor blinks when the application has not asked for a
     /// particular cursor (`@tmuxy-cursor-blink`).
     pub cursor_blink: bool,
+    /// Whether a send into another pane asks first (`@tmuxy-send-ask`).
+    pub send_ask: bool,
     /// Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`).
     pub tab_overview_cols: u32,
     /// Two-finger slide left/right switches tabs (`@tmuxy-gesture-swipe-tabs`).
@@ -66,6 +68,7 @@ impl Default for Appearance {
             blur: true,
             animations: true,
             cursor_blink: true,
+            send_ask: true,
             tab_overview_cols: 3,
             gesture_swipe_tabs: true,
             gesture_pinch_zoom: true,
@@ -109,7 +112,7 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
 
 /// Every option the theme settings are read from, in the order the query
 /// prints them.
-const SETTINGS_OPTIONS: [&str; 15] = [
+const SETTINGS_OPTIONS: [&str; 16] = [
     tmux_options::THEME,
     tmux_options::THEME_MODE,
     tmux_options::OPACITY,
@@ -120,6 +123,7 @@ const SETTINGS_OPTIONS: [&str; 15] = [
     tmux_options::BLUR,
     tmux_options::ANIMATIONS,
     tmux_options::CURSOR_BLINK,
+    tmux_options::SEND_ASK,
     tmux_options::TAB_OVERVIEW_COLS,
     tmux_options::GESTURE_SWIPE_TABS,
     tmux_options::GESTURE_PINCH_ZOOM,
@@ -214,6 +218,7 @@ fn parse_settings(output: &str) -> serde_json::Value {
         blur: parse_flag(value(tmux_options::BLUR), defaults.blur),
         animations: parse_flag(value(tmux_options::ANIMATIONS), defaults.animations),
         cursor_blink: parse_flag(value(tmux_options::CURSOR_BLINK), defaults.cursor_blink),
+        send_ask: parse_flag(value(tmux_options::SEND_ASK), defaults.send_ask),
         tab_overview_cols: parse_count(
             value(tmux_options::TAB_OVERVIEW_COLS),
             defaults.tab_overview_cols,
@@ -294,8 +299,19 @@ pub async fn set_cursor_blink(
 ) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
     set_options(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
-    if let Err(e) = session::write_managed_state(None, None, Some(enabled), None) {
+    if let Err(e) = session::write_managed_state(None, None, Some(enabled), None, None) {
         tracing::warn!(error = %e, "could not persist the cursor blink to tmuxy.state.json");
+    }
+    Ok(())
+}
+
+/// Turn the question a send into another pane asks on or off, and remember
+/// the choice, the way [`set_cursor_blink`] does.
+pub async fn set_send_ask(tx: &MonitorCommandSender, enabled: bool) -> Result<(), CommandError> {
+    let value = if enabled { "on" } else { "off" };
+    set_options(tx, &[(tmux_options::SEND_ASK, value)], "send ask").await?;
+    if let Err(e) = session::write_managed_state(None, None, None, Some(enabled), None) {
+        tracing::warn!(error = %e, "could not persist the send ask to tmuxy.state.json");
     }
     Ok(())
 }
@@ -313,7 +329,7 @@ pub async fn set_theme(
         options.push((tmux_options::THEME_MODE, m));
     }
     set_options(tx, &options, "theme").await?;
-    if let Err(e) = session::write_managed_state(Some(name), mode, None, None) {
+    if let Err(e) = session::write_managed_state(Some(name), mode, None, None, None) {
         tracing::warn!(error = %e, "could not persist theme to tmuxy.state.json");
     }
     Ok(())
@@ -322,7 +338,7 @@ pub async fn set_theme(
 /// Set only the mode (dark/light) and persist it.
 pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
     set_options(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
-    if let Err(e) = session::write_managed_state(None, Some(mode), None, None) {
+    if let Err(e) = session::write_managed_state(None, Some(mode), None, None, None) {
         tracing::warn!(error = %e, "could not persist theme mode to tmuxy.state.json");
     }
     Ok(())

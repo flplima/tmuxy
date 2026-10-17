@@ -103,7 +103,7 @@ export class DemoTmux {
    */
   private paneStates = new Map<string, string>();
   /**
-   * `@tmuxy-ask` per pane: the base64 question `tmuxy ask` hangs on the pane
+   * `@tmuxy-ask` per pane: the base64 question `tmuxy pane send -t` hangs on the pane
    * it wants keys sent to. Held exactly like `@tmuxy-pane-state` — set by a
    * command, read back on every list-panes — so a story drives the overlay
    * through the real option rather than through a prop.
@@ -568,7 +568,7 @@ export class DemoTmux {
   }
 
   /**
-   * Set `@tmuxy-ask` on a pane — what `tmuxy ask` does before it blocks. An
+   * Set `@tmuxy-ask` on a pane — what `tmuxy pane send -t` does before it blocks. An
    * empty value unsets it, which is what answering the question does.
    */
   setPaneAsk(paneId: string, value: string): void {

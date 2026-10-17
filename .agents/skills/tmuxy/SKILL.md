@@ -43,7 +43,7 @@ tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
 tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
 tmuxy pane group add            # group the current pane (members become header tabs)
 tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
-tmuxy ask %id <keys...>         # type into another pane once the user confirms (blocks until answered)
+tmuxy pane send -t %id <keys...># type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy open <file|url|host>      # show an HTML file, a site, a .md file or an image
 tmuxy widget browser <file|url> # the same, spelled out

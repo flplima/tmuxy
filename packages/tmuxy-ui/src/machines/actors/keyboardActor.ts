@@ -685,9 +685,9 @@ export function createKeyboardActor() {
       /** Which of Yes/No the question on a pane is highlighting. */
       const askSelection = (paneId: PaneId): AskAnswer => liveAskSelections[paneId] ?? 'yes';
 
-      // Cmd+Enter (Ctrl+Enter off macOS): say yes to every question pending in
-      // the tab in view. This is the shortcut the whole `tmuxy ask` round trip
-      // exists for — an agent asks the pane beside you to run something, you
+      // Cmd+Enter (Ctrl+Enter off macOS): allow every send pending in the tab
+      // in view. This is the shortcut the whole round trip exists for — an
+      // agent sends keys to the pane beside you, you
       // read the question without leaving the agent's pane, and agree from
       // where you are. Scoped to the active tab by the machine, and handled
       // before anything else because Enter is otherwise a keystroke.
@@ -724,25 +724,17 @@ export function createKeyboardActor() {
           event.preventDefault();
           input.parent.send({ type: 'ANSWER_ASK', paneId: askPaneId, answer: choice });
         };
+        // The answers are stacked and numbered: 1. Yes over 2. No.
         switch (event.key) {
-          case 'ArrowLeft':
-          case 'h':
+          case 'ArrowUp':
+          case '1':
             return move('yes');
-          case 'ArrowRight':
-          case 'l':
+          case 'ArrowDown':
+          case '2':
             return move('no');
-          case 'Tab':
-            // One key that reaches both, for a keyboard without arrows.
-            return move(askSelection(askPaneId) === 'yes' ? 'no' : 'yes');
-          case 'y':
-          case 'Y':
-            return answer('yes');
-          case 'n':
-          case 'N':
           case 'Escape':
             return answer('no');
           case 'Enter':
-          case ' ':
             return answer(askSelection(askPaneId));
           default:
             // Any other plain key is swallowed rather than forwarded: a

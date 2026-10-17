@@ -91,7 +91,7 @@ export function normalizePaneState(raw: string | null | undefined): PaneStateNam
  * finished pane on screen forever.
  *
  * The one thing tmuxy reads rather than takes on trust is a pending
- * `tmuxy ask`: a pane showing a question IS waiting on the user, whatever it
+ * `tmuxy pane send -t`: a pane showing a question IS waiting on the user, whatever it
  * last declared about itself, and it outranks that declaration so the tab
  * holding the question is the one the tree points at.
  */

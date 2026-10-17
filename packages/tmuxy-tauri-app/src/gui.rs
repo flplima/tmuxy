@@ -505,6 +505,7 @@ pub fn run() {
             commands::get_theme_settings,
             commands::set_theme,
             commands::set_cursor_blink,
+            commands::set_send_ask,
             commands::set_theme_mode,
             commands::set_swipe_tabs,
             commands::get_themes_list,

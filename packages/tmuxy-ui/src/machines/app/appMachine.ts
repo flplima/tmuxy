@@ -69,7 +69,7 @@ import {
   keepLivePanes,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
-import { nextUnreadPaneIds } from '../../utils/paneState';
+import { nextUnreadPaneIds, normalizePaneState } from '../../utils/paneState';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -1143,6 +1143,27 @@ export const appMachine = setup({
                 ),
               })),
             );
+            // A pane that declares itself `unread` (a send that skipped the
+            // question marks its target so) has been read once it is the
+            // pane in front: take the mark back, once, as it comes into view.
+            const inFront = transformed.panes.find((p) => p.tmuxId === effectiveActivePaneId);
+            const wasInFront = context.panes.find((p) => p.tmuxId === effectiveActivePaneId);
+            if (
+              !context.readOnly &&
+              inFront &&
+              normalizePaneState(inFront.paneState) === 'unread' &&
+              !(
+                context.activePaneId === inFront.tmuxId &&
+                normalizePaneState(wasInFront?.paneState) === 'unread'
+              )
+            ) {
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_OP' as const,
+                  op: TmuxOp.ClearPaneState({ paneId: inFront.tmuxId }),
+                }),
+              );
+            }
             // Mirror the MRU order into the store's predict context — the
             // Navigate predictor's tmux-accurate tiebreak reads it there.
             enqueue(

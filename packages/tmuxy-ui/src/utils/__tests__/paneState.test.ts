@@ -53,9 +53,9 @@ describe('paneStateFor', () => {
   });
 
   it('lets a pending question outrank whatever the pane declared', () => {
-    // A pane showing a `tmuxy ask` IS waiting on the user, whatever it last
-    // said about itself — and the tree has to point at the tab holding it.
-    const asking = btoa(JSON.stringify({ token: 't', question: 'Send keys?' }));
+    // A pane asking whether to allow a send IS waiting on the user, whatever
+    // it last said about itself — and the tree has to point at the tab holding it.
+    const asking = btoa(JSON.stringify({ token: 't', caller: 'claude', keys: ['ls'] }));
     expect(paneStateFor({ paneState: 'working', paneAsk: asking })).toBe('needs-input');
     expect(paneStateFor({ paneState: 'idle', paneAsk: asking })).toBe('needs-input');
     // An unreadable option is not a question: it must not pin a pane to

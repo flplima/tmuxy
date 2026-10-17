@@ -850,6 +850,11 @@ async fn handle_command(
             tmuxy_core::theme::set_cursor_blink(&tx, enabled).await?;
             Ok(serde_json::json!(null))
         }
+        ClientCommand::SetSendAsk { enabled } => {
+            let tx = state.monitor_tx(session).await?;
+            tmuxy_core::theme::set_send_ask(&tx, enabled).await?;
+            Ok(serde_json::json!(null))
+        }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
         // A pinned server reports only its own session's repositories —
         // otherwise a viewer learns the repo path and branch of every pane
@@ -2246,6 +2251,7 @@ mod tests {
             serde_json::json!({ "cmd": "set_theme", "args": { "name": "default" } }),
             serde_json::json!({ "cmd": "set_theme_mode", "args": { "mode": "dark" } }),
             serde_json::json!({ "cmd": "set_cursor_blink", "args": { "enabled": true } }),
+            serde_json::json!({ "cmd": "set_send_ask", "args": { "enabled": false } }),
             serde_json::json!({ "cmd": "set_trace_enabled", "args": { "enabled": true } }),
             serde_json::json!({ "cmd": "set_trace_level", "args": { "level": "debug" } }),
             serde_json::json!({ "cmd": "get_trace_settings" }),

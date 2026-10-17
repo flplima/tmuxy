@@ -124,6 +124,10 @@ fn shipped_payloads() -> Vec<(&'static str, serde_json::Value)> {
             json!({ "cmd": "set_cursor_blink", "args": { "enabled": true } }),
         ),
         (
+            "set_send_ask",
+            json!({ "cmd": "set_send_ask", "args": { "enabled": true } }),
+        ),
+        (
             "set_trace_enabled",
             json!({ "cmd": "set_trace_enabled", "args": { "enabled": false } }),
         ),

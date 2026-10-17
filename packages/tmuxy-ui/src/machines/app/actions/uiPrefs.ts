@@ -84,6 +84,7 @@ export const uiPrefsActions = {
       assign({
         animationsAllowed: event.appearance?.animations ?? true,
         cursorBlink: event.appearance?.cursorBlink ?? true,
+        sendAsk: event.appearance?.sendAsk ?? true,
         tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
         gestureFlags: {
           swipeTabs: event.appearance?.gestureSwipeTabs ?? true,
@@ -113,6 +114,19 @@ export const uiPrefsActions = {
       sendTo('tmux', {
         type: 'INVOKE' as const,
         cmd: 'set_cursor_blink',
+        args: { enabled },
+      }),
+    );
+  }),
+
+  uiPrefs_toggleSendAsk: act(({ event, context, enqueue }) => {
+    if (event.type !== 'TOGGLE_SEND_ASK') return;
+    const enabled = !context.sendAsk;
+    enqueue(assign({ sendAsk: enabled }));
+    enqueue(
+      sendTo('tmux', {
+        type: 'INVOKE' as const,
+        cmd: 'set_send_ask',
         args: { enabled },
       }),
     );

@@ -93,6 +93,7 @@ const cases: Array<[TmuxOp, string]> = [
     TmuxOp.AnswerAsk({ paneId: pid('%3'), token: 't1', answer: 'yes' }),
     "set-option -pu -t %3 @tmuxy-ask \\; set-option -p -t %3 @tmuxy-ask-answer 't1:yes'",
   ],
+  [TmuxOp.ClearPaneState({ paneId: pid('%3') }), 'set-option -pu -t %3 @tmuxy-pane-state'],
 
   // Windows
   [TmuxOp.NewWindow(), 'new-window'],

@@ -1,5 +1,5 @@
 /**
- * Action implementations for pending confirmations (`tmuxy ask`).
+ * Action implementations for pending confirmations (`tmuxy pane send -t`).
  *
  * Owns context field: askSelections.
  *

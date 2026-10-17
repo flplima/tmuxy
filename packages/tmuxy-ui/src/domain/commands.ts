@@ -129,12 +129,14 @@ export type TmuxOp = Data.TaggedEnum<{
   EnterCopyMode: { readonly paneId: PaneId | null };
   CancelCopyMode: { readonly paneId: PaneId };
   /**
-   * Answer a `tmuxy ask` question: withdraw it, then record the answer pinned
+   * Answer a send waiting on a pane: withdraw the question, then record the answer pinned
    * to its token (so an answer to a question the asker already withdrew is not
    * read as one to whatever replaced it). One compound command, the clear
    * first: the overlay comes down the instant the user chooses.
    */
   AnswerAsk: { readonly paneId: PaneId; readonly token: string; readonly answer: string };
+  /** Take back what a pane declared about itself (`@tmuxy-pane-state`). */
+  ClearPaneState: { readonly paneId: PaneId };
 
   // ── Windows (tabs) ─────────────────────────────────────
   NewWindow: NoFields;
@@ -386,6 +388,8 @@ export function toTmuxCommand(op: TmuxOp): string {
         `set-option -pu -t ${op.paneId} @tmuxy-ask`,
         `set-option -p -t ${op.paneId} @tmuxy-ask-answer ${quote(`${op.token}:${op.answer}`)}`,
       ]);
+    case 'ClearPaneState':
+      return `set-option -pu -t ${op.paneId} @tmuxy-pane-state`;
     case 'NewWindow':
       return 'new-window';
     case 'SelectWindow':
