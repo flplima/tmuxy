@@ -353,6 +353,13 @@ export interface AppMachineContext {
   charHeight: number;
   /** letter-spacing (px) that pads the font's natural advance up to charWidth. */
   cellGap: number;
+  /**
+   * The pane grid's own font size in px when it differs from the chrome's —
+   * the phone layout's shrunken cell (utils/phoneLayout.ts). Null otherwise.
+   */
+  gridFontSize: number | null;
+  /** The phone layout: the whole 80 × 25 terminal, a key row and the tree below it. */
+  phoneLayout: boolean;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
   /**
@@ -780,7 +787,10 @@ export type SetCharSizeEvent = {
   charWidth: number;
   charHeight: number;
   cellGap: number;
+  /** The grid's font size when it is not the chrome's (the phone layout). */
+  gridFontSize?: number;
 };
+export type SetPhoneLayoutEvent = { type: 'SET_PHONE_LAYOUT'; phone: boolean };
 export type SetTargetSizeEvent = {
   type: 'SET_TARGET_SIZE';
   cols: number;
@@ -1298,6 +1308,7 @@ export type AppMachineEvent =
   | ResizeEndEvent
   | KeyPressEvent
   | SetCharSizeEvent
+  | SetPhoneLayoutEvent
   | SetTargetSizeEvent
   | SetContainerSizeEvent
   | ObserveContainerEvent

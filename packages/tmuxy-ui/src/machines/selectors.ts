@@ -537,6 +537,26 @@ export const selectCharSize = createMemoizedSelector(
   }),
 );
 
+/** The phone layout: the whole 80 × 25 terminal, a key row and the tree. */
+export function selectPhoneLayout(context: AppMachineContext): boolean {
+  return context.phoneLayout;
+}
+
+/**
+ * The pane grid's own type when it is not the chrome's: on a phone, the font
+ * size and row height that fit 80 columns across. Null otherwise.
+ */
+export const selectGridType = createMemoizedSelector(
+  (context: AppMachineContext) => ({
+    fontSize: context.gridFontSize,
+    rowHeight: context.charHeight,
+  }),
+  (context: AppMachineContext) =>
+    context.gridFontSize === null
+      ? null
+      : { fontSize: context.gridFontSize, rowHeight: context.charHeight },
+);
+
 /**
  * The cell grid published to CSS: `--cell-w` / `--cell-gap` on the app root.
  * See utils/cellMetrics.ts.

@@ -1,11 +1,12 @@
 /**
  * App - Main application component
  *
- * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar.
+ * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
+ * phone, the whole 80 × 25 terminal, the key row and the tree under it.
  * All state is accessed via hooks - no prop drilling.
  */
 
-import { type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
 import { StatusBar } from './components/StatusBar';
 import { NativeMenuBar } from './components/menus/NativeMenuBar';
@@ -36,6 +37,8 @@ import {
   selectFitScale,
   selectCursorBlink,
   selectSidebarFocused,
+  selectPhoneLayout,
+  selectGridType,
   useReadOnly,
 } from './machines/AppContext';
 import { cellMetricsStyle } from './utils/cellMetrics';
@@ -43,8 +46,20 @@ import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
+import { KeyRow } from './components/KeyRow';
+import { SidebarTree } from './components/SidebarTree';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
+
+/** The phone's terminal type, scoped to the terminal so the chrome keeps its own. */
+function phoneTypeStyle(type: { fontSize: number; rowHeight: number } | null): CSSProperties {
+  if (!type) return {};
+  return {
+    '--tmuxy-font-size': `${type.fontSize}px`,
+    '--line-height-terminal': `${type.rowHeight}px`,
+    '--pane-header-height': `${type.rowHeight}px`,
+  } as CSSProperties;
+}
 
 function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // Select minimal state needed at App level
@@ -63,18 +78,21 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const fitScale = useAppSelector(selectFitScale);
   const cursorBlink = useAppSelector(selectCursorBlink);
   const sidebarFocused = useAppSelector(selectSidebarFocused);
+  const phone = useAppSelector(selectPhoneLayout);
+  const gridType = useAppSelector(selectGridType);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
 
-  // Track if we've started observing
-  const observingRef = useRef(false);
+  // The container being observed. Switching to or from the phone layout
+  // mounts it somewhere else, and the new element is observed in its place.
+  const observedRef = useRef<HTMLDivElement | null>(null);
   const appContainerRef = useRef<HTMLDivElement>(null);
 
   // Use callback ref to observe container when it mounts
   const containerRef = useCallback(
     (element: HTMLDivElement | null) => {
-      if (element && !observingRef.current) {
-        observingRef.current = true;
+      if (element && element !== observedRef.current) {
+        observedRef.current = element;
         send({ type: 'OBSERVE_CONTAINER', element });
       }
     },
@@ -128,6 +146,49 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const retry = useCallback(() => window.location.reload(), []);
   const reconnectNow = useCallback(() => send({ type: 'RECONNECT_NOW' }), [send]);
 
+  const paneContainer = (
+    <div
+      ref={containerRef}
+      // While the Tab Overview is open the live pane grid is FLIP-scaled
+      // into its slot (custom properties set by TabOverview, applied by
+      // the `.tab-overview-open .pane-layout` rule). A trackpad gesture in
+      // progress is drawn the same way, by GestureStage.
+      className={`pane-container${tabOverviewOpen ? ' tab-overview-open' : ''}`}
+      style={{ position: 'relative' }}
+    >
+      {showLayout && (
+        // A read-only client draws the grid it is sent rather than one
+        // sized to its window, so the pane area is zoomed until it fits.
+        <PaneFit enabled={readOnly} scale={fitScale}>
+          <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
+          {/* Trackpad slides and pinches, applied to this container per step */}
+          <GestureStage />
+          {/* Float panes overlay - renders above tiled panes */}
+          <FloatContainer />
+          {/* The "all tabs" view, over panes and floats alike */}
+          <TabOverview />
+        </PaneFit>
+      )}
+      {/* Every binding, table by table (prefix ?) */}
+      {showLayout && <KeysView />}
+      {overlayMode && (
+        <ConnectionOverlay
+          mode={overlayMode}
+          hasLayout={showLayout}
+          error={error}
+          fatalError={fatalError}
+          log={log}
+          onRetry={retry}
+          onReconnectNow={reconnectNow}
+        >
+          {/* Detached: the way back in. The same widget the switcher float
+              runs, here over the blurred session the user stepped out of. */}
+          <TmuxySession />
+        </ConnectionOverlay>
+      )}
+    </div>
+  );
+
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
   return (
@@ -140,9 +201,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       // terminal text run and cell-addressed box below — see utils/cellMetrics.ts.
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}
     >
-      <StatusBar renderTabline={renderTabline} />
+      {!phone && <StatusBar renderTabline={renderTabline} />}
       {isTauri() && <NativeMenuBar />}
-      <div className="app-body">
+      <div className={`app-body${phone ? ' app-body-phone' : ''}`}>
         {/* Sidebars: fixed-width, full-height columns when open, each holding
             one real tmux pane. As flex siblings they shrink the pane container,
             whose ResizeObserver then reports the reduced width so tmux re-tiles
@@ -150,51 +211,30 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             the tree widget, right the pinned terminal. In a window too narrow to
             share, `selectSidebarLayout` switches them to overlaying the panes
             over this backdrop instead. */}
-        {showLayout && <SidebarBackdrop />}
-        {showLayout && <Sidebar side="left" />}
-        <div
-          ref={containerRef}
-          // While the Tab Overview is open the live pane grid is FLIP-scaled
-          // into its slot (custom properties set by TabOverview, applied by
-          // the `.tab-overview-open .pane-layout` rule). A trackpad gesture in
-          // progress is drawn the same way, by GestureStage.
-          className={`pane-container${tabOverviewOpen ? ' tab-overview-open' : ''}`}
-          style={{ position: 'relative' }}
-        >
-          {showLayout && (
-            // A read-only client draws the grid it is sent rather than one
-            // sized to its window, so the pane area is zoomed until it fits.
-            <PaneFit enabled={readOnly} scale={fitScale}>
-              <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
-              {/* Trackpad slides and pinches, applied to this container per step */}
-              <GestureStage />
-              {/* Float panes overlay - renders above tiled panes */}
-              <FloatContainer />
-              {/* The "all tabs" view, over panes and floats alike */}
-              <TabOverview />
-            </PaneFit>
-          )}
-          {/* Every binding, table by table (prefix ?) */}
-          {showLayout && <KeysView />}
-          {overlayMode && (
-            <ConnectionOverlay
-              mode={overlayMode}
-              hasLayout={showLayout}
-              error={error}
-              fatalError={fatalError}
-              log={log}
-              onRetry={retry}
-              onReconnectNow={reconnectNow}
-            >
-              {/* Detached: the way back in. The same widget the switcher float
-                  runs, here over the blurred session the user stepped out of. */}
-              <TmuxySession />
-            </ConnectionOverlay>
-          )}
-        </div>
-        {showLayout && <Sidebar side="right" />}
+        {showLayout && !phone && <SidebarBackdrop />}
+        {showLayout && !phone && <Sidebar side="left" />}
+        {phone ? (
+          <>
+            {/* The terminal at the phone's cell: the grid, then tmux's status
+                line as its 25th row. The chrome below keeps its own size. */}
+            <div className="phone-pty" style={phoneTypeStyle(gridType)}>
+              {paneContainer}
+              {showLayout && <TmuxStatusBar />}
+            </div>
+            {showLayout && <KeyRow />}
+            {/* Every tab and pane, where the tab strip would be on a desktop. */}
+            {showLayout && (
+              <div className="phone-tree">
+                <SidebarTree focused={false} />
+              </div>
+            )}
+          </>
+        ) : (
+          paneContainer
+        )}
+        {showLayout && !phone && <Sidebar side="right" />}
       </div>
-      <TmuxStatusBar />
+      {!phone && <TmuxStatusBar />}
       {/* First run: what this is and what it can do, before anything is typed. */}
       {/* Errors, top-right, over everything but the cursor. */}
       <Snackbar />

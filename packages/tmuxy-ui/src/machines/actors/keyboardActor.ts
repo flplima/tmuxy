@@ -46,6 +46,7 @@ import { isTauri } from '../../utils/platform';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { splitTableSwitch } from '../../domain/keyTables';
 import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
+import { getLatches, pressKey } from '../../utils/keyLatch';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 
 /**
@@ -380,6 +381,15 @@ export function createKeyboardActor() {
     // when the text arrived wins, so a commit lands where composition began.
     const cleanupKeyboardInput = setupMobileKeyboard((text, paneId) => {
       if (!enabled || leftSidebarFocused) return;
+      // A ctrl or alt latched on the phone's key row (utils/keyLatch) makes
+      // the first character a chord, pressed through the keydown path so the
+      // prefix and the bindings see it; the rest is plain text.
+      if (getLatches().ctrl !== 'off' || getLatches().alt !== 'off') {
+        const [first, ...rest] = [...text];
+        if (first) pressKey(first);
+        text = rest.join('');
+        if (!text) return;
+      }
       const textTarget = paneId === null ? keyTarget() : (realPaneId(paneId) ?? sessionName);
       input.parent.send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: textTarget, text }) });
     });

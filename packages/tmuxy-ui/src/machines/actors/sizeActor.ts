@@ -9,6 +9,13 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import { calculateTargetSize } from '../../utils/layout';
 import { CHAR_HEIGHT } from '../../constants';
 import type { CellMetrics } from '../../utils/cellMetrics';
+import {
+  PHONE_COLS,
+  PHONE_ROWS,
+  phoneCell,
+  phoneMediaQuery,
+  rootFontPx,
+} from '../../utils/phoneLayout';
 
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
@@ -29,7 +36,15 @@ export interface MeasureFn {
 
 const RESIZE_DEBOUNCE_MS = 100;
 
-export function createSizeActor(measureFn: MeasureFn) {
+export interface SizeActorOptions {
+  /**
+   * Take the phone layout (or not) whatever the media query says — for a
+   * story, whose frame is not the viewport the query reads.
+   */
+  phoneLayout?: boolean;
+}
+
+export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions = {}) {
   return fromCallback<SizeActorEvent, SizeActorInput>(({ input, receive }) => {
     let containerObserver: ResizeObserver | null = null;
     // The app body (sidebar columns + pane grid). Its width is what the
@@ -47,22 +62,49 @@ export function createSizeActor(measureFn: MeasureFn) {
     // inherited property that changes the advance is part of the measurement.
     let measureHost: HTMLElement | undefined;
 
+    // The phone layout (utils/phoneLayout.ts): the cell is whatever fits 80
+    // columns across the container, and the window asked for is fixed.
+    const query = options.phoneLayout === undefined ? phoneMediaQuery() : null;
+    let phone = options.phoneLayout ?? query?.matches ?? false;
+    input.parent.send({ type: 'SET_PHONE_LAYOUT', phone });
+
     // Measure the cell and send immediately. The snapped width is the grid's
     // charWidth; the gap is the letter-spacing that makes text advance by it.
+    // On a phone the measurement is the root font's (the container carries the
+    // shrunken one), read as an advance per pixel of font size.
+    const measure = () => measureFn(phone ? undefined : measureHost);
     let metrics = measureFn();
+    let sentCell = '';
     const sendCharSize = () => {
-      input.parent.send({
-        type: 'SET_CHAR_SIZE',
-        charWidth: metrics.cellWidth,
-        charHeight: CHAR_HEIGHT,
-        cellGap: metrics.cellGap,
-      });
+      const cell =
+        phone && containerWidth
+          ? phoneCell(containerWidth, metrics.advance / rootFontPx(), window.devicePixelRatio || 1)
+          : null;
+      const event = cell
+        ? {
+            type: 'SET_CHAR_SIZE' as const,
+            charWidth: cell.cellWidth,
+            charHeight: cell.rowHeight,
+            cellGap: cell.cellGap,
+            gridFontSize: cell.fontSize,
+          }
+        : {
+            type: 'SET_CHAR_SIZE' as const,
+            charWidth: metrics.cellWidth,
+            charHeight: CHAR_HEIGHT,
+            cellGap: metrics.cellGap,
+          };
+      const key = JSON.stringify(event);
+      if (key === sentCell) return;
+      sentCell = key;
+      input.parent.send(event);
     };
+
     sendCharSize();
 
     // Re-measure; only propagate (and re-derive cols/rows) when the cell changed.
     const remeasure = () => {
-      const next = measureFn(measureHost);
+      const next = measure();
       if (next.cellWidth === metrics.cellWidth && next.cellGap === metrics.cellGap) return;
       metrics = next;
       sendCharSize();
@@ -76,11 +118,9 @@ export function createSizeActor(measureFn: MeasureFn) {
 
     // Calculate and send target size using container dimensions if available
     const updateTargetSize = () => {
-      const { cols, rows } = calculateTargetSize(
-        metrics.cellWidth,
-        containerWidth,
-        containerHeight,
-      );
+      const { cols, rows } = phone
+        ? { cols: PHONE_COLS, rows: PHONE_ROWS }
+        : calculateTargetSize(metrics.cellWidth, containerWidth, containerHeight);
       if (cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
         lastRows = rows;
@@ -97,6 +137,17 @@ export function createSizeActor(measureFn: MeasureFn) {
     };
     window.addEventListener('resize', handleResize);
 
+    const handlePhoneChange = (e: MediaQueryListEvent) => {
+      phone = e.matches;
+      input.parent.send({ type: 'SET_PHONE_LAYOUT', phone });
+      metrics = measure();
+      sendCharSize();
+      lastCols = 0;
+      lastRows = 0;
+      updateTargetSize();
+    };
+    query?.addEventListener('change', handlePhoneChange);
+
     receive((event) => {
       if (event.type === 'OBSERVE_CONTAINER') {
         measureHost = event.element;
@@ -112,7 +163,9 @@ export function createSizeActor(measureFn: MeasureFn) {
               width: containerWidth,
               height: containerHeight,
             });
-            // Recalculate target size when container resizes
+            // Recalculate target size when container resizes; on a phone the
+            // width is what the cell is cut from.
+            if (phone) sendCharSize();
             updateTargetSize();
           }
         });
@@ -141,6 +194,7 @@ export function createSizeActor(measureFn: MeasureFn) {
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      query?.removeEventListener('change', handlePhoneChange);
       if (resizeTimeout) clearTimeout(resizeTimeout);
       containerObserver?.disconnect();
       bodyObserver?.disconnect();

@@ -3139,3 +3139,46 @@
 .inline-rename::selection {
   background: color-mix(in srgb, var(--term-white) 35%, transparent);
 }
+
+/* ============================================
+   Phone layout (utils/phoneLayout.ts)
+   ============================================ */
+
+/* Top to bottom: the terminal, the key row, the tree. The terminal and the
+   key row keep their place; the tree takes what is left and is the part that
+   gives when the phone's keyboard comes up. */
+.app-body-phone {
+  flex-direction: column;
+}
+
+/* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows
+   of grid, then tmux's status line as the 25th. */
+.phone-pty {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.app-body-phone .phone-pty .pane-container {
+  flex: none;
+  height: calc(24 * var(--line-height-terminal) + 4px);
+}
+
+.phone-pty .tmux-status-bar {
+  flex: none;
+  width: auto;
+  height: var(--line-height-terminal);
+  margin: 0 12px;
+}
+
+.phone-pty .tmux-status-bar-content,
+.phone-pty .tmux-command-input-wrapper {
+  padding: 0;
+}
+
+.phone-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+}

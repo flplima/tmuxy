@@ -62,6 +62,11 @@ export interface AppConfig {
    * desktop — for a story that drives it with the shell's own events.
    */
   desktopGestures?: boolean;
+  /**
+   * Take the phone layout (or not) whatever the window's media query says —
+   * for a story, whose frame is not the viewport the query reads.
+   */
+  phoneLayout?: boolean;
 }
 
 const AppConfigContext = createContext<AppConfig>({});
@@ -92,6 +97,8 @@ export {
   selectSidebarCellMetrics,
   selectKeyboardElsewhere,
   selectCellMetrics,
+  selectPhoneLayout,
+  selectGridType,
   selectPaneGroupForPane,
   selectPaneGroupPanes,
   getActivePaneInGroup,
@@ -168,7 +175,7 @@ export function AppProvider({
       // build keeps the machine's no-op actor and the browser its own
       // wheel, pinch-zoom and history swipe.
       ...((config?.desktopGestures ?? isTauri()) ? { gestureActor: createGestureActor() } : {}),
-      sizeActor: createSizeActor(measureCellMetrics),
+      sizeActor: createSizeActor(measureCellMetrics, { phoneLayout: config?.phoneLayout }),
       serversActor: createServersActor(runtime),
     };
   }, []);

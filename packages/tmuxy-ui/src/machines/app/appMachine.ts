@@ -82,6 +82,7 @@ import type { GestureActorEvent } from '../actors/gestureActor';
 import type { ServersActorEvent } from '../actors/serversActor';
 import { type PaneId, isPlaceholderId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
+import { PHONE_COLS, PHONE_ROWS } from '../../utils/phoneLayout';
 
 /**
  * Whether the server geometry has caught up to the optimistic resize preview:
@@ -350,7 +351,11 @@ export const appMachine = setup({
         charWidth: event.charWidth,
         charHeight: event.charHeight,
         cellGap: event.cellGap,
+        gridFontSize: event.gridFontSize ?? null,
       })),
+    },
+    SET_PHONE_LAYOUT: {
+      actions: assign(({ event }) => ({ phoneLayout: event.phone })),
     },
     SET_TARGET_SIZE: {
       actions: enqueueActions(({ event, context, enqueue }) => {
@@ -358,10 +363,14 @@ export const appMachine = setup({
         // the grid was sized for where the slide ends when it started (see
         // beginSidebarMotion), so the in-between sizes are noise.
         if (context.sidebarMotion && !event.force) return;
+        // A phone asks for the classic window whatever its screen measures,
+        // and shrinks the cell instead (utils/phoneLayout.ts).
+        const cols = context.phoneLayout ? PHONE_COLS : event.cols;
+        const rows = context.phoneLayout ? PHONE_ROWS : event.rows;
         enqueue(
           assign({
-            targetCols: event.cols,
-            targetRows: event.rows,
+            targetCols: cols,
+            targetRows: rows,
           }),
         );
         // The dock's own row count follows the viewport and the font.
@@ -374,8 +383,8 @@ export const appMachine = setup({
           enqueue(
             sendTo('tmux', {
               type: 'FETCH_INITIAL_STATE' as const,
-              cols: event.cols,
-              rows: event.rows,
+              cols,
+              rows,
             }),
           );
         }
@@ -390,13 +399,13 @@ export const appMachine = setup({
           !context.readOnly &&
           context.connected &&
           grid.cols > 0 &&
-          (event.cols !== grid.cols || event.rows !== grid.rows);
+          (cols !== grid.cols || rows !== grid.rows);
         if (shouldResize) {
           enqueue(
             sendTo('tmux', {
               type: 'INVOKE' as const,
               cmd: 'set_client_size',
-              args: { cols: event.cols, rows: event.rows },
+              args: { cols, rows },
             }),
           );
         }

@@ -1,12 +1,14 @@
 /**
  * Phone width, finger only
  *
- * The smallest viewport any test opens is 800x600 and no browser context in
- * the suite has ever had `hasTouch` set — so on a real phone three things run
- * completely uncovered: the hidden input that IS the virtual keyboard
- * (utils/mobileKeyboard.ts, whose `focusMobileInput` returns immediately
- * unless `navigator.maxTouchPoints > 0`), the swipe that opens the scroll
- * view, and a tab strip that has to fit in 400 CSS pixels.
+ * The smallest viewport any other test opens is 800x600 and no other browser
+ * context in the suite has `hasTouch` set — so on a real phone these run
+ * nowhere else: the phone layout (utils/phoneLayout.ts — the whole 80 × 25
+ * terminal, the key row and the tree under it), the hidden input that IS the
+ * virtual keyboard (utils/mobileKeyboard.ts, whose `focusMobileInput`
+ * returns immediately unless `navigator.maxTouchPoints > 0`), the key row's
+ * latching ctrl, the swipe that opens the scroll view, and the tree standing
+ * in for the tab strip.
  *
  * At this width the interesting failures are geometric: something overflows
  * the screen, or is drawn where no finger can reach it. Every assertion here
@@ -21,13 +23,11 @@ const {
   waitForCopyMode,
   getCopyModeState,
   createWindowKeyboard,
-  waitForWindowCount,
   waitForCondition,
   delay,
-  DELAYS,
 } = require('./helpers');
 
-const PHONE = { width: 400, height: 780 };
+const PHONE = { width: 390, height: 844 };
 
 /** Swipe one finger from `fromY` to `toY`, the way a thumb moves. */
 async function swipe(page, x, fromY, toY, steps = 12) {
@@ -72,7 +72,7 @@ function expectOnScreen(box, label, width = PHONE.width, diag = {}) {
   if (!(box.right <= width + 1)) fail(`runs past the right edge (${box.right} > ${width})`);
 }
 
-describe('Phone width (400px) with a touchscreen', () => {
+describe('Phone width (390px) with a touchscreen', () => {
   const ctx = createOwnBrowserContext({
     label: 'a touch-enabled Chromium context',
     // Chromium is the browser the whole suite already needs; a missing one is
@@ -91,7 +91,7 @@ describe('Phone width (400px) with a touchscreen', () => {
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('tap opens the keyboard, a swipe opens history, and the tabs are reachable', async () => {
+  test('the whole 80 × 25 terminal over the keys and the tree; tap opens the keyboard, ctrl latches, a swipe opens history, the tree switches tabs', async () => {
     if (ctx.skipIfUnavailable()) return;
     await ctx.setupPage();
 
@@ -115,6 +115,10 @@ describe('Phone width (400px) with a touchscreen', () => {
           fontsLoaded: document.fonts.status === 'loaded',
           pane: box(document.querySelector('.pane-active [role="log"]')),
           tabs: box(document.querySelector('.tab-list')),
+          container: box(document.querySelector('.phone-pty .pane-container')),
+          status: box(document.querySelector('.phone-pty .tmux-status-bar')),
+          keys: box(document.querySelector('.key-row')),
+          tree: box(document.querySelector('.phone-tree')),
           // What the grid was sized from, for a failure to be readable: the
           // client's target against what tmux actually reports, and the panes
           // it reports it for.
@@ -125,6 +129,7 @@ describe('Phone width (400px) with a touchscreen', () => {
             targetCols: ctx.targetCols,
             totalHeight: ctx.totalHeight,
             targetRows: ctx.targetRows,
+            phoneLayout: ctx.phoneLayout ?? null,
             readOnly: ctx.readOnly ?? null,
             sidebarMotion: ctx.sidebarMotion ?? null,
             leftSidebar: ctx.leftSidebarOpen ?? null,
@@ -149,7 +154,8 @@ describe('Phone width (400px) with a touchscreen', () => {
       l.fontsLoaded &&
       // The cell has stopped changing size: two samples agree.
       previous?.grid?.charWidth === l.grid.charWidth &&
-      l.grid.totalWidth === l.grid.targetCols &&
+      l.grid.totalWidth === 80 &&
+      l.grid.targetCols === 80 &&
       l.pane.right <= PHONE.width + 1 &&
       l.docScrollWidth <= PHONE.width + 1;
     const layoutDeadline = Date.now() + 20000;
@@ -160,7 +166,22 @@ describe('Phone width (400px) with a touchscreen', () => {
     }
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);
     expectOnScreen(layout.pane, 'the terminal', PHONE.width, { grid: layout.grid });
-    expectOnScreen(layout.tabs, 'the tab strip', PHONE.width, { grid: layout.grid });
+    // The phone layout: no tab strip; 80 columns span the screen, less the
+    // container's margins and what the cell's device-pixel floor leaves over.
+    expect(layout.grid.phoneLayout).toBe(true);
+    expect(layout.tabs).toBeNull();
+    const span = 80 * layout.grid.charWidth;
+    expect(span).toBeLessThanOrEqual(layout.grid.containerWidth);
+    expect(span).toBeGreaterThan(layout.grid.containerWidth - 80 / 2);
+    // Top to bottom: the grid, tmux's line as its 25th row, the keys, the tree.
+    expectOnScreen(layout.status, 'the status line');
+    expectOnScreen(layout.keys, 'the key row');
+    expectOnScreen(layout.tree, 'the tree');
+    expect(layout.status.top).toBeGreaterThanOrEqual(
+      layout.container.top + layout.container.height - 1,
+    );
+    expect(layout.keys.top).toBeGreaterThanOrEqual(layout.status.top + layout.status.height - 1);
+    expect(layout.tree.top).toBeGreaterThanOrEqual(layout.keys.top + layout.keys.height - 1);
     // A terminal squeezed to nothing is "on screen" too; it has to be usable.
     expect(layout.pane.height).toBeGreaterThan(200);
 
@@ -185,6 +206,48 @@ describe('Phone width (400px) with a touchscreen', () => {
     await typeOnVirtualKeyboard(ctx.page, 'echo TOUCH_KBD_OK');
     await ctx.page.keyboard.press('Enter');
     await waitForTerminalText(ctx.page, 'TOUCH_KBD_OK', 20000);
+
+    // The key row's ctrl latches for the next key typed on the phone's own
+    // keyboard: ctrl, then c, interrupts a running sleep — the echo after it
+    // runs at once instead of in a minute.
+    await typeOnVirtualKeyboard(ctx.page, 'sleep 60');
+    await ctx.page.keyboard.press('Enter');
+    const keyRowKey = async (label) =>
+      ctx.page.evaluate((l) => {
+        const r = document.querySelector(`[data-key-row="${l}"]`).getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, label);
+    const ctrlKey = await keyRowKey('ctrl');
+    await ctx.page.touchscreen.tap(ctrlKey.x, ctrlKey.y);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(
+          () =>
+            document.querySelector('[data-key-row="ctrl"]').getAttribute('aria-pressed') === 'true',
+        ),
+      5000,
+      'ctrl to latch',
+    );
+    // The keyboard stays up: the key row never takes the focus.
+    expect(await ctx.page.evaluate(() => document.activeElement?.tagName)).toBe('INPUT');
+    await typeOnVirtualKeyboard(ctx.page, 'c');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(
+          () =>
+            document.querySelector('[data-key-row="ctrl"]').getAttribute('aria-pressed') ===
+            'false',
+        ),
+      5000,
+      'ctrl to let go after one key',
+    );
+    // ⏎ from the key row runs the line.
+    await typeOnVirtualKeyboard(ctx.page, 'echo CTRL_C_OK');
+    const enterKey = await keyRowKey('⏎');
+    await ctx.page.touchscreen.tap(enterKey.x, enterKey.y);
+    await waitForTerminalText(ctx.page, 'CTRL_C_OK', 15000, { notOnLineWith: 'echo CTRL' });
 
     // Tapping the same pane again puts the keyboard away, which is the only
     // way to get the screen back on a phone.
@@ -258,19 +321,25 @@ describe('Phone width (400px) with a touchscreen', () => {
     await waitForCopyMode(ctx.page, false, 15000);
     expect(await getCopyModeState(ctx.page)).toBeNull();
 
-    // 4. The tab strip. Two tabs in 400px is where a strip overflows or the
-    //    tap lands on the wrong one. The second window is setup; switching
-    //    back to the first with a finger is the feature.
+    // 4. The tree stands in for the tab strip. The second window is setup;
+    //    switching back to the first with a finger is the feature.
     await createWindowKeyboard(ctx.page);
-    await waitForWindowCount(ctx.page, 2, 15000);
-    await delay(DELAYS.SYNC);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const rows = document.querySelectorAll('.phone-tree .sidebar-tree-tab');
+          return rows.length === 2 && rows[1].classList.contains('is-active');
+        }),
+      15000,
+      'the new tab to show in the tree, current',
+    );
 
     const tabs = await ctx.page.evaluate(() =>
-      [...document.querySelectorAll('.tab-name:not(.tab-add)')].map((el) => {
+      [...document.querySelectorAll('.phone-tree .sidebar-tree-tab')].map((el) => {
         const r = el.getBoundingClientRect();
         return {
-          id: el.getAttribute('data-window-id'),
-          active: el.classList.contains('tab-name-active'),
+          active: el.classList.contains('is-active'),
           left: r.left,
           right: r.right,
           top: r.top,
@@ -280,11 +349,10 @@ describe('Phone width (400px) with a touchscreen', () => {
       }),
     );
     expect(tabs.length).toBe(2);
-    for (const tab of tabs) {
-      expectOnScreen(tab, `tab ${tab.id}`);
+    for (const [i, tab] of tabs.entries()) {
+      expectOnScreen(tab, `tree row ${i + 1}`);
       // A tap target below this is not reachable with a thumb.
-      expect({ id: tab.id, tall: tab.height >= 20 }).toEqual({ id: tab.id, tall: true });
-      expect({ id: tab.id, wide: tab.width >= 40 }).toEqual({ id: tab.id, wide: true });
+      expect({ i, tall: tab.height >= 18 }).toEqual({ i, tall: true });
     }
     expect(tabs[1].active).toBe(true);
 
@@ -295,14 +363,11 @@ describe('Phone width (400px) with a touchscreen', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate((id) => {
-          const el = [...document.querySelectorAll('.tab-name')].find(
-            (t) => t.getAttribute('data-window-id') === id,
-          );
-          return !!el && el.classList.contains('tab-name-active');
-        }, tabs[0].id),
+        ctx.page.evaluate(() =>
+          document.querySelector('.phone-tree .sidebar-tree-tab')?.classList.contains('is-active'),
+        ),
       15000,
-      'tapping the first tab to switch back to it',
+      'tapping the first tab in the tree to switch back to it',
     );
 
     // The window it switched to is the one that ran the commands, still
