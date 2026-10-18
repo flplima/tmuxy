@@ -387,11 +387,19 @@ class TmuxTestSession {
    * history entry), which the whole-screen text cannot tell apart from the
    * same words printed earlier. The whole row, trailing blanks dropped: the
    * cursor's column is in cells, which a wide glyph makes no string index.
+   *
+   * `upToCursor` cuts the row at the cursor, for a line of narrow text: a
+   * shell with autosuggestions draws a whole past command after the cursor,
+   * so the row's end is not where the input ends.
    */
-  async waitForCursorLine(pattern, timeout = 10000) {
+  async waitForCursorLine(pattern, timeout = 10000, { upToCursor = false } = {}) {
     const line = () => {
-      const y = tmuxExec(`display-message -t ${this.name} -p "#{cursor_y}"`).trim();
-      return tmuxExec(`capture-pane -p -t ${this.name} -S ${y} -E ${y}`).replace(/\s+$/, '');
+      const [x, y] = tmuxExec(`display-message -t ${this.name} -p "#{cursor_x} #{cursor_y}"`)
+        .trim()
+        .split(' ');
+      const row = tmuxExec(`capture-pane -p -t ${this.name} -S ${y} -E ${y}`).replace(/\n$/, '');
+      const text = upToCursor ? Array.from(row).slice(0, Number(x)).join('') : row;
+      return text.replace(/\s+$/, '');
     };
     await waitForCondition(
       this.page,

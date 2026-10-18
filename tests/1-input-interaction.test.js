@@ -289,10 +289,11 @@ describe('Scenario 2: Keyboard Basics', () => {
     await waitForTerminalText(ctx.page, 'hello');
 
     // Step 3: Tab completion — the rest of the line is typed once the shell
-    // has completed the word, which is what it would otherwise race.
+    // has completed the word, which is what it would otherwise race. Read up
+    // to the cursor: an autosuggesting shell draws a past command after it.
     await typeInTerminal(ctx.page, 'ech');
     await ctx.page.keyboard.press('Tab');
-    await ctx.session.waitForCursorLine(/echo$/);
+    await ctx.session.waitForCursorLine(/echo$/, 10000, { upToCursor: true });
     await typeInTerminal(ctx.page, ' tab_complete_test');
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, 'tab_complete_test');
