@@ -1452,10 +1452,13 @@ export const SendSpecialKeys: Story = {
 };
 
 /**
- * Sync panes: C-a `S` toggles `synchronize-panes` in real tmux — typed input then
- * mirrors into every pane of the window. We paste a sentinel with sync ON (must
- * render in BOTH panes) and another after toggling OFF (must render in exactly
- * one) — the negative half guards against a stuck toggle.
+ * Sync panes: `synchronize-panes` in real tmux — typed input then mirrors into
+ * every pane of the window. Set through the CLI (no key is bound to it), and
+ * by value rather than toggled: the command that turns it off is itself
+ * mirrored into every pane, and a toggle run twice would leave it on. We paste
+ * a sentinel with sync ON (must render in BOTH panes) and another after
+ * turning it OFF (must render in exactly one) — the negative half guards
+ * against a stuck setting.
  */
 export const SyncPanes: Story = {
   play: async ({ canvasElement }) => {
@@ -1464,14 +1467,26 @@ export const SyncPanes: Story = {
     await focusFirstPane(canvas, user);
     const inPanes = (re: RegExp) =>
       paneGroups(canvas).filter((p: HTMLElement) => re.test(p.textContent ?? '')).length;
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('{Shift>}S{/Shift}');
-    await new Promise((r) => setTimeout(r, 1200));
+    // Set, then wait for the echo chained after it: it prints only once tmux
+    // has applied the setting, and the typed line carries the marker too, so
+    // the output is its second occurrence. A sentinel typed before the setting
+    // lands would reach one pane and read as sync not working.
+    const set = async (value: 'on' | 'off', marker: string) => {
+      pasteLine(`tmuxy run setw synchronize-panes ${value} && echo ${marker}`);
+      await waitFor(
+        () =>
+          expect(
+            paneGroups(canvas).some(
+              (p: HTMLElement) => (p.textContent ?? '').split(marker).length - 1 >= 2,
+            ),
+          ).toBe(true),
+        { timeout: 30000, interval: 500 },
+      );
+    };
+    await set('on', 'SYNC_SET_42');
     pasteLine('echo SYNC_ON_42');
     await waitFor(() => expect(inPanes(/SYNC_ON_42/)).toBe(2), { timeout: 30000, interval: 500 });
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('{Shift>}S{/Shift}');
-    await new Promise((r) => setTimeout(r, 1200));
+    await set('off', 'SYNC_UNSET_42');
     pasteLine('echo SYNC_OFF_42');
     await waitFor(() => expect(inPanes(/SYNC_OFF_42/)).toBe(1), { timeout: 30000, interval: 500 });
     // Give the mirror a beat, then confirm it STAYED in one pane (not just raced).
