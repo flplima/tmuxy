@@ -1,4 +1,4 @@
-const { spawn, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -155,52 +155,4 @@ function runCLIFull(args, opts = {}) {
   };
 }
 
-/**
- * Run several CLI invocations at once and wait for all of them.
- *
- * Exists for the inter-agent queue's lock: serialized runs prove nothing about a
- * mutex, so the concurrency test has to have the processes genuinely overlap.
- * tmux calls are not collected — the contention, not the argv, is the point.
- *
- * @param {string[][]} argvList - One argument array per invocation
- * @param {object} [opts] - Options
- * @param {Record<string, string>} [opts.env] - Extra environment variables
- * @returns {Promise<number[]>} Exit code of each invocation, in order
- */
-function runCLIConcurrent(argvList, opts = {}) {
-  const logFile = path.join(
-    os.tmpdir(),
-    `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  const env = buildEnv(logFile, opts);
-
-  return Promise.all(
-    argvList.map(
-      (args) =>
-        new Promise((resolve) => {
-          const child = spawn(CLI_PATH, args, { env, stdio: 'ignore' });
-          child.on('close', (code) => resolve(code ?? 1));
-        }),
-    ),
-  ).finally(() => {
-    try {
-      fs.unlinkSync(logFile);
-    } catch {
-      /* ignore */
-    }
-  });
-}
-
-/**
- * A pid that certainly existed and has certainly exited.
- *
- * For the stale-lock test: reusing a plausible-looking number risks naming a
- * live process, which is the opposite of what that test needs to set up.
- *
- * @returns {number} The pid of a process that has already been reaped
- */
-function reapedPid() {
-  return spawnSync('sh', ['-c', 'exit 0']).pid;
-}
-
-module.exports = { runCLI: runCLIFull, runCLIConcurrent, reapedPid };
+module.exports = { runCLI: runCLIFull };

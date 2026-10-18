@@ -1587,7 +1587,7 @@ fn reports_failure(command: &str) -> bool {
 /// event; without settling, the frontend renders the intermediate split before
 /// the script lands on the final group layout. Matching by script name (not by
 /// "run-shell" alone) avoids false positives on harmless one-shot scripts like
-/// queue-push or list-* helpers.
+/// reap-orphan-shells or list-* helpers.
 fn is_multi_step_run_shell(command: &str) -> bool {
     if !command.contains("run-shell") {
         return false;
@@ -2138,7 +2138,7 @@ mod tests {
         // Plain run-shell to one-shot helpers shouldn't arm settling.
         assert!(!is_multi_step_run_shell("run-shell \"echo hello\""));
         assert!(!is_multi_step_run_shell(
-            "run-shell \"tmuxy/bin/tmuxy/queue-push foo\""
+            "run-shell \"tmuxy/bin/tmuxy/reap-orphan-shells\""
         ));
         // Non-run-shell commands never arm.
         assert!(!is_multi_step_run_shell("splitw -h"));

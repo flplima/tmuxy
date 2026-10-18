@@ -259,26 +259,6 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../bin/tmuxy/agent-hook"),
     ),
     (
-        "tmuxy/queue-push",
-        include_str!("../../../bin/tmuxy/queue-push"),
-    ),
-    (
-        "tmuxy/queue-pop",
-        include_str!("../../../bin/tmuxy/queue-pop"),
-    ),
-    (
-        "tmuxy/queue-peek",
-        include_str!("../../../bin/tmuxy/queue-peek"),
-    ),
-    (
-        "tmuxy/queue-list",
-        include_str!("../../../bin/tmuxy/queue-list"),
-    ),
-    (
-        "tmuxy/queue-clear",
-        include_str!("../../../bin/tmuxy/queue-clear"),
-    ),
-    (
         "tmuxy/float-create",
         include_str!("../../../bin/tmuxy/float-create"),
     ),

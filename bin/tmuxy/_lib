@@ -161,55 +161,11 @@ find_group_cmd() {
 # --- Cross-process mutex ---------------------------------------------------
 #
 # `mkdir` is the lock primitive because it is atomic on every POSIX filesystem
-# and is always present. `flock` is not: macOS ships none at all, so the event
-# queue — the one thing here that needs a lock — failed with "command not
-# found" on every Mac, taking `tmuxy event emit/wait` down with it.
+# and is always present (`flock` is absent on macOS).
 #
 # BusyBox's sleep (the v86 guest) may not accept a fraction, so the nap falls
 # back to a whole second rather than failing under `set -e`.
 _lock_nap() { sleep 0.05 2>/dev/null || sleep 1; }
-
-# The directory a named queue lives in, validated.
-#
-# Both the name and the socket end up as PATH SEGMENTS, and the name reaches
-# here from whatever asked for the queue — an agent passing an untrusted string
-# is the realistic route. `tmuxy queue clear ../../../foo` ended in
-# `rm -rf /tmp/foo`.
-#
-# The root is also per-user rather than a world-readable `/tmp/tmuxy-queues`
-# that another local account could pre-create (and then read, or plant messages
-# in, or point somewhere else with a symlink before `mkdir -p` got there).
-# Mode 0700, created before anything is written into it.
-# Args: $1=queue name
-queue_dir() {
-  local name="$1" base
-  base="$(queue_base)" || return 2
-  case "$name" in
-    "" | *[!A-Za-z0-9._-]* | .* )
-      echo "tmuxy queue: invalid queue name '$name'" >&2
-      echo "tmuxy queue: names may use letters, digits, '.', '_' and '-'" >&2
-      return 2
-      ;;
-  esac
-  printf '%s/%s' "$base" "$name"
-}
-
-# The per-socket directory every queue of this socket lives under.
-queue_base() {
-  local socket="${TMUX_SOCKET:-tmuxy}" root
-
-  case "$socket" in
-    "" | *[!A-Za-z0-9._-]* | .* )
-      echo "tmuxy queue: invalid socket name '$socket'" >&2
-      return 2
-      ;;
-  esac
-
-  root="${XDG_RUNTIME_DIR:-/tmp}/tmuxy-queues-$(id -u)"
-  mkdir -p "$root" 2>/dev/null || true
-  chmod 0700 "$root" 2>/dev/null || true
-  printf '%s/%s' "$root" "$socket"
-}
 
 # Take the lock for a directory, blocking until it is free.
 # Args: $1=directory to lock within

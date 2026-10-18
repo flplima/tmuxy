@@ -49,8 +49,6 @@ tmuxy open <file|url|host>      # show an HTML file, a site, a .md file or an im
 tmuxy widget browser <file|url> # the same, spelled out
 tmuxy browser [url]             # a real browser drawn in the pane; `:` verbs drive it (see below)
 tmuxy browser --attach[=ENDPOINT] # the same, on a browser already running (your own profile)
-tmuxy queue push <name> <msg|-> # push to a named queue (alias: send; `tmuxy q` = `tmuxy queue`)
-tmuxy queue pop <name>          # block and pop oldest message (also: peek, list, clear)
 tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
 tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
 ```

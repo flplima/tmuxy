@@ -361,8 +361,6 @@ tmuxy open <file|url|host>      # show an HTML file, a site, a .md file or an im
 tmuxy widget browser <file|url> # the same, spelled out
 tmuxy browser [url]             # a real browser drawn in the pane; `:` verbs drive it (see below)
 tmuxy browser --attach[=ENDPOINT] # the same, on a browser already running (your own profile)
-tmuxy queue push <name> <msg|-> # push to a named queue (alias: send; `tmuxy q` = `tmuxy queue`)
-tmuxy queue pop <name>          # block and pop oldest message (also: peek, list, clear)
 tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
 tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
 ```
@@ -417,7 +415,6 @@ Commands:
   nav         Navigate across groups, splits, and tabs
   open        Show a page, file or image in a browser pane (alias of widget browser)
   widget      Display widgets (browser, tree, session)
-  queue, q    Inter-agent coordination queue (push/send, pop, peek, list, clear)
   tree        Browse tabs and panes as a tree in this terminal
   run         Run any tmux command safely
   browser     Turn this pane into a browser: a real engine, drawn in the pane
@@ -598,28 +595,6 @@ Examples:
   tmuxy connect default              # attach to your everyday tmux server
   tmuxy connect default work         # ...to its "work" session specifically
   tmuxy connect /tmp/tmux-1000/foo   # attach to a socket by full path
-EOF
-}
-
-usage_queue() {
-  cat <<'EOF'
-Usage: tmuxy queue <command> [args...] (alias: tmuxy q)
-
-Commands:
-  push <name> <msg|->   Push a message to queue (alias: send, use - for stdin)
-  pop <name> [opts]     Pop oldest message from queue (--nowait, --timeout <sec>)
-  peek <name>           Inspect next message without consuming
-  list [--json]         Show pending queues and message counts
-  clear <name>          Drain queue and remove messages
-
-Examples:
-  tmuxy queue push build_done '{"sha":"abc123"}'
-  echo "payload" | tmuxy queue push deploy_request -
-  data=$(tmuxy queue pop deploy_request)
-  data=$(tmuxy queue pop deploy_request --timeout 10)
-  tmuxy queue peek deploy_request
-  tmuxy queue list --json
-  tmuxy queue clear build_done
 EOF
 }
 
@@ -1261,64 +1236,6 @@ cmd_nav() {
   esac
 }
 
-# --- Queue subcommands ---
-
-cmd_queue() {
-  local sub="${1:-}"
-  shift 2>/dev/null || true
-
-  case "$sub" in
-    push|send)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy queue push <name> <message|->"; return ;;
-        "") echo "Error: queue name required" >&2; return 1 ;;
-      esac
-      exec bash "$SCRIPTS_DIR/queue-push" "$@"
-      ;;
-
-    pop)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy queue pop <name> [--timeout <sec>] [--nowait]"; return ;;
-        "") echo "Error: queue name required" >&2; return 1 ;;
-      esac
-      exec bash "$SCRIPTS_DIR/queue-pop" "$@"
-      ;;
-
-    peek)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy queue peek <name>"; return ;;
-        "") echo "Error: queue name required" >&2; return 1 ;;
-      esac
-      exec bash "$SCRIPTS_DIR/queue-peek" "$@"
-      ;;
-
-    list)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy queue list [--json]"; return ;;
-      esac
-      exec bash "$SCRIPTS_DIR/queue-list" "$@"
-      ;;
-
-    clear)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy queue clear <name>"; return ;;
-        "") echo "Error: queue name required" >&2; return 1 ;;
-      esac
-      exec bash "$SCRIPTS_DIR/queue-clear" "$@"
-      ;;
-
-    --help|-h|"")
-      usage_queue
-      ;;
-
-    *)
-      echo "Unknown queue command: $sub" >&2
-      usage_queue >&2
-      return 1
-      ;;
-  esac
-}
-
 # --- Opening something in a browser pane ---
 
 # `tmuxy open` / `tmuxy widget browser`: a website goes to the real engine
@@ -1482,10 +1399,6 @@ OEOF
       "") echo "Error: file, url or host required" >&2; exit 1 ;;
       *) open_target "$@" ;;
     esac
-    ;;
-  queue|q)
-    shift
-    cmd_queue "$@"
     ;;
   tree)
     shift
