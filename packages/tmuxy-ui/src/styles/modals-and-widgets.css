@@ -1,0 +1,527 @@
+/* ============================================
+   Modal - Generic reusable modal
+   ============================================ */
+
+/* Full-screen overlay container */
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+}
+
+/* Semi-transparent backdrop (default: dim) */
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* Blur backdrop variant */
+.modal-backdrop-blur {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+}
+
+/* No backdrop variant (transparent, still captures clicks) */
+.modal-backdrop-none {
+  background: transparent;
+}
+
+/* Modal container - centered via JS positioning */
+.modal-container {
+  position: absolute;
+  background: var(--bg-black);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+/* Modal header */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 var(--spacing-lg);
+  background: var(--bg-elevated-alt);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Modal close button */
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.modal-close:hover {
+  background: var(--error-color);
+  color: var(--term-bright-white);
+}
+
+/* ============================================
+   Float Pane Overlay
+   ============================================ */
+
+/* Float modal container — green border + shadow on the outer modal-container
+   so overflow:hidden doesn't clip borders */
+.float-modal .modal-container {
+  border: 1px solid var(--accent-green);
+  box-shadow: var(--shadow-lg);
+  animation: float-appear 200ms ease-out both;
+}
+
+.float-container {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.float-content {
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg-black);
+  box-sizing: border-box;
+  /* The anchor for anything drawn over the float's body — today the `tmuxy
+     ask` overlay, which covers the terminal but not the float's header. */
+  position: relative;
+}
+
+@keyframes float-appear {
+  from {
+    opacity: 0;
+    transform: scaleY(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+/* ============================================
+   Drawer - Edge-docked float with slide animation
+   ============================================ */
+
+/* Drawer container: no border-radius on docked edge */
+.drawer .modal-container {
+  border-radius: 0;
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+.drawer-left .modal-container {
+  animation-name: slide-in-left;
+}
+
+.drawer-right .modal-container {
+  animation-name: slide-in-right;
+}
+
+.drawer-top .modal-container {
+  animation-name: slide-in-top;
+}
+
+.drawer-bottom .modal-container {
+  animation-name: slide-in-bottom;
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-top {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   Browser Widget
+   ============================================ */
+
+.widget-browser {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-black);
+}
+
+/* The widget is a column: the address bar, then the page. The bar keeps its
+   one row and the page takes the rest — `min-height: 0` because a flex child
+   refuses to shrink below its content otherwise, and an iframe's content is
+   whatever the page says. */
+.widget-browser-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+.widget-browser-shell > :not(.browser-nav) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The address bar. One row tall and no taller: the pane it sits in is usually
+   a third of a screen, and every row this takes is a row of page the user does
+   not get. Hence no separate toolbar, no labels, no padding to speak of — the
+   buttons are glyphs and the address is the whole width left over.
+
+   It wears the pane header's own ground and type size, so the two read as one
+   band of chrome above the page rather than as two strips in different
+   liveries. Height too: matching `--pane-header-height` is what keeps the
+   band looking like one thing.
+
+   The font is named rather than inherited: a `<button>` does not take the
+   page's font, and `inherit` on one lands on the UA's serif default — which
+   has no nerd glyphs at all, so the external-link icon came out a blank box. */
+.browser-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: var(--pane-header-height);
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border-medium);
+  background-color: color-mix(in srgb, var(--border-medium) 30%, transparent);
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
+}
+
+/* A live browser's bar (`tmuxy browser`) sits over the pane's top row, which
+   the pane program leaves for it: exactly one row tall, and opaque, since the
+   row underneath holds the program's header text. */
+.browser-live-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  background-color: var(--term-background);
+}
+
+.browser-live-bar .browser-nav {
+  height: var(--line-height-terminal);
+}
+
+.browser-nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.browser-nav-button:hover:not(:disabled) {
+  background: var(--bg-highlight-alt, color-mix(in srgb, var(--text-primary) 12%, transparent));
+  opacity: 1;
+}
+
+/* A toggle that is on (the REPL view) looks pressed. */
+.browser-nav-button[aria-pressed='true'] {
+  background: var(--bg-highlight-alt, color-mix(in srgb, var(--text-primary) 18%, transparent));
+  opacity: 1;
+}
+
+/* A step that goes nowhere is shown, not hidden: where you are in the pane's
+   history is part of what the bar says. */
+.browser-nav-button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* An icon button is the same box as the chevrons beside it — the glyph is
+   scaled inside it, never the button, or its 1.5em came out narrower than its
+   neighbours' and the row of buttons stopped lining up. A nerd glyph carries
+   more ink than a chevron, hence the smaller glyph. */
+.browser-nav-glyph {
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+/* The address takes every pixel the buttons leave. */
+.browser-nav-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.browser-nav-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.5em;
+  text-overflow: ellipsis;
+}
+
+.browser-nav-input:focus {
+  outline: 1px solid var(--theme-accent);
+  outline-offset: -1px;
+}
+
+.widget-browser-frame {
+  display: block;
+  border: 0;
+  /* A page with no styling of its own paints on this, the way it would in a
+     real browser window — the pane's dark background would leave the default
+     black body text unreadable. */
+  background: #fff;
+}
+
+/* The page area under the address bar, and the containing block for the
+   colour-filter sheet: the sheet recolours the page, never the chrome above
+   it. */
+.widget-browser-page {
+  position: relative;
+}
+
+/* The sheet `--color-filter` recolours a framed page through. Covers the
+   frame exactly and nothing else, and is inert to the pointer so the page
+   under it stays live. See TmuxyBrowser for why a framed page needs a
+   BACKDROP filter where an image makes do with a plain one. */
+.widget-browser-tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.widget-browser-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.widget-browser-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.widget-browser-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* The switcher, hosted by the detached overlay rather than by a float pane.
+   It needs a bounded box: the widget fills its container, and the overlay card
+   is sized by its content, so without this there is no height to fill. */
+.connection-overlay-detached .widget-session {
+  width: min(380px, 80vw);
+  max-height: min(320px, 50vh);
+  margin-top: var(--spacing-lg);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--term-background);
+  text-align: left;
+}
+
+/* ============================================
+   Session switcher (the `session` widget)
+   ============================================ */
+
+.widget-session {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: var(--spacing-lg) 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--term-foreground);
+}
+
+.widget-session-heading {
+  padding: 0 var(--spacing-2xl);
+  margin-bottom: var(--spacing-xs);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dimmed);
+}
+
+.widget-session-heading:not(:first-child) {
+  margin-top: var(--spacing-lg);
+}
+
+.widget-session-list {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+/* One row per session or server. The name leads; everything trailing it is
+   metadata and recedes, matching the sidebar tree's weighting. */
+.widget-session-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  height: var(--line-height-terminal);
+  padding: 0 var(--spacing-2xl);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.widget-session-row:hover {
+  background: var(--accent-blue-bg);
+}
+
+.widget-session-row.is-selected {
+  background: var(--accent-blue-bg-hover);
+}
+
+/* Where the client is attached now — the same green the tree uses for "you
+   are here", so the two surfaces agree. */
+.widget-session-row.is-current {
+  color: var(--accent-green);
+}
+
+.widget-session-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.widget-session-meta {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+}
+
+/* The verbs, pinned under the list. */
+.widget-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-lg);
+  margin-top: auto;
+  padding: var(--spacing-lg) var(--spacing-2xl) 0;
+  border-top: 1px solid var(--border-medium);
+  font-size: 0.85em;
+  color: var(--text-dimmed);
+}
+
+.widget-session-actions kbd {
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-medium);
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+/* The connect form: one field for [user@]host[:port], one for the socket.
+   Everything else — keys, ProxyJump, ports, 2FA — is ssh's job, read from
+   the user's own ~/.ssh/config. */
+.widget-session-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-2xl);
+}
+
+.widget-session-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs, 2px);
+}
+
+.widget-session-field label {
+  font-size: 0.85em;
+  color: var(--text-subtle);
+}
+
+.widget-session-field input {
+  padding: var(--spacing-xs);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-dark);
+  color: var(--term-foreground);
+  font: inherit;
+}
+
+.widget-session-field input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+}
+
+.widget-session-hint {
+  font-size: 0.85em;
+  color: var(--text-subtle);
+}
+
+.widget-session-error {
+  padding: 0 var(--spacing-2xl);
+  color: var(--error-color);
+  font-size: 0.85em;
+}

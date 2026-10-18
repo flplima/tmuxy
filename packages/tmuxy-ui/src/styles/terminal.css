@@ -1,0 +1,341 @@
+/* ============================================
+   Base / Reset
+   ============================================ */
+
+/* ============================================
+   App Container
+   ============================================ */
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  /* Flex items default to min-height:auto (their content height); without an
+     explicit 0 the app body can only ever grow past the window, never clip. */
+  min-height: 0;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The margins around the pane grid are this padding and nothing else: the
+   size actor observes the container's content box, so the grid is sized
+   for — and .pane-layout fills — exactly the area inside it. Mirrored as
+   CONTAINER_PADDING_X / _Y in constants/layout.ts. */
+.app-container .pane-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px 4px;
+}
+
+/* Pane States */
+.pane-active {
+  z-index: var(--z-active);
+}
+
+/* The marked pane (`select-pane -m`): an inset outline in the theme's mark
+   colour, drawn inside the box so adjacent panes' edges stay untouched. */
+.pane-layout-item.pane-marked {
+  outline: 1px solid var(--pane-marked-border);
+  outline-offset: -1px;
+}
+
+/* ...and the content itself takes a wash of the theme's accent (green by
+   default, gruvbox's yellow, and so on), so a marked pane is recognisable from
+   across the screen rather than by a 1px edge. A translucent overlay rather
+   than a `filter` on the content: a filter would make the pane a containing
+   block for everything inside it — the overlays that sit in `.pane-content`
+   (the `tmuxy ask` question, the scroll indicator) would be tinted too, and
+   the glyph grid would be re-rasterised on every frame of output. Kept faint
+   on purpose: it marks the pane, it does not take it over. */
+.pane-marked .pane-content::after,
+.pane-marked > .float-content::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--theme-accent);
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.sidebar-tree-mark {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: var(--pane-marked-border);
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.pane-content {
+  /* Horizontal padding: matches the pane extension into the tmux separator column.
+     Left/right are set independently per pane so the terminal content fills its exact width. */
+  padding: 0 var(--pane-h-padding-right, 0) 0 var(--pane-h-padding-left, 0);
+  flex: 1;
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* No border on pane-content — border is on the outer pane-layout-item */
+
+.pane-single {
+  background-color: transparent;
+}
+
+.pane-single .pane-content {
+  background-color: transparent;
+}
+
+.pane-wrapper {
+  touch-action: none;
+}
+
+.pane-wrapper:focus {
+  outline: none;
+}
+
+/* ============================================
+   Terminal
+   ============================================ */
+
+.terminal-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* Establish the cell metrics for everything positioned on the grid inside
+     this pane. The cursor overlay and image placements are siblings of
+     .terminal-content, not descendants, so they need the terminal font here
+     for the `1ch` fallback (outside the app, where --cell-w is unset) to land
+     on the same grid the rows are pinned to. */
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  /* Transparent — pane-layout-item supplies the bg so opacity stacks
+     correctly (active pane gets its own layer on top of pane-container;
+     inactive panes show through to the container). */
+  background-color: transparent;
+  user-select: none;
+}
+
+.terminal-images {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.terminal-image {
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+.terminal-content {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  color: var(--term-foreground);
+  text-shadow: var(--terminal-text-glow);
+  white-space: pre;
+  overflow: hidden;
+  user-select: none;
+  /* Snap the advance to the cell grid: --cell-gap is the letter-spacing that
+     pads the font's natural advance up to --cell-w, the whole-device-pixel cell
+     width every cell-addressed box is a multiple of (utils/cellMetrics.ts). */
+  letter-spacing: var(--cell-gap, 0px);
+  /* Keep each glyph's advance fixed across re-renders: no kerning or contextual
+     ligatures whose width could shift when neighbouring characters change. */
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
+}
+
+/* Terminal text the browser may select.
+   `.app-container` turns selection off everywhere so a drag on the UI chrome
+   can't smear a highlight across it; a terminal that is NOT a full-screen
+   application turns it back on for its own content, which is what makes
+   selecting output work the way it does in any other terminal. Panes running a
+   mouse-tracking application deliberately do not get this: there the drag
+   belongs to the application, and a selection would fight it. */
+.terminal-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.terminal-line {
+  height: var(--line-height-terminal);
+  line-height: inherit;
+  /* Flex ensures child spans stretch to full line height,
+     eliminating sub-pixel gaps between span backgrounds */
+  display: flex;
+  white-space: pre;
+  /* The row is its own stacking context, so a lifted wide glyph (below) rises
+     above its neighbours and nothing outside the row. */
+  isolation: isolate;
+}
+
+/* A wide glyph owns a 1-cell box and paints across the next cell too. Spans
+   paint in order, so without a lift the next cell's background covers the
+   glyph's right half — an emoji on an editor's cursor line came out cropped. */
+.terminal-line > .terminal-wide {
+  position: relative;
+  z-index: 1;
+}
+
+/* RowEdges: the pane's horizontal padding, painted row by row in the first /
+   last cell's background. Lives in .pane-content beside the scroll container
+   (which would clip anything the rows painted there themselves). */
+.terminal-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.terminal-edge {
+  position: absolute;
+  height: var(--line-height-terminal);
+}
+
+.terminal-edge-left {
+  left: 0;
+  width: var(--pane-h-padding-left, 0px);
+}
+
+.terminal-edge-right {
+  right: 0;
+  width: var(--pane-h-padding-right, 0px);
+}
+
+.terminal-line > span,
+.terminal-line > a {
+  line-height: inherit;
+  /* Each span is sized to an exact cell count (width: Nch set inline). Don't let
+     flex grow/shrink it, and min-width:0 stops a glyph wider than its cells from
+     expanding the box; overflow stays visible so the glyph paints over the
+     neighbouring (usually blank) cell rather than displacing the rest of the
+     line. Together this keeps text on a stable grid when characters change. */
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* A one-column symbol wider than its cell (utils/glyphFit.ts): scaled down
+   from the cell's left edge so it stays inside the box the grid gave it. The
+   box itself is untouched, so the run after it starts where tmux says. */
+.terminal-fit-glyph {
+  /* Shrunk through font-size, not transform: a transformed inline-block is a
+     compositing layer, and a layer inside a pane whose text opacity fades on
+     every focus change repaints visibly in WebKit. The line box keeps the
+     parent's line-height, so the smaller glyph stays on the row. */
+  font-size: calc(1em * var(--glyph-fit, 1));
+  line-height: inherit;
+  letter-spacing: 0;
+}
+
+.pane-scroll-container {
+  background-color: transparent;
+}
+
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+/* Terminal hyperlinks (OSC 8) */
+/* OSC 8 hyperlinks — the application declared these, so they are always live:
+   underlined at rest and opened by a plain click, no modifier. */
+.terminal-hyperlink {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color);
+  color: inherit;
+  cursor: pointer;
+}
+
+/* `terminal-link-hot` is set on every anchor of the hovered URL (a wrapped
+   link is one anchor per row; see utils/linkHover.ts). */
+.terminal-hyperlink:hover,
+.terminal-hyperlink.terminal-link-hot {
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
+}
+
+.terminal-hyperlink:active {
+  color: var(--link-active);
+}
+
+/* Auto-detected URLs (not OSC 8) — text that merely looks like a link. Inert
+   until the platform link modifier is held (Cmd on macOS, Ctrl elsewhere;
+   `link-modifier-held` is set on <body> by linkModifierActor): no underline,
+   and `pointer-events: none` so dragging a selection across one behaves
+   exactly like dragging across plain text. */
+.terminal-autolink {
+  text-decoration: none;
+  color: inherit;
+  cursor: inherit;
+  pointer-events: none;
+}
+
+.link-modifier-held .terminal-autolink {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.link-modifier-held .terminal-autolink:hover,
+.link-modifier-held .terminal-autolink.terminal-link-hot {
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
+}
+
+.link-modifier-held .terminal-autolink:active {
+  color: var(--link-active);
+}
+
+/* ============================================
+   Cursor
+   ============================================ */
+
+.terminal-cursor {
+  background-color: var(--cursor-bg);
+  color: var(--cursor-text);
+}
+
+.terminal-cursor-copy {
+  background-color: var(--cursor-copy-bg);
+  color: var(--term-black);
+}
+
+/* The browser's selection over terminal text wears the same colours as copy
+   mode's (--selection-bg / --selection-fg). */
+.terminal-selectable::selection,
+.terminal-selectable *::selection {
+  background-color: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+.terminal-cursor-underline {
+  background-color: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--cursor-bg);
+  text-decoration-thickness: 2px;
+}
+
+.terminal-cursor-bar {
+  background-color: transparent;
+  color: inherit;
+  border-left: 2px solid var(--cursor-bg);
+}

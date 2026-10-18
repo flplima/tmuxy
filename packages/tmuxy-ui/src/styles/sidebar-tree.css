@@ -1,0 +1,419 @@
+/* ---- Left column: the tab/pane tree widget ---- */
+.sidebar-tree {
+  /* The tree's rhythm: rows a little tighter than a terminal line, a pane's
+     second and third lines tighter still (they belong to the line above
+     them, not to the next pane), and a small gap between one pane and the
+     next and before each tab. */
+  --tree-row: calc(var(--line-height-terminal) * 0.85);
+  --tree-sub-line: calc(var(--line-height-terminal) * 0.7);
+  --tree-gap: 3px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-lg) 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-sidebar-font-size, calc(var(--tmuxy-font-size, 15px) * 0.8));
+  color: var(--term-foreground);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.sidebar-tree::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-tree::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-tree::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Every row keeps the same padding — a pane's depth is drawn by its connector
+   glyph, not by indentation, which would cost a third of a 30-column column. */
+.sidebar-tree-tab,
+.sidebar-tree-pane {
+  display: flex;
+  align-items: center;
+  height: var(--tree-row);
+  padding: 0 var(--spacing-2xl);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Tabs are the tree's headings, with a little room above every tab after the
+   first. Four steps of ink, and the tab decides the first three: an inactive
+   tab's row and every pane under it are dimmed as one block, so the current
+   tab is found by brightness before anything is read; the current tab's row
+   is the plain foreground on a faint band of it, its panes a step under; and
+   only the pane that holds the keyboard takes the accent — one row in the
+   whole tree. */
+.sidebar-tree-tab:not(:first-child) {
+  margin-top: calc(var(--tree-gap) * 2);
+}
+
+.sidebar-tree-tab {
+  color: var(--text-dimmed);
+}
+
+.sidebar-tree-tab.is-active {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--term-foreground) 5%, transparent);
+}
+
+/* Panes recede under their tab, so scanning the tree reads tab names first.
+
+   A pane row is up to three lines — what it is (icon, process, id), where it
+   is (cwd, branch), what it is showing (its title) — because they truncate at
+   different rates, and the title is the one thing in the tree that routinely
+   outgrows a 30-column column. A line with nothing to say is not drawn, so a
+   column of plain shells stays compact. The row is top-aligned and free to
+   grow: `height` gives way to a minimum. */
+.sidebar-tree-pane {
+  position: relative;
+  align-items: flex-start;
+  height: auto;
+  min-height: var(--tree-row);
+  padding-bottom: var(--tree-gap);
+  color: var(--text-dimmed);
+  /* A pane's second and third lines sit closer than rows do: they belong to
+     the line above them, not to the next pane. */
+}
+
+/* The label column: the two lines stack, and each truncates on its own. */
+.sidebar-tree-pane > .sidebar-tree-label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* The first line: icon, process (cut first), and the id held at the right. */
+.sidebar-tree-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  line-height: var(--tree-row);
+}
+
+.sidebar-tree-line > .sidebar-tree-name {
+  flex: 0 1 auto;
+  /* Regular weight: only a tab's name, the tree's heading, is bold. */
+  font-weight: normal;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Where the pane is: its cwd, cut from the LEFT so the end of the path is what
+   survives (`…/projects/tmuxy/`), and its branch held at the right. The path
+   is set right-to-left only so the ellipsis lands at its start; the marks
+   around the text keep its slashes in order. */
+/* The lines under a pane's first sit two columns in, under its name. */
+.sidebar-tree-where,
+.sidebar-tree-title {
+  padding-left: 2ch;
+}
+
+.sidebar-tree-where {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  line-height: var(--tree-sub-line);
+  font-size: 0.85em;
+  color: var(--text-dimmed);
+}
+
+/* The path takes 70% of the line and the branch the rest — whether or not
+   there is a branch — so paths line up from row to row. */
+.sidebar-tree-cwd {
+  flex: 0 0 70%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* What the pane is showing — an agent's title runs long — with the whole
+   width to itself. */
+.sidebar-tree-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: var(--tree-sub-line);
+  font-size: 0.85em;
+  color: var(--text-dimmed);
+}
+
+/* The connector, drawn rather than typed: a box-drawing glyph only joins its
+   neighbours when every row is exactly one line, and a pane row is up to
+   three. A vertical line down the whole row (to the first line's middle on the
+   last pane) and a stub across to the icon, both from the column under the
+   tab's chevron, so the lines run unbroken from the tab to its last pane. */
+.sidebar-tree-branch {
+  position: relative;
+  flex: 0 0 1.1em;
+  align-self: stretch;
+  margin-right: 0.3em;
+  color: var(--text-dimmed);
+  opacity: 0.55;
+}
+
+.sidebar-tree-branch::before,
+.sidebar-tree-branch::after {
+  content: '';
+  position: absolute;
+  left: 0.35em;
+  border-color: currentColor;
+  border-style: solid;
+  border-width: 0;
+}
+
+.sidebar-tree-branch::before {
+  top: 0;
+  bottom: calc(-1 * var(--tree-gap));
+  border-left-width: 1px;
+}
+
+.sidebar-tree-branch.is-last::before {
+  bottom: auto;
+  height: calc(var(--tree-row) / 2);
+}
+
+.sidebar-tree-branch::after {
+  top: calc(var(--tree-row) / 2);
+  right: 0;
+  border-top-width: 1px;
+}
+
+/* Hover, as on the tab strip. */
+.sidebar-tree-tab:hover,
+.sidebar-tree-pane:hover {
+  background: var(--bg-medium);
+}
+
+.sidebar-tree-pane.in-current-tab {
+  color: var(--text-secondary);
+}
+
+/* Where the keyboard actually is: the theme's accent (gruvbox's yellow, the
+   default's green), the colour of the active pane's frame. After the current
+   tab's pane colour, so it wins over it. */
+.sidebar-tree-pane.is-active {
+  color: var(--theme-accent);
+}
+
+/* A tab's window id and a pane's id, held at the right edge and quieter than
+   the name: the handle a script or `tmuxy` command takes, not something to
+   read first. */
+.sidebar-tree-id {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: var(--spacing-xs);
+  font-size: 0.85em;
+  font-weight: normal;
+  color: var(--text-dimmed);
+}
+
+/* The process name leads, in bold. */
+.sidebar-tree-name {
+  font-weight: 600;
+}
+
+/* The fold control. It sits inside the tab row but takes its own clicks, so
+   the row still selects the tab. */
+.sidebar-tree-chevron {
+  flex: 0 0 auto;
+  width: 1.1em;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-dimmed);
+}
+
+.sidebar-tree-chevron:hover {
+  color: inherit;
+}
+
+/* A tab row is a heading, already quiet or bright as a whole: its id, count
+   and fold control take the row's own colour, which is held to the row's
+   ground (the active tab's faint band included). */
+.sidebar-tree-tab > .sidebar-tree-id {
+  font-weight: bold;
+}
+
+.sidebar-tree-tab :is(.sidebar-tree-id, .sidebar-tree-count, .sidebar-tree-chevron) {
+  color: inherit;
+}
+
+/* How many panes a tab holds — the other half of what a collapsed tab shows. */
+.sidebar-tree-count {
+  flex: 0 0 auto;
+  padding-left: var(--spacing-xs);
+  font-size: 0.85em;
+  color: var(--text-dimmed);
+}
+
+/* A state mark in an icon's place (a tab row's or a pane row's): the same
+   box, so nothing shifts when a pane starts or stops working. */
+.sidebar-tree-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A tab row's icon: the tab strip's (emoji, else circled position), a size up
+   from the name with a little air after it. */
+.sidebar-tree-tab-icon {
+  display: inline-block;
+  min-width: 1em;
+  margin-right: 0.25em;
+  font-size: 1.15em;
+  line-height: 1;
+  text-align: center;
+}
+
+.pane-tab-state {
+  opacity: 1;
+}
+
+/* A state mark — in the tree, on the tab strip, in a pane header — sits in a
+   box sized to its ink with the glyph centred, as .tab-flag does: a Nerd Font
+   icon paints wider than it advances, so as plain text the warning triangle
+   ran into whatever came next. The header's icon slot is already such a box. */
+.pane-state-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  overflow: visible;
+  line-height: 1;
+}
+
+.pane-tab-icon.pane-state-mark {
+  width: 16px;
+  height: 16px;
+}
+
+/* The two marks that want the user take a colour of their own; unread and
+   working keep their row's, since the theme already says which row is
+   active. */
+.pane-state-mark.is-needs-input {
+  color: var(--accent-orange);
+}
+
+.pane-state-mark.is-error {
+  color: var(--error-color);
+}
+
+/* The keyboard cursor. Only meaningful while the column has focus — an idle
+   sidebar showing a live cursor reads as if it were driving the app — so it is
+   drawn only then. */
+.sidebar-column.is-focused .sidebar-tree-tab.is-selected,
+.sidebar-column.is-focused .sidebar-tree-pane.is-selected {
+  background: var(--bg-highlight);
+  /* The edge marks the row even on a theme whose band is close to the rows
+     around it: the band is held to what keeps text readable on it. */
+  box-shadow: inset 2px 0 0 var(--theme-accent);
+}
+
+/* On the band everything reads in the primary text — the quieter tiers are
+   held to the chrome and the rows, not to the band — except the pane with the
+   keyboard, which keeps its accent. */
+.sidebar-column.is-focused .sidebar-tree-tab.is-selected,
+.sidebar-column.is-focused .sidebar-tree-pane.is-selected:not(.is-active) {
+  color: var(--text-primary);
+}
+
+.sidebar-column.is-focused
+  .is-selected
+  :is(
+    .sidebar-tree-id,
+    .sidebar-tree-count,
+    .sidebar-tree-where,
+    .sidebar-tree-title,
+    .sidebar-tree-chevron
+  ) {
+  color: inherit;
+}
+
+/* The tab a dragged pane is over: the row it would join, lit as the strip
+   lights its tab. */
+.sidebar-tree-tab.is-drop-target {
+  outline: 1px dashed var(--theme-accent);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  opacity: 1;
+}
+
+/* A tab row being dragged up or down the tree rides with the pointer above
+   its neighbours; the bar marks the edge of the tab it would precede, or the
+   trailing edge of the last tab. */
+.sidebar-tree-tab.is-dragging {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  background: var(--bg-medium);
+  cursor: grabbing;
+}
+
+.sidebar-tree-tab.is-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent-green);
+}
+
+.sidebar-tree-tab.is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent-green);
+}
+
+.sidebar-tree-pane.is-dragging {
+  opacity: 0.5;
+}
+
+.sidebar-tree-icon {
+  flex: 0 0 auto;
+  min-width: 1em;
+  padding-right: var(--spacing-md);
+  font-family: var(--font-mono);
+  opacity: 0.85;
+}
+
+/* See .sidebar-header-title: min-width:0 is required for the ellipsis. */
+.sidebar-tree-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A pane's git context: the branch (or short head) of the worktree its cwd
+   sits in, from the host's worktree discovery (docs/TMUX.md "Sessions tree"),
+   in the 30% of the line the path leaves it. */
+.sidebar-tree-git {
+  flex: 0 0 30%;
+  box-sizing: border-box;
+  padding-left: var(--spacing-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.sidebar-tree-git.is-empty::before {
+  content: none;
+}
+
+.sidebar-tree-git::before {
+  content: '⎇ ';
+}

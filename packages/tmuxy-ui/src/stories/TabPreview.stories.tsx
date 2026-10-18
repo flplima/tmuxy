@@ -16,6 +16,17 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
+import {
+  animationNames,
+  preview,
+  runningAnimation,
+  type Snap,
+  tabButton,
+  THREE_TABS,
+  waitForCardLeaving,
+  waitForPreview,
+  waitForPreviewInserted,
+} from './tabPreviewHelpers';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/Tab Preview',
@@ -32,45 +43,6 @@ const meta: Meta<typeof AppHarness> = {
 };
 export default meta;
 type Story = StoryObj<typeof AppHarness>;
-
-interface Snap {
-  context: {
-    activeWindowId: string | null;
-  };
-}
-
-const THREE_TABS = [
-  'rename-window alpha',
-  'new-window',
-  'rename-window bravo',
-  'new-window',
-  'rename-window charlie',
-];
-
-function tabButton(canvasElement: HTMLElement, name: string): HTMLElement {
-  const el = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')].find(
-    (t) => t.textContent?.includes(name),
-  );
-  if (!el) throw new Error(`no tab button for ${name}`);
-  return el;
-}
-
-/** The preview card, wherever it has been portalled to. */
-function preview(): HTMLElement | null {
-  return document.querySelector<HTMLElement>('[data-testid="tab-preview"]');
-}
-
-async function waitForPreview(windowId?: string): Promise<HTMLElement> {
-  return waitFor(
-    () => {
-      const el = preview();
-      expect(el, 'no preview card').not.toBeNull();
-      if (windowId) expect(el!.dataset.windowId).toBe(windowId);
-      return el!;
-    },
-    { timeout: 5000 },
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Resting opens it; moving along the strip carries the same card
@@ -282,60 +254,18 @@ export const ItFadesAndSlidesBothWays: Story = {
     const alpha = tabButton(canvasElement, 'alpha');
     const pane = canvasElement.querySelector<HTMLElement>('.pane-layout-item');
 
-    /**
-     * The declared CSS animations on `el` by name, after a style flush. A
-     * finished animation with no fill drops out of `getAnimations()`, so this
-     * has to be read while the animation is current — which is why the card
-     * is caught at insertion and at the class change, not on a later poll.
-     */
-    const animationNames = (el: HTMLElement) => {
-      void getComputedStyle(el).opacity;
-      return el.getAnimations().map((a) => (a as CSSAnimation).animationName);
-    };
-    /** The animation named `name` on `el`, which must be running and real. */
-    const running = (el: HTMLElement, name: string) => {
-      const animation = el.getAnimations().find((a) => (a as CSSAnimation).animationName === name);
-      expect(animation, `no running ${name} animation on the card`).toBeDefined();
-      expect(animation!.playState).toBe('running');
-      expect(animation!.effect!.getTiming().duration).toBeGreaterThan(0);
-      return animation!;
-    };
-
-    // In: the card is caught the moment it enters the DOM, and what it carries
-    // then is the entrance animation — which must then run to its end. Caught
-    // by mutation rather than by polling, so a busy runner that paints the
-    // card only after its 150ms entrance has finished still sees it.
-    const inserted = new Promise<HTMLElement>((resolve) => {
-      const seen = preview();
-      if (seen) return resolve(seen);
-      const observer = new MutationObserver(() => {
-        const el = preview();
-        if (el) {
-          observer.disconnect();
-          resolve(el);
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-    });
+    const inserted = waitForPreviewInserted();
     void userEvent.hover(alpha);
     const card = await inserted;
     expect(animationNames(card)).toContain('floating-surface-in');
     // The node stays, so the entrance can be watched to its end.
-    await running(card, 'floating-surface-in').finished;
+    await runningAnimation(card, 'floating-surface-in').finished;
     await waitForPreview();
 
     // Out: the same, in reverse — the node is kept while it goes, and what it
     // carries then is the exit animation, which must run to its end before
     // the node is gone.
-    const leaving = new Promise<void>((resolve) => {
-      const observer = new MutationObserver(() => {
-        if (card.classList.contains('is-leaving')) {
-          observer.disconnect();
-          resolve();
-        }
-      });
-      observer.observe(card, { attributes: true, attributeFilter: ['class'] });
-    });
+    const leaving = waitForCardLeaving(card);
     void userEvent.unhover(alpha);
     if (pane) void userEvent.hover(pane);
     await leaving;
@@ -344,7 +274,7 @@ export const ItFadesAndSlidesBothWays: Story = {
     // and its removal cancels the animation, so `finished` can reject on the
     // very frame the exit completes. Running with a real duration, then gone,
     // is the whole of what "leaves the same way" means.
-    running(card, 'floating-surface-out');
+    runningAnimation(card, 'floating-surface-out');
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };

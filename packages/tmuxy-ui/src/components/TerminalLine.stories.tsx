@@ -1,8 +1,18 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, within } from 'storybook/test';
 import { TerminalLine } from './TerminalLine';
-import type { CellLine } from '../domain/wire';
 import { CellGridDecorator, cellGridReady, cellWidthOf, runCells } from '../stories/cellGrid';
+import {
+  CELL_TOLERANCE,
+  CURSOR_LINE,
+  grid,
+  ICON,
+  measureGlyphNaturalInk,
+  spanWithText,
+  styled,
+  text,
+  wide,
+} from '../stories/terminalLineHelpers';
 
 const meta: Meta<typeof TerminalLine> = {
   title: 'Components/TerminalLine',
@@ -20,37 +30,6 @@ const meta: Meta<typeof TerminalLine> = {
 };
 export default meta;
 type Story = StoryObj<typeof TerminalLine>;
-
-function text(str: string): CellLine {
-  return str.split('').map((c) => ({ c }));
-}
-
-function styled(str: string, style: Record<string, unknown>): CellLine {
-  return str.split('').map((c) => ({ c, s: style }));
-}
-
-/**
- * A wide character as the backend emits it: the character in one cell plus a
- * blank continuation cell, so the line's cell count already covers both
- * columns. `c` may be several code units (emoji + VS16, ZWJ sequences).
- */
-function wide(c: string): CellLine {
-  return [{ c }, { c: ' ' }];
-}
-
-/** Boxes are pinned to whole cells; allow a quarter-pixel of rounding. */
-const CELL_TOLERANCE = 0.05;
-
-function spanWithText(canvasElement: HTMLElement, needle: string): HTMLElement {
-  const spans = Array.from(canvasElement.querySelectorAll<HTMLElement>('.terminal-line > span'));
-  const el = spans.find((s) => s.textContent === needle);
-  if (!el) throw new Error(`no span with text ${JSON.stringify(needle)}`);
-  return el;
-}
-
-function grid(canvasElement: HTMLElement): HTMLElement {
-  return canvasElement.querySelector('.terminal-container') as HTMLElement;
-}
 
 export const Plain: Story = {
   args: {
@@ -384,9 +363,6 @@ export const BlockRunTilesPerCell: Story = {
  * it was given, straight over whatever comes next. Measuring the advance alone
  * misses it entirely.
  */
-/** A Nerd Font branch icon — private-use area, so no fallback font has it. */
-const ICON = '';
-
 export const FatInkIcon: Story = {
   tags: ['nightly'],
   args: {
@@ -401,25 +377,7 @@ export const FatInkIcon: Story = {
     // than its cell here and exactly one cell on a CI runner. So the contract
     // is asserted rather than the glyph — too wide to paint means shrunk to
     // fit, and fitting already means left alone.
-    const paneStyle = getComputedStyle(grid(canvasElement).querySelector('.terminal-content')!);
-    const font =
-      paneStyle.font ||
-      `${paneStyle.fontStyle} ${paneStyle.fontWeight} ${paneStyle.fontSize} ${paneStyle.fontFamily}`;
-
-    // The component and this play function have to be looking at the SAME
-    // typeface. A canvas answers from the faces the document has already
-    // loaded and never fetches one itself, so both `glyphFit` and the probe
-    // below can measure the fallback font while the page is laid out in the
-    // real one — and they can do it at different moments, which is how the
-    // branch below ended up disagreeing with the DOM. Asking for the face this
-    // glyph needs, and waiting for it, takes the moment out of the question.
-    await document.fonts.load(font, ICON);
-    await document.fonts.ready;
-
-    const probe = document.createElement('canvas').getContext('2d')!;
-    probe.font = font;
-    const metrics = probe.measureText(ICON);
-    const naturalInk = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight;
+    const naturalInk = await measureGlyphNaturalInk(canvasElement, ICON);
 
     // The face landing invalidates the fit cache and re-renders the line, so
     // the box the assertion wants may still be a render away.
@@ -447,9 +405,6 @@ export const FatInkIcon: Story = {
     expect(label.start).toBeCloseTo(3, 1);
   },
 };
-
-/** An editor's cursor line: every cell on the row carries its background. */
-const CURSOR_LINE = { bg: 237 };
 
 /**
  * Emoji on a coloured row, as nvim draws them on its cursor line.

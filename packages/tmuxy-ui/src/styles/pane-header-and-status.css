@@ -1,0 +1,496 @@
+/* ============================================
+   Pane Header - Minimalistic tab bar
+   Pattern: tab1  tab2  tab3   +
+   ============================================ */
+
+/* A pane header's bar: the theme's gray — its dark gray on a dark theme, its
+   light gray on a light one (--border-medium) — at 30% on the background only,
+   so the title, icons and buttons on it stay fully opaque. Active and inactive
+   headers share it; the active one says so with its text colour. */
+.pane-header {
+  display: flex;
+  align-items: center;
+  height: var(--pane-header-height);
+  margin: 0;
+  background-color: color-mix(in srgb, var(--border-medium) 30%, transparent);
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
+  /* Regular weight, active and inactive alike; the active header says so
+     with colour, not weight, and no theme gets a hook to make it bold. */
+  font-weight: 400;
+  color: var(--pane-header-text-inactive);
+  user-select: none;
+  box-sizing: border-box;
+  padding: 0;
+  gap: 0;
+}
+
+.pane-header-active {
+  color: var(--pane-header-text-inactive);
+}
+
+.pane-header-active .pane-tab-selected,
+.pane-header-active .pane-tab-active {
+  color: var(--pane-header-text-active);
+}
+
+/* A group member that is NOT the one in view reads as an inactive pane does,
+   whatever the header around it is doing. The accent answers one question —
+   "which pane am I typing into?" — and a parked member is not it. */
+.pane-header .pane-tab:not(.pane-tab-selected),
+.pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-title,
+.pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-icon {
+  color: var(--pane-header-text-inactive);
+}
+
+/* The ⋮ and ✕ are chrome, not content: the same quiet tone on every header,
+   active or not. They used to take the active header's colour, so on a theme
+   that accents its active header (gruvbox) the buttons shouted the same
+   colour as the title they sit beside — three things competing to say the
+   same one thing. */
+.pane-header .pane-header-menu,
+.pane-header .pane-header-close,
+.pane-header .pane-tab-controls .pane-header-menu,
+.pane-header .pane-tab-controls .pane-header-close {
+  color: var(--pane-header-text-inactive);
+}
+
+/* Pane tabs container: takes every pixel the header buttons leave, so a
+   single pane's title can run the full width before it ellipsises. */
+.pane-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  height: 100%;
+  gap: 0;
+}
+
+.pane-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* A GROUP's strip: the header is shared out between its members, an equal
+   share each, so every member has a place of its own with its title at the
+   left and its own ⋮/✕ at the right. Before this the strip was one run of
+   titles with a single pair of buttons at the far end, which belonged to
+   whichever member happened to be showing — unguessable, and no way at all to
+   close a parked one. */
+.pane-tabs-group {
+  /* Nothing scrolls: the shares divide whatever width there is. */
+  overflow-x: hidden;
+}
+
+.pane-tabs-group > .pane-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 2px;
+  border-right: 1px solid color-mix(in srgb, var(--border-medium) 50%, transparent);
+}
+
+.pane-tabs-group > .pane-tab:last-child {
+  border-right: none;
+}
+
+/* The member NOT in view is dimmed by its ground, not only by its text: with
+   every member carrying the same controls, the shares have to read apart at a
+   glance rather than by reading them. */
+.pane-tabs-group > .pane-tab:not(.pane-tab-selected) {
+  background-color: color-mix(in srgb, #000 22%, transparent);
+}
+
+/* A pane dragged over a header: the share it would take, or the gap it would
+   join the group at. The member being dragged is faded in its own header. */
+.pane-tab.pane-tab-drop-onto {
+  box-shadow: inset 0 -2px 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-drop-before {
+  box-shadow: inset 3px 0 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-drop-after {
+  box-shadow: inset -3px 0 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-dragging {
+  opacity: 0.45;
+}
+
+/* Each member's own buttons, pushed to the right of ITS share. */
+.pane-tab-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* Individual pane tab - minimalistic text-only */
+.pane-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: 100%;
+  background-color: transparent;
+  border: none;
+  transition: color var(--transition-fast);
+  /* Natural width while it fits; shrinks (and ellipsises its title) only when
+     the header runs out of room, instead of being capped at a fixed width with
+     empty header beside it. */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.pane-tab:first-child {
+  padding-left: 0;
+}
+
+/* Hovering the PANE — anywhere in it, not just its title — brightens that
+   pane's header. The pointer is over the pane as a whole, so the cue belongs
+   to the pane as a whole: hovering only the title bar meant the header lit up
+   for the few pixels of it you happened to cross and stayed dim while the
+   cursor sat in the pane's body, which is where a cursor actually is.
+   `:not(:hover)` on the tab keeps a hovered tab's own rule (below) from being
+   double-applied. */
+.pane-layout-item:hover .pane-tab,
+.float-container:hover .pane-tab,
+.pane-tab:hover {
+  color: var(--text-secondary);
+}
+
+/* ...and the pane stops being dimmed while the pointer is on it. An inactive
+   pane sits at --inactive-text-opacity so the active one reads as the one
+   with the keyboard; under the pointer it is the one being looked at, so it
+   comes up to full and its header is legible without clicking into it. */
+.pane-layout-item:not(.pane-dragging):hover > * {
+  opacity: var(--active-text-opacity);
+}
+
+/* A group member a read-only client can see listed but not bring into view. */
+.pane-tab-disabled,
+.pane-tab-disabled:hover {
+  color: inherit;
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Selected tab in a group (but pane not active) */
+.pane-tab-selected .pane-tab-title {
+  color: inherit;
+}
+
+/* Active tab: bright text */
+.pane-tab-active {
+  color: var(--term-bright-white);
+}
+
+/* Pane tab icon - purely decorative */
+.pane-tab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0;
+  opacity: 0.7;
+  cursor: default;
+}
+
+.pane-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
+  color: inherit;
+  min-width: 0;
+}
+
+/* Active tab title and icon: the theme's accent */
+.pane-tab-active .pane-tab-title,
+.pane-tab-active .pane-tab-icon {
+  color: var(--theme-accent);
+}
+
+/* Pane three-dot menu button */
+.pane-header-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px 0 auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--pane-header-text-inactive);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.93);
+  line-height: 1;
+  opacity: 0.5;
+  transition:
+    color var(--transition-fast),
+    opacity var(--transition-fast),
+    background-color var(--transition-fast);
+  flex-shrink: 0;
+  z-index: 60;
+  cursor: pointer;
+}
+
+.pane-header-menu:hover {
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
+  opacity: 1;
+}
+
+/* Marked (`prefix m`): the tmux mark a later `join-pane`/`swap-pane -s` will
+   use. It sits at the header's right edge with the pane's other controls — a
+   solid chip in the theme's accent, the same colour washing the pane's content
+   below, so the chip and the wash read as one mark rather than two
+   decorations. Filled rather than outlined: the wash is deliberately faint, so
+   the chip is the half that has to carry from across the screen.
+
+   The text on it is the ground the accent sits on — black against a dark
+   theme's accent, white against a light one's — because an accent is chosen to
+   stand out from the theme's background, which is exactly what makes it a poor
+   background for that theme's foreground. */
+.pane-header-mark {
+  flex: 0 0 auto;
+  margin-left: var(--spacing-lg);
+  padding: 0 5px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--theme-accent);
+  color: #000;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  white-space: nowrap;
+  z-index: 60; /* Above resize dividers, like the buttons beside it. */
+}
+
+:root.theme-light .pane-header-mark {
+  color: #fff;
+}
+
+/* Pane close button */
+.pane-header-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--pane-header-text-inactive);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.5;
+  transition:
+    color var(--transition-fast),
+    opacity var(--transition-fast),
+    background-color var(--transition-fast);
+  flex-shrink: 0;
+  z-index: 60; /* Above resize dividers */
+}
+
+.pane-header-close:hover {
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
+  opacity: 1;
+}
+
+/* ============================================
+   Status Bar - styles are in StatusBar.css
+   ============================================ */
+
+/* ============================================
+   Tmux Status Bar (Bottom)
+   ============================================ */
+
+.tmux-status-bar {
+  width: 100%;
+  background-color: var(--tmux-status-bg);
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.tmux-status-bar-content {
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  white-space: pre;
+  margin: 0;
+  padding: var(--spacing-md) 0;
+  color: var(--text-dark);
+}
+
+/* Command mode input (prefix+:) */
+.tmux-command-mode {
+  background-color: var(--tmux-status-bg);
+}
+
+.tmux-command-input-wrapper {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--spacing-md) 0;
+}
+
+.tmux-command-prompt {
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  color: var(--text-dark);
+  white-space: pre;
+  flex-shrink: 0;
+}
+
+.tmux-command-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  color: var(--text-dark);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  caret-color: var(--text-dark);
+}
+
+/* Status message */
+.tmux-status-message {
+  background-color: var(--tmux-status-bg);
+}
+
+/* Status line 3-column layout */
+.tmux-statusline-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+}
+
+.tmux-statusline-left {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.tmux-statusline-center {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.tmux-statusline-center .tmux-status-bar-content {
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tmux-statusline-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* In a mode the line is the mode's: no host or session. */
+.tmux-statusline-right[hidden] {
+  display: none;
+}
+
+/* Keybinding hints: the terminal's size on the terminal's row, so the hints,
+   the centre and the labels share one baseline. Every line is written to fit
+   80 columns with 1ch either side (components/statusLineHints.ts). */
+.statusline-hints {
+  color: var(--text-dark);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  font-family: var(--font-mono);
+  white-space: pre;
+  overflow: hidden;
+  padding: 0 1ch;
+  /* Keys are read glyph by glyph: FiraCode would draw `-|` as one arrow. */
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
+}
+
+@media (pointer: coarse), (max-width: 600px) {
+  .statusline-hints {
+    display: none;
+  }
+}
+
+.statusline-hints kbd {
+  font-weight: bold;
+  color: var(--text-dark);
+  font-family: inherit;
+}
+
+.statusline-bracket {
+  opacity: 0.5;
+  font-weight: normal;
+}
+
+/* A mode (PREFIX, COPY, PANE, TAB) names itself in an uppercase inverse-video
+   chip — the terminal convention for "a mode is on" — drawn in the THEME's
+   colours: the terminal background, the darkest tone on a dark theme and the
+   lightest on a light one, so the chip sits apart from the band under it; the
+   text is the theme's accent, the colour the active pane's title takes. */
+.statusline-mode {
+  background: var(--term-background);
+  color: var(--theme-accent);
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  font-weight: bold;
+}
+
+.statusline-separator {
+  opacity: 0.3;
+}
+
+/* Host and session labels */
+.statusline-host,
+.statusline-session {
+  color: var(--text-dark);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-md);
+}
+
+.statusline-session {
+  font-weight: bold;
+}
+
+.statusline-clickable {
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.statusline-clickable:hover {
+  color: var(--text-secondary);
+  background-color: var(--bg-medium);
+}

@@ -1,0 +1,365 @@
+/* ============================================
+   Pane Layout
+   ============================================ */
+
+.pane-layout {
+  position: absolute;
+  /* Absolute children span the padding box, so inset by the container's
+     padding to cover exactly its content box — the box the grid was sized
+     for (CONTAINER_PADDING_X / _BOTTOM in constants/layout.ts). */
+  inset: 0 12px 4px;
+}
+
+/* Read-only: the pane area is zoomed to fit (PaneFit in App.tsx). Covers the
+   container's padding box, as .pane-layout's own inset expects. */
+.pane-fit {
+  position: absolute;
+  inset: 0;
+}
+
+.pane-layout-item {
+  overflow: hidden;
+  /* Every pane paints the theme's terminal background at its own alpha
+     (--inactive-pane-opacity here, --active-pane-opacity below) over the app
+     background; what the remainder reveals is the platform's — the blurred
+     desktop on macOS, the desktop on Linux, the theme bg in a browser. */
+  background-color: color-mix(
+    in srgb,
+    var(--term-background) calc(var(--inactive-pane-opacity) * 100%),
+    transparent
+  );
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 0;
+  /* 1px outline per pane. Combined with the hPadding extension in
+     getPaneStyle (each pane reaches half a charWidth into the tmux
+     separator column), adjacent panes' outlines coincide pixel-for-
+     pixel at the shared edge — producing the "mosaic" look where the
+     grid reads as a single connected frame rather than a row of
+     separate boxes with gaps.
+
+     Inactive panes share the same dark-gray tone as the active one,
+     just at reduced opacity. */
+  outline: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+  /* Animate position/size changes for swaps and resizes. Opacity and
+     background-color carry the active/inactive distinction — without them in
+     this list every focus change, swap, and tab switch flips the pane's dim
+     and surface INSTANTLY: the "everything hard-flashes" paint blink from the
+     stability review (follow-up #9). */
+  transition:
+    /* A resize or a stack navigation moves the shrinking pane's origin as well
+       as its size, so all four ride the same clock — split between two curves
+       and the box would visibly shear on its way. */
+    left var(--transition-pane-size),
+    top var(--transition-pane-size),
+    width var(--transition-pane-size),
+    height var(--transition-pane-size),
+    /* transform only ever animates on the zoom collapse/expand (drag/shift
+       override this transition), so it carries the zoom easing — this is what
+       makes zoom-OUT (class removed → transform back to identity) expand out of
+       the centre on the same clock the collapse used. */
+    transform var(--transition-pane-zoom),
+    box-shadow var(--transition-layout),
+    opacity var(--transition-active),
+    background-color var(--transition-active);
+}
+
+/* A WIDGET pane has no terminal cells to line up with the tmux separator
+   column, so it drops the horizontal padding a terminal pane keeps: the
+   widget — and the browser's address bar above it — spans the pane edge to
+   edge instead of sitting between two strips of pane background. */
+.pane-content-widget {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Pane content (header + terminal) carries the focus cue as text opacity,
+   separate from the surface alpha: inactive panes dim to
+   --inactive-text-opacity, the active one sits at --active-text-opacity. A
+   pane being dragged keeps full content so its ghost reads clearly. */
+.pane-layout-item:not(.pane-dragging) > * {
+  opacity: var(--inactive-text-opacity);
+  transition: opacity var(--transition-active);
+}
+
+.pane-layout-item.pane-active > * {
+  opacity: var(--active-text-opacity);
+}
+
+/* Active pane surface: the theme's terminal background at
+   --active-pane-opacity (1 by default — the colour the theme was designed
+   for), and a 1px outline in the theme's focus colour (`--pane-focus-border`
+   per theme — green on the default, yellow on gruvbox — falling back to the
+   accent). The outline means "the keyboard is in this tiled pane": PaneLayout drops
+   the class while a float, the dock or the tree holds the keyboard. The
+   outline paints above its siblings' (`.pane-active` raises z-index) so the
+   whole frame reads, not just the edges no neighbour shares. */
+.pane-layout-item.pane-active {
+  background-color: color-mix(
+    in srgb,
+    var(--term-background) calc(var(--active-pane-opacity) * 100%),
+    transparent
+  );
+  outline-color: var(--pane-focus-border);
+}
+
+/* Zoomed pane: the active-pane surface applies; it only needs to sit above
+   the collapsing siblings and grow on the zoom clock. */
+.pane-layout-item.pane-zoomed {
+  z-index: var(--z-zoomed);
+  /* Grow into full-screen on the same clock as the siblings collapsing away. */
+  transition:
+    left var(--transition-pane-zoom),
+    top var(--transition-pane-zoom),
+    width var(--transition-pane-zoom),
+    height var(--transition-pane-zoom),
+    background-color var(--transition-active);
+}
+
+/* Non-zoomed siblings during a zoom: scaled toward the grid centre and faded
+   out (the inline transform carries the translate-to-centre + scale; here we
+   add the fade, hide interaction, drop below the zoomed pane, and pin the zoom
+   easing so collapse and the sibling-side grow read as one motion). Removing
+   the class on unzoom transitions the same node back — the panes expand out of
+   the centre and fade in. Kept RENDERED (not display:none) purely for the
+   animation; opacity 0 stops any bleed through the zoomed pane. */
+.pane-layout-item.pane-zoom-collapsing,
+.pane-layout-resizing .pane-layout-item.pane-zoom-collapsing {
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition:
+    transform var(--transition-pane-zoom),
+    opacity var(--transition-pane-zoom);
+}
+
+/* Zoom-OUT: the siblings expanding back out of the centre. The
+   `pane-zoom-collapsing` class is already gone (they're rendered at their slots
+   again), so this transient class carries the transform+opacity transition back
+   to identity — repeated under the suppression gate the unzoom sets, so it wins
+   the same commit (mirrors the collapse and grow carve-outs). */
+.pane-layout-item.pane-zoom-expanding,
+.pane-layout-resizing .pane-layout-item.pane-zoom-expanding {
+  transition:
+    transform var(--transition-pane-zoom),
+    opacity var(--transition-pane-zoom);
+}
+
+/* Copy mode: distinct bright-green outline so the mode is unmistakable. */
+.pane-layout-item.pane-active.pane-copy-mode {
+  outline: 1px solid var(--term-bright-green);
+}
+
+.pane-layout-item.pane-dragging {
+  z-index: var(--z-dragging);
+  opacity: 0.85;
+  box-shadow: var(--shadow-lg);
+  transition: none;
+}
+
+/* Pane enter/leave/shift lifecycle (split & kill morphs).
+
+   Each rule is repeated under the container gate classes
+   (.pane-layout-no-animations / .pane-layout-resizing) so the lifecycle
+   transition wins over those gates' `transition: none` — the gates fire on
+   the very commits that create/destroy panes (suppressLayoutTransition is
+   set whenever surviving pane geometry changes), and the whole point here
+   is to animate exactly those commits, scoped to the panes involved.
+
+   Entering pane: FLIP — PaneLayout mounts it at final geometry, then a
+   useLayoutEffect rewinds it to the source pane's pre-split box at reduced
+   opacity and restores, so this transition morphs it into place while it
+   fades in. Rendered above its sibling during the overlap.
+
+   Shifting pane: a pre-existing pane whose box changes in the same commit
+   as an enter/leave (the split source shrinking, the kill survivor
+   expanding). It must animate on the same clock as the entering pane —
+   not the generic 100ms layout transition — or the converging edges
+   don't track. */
+.pane-layout-item.pane-entering,
+.pane-layout-no-animations .pane-layout-item.pane-entering,
+.pane-layout-resizing .pane-layout-item.pane-entering {
+  z-index: var(--z-pane-anim);
+  transition:
+    left var(--transition-pane-enter),
+    top var(--transition-pane-enter),
+    width var(--transition-pane-enter),
+    height var(--transition-pane-enter),
+    opacity var(--transition-pane-enter),
+    background-color var(--transition-active);
+  will-change: left, top, width, height, opacity;
+}
+
+.pane-layout-item.pane-shifting,
+.pane-layout-no-animations .pane-layout-item.pane-shifting,
+.pane-layout-resizing .pane-layout-item.pane-shifting {
+  /* Over a leaving pane (z 0); under an entering one (--z-pane-anim). */
+  z-index: var(--z-base);
+  transition:
+    left var(--transition-pane-enter),
+    top var(--transition-pane-enter),
+    width var(--transition-pane-enter),
+    height var(--transition-pane-enter),
+    opacity var(--transition-active),
+    background-color var(--transition-active);
+}
+
+/* Resize Dividers — invisible 8px-thick hit areas for grab/resize.
+   The visible divider line is the per-pane outline on .pane-layout-item;
+   here we just need the cursor:row/col-resize hit target. */
+.resize-divider {
+  position: absolute;
+  background: transparent;
+  z-index: 60;
+  transition:
+    left var(--transition-layout),
+    top var(--transition-layout),
+    width var(--transition-layout),
+    height var(--transition-layout);
+}
+
+.pane-layout-no-animations .resize-divider {
+  transition: none;
+}
+
+.pane-layout-resizing .resize-divider {
+  transition: none;
+}
+
+/* A divider with nothing to give on either side — a stack of one-row panes,
+   say. It stays where it is and says so on hover rather than accepting a drag
+   tmux would refuse. The cursor is inline (see below); this is the rest. */
+.resize-divider-locked {
+  pointer-events: auto;
+}
+
+.resize-divider-locked:hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--border-medium) 45%, transparent);
+}
+
+/* Divider cursor set via inline style to avoid class mutations during layout cycling */
+
+.pane-layout-dragging,
+.pane-layout-resizing {
+  user-select: none;
+}
+
+/* Performance hints for animated panes */
+.pane-layout-item {
+  will-change: transform;
+}
+
+.pane-layout-dragging .pane-layout-item,
+.pane-layout-resizing .pane-layout-item {
+  will-change: transform, left, top, width, height;
+}
+
+/* The three gates below suppress a pane's LAYOUT transition — geometry only.
+   Each still carries the active/inactive focus cue, and must: the text dim
+   lives on `.pane-layout-item > *`, a selector no gate covers, so a gate that
+   drops `background-color` leaves the surface alpha hard-flipping in one frame
+   while the text fades over --transition-active. That mismatch is the
+   focus-change blink (the pane pops opaque, then its text catches up), and it
+   is most obvious on a translucent surface over a blurred desktop. */
+
+/* During drag, non-dragged panes swap positions instantly */
+.pane-layout-dragging .pane-layout-item:not(.pane-dragging) {
+  transition:
+    opacity var(--transition-active),
+    background-color var(--transition-active);
+}
+
+/* The blink that says "copied" (utils/copyFlash.ts). Copy mode paints its own
+   selection, so its copied cells blink in place; a browser selection is covered
+   by fixed boxes laid over its rectangles. An inset shadow draws over a cell's
+   background (which the selection sets inline) and under its text, so the text
+   stays readable through the flash. */
+@keyframes copy-flash {
+  0%,
+  50%,
+  100% {
+    box-shadow: inset 0 0 0 100vmax transparent;
+  }
+  25%,
+  75% {
+    box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--tab-active-text) 55%, transparent);
+  }
+}
+
+[data-copied='true'] .terminal-selected,
+.copy-flash {
+  animation: copy-flash 450ms steps(1, end) both;
+}
+
+.copy-flash {
+  position: fixed;
+  z-index: 1260;
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+}
+
+/* Animations off: the copied text holds a steady highlight for the same time. */
+.app-no-animations [data-copied='true'] .terminal-selected,
+.app-no-animations .copy-flash {
+  animation: none;
+  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--tab-active-text) 45%, transparent);
+}
+
+/* The config said no (`@tmuxy-animations off`): the keyframes the pane gate
+   does not reach — floats appearing, drawers sliding — are stopped too. The
+   pane grid itself follows `.pane-layout-no-animations`, which the selector
+   holds while the switch is off. */
+.app-no-animations .modal-container,
+.app-no-animations .snackbar {
+  animation: none;
+}
+
+/* Disable layout transitions when enableAnimations is false */
+.pane-layout-no-animations .pane-layout-item {
+  transition:
+    opacity var(--transition-active),
+    background-color var(--transition-active);
+}
+
+/* Disable position transitions during resize for instant feedback */
+.pane-layout-resizing .pane-layout-item {
+  transition:
+    box-shadow var(--transition-layout),
+    opacity var(--transition-active),
+    background-color var(--transition-active);
+}
+
+/* ...except the pane being zoomed. Toggling zoom changes surviving pane
+   geometry, which sets suppressLayoutTransition and would otherwise snap the
+   pane to full size in one frame. Scoped to the zoomed pane only, so genuine
+   drag-resizes keep their instant feedback. Same carve-out the enter/shift
+   morphs use above. */
+.pane-layout-resizing .pane-layout-item.pane-zoomed {
+  transition:
+    left var(--transition-pane-zoom),
+    top var(--transition-pane-zoom),
+    width var(--transition-pane-zoom),
+    height var(--transition-pane-zoom),
+    background-color var(--transition-active);
+  will-change: left, top, width, height;
+}
+
+/* Ghost indicator - shows dragged pane's current grid position */
+.pane-drag-ghost {
+  border: 1px dashed var(--accent-green);
+  background: var(--accent-green-bg);
+  opacity: 0.3;
+  border-radius: var(--radius-md);
+  z-index: 1;
+  pointer-events: none;
+  box-sizing: border-box;
+  transition:
+    left 60ms ease-out,
+    top 60ms ease-out,
+    width 60ms ease-out,
+    height 60ms ease-out;
+}

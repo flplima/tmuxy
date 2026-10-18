@@ -42,7 +42,6 @@
  */
 
 import { resolve as resolvePath } from 'node:path';
-import { createRequire } from 'node:module';
 import {
   a11yShield as shieldFor,
   loadQuarantine,
@@ -56,7 +55,8 @@ import {
   fetchStoryIndex,
   launchChromium,
   parseProbeArgs,
-  printFailures,
+  printProbeSummary,
+  runAxe,
   writeArtifacts,
 } from './lib/probe-common.mjs';
 
@@ -68,84 +68,10 @@ const REPEAT = Math.max(1, Number(process.env.PROBE_REPEAT || 1));
 // functions fall over. Throttling the renderer reproduces that here.
 const CPU_THROTTLE = Math.max(1, Number(process.env.PROBE_CPU_THROTTLE || 1));
 const RUN_A11Y = process.env.PROBE_A11Y !== '0';
-/** Impact levels that turn the job red; the rest are reported only. */
-const BLOCKING_IMPACTS = new Set(['critical', 'serious']);
-// axe-core ships with @storybook/addon-a11y, so it is already installed —
-// the bundle is injected into each story page rather than added as a dep.
-const AXE_PATH = createRequire(import.meta.url).resolve('axe-core/axe.min.js');
 
 const quarantine = loadQuarantine(resolvePath(SCRIPT_DIR, 'probe-quarantine.json'));
 const quarantineStatus = (id) => statusFor(quarantine, id);
 const a11yShield = (storyId, rule) => shieldFor(quarantine, storyId, rule);
-
-/**
- * axe over the rendered story, once its play function has settled.
- *
- * Scoped to the story root so Storybook's own preview chrome is not blamed on
- * the story, and limited to violations — the passes and incomplete sets are
- * large and nothing reads them.
- */
-async function runAxe(page, storyId) {
-  await page.addScriptTag({ path: AXE_PATH });
-  const violations = await page.evaluate(async (axeTimeoutMs) => {
-    const root = document.querySelector('#storybook-root') ?? document.body;
-    // @storybook/addon-a11y bundles an axe of its own. The story URL turns its
-    // automatic pass off, but a pass it had already begun is still in flight,
-    // and axe refuses to run twice at once — so wait that one out.
-    // axe gets its own deadline, IN THE PAGE. `page.evaluate` has no timeout of
-    // its own, so an axe pass that never settles hangs the probe on a story
-    // that already rendered and already passed its own assertions — which is
-    // what `mocked-app-sidebar--right-click-context-menus` did: the story is
-    // fine, the scan of its tree is what never came back. A sentinel rather
-    // than a rejection, so the caller can say "the scan timed out" instead of
-    // reporting the story as broken.
-    const withDeadline = (promise) =>
-      Promise.race([
-        promise,
-        new Promise((resolve) => setTimeout(() => resolve('axe-timeout'), axeTimeoutMs)),
-      ]);
-
-    for (let attempt = 0; attempt < 20; attempt++) {
-      try {
-        const run = await withDeadline(window.axe.run(root, { resultTypes: ['violations'] }));
-        if (run === 'axe-timeout') return 'axe-timeout';
-        const inTerminalGrid = (node) =>
-          node.target.length === 1 &&
-          document.querySelector(node.target[0])?.closest('.terminal-content') != null;
-        return run.violations
-          .map((v) =>
-            v.id === 'color-contrast'
-              ? { ...v, nodes: v.nodes.filter((n) => !inTerminalGrid(n)) }
-              : v,
-          )
-          .filter((v) => v.nodes.length > 0)
-          .map((v) => ({
-            id: v.id,
-            impact: v.impact,
-            help: v.help,
-            helpUrl: v.helpUrl,
-            nodes: v.nodes.slice(0, 3).map((n) => n.target.join(' ')),
-          }));
-      } catch (err) {
-        if (!/already running/i.test(err?.message ?? '')) throw err;
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }
-    throw new Error('axe never got a turn — the addon pass never finished');
-  }, AXE_TIMEOUT_MS);
-  // A scan that ran out of time reports nothing rather than failing the story:
-  // the story itself rendered and asserted fine, and a missing a11y result is
-  // not evidence of a violation.
-  if (violations === 'axe-timeout') {
-    process.stdout.write(`  NOTE  ${storyId}: a11y scan timed out after ${AXE_TIMEOUT_MS}ms\n`);
-    return [];
-  }
-  return violations.map((v) => ({
-    ...v,
-    blocking: BLOCKING_IMPACTS.has(v.impact) && !a11yShield(storyId, v.id),
-    shield: a11yShield(storyId, v.id),
-  }));
-}
 
 async function probeStory(browser, id, attempt) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -214,7 +140,7 @@ async function probeStory(browser, id, attempt) {
     // already being reported and its axe result would just be noise.
     if (result.ok && RUN_A11Y) {
       try {
-        result.a11y = await runAxe(page, id);
+        result.a11y = await runAxe(page, id, AXE_TIMEOUT_MS, a11yShield);
         if (result.a11y.some((v) => v.blocking)) {
           result.ok = false;
           result.reason = 'a11y';
@@ -411,77 +337,6 @@ try {
   await browser.close();
 }
 
-const failed = results.filter((r) => !r.ok);
-const blocking = failed.filter((r) => !quarantineStatus(r.id).shielded);
-const shielded = failed.filter((r) => quarantineStatus(r.id).shielded);
-console.log('');
-console.log(
-  `results: ${results.length - failed.length} passed, ${blocking.length} failed, ${shielded.length} quarantined-failure`,
-);
-
-const shieldNote = (f) => {
-  const { entry } = quarantineStatus(f.id);
-  return entry && `quarantined until ${entry.expires}: ${entry.reason}`;
-};
-printFailures(blocking, 'failures', shieldNote);
-printFailures(shielded, 'quarantined failures (reported, not blocking)', shieldNote);
-
-const slowest = [...results].sort((a, b) => b.seconds - a.seconds).slice(0, 10);
-console.log('\nslowest stories:');
-for (const r of slowest) console.log(`  ${r.seconds.toFixed(1).padStart(6)}s  ${r.id}`);
-
-// A shielded timeout that the entry does not declare: every run pays the
-// deadline for it until the entry says `failure: "probe-timeout"` and the
-// story is tagged nightly (timeoutsOutOfTier then holds the commit tier to it).
-const undeclared = shielded.filter(
-  (r) => r.reason === 'probe-timeout' && quarantineStatus(r.id).entry.failure !== 'probe-timeout',
-);
-if (undeclared.length > 0) {
-  console.log('\nquarantined stories that timed out — mark the entry `failure: "probe-timeout"`:');
-  for (const r of undeclared) console.log(`  - ${r.id}`);
-}
-
-// Every a11y violation is printed, whatever its impact — the ones that gate
-// are already in the failure report above, and the rest are the backlog.
-const nonGating = new Map();
-for (const r of results) {
-  for (const v of r.a11y ?? []) {
-    if (v.blocking) continue;
-    const key = `${r.id}\u0000${v.id}`;
-    if (!nonGating.has(key)) nonGating.set(key, { story: r.id, ...v });
-  }
-}
-if (nonGating.size > 0) {
-  console.log('\naccessibility findings that do not gate:');
-  for (const v of nonGating.values()) {
-    const why = v.shield ? `quarantined until ${v.shield.expires}: ${v.shield.reason}` : 'reported';
-    console.log(`  - ${v.story} [${v.impact}] ${v.id}: ${v.help} (${why})`);
-    console.log(`      ${v.nodes.join(', ')}`);
-    console.log(`      ${v.helpUrl}`);
-  }
-}
-const a11yExpired = quarantine.a11y.filter((e) => e.expires <= quarantine.today);
-if (a11yExpired.length > 0) {
-  console.log('\na11y quarantine entries that have EXPIRED and no longer shield anything:');
-  for (const e of a11yExpired) {
-    console.log(`  - ${e.id} / ${e.rule} (expired ${e.expires}): ${e.reason}`);
-  }
-}
-
-// A quarantined story that never failed has earned its way out of the list.
-const everFailed = new Set(failed.map((r) => r.id));
-const probed = new Set(ids);
-const ready = [...quarantine.byId.values()].filter(
-  (e) => probed.has(e.id) && !everFailed.has(e.id),
-);
-if (ready.length > 0) {
-  console.log('\nquarantined stories that passed — remove them from probe-quarantine.json:');
-  for (const e of ready) console.log(`  - ${e.id} (expires ${e.expires})`);
-}
-const expired = [...quarantine.byId.values()].filter((e) => e.expires <= quarantine.today);
-if (expired.length > 0) {
-  console.log('\nquarantine entries that have EXPIRED and no longer shield anything:');
-  for (const e of expired) console.log(`  - ${e.id} (expired ${e.expires}): ${e.reason}`);
-}
+const blocking = printProbeSummary({ results, ids, quarantine, quarantineStatus });
 
 process.exit(blocking.length === 0 ? 0 : 1);

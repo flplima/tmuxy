@@ -24,75 +24,24 @@
  */
 export const V86_DEFAULT_COLS = 80;
 export const V86_DEFAULT_ROWS = 30;
-import type { PaneContent, ServerStateEncoded, StateUpdateEncoded } from '../../../../domain/wire';
-
-const WASM_JS = '/wasm/tmuxy_wasm.js';
-const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';
-const V86_WASM = '/v86/v86.wasm';
-const STATE_URL = '/v86-img/tmux-state.bin';
-const STATE_GZ_URL = '/v86-img/tmux-state.bin.gz';
-const SEABIOS_URL = '/v86-img/seabios.bin';
-const VGABIOS_URL = '/v86-img/vgabios.bin';
-const BZIMAGE_URL = '/v86-img/buildroot-bzimage.bin';
-const CMDLINE = 'tsc=reliable mitigations=off random.trust_cpu=on';
-// The snapshot has session `m` with tmux already running; attach a fresh control
-// client each boot/reset (the snapshot predates any control-mode attach).
-const ATTACH = '/tmp/tb/tmux -CC attach -t m\n';
-
-// Guest bootstrap commands sent after every attach. Everything durable
-// (script paths, command-aliases, config, PS1, symlinks) is BAKED into the
-// snapshot by scripts/build-v86-snapshot.mjs — snapshot restores rewind the
-// filesystem, so only per-attach setup belongs here: the same session-level
-// settings the native monitor's enforce_settings() applies on connect
-// (allow-passthrough gates image/hyperlink OSC forwarding; pane-border-status
-// top is assumed by PaneLayout's geometry).
-const GUEST_SETUP: string[] = [
-  // GLOBAL (-g) so EVERY window — including tabs born later from
-  // `new-window` → splitw+breakp — inherits it. Without -g it's a per-window
-  // option that only lands on the window active at attach, leaving new tabs at
-  // pane y=0 where PaneHeader steals the first content row. tmux 3.7a in the
-  // guest has no issue with -g here (the 3.5a control-mode caveat that keeps the
-  // native monitor per-session does not apply to this emulator).
-  'set -g pane-border-status top',
-  "set -g pane-border-format ' '",
-  'set mouse on',
-  'set focus-events on',
-  'set allow-passthrough on',
-  'set allow-rename on',
-  'set set-titles on',
-  'setw -g aggressive-resize off',
-];
-
-interface V86Emulator {
-  add_listener(event: string, cb: (arg: number) => void): void;
-  serial0_send(data: string): void;
-  restore_state(state: ArrayBuffer): Promise<void>;
-  /** Start the CPU. Used to boot from an explicitly-restored snapshot (the
-   *  constructor runs with `autostart: false`; see doBoot). */
-  run(): Promise<void>;
-  destroy?: () => Promise<void>;
-  /** v86's ScreenAdapter — present once a `screen_container` was supplied. */
-  screen_adapter?: { pause(): void; continue(): void };
-}
-interface FeedOutput {
-  updates: StateUpdateEncoded[];
-  commands: string[];
-  clipboard: [string, string][];
-  /** (success, first output line) per %begin/%end/%error block, in order. */
-  responses: [boolean, string][];
-}
-interface WasmCore {
-  feed(text: string): FeedOutput;
-  tick(): FeedOutput;
-  snapshot(): ServerStateEncoded;
-  initial_sync(): string[];
-  image_url(paneId: string, imageId: number): string | undefined;
-  parse_scrollback(text: string, width: number): PaneContent;
-}
-interface WasmModule {
-  default(input?: string): Promise<unknown>;
-  WasmTmux: new (session: string) => WasmCore;
-}
+import type { PaneContent, ServerStateEncoded } from '../../../../domain/wire';
+import {
+  ATTACH,
+  CaptureBook,
+  createDetachedScreen,
+  createV86Emulator,
+  EMPTY_STATE,
+  encodeUtf8SerialBytes,
+  fetchGuestSnapshot,
+  GUEST_SETUP,
+  loadWasmModule,
+  TrackedCommandBook,
+  wait,
+  type FeedOutput,
+  type V86Emulator,
+  type WasmCore,
+  type WasmModule,
+} from './v86Guest';
 
 /** Where the engine forwards reconstructed state + clipboard writes. */
 export interface EngineSink {
@@ -102,18 +51,6 @@ export interface EngineSink {
    *  client was detached. Non-recoverable for this attach. */
   onFatal(message: string): void;
 }
-
-const EMPTY_STATE: ServerStateEncoded = {
-  session_name: 'm',
-  active_window_id: null,
-  active_pane_id: null,
-  panes: [],
-  windows: [],
-  total_width: 64,
-  total_height: 20,
-};
-
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export class V86Engine {
   private emu: V86Emulator | null = null;
@@ -126,39 +63,14 @@ export class V86Engine {
   private writing = false;
   /** Rolling tail of the serial stream for cross-chunk %exit detection. */
   private exitTail = '';
-  // Tracked-command correlation. Control mode replies strictly in send order,
-  // but the core also sends its own commands (captures, list-panes), so we
-  // don't count blocks — we BRACKET each tracked command between two
-  // display-message markers: every response between the start marker and the
-  // end marker belongs to the tracked command. Counting segments was tried
-  // and desyncs whenever a command argument contains a quoted ` ; ` (the
-  // count overshoots and the tracker steals unrelated responses, shifting
-  // every later correlation — the misattributed-outcome bug).
-  private trackSeq = 0;
-  private trackers = new Map<
-    string,
-    {
-      ok: boolean;
-      message: string;
-      resolve(r: { ok: boolean; message: string }): void;
-    }
-  >();
-  private armedTracker: string | null = null;
+  private readonly trackedCommands = new TrackedCommandBook();
+  private readonly captureBook = new CaptureBook();
   private attached = false;
   private lastState: ServerStateEncoded = EMPTY_STATE;
   private readonly decoder = new TextDecoder();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private resolveFirstState: (() => void) | null = null;
-
-  // Scrollback capture (client-side copy mode) — see captureScrollback().
-  private captureSeq = 0;
-  private captures = new Map<
-    string,
-    { lines: string[]; resolve: (text: string) => void; timer: ReturnType<typeof setTimeout> }
-  >();
-  private activeCaptureId: string | null = null;
-  private captureLineBuf = '';
 
   /** The sink for the CURRENTLY-attached adapter (null between stories). */
   private sink: EngineSink | null = null;
@@ -171,12 +83,7 @@ export class V86Engine {
    * to the tmuxy rendering. See stories/vgaMirror.ts. Painting is paused until
    * a viewer asks for it, so an unused screen costs nothing per frame.
    */
-  private readonly screen: HTMLElement = (() => {
-    const el = document.createElement('div');
-    el.appendChild(document.createElement('div'));
-    el.appendChild(document.createElement('canvas'));
-    return el;
-  })();
+  private readonly screen: HTMLElement = createDetachedScreen();
   /** Fired after every successful attach (cold boot or snapshot reset). */
   private readyListeners = new Set<() => void>();
 
@@ -238,58 +145,7 @@ export class V86Engine {
    * capture is collecting at a time. Falls back to empty text on timeout.
    */
   captureScrollback(paneId: string, start: number, end: number): Promise<string> {
-    const id = String(++this.captureSeq);
-    const startMark = `TMUXY_CAP_START_${id}`;
-    const endMark = `TMUXY_CAP_END_${id}`;
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.captures.delete(id)) {
-          if (this.activeCaptureId === id) this.activeCaptureId = null;
-          resolve('');
-        }
-      }, 15000);
-      this.captures.set(id, { lines: [], resolve, timer });
-      this.send(
-        `display-message -p '${startMark}' ; ` +
-          `capture-pane -t ${paneId} -p -e -S ${start} -E ${end} ; ` +
-          `display-message -p '${endMark}'`,
-      );
-    });
-  }
-
-  /**
-   * Scan a raw control-mode chunk for scrollback-capture markers and collect
-   * the lines between them. Skips control-mode framing (`%begin`/`%end`/…) so
-   * only real captured content is kept.
-   */
-  private scanCaptures(chunk: string): void {
-    this.captureLineBuf += chunk;
-    const parts = this.captureLineBuf.split('\n');
-    // Keep the trailing partial line for the next chunk.
-    this.captureLineBuf = parts.pop() ?? '';
-    for (const raw of parts) {
-      const line = raw.replace(/\r$/, '');
-      const startIdx = line.indexOf('TMUXY_CAP_START_');
-      if (startIdx !== -1) {
-        this.activeCaptureId = line.slice(startIdx + 'TMUXY_CAP_START_'.length).trim();
-        continue;
-      }
-      const endIdx = line.indexOf('TMUXY_CAP_END_');
-      if (endIdx !== -1) {
-        const id = line.slice(endIdx + 'TMUXY_CAP_END_'.length).trim();
-        const cap = this.captures.get(id);
-        if (cap) {
-          clearTimeout(cap.timer);
-          this.captures.delete(id);
-          cap.resolve(cap.lines.join('\n'));
-        }
-        if (this.activeCaptureId === id) this.activeCaptureId = null;
-        continue;
-      }
-      if (this.activeCaptureId !== null && !/^%(begin|end|error)\b/.test(line)) {
-        this.captures.get(this.activeCaptureId)?.lines.push(line);
-      }
-    }
+    return this.captureBook.captureScrollback(paneId, start, end, (cmd) => this.send(cmd));
   }
 
   /**
@@ -321,47 +177,14 @@ export class V86Engine {
   }
 
   private async doBoot(initCommands: string[]): Promise<void> {
-    const wasm = (await import(/* @vite-ignore */ WASM_JS)) as unknown as WasmModule;
-    await wasm.default(WASM_BG);
+    const wasm = await loadWasmModule();
     this.wasmModule = wasm;
     this.core = new wasm.WasmTmux('m');
 
-    const { V86 } = (await import('v86')) as unknown as {
-      V86: new (opts: Record<string, unknown>) => V86Emulator;
-    };
-    // Construct WITHOUT `initial_state` and WITHOUT autostart: v86 does NOT
-    // zstd-decompress an `initial_state` URL (it skips decompression for that
-    // resource specifically — build/libv86 `f.url.endsWith(".zst") && "initial_state"
-    // !== f.name`), so handing it the .zst fed raw compressed bytes to
-    // restore_state, which failed and silently fell back to a full kernel cold
-    // boot (~30s, and flaky). Instead we replicate v86's own initial_state
-    // sequence — init → restore_state → run — but restore the snapshot OURSELVES
-    // from correctly-inflated bytes (fetchSnapshot: .gz via DecompressionStream,
-    // or the raw .bin), the same path the warm reset() already uses. Start the
-    // snapshot fetch now so it overlaps machine init.
+    // Start the snapshot fetch now so it overlaps machine init.
     const snapshotBytes = this.fetchSnapshot();
-    const emu: V86Emulator = new V86({
-      wasm_path: V86_WASM,
-      bios: { url: SEABIOS_URL },
-      vga_bios: { url: VGABIOS_URL },
-      bzimage: { url: BZIMAGE_URL },
-      cmdline: CMDLINE,
-      filesystem: {},
-      memory_size: 64 * 1024 * 1024,
-      vga_memory_size: 2 * 1024 * 1024,
-      disable_keyboard: true,
-      disable_mouse: true,
-      screen_container: this.screen,
-      autostart: false,
-    });
-    // Machine-initialized signal (fired after v86's own init, before any run):
-    // register before any await so a fast init can't beat us to it.
-    const loaded = new Promise<void>((resolve) =>
-      emu.add_listener('emulator-loaded', () => resolve()),
-    );
+    const { emu, loaded } = await createV86Emulator(this.screen);
     this.emu = emu;
-    // Nobody is looking at the VGA console yet — see `screen`.
-    emu.screen_adapter?.pause();
 
     // Serve inline terminal-image bytes from the CURRENT wasm store (no backend).
     (
@@ -377,7 +200,7 @@ export class V86Engine {
       const chunk = serialBuf;
       serialBuf = '';
       if (!chunk || !this.attached || !this.core) return;
-      if (this.captures.size > 0) this.scanCaptures(chunk);
+      if (this.captureBook.hasPending()) this.captureBook.scanChunk(chunk);
       this.emit(this.core.feed(chunk));
       // `%exit` ends the control-mode conversation (server died / kill-server /
       // last session closed). Surface it as a fatal so the app can show its
@@ -426,30 +249,12 @@ export class V86Engine {
     await this.start(initCommands, false);
   }
 
-  /** Fetch the machine snapshot, preferring the gzip + local inflate (half
-   *  the wire size); falls back to the raw file when the .gz or
-   *  DecompressionStream is unavailable. Cached — reset() reuses the bytes. */
+  /** Fetch the machine snapshot (cached — reset() reuses the bytes). */
   private async fetchSnapshot(): Promise<ArrayBuffer> {
     if (this.snapshotBytes) return this.snapshotBytes;
-    if (typeof DecompressionStream !== 'undefined') {
-      const res = await fetch(STATE_GZ_URL);
-      if (res.ok && res.body) {
-        // If the server declared `Content-Encoding: gzip` the browser already
-        // inflated the body — piping it through DecompressionStream again would
-        // double-inflate and corrupt the snapshot. Only inflate ourselves when
-        // the bytes are still compressed.
-        const alreadyInflated = /gzip/i.test(res.headers.get('content-encoding') ?? '');
-        const stream = alreadyInflated
-          ? res.body
-          : res.body.pipeThrough(new DecompressionStream('gzip'));
-        const bytes = await new Response(stream).arrayBuffer();
-        this.snapshotBytes = bytes;
-        return bytes;
-      }
-    }
-    const raw = await fetch(STATE_URL).then((r) => r.arrayBuffer());
-    this.snapshotBytes = raw;
-    return raw;
+    const bytes = await fetchGuestSnapshot();
+    this.snapshotBytes = bytes;
+    return bytes;
   }
 
   /**
@@ -460,18 +265,8 @@ export class V86Engine {
    * swallows lines meant for a fresh one.
    */
   private failInFlight(reason: string): void {
-    const trackers = [...this.trackers.values()];
-    this.trackers.clear();
-    this.armedTracker = null;
-    for (const t of trackers) t.resolve({ ok: false, message: reason });
-    const captures = [...this.captures.values()];
-    this.captures.clear();
-    this.activeCaptureId = null;
-    this.captureLineBuf = '';
-    for (const c of captures) {
-      clearTimeout(c.timer);
-      c.resolve('');
-    }
+    this.trackedCommands.failAll(reason);
+    this.captureBook.failAll();
     this.exitTail = '';
   }
 
@@ -541,7 +336,9 @@ export class V86Engine {
 
   private emit(out: FeedOutput): void {
     if (!this.core || !this.emu) return;
-    for (const [ok, firstLine] of out.responses ?? []) this.onResponse(ok, firstLine);
+    for (const [ok, firstLine] of out.responses ?? []) {
+      this.trackedCommands.onResponse(ok, firstLine);
+    }
     for (const cmd of out.commands) this.send(cmd);
     for (const [paneId, text] of out.clipboard) this.sink?.onClipboard(paneId, text);
     if (out.updates.length === 0) return;
@@ -567,36 +364,6 @@ export class V86Engine {
     }
   }
 
-  private onResponse(ok: boolean, firstLine: string): void {
-    if (this.armedTracker) {
-      const id = this.armedTracker;
-      const t = this.trackers.get(id);
-      if (!t) {
-        this.armedTracker = null;
-        return;
-      }
-      if (firstLine === `TMUXY_RC_END_${id}`) {
-        this.trackers.delete(id);
-        this.armedTracker = null;
-        t.resolve({ ok: t.ok, message: t.message });
-        return;
-      }
-      if (!ok && t.ok) {
-        t.ok = false;
-        t.message = firstLine;
-      }
-      return;
-    }
-    const m = firstLine.match(/^TMUXY_RC_(\d+)$/);
-    if (m && this.trackers.has(m[1])) this.armedTracker = m[1];
-  }
-
-  /** How long a tracked command may go unanswered before it is reported as
-   *  failed. Kept BELOW the store's acked-op backstop (10s) so the rejection
-   *  reaches the op — a rollback with an error message — before the silent
-   *  stale sweep does. */
-  private static readonly TRACK_TIMEOUT_MS = 8000;
-
   /**
    * Send a command (or ` ; `-separated command list) and resolve with its real
    * outcome — success, or the first %error line. The command is bracketed
@@ -608,45 +375,20 @@ export class V86Engine {
    * failing rolls the op back visibly and a resync converges the rest.
    */
   sendTracked(cmd: string): Promise<{ ok: boolean; message: string }> {
-    const id = String(++this.trackSeq);
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.trackers.delete(id)) {
-          if (this.armedTracker === id) this.armedTracker = null;
-          // Converge whatever DID execute; skip when detached (mid-reset —
-          // writing into a rewinding machine corrupts the fresh attach).
-          if (this.attached) this.resync();
-          resolve({
-            ok: false,
-            message: `tmux did not respond within ${V86Engine.TRACK_TIMEOUT_MS}ms — the command may not have executed`,
-          });
-        }
-      }, V86Engine.TRACK_TIMEOUT_MS);
-      this.trackers.set(id, {
-        ok: true,
-        message: '',
-        resolve: (r) => {
-          clearTimeout(timer);
-          resolve(r);
-        },
-      });
-      this.send(
-        `display-message -p 'TMUXY_RC_${id}' ; ${cmd} ; display-message -p 'TMUXY_RC_END_${id}'`,
-      );
-    });
+    return this.trackedCommands.sendTracked(
+      cmd,
+      (line) => this.send(line),
+      () => {
+        // Converge whatever DID execute; skip when detached (mid-reset —
+        // writing into a rewinding machine corrupts the fresh attach).
+        if (this.attached) this.resync();
+      },
+    );
   }
 
   /** Queue a control-mode command; streamed to the guest byte-paced. */
   send(cmd: string): void {
-    const text = cmd.endsWith('\n') ? cmd : `${cmd}\n`;
-    // Enqueue as UTF-8: v86's serial0_send writes one byte per JS char
-    // (charCode & 0xFF), so multibyte characters (CJK from IME composition,
-    // emoji in pasted text) must be expanded to their UTF-8 bytes here — and
-    // the FIFO pacing below must count BYTES, not UTF-16 units.
-    const utf8 = new TextEncoder().encode(text);
-    let bin = '';
-    for (const b of utf8) bin += String.fromCharCode(b);
-    this.byteBuf += bin;
+    this.byteBuf += encodeUtf8SerialBytes(cmd);
     this.drainQueue();
   }
 
