@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -363,10 +364,111 @@ function checkBlindWaitRatchet() {
   }
 }
 
+const MAX_FILE_TOKENS = 5000;
+const BYTES_PER_TOKEN = 4;
+const MAX_FILE_BYTES = MAX_FILE_TOKENS * BYTES_PER_TOKEN;
+
+const TOKEN_LIMIT_IGNORE = [
+  /^package-lock\.json$/,
+  /^Cargo\.lock$/,
+  /(?:^|\/)gen\//,
+  /(?:^|\/)dist\//,
+  /(?:^|\/)pkg\//,
+  /^vendor\//,
+  /\.(?:woff2?|ttf|otf|png|jpg|jpeg|gif|ico|icns|webp|pdf|wasm|svg)$/i,
+];
+
+function splitGuidanceFor(relPath) {
+  if (relPath.endsWith('.stories.tsx')) {
+    return (
+      '  How to split a Storybook file:\n' +
+      '  1. Group stories by feature/interaction into smaller `*.stories.tsx` files.\n' +
+      '  2. Drop low-value visual-only or duplicate permutation stories that do not assert behavior via `play`.\n' +
+      '  3. Move shared story fixtures/helpers to a dedicated helper module (no barrel re-exports).'
+    );
+  }
+  if (relPath.startsWith('packages/tmuxy-ui/src/')) {
+    return (
+      '  How to split a tmuxy-ui source file:\n' +
+      '  1. Extract cohesive sub-components, custom hooks, pure domain helpers, or child actors into sibling files.\n' +
+      '  2. Import directly from concrete module files — `tmuxy/no-barrel-files` forbids `index.ts` and re-export barrels.\n' +
+      '  3. For XState machines, extract action/guard builders or child actors into sibling modules under the same feature directory.'
+    );
+  }
+  if (relPath.endsWith('.rs')) {
+    return (
+      '  How to split a Rust file:\n' +
+      '  1. Extract cohesive domain submodules (`mod <subname>;`) under the parent module directory.\n' +
+      '  2. Move inline `#[cfg(test)] mod tests` blocks into a sibling `tests.rs` submodule or integration tests under `tests/`.\n' +
+      '  3. Separate types/protocol definitions, state transitions, and I/O transport handlers into distinct modules.'
+    );
+  }
+  if (relPath.startsWith('tests/') || relPath.includes('.test.')) {
+    return (
+      '  How to split a test file:\n' +
+      '  1. Split suites by user-visible feature workflow (`<feature>.test.js` / `<module>.<aspect>.test.ts`).\n' +
+      '  2. Extract shared setup and assertion helpers into `tests/helpers/`.\n' +
+      '  3. Consolidate redundant tests that cover the same user path (one feature, one end-to-end test).'
+    );
+  }
+  return (
+    '  How to split this file:\n' +
+    '  1. Break the file into smaller, single-responsibility modules or topic files under 5,000 tokens (20,000 bytes).\n' +
+    '  2. Reference extracted modules directly rather than creating barrel files.'
+  );
+}
+
+function getStagedFileBytes(relPath) {
+  try {
+    const out = execFileSync('git', ['cat-file', '-s', `:${relPath}`], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const bytes = Number(out);
+    if (Number.isFinite(bytes)) return bytes;
+  } catch {
+    // Fallback to working tree size if index lookup fails
+  }
+  const full = path.join(root, relPath);
+  return fs.existsSync(full) ? fs.statSync(full).size : 0;
+}
+
+function checkStagedFileTokenLimit() {
+  let stagedOutput = '';
+  try {
+    stagedOutput = execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACM'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return;
+  }
+
+  const stagedFiles = stagedOutput
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const relPath of stagedFiles) {
+    if (TOKEN_LIMIT_IGNORE.some((re) => re.test(relPath))) continue;
+    const bytes = getStagedFileBytes(relPath);
+    const tokens = Math.ceil(bytes / BYTES_PER_TOKEN);
+    if (tokens > MAX_FILE_TOKENS) {
+      addError(
+        `[file-size] Staged file ${relPath} is ${tokens.toLocaleString()} tokens (${bytes.toLocaleString()} bytes), exceeding the ${MAX_FILE_TOKENS.toLocaleString()}-token (${MAX_FILE_BYTES.toLocaleString()}-byte) hard cap (tokens = bytes / 4).\n` +
+          splitGuidanceFor(relPath),
+      );
+    }
+  }
+}
+
 checkControlModeEnforcement();
 checkWorkflowInvariants();
 checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
+checkStagedFileTokenLimit();
 
 if (errors.length > 0) {
   console.error('Repo policy checks failed:\n');

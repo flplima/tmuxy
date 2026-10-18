@@ -92,6 +92,9 @@ cargo fmt -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app
 # Re-stage any staged files formatted by cargo fmt
 restage packages/tmuxy-core packages/tmuxy-server packages/tmuxy-tauri-app
 
+echo "Checking repo policy (including 5,000-token staged file limit)..."
+npm run check:policy
+
 # -D warnings matches CI exactly. Without it a clippy warning passed here and
 # failed there — the single largest source of avoidable CI reds.
 echo "Checking Rust (cargo clippy)..."
