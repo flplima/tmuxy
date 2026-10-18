@@ -27,13 +27,13 @@
   --bg-dark-alt: #242424;
   --bg-medium: #32302f;
   --bg-elevated-alt: #3c3836;
-  --bg-highlight: #504945;
+  --bg-highlight: #3d3937;
   --bg-highlight-alt: #665c54;
 
   --text-primary: #ebdbb2;
   --text-secondary: #d5c4a1;
   --text-muted: #a89984;
-  --text-dimmed: #928374;
+  --text-dimmed: #a69682;
   --text-subtle: #665c54;
   /* Status-bar text: white on the dark-gray status background */
   --text-dark: #ebdbb2;
@@ -45,7 +45,7 @@
      outline and its title alike. */
   --theme-accent: var(--term-yellow);
   --pane-header-text-active: var(--theme-accent);
-  --pane-header-text-inactive: #928374;
+  --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #98971a;
   --accent-orange: #fe8019;
@@ -70,12 +70,10 @@
   /* Status bar: dark gray (instead of olive green) */
   --tmux-status-bg: #3c3836;
 
-
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
 }
-
 
 :root.theme-light {
   --term-black: #fbf1c7;
@@ -102,15 +100,15 @@
   --window-bg-rgb: 242, 229, 188;
   --bg-dark: #f2e5bc;
   --bg-dark-alt: #ebdbb2;
-  --bg-medium: #d5c4a1;
+  --bg-medium: #f0e3ba;
   --bg-elevated-alt: #c9b89a;
-  --bg-highlight: #bdae93;
+  --bg-highlight: #f0e3ba;
   --bg-highlight-alt: #a89984;
 
   --text-primary: #3c3836;
   --text-secondary: #504945;
   --text-muted: #665c54;
-  --text-dimmed: #928374;
+  --text-dimmed: #58504a;
   --text-subtle: #a89984;
 
   --border-medium: #d5c4a1;
@@ -119,7 +117,7 @@
   /* Gruvbox's yellow, a shade darker so it reads at 4.5:1 on the cream. */
   --theme-accent: #8b5b0f;
   --pane-header-text-active: var(--theme-accent);
-  --pane-header-text-inactive: #928374;
+  --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #797403;
   --accent-orange: #af3a03;
@@ -144,7 +142,6 @@
   /* Status bar: dark gray with cream text (matches dark mode treatment) */
   --tmux-status-bg: #3c3836;
   --text-dark: #ebdbb2;
-
 
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.25);

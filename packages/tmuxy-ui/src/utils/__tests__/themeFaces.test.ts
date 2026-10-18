@@ -156,6 +156,53 @@ describe('theme faces', () => {
     },
   );
 
+  // The chrome's text is quiet by tier, never by opacity: each tier is a
+  // colour that still reads at 4.5:1 on every ground it is drawn on — the
+  // chrome (the strip, the tree's tab rows), the panes, the tree's pane rows
+  // (--bg-medium), and the keyboard cursor's band in the tree (--bg-highlight).
+  it.each(FACES.map((f) => [f.name, f] as const))(
+    '%s: every text tier reads at 4.5:1 on the grounds it is drawn on',
+    (_, face) => {
+      const pairs: Array<[string, string]> = [
+        ['--text-primary', '--window-bg-rgb'],
+        ['--text-primary', '--bg-medium'],
+        ['--text-primary', '--term-background'],
+        ['--text-primary', '--bg-dark-alt'],
+        ['--text-secondary', '--window-bg-rgb'],
+        ['--text-secondary', '--bg-medium'],
+        ['--text-dimmed', '--window-bg-rgb'],
+        ['--text-dimmed', '--bg-medium'],
+        ['--text-dimmed', '--term-background'],
+        ['--pane-header-text-inactive', '--window-bg-rgb'],
+        ['--theme-accent', '--bg-medium'],
+        ['--text-primary', '--bg-highlight'],
+        ['--theme-accent', '--bg-highlight'],
+      ];
+      for (const [fg, bg] of pairs) {
+        const what = `${fg} on ${bg}`;
+        const ratio = contrast(colorOf(face, fg), colorOf(face, bg));
+        expect({ what, ok: ratio >= 4.5 }).toEqual({ what, ok: true });
+      }
+      // A pane's header: 30% of --border-medium over the pane (`.pane-header`).
+      const border = colorOf(face, '--border-medium');
+      const pane = colorOf(face, '--term-background');
+      const header = border.map((c, i) => Math.round(c * 0.3 + pane[i] * 0.7)) as [
+        number,
+        number,
+        number,
+      ];
+      for (const fg of [
+        '--theme-accent',
+        '--pane-header-text-active',
+        '--pane-header-text-inactive',
+      ]) {
+        const what = `${fg} on a pane header`;
+        const ratio = contrast(colorOf(face, fg), header);
+        expect({ what, ok: ratio >= 4.5 }).toEqual({ what, ok: true });
+      }
+    },
+  );
+
   it.each(FACES.filter((f) => f.mode === 'dark').map((f) => [f.name, f] as const))(
     '%s: the chrome is a step lighter than the panes',
     (_, face) => {

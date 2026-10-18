@@ -31,7 +31,10 @@
  * Accessibility: every story is also scanned with axe-core once its play
  * function has settled. `critical` and `serious` violations fail the job;
  * `moderate` and `minor` are printed and do not gate — a gate nobody can get
- * green gets switched off, which is worse than no gate.
+ * green gets switched off, which is worse than no gate. One scope rule:
+ * `color-contrast` is not applied inside a terminal grid (`.terminal-content`):
+ * its colours are the program's output in the theme's ANSI palette, not the
+ * app's chrome. Every other rule still scans the grid.
  *
  * Quarantine: scripts/probe-quarantine.json lists stories whose failures are
  * reported but do not fail the job, and a11y rules that are reported but do
@@ -106,13 +109,23 @@ async function runAxe(page, storyId) {
       try {
         const run = await withDeadline(window.axe.run(root, { resultTypes: ['violations'] }));
         if (run === 'axe-timeout') return 'axe-timeout';
-        return run.violations.map((v) => ({
-          id: v.id,
-          impact: v.impact,
-          help: v.help,
-          helpUrl: v.helpUrl,
-          nodes: v.nodes.slice(0, 3).map((n) => n.target.join(' ')),
-        }));
+        const inTerminalGrid = (node) =>
+          node.target.length === 1 &&
+          document.querySelector(node.target[0])?.closest('.terminal-content') != null;
+        return run.violations
+          .map((v) =>
+            v.id === 'color-contrast'
+              ? { ...v, nodes: v.nodes.filter((n) => !inTerminalGrid(n)) }
+              : v,
+          )
+          .filter((v) => v.nodes.length > 0)
+          .map((v) => ({
+            id: v.id,
+            impact: v.impact,
+            help: v.help,
+            helpUrl: v.helpUrl,
+            nodes: v.nodes.slice(0, 3).map((n) => n.target.join(' ')),
+          }));
       } catch (err) {
         if (!/already running/i.test(err?.message ?? '')) throw err;
         await new Promise((r) => setTimeout(r, 250));

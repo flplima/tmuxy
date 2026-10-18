@@ -27,13 +27,13 @@
   --bg-dark-alt: #002730;
   --bg-medium: #073642;
   --bg-elevated-alt: #0a4050;
-  --bg-highlight: #1a5060;
+  --bg-highlight: #083743;
   --bg-highlight-alt: #2a6070;
 
   --text-primary: #93a1a1;
-  --text-secondary: #839496;
+  --text-secondary: #8c9c9c;
   --text-muted: #657b83;
-  --text-dimmed: #586e75;
+  --text-dimmed: #8d9c9d;
   --text-subtle: #4a6068;
   --text-dark: #002b36;
 
@@ -41,7 +41,7 @@
   --border-light: #0a4050;
 
   --pane-header-text-active: #93a1a1;
-  --pane-header-text-inactive: #586e75;
+  --pane-header-text-inactive: var(--text-dimmed);
 
   /* Solarized green, a touch lighter so the active tab reads at 4.5:1 on the
      base02 chrome. */
@@ -98,16 +98,16 @@
   --bg-black: #fdf6e3;
   --window-bg-rgb: 245, 239, 220;
   --bg-dark: #f5efdc;
-  --bg-dark-alt: #eee8d5;
-  --bg-medium: #e0dac8;
+  --bg-dark-alt: #f2ecd9;
+  --bg-medium: #f2ecd9;
   --bg-elevated-alt: #d4cebc;
-  --bg-highlight: #c8c2b0;
+  --bg-highlight: #f2ecd9;
   --bg-highlight-alt: #b0aca0;
 
   --text-primary: #586e75;
-  --text-secondary: #657b83;
+  --text-secondary: #586e75;
   --text-muted: #839496;
-  --text-dimmed: #93a1a1;
+  --text-dimmed: #586e75;
   --text-subtle: #a8b0b0;
   --text-dark: #fdf6e3;
 
@@ -115,7 +115,7 @@
   --border-light: #d4cebc;
 
   --pane-header-text-active: #586e75;
-  --pane-header-text-inactive: #93a1a1;
+  --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #627100;
   --theme-accent: var(--accent-green);

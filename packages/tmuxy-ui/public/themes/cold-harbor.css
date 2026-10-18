@@ -47,7 +47,7 @@
   --text-primary: var(--cold-fg);
   --text-secondary: #3da0e0;
   --text-muted: var(--cold-fg-dim);
-  --text-dimmed: #1e6090;
+  --text-dimmed: #3488c3;
   --text-subtle: var(--cold-fg-faint);
   --text-dark: var(--cold-bg);
 
@@ -55,7 +55,7 @@
   --border-light: #1f3a5e;
 
   --pane-header-text-active: var(--cold-fg);
-  --pane-header-text-inactive: var(--cold-fg-dim);
+  --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: var(--cold-fg);
   --theme-accent: var(--accent-green);
@@ -133,7 +133,7 @@
   --text-primary: var(--cold-light-fg);
   --text-secondary: #2a4a65;
   --text-muted: var(--cold-light-fg-dim);
-  --text-dimmed: #6a8a9e;
+  --text-dimmed: #334f68;
   --text-subtle: var(--cold-light-fg-faint);
   --text-dark: var(--cold-light-bg);
 
@@ -141,7 +141,7 @@
   --border-light: #98acac;
 
   --pane-header-text-active: var(--cold-light-fg);
-  --pane-header-text-inactive: var(--cold-light-fg-dim);
+  --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: var(--cold-light-fg);
   --theme-accent: var(--accent-green);

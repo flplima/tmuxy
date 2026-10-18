@@ -42,16 +42,18 @@
   --window-bg-rgb: 30, 30, 30;
   --bg-dark: #1e1e1e;
   --bg-dark-alt: #252526;
-  --bg-medium: #2d2d2d;
+  --bg-medium: #252526;
   --bg-elevated-alt: #3d3d3d;
-  --bg-highlight: #4a4a4a;
+  --bg-highlight: #434343;
   --bg-highlight-alt: #5a5a5a;
 
   /* Colors - Text */
   --text-primary: var(--term-white);
   --text-secondary: #cccccc;
   --text-muted: #a0a0a0;
-  --text-dimmed: var(--term-bright-black);
+  /* Every text tier reads at 4.5:1 on the chrome, the panes and --bg-medium
+     (utils/__tests__/themeFaces.test.ts holds each face to it). */
+  --text-dimmed: #8c8c8c;
   --text-subtle: #6a6a6a;
   --text-dark: #1e1e1e;
 
@@ -61,7 +63,7 @@
 
   /* Colors - Pane Header */
   --pane-header-text-active: var(--term-bright-white);
-  --pane-header-text-inactive: var(--term-bright-black);
+  --pane-header-text-inactive: var(--text-dimmed);
 
   /* Colors - Accent (Green) */
   --accent-green: var(--term-green);
@@ -1379,10 +1381,6 @@
   font-weight: bold;
 }
 
-.statusline-hint-desc {
-  opacity: 0.7;
-}
-
 .statusline-separator {
   opacity: 0.3;
 }
@@ -1815,7 +1813,7 @@
   font-size: 0.85em;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-subtle);
+  color: var(--text-dimmed);
 }
 
 .widget-session-heading:not(:first-child) {
@@ -1866,7 +1864,6 @@
 .widget-session-meta {
   flex: 0 0 auto;
   font-size: 0.85em;
-  opacity: 0.7;
 }
 
 /* The verbs, pinned under the list. */
@@ -1878,7 +1875,7 @@
   padding: var(--spacing-lg) var(--spacing-2xl) 0;
   border-top: 1px solid var(--border-medium);
   font-size: 0.85em;
-  color: var(--text-subtle);
+  color: var(--text-dimmed);
 }
 
 .widget-session-actions kbd {
@@ -2115,8 +2112,11 @@
   font-style: italic;
 }
 
+/* The message in the readable text colour; the red is the edge that says
+   what it is (a red on the panel would not read at 4.5:1 on every theme). */
 .widget-markdown-error {
-  color: var(--term-red);
+  color: var(--text-primary);
+  border-left: 3px solid var(--error-color);
   background: var(--bg-dark-alt);
   padding: 8px 12px;
   border-radius: var(--radius-md);
@@ -2227,19 +2227,21 @@
 }
 
 /* A column is chrome: it paints no ground of its own, so the window's grey
-   runs on behind the tree and only the panes are dark. It shows whether it has
-   the keyboard the way a pane's text does, from the same setting: its content
-   sits at the inactive text opacity (`@tmuxy-inactive-text-opacity`) until it
-   takes the keyboard — on the same quick clock a pane's focus change uses. And
-   its divider, the full-height line facing the pane grid, takes the active
+   runs on behind the tree and only the panes are dark. The pinned terminal
+   shows whether it has the keyboard the way a pane's text does, from the same
+   setting: its content sits at the inactive text opacity
+   (`@tmuxy-inactive-text-opacity`) until it takes the keyboard — on the same
+   quick clock a pane's focus change uses. The tree is not dimmed: its text is
+   chrome, held at 4.5:1 by its own tiers, and its title says whether it has
+   the keyboard. And a column's divider, the full-height line facing the pane grid, takes the active
    pane's border colour while it holds the keyboard; the matching half of the
    line is drawn by the header cluster above (.statusbar-cluster-*.is-docked). */
-.sidebar-column > .sidebar-body > * {
+.sidebar-column-right > .sidebar-body > * {
   opacity: var(--inactive-text-opacity);
   transition: opacity var(--transition-active);
 }
 
-.sidebar-column.is-focused > .sidebar-body > * {
+.sidebar-column-right.is-focused > .sidebar-body > * {
   opacity: var(--active-text-opacity);
 }
 
@@ -2359,7 +2361,7 @@
   padding: 0 var(--spacing-2xl);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-sidebar-font-size, calc(var(--tmuxy-font-size, 15px) * 0.8));
-  color: var(--term-white);
+  color: var(--text-primary);
   border-bottom: 1px solid var(--border-medium);
 }
 
@@ -2445,7 +2447,7 @@
 }
 
 .sidebar-start-failed code {
-  color: var(--term-white);
+  color: var(--text-primary);
 }
 
 .sidebar-start-failed-close {
@@ -2454,7 +2456,7 @@
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   background: var(--bg-medium);
-  color: var(--term-white);
+  color: var(--text-primary);
   font: inherit;
   cursor: pointer;
 }
@@ -2470,7 +2472,7 @@
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   background: var(--bg-medium);
-  color: var(--term-white);
+  color: var(--text-primary);
   font: inherit;
   cursor: pointer;
 }
@@ -2538,7 +2540,7 @@
 }
 
 .sidebar-tree-tab.is-active {
-  color: var(--term-white);
+  color: var(--text-primary);
   background: color-mix(in srgb, var(--term-foreground) 5%, transparent);
 }
 
@@ -2601,7 +2603,7 @@
   min-width: 0;
   line-height: var(--tree-sub-line);
   font-size: 0.85em;
-  opacity: 0.7;
+  color: var(--text-dimmed);
 }
 
 /* The path takes 70% of the line and the branch the rest — whether or not
@@ -2624,7 +2626,7 @@
   white-space: nowrap;
   line-height: var(--tree-sub-line);
   font-size: 0.85em;
-  opacity: 0.7;
+  color: var(--text-dimmed);
 }
 
 /* The connector, drawn rather than typed: a box-drawing glyph only joins its
@@ -2694,7 +2696,7 @@
   padding-left: var(--spacing-xs);
   font-size: 0.85em;
   font-weight: normal;
-  opacity: 0.55;
+  color: var(--text-dimmed);
 }
 
 /* The process name leads, in bold. */
@@ -2715,15 +2717,22 @@
   line-height: 1;
   text-align: left;
   cursor: pointer;
-  opacity: 0.7;
+  color: var(--text-dimmed);
 }
 
 .sidebar-tree-chevron:hover {
-  opacity: 1;
+  color: inherit;
 }
 
+/* A tab row is a heading, already quiet or bright as a whole: its id, count
+   and fold control take the row's own colour, which is held to the row's
+   ground (the active tab's faint band included). */
 .sidebar-tree-tab > .sidebar-tree-id {
   font-weight: bold;
+}
+
+.sidebar-tree-tab :is(.sidebar-tree-id, .sidebar-tree-count, .sidebar-tree-chevron) {
+  color: inherit;
 }
 
 /* How many panes a tab holds — the other half of what a collapsed tab shows. */
@@ -2731,7 +2740,7 @@
   flex: 0 0 auto;
   padding-left: var(--spacing-xs);
   font-size: 0.85em;
-  opacity: 0.6;
+  color: var(--text-dimmed);
 }
 
 /* A state mark in an icon's place (a tab row's or a pane row's): the same
@@ -2793,6 +2802,29 @@
 .sidebar-column.is-focused .sidebar-tree-tab.is-selected,
 .sidebar-column.is-focused .sidebar-tree-pane.is-selected {
   background: var(--bg-highlight);
+  /* The edge marks the row even on a theme whose band is close to the rows
+     around it: the band is held to what keeps text readable on it. */
+  box-shadow: inset 2px 0 0 var(--theme-accent);
+}
+
+/* On the band everything reads in the primary text — the quieter tiers are
+   held to the chrome and the rows, not to the band — except the pane with the
+   keyboard, which keeps its accent. */
+.sidebar-column.is-focused .sidebar-tree-tab.is-selected,
+.sidebar-column.is-focused .sidebar-tree-pane.is-selected:not(.is-active) {
+  color: var(--text-primary);
+}
+
+.sidebar-column.is-focused
+  .is-selected
+  :is(
+    .sidebar-tree-id,
+    .sidebar-tree-count,
+    .sidebar-tree-where,
+    .sidebar-tree-title,
+    .sidebar-tree-chevron
+  ) {
+  color: inherit;
 }
 
 /* The tab a dragged pane is over: the row it would join, lit as the strip
@@ -2950,7 +2982,7 @@
   padding: 0 var(--spacing-md) 0 var(--spacing-lg);
   font-family: var(--font-mono);
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.85);
-  color: var(--term-white);
+  color: var(--text-primary);
   opacity: 0.85;
 }
 
@@ -3056,7 +3088,7 @@
 }
 
 .tab-overview-slot-new:hover .tab-overview-plus {
-  color: var(--term-white);
+  color: var(--text-primary);
 }
 
 /* The FLIP: while the overview is open the live pane grid is scaled from its

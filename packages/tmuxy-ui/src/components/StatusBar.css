@@ -79,16 +79,16 @@
   flex: 1;
   min-width: 0;
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.9);
-  color: var(--term-white);
-  opacity: 0.5;
-  transition: opacity var(--transition-fast);
+  /* Quiet by colour, not by opacity: --text-dimmed is the tier that still
+     reads at 4.5:1 on the chrome. */
+  color: var(--text-dimmed);
+  transition: color var(--transition-fast);
 }
 
 /* The column with the keyboard takes the theme's accent — the same colour the
    active tab wears when the keyboard is in the panes. Only one surface can
    have it at a time, which is what makes it mean "here". */
 .sidebar-title.is-focused {
-  opacity: 1;
   color: var(--tab-active-text);
 }
 
@@ -118,7 +118,7 @@
 }
 
 .sidebar-title-switcher:hover {
-  color: var(--term-white);
+  color: var(--text-primary);
   background-color: var(--bg-medium);
 }
 
@@ -150,7 +150,7 @@
 /* Open: the icon brightens. No filled background — an open sidebar is already
    visible on screen, so a persistent pill next to it is noise. */
 .sidebar-toggle-active {
-  color: var(--term-white);
+  color: var(--text-primary);
 }
 
 /* Tab list — sits over the pane grid, between the two sidebar clusters. Tabs
@@ -184,18 +184,18 @@
   flex: 0 0 auto;
   max-width: 32ch;
   min-width: 0;
-  color: var(--term-white);
+  /* An inactive tab is quiet by colour, not by opacity: --text-dimmed is the
+     tier that still reads at 4.5:1 on the chrome. */
+  color: var(--text-dimmed);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
   white-space: nowrap;
   padding: var(--spacing-md) var(--spacing-xl);
   border-radius: var(--radius-md);
-  opacity: 0.5;
   cursor: pointer;
   transition:
     color var(--transition-fast),
-    background-color var(--transition-fast),
-    opacity var(--transition-fast);
+    background-color var(--transition-fast);
 }
 
 .tab-name-label {
@@ -253,14 +253,13 @@
    moved onto the card itself. */
 .tab-name.is-previewing {
   background-color: var(--bg-medium);
-  opacity: 0.8;
+  color: var(--text-primary);
 }
 
 /* Active tab: full brightness in the theme's accent, no filled pill. A pill
    would compete with the active pane's own border for "where am I", and the
    tab strip is the coarser of the two — so it states it more quietly. */
 .tab-name-active {
-  opacity: 1;
   color: var(--tab-active-text);
 }
 
@@ -268,12 +267,12 @@
    so the tab drops back to plain white and says only which tab is current,
    not where you are typing. */
 .app-container.has-sidebar-focus .tab-name-active {
-  color: var(--term-white);
+  color: var(--text-primary);
 }
 
 .tab-name-active:hover,
 .tab-name-active.is-previewing {
-  opacity: 1;
+  color: var(--tab-active-text);
 }
 
 /* A tab being dragged rides with the pointer above its neighbours, with no
@@ -383,7 +382,7 @@
   padding: var(--spacing-md) var(--spacing-xl);
   border: 1px dashed var(--term-white);
   border-radius: var(--radius-md);
-  color: var(--term-white);
+  color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
   white-space: nowrap;

@@ -39,13 +39,5 @@
     }
   ],
   "maxA11yEntries": 7,
-  "a11yEntries": [
-    {
-      "id": "*",
-      "rule": "color-contrast",
-      "impact": "serious",
-      "reason": "Inactive tab titles, pane titles and the status-line hints are drawn at the theme's inactive opacity and fall under 4.5:1. Fixing it is a theme-palette decision, not a test change.",
-      "expires": "2026-11-01"
-    }
-  ]
+  "a11yEntries": []
 }

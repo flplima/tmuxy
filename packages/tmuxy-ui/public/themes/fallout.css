@@ -47,7 +47,7 @@
   --text-primary: var(--fallout-fg);
   --text-secondary: #2bcc2b;
   --text-muted: var(--fallout-fg-dim);
-  --text-dimmed: #148a14;
+  --text-dimmed: #199e19;
   --text-subtle: var(--fallout-fg-faint);
   --text-dark: var(--fallout-bg);
 
@@ -55,7 +55,7 @@
   --border-light: #1f4a1f;
 
   --pane-header-text-active: var(--fallout-fg);
-  --pane-header-text-inactive: var(--fallout-fg-dim);
+  --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: var(--fallout-fg);
   --theme-accent: var(--accent-green);
@@ -127,13 +127,13 @@
   --bg-dark-alt: #bec19a;
   --bg-medium: var(--fallout-light-bg-darker);
   --bg-elevated-alt: #a0a380;
-  --bg-highlight: #959878;
+  --bg-highlight: #9ea17f;
   --bg-highlight-alt: #888b6e;
 
   --text-primary: var(--fallout-light-fg);
-  --text-secondary: #3a4a28;
+  --text-secondary: #354524;
   --text-muted: var(--fallout-light-fg-dim);
-  --text-dimmed: #6a7a58;
+  --text-dimmed: #354525;
   --text-subtle: var(--fallout-light-fg-faint);
   --text-dark: var(--fallout-light-bg);
 
@@ -141,7 +141,7 @@
   --border-light: #959878;
 
   --pane-header-text-active: var(--fallout-light-fg);
-  --pane-header-text-inactive: var(--fallout-light-fg-dim);
+  --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: var(--fallout-light-fg);
   --theme-accent: var(--accent-green);

@@ -40,7 +40,7 @@ function MenuHarness({
   };
 
   return (
-    <div style={{ height: 320 }}>
+    <div style={{ height: 320, color: 'var(--text-primary)' }}>
       <button ref={buttonRef} onClick={() => setOpen((o) => !o)}>
         {label}
       </button>
@@ -91,7 +91,7 @@ function MenuHarness({
 function CornerMenuHarness() {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   return (
-    <div style={{ height: 320 }}>
+    <div style={{ height: 320, color: 'var(--text-primary)' }}>
       <button onClick={() => setPoint({ x: window.innerWidth - 4, y: window.innerHeight - 4 })}>
         Open at the corner
       </button>

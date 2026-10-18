@@ -13,7 +13,7 @@ import { PaneId } from '../domain/ids';
 function ContextMenuHost({ paneId = PaneId.make('%0') }: { paneId?: PaneId }) {
   const [open, setOpen] = useState(true);
   return (
-    <div style={{ height: 360 }}>
+    <div style={{ height: 360, color: 'var(--text-primary)' }}>
       <div data-testid="ctx-state">{open ? 'open' : 'closed'}</div>
       {open && <PaneContextMenu paneId={paneId} x={120} y={80} onClose={() => setOpen(false)} />}
     </div>
