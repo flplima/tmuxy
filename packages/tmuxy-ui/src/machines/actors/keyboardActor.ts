@@ -1190,13 +1190,13 @@ export function createKeyboardActor() {
      * After a click, a pane's row in the tree counts too: clicking it switches
      * to that pane, and typing next is meant for it. A row the keyboard
      * reached is chrome, and keeps the focus so Tab can walk on. A clicked tab
-     * hands it on as well: the click switches what the keyboard types into,
-     * it is not a move into the chrome.
+     * (or its strip) hands it on as well: the click switches what the
+     * keyboard types into, it is not a move into the chrome.
      */
     const restoreKeyboardFocus = (byPointer: boolean) => {
       if (isTouchDevice() || hasSelection()) return;
       const active = document.activeElement as HTMLElement | null;
-      if (byPointer && active?.matches?.('[role="tab"]')) {
+      if (byPointer && active?.matches?.('[role="tab"], [role="tablist"]')) {
         const paneId = realPaneId(activePaneId);
         if (paneId === null) return;
         focusKeyboardInput(paneId);
