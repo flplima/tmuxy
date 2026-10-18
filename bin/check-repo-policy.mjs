@@ -364,6 +364,15 @@ function checkBlindWaitRatchet() {
   }
 }
 
+/**
+ * A hard cap of 5,000 tokens (bytes / 4) on every file in the index — what a
+ * commit would contain, so the pre-commit hook and CI judge the same bytes. An
+ * agent reads a file whole; past this size it pays for a file before reading
+ * any of the code that matters to it.
+ *
+ * Exempt: lockfiles, generated and binary files (nobody authors them), and
+ * GitHub workflows, whose jobs must share one file to depend on each other.
+ */
 const MAX_FILE_TOKENS = 5000;
 const BYTES_PER_TOKEN = 4;
 const MAX_FILE_BYTES = MAX_FILE_TOKENS * BYTES_PER_TOKEN;
@@ -375,6 +384,7 @@ const TOKEN_LIMIT_IGNORE = [
   /(?:^|\/)dist\//,
   /(?:^|\/)pkg\//,
   /^vendor\//,
+  /^\.github\/workflows\//,
   /\.(?:woff2?|ttf|otf|png|jpg|jpeg|gif|ico|icns|webp|pdf|wasm|svg)$/i,
 ];
 
@@ -411,6 +421,14 @@ function splitGuidanceFor(relPath) {
       '  3. Consolidate redundant tests that cover the same user path (one feature, one end-to-end test).'
     );
   }
+  if (relPath.endsWith('.md')) {
+    return (
+      '  How to split a doc:\n' +
+      '  1. Move whole sections into a companion named after the parent (`TMUX-TAGS.md`), leaving a one-line pointer.\n' +
+      '  2. Keep tables unpadded (`| a | b |`) — column padding can be half of a doc.\n' +
+      '  3. Fix `#anchor` links that pointed at a moved section.'
+    );
+  }
   return (
     '  How to split this file:\n' +
     '  1. Break the file into smaller, single-responsibility modules or topic files under 5,000 tokens (20,000 bytes).\n' +
@@ -418,46 +436,34 @@ function splitGuidanceFor(relPath) {
   );
 }
 
-function getStagedFileBytes(relPath) {
-  try {
-    const out = execFileSync('git', ['cat-file', '-s', `:${relPath}`], {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    const bytes = Number(out);
-    if (Number.isFinite(bytes)) return bytes;
-  } catch {
-    // Fallback to working tree size if index lookup fails
-  }
-  const full = path.join(root, relPath);
-  return fs.existsSync(full) ? fs.statSync(full).size : 0;
+/** Every path in the index with the size of its indexed blob, in two git calls. */
+function indexedFileSizes() {
+  const git = (args, input) =>
+    execFileSync('git', args, { cwd: root, encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+  const entries = git(['ls-files', '-s', '-z'])
+    .split('\0')
+    .filter(Boolean)
+    .map((line) => {
+      const [meta, relPath] = line.split('\t');
+      return { relPath, sha: meta.split(' ')[1] };
+    });
+  const sizes = git(
+    ['cat-file', '--batch-check=%(objectsize)'],
+    entries.map((e) => e.sha).join('\n') + '\n',
+  )
+    .trim()
+    .split('\n')
+    .map(Number);
+  return entries.map((e, i) => ({ relPath: e.relPath, bytes: sizes[i] }));
 }
 
-function checkStagedFileTokenLimit() {
-  let stagedOutput = '';
-  try {
-    stagedOutput = execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACM'], {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-  } catch {
-    return;
-  }
-
-  const stagedFiles = stagedOutput
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  for (const relPath of stagedFiles) {
+function checkFileTokenLimit() {
+  for (const { relPath, bytes } of indexedFileSizes()) {
     if (TOKEN_LIMIT_IGNORE.some((re) => re.test(relPath))) continue;
-    const bytes = getStagedFileBytes(relPath);
     const tokens = Math.ceil(bytes / BYTES_PER_TOKEN);
     if (tokens > MAX_FILE_TOKENS) {
       addError(
-        `[file-size] Staged file ${relPath} is ${tokens.toLocaleString()} tokens (${bytes.toLocaleString()} bytes), exceeding the ${MAX_FILE_TOKENS.toLocaleString()}-token (${MAX_FILE_BYTES.toLocaleString()}-byte) hard cap (tokens = bytes / 4).\n` +
+        `[file-size] ${relPath} is ${tokens.toLocaleString()} tokens (${bytes.toLocaleString()} bytes), exceeding the ${MAX_FILE_TOKENS.toLocaleString()}-token (${MAX_FILE_BYTES.toLocaleString()}-byte) hard cap (tokens = bytes / 4).\n` +
           splitGuidanceFor(relPath),
       );
     }
@@ -468,7 +474,7 @@ checkControlModeEnforcement();
 checkWorkflowInvariants();
 checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
-checkStagedFileTokenLimit();
+checkFileTokenLimit();
 
 if (errors.length > 0) {
   console.error('Repo policy checks failed:\n');

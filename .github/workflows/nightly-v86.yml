@@ -122,7 +122,7 @@ jobs:
   # issue is kept open and commented on, rather than a new one every night.
   # The deterministic (DemoAdapter) stories a push leaves out — the ones
   # tagged `nightly` — and the axe accessibility pass over every story, which
-  # the per-commit probe skips. docs/TESTS.md § Tiers.
+  # the per-commit probe skips. docs/TESTS-LAYERS.md § Tiers.
   deterministic:
     runs-on: ubuntu-latest
     timeout-minutes: 40

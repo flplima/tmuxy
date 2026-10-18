@@ -4,7 +4,7 @@
     "`filter` is a jest name regex (no leading ^) that splits one oversized file across runners;",
     "the second half is a negative lookahead on the first, so a new scenario always lands somewhere.",
     "`tier: nightly` marks a file whose every test is tagged [nightly]: it leaves the per-commit",
-    "matrix rather than spend a runner on a suite that would skip everything. docs/TESTS.md § Tiers."
+    "matrix rather than spend a runner on a suite that would skip everything. docs/TESTS-LAYERS.md § Tiers."
   ],
   "suites": [
     { "name": "snapshots", "path": "tests/snapshots/" },

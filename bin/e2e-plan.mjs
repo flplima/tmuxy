@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The E2E matrix for one tier, as JSON for `strategy.matrix` in
- * lint-and-tests.yml (docs/TESTS.md § Tiers).
+ * lint-and-tests.yml (docs/TESTS-LAYERS.md § Tiers).
  *
  *   bin/e2e-plan.mjs commit   every suite except the nightly-only files, with
  *                             a jest name pattern that skips [nightly] tests

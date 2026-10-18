@@ -92,7 +92,7 @@ cargo fmt -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app
 # Re-stage any staged files formatted by cargo fmt
 restage packages/tmuxy-core packages/tmuxy-server packages/tmuxy-tauri-app
 
-echo "Checking repo policy (including 5,000-token staged file limit)..."
+echo "Checking repo policy (including the 5,000-token file cap)..."
 npm run check:policy
 
 # -D warnings matches CI exactly. Without it a clippy warning passed here and

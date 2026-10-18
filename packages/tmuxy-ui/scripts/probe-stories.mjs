@@ -19,7 +19,7 @@
  *   PROBE_A11Y          set to 0 to skip the axe pass (default: on).
  *   PROBE_TIER          `commit` leaves out stories tagged `nightly`,
  *                       `nightly` takes only them, `all` (default) ignores
- *                       the tag. docs/TESTS.md § Tiers.
+ *                       the tag. docs/TESTS-LAYERS.md § Tiers.
  *   PROBE_SHARD         `i/n` runs the i-th of n equal slices of the story
  *                       list (1-based), so the probe can be spread across
  *                       runners; every story lands in exactly one slice.

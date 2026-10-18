@@ -14,42 +14,42 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 ### Core Architecture
 
-| Document                                   | What it covers                                                                                                                                                                                              | When to read it                                                                               |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [ARCHITECTURE.md](ARCHITECTURE.md)         | High-level system overview: components, how they interact, key design decisions, file structure                                                                                                             | Starting any work on the project; onboarding                                                  |
+| Document | What it covers | When to read it |
+| --- | --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | High-level system overview: components, how they interact, key design decisions, file structure | Starting any work on the project; onboarding |
 | [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) | Frontend XState machine (states, context, actors, child machines, selectors, React hooks) and backend Rust state (AppState, SessionConnections, TmuxMonitor, StateAggregator, MonitorCommand, StateEmitter) | Changing state handling, adding events, modifying the machine, or working on the Rust backend |
-| [DATA-FLOW.md](DATA-FLOW.md)               | SSE/HTTP protocol, Tauri IPC, adapter pattern, delta protocol, connection lifecycle, keyboard input flow, and three real-world deployment scenarios                                                         | Working on client-server communication, the adapter layer, or deployment configuration        |
+| [DATA-FLOW.md](DATA-FLOW.md) | SSE/HTTP protocol, Tauri IPC, adapter pattern, delta protocol, connection lifecycle, keyboard input flow, and three real-world deployment scenarios | Working on client-server communication, the adapter layer, or deployment configuration |
 
 ### tmux Integration
 
-| Document                     | What it covers                                                                                                                                                                                                                                                                                                 | When to read it                                                                                 |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [TMUX.md](TMUX.md)           | Control mode architecture, command routing rules (which commands must use control mode vs. safe as subprocesses), `new-window` crash workaround, version-specific bugs, tmux configuration, flow control, and the `@tmuxy-*` window/pane tag schema (floats, pane groups, the stash session, window filtering) | Any work involving tmux commands, pane/window operations, floats, pane groups, or shell scripts |
-| [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files                                                                                                                                                                                | Working on copy mode, scrollback, or keyboard handling during copy mode                         |
+| Document | What it covers | When to read it |
+| --- | --- | --- |
+| [TMUX.md](TMUX.md) | Control mode architecture, command routing rules (which commands must use control mode vs. safe as subprocesses), `new-window` crash workaround, version-specific bugs, tmux configuration, flow control, and the `@tmuxy-*` window/pane tag schema (floats, pane groups, the stash session, window filtering) | Any work involving tmux commands, pane/window operations, floats, pane groups, or shell scripts |
+| [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
 
 ### Security & Constraints
 
-| Document                     | What it covers                                                                                                                          | When to read it                                                    |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [SECURITY.md](SECURITY.md)   | Threat model, optional password auth, loopback by default, known risks (no TLS, file access, run-shell), deployment recommendations     | Deploying tmuxy, adding network-facing features, or assessing risk |
-| [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do (no terminal emulation, no live local scrollback buffer, no local echo, no canvas rendering, etc.) | Before proposing a new feature; understanding design boundaries    |
+| Document | What it covers | When to read it |
+| --- | --- | --- |
+| [SECURITY.md](SECURITY.md) | Threat model, optional password auth, loopback by default, known risks (no TLS, file access, run-shell), deployment recommendations | Deploying tmuxy, adding network-facing features, or assessing risk |
+| [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do (no terminal emulation, no live local scrollback buffer, no local echo, no canvas rendering, etc.) | Before proposing a new feature; understanding design boundaries |
 
 ### Testing
 
-| Document                         | What it covers                                                                                                                              | When to read it                                              |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| [TESTS.md](TESTS.md)             | Every test layer and the CI job that runs it, where a new test belongs, known coverage gaps, and the guidelines for each test type          | Writing, placing or debugging tests; reading a CI failure    |
-| [INVARIANTS.md](INVARIANTS.md)   | The ledger of cross-layer promises — effect ordering, stream sequencing, predictions, read-only gating — each with the test that holds it   | Fixing a bug on a seam; adding a test for ordering or a race |
-| [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each             | Benchmarking, profiling, or investigating latency            |
-| [TELEMETRY.md](TELEMETRY.md)     | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: schema, instrumentation seams, redaction boundary | Debugging complex cross-layer issues; adding instrumentation |
-| [CI-TRIAGE.md](CI-TRIAGE.md)     | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points                                                | Investigating red GitHub Actions runs                        |
+| Document | What it covers | When to read it |
+| --- | --- | --- |
+| [TESTS.md](TESTS.md) | Every test layer and the CI job that runs it, where a new test belongs, known coverage gaps, and the guidelines for each test type | Writing, placing or debugging tests; reading a CI failure |
+| [INVARIANTS.md](INVARIANTS.md) | The ledger of cross-layer promises — effect ordering, stream sequencing, predictions, read-only gating — each with the test that holds it | Fixing a bug on a seam; adding a test for ordering or a race |
+| [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each | Benchmarking, profiling, or investigating latency |
+| [TELEMETRY.md](TELEMETRY.md) | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: schema, instrumentation seams, redaction boundary | Debugging complex cross-layer issues; adding instrumentation |
+| [CI-TRIAGE.md](CI-TRIAGE.md) | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points | Investigating red GitHub Actions runs |
 
 ### Protocols & Rendering
 
-| Document                                       | What it covers                                                                                                                | When to read it                                                                  |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [RICH-RENDERING.md](RICH-RENDERING.md)         | Terminal image protocols (iTerm2, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
-| [ARCHITECTURE-INDEX.md](ARCHITECTURE-INDEX.md) | Compact feature-to-files lookup index optimized for retrieval by AI agents                                                    | Quickly locating implementation entry points                                     |
+| Document | What it covers | When to read it |
+| --- | --- | --- |
+| [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (iTerm2, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
+| [ARCHITECTURE-INDEX.md](ARCHITECTURE-INDEX.md) | Compact feature-to-files lookup index optimized for retrieval by AI agents | Quickly locating implementation entry points |
 
 ## Conventions
 
@@ -57,3 +57,4 @@ This directory contains architectural and design documentation for the tmuxy pro
 - **Use ASCII diagrams**, not Mermaid. Plain ASCII art in fenced code blocks works everywhere.
 - **Uppercase filenames** (e.g., `ARCHITECTURE.md`) to match README.md convention and distinguish docs from code.
 - **Cross-reference** related docs with a "Related" section at the bottom of each file.
+- **Under 5,000 tokens per file** (bytes / 4), enforced on staged files by `bin/check-repo-policy.mjs`. A topic that outgrows it moves whole sections into a companion named after its parent (`TMUX-TAGS.md`, `TESTS-E2E.md`, `INVARIANTS-CLIENT.md`), and the parent keeps a one-line pointer where the section was. Tables stay unpadded (`| a | b |`); column padding once made up half the bytes of a doc.

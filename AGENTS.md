@@ -12,7 +12,7 @@ See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs
 See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback rendering and native browser scrolling in copy mode.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
-See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, read-only) and the test that holds each one.
+See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, read-only) and the test that holds each one; the client seams' rows are in [docs/INVARIANTS-CLIENT.md](docs/INVARIANTS-CLIENT.md).
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).

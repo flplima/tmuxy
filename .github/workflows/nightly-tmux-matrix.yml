@@ -215,7 +215,7 @@ jobs:
         continue-on-error: true
         run: npx jest tests/8-tui-alternate-screen.test.js
 
-      # The [nightly] E2E tier (docs/TESTS.md § Tiers): tests a push skips
+      # The [nightly] E2E tier (docs/TESTS-LAYERS.md § Tiers): tests a push skips
       # because a cheaper layer already holds their logic, run once a day
       # against the real server and tmux. On the one tmux version the
       # per-commit jobs pin, since that is the tier's whole point; the other

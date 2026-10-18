@@ -43,7 +43,7 @@ export function parseProbeArgs(argv) {
  * else; `v86: true` selects exactly them, `false` everything else.
  */
 /**
- * Which stories a run takes, by the `nightly` tag (docs/TESTS.md § Tiers):
+ * Which stories a run takes, by the `nightly` tag (docs/TESTS-LAYERS.md § Tiers):
  * `commit` leaves the tagged ones out, `nightly` takes only them, `all`
  * ignores the tag.
  */

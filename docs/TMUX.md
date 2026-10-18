@@ -2,68 +2,9 @@
 
 This document covers how tmuxy interacts with tmux: control mode architecture, command routing rules, version-specific bugs, and operational constraints.
 
-## tmux Version
+See [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) for these sections: tmux Version; `new-window` Crashes Control Mode; Tauri Desktop App: `new-window` Handling; `%unlinked-window-close` Events; `pane_in_mode` Is Not "In Copy Mode"; Flow Control; tmux 3.7a Format Expansion (Critical); `list-keys` Reports Aliases Already Expanded; Client-Side Placeholder Substitution; Bash Variable Conflicts.
 
-Tmuxy targets **tmux 3.7a** (devcontainer, CI, and the in-browser v86 guest all build it from source). Several workarounds below were discovered on 3.3a/3.5a and are kept because they remain safe on 3.7a.
-
-The minimum is **tmux 3.2**. The desktop app and `tmuxy server` run `tmux -V` at startup and refuse an older or missing tmux with a message saying how to install or update it — a dialog on the desktop, stderr for the server (`tmuxy-core/src/tmux_check.rs`). A build that reports no version number (`tmux master`) is accepted. The Homebrew cask and the `.deb`/`.rpm` packages declare tmux as a dependency.
-
-3.2 is the floor because control-mode flow control (`pause-after`) and format subscriptions (`refresh-client -B`) arrived in it, and because it is what Ubuntu 22.04 LTS ships — the oldest system the AppImage catalog tests on. The nightly matrix runs 3.2a alongside 3.4, 3.5a, 3.7a and 3.8 (what Homebrew ships), the full E2E suite on each, so the floor and the newest release are both versions something exercises.
-
-What differs between the supported versions, and how tmuxy copes:
-
-| tmux | Difference                                                                                                                                                                                                          | tmuxy                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3.2  | No `allow-passthrough` option (passthrough is always on)                                                                                                                                                            | The monitor sets it with `set -q`, which an older tmux skips silently                                                                                                                                                                                                                                                                                                                                                     |
-| 3.2  | No `%layout-change` after `swap-pane`                                                                                                                                                                               | The monitor re-lists the panes behind every swap a client sends                                                                                                                                                                                                                                                                                                                                                           |
-| 3.2  | Emoji sequences get different widths: a ZWJ sequence (`👩‍💻`) and an emoji with a skin tone (`👍🏽`) take 4 columns instead of 2, a text symbol with VS16 (`❤️`) takes 1 instead of 2                                   | **Known limitation.** tmuxy's emulator follows the 3.4+ rules, so on a line holding such a sequence everything after it renders a column or two off tmux's own grid. CJK, single emoji, flags and combining marks agree. See [RICH-RENDERING.md](RICH-RENDERING.md#cell-widths-must-agree-with-tmux)                                                                                                                      |
-| 3.4  | `run-shell` output — and a "returned 1" for a command that failed — is shown in `view-mode` on the target pane rather than handed to the calling client; every key typed afterwards goes to the mode, not the shell | The CLI runs every command it sends through `run-shell` with its output and exit status redirected to files, and prints them itself (`_run_shell` in `bin/tmuxy/_lib`), so `run-shell` has nothing to show. A session restore, which reads what its pane-group park step prints, has it write the answer into the `@tmuxy-restore-answer` server option instead (`ask_run_shell` in `tmuxy-core/src/session_snapshot.rs`) |
-| 3.8  | `#{window_layout}` is JSON (`{"V":2,"L":{…}}`) rather than `csum,WxH,X,Y[…]`, and no earlier tmux's `select-layout` takes it back; `%layout-change` still carries the classic string                                | Session snapshots store the classic string: `tmuxy-core/src/layout.rs` (`parse_json`) reads the JSON into the same tree the classic parser builds, and serialises it with tmux's checksum. A snapshot saved on 3.8 restores on any supported version                                                                                                                                                                      |
-
-## Dedicated Server Socket
-
-Tmuxy never talks to the user's default tmux server. Every component targets a **dedicated socket**, resolved the same way everywhere:
-
-| Priority | Source                      | Used by                                                                                                                 |
-| -------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 1        | `TMUX_SOCKET` env var       | all components — see the per-environment table below                                                                    |
-| 2        | Socket derived from `$TMUX` | shell scripts running inside a pane (`bin/tmuxy-cli`, `bin/tmuxy/_lib`) — so they always target the server hosting them |
-| 3        | `tmuxy` (the default)       | everything else — in practice a released build                                                                          |
-
-One socket per environment, so a dev server, a test run and an installed build
-never collide:
-
-| Environment    | Socket       | Set by                                                                      |
-| -------------- | ------------ | --------------------------------------------------------------------------- |
-| Release bundle | `tmuxy`      | nothing — the `DEFAULT_TMUX_SOCKET` fallback in `tmuxy-core/src/session.rs` |
-| Development    | `tmuxy-dev`  | `bin/dev`, which exports it so the server it spawns agrees                  |
-| E2E tests      | `tmuxy-test` | `tests/jest.setup.js` via `tests/helpers/tmux-socket.js`                    |
-
-The development socket is identical across bare metal, the local devcontainer
-and Codespaces: all three reach it through `bin/dev`, so none of them hardcodes
-a socket of its own.
-
-A `TMUX_SOCKET` value containing a slash is treated as a **full socket path** (`tmux -S <path>`); any other value is a **socket name** in tmux's default socket directory (`tmux -L <name>`). The Rust side resolves via `tmux_socket()` / `tmux_socket_args()` in `tmuxy-core/src/session.rs` and always passes the socket flag explicitly, which also overrides an inherited `$TMUX` — the server behaves identically whether launched from a terminal, a tmux pane, or Finder. Every bundled shell script sources the same resolution from `bin/tmuxy/_lib` (or defines it inline in `bin/tmuxy-cli`); none may call bare `tmux`.
-
-### Live socket switch (desktop app)
-
-The **web server** binds its socket once at process launch (from the env), so it cannot change sockets without a restart. The **desktop (Tauri) app** can switch servers live: `tmuxy connect <socket> [session]` publishes the request as two tmux global env vars (`TMUXY_CONNECT_TO`, `TMUXY_CONNECT_SESSION`) on the current server; a watcher task in the app (`packages/tmuxy-tauri-app/src/monitor.rs`, `poll_connect_requests`) reads them, sets `TMUX_SOCKET`/`TMUXY_SESSION` in-process, and drives the monitor loop to reconnect (a graceful `MonitorCommand::Shutdown` interrupts the live connection). Because every tmux call — the control-mode connection and the one-off executor commands alike — resolves its socket from the env, updating those two vars retargets the whole app. Adopting an existing server applies tmuxy's config and window-type tagging to it, so this is an explicit opt-in, distinct from the isolated default.
-
-### Remote servers over SSH (desktop app)
-
-A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `~/.config/tmuxy/servers.json` (`tmuxy-core/src/servers.rs`); the sidebar footer's **server picker** lists them, and the `tmuxy connect` form (a small ratatui TUI, `tmuxy-server/src/connect.rs`, opened in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
-
-`TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). The local `-f <config>` flag is skipped over SSH — that path is local-only. This means the whole app (control mode + executor reads) drives the remote tmux server transparently.
-
-### The sidebar tree, and the sessions poll behind it
-
-The live state the app holds is single-session (the attached session's windows/panes), and the sidebar's **tabs→panes tree** draws exactly that: this session's tabs and their panes, from live state, never the socket's other sessions. Rows for another session had no live state behind them — no content, no geometry, nothing the tree's own keys could act on — and "which session am I on" is asked and answered in the session switcher (`components/SessionMenu.tsx`), which is where the socket's other sessions are listed.
-
-A poll (`serversActor`, `packages/tmuxy-ui/src/machines/actors/serversActor.ts`) shells `list-windows -a` / `list-panes -a` through `run_tmux_command` every ~4s while the tree is open. It feeds the switcher's session list and the tree's git context (below) — the pane cwds live state does not carry. It runs on both the web and desktop builds and is gated on the adapter's `enumeratesSessions` capability, so it stays inert on the single-session in-browser sandboxes (demo, v86). Switching session is `SWITCH_SESSION`; on web `switchSession` reconnects the SSE stream to the chosen session. The **server picker** (saved-server list via `list_servers`) remains desktop-only.
-
-A pane row is **two lines**: `%id process` with the state indicator on the first, the pane's title on the second (`components/paneTabDisplay.ts`, `paneRowLines`). They answer different questions and truncate at different rates — a process name is short and stable, while a title is a path or a command with its arguments and is the one thing in the tree that routinely outgrows a 30-column column. Sharing one line, the title pushed the state indicator around and was the half that got cut. A pane whose title adds nothing (an unset one, or one that only repeats the process) draws a single line, so a column of plain shells stays compact.
-
-The same poll gives the tree its **git context** (read for the attached session alone, the one the tree draws). Each pane row carries its `#{pane_current_path}`, and every ~15s (and on each forced refresh) the client asks the host for the worktrees those directories sit in — the `list_git_worktrees` command, served by `tmuxy-core/src/worktrees.rs` on both the web server and the desktop app. The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`) rather than from the request, so a web client can never point git at a directory of its choosing; discovery is read-only (`rev-parse --git-common-dir`, `worktree list --porcelain`), scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, skips a repository git cannot read instead of failing the whole listing, falls back to newline porcelain on a git older than 2.36, and returns nothing for an SSH-backed server (its pane paths are remote). The result is published as `repositories`; `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root (component-aware, so `/repo-copy` never matches `/repo`) and the tree shows the branch — or a detached checkout's short head — as a badge on the pane row, and on a tab row when every pane in the tab shares the worktree.
+See [TMUX-CONFIG.md](TMUX-CONFIG.md) for these sections: Dedicated Server Socket; Session groups: two GUI windows over one session; tmux Configuration; Key Tables Are the Client's.
 
 ## Control Mode Architecture
 
@@ -88,26 +29,26 @@ All HTTP command handlers in the web server route through `send_via_control_mode
 
 Any command that **modifies** session state when a control mode client is attached:
 
-| Command              | Short Form                               |
-| -------------------- | ---------------------------------------- |
-| `split-window`       | `splitw`                                 |
-| `new-window`         | `neww` (but see crash workaround below)  |
-| `select-pane`        | `selectp`                                |
-| `select-window`      | `selectw`                                |
-| `kill-pane`          | `killp`                                  |
-| `kill-window`        | `killw`                                  |
-| `resize-pane`        | `resizep`                                |
-| `resize-window`      | `resizew` (ignored if sent externally)   |
-| `swap-pane`          | —                                        |
-| `break-pane`         | `breakp`                                 |
+| Command | Short Form |
+| --- | --- |
+| `split-window` | `splitw` |
+| `new-window` | `neww` (but see crash workaround below) |
+| `select-pane` | `selectp` |
+| `select-window` | `selectw` |
+| `kill-pane` | `killp` |
+| `kill-window` | `killw` |
+| `resize-pane` | `resizep` |
+| `resize-window` | `resizew` (ignored if sent externally) |
+| `swap-pane` | — |
+| `break-pane` | `breakp` |
 | `send-keys` / `send` | (for key input, not SGR mouse sequences) |
-| `copy-mode`          | —                                        |
-| `next-window`        | `next`                                   |
-| `previous-window`    | `prev`                                   |
-| `next-layout`        | `nextl`                                  |
-| `run-shell`          | —                                        |
-| `set-environment`    | —                                        |
-| `rename-window`      | —                                        |
+| `copy-mode` | — |
+| `next-window` | `next` |
+| `previous-window` | `prev` |
+| `next-layout` | `nextl` |
+| `run-shell` | — |
+| `set-environment` | — |
+| `rename-window` | — |
 
 Use short command forms when sending through control mode.
 
@@ -131,13 +72,13 @@ The subprocess calls that remain are in `tmuxy-core/src/session.rs` and
 `run-shell`). The paste-buffer mirror is not among them: a copy-mode yank is read back
 in-band, by the aggregator, on both hosts.
 
-| Command         | Location                       | Justification                                                                                                                                                                                                                                      |
-| --------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `has-session`   | `session.rs`, `connection.rs`  | Check if session exists **before** connecting control mode                                                                                                                                                                                         |
-| `new-session`   | `session.rs`                   | Create session **before** control mode attaches                                                                                                                                                                                                    |
-| `source-file`   | `session.rs`, `monitor.rs`     | Source config during session creation and initial state sync                                                                                                                                                                                       |
-| `kill-session`  | `session.rs`                   | Destroy session (no control mode attached)                                                                                                                                                                                                         |
-| `show-options`  | `gui.rs` (desktop setup)       | The window's blur/appearance is read before the monitor starts                                                                                                                                                                                     |
+| Command | Location | Justification |
+| --- | --- | --- |
+| `has-session` | `session.rs`, `connection.rs` | Check if session exists **before** connecting control mode |
+| `new-session` | `session.rs` | Create session **before** control mode attaches |
+| `source-file` | `session.rs`, `monitor.rs` | Source config during session creation and initial state sync |
+| `kill-session` | `session.rs` | Destroy session (no control mode attached) |
+| `show-options` | `gui.rs` (desktop setup) | The window's blur/appearance is read before the monitor starts |
 | `load-buffer -` | `bin/tmuxy-cli` (`pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
 
 These are safe because they run **before** control mode connects. Do not add to this
@@ -148,39 +89,15 @@ attached goes through the aggregator's in-band path.
 
 Shell scripts in `bin/tmuxy/` are executed via tmux's `run-shell` command (sent through control mode). Since `run-shell` executes within the tmux server process itself (not as an external subprocess), scripts can safely call tmux CLI commands internally — except `new-window` (see below).
 
-## `new-window` Crashes Control Mode
-
-**Bug:** Sending `new-window` (or `neww`) through control mode stdin crashes the tmux server in tmux 3.5a. This also happens when `new-window` is called from a `run-shell` command while a control mode client is attached.
-
-**Workaround:** Use `split-window` + `break-pane` as a compound command:
-
-```
-splitw -t <session> ; breakp
-```
-
-This creates a new pane in the current window, then immediately breaks it into its own window — replicating `new-window` behavior without the crash.
-
-**Where it's applied:**
-
-- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound) and swaps it for the rewrite, via `rewrite_new_window_in_compound` and `new_window_rewrite` in `executor.rs`, the single place the `splitw ; breakp` string (with the optional resize) is spelled out. Both transports route every client command through it.
-- `bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
-- `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
-
-## Tauri Desktop App: `new-window` Handling
-
-The Tauri `run_tmux_command` handler (`packages/tmuxy-tauri-app/src/commands.rs`) routes through `command_router::route_command` like the web server, so a `new-window`/`neww` reaches the control-mode connection as the `splitw ; breakp` rewrite.
-
-The native desktop menus (the macOS menu bar and the native popups) are built by the frontend from its menu spec (`packages/tmuxy-ui/src/domain/menus/`, rendered natively by `infra/menus/nativeMenu.ts`), so every item's callback runs in the page and dispatches through `executeMenuAction` — the same control-mode-safe adapter path as the in-app menu (including the `new-window` rewrite and the `@tmuxy-window-type` tag). The Rust side holds no menu of its own.
-
 ## Targeting: Use Stable IDs, Not Indices
 
 Always target tmux objects by their **stable identifiers**, not by indices:
 
-| Object  | Stable ID | Unstable Index | Example             |
-| ------- | --------- | -------------- | ------------------- |
-| Session | name      | —              | `-t mysession`      |
-| Window  | `@N`      | `:N`           | `-t @3` not `-t :3` |
-| Pane    | `%N`      | `.N`           | `-t %5` not `-t .2` |
+| Object | Stable ID | Unstable Index | Example |
+| --- | --- | --- | --- |
+| Session | name | — | `-t mysession` |
+| Window | `@N` | `:N` | `-t @3` not `-t :3` |
+| Pane | `%N` | `.N` | `-t %5` not `-t .2` |
 
 Window indices (`:0`, `:1`, `:3`) can shift when windows are created or destroyed. Pane indices (`.0`, `.1`) are relative to the current window and change when panes are added/removed. Session names, window IDs (`@N`), and pane IDs (`%N`) are assigned by tmux at creation and never change.
 
@@ -188,106 +105,13 @@ This matters especially in automation and tests where multiple operations happen
 
 The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy therefore resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and no longer ships `bind -n C-N` lines in its config. Every window or pane the client then names in a command is an **id** (`@N` / `%N`), never a tmux index: `renumber-windows` shifts indices whenever a window closes and tmux announces none of the shifts, so an index the client holds can be a beat stale (a split once landed in the wrong tab that way). The backend re-lists windows after any window add, close or reorder, but the id rule is what makes a stale list harmless. A command must also name the WINDOW it acts on, not just the pane: `select-pane` on a pane in another window sets that window's active pane and leaves tmux's current window alone, so a `split-window` after it still runs wherever tmux already was. The keyboard actor's pin therefore always leads with `select-window` (taking the window from the pinned pane when the machine has not published an active one yet), and the sidebar and float creators name the pane they split, because nothing in their command list switches windows first. No target is ever added on the way to tmux, on either transport: the pinned list reaches the control-mode connection byte-identical (`command_router::route_command`). A session target would be resolved late, against the session's _current_ window, so a concurrent `select-window` between the pin and the split could move the split to another tab; the untargeted command after a pin, sent as-is, inherits the queue's current target and holds it. `ctrl+0` (and `prefix w`, and the grid button at the right end of the app header) opens the Tab Overview — a client-side grid of every tab where a slot click selects, the trailing "+" creates, a slot's ✕ kills, and a drag reorders by sending `move-window -b`/`-a` against the neighbouring tab's `@id` (a tab dragged along the strip itself reorders the same way). Each slot draws its tab's panes with the screen each pane had when the overview opened: a still taken once by the `useTabStill` hook (`tmuxy-ui/src/hooks/useTabStill.ts`), so a tab that keeps printing does not churn its thumbnail. See `tmuxy-ui/src/machines/app/actions/tabOverview.ts` and `tmuxy-ui/src/components/TabOverview.tsx`.
 
-## Session groups: two GUI windows over one session
-
-tmux's _current window_ belongs to a session, not to a client, so two clients on one session always
-look at the same tab. The desktop app's second OS window therefore gets its own session in a session
-**group**: `tmux -CC new-session -A -s <base>~<index> -t <base>`. Group members share every window
-and pane — the same windows, linked, not copies — while each keeps its own current window, which is
-what lets one OS window sit on one tab and another on a different one. `-A` makes the call idempotent,
-so re-opening a window reattaches the session it had rather than failing.
-
-Killing a group member is safe: its windows stay alive in the remaining members, so closing the second
-GUI window (which kills `<base>~<index>`) takes nothing with it. A window close that the app does not
-see — a crash, a `kill -9` — leaves the grouped session behind; the next window to take that index
-reattaches it.
-
-The keys stay distinct from the tab keys: `ctrl+1`…`ctrl+9` select a **tab**, while `cmd+1`…`cmd+9`
-(`ctrl+shift+1`…`9` off macOS) select a **GUI window**, and `cmd+n` / `ctrl+shift+n` opens one. See
-[DATA-FLOW.md](DATA-FLOW.md) for the per-window monitor and the event addressing that goes with it.
-
-## `%unlinked-window-close` Events
-
-**Behavior:** tmux fires `%unlinked-window-close` (instead of `%window-close`) for windows from **other sessions** sharing the same tmux server. The parser handles both event types (`parser.rs`), but `state.rs` intentionally **ignores** `UnlinkedWindowClose` events to avoid polluting the current session's state with events from other sessions.
-
-`%window-close` handles window removal for the current session. `%unlinked-window-close` is only relevant in multi-session environments and is correctly ignored.
-
-## tmux Configuration
-
-No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically, and by default does not read `~/.tmux.conf` at all (see [the config chain](#the-config-chain-and-where-a-users-own-tmuxconf-fits)). On every session connect, the monitor's initial sync (`sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`) sets `window-size manual` and `aggressive-resize off` (so multi-client viewport sizing stays under tmuxy's control), plus `allow-passthrough on`, `mouse on`, `focus-events on`, pane-border options, and title options. Settings are applied per-session rather than globally, to avoid a tmux 3.5a crash triggered by global settings under control mode.
-
-OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
-
-### The config chain, and where a user's own `~/.tmux.conf` fits
-
-tmux starts with `-f tmuxy.conf`, so a user's `~/.tmux.conf` is NOT read by default. That is deliberate — it is also the single loudest first-hour complaint from a tmux user, because their prefix, their status line and their plugins all vanish on tmuxy's socket with nothing saying why.
-
-The chain, in order:
-
-| #   | File                                                                         | Owner          | Refreshed                 |
-| --- | ---------------------------------------------------------------------------- | -------------- | ------------------------- |
-| 1   | `tmuxy.conf`                                                                 | user           | written once, never again |
-| 2   | ↳ `tmuxy.defaults.conf`                                                      | app            | every launch              |
-| 3   | &nbsp;&nbsp;↳ `tmuxy.essentials.conf`                                        | app            | every launch              |
-| 4   | &nbsp;&nbsp;↳ _(tmuxy's defaults: prefix, status line, bindings)_            | app            | every launch              |
-| 5   | &nbsp;&nbsp;↳ `tmuxy.user.conf`                                              | app, generated | every launch              |
-| 6   | &nbsp;&nbsp;&nbsp;&nbsp;↳ `~/.tmux.conf`, then `tmuxy.essentials.conf` again | user           | opt-in only               |
-| 7   | ↳ _(the user's own edits in `tmuxy.conf`)_                                   | user           | —                         |
-
-`tmuxy config use-tmux-conf on` fills in step 6. The order is the whole design: the user's config comes after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.essentials.conf` is then sourced **again** on top, so the settings tmuxy cannot work without are restored whatever their config did to them.
-
-The generated bridge is a separate file, sourced from the end of `tmuxy.defaults.conf`, because `tmuxy.conf` is written once and never again — anything that has to reach people who already installed tmuxy must live in a file the app refreshes.
-
-### What a user's config can break, and what protects it
-
-Three layers protect the app, and they cover different things:
-
-| Layer                   | Where                                                 | Covers                                                                                                                                                    |
-| ----------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enforce_settings()`    | `control_mode/monitor.rs`, every connect, per-session | `pane-border-status`/`-format`, `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `window-size manual`, `aggressive-resize off` |
-| `tmuxy.essentials.conf` | sourced after the user's config                       | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit`     |
-| nothing                 | —                                                     | everything else, which is taste                                                                                                                           |
-
-The ones that actually bite, and why each is in the essentials file rather than left to chance:
-
-- **`destroy-unattached on`** — a reasonable thing to have in a personal config, and fatal here. tmuxy's client is a control-mode connection that comes and goes with every page reload, so the session would be destroyed the moment a browser tab closed.
-- **`default-terminal screen-256color`** — the renderer decodes 24-bit colour from the control-mode stream; a 256-colour TERM makes every truecolour application render in the wrong palette.
-- **`history-limit 500`** — scrollback is a client-side reimplementation over tmux's history. A small limit reads to the user as "tmuxy lost my scrollback".
-- **`command-alias[100…122]`** — every tmuxy binding and the whole CLI resolve through these. A config that sets the same indices silently replaces them, and nav, pane groups and stacks stop working with no error anywhere.
-- **`escape-time`** — a non-zero value makes Escape feel broken in vim.
-
-What is deliberately NOT protected, because protecting it would defeat the point: the prefix, the status line, `mode-keys`, `base-index`, key bindings, colours, and anything a plugin does. A user who opts in gets their own.
-
-Two hazards that remain the user's to judge, and are called out in `tmuxy config use-tmux-conf --help` rather than silently handled:
-
-- **tpm and plugins** load on tmuxy's socket too. `tmux-continuum` in particular will happily auto-save and auto-restore sessions there.
-- **A status line that draws itself** may fight tmuxy's own chrome, which is cosmetic but ugly.
-
-## `pane_in_mode` Is Not "In Copy Mode"
-
-`#{pane_in_mode}` is 1 for **every** mode tmux has for a pane — copy-mode, but also
-view-mode, tree-mode, buffer-mode and client-mode. The client turns that flag into its own
-copy mode, which renders the scrollback and **hides the live terminal**, so a pane in any
-other mode disappeared behind a scrollback view that nothing would close.
-
-The pane row therefore asks `#{?#{==:#{pane_mode},copy-mode},1,0}` instead
-(`COPY_MODE_FLAG` in `tmuxy-core/src/constants.rs`). It expands to the same single
-int-like field, so the row parser's positions and its `@window` anchor are unchanged.
-
-This surfaced on **tmux 3.4**, where a pane landed in `view-mode` as soon as a CLI command
-sent through `run-shell` printed anything or failed (the version table above): the whole
-terminal rendered as a 0×0 box and never recovered. It was not version-specific in
-principle — `prefix s` on any version could do the same — and 3.4 is simply where it was
-guaranteed. A lockstep test in `constants.rs`
-keeps the format from regressing to the broader field.
-
 ## Pane Titles
 
 A pane header shows what the running application called itself, falling back to its process name. The two sources disagree often enough that the order matters:
 
-| Source       | tmux format            | Notes                                                                                                                                                                          |
-| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| App title    | `pane_title`           | Set by the application over OSC 0/2 — `nvim README.md`, an ssh host, a Claude Code session summary.                                                                            |
+| Source | tmux format | Notes |
+| --- | --- | --- |
+| App title | `pane_title` | Set by the application over OSC 0/2 — `nvim README.md`, an ssh host, a Claude Code session summary. |
 | Process name | `pane_current_command` | Only the executable's **file name**. A version-pinned launcher symlink (`~/.local/bin/claude` → `…/versions/2.1.251`) reports the version number, which is useless as a label. |
 
 The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants.rs`, mirrored by the `list-panes` formats in `bin/tmuxy-cli` and the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`. All four must stay in step; the `constants.rs` tests guard the Rust pair. The sessions poll reads its rows through `query_tmux`, answered in-band on the control-mode connection like every other read.
@@ -296,255 +120,7 @@ Downstream, an empty title unambiguously means "no app title", so every consumer
 
 Titles change without any control-mode event, so they ride the regular `list-panes` refresh and the pane delta must carry the `title` field for a change to reach a connected client.
 
-## Flow Control
-
-tmux 3.2+ supports `pause-after` flow control. The monitor configures `pause-after=5` (pause if a client falls 5 seconds behind). When a pane is paused, the monitor responds with `refresh-client -A '%pane:continue'` to resume. This prevents unbounded memory growth during heavy output.
-
-## tmux 3.7a Format Expansion (Critical)
-
-tmux 3.7a expands format strings (`#{...}`) in **more places** than earlier versions. Two of these bit tmuxy in practice; both will affect any code path that upgrades past 3.6b.
-
-### `run-shell` expands its command string
-
-`run-shell "..."` format-expands the whole string before handing it to the shell. A nested `-F '#{pane_id}'` inside a run-shell'd tmux command is therefore pre-expanded against the **currently active pane** — not the pane the inner command creates. This made `float-create` break the _wrong_ pane into the float window.
-
-Rule: inside any `run-shell` string, write `##{...}` — run-shell's expansion halves it to `#{...}` for the inner command. `shquote` in `bin/tmuxy-cli` doubles every `#` it interpolates for this reason. (3.6b behaves the same; the bug had simply never been triggered through this path before.) `float-create` was the path that found the bug and no longer needs the escape: it stopped asking run-shell for the new pane's id (see below).
-
-### `run-shell` hands its command no pane, and an outside client has none
-
-The `tmux` a run-shell'd command runs is a client of its own, and run-shell does not set `TMUX_PANE` for it. A target-less `send-keys` or `break-pane` in there is resolved the way tmux resolves anything for an unattached client with no pane: the session with the latest activity. Usually that is the one the user is in — until `pane group add` parks a member in the hidden `__tmuxy_stash` session, after which the stash is "latest" and a `tab create` or `pane send` from a script, a test or an SSH agent lands where no client looks. (Nothing bumps a session's activity back short of a client's key press; `select-window`, `set-option` and the rest leave it alone.)
-
-`bin/tmuxy-cli` therefore resolves the pane it acts on once per invocation when the caller has no `$TMUX_PANE` (a read-only `list-panes -a -f …`, preferring an attached real session, never the stash), exports it, and `run_safe` passes it to the inner client as `TMUX_PANE=%N tmux …` — tmux reads an unattached client's `TMUX_PANE` the way it reads a pane's own. Every `breakp` the CLI issues also names its destination session, `-t '#{session_id}:'`, expanded by run-shell for that pane. Inside a pane none of this changes anything: the caller's pane is the one resolved.
-
-### `send-keys` expands its arguments — and `##` does NOT protect valid variables
-
-On 3.7a, `send-keys -l 'text'` format-expands the literal. Empirically:
-
-| Payload sent   | Pane receives                               |
-| -------------- | ------------------------------------------- |
-| `#{pane_id}`   | `%0` (expanded)                             |
-| `##{pane_id}`  | `#%0` (still expanded!)                     |
-| `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
-| `#(date)`      | `#(date)` (command formats not run)         |
-
-Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/infra/transport/drivers/v86/V86TmuxAdapter.ts`); the native server will need the same treatment when it upgrades. On 3.6b, `send-keys -l` does not expand at all.
-
-### Mouse-tracking panes eat pasted SGR sequences — inject with `send-keys -H`
-
-On 3.7a, when a pane's application has enabled mouse reporting (`?1000h`/`?1006h`, i.e. `mouse_any_flag` is set), an SGR mouse sequence (`ESC [< b;x;y M`) delivered to that pane via `paste-buffer` is **consumed by tmux and never reaches the application** — silently, with no error. The same bytes reach a pane that has NOT enabled mouse tracking. This broke tmuxy's synthetic mouse forwarding (browser click → SGR injection), which previously piped through `load-buffer`/`paste-buffer`.
-
-The reliable transport is `send-keys -t <pane> -H <hex bytes>`: raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` format expansion. The frontend builds these in `tmuxy-ui/src/hooks/scrollUtils.ts` (`sgrMouseCommand`).
-
-One trap: `-H` commands must never be merged by the frontend's send-keys batcher — joining two puts a literal `-H` token mid-keys, tmux rejects it as an unknown key, and the whole combined command fails (a click's press+release land in one batch window, so a plain click would deliver nothing).
-
-### Control-mode stdin wants bare `;` separators
-
-The frontend joins compound commands with a shell-escaped `\;` (correct for commands that pass through a shell or `run-shell` context). But tmux's control-mode line parser treats `\;` as a literal argument, silently erroring the whole command — which orphans the frontend's optimistic state (the "frozen UI after keyboard split" bug). Raw control-mode transports must rewrite the separator to a bare `;` — never inside a `send-keys -l` literal.
-
-## `list-keys` Reports Aliases Already Expanded
-
-A `command-alias` is a config-time convenience, not something the client ever
-sees. `bind -n C-l tmuxy-nav-right` reads back through `list-keys` — the source
-the frontend builds its binding table from — as the alias's **expansion**:
-`run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav right #{pane_id}"`.
-
-This matters because the client classifies each binding's command to decide
-whether it can predict the result optimistically
-(`tmuxy-ui/src/domain/store/parseCommand.ts`). Anything it fails to recognise
-becomes a `RawCommand` — correct, but unpredicted, so the user waits out the
-full round trip instead of seeing the result on the next frame. Matching only
-the alias spelling is therefore a silent latency bug, not a parse error: the
-key still works, it is just several hundred milliseconds slower. Any classifier
-that keys off a bound command must match the **expanded** form (and may accept
-the alias too, for commands built in-code).
-
-## Key Tables Are the Client's
-
-tmuxy answers keys itself — the browser or webview holds the keyboard, and
-control mode has no key handling to give it — so the prefix and every table
-beyond it run in the client's keyboard actor
-(`tmuxy-ui/src/machines/actors/keyboardActor.ts`), from the bindings the server
-reads with one `list-keys` and sends whole (`KeyBindings` in
-`tmuxy-core/src/transport.rs`: prefix, root, and every other table by name;
-copy mode's tables stay out, copy mode being the client's too).
-
-A binding enters a table the tmux way, with `switch-client -T <table>`
-(`bind p switch-client -T pane` in `tmuxy.defaults.conf`). The client reads the
-switch out of the binding and keeps the table as its own state; only the rest
-of the binding goes to tmux (`tmuxy-ui/src/domain/keyTables.ts`). A table is
-**sticky** for as long as each key's binding enters it again
-(`bind -T pane x kill-pane \; switch-client -T pane`) — again exactly how tmux
-does it — and `Esc`, a key the table does not bind, or a binding that names no
-table leaves it. So the same config drives a raw `tmux attach` the same way.
-
-The defaults:
-
-```
-  prefix (ctrl+a)          the short menu
-    -  |   split           c   new tab        s / S   the left / right sidebar
-    p      PANE mode       t   TAB mode       ?       every key, table by table
-
-  PANE (sticky)                             TAB (sticky)
-    h j k l   focus          H J K L  resize    h l   prev / next     c   new
-    - |       split          x        close     ,     rename          x   close
-    z         zoom           s / S    stack     1-9   go              < > move (client)
-    = group   < > swap       f float  b break   o     overview (client)
-    m mark    , rename       g join
-```
-
-A few keys have no tmux command behind them and are answered by the client in
-whichever table they belong to: `prefix s` / `S` (open a sidebar over the
-panes; the same key again while it is open docks it, and again frees it — the
-prefix stays armed for that one key, tmux's repeat, and any other key goes on
-as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
-`prefix ?` (the keys view), and TAB's `<` / `>` (move the tab along the strip,
-which skips the windows floats and sidebars occupy where a relative
-`swap-window` would not). The status line names the mode in force and shows a
-handful of its keys, each line fitting 80 columns
-(`tmuxy-ui/src/components/statusLineHints.ts`).
-
-## Client-Side Placeholder Substitution
-
-Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{pane_width}`, and `#{pane_height}` in **every outgoing command** with the active pane's values (`appMachine`'s SEND_TMUX_COMMAND handler). This is deliberate — prefix-binding commands are written against these placeholders — but it means text typed or pasted into a terminal containing those three exact placeholders is substituted before tmux ever sees it, on every transport (server, Tauri, v86).
-
-## Bash Variable Conflicts
-
-`GROUPS` is a bash built-in variable (array of user group IDs). Never use it as a custom variable name in shell scripts executed via `run-shell` — it silently contains the wrong value. Use `GRP_JSON` or similar instead.
-
-## Window Tags (`@tmuxy-*`)
-
-tmuxy marks the windows and panes it manages with tmux user-options under the `@tmuxy-*` namespace. This is the canonical reference for that schema and how the backend, frontend, and shell scripts consume it.
-
-### Filtering rule
-
-**Tabs carry no marker.** Any window in the attached session that is _not_ tagged `float`, `sidebar-left` or `sidebar-right` is a tab — including foreign windows a user creates with a raw `tmux neww`, which simply appear as tabs. Only the non-tab chrome windows are tagged, and only those are filtered out of the tab strip. Window names are purely cosmetic and never used to infer type.
-
-So the attached session's window list maps 1:1 to the tab strip (minus any open floats), and a native `tmux attach` and tmuxy agree on what the tabs are. Hidden pane-group members live in a separate stash session, so they are not windows in the attached session at all.
-
-### Schema
-
-Window options are scoped per window (`set-option -w -t <window-id>`). The pane options (`@tmuxy-group-id`, `@tmuxy-group-pos`, `@tmuxy-pane-state`, `@tmuxy-ask`, `@tmuxy-ask-answer`, `@tmuxy-pane-widget`) are scoped per pane (`set-option -p -t <pane-id>`).
-
-| Option                  | Scope   | Values                                                                          | Set on                                                                                                                                                                                                                                                              |
-| ----------------------- | ------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@tmuxy-window-type`    | window  | `float` \| `sidebar-left` \| `sidebar-right`                                    | non-tab chrome windows only (tabs are untagged)                                                                                                                                                                                                                     |
-| `@tmuxy-float-parent`   | window  | `@<window-id>`                                                                  | floats                                                                                                                                                                                                                                                              |
-| `@tmuxy-float-width`    | window  | integer (columns)                                                               | floats                                                                                                                                                                                                                                                              |
-| `@tmuxy-float-height`   | window  | integer (rows)                                                                  | floats                                                                                                                                                                                                                                                              |
-| `@tmuxy-float-drawer`   | window  | `top` \| `bottom` \| `left` \| `right` \| unset                                 | drawer-style floats                                                                                                                                                                                                                                                 |
-| `@tmuxy-float-bg`       | window  | `blur` \| `dim` \| unset                                                        | floats with a backdrop                                                                                                                                                                                                                                              |
-| `@tmuxy-float-noheader` | window  | `1` \| unset                                                                    | floats that hide the header chrome                                                                                                                                                                                                                                  |
-| `@tmuxy-group-id`       | pane    | `g<n>`, e.g. `g5`                                                               | every member of a pane group                                                                                                                                                                                                                                        |
-| `@tmuxy-group-pos`      | pane    | integer (0 is first) \| unset                                                   | a member's place in its group, once the group was reordered or joined; members without one follow, by pane id                                                                                                                                                       |
-| `@tmuxy-group-rev`      | global  | opaque \| unset                                                                 | bumped by the group scripts after a change tmux does not announce, so the pane-metadata subscription fires (every pane inherits it)                                                                                                                                 |
-| `@tmuxy-pane-state`     | pane    | `idle` \| `working` \| `needs-input` \| `error` \| `unread` \| unset            | what the pane says it is doing; set by whatever runs in it                                                                                                                                                                                                          |
-| `@tmuxy-ask`            | pane    | base64 of `{token, caller, keys}` or `{token, kind: "offer", command}` \| unset | a send into this pane waiting on the user (`tmuxy pane send -t`), or a command a session restore offers to run again (the client shows it as a one-line banner and runs or drops it itself)                                                                         |
-| `@tmuxy-ask-answer`     | pane    | `<token>:yes` \| `<token>:no` \| unset                                          | the answer a client recorded for the pending `@tmuxy-ask`                                                                                                                                                                                                           |
-| `@tmuxy-pane-widget`    | pane    | a widget name, e.g. `browser` \| unset                                          | which widget this pane may render; written by `tmuxy-widget` and cleared when it exits                                                                                                                                                                              |
-| `@tmuxy-pane-restore`   | pane    | a shell line \| unset                                                           | how to bring this pane back after a session restore (`tmuxy pane restore-cmd`); set by the program itself, wins over what `ps` finds. See `tmuxy_core::session_snapshot`                                                                                            |
-| `@tmuxy-pane-url`       | pane    | a URL \| unset                                                                  | the address a live browser pane (`tmuxy browser`) is showing, for the app's address bar over it; written by the pane program on every navigation, cleared when it exits. The pane title is the page's title                                                         |
-| `@tmuxy-focus-request`  | session | `left` \| `right` \| `panes` \| unset                                           | a shell helper asking a client to move keyboard focus                                                                                                                                                                                                               |
-| `@tmuxy-sidebar-cols`   | window  | integer (columns) \| unset                                                      | a sidebar column the user has dragged off its default width — for the dock these are its own cells: the right column runs in the sidebar font (80% of the pane font), so its cell width is the pane grid's advance scaled to that size (`selectSidebarCellMetrics`) |
-| `@tmuxy-sidebar-hidden` | window  | `1` \| unset                                                                    | a sidebar column the user has closed; its pane stays alive, no client draws it                                                                                                                                                                                      |
-| `@tmuxy-collapsible`    | window  | `1` \| unset                                                                    | collapsible panes: only the first-level row holding the active pane is expanded (see below)                                                                                                                                                                         |
-| `@tmuxy-sidebar-rows`   | window  | integer (rows) \| unset                                                         | rows the dock's pane is sized to; the client sets it from its own (shorter, sidebar-font) row height, so the column holds more rows than the viewport                                                                                                               |
-
-`@tmuxy-float-parent` is the **window id** of the window the float was launched from; focus returns there when the float closes. A float's backdrop is a style of the float (`@tmuxy-float-bg`), not a window of its own.
-
-`@tmuxy-pane-state` is the one tag tmuxy never writes itself: whatever runs in a pane declares its own state through `tmuxy pane state <value>`, which the sidebar tree draws at the row's right edge. An agent sets it from its hooks, a shell from a `precmd`/`preexec` pair, a build script on failure. Nothing infers it — tmux's activity flag means "bytes arrived", which a spinner produces continuously, so activity cannot tell working from waiting.
-
-**Coding agents.** `tmuxy agent install [claude|codex|agy]` puts tmuxy into an agent's own lifecycle hooks — Claude Code's `settings.json`, Codex's `hooks.json`, Antigravity's `hooks.json`; the home directory's by default, the project's with `--project` — and installs the tmuxy skill beside them. Every installed hook is the same bare command, `tmuxy agent hook <agent> <event>`, called through `tmuxy` on PATH and guarded so that settings synced to a machine without tmuxy do nothing there: what an event means (`working` on a prompt or a finished tool call, `needs-input` on a permission request, `idle` on stop, `error` on a failed turn, unset when the session ends) is decided by the server binary when the hook fires (`tmuxy-server/src/agents.rs`), so an upgrade changes behaviour without a reinstall and uninstall finds tmuxy's entries by that command alone. The hook script (`bin/tmuxy/agent-hook`) never makes the agent wait on tmux: it records the wanted state and applies the latest one from a background job, and outside a tmuxy pane it does nothing. Known gaps: Antigravity has no hook for a permission prompt, so it never reads `needs-input`; and a Claude Code permission prompt dismissed with Esc fires no hook, so the pane stays `needs-input` until the next prompt.
-
-**Unread is the client's.** An agent only ever says `idle` when it stops. A pane that goes from `working` or `needs-input` to `idle` while another pane is active is drawn `unread` until the user activates it (`nextUnreadPaneIds` in `packages/tmuxy-ui/src/utils/paneState.ts`) — only the client knows which pane is in front of the user. The value rides the ordinary `list-panes` subscription (it is a fixed tail field, like `@tmuxy-group-id`) and is carried verbatim: the client owns the vocabulary and collapses anything it does not recognize to `idle`, so a writer is free to use its own status names without waiting for a release. As with every user option, tmux emits no notification when it changes — the value lands on the next metadata sync, which any pane producing output triggers continuously.
-
-`@tmuxy-pane-widget` is what makes a widget a widget. The `__TMUXY_WIDGET__:<name>` marker a widget prints is ordinary pane **output**, and anything a pane prints carries the same weight — a crafted file passed to `cat`, a commit message in `git log`, an ssh MOTD. So the marker alone renders nothing: the client honours it only when this option, written out of band by `tmuxy-widget` through `run-shell`, names the same widget. It rides the `list-panes` tail like `@tmuxy-pane-state`, and `tmuxy-widget` unsets it on the way out, so a pane that has gone back to being a shell cannot print its way into a widget again.
-
-On a float the parent is also **which tab the float belongs to**. A float is an overlay over the tab it was opened from, not over the session: the client shows only the floats whose parent is the active window (`selectVisibleFloats`), so one opened on tab 1 is off screen on tab 2 and comes back when that tab does. A float with no parent, or whose parent window has since closed, is shown on every tab — an orphan nothing could bring on screen could not be closed either. Its backdrop is rendered inside the pane container rather than portaled to the document body, so it dims that tab's content and leaves the sidebars, the tab strip and the status line usable.
-
-Drawer direction, backdrop style, and the no-header flag live in their own options rather than being encoded in the window name — float names are user-facing labels (the running command, or a user-set title).
-
-### The two sidebars
-
-Both sidebars are **chrome windows of exactly the same shape as a float**: a single-pane window, broken out and tagged in one atomic command list, excluded from the tab strip, sized to its own column instead of the viewport. They differ only in the tag, the width, and what the pane runs.
-
-|                    | left (`sidebar-left`)                                                                                                                                         | right (`sidebar-right`)                                                   |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Pane runs          | `tmuxy widget tree`                                                                                                                                           | the default shell                                                         |
-| Title click        | opens the session switcher — a dropdown (`SessionMenu.tsx`) listing the socket's sessions, with the connect form (`tmuxy connect`) behind one item on desktop | —                                                                         |
-| Started in         | —                                                                                                                                                             | the current pane's directory (a bare `split-window`, like any fresh pane) |
-| Width              | `sidebar_dock::LEFT_COLS`                                                                                                                                     | `sidebar_dock::RIGHT_COLS`                                                |
-| Dragged width      | `@tmuxy-sidebar-cols` on its window                                                                                                                           | same                                                                      |
-| Closing the column | hides it (`@tmuxy-sidebar-hidden`); the widget pane survives                                                                                                  | hides it (`@tmuxy-sidebar-hidden`); the shell survives                    |
-| Window name        | `__sidebar-left`                                                                                                                                              | `__sidebar-right`                                                         |
-
-The left column's pane carries **no content**: `bin/tmuxy/tmuxy-widget-tree` prints the widget marker and blocks, and the UI renders the registered `tree` widget in place of the pane's terminal, deriving the tree from state it already holds. The pane exists so the column has a real pane identity — something `ctrl+hjkl` and `tmuxy nav` can move into, and the backend can size — rather than being invisible to tmux entirely.
-
-Both columns are normally real flex siblings of the pane area, so an open sidebar shrinks the pane container and tmux re-tiles the panes into what is left. Below `SIDEBAR_OVERLAY_MIN_COLS` of terminal content left for the tab, a column stops docking and overlays the panes with a backdrop instead, and only one column may be open (`selectSidebarLayout`).
-
-Neither column draws a header while docked — its title lives in the app header, in a cluster sized to exactly that column's width so the two dividers line up. An overlaying column grows its own header, because there is no app-header room left beside it.
-
-Three consequences for the backend:
-
-- **Sizing.** Every other window is resized to the client viewport (`window-size manual` means tmux sizes nothing on its own). A sidebar window instead gets `sidebar_dock::size(window_type, user_cols, rows)` from `tmuxy-core/src/constants.rs` — its own column width, and the viewport's rows unchanged (a headerless column runs the full height of the app body). Both `control_mode::monitor::apply_client_size` and `executor::resize_window` implement this split, and the widths are mirrored in `tmuxy-ui/src/machines/constants.ts` (`LEFT_SIDEBAR_COLS` / `RIGHT_SIDEBAR_COLS`). If the two sides disagree, the pane wraps at a width the UI does not draw.
-- **Resizing.** Dragging a column's inner edge writes `@tmuxy-sidebar-cols` on its window, and the sizing pass above reads it back — so a drag moves the drawn column and the tmux pane together, in whole terminal columns, clamped to `sidebar_dock::MIN_COLS`/`MAX_COLS` (mirrored as `SIDEBAR_MIN_COLS`/`MAX_COLS` in the frontend). Because the width lives on the window rather than in a client, it survives a reload and every client attached to the session draws the column the same. The value reaches the client through the control-mode aggregator, which also answers `get_initial_state` (`MonitorCommand::GetState`), so a client's baseline and its deltas come from the same picture.
-- **Keyboard.** A column is focused without `select-pane` — that would switch the active window and blank the tab behind it. Keys reach the right column through the same overlay target a focused float uses (`overlayPaneId` in `machines/actors/keyboardActor.ts`); the left column's tree handles its own keys while focused (j/k/Enter, `l` to hand the keyboard back, `q` to close the column). Neither column claims Escape: a program pinned in a sidebar may need it, so Escape is forwarded like any other key, and leaving a column is Ctrl+h / Ctrl+l, a click on a pane, or the tree's `q`.
-- **Focus requests.** Because focusing a column is client-side, a shell helper has no tmux command for it. `bin/tmuxy/nav` instead sets the session-scoped `@tmuxy-focus-request` when the calling pane is at the grid's edge (`#{pane_at_left}` / `#{pane_at_right}` — a `select-pane -L/-R` at the edge _wraps_ on current tmux, so "was it a no-op" cannot tell) and that edge has a column, or when the caller is itself inside a column (`$TMUX_PANE`, passed by `tmuxy nav`; run-shell's own `#{pane_id}` is the tab's active pane). It rides the `list-windows` poll (read as a per-window column, set at session scope so every row carries it) and the client that acts on it unsets it. This is what makes `tmuxy nav left` from a shell behave like `Ctrl+h`, which the frontend intercepts before it ever reaches tmux.
-
-Creating a chrome window is one atomic tmux command list: `split-window ; break-pane -d -n <name> [-t :<index>] ; set-option -w -t <target> @tmuxy-window-type <type>`. `break-pane -d` deliberately leaves the session's _current_ window alone, so an untargeted `set-option -w` would tag the window the user is looking at instead of the new one — the list has to name the new window. A **float** names a free index up front. A **sidebar** is targeted by its fixed window name (`:__sidebar-left` / `:__sidebar-right`) instead: the client's copy of the window indices goes stale for a beat after any window closes (`renumber-windows on` shifts the rest and `%window-close` carries no indices), and a guessed index tmux already used made `break-pane` fail after `split-window` had run, leaving a raw widget pane in the tab. Tagging inside the same list also means the marker exists before the monitor reacts to `%window-add`, so a chrome window is never briefly rendered as a tab. One list is also one command queue: the split and the break reach every attached client in the same batch of notifications, which is what keeps the pane from being drawn in the tab it was split from. `bin/tmuxy/float-create` builds the same list for `tmuxy pane float` (it used to split, read the new pane's id back through a temp file, and break in a second call — long enough that the float visibly appeared as a split first). Nothing in the list can name the new pane, since its id does not exist until `split-window` has run: an untargeted `break-pane` moves it because `split-window` without `-d` makes it current for the commands that follow, and the CLI's list ends with a `select-pane` back to the caller's pane, which `break-pane` took away. If the pane never appears (or exits at once — a missing `tmuxy` CLI on the server), the client shows a failure state in the column after a short timeout instead of "starting…".
-
-**Open state.** Because closing a column keeps its pane, the window's existence no longer means "shown": a client derives open = window exists ∧ not `@tmuxy-sidebar-hidden`. Closing sets the option, reopening unsets it, so the choice survives a reload and is the same in every client.
-
-**Keyboard contract while a column has the keyboard.** Plain keys and non-binding chords stay in the column (the tree swallows them; the dock's pane receives them, Escape included). Prefix bindings and root bindings still run, and they act on the _tab grid_ — tmux cannot make a chrome window current without blanking the tab, so `prefix %` with the dock focused splits the tab's active pane, not the dock. Leaving a column is Ctrl+h / Ctrl+l (or `l`/`q` in the tree), a click on a pane, or `tmuxy nav`.
-
-### Sends into another pane (`tmuxy pane send -t`)
-
-`tmuxy pane send -t <pane> <keys...>` into a pane the caller does not own (any pane but its own `$TMUX_PANE`) does not send the keys. It writes the question — who is asking (the program in front in the caller's pane) and the `send-keys` arguments — to the TARGET pane's `@tmuxy-ask`, marks its own pane `needs-input`, and blocks; the client blurs the target's content and asks "`claude` wants to send `npm test`. Allow?", and what the user answers is written back to `@tmuxy-ask-answer`, which the waiting CLI reads before it sends the keys (yes) or exits 1 (no). The round trip is the point: the sender — usually an agent in another pane — learns exactly when the command started, so it knows when the output is worth capturing. The script is `bin/tmuxy/send`.
-
-`set -g @tmuxy-send-ask off` (View ▸ Ask Before Sending Keys, remembered in `tmuxy.state.json`) sends without asking, and `@tmuxy-send-allow` is a comma list of caller names and target panes that skip the question while it is on. A send that skips it still sets the target's `@tmuxy-pane-state` to `unread` (unless the pane declared something else), and the client takes that back once the user brings the pane in front, so nothing is typed into a pane unseen.
-
-The payload is base64 rather than the text itself because `list-panes` rows are comma-separated and the keys are free text; base64 cannot contain a comma, so the value rides the format whatever the keys say. The `token` inside it pins an answer to the question that was on screen: a question withdrawn and replaced while the user was reading gets a new token, and the stale answer is ignored rather than acted on.
-
-The question lives on the pane, not in a client, so every client attached to the session shows it and answering in one answers it in all. Answering is a pane-scoped option write, which is why the monitor re-lists PANES behind such a write (see below) — otherwise the question would stay on screen until the next event moved it. A pane with a pending question also reads as `needs-input` in the sidebar tree whatever it last declared about itself, so the tab holding it is the one the tree points at.
-
-Answering from the keyboard is handled in `machines/actors/keyboardActor.ts` before any key is forwarded: while a pane holds a question it is not a terminal to type into, ↑/↓ or 1/2 move between the answers, Enter takes one, Escape declines, and Cmd+Enter (Ctrl+Enter off macOS) allows every send pending in the ACTIVE tab — deliberately not the others, since agreeing to something you cannot see is what the confirmation exists to prevent.
-
-**Pane titles.** A title change has no control-mode notification either, whether it came from a program's OSC 0/2, a script's `select-pane -T`, or `tmuxy run`. The monitor therefore subscribes to `#{pane_title}` on every pane at attach (`refresh-client -B`, tmux 3.2+; see `SUBSCRIBE_PANE_TITLES_CMD` in `tmuxy-core/src/constants.rs`): tmux checks the subscription about once a second and answers with `%subscription-changed`, which re-lists that pane. A title set from outside reaches the client in about half a second instead of waiting for the 15 s idle heartbeat.
-
-**Option writes and latency.** tmux emits no control-mode notification when a user option changes. The monitor therefore re-lists windows right after forwarding any client command that writes a `@tmuxy-*` option — and re-lists PANES when the write was pane-scoped (`set-option -p`), which is what takes an answered question off the screen at once. A shell helper that writes one (`request_focus` in `bin/tmuxy/_lib`) follows it with a harmless `%window-renamed` (renaming a sidebar's chrome window to the name it already has), which the monitor's deferred metadata sync turns into a `list-windows`. `bin/tmuxy/send` instead prints its waiting notice to stderr: that is real pane output, and pane output is what schedules the deferred metadata sync, so a question asked from a silent pane still appears within a round trip rather than waiting for the idle heartbeat.
-
-### Collapsible panes
-
-A window tagged `@tmuxy-collapsible` keeps only the **first-level** row that holds the active pane expanded; every other first-level row collapses to one line per pane, which the UI draws as just the header. "First level" is the root of tmux's layout tree when it is a vertical stack (`[…]` in `#{window_layout}`): a row that is itself a nested split collapses as a unit and keeps its inner proportions, and navigating among panes inside the expanded row changes nothing.
-
-The backend owns the reshaping (`tmuxy-core/src/layout.rs`, `collapsible_layout_commands` in `control_mode/state.rs`): it parses the layout string, edits the first-level heights, re-serialises it with tmux's checksum and sends `select-layout`. It runs on focus changes, layout changes and option changes, and is idempotent, so the `%layout-change` its own command causes never echoes another. Zoomed windows are left alone.
-
-PANE mode's `s` (`tmuxy-stack`) sets the option and adds a full-width row below (`split-window -v -f`); its `S` (`tmuxy-stack-toggle`) flips it, and turning it off evens the first-level rows back out. The tab's context menu toggles the same option.
-
-### The marked pane
-
-tmux's marked pane (`select-pane -m`, cleared with `select-pane -M`; `prefix m` / `prefix M` by default) is carried on the wire as `#{pane_marked}` in the fixed tail of the monitor's `list-panes` format, so a mark set from any client — a plain `tmux` too — shows in every tmuxy client. The UI draws a flag in the pane header and the sidebar tree row and an outline on the pane (`--pane-marked-border`, themed). The pane context menu offers _Mark/Unmark Pane_, _Swap with Marked Pane_ and _Join Marked Pane Here_, which run bare `swap-pane` / `join-pane`: without `-s`, tmux takes the marked pane as the source.
-
-### Pane groups and the stash session
-
-Pane groups are **not** a window type. A group is a set of panes sharing a `@tmuxy-group-id` pane option, minted from the anchor pane id (`%5` → `g5`) and unique for the group's life because tmux never reuses pane ids. The **visible** member is an ordinary pane in the attached session; the **hidden** members are parked one-per-window in a dedicated session, `__tmuxy_stash`, which is never attached and is filtered out of every session enumeration (the sidebar tree, `session switch`, the server picker).
-
-Because a pane's options travel with it across a **cross-session `swap-pane`**, switching group tabs moves the target member into the visible slot and the previous one into the stash with no membership bookkeeping — verified behavior on tmux 3.7.
-
-The group rules live once, in `tmuxy_core::groups`: pure functions that take the members read from one `list-panes -a` and return the tmux command list for each operation (add, park, close, switch, next, prev, move, join, leave). That one read is a `list-panes -a -F` whose fields are separated by a **space**, the session name last, because tmux 3.4 prints a control character in a format as `_` — a tab-separated row came back as one field there, and every verb refused with "no pane". The `tmuxy-group` crate runs them from inside `run-shell`, the same safe path the session CLI uses — as `tmuxy-server group <verb>`, and as a `tmuxy-group` binary of its own for the v86 guest, which has no server — and the `bin/tmuxy/pane-group-*` scripts are thin wrappers around it, so their names and arguments (which the UI, the key bindings and snapshot restore call) stay put. A script uses `tmuxy-group` when it is on `PATH`, and otherwise finds the server binary through `TMUXY_SERVER_BIN` / `TMUXY_SERVER_SUBCOMMAND`, which every tmuxy process publishes to its tmux server's global environment on attach (a read-only viewer does not), then `tmuxy-server` on `PATH`, the repo's `target/`, and the desktop launcher. The stash session is created lazily (`new-session -d -s __tmuxy_stash`, control-mode safe). Closing a member sweeps orphaned stash members, and so does each add, so hidden members orphaned by a wholesale tab-kill are reaped on the next group operation. Even before that sweep they are invisible: the backend prunes any stash member whose group has no visible pane from the emitted state, so an orphan never renders as a phantom tab.
-
-A group's **order** is `@tmuxy-group-pos` on each member, ascending, with members that carry none after them in pane-id order — so a group nobody rearranged reads in creation order, and the backend (`groups::order_key`, also used by snapshots) and the client (`groupMembers` in `tmuxy-ui/src/domain/client.ts`) apply the same rule. `nav` steps between members with `group next|prev --no-wrap` (exit 3 means no member that way, and the step falls through to the neighbouring pane or sidebar). Move, join and leave rewrite every member's place 0..n-1. `join` breaks the pane out of its window into the stash like a new member; `leave` first hands an on-screen member's slot to the next member in order, then moves the pane out as a tab of its own (`move-window` of its stash window) or splits it in beside a target (`join-pane`), and a group left with one member stops being one. None of these produce a notification tmux sends for options, so each ends by bumping the global `@tmuxy-group-rev`, which the monitor's pane-metadata subscription sees within a second. The order is saved with the session snapshot (a visible member's place as a pane option, a parked member's as its `position`) and restored by `pane-group-park`.
-
-### How the tags are consumed
-
-The backend (`tmuxy-core`) reads the options off `list-windows` and emits each window's `windowType` on the wire, defaulting an untagged window to `tab` (see `WindowState::to_tmux_window`). The setup pass (`collect_window_tag_commands` in `control_mode/state.rs`) re-tags a float/sidebar window whose option went missing, takes the `pane-border-status` row back off a window that turns out to be a sidebar, and enforces `pane-border-status top` per tab window (a session-level `set` is not inherited by windows), but it never writes a `tab` marker. Hidden group members are enumerated with a separate `list-panes` against the stash session (rows carry a `stashmember,` sentinel) and emitted as lightweight pane stubs carrying `group_id`.
-
-The frontend filters on `windowType`:
-
-- `selectVisibleWindows` (`packages/tmuxy-ui/src/machines/selectors/layout.ts`) keeps only `windowType === 'tab'` windows for the tab strip.
-- the sidebar tree (`machines/actors/serversActor.ts`) hides `float` / `sidebar-left` / `sidebar-right` windows and the `__tmuxy_stash` session; everything else (including untagged foreign windows) shows as a tab.
-- floats are rebuilt from `windowType === 'float'` windows and their `@tmuxy-float-*` metadata, and each group from the panes sharing a `group_id` (`machines/app/helpers.ts`).
-
-Window/pane mutations go through the optimistic pipeline in `packages/tmuxy-ui/src/domain/store/` — each op predicts a local patch, dispatches the tmux command, and reconciles against the next server snapshot (`ops.ts`, `TmuxStore.ts`).
+See [TMUX-TAGS.md](TMUX-TAGS.md) for this section: Window Tags (`@tmuxy-*`).
 
 ## Related
 
