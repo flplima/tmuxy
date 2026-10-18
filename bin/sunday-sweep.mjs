@@ -56,6 +56,24 @@ const ghList = (path) =>
     .filter(Boolean)
     .map((line) => JSON.parse(line));
 
+/**
+ * Alerts the token is allowed to read, or none with the reason recorded: a
+ * token missing one permission still sweeps what it can, and the run fails at
+ * the end so the gap is not silent.
+ */
+const unreadable = [];
+const alertsOf = (what, permission, path) => {
+  try {
+    return ghList(path);
+  } catch (error) {
+    const reason = /HTTP 403/.test(String(error.stderr ?? error.message))
+      ? `the token lacks "${permission}: Read"`
+      : String(error.message).split('\n')[0];
+    unreadable.push(`${what}: ${reason}`);
+    return [];
+  }
+};
+
 const repo =
   process.env.GH_REPO ||
   gh(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']).trim();
@@ -99,7 +117,11 @@ const dependabotPRs = JSON.parse(
 const serious = (level) => level === 'high' || level === 'critical';
 const work = [];
 
-for (const alert of ghList(`repos/${repo}/dependabot/alerts?state=open&per_page=100`)) {
+for (const alert of alertsOf(
+  'Dependabot alerts',
+  'Dependabot alerts',
+  `repos/${repo}/dependabot/alerts?state=open&per_page=100`,
+)) {
   const severity = alert.security_advisory?.severity;
   if (!serious(severity)) continue;
   const pkg = alert.dependency?.package?.name ?? '';
@@ -127,7 +149,11 @@ for (const alert of ghList(`repos/${repo}/dependabot/alerts?state=open&per_page=
   });
 }
 
-for (const alert of ghList(`repos/${repo}/code-scanning/alerts?state=open&per_page=100`)) {
+for (const alert of alertsOf(
+  'CodeQL alerts',
+  'Code scanning alerts',
+  `repos/${repo}/code-scanning/alerts?state=open&per_page=100`,
+)) {
   const severity = alert.rule?.security_severity_level;
   if (!serious(severity)) continue;
   const where = alert.most_recent_instance?.location ?? {};
@@ -281,6 +307,8 @@ for (const item of now) {
   }
 }
 
+for (const gap of unreadable) say(`could not read ${gap}`);
+
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(
     process.env.GITHUB_STEP_SUMMARY,
@@ -289,3 +317,5 @@ if (process.env.GITHUB_STEP_SUMMARY) {
       '\n',
   );
 }
+
+if (unreadable.length > 0) process.exit(1);

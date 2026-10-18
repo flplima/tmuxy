@@ -6,11 +6,12 @@ name: sunday sweep
 # gets an agent task on its own branch. At most three a run.
 #
 # The token is a fine-grained PAT for this repository only
-# (`COPILOT_AGENT_PAT`: metadata read; contents, issues and pull requests
-# read/write; agent tasks write) — GITHUB_TOKEN can neither read Dependabot
-# alerts nor start the agent. It lives in this scheduled job alone, never in
-# anything a pull request can trigger. Without it the sweep runs dry and says
-# what it would have done.
+# (`COPILOT_AGENT_PAT`: metadata, Dependabot alerts and code scanning alerts
+# read; contents, issues and pull requests read/write; agent tasks write) —
+# GITHUB_TOKEN can neither read Dependabot alerts nor start the agent. It
+# lives in this scheduled job alone, never in anything a pull request can
+# trigger. Without it the job says so and stops; a token missing one of
+# those permissions sweeps what it can and fails the run, naming the gap.
 
 on:
   schedule:
