@@ -4419,14 +4419,19 @@ describe('Scenario 6m: Dragging in the tree moves panes between tabs and reorder
       'tmux to report the pane in the other window',
     );
     await waitForPaneCount(ctx.page, 2);
-    expect(
-      await ctx.page.evaluate((id) => {
-        const el = document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`);
-        if (!el) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 50 && r.height > 20;
-      }, movedPaneId),
-    ).toBe(true);
+    // The count can reach two before the moved pane is laid out at its size.
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate((id) => {
+          const el = document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`);
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 50 && r.height > 20;
+        }, movedPaneId),
+      10000,
+      'the moved pane to be laid out in the other tab',
+    );
 
     // Step 2: drag tab 2's row above tab 1's. Mid-drag the row rides with the
     // pointer and tab 1 carries the drop bar; the drop reorders.
