@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Effect, Fiber } from 'effect';
-import type { AppMachineEvent } from '../machines/types';
+import type { AppMachineEvent } from '../machines/types/events';
 import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { focusMobileInput } from '../utils/mobileKeyboard';
 import { haptics } from '../utils/haptics';

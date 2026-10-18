@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { PaneContent } from '../../domain/wire';
-import type { AppMachineContext, AppMachineEvent } from '../../machines/types';
+import type { AppMachineContext } from '../../machines/types/context';
+import type { AppMachineEvent } from '../../machines/types/events';
 import type { PaneId } from '../../domain/ids';
 
 export interface WidgetProps {

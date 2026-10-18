@@ -20,7 +20,8 @@
 
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { invoke } from '@tauri-apps/api/core';
-import type { AppMachineContext, GestureFlags } from '../types';
+import type { AppMachineContext } from '../types/context';
+import type { GestureFlags } from '../types/domain';
 import { isModelPaneId, type PaneId } from '../../domain/ids';
 import { isTauri } from '../../utils/platform';
 

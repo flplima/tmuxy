@@ -14,7 +14,8 @@
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
-import { useAppSend, useAppSelector, selectRightSidebarPane } from '../machines/AppContext';
+import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { selectRightSidebarPane } from '../machines/selectors/panesAndSidebars';
 import { sidebarShellTitle } from './paneTabDisplay';
 import { Tooltip } from './Tooltip';
 import { SessionMenu } from './SessionMenu';

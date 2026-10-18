@@ -12,23 +12,21 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import type { StateValueFrom } from 'xstate';
-import { appMachine, type AppMachineActor } from './app';
-import type {
-  AppMachineContext,
-  AppMachineEvent,
-  TmuxPane,
-  PaneGroup,
-  CopyModeState,
-} from './types';
+import { appMachine, type AppMachineActor } from './app/appMachine';
+import type { AppMachineContext } from './types/context';
+import type { AppMachineEvent } from './types/events';
+import type { TmuxPane } from '../domain/client';
+import type { PaneGroup } from './types/domain';
+import type { CopyModeState } from '../domain/copyMode';
 import {
   selectPaneById,
   selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
   selectIsSinglePane as selectIsSinglePaneFn,
   selectPaneGroupForPane,
-  selectReadOnly,
   selectPaneGroupPanes as selectPaneGroupPanesFn,
   getActivePaneInGroup,
-} from './selectors';
+} from './selectors/panesAndSidebars';
+import { selectReadOnly } from './selectors/ui';
 import type { Layer } from 'effect';
 import type { TmuxTransport } from '../infra/transport/TmuxTransport';
 import { transportForEnvironment } from '../infra/transport/layers';
@@ -70,73 +68,6 @@ export interface AppConfig {
 }
 
 const AppConfigContext = createContext<AppConfig>({});
-
-// Re-export all selectors
-export {
-  selectPreviewPanes,
-  selectPanes,
-  selectSessions,
-  selectRepositories,
-  selectDraggedPaneId,
-  selectTabDrop,
-  selectGroupDrop,
-  selectDragOffsetX,
-  selectDragOffsetY,
-  selectDropTarget,
-  selectWindows,
-  selectVisibleWindows,
-  selectLeftSidebarPane,
-  selectSidebarLayout,
-  selectSettledPaneWidth,
-  selectRightSidebarPane,
-  selectError,
-  selectFatalError,
-  selectLog,
-  selectGridDimensions,
-  selectCharSize,
-  selectSidebarCellMetrics,
-  selectKeyboardElsewhere,
-  selectCellMetrics,
-  selectPhoneLayout,
-  selectGridType,
-  selectPaneGroupForPane,
-  selectPaneGroupPanes,
-  getActivePaneInGroup,
-  selectVisiblePanes,
-  selectActivePaneTree,
-  selectVisibleFloats,
-  selectMarkedPaneId,
-  selectHiddenWindowPanes,
-  selectPaneById,
-  selectIsPaneInActiveWindow,
-  selectIsSinglePane,
-  selectContainerSize,
-  selectFitScale,
-  selectEnableAnimations,
-  selectSuppressLayoutTransition,
-  selectPaneKeyOverrides,
-  selectGroupSwitchPaneIds,
-  selectSessionName,
-  selectKeyBindings,
-  selectCommandMode,
-  selectStatusMessage,
-  selectNotifications,
-  selectAnimationsAllowed,
-  selectCursorBlink,
-  selectTabOverviewCols,
-  selectGesture,
-  selectSwipeNeighbor,
-  selectSwipeStill,
-  selectGesturePaneId,
-  selectSidebarFocused,
-  selectPrefixActive,
-  selectKeyTable,
-  selectActivePaneCopyMode,
-  selectThemeName,
-  selectThemeMode,
-  selectAvailableThemes,
-  selectTraceSettings,
-} from './selectors';
 
 // ============================================
 // Context

@@ -30,13 +30,11 @@ import {
   useAppSend,
   useAppSelector,
   useAppSelectorShallow,
-  selectVisibleWindows,
-  selectPanes,
-  selectContainerSize,
-  selectCharSize,
-  selectTabOverviewCols,
   useReadOnly,
 } from '../machines/AppContext';
+import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
+import { selectPanes, selectContainerSize, selectCharSize } from '../machines/selectors/layout';
+import { selectTabOverviewCols } from '../machines/selectors/ui';
 import { overviewSlots, stillPanes } from '../utils/tabOverview';
 import { LogProfiler } from '../utils/renderLog';
 import { TabShot } from './TabShot';

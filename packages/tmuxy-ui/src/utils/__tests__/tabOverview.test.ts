@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { pid, wid } from '../../test/wire';
 import { dropIndex, overviewSlots, reorderOp, slotBoxes } from '../tabOverview';
-import type { TmuxPane, TmuxWindow } from '../../machines/types';
+import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import { placeholderWindowId, type WindowId } from '../../domain/ids';
 import { toTmuxCommand } from '../../domain/commands';
 

@@ -4,7 +4,7 @@ import { TransportEvent } from '../../events';
 import type { PaneId } from '../../../../domain/ids';
 import type { CommandFailure, KeyBindings } from '../../../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
-import type { TraceSettings } from '../../../../machines/types';
+import type { TraceSettings } from '../../../../machines/types/domain';
 import { DemoTmux } from './DemoTmux';
 import { STICKY_TABLE_ENTRIES, STICKY_TABLES } from '../stickyTables';
 import {

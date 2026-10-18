@@ -19,7 +19,8 @@ import {
   swipeSettleMs,
   zoomGrowBox,
 } from '../gestures';
-import type { GestureState, TmuxWindow } from '../../machines/types';
+import type { GestureState } from '../../machines/types/domain';
+import type { TmuxWindow } from '../../domain/client';
 
 const tab = (id: string) => ({ id }) as TmuxWindow;
 const tabs = [tab(wid('@1')), tab(wid('@2')), tab(wid('@3'))];

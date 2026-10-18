@@ -10,7 +10,7 @@
  * written twice (JSX here, Rust in the desktop app) and drifted apart.
  */
 
-import type { AppMachineEvent } from '../../machines/types';
+import type { AppMachineEvent } from '../../machines/types/events';
 
 /** What choosing an item does. */
 export type MenuAction =

@@ -25,13 +25,12 @@
 
 import { memo, useCallback } from 'react';
 import { SidebarColumn } from './SidebarColumn';
+import { useAppSend, useAppSelector } from '../machines/AppContext';
 import {
-  useAppSend,
-  useAppSelector,
   selectLeftSidebarPane,
   selectRightSidebarPane,
   selectSidebarLayout,
-} from '../machines/AppContext';
+} from '../machines/selectors/panesAndSidebars';
 import { LogProfiler } from '../utils/renderLog';
 
 /** What differs between the two columns, by side. */

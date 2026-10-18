@@ -11,7 +11,8 @@
  */
 
 import { memo, useCallback } from 'react';
-import { useAppSend, useAppSelector, selectSidebarLayout } from '../machines/AppContext';
+import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
 
 export const SidebarBackdrop = memo(function SidebarBackdrop() {
   const send = useAppSend();

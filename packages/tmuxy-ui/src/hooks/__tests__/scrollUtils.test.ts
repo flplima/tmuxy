@@ -5,7 +5,7 @@ import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 
 /** What a sent event puts on the wire. */
 const wire = (e: unknown) => toTmuxCommand((e as { op: TmuxOp }).op);
-import type { AppMachineEvent } from '../../machines/types';
+import type { AppMachineEvent } from '../../machines/types/events';
 
 function captureSends() {
   const events: AppMachineEvent[] = [];

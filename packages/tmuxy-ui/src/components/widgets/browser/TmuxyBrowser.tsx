@@ -29,7 +29,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useAppSelector, useAppSend, useReadOnly } from '../../../machines/AppContext';
-import type { WidgetProps } from '../index';
+import type { WidgetProps } from '../registry';
 import { browserView } from './view';
 import { classifySource, isWebsite, loadUrl, parseColorFilter } from './source';
 import { rampTables, readThemeRamp, themeFilterId } from '../../../utils/themeColorFilter';

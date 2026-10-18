@@ -17,7 +17,7 @@ import {
   isLocked,
   PANE_MIN_CELLS,
 } from '../limits';
-import type { PaneCellBox } from '../../types';
+import type { PaneCellBox } from '../../types/domain';
 import type { PaneTree } from '../../../domain/wire';
 
 const boxes = (entries: Record<string, PaneCellBox>) => entries;

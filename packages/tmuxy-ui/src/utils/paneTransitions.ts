@@ -11,7 +11,7 @@
  * are covered too.
  */
 
-import type { PaneBox } from '../constants';
+import type { PaneBox } from '../constants/layout';
 
 // Minimum share of the subject pane's area a candidate must overlap to be
 // considered its split-source — guards against picking an

@@ -24,7 +24,12 @@
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback, raise, cancel } from 'xstate';
-import type { DragMachineContext, DragMachineEvent, DragState, KeyPressEvent } from '../types';
+import type {
+  DragMachineContext,
+  DragMachineEvent,
+  DragState,
+  KeyPressEvent,
+} from '../types/domain';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { findSwapTarget } from './helpers';
 import { tabStripDrop, tabDropOp, sameTabDrop } from '../../utils/tabStripDrop';
@@ -37,7 +42,7 @@ import {
   sameGroupDrop,
   sideOf,
 } from '../../utils/groupDrop';
-import { paneInsetX } from '../../constants';
+import { paneInsetX } from '../../constants/layout';
 import { TmuxOp } from '../../domain/commands';
 import { haptics } from '../../utils/haptics';
 

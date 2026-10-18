@@ -1,20 +1,7 @@
 /**
- * groupsAndFloats state — the `on` slice for pane groups, float panes and the
- * two sidebar columns.
+ * groupsAndFloats state — the `on` slice for pane groups and float panes.
  *
- * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId,
- * leftSidebarOpen, leftSidebarFixed, leftSidebarFocused, rightSidebarOpen,
- * rightSidebarFixed, rightSidebarFocused, sidebarMotion, leftSidebarClosing,
- * rightSidebarClosing.
- *
- * - groupsAndFloatsGlobalEvents: spread into machine root on:
- *   (OPEN_CONNECT_FLOAT, TOGGLE_LEFT_SIDEBAR, SIDEBAR_KEY — pure
- *    side-effect dispatches that work in any state).
- *
- * - groupsAndFloatsIdleEvents: spread into states.idle.on
- *   (CLOSE_FLOAT, CLOSE_TOP_FLOAT, the left sidebar's focus events, and every
- *    right-sidebar event — the dock's toggle can have to CREATE its tmux
- *    window, so unlike the left column it needs a live connection).
+ * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId.
  *
  * SELECT_PANE_GROUP_TAB lives inline in appMachine.ts (cross-cutting with
  * layout).
@@ -23,43 +10,14 @@
 import { notReadOnly } from '../readOnlyGuard';
 
 export const groupsAndFloatsGlobalEvents = {
-  SYNC_DOCK_ROWS: { actions: 'groupsAndFloats_syncDockRows' },
   SYNC_FLOAT_FOCUS: { actions: 'groupsAndFloats_syncFloatFocus' },
   OPEN_CONNECT_FLOAT: {
     guard: notReadOnly,
     actions: 'groupsAndFloats_openConnectFloat',
   },
-  TOGGLE_LEFT_SIDEBAR: {
-    guard: notReadOnly,
-    actions: 'groupsAndFloats_toggleLeftSidebar',
-  },
-  SIDEBAR_KEY: {
-    guard: notReadOnly,
-    actions: 'groupsAndFloats_sidebarKey',
-  },
-  TOGGLE_TAB_COLLAPSE: { actions: 'groupsAndFloats_toggleTabCollapse' },
-  SIDEBAR_START_TIMEOUT: { actions: 'groupsAndFloats_sidebarStartTimeout' },
-  SIDEBAR_MOTION_SETTLED: { actions: 'groupsAndFloats_sidebarMotionSettled' },
-  SIDEBAR_RESIZE_PREVIEW: {
-    guard: notReadOnly,
-    actions: 'groupsAndFloats_sidebarResizePreview',
-  },
-  SIDEBAR_RESIZE_COMMIT: {
-    guard: notReadOnly,
-    actions: 'groupsAndFloats_sidebarResizeCommit',
-  },
-  SIDEBAR_PREVIEW_EXPIRE: { actions: 'groupsAndFloats_sidebarPreviewExpire' },
 } as const;
 
 export const groupsAndFloatsIdleEvents = {
   CLOSE_FLOAT: { guard: notReadOnly, actions: 'groupsAndFloats_closeFloat' },
   CLOSE_TOP_FLOAT: { guard: notReadOnly, actions: 'groupsAndFloats_closeTopFloat' },
-  FOCUS_LEFT_SIDEBAR: { actions: 'groupsAndFloats_focusLeftSidebar' },
-  BLUR_LEFT_SIDEBAR: { actions: 'groupsAndFloats_blurLeftSidebar' },
-  TOGGLE_RIGHT_SIDEBAR: {
-    guard: notReadOnly,
-    actions: 'groupsAndFloats_toggleRightSidebar',
-  },
-  FOCUS_RIGHT_SIDEBAR: { actions: 'groupsAndFloats_focusRightSidebar' },
-  BLUR_RIGHT_SIDEBAR: { actions: 'groupsAndFloats_blurRightSidebar' },
 } as const;

@@ -3,7 +3,7 @@ import { placeholderPaneId } from '../../../domain/ids';
 import { pid } from '../../../test/wire';
 import { activeCloseTarget, executeMenuAction, MENU_OPS } from '../menuActions';
 import { TmuxOp } from '../../../domain/commands';
-import type { AppMachineEvent } from '../../../machines/types';
+import type { AppMachineEvent } from '../../../machines/types/events';
 
 describe('activeCloseTarget', () => {
   it('prefers the focused float pane', () => {

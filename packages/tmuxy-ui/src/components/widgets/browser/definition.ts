@@ -4,7 +4,7 @@
  * claims. See `../index.ts` for the WidgetDefinition contract.
  */
 
-import type { WidgetDefinition, WidgetMenuItem } from '../index';
+import type { WidgetDefinition, WidgetMenuItem } from '../registry';
 import { TmuxyBrowser } from './TmuxyBrowser';
 import { selectBrowserView, ZOOM_STEP } from './view';
 import { browserTitle, parseSource } from './source';

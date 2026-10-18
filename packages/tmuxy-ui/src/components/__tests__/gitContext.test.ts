@@ -6,7 +6,7 @@ import {
   normalizeWorkspacePath,
   summarizeGitContexts,
 } from '../gitContext';
-import type { GitRepository } from '../../machines/types';
+import type { GitRepository } from '../../machines/types/domain';
 
 const repositories: GitRepository[] = [
   {

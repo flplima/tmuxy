@@ -7,7 +7,7 @@
  */
 
 import { restartApp } from '../../utils/restartApp';
-import type { AppMachineEvent } from '../../machines/types';
+import type { AppMachineEvent } from '../../machines/types/events';
 import { type PaneId, isPlaceholderId } from '../../domain/ids';
 import { renameSessionPrompt, renameWindowPrompt, TmuxOp } from '../../domain/commands';
 

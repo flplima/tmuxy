@@ -6,7 +6,8 @@
  * GestureStage (how it is drawn) and PaneLayout (which panes it involves).
  */
 
-import type { GestureState, TmuxWindow } from '../machines/types';
+import type { GestureState } from '../machines/types/domain';
+import type { TmuxWindow } from '../domain/client';
 import type { WindowId } from '../domain/ids';
 
 export interface Box {

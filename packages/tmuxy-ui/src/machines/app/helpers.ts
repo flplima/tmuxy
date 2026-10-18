@@ -2,16 +2,38 @@
  * Helper functions for the app machine
  */
 
+import { assign, sendTo } from 'xstate';
 import { groupMembers } from '../../domain/client';
 import { isModelPaneId, type GroupId, type PaneId, type WindowId } from '../../domain/ids';
-import type {
-  DrawerDirection,
-  FloatBackdrop,
-  FloatPaneState,
-  PaneGroup,
-  TmuxPane,
-  TmuxWindow,
-} from '../types';
+import type { DrawerDirection, FloatBackdrop, FloatPaneState, PaneGroup } from '../types/domain';
+import type { TmuxPane, TmuxWindow } from '../../domain/client';
+import type { Ctx, EnqueueAction } from './actionTypes';
+
+/** The surfaces that can hold the keyboard away from the tiled panes. */
+export type KeyboardSurface = 'left' | 'right' | 'float';
+
+/**
+ * Take the keyboard back from a surface, when it holds it: the focus flag
+ * here and the keyboard actor's record of it, which is what re-aims the next
+ * keystroke. Exactly one surface holds the keyboard, so whatever takes it —
+ * a pane click, a group tab, the other column — releases the others through
+ * this; a column that vanished or was hidden releases itself the same way.
+ */
+export function releaseKeyboard(context: Ctx, enqueue: EnqueueAction, surface: KeyboardSurface) {
+  if (surface === 'left') {
+    if (!context.leftSidebarFocused) return;
+    enqueue(assign({ leftSidebarFocused: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
+  } else if (surface === 'right') {
+    if (!context.rightSidebarFocused) return;
+    enqueue(assign({ rightSidebarFocused: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
+  } else {
+    if (!context.focusedFloatPaneId) return;
+    enqueue(assign({ focusedFloatPaneId: null }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
+  }
+}
 
 /**
  * The grid's extent in cells: the far edges of the panes in the active

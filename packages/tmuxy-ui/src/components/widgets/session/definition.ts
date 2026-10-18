@@ -7,7 +7,7 @@
  * sidebar tree does. That hook is stateless and cannot move a cursor.
  */
 
-import type { WidgetDefinition, WidgetMenuItem } from '../index';
+import type { WidgetDefinition, WidgetMenuItem } from '../registry';
 import { TmuxySession } from './TmuxySession';
 
 /**  nf-fa-server — the switcher is about sessions and the servers holding them. */

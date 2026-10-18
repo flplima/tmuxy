@@ -1,15 +1,10 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { pid, wid } from '../../../test/wire';
-import { createActor, createMachine, assign, type AnyActorRef } from 'xstate';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { pid } from '../../../test/wire';
+import { createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
 import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
 import * as mobileKeyboard from '../../../utils/mobileKeyboard';
 
-/**
- * Spawn the keyboard actor under a tiny parent that records every event it
- * sends and exposes a context snapshot (the actor reads activePaneId /
- * copyModeStates off the parent snapshot for copy-mode detection).
- */
 function spawnKeyboardActor(activePaneId = pid('%3')) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const keyboardActor = createKeyboardActor();
@@ -44,11 +39,14 @@ function pressKey(init: KeyboardEventInit) {
   window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
 }
 
-/** What a sent event puts on the wire: a binding's string, or an op's command. */
 function wireCommand(event: { type: string; [k: string]: unknown }): string | undefined {
   if (event.type === 'SEND_TMUX_COMMAND') return event.command as string;
   if (event.type === 'DISPATCH_OP') return toTmuxCommand(event.op as TmuxOp);
   return undefined;
+}
+
+function sendCommands(events: Array<{ type: string; [k: string]: unknown }>): string[] {
+  return events.map(wireCommand).filter((command): command is string => command !== undefined);
 }
 
 function lastSendCommand(
@@ -58,331 +56,6 @@ function lastSendCommand(
   return commands[commands.length - 1];
 }
 
-describe('keyboardActor — Tab / Shift-Tab', () => {
-  let handle: ReturnType<typeof spawnKeyboardActor>;
-  beforeEach(() => {
-    handle = spawnKeyboardActor(pid('%3'));
-  });
-
-  it('sends plain Tab as the tmux key "Tab"', () => {
-    pressKey({ key: 'Tab' });
-    expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 Tab');
-  });
-
-  it('sends Shift+Tab as the tmux back-tab key "BTab" (not S-Tab)', () => {
-    // tmux emits a literal Tab (0x09) for the key name "S-Tab"; only "BTab"
-    // produces the CSI Z back-tab sequence applications expect for Shift+Tab.
-    pressKey({ key: 'Tab', shiftKey: true });
-    expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 BTab');
-  });
-
-  describe('on a header button', () => {
-    let button: HTMLButtonElement;
-    beforeEach(() => {
-      button = document.createElement('button');
-      document.body.appendChild(button);
-    });
-    afterEach(() => button.remove());
-
-    const pressTabOn = (target: HTMLElement) => {
-      const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-      target.dispatchEvent(event);
-      return event;
-    };
-
-    it('moves the focus on when the keyboard put it there', () => {
-      button.focus();
-      const before = handle.events.length;
-      const event = pressTabOn(button);
-      expect(sendCommands(handle.events.slice(before))).toEqual([]);
-      expect(event.defaultPrevented).toBe(false);
-    });
-
-    it('is still the shell’s after a click left the focus there', () => {
-      window.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }));
-      button.focus();
-      window.dispatchEvent(new MouseEvent('pointerup', { button: 0, bubbles: true }));
-      pressTabOn(button);
-      expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 Tab');
-    });
-  });
-});
-
-/**
- * Spawn the actor under a parent whose `activePaneId` can be reassigned WITHOUT
- * notifying the child. This mirrors a pane-group tab click: the machine's
- * `assign({ activePaneId })` runs synchronously in the transition, but the
- * `UPDATE_ACTIVE_PANE` event that refreshes the actor's cached closure is
- * delivered a task later. The actor must read the live value off the parent
- * snapshot, not its stale closure, or the first keystroke after the click
- * targets the previously-active pane.
- */
-function spawnWithLiveContext(initial = pid('%1')) {
-  const events: Array<{ type: string; [k: string]: unknown }> = [];
-  const keyboardActor = createKeyboardActor();
-  const parent = createMachine({
-    types: {} as {
-      context: {
-        activePaneId: string;
-        activeWindowId: string;
-        copyModeStates: Record<string, unknown>;
-        panes: Array<{ tmuxId: string; windowId: string; active: boolean }>;
-      };
-      events: { type: string; paneId?: string; windowId?: string; [k: string]: unknown };
-    },
-    context: {
-      activePaneId: initial,
-      activeWindowId: wid('@0'),
-      copyModeStates: {},
-      // Two tabs: @0 holds %1 (active) and %2; @1 holds %3.
-      panes: [
-        { tmuxId: pid('%1'), windowId: wid('@0'), active: true },
-        { tmuxId: pid('%2'), windowId: wid('@0'), active: false },
-        { tmuxId: pid('%3'), windowId: wid('@1'), active: true },
-      ],
-    },
-    invoke: {
-      id: 'keyboard',
-      src: 'keyboardActor',
-      input: ({ self }: { self: AnyActorRef }) => ({ parent: self }),
-    },
-    on: {
-      // Test-only: flip the machine's activePaneId the way a tab click does,
-      // deliberately WITHOUT sending UPDATE_ACTIVE_PANE to the child.
-      SET_PARENT_ACTIVE: {
-        actions: assign({ activePaneId: ({ event }) => event.paneId as string }),
-      },
-      // Test-only: the machine's active window, as a tab switch sets it.
-      SET_PARENT_WINDOW: {
-        actions: assign({ activeWindowId: ({ event }) => event.windowId as string }),
-      },
-      '*': {
-        actions: ({ event }) => {
-          events.push(event as { type: string; [k: string]: unknown });
-        },
-      },
-    },
-  }).provide({ actors: { keyboardActor }, actions: {} } as never);
-
-  const actor = createActor(parent);
-  actor.start();
-  const child = actor.getSnapshot().children.keyboard as AnyActorRef;
-  // Sync the child's cached closure to the initial pane, as the real app does.
-  child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: initial });
-  return { actor, child, events };
-}
-
-describe('keyboardActor — active-pane target uses the live snapshot', () => {
-  it('targets the newly-active pane even before UPDATE_ACTIVE_PANE arrives', () => {
-    const { actor, events } = spawnWithLiveContext(pid('%1'));
-
-    // Tab click: machine context flips synchronously; the child closure is NOT
-    // refreshed (no UPDATE_ACTIVE_PANE), exactly as in the same-tick race.
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%2') });
-
-    // A printable key fired in this same tick must reach %2, not the stale
-    // %1 (sent literally as `-l -- 'a'`).
-    pressKey({ key: 'a' });
-    expect(lastSendCommand(events)).toBe("send-keys -t %2 -l -- 'a'");
-  });
-
-  it('falls back to the cached pane when the snapshot has no activePaneId', () => {
-    // Defends the try/catch fallback: a parent that never carries activePaneId
-    // must not break key routing — the cached closure value still applies.
-    const events: Array<{ type: string; [k: string]: unknown }> = [];
-    const keyboardActor = createKeyboardActor();
-    const parent = createMachine({
-      types: {} as {
-        context: Record<string, never>;
-        events: { type: string; [k: string]: unknown };
-      },
-      context: {},
-      invoke: {
-        id: 'keyboard',
-        src: 'keyboardActor',
-        input: ({ self }: { self: AnyActorRef }) => ({ parent: self }),
-      },
-      on: {
-        '*': { actions: ({ event }) => events.push(event as { type: string }) },
-      },
-    }).provide({ actors: { keyboardActor }, actions: {} } as never);
-    const actor = createActor(parent);
-    actor.start();
-    const child = actor.getSnapshot().children.keyboard as AnyActorRef;
-    child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%7') });
-
-    pressKey({ key: 'b' });
-    expect(lastSendCommand(events)).toBe("send-keys -t %7 -l -- 'b'");
-  });
-});
-
-describe('keyboardActor — bindings are pinned to the window the user sees', () => {
-  it('prepends select-window and select-pane to prefix and root bindings', () => {
-    // A split right after a tab switch: the client is already on the new tab
-    // (optimistically) while tmux may still be on the old one. `select-pane`
-    // alone never changes the current window, so without the window pin the
-    // split could land in the tab the user just left.
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
-    child.send({
-      type: 'UPDATE_KEYBINDINGS',
-      keybindings: {
-        prefix_key: 'C-a',
-        tables: {},
-        prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
-        root_bindings: [{ key: 'C-n', command: 'next-window' }],
-      },
-    });
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%2') });
-
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: '%', shiftKey: true });
-    expect(lastSendCommand(events)).toBe(
-      'select-window -t @0 \\; select-pane -t %2 \\; split-window -h',
-    );
-
-    pressKey({ key: 'n', ctrlKey: true });
-    expect(lastSendCommand(events)).toBe(
-      'select-window -t @0 \\; select-pane -t %2 \\; next-window',
-    );
-  });
-
-  it("never pins a pane outside the pinned window: the window's own active pane stands in", () => {
-    // `select-pane` on a pane in another tab also re-points the command list's
-    // current target at it, so `split-window` after it would land in THAT tab
-    // (seen in the wild: a stale active-pane id from the initial snapshot,
-    // tab 2 on screen, the split appeared in tab 1).
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
-    child.send({
-      type: 'UPDATE_KEYBINDINGS',
-      keybindings: {
-        prefix_key: 'C-a',
-        tables: {},
-        prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
-        root_bindings: [],
-      },
-    });
-    // The machine shows tab @1 while its active pane id still points into @0.
-    actor.send({ type: 'SET_PARENT_WINDOW', windowId: wid('@1') });
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%2') });
-
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: '%', shiftKey: true });
-    expect(lastSendCommand(events)).toBe(
-      'select-window -t @1 \\; select-pane -t %3 \\; split-window -h',
-    );
-
-    // A window whose panes are not known yet is pinned on its own.
-    actor.send({ type: 'SET_PARENT_WINDOW', windowId: wid('@2') });
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: '%', shiftKey: true });
-    expect(lastSendCommand(events)).toBe('select-window -t @2 \\; split-window -h');
-  });
-
-  it('derives the window from the pinned pane when the machine has none yet', () => {
-    // Cold start and the beat after a session switch leave activeWindowId
-    // unset. A pane pin on its own steers nothing: `select-pane` on a pane in
-    // another window leaves tmux's current window alone, so the split ran
-    // wherever tmux already was — the split that kept landing in the first tab.
-    const { actor, events, child } = spawnWithLiveContext(pid('%1'));
-    child.send({
-      type: 'UPDATE_KEYBINDINGS',
-      keybindings: {
-        prefix_key: 'C-a',
-        tables: {},
-        prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
-        root_bindings: [],
-      },
-    });
-    // No active window published yet, and the user is in %3 (which lives in @1).
-    actor.send({ type: 'SET_PARENT_WINDOW', windowId: '' });
-    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: pid('%3') });
-
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: '%', shiftKey: true });
-
-    // %3 lives in @1, so the pin names @1 even though the machine published no
-    // active window.
-    expect(lastSendCommand(events)).toBe(
-      'select-window -t @1 \\; select-pane -t %3 \\; split-window -h',
-    );
-    actor.stop();
-  });
-});
-
-describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', () => {
-  it('sends the strip position for ctrl+1–9 and toggles the overview on ctrl+0', () => {
-    // Sidebars and floats occupy tmux window indexes the user never sees, so
-    // `select-window -t N` would pick the wrong tab. The client resolves the
-    // Nth visible tab itself; a root binding on the same key never wins.
-    const { child, events } = spawnWithLiveContext(pid('%1'));
-    child.send({
-      type: 'UPDATE_KEYBINDINGS',
-      keybindings: {
-        prefix_key: 'C-a',
-        tables: {},
-        prefix_bindings: [],
-        root_bindings: [{ key: 'C-2', command: 'select-window -t 2' }],
-      },
-    });
-
-    const ofType = (type: string) => events.filter((e) => e.type === type);
-
-    pressKey({ key: '2', ctrlKey: true });
-    expect(ofType('SELECT_TAB_BY_POSITION')).toEqual([
-      { type: 'SELECT_TAB_BY_POSITION', position: 2 },
-    ]);
-    expect(ofType('SEND_TMUX_COMMAND')).toEqual([]);
-    expect(ofType('DISPATCH_OP')).toEqual([]);
-
-    pressKey({ key: '0', ctrlKey: true });
-    expect(ofType('TOGGLE_TAB_OVERVIEW')).toHaveLength(1);
-
-    // prefix w opens the same overview.
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 'w' });
-    expect(ofType('TOGGLE_TAB_OVERVIEW')).toHaveLength(2);
-  });
-});
-
-describe('keyboardActor — prefix mode', () => {
-  afterEach(() => vi.useRealTimers());
-
-  const lastPrefixActive = (
-    events: Array<{ type: string; [k: string]: unknown }>,
-  ): boolean | undefined => {
-    const actives = events
-      .filter((e) => e.type === 'PREFIX_MODE_CHANGE')
-      .map((e) => e.active as boolean);
-    return actives[actives.length - 1];
-  };
-
-  it('auto-exits prefix mode after the timeout', () => {
-    vi.useFakeTimers();
-    const { events } = spawnKeyboardActor(pid('%3'));
-    pressKey({ key: 'a', ctrlKey: true });
-    expect(lastPrefixActive(events)).toBe(true);
-    // The 8s prefix window elapses with no binding pressed.
-    vi.advanceTimersByTime(8000);
-    expect(lastPrefixActive(events)).toBe(false);
-  });
-
-  it('double prefix exits prefix mode and sends the literal prefix key', () => {
-    const { events } = spawnKeyboardActor(pid('%3'));
-    pressKey({ key: 'a', ctrlKey: true }); // enter
-    pressKey({ key: 'a', ctrlKey: true }); // double → exit + literal
-    expect(lastPrefixActive(events)).toBe(false);
-    expect(lastSendCommand(events)).toBe('send-keys -t %3 C-a');
-  });
-});
-
-/**
- * International input: the character a layout composed must be forwarded as
- * literal text (`send-keys -l`). As a key name it is not an error but worse:
- * tmux turns `M-ç` into ESC + ç and `C-M-@` into ESC + NUL, meta sequences the
- * shell discards, so the character silently never arrives. The three composed
- * paths below all wear flags that read like a chord, so the actor has to tell
- * them apart from the real chords in the last block.
- */
 describe('keyboardActor — composed characters are literal text', () => {
   let handle: ReturnType<typeof spawnKeyboardActor>;
   beforeEach(() => {
@@ -390,10 +63,6 @@ describe('keyboardActor — composed characters are literal text', () => {
   });
 
   it('sends a dead-key character even though the IME stamped it keyCode 229', () => {
-    // ´ then a on a Portuguese/US-International layout: the accent key yields
-    // `Dead`, and the next keydown already carries the composed `á`. macOS
-    // routes that through the IME, so it wears the 229 "IME is handling this"
-    // marker that suppresses genuinely mid-composition keys.
     pressKey({ key: 'Dead', keyCode: 229 });
     pressKey({ key: 'á', keyCode: 229 });
     expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- 'á'");
@@ -402,20 +71,15 @@ describe('keyboardActor — composed characters are literal text', () => {
   it('still suppresses a key the IME is only processing (no character yet)', () => {
     pressKey({ key: 'x' });
     pressKey({ key: 'Process', keyCode: 229 });
-    // The last command is still the `x` before it — `Process` sent nothing.
     expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- 'x'");
   });
 
   it('sends a macOS Option-composed character instead of an M- chord', () => {
-    // Option+c on a US Mac layout: altKey is set, but the OS already replaced
-    // the letter with `ç`.
     pressKey({ key: 'ç', altKey: true });
     expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l -- 'ç'");
   });
 
   it('sends an AltGr third-level symbol instead of a C-M- chord', () => {
-    // AltGr+Q on ABNT2 → `@`, reported with the legacy ctrl+alt flags plus the
-    // AltGraph modifier state that identifies it.
     window.dispatchEvent(
       new KeyboardEvent('keydown', {
         key: '@',
@@ -450,7 +114,6 @@ describe('keyboardActor — chords stay chords', () => {
   });
 
   it('keeps bare Alt + an ASCII key as M-<key>', () => {
-    // Nothing was composed — the key is still `x` — so this is a real chord.
     pressKey({ key: 'x', altKey: true });
     expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 M-x');
   });
@@ -461,21 +124,10 @@ describe('keyboardActor — chords stay chords', () => {
   });
 
   it('keeps the macOS Option+h character mapped to M-h', () => {
-    // Option+h yields `˙`, which tmuxy claims for pane navigation rather than
-    // typing — the one non-ASCII-under-Alt case that is NOT text.
     pressKey({ key: '˙', altKey: true });
     expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 M-h');
   });
 });
-
-// ---------------------------------------------------------------------------
-// Desktop IME: the hidden input owns browser focus and follows the pane
-// holding the keyboard (from PR #61 by @devcomfort).
-// ---------------------------------------------------------------------------
-
-function sendCommands(events: Array<{ type: string; [k: string]: unknown }>): string[] {
-  return events.map(wireCommand).filter((command): command is string => command !== undefined);
-}
 
 function startComposition(input: HTMLInputElement, texts: string[]) {
   input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
@@ -544,14 +196,12 @@ describe('keyboardActor — desktop IME', () => {
 
   it('installs an editable input in a non-touch browser', () => {
     const input = mobileKeyboard.getMobileInput();
-
     expect(input).toBeInstanceOf(HTMLInputElement);
     expect(input?.isConnected).toBe(true);
   });
 
   it('focuses the editable input when the first active pane arrives', () => {
     const input = mobileKeyboard.getMobileInput();
-
     expect(document.activeElement).toBe(input);
   });
 
@@ -567,8 +217,6 @@ describe('keyboardActor — desktop IME', () => {
     textarea.remove();
   });
 
-  // A rename field is a real input: what is pasted into it stays there. The
-  // window listener used to take every paste for the pane, field or not.
   it('leaves a paste into a real form control in the browser', () => {
     const input = document.createElement('input');
     document.body.appendChild(input);
@@ -585,7 +233,6 @@ describe('keyboardActor — desktop IME', () => {
     expect(sendCommands(handle.events)).toEqual([]);
     input.remove();
 
-    // The pane's paste still goes to tmux.
     pasteText('for the pane');
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'for the pane'"]);
   });
@@ -906,90 +553,5 @@ describe('keyboardActor — desktop IME', () => {
       'send-keys -t tmuxy C-a',
     ]);
     expect(sendCommands(handle.events).join('\n')).not.toContain(placeholder);
-  });
-});
-
-describe('keyboardActor — sticky key tables and the sidebar keys', () => {
-  const PIN = 'select-window -t @0 \\; select-pane -t %1 \\; ';
-  const keybindings = {
-    prefix_key: 'C-a',
-    prefix_bindings: [{ key: 'p', command: 'switch-client -T pane', description: '' }],
-    root_bindings: [],
-    tables: {
-      pane: [
-        { key: 'x', command: 'kill-pane \\; switch-client -T pane', description: '' },
-        { key: 'z', command: 'resize-pane -Z', description: '' },
-      ],
-    },
-  };
-  const tableChanges = (events: Array<{ type: string; [k: string]: unknown }>) =>
-    events.filter((e) => e.type === 'KEY_TABLE_CHANGE').map((e) => e.table);
-
-  it('prefix p enters PANE; a key that re-enters it repeats, and the switch never reaches tmux', () => {
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
-    child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 'p' });
-    expect(tableChanges(events)).toEqual(['pane']);
-    expect(sendCommands(events)).toEqual([]);
-
-    pressKey({ key: 'x' });
-    pressKey({ key: 'x' });
-    expect(sendCommands(events)).toEqual([`${PIN}kill-pane`, `${PIN}kill-pane`]);
-    expect(tableChanges(events)).toEqual(['pane']);
-
-    pressKey({ key: 'Escape' });
-    expect(tableChanges(events)).toEqual(['pane', null]);
-    // Out of the table, x is typed again.
-    pressKey({ key: 'x' });
-    expect(lastSendCommand(events)).toBe("send-keys -t %1 -l -- 'x'");
-    actor.stop();
-  });
-
-  it('a binding that names no table, or a key the table does not bind, leaves it', () => {
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
-    child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 'p' });
-    pressKey({ key: 'z' });
-    expect(lastSendCommand(events)).toBe(`${PIN}resize-pane -Z`);
-    expect(tableChanges(events)).toEqual(['pane', null]);
-
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 'p' });
-    const sent = sendCommands(events).length;
-    pressKey({ key: 'q' });
-    expect(sendCommands(events)).toHaveLength(sent);
-    expect(tableChanges(events)).toEqual(['pane', null, 'pane', null]);
-    actor.stop();
-  });
-
-  it('prefix s opens the column, s again reaches it, and any other key is typed as usual', () => {
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
-    child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
-    const sidebarKeys = () => events.filter((e) => e.type === 'SIDEBAR_KEY');
-
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 's' });
-    pressKey({ key: 's' });
-    expect(sidebarKeys()).toEqual([
-      { type: 'SIDEBAR_KEY', side: 'left' },
-      { type: 'SIDEBAR_KEY', side: 'left' },
-    ]);
-
-    // After the repeat, a different key is not a prefix binding: it is typed.
-    pressKey({ key: 'j' });
-    expect(lastSendCommand(events)).toBe("send-keys -t %1 -l -- 'j'");
-    expect(sidebarKeys()).toHaveLength(2);
-
-    // The prefix inside a repeat window starts a fresh prefix: it is not a
-    // double prefix sending a literal C-a to the pane.
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 's' });
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 's' });
-    expect(sidebarKeys()).toHaveLength(4);
-    expect(sendCommands(events)).not.toContain('send-keys -t %1 C-a');
-    actor.stop();
   });
 });

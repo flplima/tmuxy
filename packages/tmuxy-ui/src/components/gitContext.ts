@@ -6,7 +6,7 @@
  * No React, no machine, no adapter.
  */
 
-import type { GitRepository, GitWorktree } from '../machines/types';
+import type { GitRepository, GitWorktree } from '../machines/types/domain';
 
 /** Git identity resolved for a single pane cwd. */
 export interface PaneGitContext {

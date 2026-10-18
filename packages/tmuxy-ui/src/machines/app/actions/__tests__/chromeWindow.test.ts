@@ -11,7 +11,7 @@ import { placeholderPaneId, type WindowId } from '../../../../domain/ids';
 import { pid, wid } from '../../../../test/wire';
 import { freeWindowIndex } from '../groupsAndFloats';
 import { TmuxOp, toTmuxCommand } from '../../../../domain/commands';
-import type { TmuxWindow } from '../../../types';
+import type { TmuxWindow } from '../../../../domain/client';
 
 const tab = (id: WindowId, index: number): TmuxWindow => ({
   id,

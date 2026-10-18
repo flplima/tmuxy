@@ -11,7 +11,7 @@
  * (which would move the cursor in nvim, not scroll the viewport).
  */
 
-import type { AppMachineEvent } from '../machines/types';
+import type { AppMachineEvent } from '../machines/types/events';
 import type { PaneId } from '../domain/ids';
 import { TmuxOp } from '../domain/commands';
 

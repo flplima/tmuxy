@@ -1,4 +1,4 @@
-import type { AppMachineContext } from '../types';
+import type { AppMachineContext } from '../types/context';
 
 /**
  * Guard for events that would change the session. A read-only client sends

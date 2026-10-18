@@ -10,7 +10,7 @@
  */
 
 import { useAppActor, usePane } from '../../machines/AppContext';
-import { detectWidget, getWidget, type WidgetDefinition, type WidgetMenuItem } from './index';
+import { detectWidget, getWidget, type WidgetDefinition, type WidgetMenuItem } from './registry';
 import type { PaneId } from '../../domain/ids';
 
 interface PaneWidget {

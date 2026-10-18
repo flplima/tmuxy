@@ -1,4 +1,4 @@
-import { registerWidget } from './index';
+import { registerWidget } from './registry';
 import { browserWidget } from './browser/definition';
 import { sessionWidget } from './session/definition';
 import { TmuxyTree } from './TmuxyTree';

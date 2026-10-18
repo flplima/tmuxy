@@ -27,20 +27,24 @@ import {
   useAppSend,
   useAppState,
   useAppConfig,
+  useReadOnly,
+} from './machines/AppContext';
+import {
   selectPreviewPanes,
+  selectContainerSize,
+  selectCellMetrics,
+  selectFitScale,
+  selectPhoneLayout,
+  selectGridType,
+} from './machines/selectors/layout';
+import {
   selectError,
   selectFatalError,
   selectLog,
-  selectContainerSize,
-  selectCellMetrics,
   selectAnimationsAllowed,
-  selectFitScale,
   selectCursorBlink,
   selectSidebarFocused,
-  selectPhoneLayout,
-  selectGridType,
-  useReadOnly,
-} from './machines/AppContext';
+} from './machines/selectors/ui';
 import { cellMetricsStyle } from './utils/cellMetrics';
 import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';

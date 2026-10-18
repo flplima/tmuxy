@@ -3,14 +3,14 @@
  * Pure functions for pane layout calculations
  */
 
-import type { TmuxPane } from '../machines/types';
+import type { TmuxPane } from '../domain/client';
 import {
   CHAR_HEIGHT,
   STATUS_BAR_HEIGHT,
   TMUX_STATUS_BAR_HEIGHT,
   CONTAINER_PADDING_X,
   CONTAINER_PADDING_BOTTOM,
-} from '../constants';
+} from '../constants/layout';
 
 /**
  * Calculate target dimensions (cols/rows) based on available space.

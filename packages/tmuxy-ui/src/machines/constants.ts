@@ -4,7 +4,7 @@
  * Shared constants used across state machines.
  */
 
-import { CHAR_HEIGHT } from '../constants';
+import { CHAR_HEIGHT } from '../constants/layout';
 
 /** Default character width for grid calculations (px) */
 export const DEFAULT_CHAR_WIDTH = 9.6;

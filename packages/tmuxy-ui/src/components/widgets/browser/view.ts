@@ -8,7 +8,8 @@
  * shows exactly what it was pointed at.
  */
 
-import type { AppMachineContext, BrowserPaneState } from '../../../machines/types';
+import type { AppMachineContext } from '../../../machines/types/context';
+import type { BrowserPaneState } from '../../../machines/types/domain';
 import { parseSource } from './source';
 import type { PaneId } from '../../../domain/ids';
 

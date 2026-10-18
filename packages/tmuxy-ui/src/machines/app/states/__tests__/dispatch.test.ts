@@ -3,7 +3,7 @@ import { fromCallback } from 'xstate';
 import { dispatchActions } from '../../dispatch';
 import { TmuxOp } from '../../../../domain/commands';
 import { placeholderPaneId, placeholderWindowId } from '../../../../domain/ids';
-import type { AppMachineContext } from '../../../types';
+import type { AppMachineContext } from '../../../types/context';
 import { mountState } from './testHarness';
 
 const dispatchState = {

@@ -12,7 +12,8 @@
  */
 
 import { assign, enqueueActions } from 'xstate';
-import type { AppMachineContext, AllAppMachineEvents } from '../types';
+import type { AppMachineContext } from '../types/context';
+import type { AllAppMachineEvents } from '../types/events';
 
 export type Ctx = AppMachineContext;
 export type Evt = AllAppMachineEvents;

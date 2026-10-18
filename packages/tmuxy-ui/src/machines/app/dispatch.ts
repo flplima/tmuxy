@@ -17,7 +17,7 @@ import { act, type Ctx, type Enqueue } from './actionTypes';
 import { isLayoutChange, isMultiStep, TmuxOp, type TmuxOpOf } from '../../domain/commands';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
-import { getActivePaneInGroup } from '../selectors';
+import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
 
 /**
  * The client's active window and pane, as targets tmux can resolve: null

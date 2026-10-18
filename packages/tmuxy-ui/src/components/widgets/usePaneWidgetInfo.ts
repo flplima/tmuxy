@@ -17,7 +17,7 @@
 
 import { useRef } from 'react';
 import type { PaneContent } from '../../domain/wire';
-import { detectWidget } from './index';
+import { detectWidget } from './registry';
 
 export type PaneWidgetInfo = ReturnType<typeof detectWidget>;
 

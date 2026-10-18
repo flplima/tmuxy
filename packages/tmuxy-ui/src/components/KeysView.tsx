@@ -7,10 +7,11 @@
  * keyboard actor), as does a click outside the list.
  */
 
-import { useAppSelector, useAppSend, selectKeyBindings } from '../machines/AppContext';
+import { useAppSelector, useAppSend } from '../machines/AppContext';
+import { selectKeyBindings } from '../machines/selectors/ui';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { splitTableSwitch } from '../domain/keyTables';
-import type { KeyBindings } from '../machines/types';
+import type { KeyBindings } from '../domain/wire';
 import './KeysView.css';
 
 type Binding = KeyBindings['prefix_bindings'][number];

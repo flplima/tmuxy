@@ -52,12 +52,11 @@ import {
   useAppSend,
   useAppSelector,
   useAppSelectorShallow,
-  selectVisibleWindows,
-  selectPanes,
-  selectSessions,
-  selectRepositories,
   useReadOnly,
 } from '../machines/AppContext';
+import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
+import { selectPanes } from '../machines/selectors/layout';
+import { selectSessions, selectRepositories } from '../machines/selectors/ui';
 import { paneRowLines, getTabIcon, tabIcon } from './paneTabDisplay';
 import { InlineRename } from './InlineRename';
 import {
@@ -71,7 +70,7 @@ import { paneStateFor, tabPaneStates } from '../utils/paneState';
 import { inGridOrder } from '../utils/gridOrder';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
-import type { TmuxPane, TmuxWindow } from '../machines/types';
+import type { TmuxPane, TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 import { useReorderDrag } from '../hooks/useReorderDrag';

@@ -43,16 +43,16 @@ import {
   useAppSend,
   useAppSelector,
   useAppSelectorShallow,
-  selectVisibleWindows,
-  selectTabDrop,
-  selectAnimationsAllowed,
   useReadOnly,
 } from '../machines/AppContext';
+import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
+import { selectTabDrop } from '../machines/selectors/layout';
+import { selectAnimationsAllowed } from '../machines/selectors/ui';
 import { TabContextMenu } from './TabContextMenu';
 import { haptics } from '../utils/haptics';
 import { LogProfiler } from '../utils/renderLog';
 import { siblingShift, useReorderDrag } from '../hooks/useReorderDrag';
-import type { TmuxWindow } from '../machines/types';
+import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
 import { InlineRename } from './InlineRename';
@@ -60,7 +60,7 @@ import { isModelWindowId, type WindowId } from '../domain/ids';
 import { PaneStateMark } from './PaneStateMark';
 import { tabIcon } from './paneTabDisplay';
 import { tabPaneStates, type PaneStateName } from '../utils/paneState';
-import type { AppMachineContext } from '../machines/types';
+import type { AppMachineContext } from '../machines/types/context';
 
 /**
  * How long the strip keeps checking that the current tab is still in view

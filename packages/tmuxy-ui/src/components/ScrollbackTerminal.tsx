@@ -13,7 +13,8 @@
 
 import { useRef, useLayoutEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
-import { useAppSelector, selectCharSize } from '../machines/AppContext';
+import { useAppSelector } from '../machines/AppContext';
+import { selectCharSize } from '../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
 import { sameCellStyle } from './terminalShared';
 import { isRowLoaded, isWrappedRow } from '../utils/copyMode';

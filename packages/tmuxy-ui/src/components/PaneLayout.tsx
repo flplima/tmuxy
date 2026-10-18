@@ -28,34 +28,35 @@ import {
   PANE_LEAVE_MS,
   PANE_ENTER_FROM_OPACITY,
   type PaneBox,
-} from '../constants';
+} from '../constants/layout';
 import { findEnterFromBox } from '../utils/paneTransitions';
 import { gridExtent } from '../machines/app/helpers';
+import { useAppSelector, useAppSend, useIsDragging, useIsResizing } from '../machines/AppContext';
 import {
-  useAppSelector,
-  useAppSend,
-  useIsDragging,
-  useIsResizing,
   selectVisiblePanes,
   selectActivePaneTree,
   selectHiddenWindowPanes,
+  selectSettledPaneWidth,
+  selectGroupSwitchPaneIds,
+} from '../machines/selectors/panesAndSidebars';
+import {
   selectDraggedPaneId,
   selectDragOffsetX,
   selectDragOffsetY,
   selectGridDimensions,
   selectContainerSize,
-  selectSettledPaneWidth,
   selectDropTarget,
+} from '../machines/selectors/layout';
+import {
   selectEnableAnimations,
   selectSuppressLayoutTransition,
   selectKeyboardElsewhere,
-  selectGroupSwitchPaneIds,
   selectPaneKeyOverrides,
   selectSwipeNeighbor,
   selectSwipeStill,
   selectGesturePaneId,
-} from '../machines/AppContext';
-import type { TmuxPane } from '../machines/types';
+} from '../machines/selectors/ui';
+import type { TmuxPane } from '../domain/client';
 import { findZoomedPane } from '../utils/layout';
 import { parseSwipeNeighbor, swipeOffsetPx } from '../utils/gestures';
 import { takeZoomHandoff } from '../utils/zoomHandoff';

@@ -19,7 +19,7 @@ import {
 import { parseLiveHeader, verbLine } from '../live';
 import { firstHeading } from '../markdownHeading';
 import { browserView, clampZoom, normalizeAddress, MAX_ZOOM, MIN_ZOOM } from '../view';
-import type { BrowserPaneState } from '../../../../machines/types';
+import type { BrowserPaneState } from '../../../../machines/types/domain';
 import { canReadPageTitle, parseHtmlTitle } from '../pageTitle';
 
 describe('firstHeading', () => {

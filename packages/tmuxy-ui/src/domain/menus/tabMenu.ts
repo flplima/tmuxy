@@ -3,7 +3,7 @@
  * tab, with navigation), and a tab's own context menu (about that tab).
  */
 
-import type { AppMachineContext } from '../../machines/types';
+import type { AppMachineContext } from '../../machines/types/context';
 import {
   MENU_OPS,
   STACK_TOGGLE_KEY_OP,

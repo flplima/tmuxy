@@ -23,7 +23,7 @@
  * recomputed from them would drift.
  */
 
-import type { ResizeHandle, ResizeLimits, ResizeState, PaneCellBox } from '../types';
+import type { ResizeHandle, ResizeLimits, ResizeState, PaneCellBox } from '../types/domain';
 import type { PaneId } from '../../domain/ids';
 import type { PaneTree } from '../../domain/wire';
 

@@ -10,7 +10,8 @@
  * failure.
  */
 
-import { useAppSelector, useAppSend, selectNotifications } from '../machines/AppContext';
+import { useAppSelector, useAppSend } from '../machines/AppContext';
+import { selectNotifications } from '../machines/selectors/ui';
 import './Snackbar.css';
 
 export function Snackbar() {

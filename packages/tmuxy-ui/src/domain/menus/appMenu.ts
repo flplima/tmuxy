@@ -4,8 +4,9 @@
  * host's convention says.
  */
 
-import type { AppMachineContext, TraceLevel } from '../../machines/types';
-import type { WidgetMenuItem } from '../../components/widgets';
+import type { AppMachineContext } from '../../machines/types/context';
+import type { TraceLevel } from '../../machines/types/domain';
+import type { WidgetMenuItem } from '../../components/widgets/registry';
 import { TmuxOp } from '../commands';
 import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
 import { paneMenuSpec } from './paneMenu';

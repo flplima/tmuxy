@@ -7,7 +7,7 @@
 
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { calculateTargetSize } from '../../utils/layout';
-import { CHAR_HEIGHT } from '../../constants';
+import { CHAR_HEIGHT } from '../../constants/layout';
 import type { CellMetrics } from '../../utils/cellMetrics';
 import {
   PHONE_COLS,

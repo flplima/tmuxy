@@ -272,7 +272,7 @@ Components consume the machine via hooks defined in `tmuxy-ui/src/machines/AppCo
 - `usePaneGroup(paneId)` — Get group info for a pane
 - `useIsDragging()`, `useIsResizing()` — Operation state checks
 
-Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `selectPreviewPanes` (with resize preview), `selectVisiblePanes`, `selectWindows`, `selectVisibleWindows`, `selectGridDimensions`, `selectCharSize`, `selectPaneById`, `selectPaneGroupForPane`, etc.
+Selectors are defined in `tmuxy-ui/src/machines/selectors/` (`layout.ts`, `panesAndSidebars.ts`, `ui.ts`) and include: `selectPreviewPanes` (with resize preview), `selectVisiblePanes`, `selectWindows`, `selectVisibleWindows`, `selectGridDimensions`, `selectCharSize`, `selectPaneById`, `selectPaneGroupForPane`, etc.
 
 ### Pane enter/leave animations (component-local)
 

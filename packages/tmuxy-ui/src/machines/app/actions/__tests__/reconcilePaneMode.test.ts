@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { pid } from '../../../../test/wire';
-import { COPY_MODE_REENTRY_COOLDOWN, copyModeExitTimes, reconcilePaneMode } from '../copyMode';
+import { COPY_MODE_REENTRY_COOLDOWN, copyModeExitTimes, reconcilePaneMode } from '../../scrollback';
 
 const pane = (inMode: boolean) => ({ tmuxId: pid('%1'), inMode });
 const live = { readOnly: false, now: 100_000 };

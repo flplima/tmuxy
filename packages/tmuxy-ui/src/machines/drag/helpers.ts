@@ -2,9 +2,9 @@
  * Helper functions for drag operations
  */
 
-import type { TmuxPane } from '../types';
+import type { TmuxPane } from '../../domain/client';
 import type { PaneId } from '../../domain/ids';
-import { paneInsetX } from '../../constants';
+import { paneInsetX } from '../../constants/layout';
 
 /**
  * Find swap target pane using mouse position (in pixels relative to pane container)

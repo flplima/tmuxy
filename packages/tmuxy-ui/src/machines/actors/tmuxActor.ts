@@ -1,7 +1,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber, Stream } from 'effect';
 import { ScrollbackCells, ThemeSettings, type ServerState } from '../../domain/wire';
-import type { TraceLevel, TraceSettings } from '../types';
+import type { TraceLevel, TraceSettings } from '../types/domain';
 import { formatAdapterError, type AdapterError } from '../../infra/transport/AdapterError';
 import { tracer } from '../../infra/tracer';
 import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../domain/readOnly';

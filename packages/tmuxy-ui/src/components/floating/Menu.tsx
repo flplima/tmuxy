@@ -34,7 +34,8 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useAppSelector, selectAnimationsAllowed } from '../../machines/AppContext';
+import { useAppSelector } from '../../machines/AppContext';
+import { selectAnimationsAllowed } from '../../machines/selectors/ui';
 import {
   SURFACE_EXIT_MS,
   surfacePortalTarget,

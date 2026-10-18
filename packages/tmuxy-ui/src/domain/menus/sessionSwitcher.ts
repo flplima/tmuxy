@@ -4,7 +4,7 @@
  * new one.
  */
 
-import type { AppMachineContext } from '../../machines/types';
+import type { AppMachineContext } from '../../machines/types/context';
 import { event, separator, tidy, type MenuEnv, type MenuNode, type MenuSpec } from './spec';
 
 export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {

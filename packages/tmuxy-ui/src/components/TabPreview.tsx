@@ -30,12 +30,10 @@ import {
   useAppSend,
   useAppSelector,
   useAppSelectorShallow,
-  selectPanes,
-  selectCharSize,
-  selectContainerSize,
-  selectAnimationsAllowed,
   useReadOnly,
 } from '../machines/AppContext';
+import { selectPanes, selectCharSize, selectContainerSize } from '../machines/selectors/layout';
+import { selectAnimationsAllowed } from '../machines/selectors/ui';
 import { Tooltip } from './Tooltip';
 import { slotBoxes } from '../utils/tabOverview';
 import { useTabStill } from '../hooks/useTabStill';

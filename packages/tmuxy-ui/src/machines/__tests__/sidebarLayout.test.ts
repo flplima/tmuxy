@@ -7,10 +7,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { wid } from '../../test/wire';
-import { selectSidebarLayout } from '../selectors';
+import { selectSidebarLayout } from '../selectors/panesAndSidebars';
 import { createInitialContext } from '../app/context';
-import type { AppMachineContext, TmuxWindow } from '../types';
-import { CONTAINER_PADDING_X } from '../../constants';
+import type { AppMachineContext } from '../types/context';
+import type { TmuxWindow } from '../../domain/client';
+import { CONTAINER_PADDING_X } from '../../constants/layout';
 
 const CHAR = 9;
 

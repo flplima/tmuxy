@@ -20,13 +20,8 @@
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
-import {
-  useAppSend,
-  useAppSelector,
-  selectCharSize,
-  selectSidebarCellMetrics,
-  useReadOnly,
-} from '../machines/AppContext';
+import { useAppSend, useAppSelector, useReadOnly } from '../machines/AppContext';
+import { selectCharSize, selectSidebarCellMetrics } from '../machines/selectors/layout';
 import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../machines/constants';
 import { Tooltip } from './Tooltip';
 import type { WindowId } from '../domain/ids';

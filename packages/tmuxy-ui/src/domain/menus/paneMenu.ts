@@ -4,9 +4,9 @@
  * one list, with the parts a surface leaves out named by the options.
  */
 
-import type { AppMachineContext } from '../../machines/types';
-import { selectMarkedPaneId } from '../../machines/selectors';
-import type { WidgetMenuItem } from '../../components/widgets';
+import type { AppMachineContext } from '../../machines/types/context';
+import { selectMarkedPaneId } from '../../machines/selectors/panesAndSidebars';
+import type { WidgetMenuItem } from '../../components/widgets/registry';
 import { MENU_OPS } from '../../components/menus/menuActions';
 import { TmuxOp } from '../commands';
 import type { PaneId } from '../ids';

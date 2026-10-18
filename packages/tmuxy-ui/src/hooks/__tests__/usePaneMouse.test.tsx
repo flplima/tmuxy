@@ -3,7 +3,7 @@ import { pid } from '../../test/wire';
 import { renderHook } from '@testing-library/react';
 import { createRef } from 'react';
 import { usePaneMouse } from '../usePaneMouse';
-import type { AppMachineEvent } from '../../machines/types';
+import type { AppMachineEvent } from '../../machines/types/events';
 import type { ScrollbackMode } from '../../domain/copyMode';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 

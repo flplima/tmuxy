@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { TmuxPane } from '../machines/types';
+import type { TmuxPane } from '../domain/client';
 
 /** How often a tab picture re-reads the panes behind it. */
 const TAB_STILL_REFRESH_MS = 1000;

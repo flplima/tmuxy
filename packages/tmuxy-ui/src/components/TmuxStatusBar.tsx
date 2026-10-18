@@ -15,25 +15,22 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { useAppSelector, useAppSend, useAppConfig, useReadOnly } from '../machines/AppContext';
 import {
-  useAppSelector,
-  useAppSend,
-  useAppConfig,
   selectCommandMode,
   selectStatusMessage,
-  selectGridDimensions,
   selectSessionName,
   selectKeyBindings,
   selectPrefixActive,
   selectKeyTable,
   selectActivePaneCopyMode,
-  useReadOnly,
-} from '../machines/AppContext';
+} from '../machines/selectors/ui';
+import { selectGridDimensions } from '../machines/selectors/layout';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { HINT_SEPARATOR, MODE_HINTS, normalHints, type Hint } from './statusLineHints';
 import { SessionMenu } from './SessionMenu';
 import { isTauri } from '../utils/platform';
-import type { KeyBindings } from '../machines/types';
+import type { KeyBindings } from '../domain/wire';
 
 function Separator() {
   return <span className="statusline-separator">{HINT_SEPARATOR}</span>;

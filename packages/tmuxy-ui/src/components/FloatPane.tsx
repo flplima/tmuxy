@@ -16,22 +16,17 @@ import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
 import { OfferBanner } from './OfferBanner';
 import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
-import { getWidget } from './widgets';
+import { getWidget } from './widgets/registry';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
-import {
-  useAppSend,
-  useAppSelector,
-  selectCharSize,
-  selectContainerSize,
-  selectVisibleFloats,
-  useReadOnly,
-} from '../machines/AppContext';
+import { useAppSend, useAppSelector, useReadOnly } from '../machines/AppContext';
+import { selectCharSize, selectContainerSize } from '../machines/selectors/layout';
+import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
 import { LogProfiler } from '../utils/renderLog';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
-import { CONTAINER_PADDING_X } from '../constants';
-import type { FloatPaneState } from '../machines/types';
-import type { TmuxPane } from '../machines/types';
+import { CONTAINER_PADDING_X } from '../constants/layout';
+import type { FloatPaneState } from '../machines/types/domain';
+import type { TmuxPane } from '../domain/client';
 
 interface FloatPaneProps {
   floatState: FloatPaneState;

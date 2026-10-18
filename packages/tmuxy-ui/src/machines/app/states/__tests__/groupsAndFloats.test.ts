@@ -2,12 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { pid, wid } from '../../../../test/wire';
 import { assign } from 'xstate';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from '../groupsAndFloats';
+import { sidebarsGlobalEvents, sidebarsIdleEvents } from '../sidebars';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
+import { sidebarsActions } from '../../actions/sidebars';
 import { SIDEBAR_MOTION_SETTLE_MS } from '../../../constants';
 import { createInitialContext } from '../../context';
 const groupsAndFloatsGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
-import type { FloatPaneState } from '../../../types';
+import type { FloatPaneState } from '../../../types/domain';
 import type { PaneId } from '../../../../domain/ids';
 
 function makeFloat(paneId: PaneId, extra: Partial<FloatPaneState> = {}): FloatPaneState {
@@ -21,15 +23,21 @@ function makeFloat(paneId: PaneId, extra: Partial<FloatPaneState> = {}): FloatPa
   };
 }
 
-// Compose the two event maps exactly as appMachine spreads them, so the test
+// Compose the event maps and actions as appMachine spreads them, so the test
 // drives the same handler set the real machine mounts.
 const groupsAndFloatsState = {
-  on: { ...groupsAndFloatsGlobalEvents, ...groupsAndFloatsIdleEvents },
+  on: {
+    ...groupsAndFloatsGlobalEvents,
+    ...groupsAndFloatsIdleEvents,
+    ...sidebarsGlobalEvents,
+    ...sidebarsIdleEvents,
+  },
 } as const;
+const combinedActions = { ...groupsAndFloatsActions, ...sidebarsActions };
 
 describe('groupsAndFloats state', () => {
   it('CLOSE_FLOAT removes the float from floatPanes', () => {
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
       floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
       focusedFloatPaneId: pid('%2'),
     });
@@ -41,7 +49,7 @@ describe('groupsAndFloats state', () => {
   });
 
   it('CLOSE_FLOAT re-focuses next remaining float when the focused one is closed', () => {
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
       floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
       focusedFloatPaneId: pid('%2'),
     });
@@ -51,7 +59,7 @@ describe('groupsAndFloats state', () => {
   });
 
   it('CLOSE_FLOAT clears focus when last float is closed', () => {
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
       floatPanes: { [pid('%1')]: makeFloat(pid('%1')) },
       focusedFloatPaneId: pid('%1'),
     });
@@ -60,7 +68,7 @@ describe('groupsAndFloats state', () => {
   });
 
   it('CLOSE_TOP_FLOAT removes the most-recently-added float (last in object)', () => {
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
       floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
       focusedFloatPaneId: pid('%1'),
     });
@@ -75,7 +83,7 @@ describe('groupsAndFloats state', () => {
     // Escape closes the float the user can see. A float opened over tab @1 is
     // not on screen while tab @0 is active, so it is not the one Escape means -
     // and killing it would take a pane the user cannot even see.
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
       windows: [
         { id: wid('@0'), index: 0, name: 'one', active: true, windowType: 'tab' },
         { id: wid('@1'), index: 1, name: 'two', active: false, windowType: 'tab' },
@@ -89,7 +97,7 @@ describe('groupsAndFloats state', () => {
   });
 
   it('CLOSE_TOP_FLOAT no-ops when there are no floats', () => {
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
       floatPanes: {},
       focusedFloatPaneId: null,
     });
@@ -100,7 +108,7 @@ describe('groupsAndFloats state', () => {
 
   it('the sidebar key on an open column docks it, and a reload finds it docked', () => {
     localStorage.clear();
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
       leftSidebarOpen: true,
     });
     let ctx = sendAndGetContext(actor, { type: 'SIDEBAR_KEY', side: 'left' });
@@ -120,7 +128,7 @@ describe('groupsAndFloats state', () => {
       on: { ...groupsAndFloatsState.on, SET_TARGET_SIZE: { actions: 'recordTargetSize' } },
     } as const;
     const actions = {
-      ...groupsAndFloatsActions,
+      ...combinedActions,
       recordTargetSize: assign(({ event }) => {
         const size = event as unknown as { cols: number; rows: number };
         return { targetCols: size.cols, targetRows: size.rows };

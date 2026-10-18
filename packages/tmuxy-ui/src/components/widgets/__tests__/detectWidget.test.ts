@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectWidget, registerWidget } from '../index';
+import { detectWidget, registerWidget } from '../registry';
 import type { PaneContent } from '../../../domain/wire';
 
 // The registry is populated by `widgets/init.ts` at app start; two stand-ins

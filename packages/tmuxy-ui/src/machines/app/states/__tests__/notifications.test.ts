@@ -6,7 +6,7 @@ import {
   MAX_NOTIFICATIONS,
 } from '../../actions/notifications';
 import { mountState, sendAndGetContext } from './testHarness';
-import type { AppNotification } from '../../../types';
+import type { AppNotification } from '../../../types/domain';
 
 const texts = (notifications: AppNotification[]) => notifications.map((n) => n.text);
 

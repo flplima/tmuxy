@@ -1,4 +1,4 @@
-import type { KeyBindings } from '../../machines/types';
+import type { KeyBindings } from '../wire';
 import { toTmuxCommand, type TmuxOp } from '../commands';
 import { getKeybindingLabel } from '../../components/menus/keybindingLabel';
 

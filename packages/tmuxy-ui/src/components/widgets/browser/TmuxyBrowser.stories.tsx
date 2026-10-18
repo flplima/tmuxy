@@ -5,8 +5,8 @@ import { TmuxyBrowser } from './TmuxyBrowser';
 import { ProviderHarness } from '../../../stories/StoryHarness';
 import { luminance, rampTables, readThemeRamp } from '../../../utils/themeColorFilter';
 import { browserWidget } from './definition';
-import type { AppMachineContext } from '../../../machines/types';
-import type { WidgetProps } from '../index';
+import type { AppMachineContext } from '../../../machines/types/context';
+import type { WidgetProps } from '../registry';
 
 // 1×1 opaque PNG, small enough to embed and decode instantly.
 const PNG_DATA_URI =

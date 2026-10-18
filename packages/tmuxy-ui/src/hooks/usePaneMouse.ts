@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
-import type { AppMachineEvent } from '../machines/types';
+import type { AppMachineEvent } from '../machines/types/events';
 import type { ScrollbackMode } from '../domain/copyMode';
 import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { TmuxOp } from '../domain/commands';

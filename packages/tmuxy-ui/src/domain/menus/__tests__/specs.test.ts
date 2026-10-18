@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialContext } from '../../../machines/app/context';
 import { pid, wid } from '../../../test/wire';
-import type { AppMachineContext } from '../../../machines/types';
+import type { AppMachineContext } from '../../../machines/types/context';
 import type { TmuxPane, TmuxWindow } from '../../client';
 import { appMenuSpec, appItemsSpec, debugMenuSpec, themeMenuSpec } from '../appMenu';
 import { paneMenuSpec } from '../paneMenu';

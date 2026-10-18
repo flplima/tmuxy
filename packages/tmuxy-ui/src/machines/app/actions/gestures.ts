@@ -20,8 +20,8 @@
 
 import { assign } from 'xstate';
 import { act, type Ctx } from '../actionTypes';
-import type { GestureState } from '../../types';
-import { selectVisibleWindows } from '../../selectors';
+import type { GestureState } from '../../types/domain';
+import { selectVisibleWindows } from '../../selectors/panesAndSidebars';
 import {
   PINCH_IN_COMMIT,
   PINCH_OUT_COMMIT,

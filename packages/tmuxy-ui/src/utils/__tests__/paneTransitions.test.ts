@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { rectOverlapArea, findEnterFromBox } from '../paneTransitions';
-import type { PaneBox } from '../../constants';
+import type { PaneBox } from '../../constants/layout';
 
 const box = (left: number, top: number, width: number, height: number): PaneBox => ({
   left,

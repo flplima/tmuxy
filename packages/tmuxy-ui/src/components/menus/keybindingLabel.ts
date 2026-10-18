@@ -5,7 +5,7 @@
  * then formats the prefix key for display (e.g., "C-b %" → "ctrl+b %").
  */
 
-import type { KeyBindings } from '../../machines/types';
+import type { KeyBindings } from '../../domain/wire';
 
 /** Special key display mappings */
 const KEY_DISPLAY: Record<string, string> = {

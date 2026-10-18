@@ -12,7 +12,7 @@
 import { sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
-import type { BrowserPaneState } from '../../types';
+import type { BrowserPaneState } from '../../types/domain';
 import { clampZoom, normalizeAddress } from '../../../components/widgets/browser/view';
 import { isOpenableUrl, openExternalUrl } from '../../../utils/openUrl';
 import type { PaneId } from '../../../domain/ids';

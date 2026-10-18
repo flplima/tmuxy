@@ -17,7 +17,8 @@
  */
 
 import { useCallback, useLayoutEffect, useState } from 'react';
-import { useAppSelector, selectAnimationsAllowed } from '../machines/AppContext';
+import { useAppSelector } from '../machines/AppContext';
+import { selectAnimationsAllowed } from '../machines/selectors/ui';
 import { Tooltip } from './Tooltip';
 
 /** Below this many pixels from an end, treat it as reached. */

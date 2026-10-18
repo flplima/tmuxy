@@ -6,7 +6,7 @@
  * the production app, which has no console.
  */
 
-import type { AppMachineContext } from '../machines/types';
+import type { AppMachineContext } from '../machines/types/context';
 
 function appStateSummary(ctx: AppMachineContext): Record<string, unknown> {
   return {

@@ -18,7 +18,7 @@
  */
 
 import type { ReactNode } from 'react';
-import type { LogEntry } from '../machines/types';
+import type { LogEntry } from '../machines/types/domain';
 import './ConnectionOverlay.css';
 
 export type ConnectionOverlayMode = 'connecting' | 'reconnecting' | 'fatal' | 'detached';

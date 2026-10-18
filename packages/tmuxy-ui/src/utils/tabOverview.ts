@@ -9,7 +9,7 @@
  * helpers are shared.
  */
 
-import type { TmuxPane, TmuxWindow } from '../machines/types';
+import type { TmuxPane, TmuxWindow } from '../domain/client';
 import { type PaneId, type WindowId, isPlaceholderId } from '../domain/ids';
 import { TmuxOp } from '../domain/commands';
 

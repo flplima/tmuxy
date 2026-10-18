@@ -31,7 +31,7 @@ import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
-import type { GitRepository, SessionTreeNode, TmuxServer } from '../types';
+import type { GitRepository, SessionTreeNode, TmuxServer } from '../types/domain';
 
 export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 

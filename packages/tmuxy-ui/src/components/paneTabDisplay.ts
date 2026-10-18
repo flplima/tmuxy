@@ -6,7 +6,7 @@
  */
 
 import type { TmuxPane } from '../domain/client';
-import { getWidget } from './widgets';
+import { getWidget } from './widgets/registry';
 import { circledNumber } from '../utils/paneState';
 
 const PROCESS_ICONS: Record<string, string> = {

@@ -5,6 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import prettier from 'eslint-config-prettier';
 import vitest from '@vitest/eslint-plugin';
 import stateFieldOwnership from './eslint-rules/state-field-ownership.mjs';
+import noBarrelFiles from './eslint-rules/no-barrel-files.mjs';
 
 export default tseslint.config(
   { ignores: ['dist'] },
@@ -17,6 +18,7 @@ export default tseslint.config(
       tmuxy: {
         rules: {
           'state-field-ownership': stateFieldOwnership,
+          'no-barrel-files': noBarrelFiles,
         },
       },
     },
@@ -24,13 +26,17 @@ export default tseslint.config(
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
-      '@typescript-eslint/no-unused-vars': ['error', {
-        argsIgnorePattern: '^_',
-        varsIgnorePattern: '^_',
-        caughtErrorsIgnorePattern: '^_',
-        destructuredArrayIgnorePattern: '^_',
-      }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+        },
+      ],
       'tmuxy/state-field-ownership': 'error',
+      'tmuxy/no-barrel-files': 'error',
     },
   },
   // `jest/no-disabled-tests` (eslint.config.mjs) covers tests/ only, so a

@@ -17,7 +17,8 @@
  */
 
 import { useAppSend, useReadOnly } from '../machines/AppContext';
-import type { PaneCellBox, TmuxPane } from '../machines/types';
+import type { PaneCellBox } from '../machines/types/domain';
+import type { TmuxPane } from '../domain/client';
 import { haptics } from '../utils/haptics';
 import { bandScope, resizeLimits, isLocked } from '../machines/resize/limits';
 import type { PaneId } from '../domain/ids';

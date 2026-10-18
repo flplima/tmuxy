@@ -540,7 +540,7 @@ The backend (`tmuxy-core`) reads the options off `list-windows` and emits each w
 
 The frontend filters on `windowType`:
 
-- `selectVisibleWindows` (`packages/tmuxy-ui/src/machines/selectors.ts`) keeps only `windowType === 'tab'` windows for the tab strip.
+- `selectVisibleWindows` (`packages/tmuxy-ui/src/machines/selectors/layout.ts`) keeps only `windowType === 'tab'` windows for the tab strip.
 - the sidebar tree (`machines/actors/serversActor.ts`) hides `float` / `sidebar-left` / `sidebar-right` windows and the `__tmuxy_stash` session; everything else (including untagged foreign windows) shows as a tab.
 - floats are rebuilt from `windowType === 'float'` windows and their `@tmuxy-float-*` metadata, and each group from the panes sharing a `group_id` (`machines/app/helpers.ts`).
 

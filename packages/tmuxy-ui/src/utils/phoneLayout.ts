@@ -11,7 +11,7 @@
  * Pure: no React, no machine.
  */
 
-import { CHAR_HEIGHT } from '../constants';
+import { CHAR_HEIGHT } from '../constants/layout';
 import { DEFAULT_FONT_SIZE } from './fontSizeManager';
 
 /** When the app takes the phone layout. */

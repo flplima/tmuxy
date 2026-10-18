@@ -18,7 +18,7 @@ import { sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
 import { paneAskFor, paneSendFor, type AskAnswer } from '../../../utils/paneAsk';
 import { TmuxOp } from '../../../domain/commands';
-import { visibleFloats } from '../../selectors';
+import { visibleFloats } from '../../selectors/panesAndSidebars';
 import type { PaneId } from '../../../domain/ids';
 
 /** The highlighted option for a pane — `yes` until the user moves it. */

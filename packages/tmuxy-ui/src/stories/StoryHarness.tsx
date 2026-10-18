@@ -24,7 +24,7 @@ import {
   CONTAINER_PADDING_X,
   STATUS_BAR_HEIGHT,
   TMUX_STATUS_BAR_HEIGHT,
-} from '../constants';
+} from '../constants/layout';
 import { measureCellMetrics } from '../utils/cellMetrics';
 import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../infra/transport/drivers/v86/V86Engine';
 

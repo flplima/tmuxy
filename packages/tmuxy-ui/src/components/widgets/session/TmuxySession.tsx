@@ -29,9 +29,9 @@ import {
   useAppSelector,
   useAppSelectorShallow,
   useAppState,
-  selectSessions,
   useReadOnly,
 } from '../../../machines/AppContext';
+import { selectSessions } from '../../../machines/selectors/ui';
 import { InlineRename } from '../../InlineRename';
 
 /** A row in the switcher: a session on this server, or another server. */

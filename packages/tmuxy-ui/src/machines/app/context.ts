@@ -6,7 +6,7 @@
  * runtime mapping of each field to its owning state slice.
  */
 
-import type { AppMachineContext } from '../types';
+import type { AppMachineContext } from '../types/context';
 import {
   DEFAULT_SESSION_NAME,
   DEFAULT_COLS,
@@ -29,6 +29,7 @@ export type StateName =
   | 'copyMode'
   | 'browser'
   | 'groupsAndFloats'
+  | 'sidebars'
   | 'commandUi'
   | 'notifications'
   | 'uiPrefs'
@@ -108,22 +109,26 @@ export const FIELD_OWNERS = {
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',
   focusedFloatPaneId: 'groupsAndFloats',
-  leftSidebarOpen: 'groupsAndFloats',
-  leftSidebarFixed: 'groupsAndFloats',
-  leftSidebarFocused: 'groupsAndFloats',
-  rightSidebarOpen: 'groupsAndFloats',
-  rightSidebarFixed: 'groupsAndFloats',
-  rightSidebarFocused: 'groupsAndFloats',
-  leftSidebarStartFailed: 'groupsAndFloats',
-  rightSidebarStartFailed: 'groupsAndFloats',
-  leftSidebarStarting: 'groupsAndFloats',
-  rightSidebarStarting: 'groupsAndFloats',
-  sidebarColsPreview: 'groupsAndFloats',
-  dockRowsSent: 'groupsAndFloats',
-  sidebarMotion: 'groupsAndFloats',
-  leftSidebarClosing: 'groupsAndFloats',
-  rightSidebarClosing: 'groupsAndFloats',
-  collapsedTabIds: 'groupsAndFloats',
+
+  // ---- sidebars ----
+  leftSidebarOpen: 'sidebars',
+  leftSidebarFixed: 'sidebars',
+  leftSidebarFocused: 'sidebars',
+  rightSidebarOpen: 'sidebars',
+  rightSidebarFixed: 'sidebars',
+  rightSidebarFocused: 'sidebars',
+  leftSidebarStartFailed: 'sidebars',
+  rightSidebarStartFailed: 'sidebars',
+  leftSidebarStarting: 'sidebars',
+  rightSidebarStarting: 'sidebars',
+  sidebarColsPreview: 'sidebars',
+  dockRowsSent: 'sidebars',
+  sidebarMotion: 'sidebars',
+  leftSidebarClosing: 'sidebars',
+  rightSidebarClosing: 'sidebars',
+  collapsedTabIds: 'sidebars',
+
+  // ---- tabOverview ----
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
   tabRenameRequest: 'tabOverview',

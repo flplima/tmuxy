@@ -14,7 +14,8 @@
 import { createActor, fromCallback, setup } from 'xstate';
 import type { AnyEventObject, AnyStateMachine, Actor } from 'xstate';
 import { createInitialContext } from '../../context';
-import type { AppMachineContext, AllAppMachineEvents } from '../../../types';
+import type { AppMachineContext } from '../../../types/context';
+import type { AllAppMachineEvents } from '../../../types/events';
 
 // Helper-file `vi.mock` is NOT auto-hoisted by Vitest; mocks only work
 // when declared inside test files. Tests requiring stubbed side-effect

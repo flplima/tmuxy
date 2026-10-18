@@ -35,9 +35,9 @@ import {
   useCopyModeState,
   useAppSelector,
   useAppConfig,
-  selectCharSize,
-  selectKeyboardElsewhere,
 } from '../machines/AppContext';
+import { selectCharSize } from '../machines/selectors/layout';
+import { selectKeyboardElsewhere } from '../machines/selectors/ui';
 import { usePaneMouse } from '../hooks/usePaneMouse';
 import { usePaneTouch } from '../hooks/usePaneTouch';
 import { useLatchedContent } from '../hooks/useLatchedContent';
@@ -47,7 +47,7 @@ import { RowEdges } from './RowEdges';
 import { AskOverlay } from './AskOverlay';
 import { OfferBanner } from './OfferBanner';
 import { paneSendFor } from '../utils/paneAsk';
-import { isCollapsedPane } from '../constants';
+import { isCollapsedPane } from '../constants/layout';
 import { extractSelectedText } from '../utils/copyMode';
 import { themeFilterId } from '../utils/themeColorFilter';
 import { getThemeVersion, subscribeTheme } from '../utils/themeManager';

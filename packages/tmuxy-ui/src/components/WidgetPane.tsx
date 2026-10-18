@@ -7,7 +7,7 @@
 
 import { useRef, useEffect } from 'react';
 import { PaneHeader } from './PaneHeader';
-import { getWidget } from './widgets';
+import { getWidget } from './widgets/registry';
 import {
   useAppSelector,
   useAppSend,

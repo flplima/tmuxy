@@ -17,7 +17,7 @@ import type {
   ResizeState,
   KeyPressEvent,
   ResizeHandle,
-} from '../types';
+} from '../types/domain';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { bandScope, resizeLimits, clampDelta } from './limits';
 import { TmuxOp, type ResizeStep } from '../../domain/commands';

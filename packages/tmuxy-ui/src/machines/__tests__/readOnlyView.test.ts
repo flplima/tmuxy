@@ -3,10 +3,11 @@
  * one sized to its window, and no sidebar it would have no way to close.
  */
 import { describe, expect, it } from 'vitest';
-import { selectContainerSize, selectFitScale, selectSidebarLayout } from '../selectors';
+import { selectContainerSize, selectFitScale } from '../selectors/layout';
+import { selectSidebarLayout } from '../selectors/panesAndSidebars';
 import { createInitialContext } from '../app/context';
-import type { AppMachineContext } from '../types';
-import { CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../../constants';
+import type { AppMachineContext } from '../types/context';
+import { CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../../constants/layout';
 
 const CHAR_W = 10;
 const CHAR_H = 20;

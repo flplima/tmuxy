@@ -8,9 +8,8 @@
 
 import { useRef, useEffect, useState, useCallback, memo, type ReactNode } from 'react';
 import { TmuxOp } from '../domain/commands';
+import { selectDraggedPaneId, selectGroupDrop } from '../machines/selectors/layout';
 import {
-  selectDraggedPaneId,
-  selectGroupDrop,
   useAppSelector,
   useAppSend,
   usePane,

@@ -4,7 +4,7 @@
  * platform's Edit and Window menus among them.
  */
 
-import type { AppMachineContext } from '../../machines/types';
+import type { AppMachineContext } from '../../machines/types/context';
 import {
   appItemsSpec,
   debugMenuSpec,

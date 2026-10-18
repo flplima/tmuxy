@@ -11,7 +11,7 @@
 
 import { assign, cancel, raise } from 'xstate';
 import { act } from '../actionTypes';
-import type { AppNotification } from '../../types';
+import type { AppNotification } from '../../types/domain';
 
 /** How long a notification stays before dismissing itself. */
 export const NOTIFICATION_DURATION = 8000;

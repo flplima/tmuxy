@@ -4,7 +4,7 @@ import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
 const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
-import type { ResizeState, DragState } from '../../../types';
+import type { ResizeState, DragState } from '../../../types/domain';
 import type { PaneId, WindowId } from '../../../../domain/ids';
 
 describe('layout state', () => {

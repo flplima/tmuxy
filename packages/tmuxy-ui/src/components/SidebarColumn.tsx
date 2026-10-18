@@ -29,10 +29,11 @@ import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { SidebarTree } from './SidebarTree';
 import { SidebarTitle } from './SidebarTitle';
-import { useAppSelector, selectSidebarCellMetrics } from '../machines/AppContext';
+import { useAppSelector } from '../machines/AppContext';
+import { selectSidebarCellMetrics } from '../machines/selectors/layout';
 import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
-import type { TmuxPane } from '../machines/types';
+import type { TmuxPane } from '../domain/client';
 import { Tooltip } from './Tooltip';
 
 interface SidebarColumnProps {
