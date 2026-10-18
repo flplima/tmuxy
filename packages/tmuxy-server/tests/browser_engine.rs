@@ -731,8 +731,20 @@ async fn navigating_a_still_page_produces_a_new_frame() {
     };
 
     let mut frames = session.start_frames().await.expect("start_frames");
+    // The explicit first capture is bounded (CAPTURE_TIMEOUT), and when a slow
+    // runner's engine misses it the screencast supplies the picture instead —
+    // so the first frame is waited for, up to its own deadline, not assumed.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    while frames.borrow().is_empty() {
+        if tokio::time::timeout_at(deadline, frames.changed())
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
     let first = frames.borrow_and_update().clone();
-    assert!(!first.is_empty(), "the explicit first frame");
+    assert!(!first.is_empty(), "the first frame");
 
     session
         .run(Verb::Goto {
