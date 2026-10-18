@@ -65,7 +65,11 @@ export function createTmuxActor(runtime: AppRuntime) {
       onSuccess?: (value: T) => void;
       /** A context label for the LOG_APPEND error entry (e.g. the command). */
       logPrefix?: string;
-      /** Log to the console only: a failure here is no UI error (e.g. a settings read). */
+      /**
+       * No error on screen: a failure here is no UI error (e.g. a settings
+       * read). It still goes to the console and the connection log, so a
+       * run that went wrong says why.
+       */
       silentFail?: boolean;
       /** Refused by a read-only session without a notice: input, or a write nobody asked for. */
       quietWhenReadOnly?: boolean;
@@ -103,6 +107,7 @@ export function createTmuxActor(runtime: AppRuntime) {
               tagged._tag,
               display,
             );
+            logError(`${opts.logPrefix ?? 'effect'} -> ${display}`);
             return;
           }
           if (opts.logPrefix) logError(`${opts.logPrefix} -> ${display}`);

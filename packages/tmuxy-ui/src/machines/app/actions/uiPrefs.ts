@@ -95,12 +95,15 @@ export const uiPrefsActions = {
       }),
     );
     // localStorage takes precedence — server defaults only apply when
-    // the user hasn't chosen a theme yet (e.g. first visit).
+    // the user hasn't chosen a theme yet (e.g. first visit). Either way the
+    // theme is applied HERE: a page that never ran main.tsx's startup apply
+    // (a story) would otherwise keep a saved choice and no stylesheet.
     const saved = loadThemeFromStorage();
-    if (saved) return;
-    applyTheme(event.theme, event.mode);
-    saveThemeToStorage(event.theme, event.mode);
-    enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
+    const theme = saved?.theme ?? event.theme;
+    const mode = saved?.mode ?? event.mode;
+    applyTheme(theme, mode);
+    if (!saved) saveThemeToStorage(theme, mode);
+    enqueue(assign({ themeName: theme, themeMode: mode }));
   }),
 
   // The blinking cursor is one setting for the machine, not one per client:

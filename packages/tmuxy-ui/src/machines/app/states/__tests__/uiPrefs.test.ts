@@ -32,6 +32,35 @@ describe('uiPrefs state', () => {
     expect(ctx.themeMode).toBe('dark');
   });
 
+  // Issue #124: a page that never ran main.tsx's startup apply (a story in
+  // a browser an earlier story saved a theme in) kept the saved choice and got
+  // no stylesheet at all.
+  it('THEME_SETTINGS_RECEIVED applies a saved theme, not just the server default', () => {
+    localStorage.clear();
+    document.getElementById('tmuxy-theme')?.remove();
+    document.documentElement.classList.remove('theme-dark', 'theme-light');
+    localStorage.setItem('tmuxy-theme-name', 'nord');
+    localStorage.setItem('tmuxy-theme-mode', 'light');
+    try {
+      const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+      const ctx = sendAndGetContext(actor, {
+        type: 'THEME_SETTINGS_RECEIVED',
+        theme: 'default',
+        mode: 'dark',
+      });
+      expect(ctx.themeName).toBe('nord');
+      expect(ctx.themeMode).toBe('light');
+      expect(document.getElementById('tmuxy-theme')?.getAttribute('href')).toMatch(
+        /themes\/nord\.css$/,
+      );
+      expect(document.documentElement.classList.contains('theme-light')).toBe(true);
+      // The saved choice stays the saved choice.
+      expect(localStorage.getItem('tmuxy-theme-name')).toBe('nord');
+    } finally {
+      localStorage.clear();
+    }
+  });
+
   it('THEME_SETTINGS_RECEIVED applies the appearance as CSS variables', () => {
     const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
     sendAndGetContext(actor, {

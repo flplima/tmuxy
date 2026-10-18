@@ -1547,7 +1547,14 @@ export const appMachine = setup({
       on: {
         TMUX_RECONNECTED: {
           target: 'idle',
-          actions: assign({ connected: true, error: null }),
+          actions: enqueueActions(({ enqueue }) => {
+            enqueue(assign({ connected: true, error: null }));
+            // What the config says may have changed while the channel was
+            // down (a tmux restart re-reads it), and a theme read the drop
+            // cut short has to be asked again.
+            enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
+            enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
+          }),
         },
         // Still ingest server state during the reconnecting window — when the
         // channel comes back, the first full snapshot triggers reconciliation
