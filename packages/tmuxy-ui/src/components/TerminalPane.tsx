@@ -459,7 +459,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     images={pane.images}
                     paneId={pane.tmuxId}
                     imageFilter={liveHeader?.colorFilter ? `url(#${liveFilterId})` : undefined}
-                    textHidden={!!liveHeader}
+                    // A live browser's grid is for scripts, not people — except
+                    // in the REPL view, where the grid IS the log being shown.
+                    textHidden={!!liveHeader && !liveHeader.repl}
                     cursorShape={pane.cursorShape}
                     cursorHidden={pane.cursorHidden}
                     selectable={!pane.mouseAnyFlag}

@@ -4,15 +4,17 @@
  *
  * The pane tags itself `@tmuxy-pane-widget browser-live` through the CLI, and
  * writes a short header on its top row, which the app covers with the address
- * bar. The header says which way history can go and whether the theme filter
- * is on; the address is the pane's title, because a URL is longer than a row.
+ * bar. The header says which way history can go, whether the theme filter is
+ * on, the page size and whether the REPL view (the verb log in place of the
+ * picture) is up; the address is the pane's title, because a URL is longer
+ * than a row.
  */
 
 /** The pane tag a live browser sets on itself (`LIVE_WIDGET` in pane.rs). */
 export const LIVE_BROWSER_WIDGET = 'browser-live';
 
 /** What the top row starts with (`HEADER_PREFIX` in pane.rs). */
-const HEADER = /^tmuxy:browser ([01])([01])([01])([adm])\s*$/;
+const HEADER = /^tmuxy:browser ([01])([01])([01])([adm])([01])\s*$/;
 
 /** What the page lays out for (`Viewport` in verbs.rs). */
 export type LiveViewport = 'auto' | 'desktop' | 'mobile';
@@ -31,6 +33,8 @@ export interface LiveBrowserHeader {
   canGoForward: boolean;
   colorFilter: boolean;
   viewport: LiveViewport;
+  /** The REPL view is up: the pane shows the verb log, not the picture. */
+  repl: boolean;
 }
 
 /** The header on a live browser's top row, or null when the row is not one. */
@@ -42,6 +46,7 @@ export function parseLiveHeader(row: string): LiveBrowserHeader | null {
     canGoForward: match[2] === '1',
     colorFilter: match[3] === '1',
     viewport: VIEWPORT_CODES[match[4]],
+    repl: match[5] === '1',
   };
 }
 

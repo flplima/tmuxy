@@ -573,7 +573,7 @@ struct Navigation {
 /// The toolbar row's text. The UI reads it to know this is a live browser and
 /// which buttons are live; the address is the pane title (see the module doc).
 /// Kept short so it never wraps into the picture.
-fn header_line(nav: &Navigation, color_filter: bool, viewport: Viewport) -> String {
+fn header_line(nav: &Navigation, color_filter: bool, viewport: Viewport, repl: bool) -> String {
     let bit = |b: bool| if b { '1' } else { '0' };
     let size = match viewport {
         Viewport::Auto => 'a',
@@ -581,10 +581,11 @@ fn header_line(nav: &Navigation, color_filter: bool, viewport: Viewport) -> Stri
         Viewport::Mobile => 'm',
     };
     format!(
-        "{HEADER_PREFIX}{}{}{}{size}",
+        "{HEADER_PREFIX}{}{}{}{size}{}",
         bit(nav.can_go_back),
         bit(nav.can_go_forward),
-        bit(color_filter)
+        bit(color_filter),
+        bit(repl)
     )
 }
 
@@ -592,7 +593,7 @@ fn header_line(nav: &Navigation, color_filter: bool, viewport: Viewport) -> Stri
 const HEADER_PREFIX: &str = "tmuxy:browser ";
 
 /// Write the toolbar row and the title that carries the address.
-fn header(size: &PaneSize, nav: &Navigation, color_filter: bool, viewport: Viewport) {
+fn header(size: &PaneSize, nav: &Navigation, color_filter: bool, viewport: Viewport, repl: bool) {
     // The pane is named after the page, the way a browser tab is; the address
     // has a tag of its own (`@tmuxy-pane-url`). A page with no `<title>` is
     // called by its address.
@@ -604,7 +605,7 @@ fn header(size: &PaneSize, nav: &Navigation, color_filter: bool, viewport: Viewp
     let title: String = name.chars().filter(|c| !c.is_control()).collect();
     write_out(&format!(
         "\x1b]2;{title}\x07\x1b[1;1H\x1b[2K{}\x1b[{};1H",
-        header_line(nav, color_filter, viewport),
+        header_line(nav, color_filter, viewport, repl),
         size.rows
     ));
 }
@@ -653,6 +654,7 @@ async fn header_loop(
     page: chromiumoxide::page::Page,
     mut size: tokio::sync::watch::Receiver<PaneSize>,
     mut viewport: tokio::sync::watch::Receiver<Viewport>,
+    mut repl: tokio::sync::watch::Receiver<bool>,
     color_filter: bool,
     named_session: Option<String>,
     done: Arc<AtomicBool>,
@@ -664,12 +666,14 @@ async fn header_loop(
         }
         let resized = size.has_changed().unwrap_or(false);
         let resized_page = viewport.has_changed().unwrap_or(false);
+        let view_flipped = repl.has_changed().unwrap_or(false);
         let current = *size.borrow_and_update();
         let current_viewport = *viewport.borrow_and_update();
+        let current_repl = *repl.borrow_and_update();
         if let Some(nav) = navigation(&page).await {
             let moved = shown.as_ref().map(|n| &n.url) != Some(&nav.url);
-            if resized || resized_page || shown.as_ref() != Some(&nav) {
-                header(&current, &nav, color_filter, current_viewport);
+            if resized || resized_page || view_flipped || shown.as_ref() != Some(&nav) {
+                header(&current, &nav, color_filter, current_viewport, current_repl);
             }
             if moved || resized_page {
                 // The page moved, by a verb or by a link inside it, or changed
@@ -716,6 +720,12 @@ pub async fn run(
 
     let attached = session.attachment() == Attachment::Attached;
     let size = pane_size();
+    // The REPL view: the verb log drawn in the pane instead of the picture,
+    // for the person who wants to see what an agent (or they) typed and what
+    // came back. Off to begin with — the picture is what a browser pane is
+    // for — and flipped by `:repl` or the toolbar's button.
+    let (repl_tx, repl_rx) = tokio::sync::watch::channel(false);
+    let log = ReplLog::default();
     let first = layout(size, viewport);
     if let Err(error) = session
         .set_viewport(first.page_w, first.page_h, viewport == Viewport::Mobile)
@@ -735,42 +745,43 @@ pub async fn run(
     let mut stdout = std::io::stdout();
     // The alternate screen keeps the picture out of the scrollback, so leaving
     // the pane gives the shell back exactly as it was.
-    let _ = write!(stdout, "{}{}", term::ALT_SCREEN_ON, term::CLEAR);
-    if !attached {
-        let _ = write!(stdout, "{}{}", term::MOUSE_ON, term::HIDE_CURSOR);
-    }
+    let _ = write!(
+        stdout,
+        "{}{}{}{}",
+        term::ALT_SCREEN_ON,
+        term::CLEAR,
+        term::MOUSE_ON,
+        term::HIDE_CURSOR
+    );
     let _ = stdout.flush();
 
     let raw = RawMode::enter().ok();
     tag_pane(true);
-    header(&size, &Navigation::default(), color_filter, viewport);
+    header(&size, &Navigation::default(), color_filter, viewport, false);
 
-    status(
-        &size,
-        &if attached {
-            format!("tmuxy browser [{session_name}] — attached; your own browser is the view. `:` for verbs")
-        } else {
-            format!("tmuxy browser [{session_name}] — `:` for verbs, ctrl+c to leave")
-        },
-    );
-
-    // The frame drawer. Attached sessions draw nothing: the user is looking at
-    // their own window, and painting a second copy would only compete with it.
-    let done = Arc::new(AtomicBool::new(false));
-    let drawer = if attached {
-        None
+    let banner = if attached {
+        format!("tmuxy browser [{session_name}] — attached to your browser; `:` for verbs, ctrl+c to leave")
     } else {
-        match session.start_frames().await {
-            Ok(frames) => Some(tokio::spawn(draw_loop(
-                frames,
-                size_rx.clone(),
-                viewport_rx.clone(),
-                Arc::clone(&done),
-            ))),
-            Err(error) => {
-                status(&size, &format!("error: {error}"));
-                None
-            }
+        format!("tmuxy browser [{session_name}] — `:` for verbs, ctrl+c to leave")
+    };
+    log.push(&banner);
+    status(&size, &banner);
+
+    // The frame drawer. An attached session is drawn too: the picture is what
+    // the pane is for, and whoever is looking at the real window can look at
+    // either.
+    let done = Arc::new(AtomicBool::new(false));
+    let drawer = match session.start_frames().await {
+        Ok(frames) => Some(tokio::spawn(draw_loop(
+            frames,
+            size_rx.clone(),
+            viewport_rx.clone(),
+            repl_rx.clone(),
+            Arc::clone(&done),
+        ))),
+        Err(error) => {
+            status(&size, &format!("error: {error}"));
+            None
         }
     };
 
@@ -778,6 +789,7 @@ pub async fn run(
         session.page().clone(),
         size_rx.clone(),
         viewport_rx,
+        repl_rx,
         color_filter,
         named_session.then(|| session_name.to_string()),
         Arc::clone(&done),
@@ -801,7 +813,7 @@ pub async fn run(
         status(&size, &url);
     }
 
-    let code = read_loop(&mut session, size_rx, viewport_tx, attached).await;
+    let code = read_loop(&mut session, size_rx, viewport_tx, repl_tx, log).await;
 
     done.store(true, Ordering::Relaxed);
     header_task.abort();
@@ -859,6 +871,7 @@ async fn draw_loop(
     mut frames: tokio::sync::watch::Receiver<super::session::Frame>,
     mut size: tokio::sync::watch::Receiver<PaneSize>,
     mut viewport: tokio::sync::watch::Receiver<Viewport>,
+    mut repl: tokio::sync::watch::Receiver<bool>,
     done: Arc<AtomicBool>,
 ) {
     loop {
@@ -867,7 +880,10 @@ async fn draw_loop(
         }
         let frame = frames.borrow_and_update().clone();
         let current = layout(*size.borrow_and_update(), *viewport.borrow_and_update());
-        if !frame.is_empty() {
+        // While the REPL view is up the pane is text: the frame is kept, not
+        // drawn, and drawn at once when the picture comes back.
+        let showing_repl = *repl.borrow_and_update();
+        if !frame.is_empty() && !showing_repl {
             let mut stdout = std::io::stdout().lock();
             let _ = stdout.write_all(&draw_frame(&frame, current));
             let _ = stdout.flush();
@@ -882,6 +898,7 @@ async fn draw_loop(
                 changed = frames.changed() => changed.is_err(),
                 changed = size.changed() => changed.is_err(),
                 changed = viewport.changed() => changed.is_err(),
+                changed = repl.changed() => changed.is_err(),
             }
         };
         if tokio::time::timeout(REDRAW_INTERVAL, next)
@@ -964,10 +981,16 @@ async fn read_loop(
     session: &mut Session,
     mut sizes: tokio::sync::watch::Receiver<PaneSize>,
     viewport: tokio::sync::watch::Sender<Viewport>,
-    attached: bool,
+    repl: tokio::sync::watch::Sender<bool>,
+    log: ReplLog,
 ) -> i32 {
     let mut inputs = Inputs::start();
     let mut size = *sizes.borrow_and_update();
+    let mut view = View {
+        viewport,
+        repl,
+        log,
+    };
     loop {
         let input = tokio::select! {
             input = inputs.next() => match input {
@@ -981,7 +1004,7 @@ async fn read_loop(
                 size = *sizes.borrow_and_update();
                 // The page lays out against the pane, so a resize has to reach
                 // the engine — this is the whole reason the read loop watches.
-                let current = *viewport.borrow();
+                let current = *view.viewport.borrow();
                 let page = layout(size, current);
                 if let Err(error) = session
                     .set_viewport(page.page_w, page.page_h, current == Viewport::Mobile)
@@ -989,35 +1012,120 @@ async fn read_loop(
                 {
                     status(&size, &format!("error: {error}"));
                 }
+                if view.showing_repl() {
+                    view.redraw(&size);
+                }
                 continue;
             }
         };
 
+        let showing_repl = view.showing_repl();
         match input {
             Input::Key(key) if key.as_slice() == b"\x03" => return 0, // ctrl+c
-            Input::Key(key) if key.as_slice() == b":" => {
-                match command_mode(session, size, &viewport, &mut inputs).await {
+            // In the REPL view every key is typed at the prompt; `:` is the
+            // prompt's own character and starts it either way.
+            Input::Key(key) if key.as_slice() == b":" || showing_repl => {
+                let first = (key.as_slice() != b":").then_some(key);
+                match command_mode(session, size, &mut view, &mut inputs, first).await {
                     CommandOutcome::Continue => {}
                     CommandOutcome::Quit => return 0,
                 }
             }
-            Input::Key(key) => {
-                if !attached {
-                    forward_key(session, &key).await;
-                }
-            }
+            Input::Key(key) => forward_key(session, &key).await,
             Input::Mouse {
                 button,
                 col,
                 row,
                 pressed,
             } => {
-                if !attached {
-                    let page = layout(size, *viewport.borrow());
+                // The picture is what a click lands on; the log is text.
+                if !showing_repl {
+                    let page = layout(size, *view.viewport.borrow());
                     forward_mouse(session, page, button, col, row, pressed).await;
                 }
             }
         }
+    }
+}
+
+/// What the pane shows besides the picture: the page's size, whether the
+/// REPL view is up, and the log it shows.
+struct View {
+    viewport: tokio::sync::watch::Sender<Viewport>,
+    repl: tokio::sync::watch::Sender<bool>,
+    log: ReplLog,
+}
+
+impl View {
+    fn showing_repl(&self) -> bool {
+        *self.repl.borrow()
+    }
+
+    /// Show the REPL view or the picture. Showing the log clears the screen,
+    /// which is what retires the picture (docs/RICH-RENDERING.md); the frame
+    /// drawer paints the picture again as soon as the view goes.
+    fn set_repl(&mut self, size: &PaneSize, on: bool) {
+        if self.showing_repl() == on {
+            return;
+        }
+        self.repl.send_replace(on);
+        if on {
+            write_out(term::CLEAR);
+            self.redraw(size);
+        }
+    }
+
+    /// Draw the log between the toolbar row and the status row.
+    fn redraw(&self, size: &PaneSize) {
+        write_out(&self.log.render(size));
+    }
+}
+
+/// The REPL view's log: what was typed at the prompt and what came back,
+/// newest last. Kept whether or not the view is up, so flipping it shows what
+/// an agent has been doing in the pane.
+#[derive(Clone, Default)]
+struct ReplLog(Arc<std::sync::Mutex<std::collections::VecDeque<String>>>);
+
+const REPL_LOG_LINES: usize = 500;
+
+impl ReplLog {
+    fn push(&self, text: &str) {
+        let Ok(mut lines) = self.0.lock() else {
+            return;
+        };
+        for line in text.lines() {
+            lines.push_back(line.to_string());
+        }
+        while lines.len() > REPL_LOG_LINES {
+            lines.pop_front();
+        }
+    }
+
+    /// The escape that paints the log's tail into rows 2..rows-1, leaving the
+    /// toolbar row and the status row alone.
+    fn render(&self, size: &PaneSize) -> String {
+        let width = usize::from(size.cols.max(1));
+        let body_rows = usize::from(size.rows.saturating_sub(2));
+        let lines = self.0.lock().map(|l| l.clone()).unwrap_or_default();
+        let shown: Vec<String> = lines
+            .iter()
+            .rev()
+            .take(body_rows)
+            .map(|line| line.chars().take(width).collect::<String>())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        let mut out = String::new();
+        for row in 0..body_rows {
+            let text = shown.get(row).map(String::as_str).unwrap_or("");
+            out.push_str(&format!(
+                "\x1b[{};1H\x1b[2K{text}",
+                row + usize::from(PICTURE_TOP)
+            ));
+        }
+        out
     }
 }
 
@@ -1033,28 +1141,36 @@ enum CommandOutcome {
 async fn command_mode(
     session: &mut Session,
     size: PaneSize,
-    viewport: &tokio::sync::watch::Sender<Viewport>,
+    view: &mut View,
     inputs: &mut Inputs,
+    first: Option<Vec<u8>>,
 ) -> CommandOutcome {
     let mut line = String::new();
+    let mut pending = first;
     loop {
         // Only redraw the prompt when nothing is already waiting: a whole line
         // pasted or typed fast would otherwise repaint the status row once per
         // character.
-        if !inputs.has_ready() {
+        if pending.is_none() && !inputs.has_ready() {
             status(&size, &format!(":{line}"));
         }
-        let Some(input) = inputs.next().await else {
-            return CommandOutcome::Quit;
+        let key = match pending.take() {
+            Some(key) => key,
+            None => {
+                let Some(input) = inputs.next().await else {
+                    return CommandOutcome::Quit;
+                };
+                let Input::Key(key) = input else { continue };
+                key
+            }
         };
-        let Input::Key(key) = input else { continue };
         match key.as_slice() {
             b"\x03" => return CommandOutcome::Quit,
             b"\x1b" => {
                 status(&size, "");
                 return CommandOutcome::Continue;
             }
-            b"\r" | b"\n" => return run_line(session, size, viewport, &line).await,
+            b"\r" | b"\n" => return run_line(session, size, view, &line).await,
             b"\x7f" | b"\x08" => {
                 line.pop();
             }
@@ -1073,40 +1189,52 @@ async fn command_mode(
 async fn run_line(
     session: &mut Session,
     size: PaneSize,
-    viewport: &tokio::sync::watch::Sender<Viewport>,
+    view: &mut View,
     line: &str,
 ) -> CommandOutcome {
     if matches!(line.trim(), "q" | "quit" | "exit") {
         return CommandOutcome::Quit;
     }
-    match verbs::parse(line) {
-        // The pane's own verb: where the picture sits is this program's call.
+    view.log.push(&format!(":{line}"));
+    // The status row is one line, and an agent reading it back with
+    // `capture-pane` wants the answer, not a paragraph; the log keeps it whole.
+    let answer: String = match verbs::parse(line) {
+        // The pane's own verbs: where the picture sits, and whether it is the
+        // picture or the log that is shown, are this program's call.
         Ok(verbs::Verb::Viewport { viewport: next }) => {
             // No clear: the new picture covers the old one, and the image
             // parser retires a picture another is drawn over.
-            viewport.send_replace(next);
+            view.viewport.send_replace(next);
             let page = layout(size, next);
             match session
                 .set_viewport(page.page_w, page.page_h, next == Viewport::Mobile)
                 .await
             {
-                Ok(()) => status(&size, next.name()),
-                Err(error) => status(&size, &format!("error: {error}")),
+                Ok(()) => next.name().to_string(),
+                Err(error) => format!("error: {error}"),
+            }
+        }
+        Ok(verbs::Verb::Repl { on }) => {
+            let on = on.unwrap_or(!view.showing_repl());
+            view.set_repl(&size, on);
+            if on {
+                "repl on".to_string()
+            } else {
+                "repl off".to_string()
             }
         }
         Ok(verb) => match session.run(verb).await {
-            Ok(output) => {
-                let text = output.to_string();
-                // One line: the status row is one line, and an agent reading it
-                // back with `capture-pane` wants the answer, not a paragraph.
-                let first = text.lines().next().unwrap_or("").to_string();
-                status(&size, &first);
-            }
-            Err(error) => status(&size, &format!("error: {error}")),
+            Ok(output) => output.to_string(),
+            Err(error) => format!("error: {error}"),
         },
-        Err(verbs::ParseError::Empty) => status(&size, ""),
-        Err(error) => status(&size, &format!("error: {error}")),
+        Err(verbs::ParseError::Empty) => String::new(),
+        Err(error) => format!("error: {error}"),
+    };
+    view.log.push(&answer);
+    if view.showing_repl() {
+        view.redraw(&size);
     }
+    status(&size, answer.lines().next().unwrap_or(""));
     CommandOutcome::Continue
 }
 
@@ -1594,15 +1722,15 @@ mod tests {
             can_go_forward: false,
         };
         assert_eq!(
-            header_line(&nav, false, Viewport::Auto),
-            "tmuxy:browser 100a"
+            header_line(&nav, false, Viewport::Auto, false),
+            "tmuxy:browser 100a0"
         );
         assert_eq!(
-            header_line(&nav, true, Viewport::Mobile),
-            "tmuxy:browser 101m"
+            header_line(&nav, true, Viewport::Mobile, true),
+            "tmuxy:browser 101m1"
         );
         assert!(
-            header_line(&nav, true, Viewport::Desktop).len() < 20,
+            header_line(&nav, true, Viewport::Desktop, false).len() < 20,
             "short enough never to wrap into the picture"
         );
     }

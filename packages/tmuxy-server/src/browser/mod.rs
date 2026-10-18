@@ -20,6 +20,7 @@
 //! Browser Driven From a Pane Changes Whose Network This Is") for what changes
 //! once a page is fetched from the pane's machine instead of by the viewer.
 
+pub mod attach;
 pub mod discover;
 pub mod engine;
 pub mod verbs;

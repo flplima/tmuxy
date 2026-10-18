@@ -23,11 +23,15 @@ describe('tmuxy browser', () => {
     expect(stdout).toContain('browser --session agent1 --color-filter example.com');
   });
 
-  test('--attach reaches the binary', () => {
+  test('--attach reaches the binary, with or without an endpoint', () => {
     const attach = runCLI(['browser', '--attach', 'ws://127.0.0.1:1/x']);
     expect(attach.exitCode).toBe(0);
     expect(attach.stdout).toContain('--attach');
     expect(attach.stdout).toContain('ws://127.0.0.1:1/x');
+    // Bare: the binary finds the browser itself.
+    const bare = runCLI(['browser', 'example.com', '--attach']);
+    expect(bare.exitCode).toBe(0);
+    expect(bare.stdout).toContain('browser example.com --attach');
   });
 
   /// The help has to work with no server running and no browser installed —
@@ -53,6 +57,7 @@ describe('tmuxy browser', () => {
       'shot',
       'forward',
       'viewport',
+      'repl',
     ]) {
       expect(stdout).toContain(verb);
     }

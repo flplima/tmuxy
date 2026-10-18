@@ -1689,6 +1689,12 @@
   opacity: 1;
 }
 
+/* A toggle that is on (the REPL view) looks pressed. */
+.browser-nav-button[aria-pressed='true'] {
+  background: var(--bg-highlight-alt, color-mix(in srgb, var(--text-primary) 18%, transparent));
+  opacity: 1;
+}
+
 /* A step that goes nowhere is shown, not hidden: where you are in the pane's
    history is part of what the bar says. */
 .browser-nav-button:disabled {

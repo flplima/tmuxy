@@ -42,6 +42,9 @@ pub enum Verb {
     Viewport { viewport: Viewport },
     /// Reload.
     Reload,
+    /// Show the REPL — the verb log — in the pane instead of the picture, or
+    /// the picture again. `None` toggles.
+    Repl { on: Option<bool> },
     /// The list of verbs, for a person who typed the wrong thing.
     Help,
 }
@@ -217,6 +220,12 @@ pub fn parse(line: &str) -> Result<Verb, ParseError> {
             None => Err(need("auto, desktop or mobile", "viewport")),
         },
         "reload" | "refresh" => Ok(Verb::Reload),
+        "repl" => match rest {
+            "" | "toggle" => Ok(Verb::Repl { on: None }),
+            "on" | "show" => Ok(Verb::Repl { on: Some(true) }),
+            "off" | "hide" => Ok(Verb::Repl { on: Some(false) }),
+            _ => Err(need("on, off or nothing", "repl")),
+        },
         "help" | "?" => Ok(Verb::Help),
         other => Err(ParseError::Unknown {
             verb: other.to_string(),
@@ -275,6 +284,7 @@ back                    history back
 forward                 history forward
 viewport auto|desktop|mobile  lay out for the pane, 1440x900 or 400x800
 reload                  reload
+repl [on|off]           show the verb log in the pane instead of the picture, or toggle
 help                    this list";
 
 #[cfg(test)]
@@ -304,6 +314,10 @@ mod tests {
             })
         );
         assert!(parse("viewport").is_err());
+        assert_eq!(parse("repl"), Ok(Verb::Repl { on: None }));
+        assert_eq!(parse("repl on"), Ok(Verb::Repl { on: Some(true) }));
+        assert_eq!(parse("repl off"), Ok(Verb::Repl { on: Some(false) }));
+        assert!(parse("repl sideways").is_err());
         assert!(parse("viewport tablet").is_err());
         assert_eq!(parse("reload"), Ok(Verb::Reload));
         assert_eq!(parse("refresh"), Ok(Verb::Reload));

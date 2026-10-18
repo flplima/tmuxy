@@ -332,7 +332,7 @@ impl Session {
             }
             // The size is the pane's to choose: it decides where the picture
             // sits in the pane, which the engine does not know about.
-            Verb::Viewport { .. } => Err(SessionError::Engine(
+            Verb::Viewport { .. } | Verb::Repl { .. } => Err(SessionError::Engine(
                 "`viewport` is set in a browser pane, at its `:` prompt".into(),
             )),
             Verb::Reload => {

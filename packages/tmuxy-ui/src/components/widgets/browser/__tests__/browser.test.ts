@@ -58,26 +58,28 @@ describe('isWebsite', () => {
 
 describe('the live browser header', () => {
   it('reads which way history goes, the colour filter and the page size', () => {
-    expect(parseLiveHeader('tmuxy:browser 101m')).toEqual({
+    expect(parseLiveHeader('tmuxy:browser 101m1')).toEqual({
       canGoBack: true,
       canGoForward: false,
       colorFilter: true,
       viewport: 'mobile',
+      repl: true,
     });
-    expect(parseLiveHeader('tmuxy:browser 010a   ')).toEqual({
+    expect(parseLiveHeader('tmuxy:browser 010a0   ')).toEqual({
       canGoBack: false,
       canGoForward: true,
       colorFilter: false,
       viewport: 'auto',
+      repl: false,
     });
-    expect(parseLiveHeader('tmuxy:browser 000d')?.viewport).toBe('desktop');
+    expect(parseLiveHeader('tmuxy:browser 000d0')?.viewport).toBe('desktop');
   });
 
   it('is not anything else a top row says', () => {
     expect(parseLiveHeader('~/projects/tmuxy main')).toBeNull();
-    expect(parseLiveHeader('tmuxy:browser 101')).toBeNull();
-    expect(parseLiveHeader('tmuxy:browser 101x')).toBeNull();
-    expect(parseLiveHeader('echo tmuxy:browser 101a')).toBeNull();
+    expect(parseLiveHeader('tmuxy:browser 101a')).toBeNull();
+    expect(parseLiveHeader('tmuxy:browser 101x0')).toBeNull();
+    expect(parseLiveHeader('echo tmuxy:browser 101a0')).toBeNull();
   });
 
   it('types one verb line, however the address was pasted', () => {

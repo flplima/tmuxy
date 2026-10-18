@@ -23,6 +23,7 @@ const {
   getRunGeometry,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
+const { startDebuggableBrowser } = require('./helpers/debuggable-browser');
 
 // ==================== Scenario 14: OSC Protocols ====================
 
@@ -1458,4 +1459,145 @@ describe('Scenario 24: The Browser Pane', () => {
       'the address bar to leave with the browser',
     );
   }, 180000);
+
+  /**
+   * `--attach`: the same pane on a browser somebody else started. What is
+   * different, and so what is tested: the page drawn is the browser's OWN tab,
+   * the browser outlives the pane, and the REPL button swaps the picture for
+   * the verb log — which is where a person sees what an agent typed.
+   */
+  test('attaches to a running browser, draws its tab, and the REPL button shows the log [nightly]', async () => {
+    if (ctx.skipIfNotReady()) return;
+    const engine = engineOrSkip();
+    if (!engine) return;
+    await ctx.setupPage();
+
+    // A browser started the way anyone starts one for remote debugging: a
+    // profile of its own and a kernel-chosen port, announced in the profile's
+    // DevToolsActivePort — the file `--attach` reads when given no endpoint.
+    const profile = path.join(scratch, 'attach-profile');
+    const browser = startDebuggableBrowser(engine, profile);
+    try {
+      const portFile = path.join(profile, 'DevToolsActivePort');
+      await waitForCondition(
+        ctx.page,
+        () => fs.existsSync(portFile) && fs.readFileSync(portFile, 'utf8').trim().length > 0,
+        60000,
+        'the browser to announce its DevTools port',
+      );
+      const port = fs.readFileSync(portFile, 'utf8').split('\n')[0].trim();
+      fs.writeFileSync(
+        path.join(scratch, 'attach'),
+        `#!/bin/sh\nexport TMUXY_STATE_DIR=${scratch}/state\n` +
+          `exec ${TMUXY_CLI} browser --attach=http://127.0.0.1:${port}\n`,
+        { mode: 0o755 },
+      );
+
+      await typeInTerminal(ctx.page, `${scratch}/attach`);
+      await pressEnter(ctx.page);
+
+      const captured = () =>
+        String(ctx.session.runCommand(`capture-pane -p -t ${ctx.session.name}`));
+      const waitForStatus = (text, budget) =>
+        waitForCondition(
+          ctx.page,
+          () => captured().includes(text),
+          budget,
+          () =>
+            `\`${text}\` in the captured pane (now: ${JSON.stringify(captured().trim().slice(-120))})`,
+        );
+      await waitForStatus('about:blank', 60000);
+
+      await typeInTerminal(ctx.page, `:goto file://${scratch}/second.html`);
+      await pressEnter(ctx.page);
+      await waitForStatus('second.html', 60000);
+
+      // The attached tab is drawn in the pane, as a launched one is.
+      await waitForPicture(ctx.page, "the attached browser's page is drawn in the pane");
+
+      // And it is the browser's own tab that moved, not a second one.
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const res = await fetch(`http://127.0.0.1:${port}/json/list`);
+          const tabs = await res.json();
+          return tabs.some((t) => t.type === 'page' && t.url.endsWith('second.html'));
+        },
+        30000,
+        "the browser's own tab to be on the page",
+      );
+
+      // The REPL button: the log replaces the picture, as text the person can
+      // read — the grid, hidden under a picture, is shown for this.
+      const gridVisibility = () =>
+        ctx.page.evaluate(() => {
+          const grid = document.querySelector('.terminal-content');
+          return grid ? getComputedStyle(grid).visibility : null;
+        });
+      const replButton = () =>
+        ctx.page.evaluate(() => {
+          const button = document.querySelector('[data-testid="browser-nav-repl"]');
+          if (!button) return null;
+          const r = button.getBoundingClientRect();
+          return { pressed: button.getAttribute('aria-pressed'), width: r.width, height: r.height };
+        });
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const button = await replButton();
+          return !!button && button.width > 0 && button.height > 0 && button.pressed === 'false';
+        },
+        30000,
+        async () => `a REPL button, off (now ${JSON.stringify(await replButton())})`,
+      );
+      await ctx.page.click('[data-testid="browser-nav-repl"]');
+      await waitForCondition(
+        ctx.page,
+        async () =>
+          (await replButton())?.pressed === 'true' && (await gridVisibility()) === 'visible',
+        30000,
+        async () =>
+          `the REPL view to be up (button ${JSON.stringify(await replButton())}, grid ${await gridVisibility()})`,
+      );
+      // The log carries what was typed and what came back, visibly: the verb
+      // line is text on screen now, with real size, not a captured row.
+      const logLine = () =>
+        ctx.page.evaluate(() => {
+          const lines = [...document.querySelectorAll('.terminal-content .terminal-line')];
+          const line = lines.find((l) => l.textContent.includes(':goto file://'));
+          if (!line) return null;
+          const r = line.getBoundingClientRect();
+          return { width: r.width, height: r.height };
+        });
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const line = await logLine();
+          return !!line && line.width > 0 && line.height > 0;
+        },
+        30000,
+        'the verb log to show the goto line',
+      );
+      expect(await readPicture(ctx.page)).toBeNull();
+
+      // And back: the picture returns on its own, the grid goes under it.
+      await ctx.page.click('[data-testid="browser-nav-repl"]');
+      await waitForPicture(ctx.page, 'the page is drawn again after the REPL view');
+      await waitForCondition(
+        ctx.page,
+        async () => (await gridVisibility()) === 'hidden',
+        30000,
+        'the grid to hide under the picture again',
+      );
+
+      // Leaving the pane leaves the browser: it was not tmuxy's to close.
+      await sendKeyCombo(ctx.page, 'Control', 'c');
+      await waitForShellPrompt(ctx.page);
+      expect(browser.exitCode).toBeNull();
+      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      expect(res.ok).toBe(true);
+    } finally {
+      browser.kill();
+    }
+  }, 240000);
 });

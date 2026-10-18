@@ -16,9 +16,14 @@
 //! Two shapes, both a pane program (`pane`) that draws the page and reads input:
 //!
 //!   * `tmuxy browser [url]` — launches its own engine on a throwaway profile.
-//!   * `tmuxy browser --attach <ws://…> [url]` — drives a browser somebody else
-//!     started. See `--attach`'s own help for why that is the escape hatch for
-//!     a desktop build and for the user's real profile.
+//!   * `tmuxy browser --attach[=<endpoint>] [url]` — drives a browser somebody
+//!     else started, found by itself when no endpoint is given (`attach`). See
+//!     `--attach`'s own help for why that is the escape hatch for a desktop
+//!     build and for the user's real profile.
+//!
+//! Either way the page is drawn in the pane, which only means something when
+//! the server is the machine with the screen: a browser attached over SSH is
+//! painted into a pane the user can see, from a window they cannot.
 //!
 //! `tmuxy open <url>` lands here too for a website (`tmuxy-widget-browser`):
 //! the app draws its address bar over the pane's top row, and the page below
@@ -42,14 +47,17 @@ pub struct BrowserArgs {
     #[arg(long)]
     pub session: Option<String>,
     /// Attach to a browser that is already running, by DevTools endpoint
-    /// (`ws://…` from `/json/version`, or `http://127.0.0.1:PORT`).
+    /// (`ws://…` from `/json/version`, or `http://127.0.0.1:PORT`) — or, given
+    /// bare, whichever one announces itself: a profile's `DevToolsActivePort`,
+    /// else a listener on 127.0.0.1:9222.
     ///
     /// The escape hatch for the two cases a launch cannot serve: a desktop
     /// build where the browser is the app's own, and the user's REAL profile,
     /// with its logins — which Chrome will only expose after the consent prompt
-    /// at `chrome://inspect/#remote-debugging`. An attached browser is left
-    /// running and its profile untouched when the pane closes.
-    #[arg(long)]
+    /// at `chrome://inspect/#remote-debugging`. The page is still drawn in the
+    /// pane, and the mouse and keys still reach it; an attached browser is
+    /// left running and its profile untouched when the pane closes.
+    #[arg(long, num_args = 0..=1, default_missing_value = "auto")]
     pub attach: Option<String>,
     /// Recolour the page into the theme's colours, as `tmuxy open
     /// --color-filter` does: the app applies it to the picture.
@@ -84,11 +92,19 @@ pub async fn run(args: BrowserArgs) {
         fail(&format!("not a usable session name: {session:?}"));
     }
 
+    let attach = match args.attach {
+        Some(asked) => match super::attach::resolve_endpoint(&asked).await {
+            Ok(endpoint) => Some(endpoint),
+            Err(error) => fail(&error),
+        },
+        None => None,
+    };
+
     let code = pane::run(
         &state_dir,
         &session,
         named,
-        args.attach,
+        attach,
         args.url,
         args.color_filter,
         args.viewport,

@@ -34,6 +34,8 @@ interface BrowserLiveBarProps {
 
 /** nf-fa-expand: the page-size button, whichever size is chosen. */
 const VIEWPORT_ICON = '\uf065';
+/** nf-fa-terminal: the REPL view button. */
+const REPL_ICON = '\uf120';
 
 export const BrowserLiveBar = memo(function BrowserLiveBar({
   paneId,
@@ -50,6 +52,19 @@ export const BrowserLiveBar = memo(function BrowserLiveBar({
 
   const sizeControl = (
     <>
+      <Tooltip label={header.repl ? 'Show the page' : 'Show the REPL (verb log)'}>
+        <button
+          type="button"
+          className="browser-nav-button"
+          data-testid="browser-nav-repl"
+          aria-label="REPL"
+          aria-pressed={header.repl}
+          disabled={readOnly}
+          onClick={() => verb(header.repl ? 'repl off' : 'repl on')}
+        >
+          <span className="browser-nav-glyph">{REPL_ICON}</span>
+        </button>
+      </Tooltip>
       <Tooltip label={`Page size: ${current.label}`}>
         <button
           ref={sizeButton}
