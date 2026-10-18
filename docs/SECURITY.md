@@ -374,13 +374,21 @@ When using AI coding assistants (Claude, Copilot, etc.) with tmuxy running:
 If an AI agent has access to the machine where tmuxy is running, it can interact with your tmux sessions. This includes:
 
 - Reading terminal output from all panes
-- Sending keystrokes to any pane
+- Sending keystrokes to any pane (`tmuxy pane send -t` into a pane that is not the caller's asks the user there first, unless `@tmuxy-send-ask` is off or the caller is on `@tmuxy-send-allow`)
 - Running shell commands via `run-shell`
 - Creating/destroying windows and panes
 
 ### Prompt Injection via Terminal Output
 
 Terminal output from running processes could contain text that looks like instructions to an AI agent. If the agent reads pane content and acts on it, malicious programs could manipulate the agent's behavior. This is a general risk of AI agents interacting with untrusted output.
+
+### Agents the Repository Starts Itself
+
+The weekly `sunday sweep` workflow (`bin/sunday-sweep.mjs`) hands open high and critical Dependabot and CodeQL alerts, and Dependabot PRs whose checks fail, to the Copilot cloud agent. It runs on a fine-grained token, `COPILOT_AGENT_PAT`, scoped to this repository alone: metadata read; contents, issues and pull requests read/write; agent tasks write. `GITHUB_TOKEN` can neither read Dependabot alerts nor start the agent. The token is used by that scheduled job only, never by a workflow a pull request can trigger, so a fork or a Dependabot PR cannot reach it.
+
+Alert text and CI logs are other people's words, and they become part of the agent's prompt: an advisory summary or a failing log could carry instructions. The sweep fences that text as data and caps how much of it is passed. The real safeguard is that the agent's PRs are drafts whose workflows wait for a maintainer's "Approve and run": nothing the agent writes runs in CI, or reaches main, without a person reading it first. Keep that setting on. At most three tasks start per run, so a flood of alerts cannot run up the agent's cost unattended.
+
+`dependabot actions merge` merges Dependabot's bumps of the workflows' own actions once `lint and tests` is green on them, and nothing else. It runs on `workflow_run`, in this repository's context, and never checks the PR's code out. npm and cargo bumps stay manual.
 
 ### Recommendations for AI-Assisted Development
 

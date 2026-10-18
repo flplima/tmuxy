@@ -1,0 +1,49 @@
+name: dependabot actions merge
+
+# Merges Dependabot's bumps of the workflows' own actions once the suite is
+# green on them. Only those: npm and cargo bumps stay manual, because Tauri
+# pins crates tightly and a blind bump breaks the desktop build
+# (.github/dependabot.yml). An action bump cannot reach the shipped app.
+#
+# It waits for `lint and tests` to finish rather than enabling auto-merge on
+# the PR: main has no required check, so auto-merge would merge at once.
+# `workflow_run` runs in this repository's context and never checks the PR's
+# code out; it only reads the run and merges the PR it belongs to.
+
+on:
+  workflow_run:
+    workflows: ['lint and tests']
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/github_actions/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge the green bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          PR=$(gh pr list --head "$BRANCH" --state open --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$HEAD_SHA\") | .number")
+          if [ -z "$PR" ]; then
+            echo "No open PR on $BRANCH at $HEAD_SHA (pushed again since, or already merged)."
+            exit 0
+          fi
+          # The sha pins the merge to the commit the suite passed on.
+          gh pr merge "$PR" --squash --match-head-commit "$HEAD_SHA"

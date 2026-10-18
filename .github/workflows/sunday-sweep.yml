@@ -1,0 +1,59 @@
+name: sunday sweep
+
+# Every Sunday morning, hands what needs fixing to the Copilot cloud agent
+# (bin/sunday-sweep.mjs): open high/critical Dependabot and CodeQL alerts
+# become `agent-fix` issues assigned to the agent, and a red Dependabot PR
+# gets an agent task on its own branch. At most three a run.
+#
+# The token is a fine-grained PAT for this repository only
+# (`COPILOT_AGENT_PAT`: metadata read; contents, issues and pull requests
+# read/write; agent tasks write) — GITHUB_TOKEN can neither read Dependabot
+# alerts nor start the agent. It lives in this scheduled job alone, never in
+# anything a pull request can trigger. Without it the sweep runs dry and says
+# what it would have done.
+
+on:
+  schedule:
+    # 11:00 UTC on Sundays: 08:00 in Brazil, before the week starts.
+    - cron: '0 11 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Say what would be handed over, change nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sunday-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Sweep
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_AGENT_PAT }}
+          GH_REPO: ${{ github.repository }}
+          DRY: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) || secrets.COPILOT_AGENT_PAT == '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "COPILOT_AGENT_PAT is not set: nothing can be read or handed over." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$DRY" = "true" ]; then
+            node bin/sunday-sweep.mjs --dry-run
+          else
+            node bin/sunday-sweep.mjs
+          fi
