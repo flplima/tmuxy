@@ -136,8 +136,18 @@ const floatCentreOffset = (page) =>
     };
   });
 
+/**
+ * How far off centre a float may measure. Its position is computed exactly;
+ * the browser then snaps each edge to a whole pixel, half a pixel at most, and
+ * the rects come back with floating-point noise on top (CI measured
+ * 1.0000153).
+ */
+const CENTRE_TOLERANCE_PX = 1.001;
+
 const isCentred = (offset) =>
-  offset !== null && Math.abs(offset.dx) <= 1 && Math.abs(offset.dy) <= 1;
+  offset !== null &&
+  Math.abs(offset.dx) <= CENTRE_TOLERANCE_PX &&
+  Math.abs(offset.dy) <= CENTRE_TOLERANCE_PX;
 
 /**
  * Open a float the way a user does — `tmuxy pane float` typed at the prompt —
@@ -1957,8 +1967,8 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     // Step 3b2: The float sits at the centre of the pane container, and comes
     // back to it once the window is resized.
     const opened = await floatCentreOffset(ctx.page);
-    expect(Math.abs(opened.dx)).toBeLessThanOrEqual(1);
-    expect(Math.abs(opened.dy)).toBeLessThanOrEqual(1);
+    expect(Math.abs(opened.dx)).toBeLessThanOrEqual(CENTRE_TOLERANCE_PX);
+    expect(Math.abs(opened.dy)).toBeLessThanOrEqual(CENTRE_TOLERANCE_PX);
     const viewport = ctx.page.viewportSize();
     await ctx.page.setViewportSize({ width: viewport.width - 280, height: viewport.height - 80 });
     await waitForCondition(
