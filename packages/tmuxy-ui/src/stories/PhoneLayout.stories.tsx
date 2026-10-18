@@ -104,3 +104,49 @@ export const PhoneKeyboardDown: Story = {
     expect(ctrl.getAttribute('aria-pressed')).toBe('false');
   },
 };
+
+export const AppMenuFromTheKeyRow: Story = {
+  args: { width: 390, height: 844, config: { phoneLayout: true } },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 844 },
+      description: {
+        story:
+          'A phone has no status bar, so the app menu ends the key row, a key’s height. Tapping it opens the menu on screen.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(ctx().phoneLayout).toBe(true), { timeout: 8000 });
+    const button = await waitFor(
+      () => {
+        const el = canvasElement.querySelector('.key-row .app-menu-button') as HTMLElement | null;
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 8000 },
+    );
+    const keys = box(canvasElement.querySelector('.key-row'));
+    const at = box(button);
+    expect(at.left).toBeGreaterThanOrEqual(keys.left);
+    expect(at.right).toBeLessThanOrEqual(Math.min(keys.right, window.innerWidth));
+    expect(at.height).toBeGreaterThanOrEqual(
+      box(canvasElement.querySelector('[data-key-row="esc"]')).height - 1,
+    );
+
+    await userEvent.click(button);
+    const item = await waitFor(
+      () => {
+        const el = document.querySelector('[role="menu"] [role="menuitem"]');
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 5000 },
+    );
+    const shown = box(item);
+    expect(shown.width).toBeGreaterThan(0);
+    expect(shown.top).toBeGreaterThanOrEqual(0);
+    expect(shown.bottom).toBeLessThanOrEqual(window.innerHeight);
+    expect(shown.right).toBeLessThanOrEqual(window.innerWidth);
+  },
+};

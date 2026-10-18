@@ -9,6 +9,9 @@
  *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
  * stays up while the row is used.
+ *
+ * The row ends with the app menu: a phone has no status bar, and this row is
+ * the one piece of chrome it keeps.
  */
 
 import { memo, useSyncExternalStore } from 'react';
@@ -19,6 +22,7 @@ import {
   tapModifier,
   type Modifier,
 } from '../utils/keyLatch';
+import { AppMenu } from './menus/AppMenu';
 import './KeyRow.css';
 
 type RowKey =
@@ -63,6 +67,7 @@ export const KeyRow = memo(function KeyRow() {
           </button>
         );
       })}
+      <AppMenu />
     </div>
   );
 });
