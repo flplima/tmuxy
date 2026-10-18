@@ -406,8 +406,69 @@ async function waitForRawWindowCount(driver, expected, timeout = 20000) {
   );
 }
 
+/**
+ * Shared test lifecycle helper for Tauri E2E suites.
+ * Ensures each test tears down its WDIO session and waits for the tmux session to die.
+ */
+function createTauriTestContext() {
+  const state = { driver: null, sessionName: null };
+
+  async function setupApp(options = {}) {
+    const result = await createSession(options);
+    state.driver = result.driver;
+    state.sessionName = result.sessionName;
+    await waitForAppReady(state.driver);
+    await waitForXState(state.driver);
+    return { driver: state.driver, sessionName: state.sessionName };
+  }
+
+  async function afterEachHook() {
+    if (state.driver) {
+      try {
+        await state.driver.deleteSession();
+      } catch {
+        // Session may already be dead
+      }
+      state.driver = null;
+    }
+
+    // Kill tmux session — and WAIT until it is actually gone. The app reuses
+    // the same session name across tests, so a kill that is still in flight
+    // when the next test's app starts leaves that test attached to a dying
+    // session: it reads a stale multi-pane baseline, then collapses to a fresh
+    // 1-pane session mid-test (the flaky delta-protocol failure).
+    if (state.sessionName) {
+      const target = state.sessionName;
+      const gone = () => {
+        try {
+          execSync(`${tmuxCmd()} has-session -t ${target}`, { stdio: 'ignore' });
+          return false;
+        } catch {
+          return true;
+        }
+      };
+      try {
+        execSync(`${tmuxCmd()} kill-session -t ${target}`, { stdio: 'ignore' });
+      } catch {
+        // Session may already be gone
+      }
+      const deadline = Date.now() + 5000;
+      while (!gone() && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      state.sessionName = null;
+    }
+
+    // Brief pause for process cleanup
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  return { state, setupApp, afterEachHook };
+}
+
 module.exports = {
   createSession,
+  createTauriTestContext,
   killTmuxSession,
   launchApp,
   waitForAppReady,

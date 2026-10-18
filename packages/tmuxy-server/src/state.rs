@@ -1,8 +1,4 @@
 use axum::{
-    body::Body,
-    extract::{Path, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
@@ -10,15 +6,21 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tmuxy_core::control_mode::MonitorCommandSender;
-use tmuxy_core::mime::{
-    content_type_for_path, read_served_file, ServeRefusal, FILE_SANDBOX_CSP, MAX_SERVED_FILE_BYTES,
-};
 use tmuxy_core::transport::ImageStore;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use crate::request_guard::HostPolicy;
+
+mod handlers;
+pub(crate) use handlers::build_response;
+pub use handlers::find_workspace_root;
+use handlers::{browse_handler, image_handler};
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests;
 
 /// Number of recent broadcast messages retained per session for
 /// `Last-Event-Id` replay and lagged-subscriber recovery. A power of two, so
@@ -122,116 +124,6 @@ impl SessionBroadcast {
 impl Default for SessionBroadcast {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod broadcast_tests {
-    use super::*;
-
-    /// S1: ids count up from 1 — 0 is what a stream that has sent nothing
-    /// remembers, and an id equal to it would never be delivered.
-    #[test]
-    fn seqs_are_monotonic_from_one() {
-        let b = SessionBroadcast::new();
-        assert_eq!(b.broadcast("a".into()), 1);
-        assert_eq!(b.broadcast("b".into()), 2);
-        assert_eq!(b.broadcast("c".into()), 3);
-    }
-
-    #[test]
-    fn replay_since_returns_strictly_newer() {
-        let b = SessionBroadcast::new();
-        for i in 1..=5 {
-            b.broadcast(format!("m{}", i));
-        }
-        let replay = b.replay_since(3);
-        assert_eq!(replay.len(), 2);
-        assert_eq!(replay[0].0, 4);
-        assert_eq!(replay[0].1, "m4");
-        assert_eq!(replay[1].0, 5);
-        assert_eq!(replay[1].1, "m5");
-    }
-
-    #[test]
-    fn ring_buffer_drops_oldest_at_capacity() {
-        let b = SessionBroadcast::new();
-        for i in 1..=(EVENT_BUFFER_SIZE + 5) {
-            b.broadcast(format!("m{}", i));
-        }
-        assert_eq!(b.oldest_seq(), Some(6));
-        let replay = b.replay_since(5);
-        assert_eq!(replay.len(), EVENT_BUFFER_SIZE);
-        assert_eq!(replay[0].0, 6);
-    }
-
-    /// S1: the ring is sorted and gap-free however many threads broadcast at
-    /// once — the monitor and the initial-sync task do. A stress run, not an
-    /// exhaustive one: the threads are released together and the run is
-    /// repeated, which makes the old interleaving (a seq taken, then the ring
-    /// written under a separate lock) likely rather than certain to show.
-    /// What makes it impossible is `broadcast` taking the seq and writing the
-    /// ring under one lock, which review has to hold.
-    #[test]
-    fn concurrent_broadcasters_keep_the_ring_in_order() {
-        let per_thread = EVENT_BUFFER_SIZE / 4;
-        for _round in 0..25 {
-            let b = std::sync::Arc::new(SessionBroadcast::new());
-            let gate = std::sync::Arc::new(std::sync::Barrier::new(4));
-            let threads: Vec<_> = (0..4)
-                .map(|t| {
-                    let b = std::sync::Arc::clone(&b);
-                    let gate = std::sync::Arc::clone(&gate);
-                    std::thread::spawn(move || {
-                        gate.wait();
-                        for i in 0..per_thread {
-                            b.broadcast(format!("t{t}-{i}"));
-                        }
-                    })
-                })
-                .collect();
-            for t in threads {
-                t.join().unwrap();
-            }
-            let seqs: Vec<u64> = b.replay_since(0).into_iter().map(|(s, _)| s).collect();
-            let expected: Vec<u64> = (1..=(4 * per_thread) as u64).collect();
-            assert_eq!(seqs, expected, "the ring is out of order or has a gap");
-        }
-    }
-
-    #[test]
-    fn oldest_seq_is_none_when_empty() {
-        let b = SessionBroadcast::new();
-        assert_eq!(b.oldest_seq(), None);
-    }
-}
-
-/// Build an HTTP response from a status, content-type, and body.
-///
-/// `Response::builder().body()` only returns `Err` when a header value contains
-/// invalid bytes (control characters, non-ASCII, etc.). All callers in this
-/// module pass static `&'static str` mime types, so the unwrap path is
-/// effectively unreachable — but if a future caller somehow injects a bad
-/// header value we'd rather return a 500 than panic the server thread.
-pub(crate) fn build_response(status: StatusCode, mime: &str, body: impl Into<Body>) -> Response {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", mime)
-        .body(body.into())
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
-}
-
-/// Convenience: build a `application/json` response from a serializable value.
-/// Serialization errors round-trip as a 500 with a plain-text fallback body.
-fn json_response(status: StatusCode, value: &serde_json::Value) -> Response {
-    match serde_json::to_string(value) {
-        Ok(body) => build_response(status, "application/json", body),
-        Err(_) => build_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "text/plain; charset=utf-8",
-            "internal server error: failed to serialize JSON response",
-        ),
     }
 }
 
@@ -499,613 +391,84 @@ fn viewer_routes() -> Router<Arc<AppState>> {
 // Internal Handlers
 // ============================================
 
-/// Serve a local file at a path-shaped URL: `/api/browse/Users/me/doc/index.html`.
-///
-/// The browser widget frames this route, and a framed page's relative links
-/// (`./style.css`, `../img/logo.png`) resolve against the URL it was loaded
-/// from — which is why the path lives in the URL rather than a query string,
-/// which would send every subresource to `/api/style.css`. Axum has already
-/// percent-decoded the captured path; the leading `/` it strips is put back so
-/// the absolute path on disk round-trips.
-///
-/// This reads anywhere the server process can, gated by the optional
-/// `--password` Basic auth and absent from a `--read-only` server
-/// (`viewer_routes`). See docs/SECURITY.md.
-async fn browse_handler(Path(path): Path<String>) -> Response {
-    read_file_offthread(format!("/{}", path.trim_start_matches('/'))).await
-}
-
-/// `read_file_response` on the blocking pool.
-///
-/// The read is synchronous and can be slow (a cold 64 MiB file, a network
-/// mount that hangs), and a Tokio worker thread blocked in it serves nothing
-/// else — including the SSE streams every other client is on.
-async fn read_file_offthread(path: String) -> Response {
-    match tokio::task::spawn_blocking(move || read_file_response(&path)).await {
-        Ok(response) => response,
-        Err(e) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &serde_json::json!({ "error": format!("file read task failed: {e}") }),
-        ),
-    }
-}
-
-/// A local file, served so the browser widget can frame it in any build.
-///
-/// The checks before the read are `tmuxy_core::mime::read_served_file`'s,
-/// shared with the desktop app's `tmuxyfile:` scheme; each refusal maps to
-/// its status here.
-///
-/// The Vite dev server serves the app cross-origin-isolated (COOP
-/// `same-origin`, COEP `require-corp`), and under that policy a framed
-/// document is blocked unless it opts in too: the widget showed the browser's
-/// broken-page placeholder for every local HTML file. `credentialless` is that
-/// opt-in without the cost `require-corp` would carry — a page's own
-/// cross-origin scripts and images still load, just without credentials — and
-/// `Cross-Origin-Resource-Policy` lets the file itself be embedded. Outside an
-/// isolated parent both headers change nothing.
-fn read_file_response(path: &str) -> Response {
-    let content = match read_served_file(path) {
-        Ok(content) => content,
-        Err(refusal) => {
-            let (status, error) = match refusal {
-                ServeRefusal::NotFound(e) => (StatusCode::NOT_FOUND, e),
-                ServeRefusal::NotRegular => {
-                    (StatusCode::BAD_REQUEST, "not a regular file".to_string())
-                }
-                ServeRefusal::TooLarge { .. } => (
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    format!("file is larger than {MAX_SERVED_FILE_BYTES} bytes"),
-                ),
-            };
-            return json_response(status, &serde_json::json!({ "error": error }));
-        }
-    };
-    let mut response = build_response(StatusCode::OK, content_type_for_path(path), content);
-    let headers = response.headers_mut();
-    headers.insert(
-        axum::http::header::HeaderName::from_static("cross-origin-embedder-policy"),
-        axum::http::HeaderValue::from_static("credentialless"),
-    );
-    headers.insert(
-        axum::http::header::HeaderName::from_static("cross-origin-resource-policy"),
-        axum::http::HeaderValue::from_static("cross-origin"),
-    );
-    // Rendered with the server's origin, an HTML file could POST tmux commands
-    // like the app does. `sandbox` gives it an opaque origin of its own,
-    // whether the browser widget frames it or someone opens its URL directly.
-    headers.insert(
-        axum::http::header::CONTENT_SECURITY_POLICY,
-        axum::http::HeaderValue::from_static(FILE_SANDBOX_CSP),
-    );
-    response
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-mod file_route_tests {
+mod broadcast_tests {
     use super::*;
 
-    /// SEC-02. The path is the client's, and `std::fs::read` on a character
-    /// device never ends: `/api/browse/dev/zero` grew the server until the
-    /// OS killed it. A FIFO is worse — the read blocks a Tokio worker forever.
+    /// S1: ids count up from 1 — 0 is what a stream that has sent nothing
+    /// remembers, and an id equal to it would never be delivered.
     #[test]
-    fn a_file_that_is_not_a_regular_file_is_refused_rather_than_read() {
-        for path in ["/dev/zero", "/dev/null", "/tmp"] {
-            if !std::path::Path::new(path).exists() {
-                continue;
-            }
-            let response = read_file_response(path);
-            assert_eq!(
-                response.status(),
-                StatusCode::BAD_REQUEST,
-                "{path} should be refused as not a regular file"
-            );
+    fn seqs_are_monotonic_from_one() {
+        let b = SessionBroadcast::new();
+        assert_eq!(b.broadcast("a".into()), 1);
+        assert_eq!(b.broadcast("b".into()), 2);
+        assert_eq!(b.broadcast("c".into()), 3);
+    }
+
+    #[test]
+    fn replay_since_returns_strictly_newer() {
+        let b = SessionBroadcast::new();
+        for i in 1..=5 {
+            b.broadcast(format!("m{}", i));
         }
-    }
-
-    /// SEC-02. The realistic case is accidental — the widget pointed at a
-    /// multi-gigabyte log — and it takes the server down just the same.
-    #[test]
-    fn a_file_over_the_cap_is_refused_before_it_is_read() {
-        let path = std::env::temp_dir().join(format!("tmuxy-big-{}.bin", std::process::id()));
-        let file = std::fs::File::create(&path).unwrap();
-        // Sparse: the length is what the check reads, and nothing writes 64 MiB.
-        file.set_len(MAX_SERVED_FILE_BYTES + 1).unwrap();
-        drop(file);
-
-        let response = read_file_response(path.to_str().unwrap());
-        std::fs::remove_file(&path).ok();
-
-        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let replay = b.replay_since(3);
+        assert_eq!(replay.len(), 2);
+        assert_eq!(replay[0].0, 4);
+        assert_eq!(replay[0].1, "m4");
+        assert_eq!(replay[1].0, 5);
+        assert_eq!(replay[1].1, "m5");
     }
 
     #[test]
-    fn a_file_at_the_cap_is_still_served() {
-        let path = std::env::temp_dir().join(format!("tmuxy-atcap-{}.txt", std::process::id()));
-        std::fs::write(&path, b"small enough").unwrap();
-
-        let response = read_file_response(path.to_str().unwrap());
-        std::fs::remove_file(&path).ok();
-
-        assert_eq!(response.status(), StatusCode::OK);
+    fn ring_buffer_drops_oldest_at_capacity() {
+        let b = SessionBroadcast::new();
+        for i in 1..=(EVENT_BUFFER_SIZE + 5) {
+            b.broadcast(format!("m{}", i));
+        }
+        assert_eq!(b.oldest_seq(), Some(6));
+        let replay = b.replay_since(5);
+        assert_eq!(replay.len(), EVENT_BUFFER_SIZE);
+        assert_eq!(replay[0].0, 6);
     }
 
+    /// S1: the ring is sorted and gap-free however many threads broadcast at
+    /// once — the monitor and the initial-sync task do. A stress run, not an
+    /// exhaustive one: the threads are released together and the run is
+    /// repeated, which makes the old interleaving (a seq taken, then the ring
+    /// written under a separate lock) likely rather than certain to show.
+    /// What makes it impossible is `broadcast` taking the seq and writing the
+    /// ring under one lock, which review has to hold.
     #[test]
-    fn a_served_file_can_be_framed_by_a_cross_origin_isolated_app() {
-        // The dev app is served with COEP `require-corp`; a frame that does
-        // not opt in is replaced by the browser's broken-page placeholder.
-        let path = std::env::temp_dir().join(format!("tmuxy-browse-{}.html", std::process::id()));
-        std::fs::write(&path, "<h1>framed</h1>").unwrap();
-        let response = read_file_response(path.to_str().unwrap());
-        std::fs::remove_file(&path).ok();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let header = |name: &str| {
-            response
-                .headers()
-                .get(name)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_string)
-        };
-        assert_eq!(
-            header("cross-origin-embedder-policy").as_deref(),
-            Some("credentialless")
-        );
-        assert_eq!(
-            header("cross-origin-resource-policy").as_deref(),
-            Some("cross-origin")
-        );
-        // Sandboxed: an HTML file never runs with the server's origin.
-        let csp = header("content-security-policy").unwrap_or_default();
-        assert!(csp.starts_with("sandbox "), "{csp}");
-        assert!(!csp.contains("allow-same-origin"), "{csp}");
-    }
-
-    #[test]
-    fn a_missing_file_is_a_404() {
-        let response = read_file_response("/tmp/tmuxy-no-such-file-for-the-browse-route.html");
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-}
-
-async fn image_handler(
-    State(state): State<Arc<AppState>>,
-    Path((pane_id, image_id)): Path<(String, u32)>,
-) -> Response {
-    let store = state.image_store.read().await;
-    let image = tmuxy_core::PaneId::parse(&format!("%{pane_id}"))
-        .ok()
-        .and_then(|pane_id| store.get(&pane_id, image_id));
-    match image {
-        Some(img) => Response::builder()
-            .status(StatusCode::OK)
-            .header("Content-Type", &img.mime_type)
-            // Never cached. The id is a per-pane counter that starts again at
-            // zero every time the server does, so an hour-long cache serves the
-            // PREVIOUS run's picture at the same URL — a restarted tmuxy shows
-            // a stale frame where the new one should be. Nothing here is worth
-            // caching anyway: a live preview mints a new id per frame, and a
-            // still image is fetched once per mount over a local socket.
-            .header("Cache-Control", "no-store")
-            .body(Body::from(img.data.clone()))
-            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
-        None => json_response(
-            StatusCode::NOT_FOUND,
-            &serde_json::json!({ "error": "image not found" }),
-        ),
-    }
-}
-
-/// Find the workspace root (directory with package.json containing "workspaces")
-pub fn find_workspace_root() -> std::path::PathBuf {
-    std::env::current_dir()
-        .ok()
-        .and_then(|p| {
-            let mut current = p;
-            loop {
-                let pkg_json = current.join("package.json");
-                if pkg_json.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-                        if content.contains("\"workspaces\"") {
-                            return Some(current);
+    fn concurrent_broadcasters_keep_the_ring_in_order() {
+        let per_thread = EVENT_BUFFER_SIZE / 4;
+        for _round in 0..25 {
+            let b = std::sync::Arc::new(SessionBroadcast::new());
+            let gate = std::sync::Arc::new(std::sync::Barrier::new(4));
+            let threads: Vec<_> = (0..4)
+                .map(|t| {
+                    let b = std::sync::Arc::clone(&b);
+                    let gate = std::sync::Arc::clone(&gate);
+                    std::thread::spawn(move || {
+                        gate.wait();
+                        for i in 0..per_thread {
+                            b.broadcast(format!("t{t}-{i}"));
                         }
-                    }
-                }
-                if !current.pop() {
-                    break;
-                }
+                    })
+                })
+                .collect();
+            for t in threads {
+                t.join().unwrap();
             }
-            None
-        })
-        .unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-        })
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod api_guard_tests {
-    use super::*;
-    use axum::http::Request;
-    use tower::ServiceExt;
-
-    fn app() -> Router {
-        api_routes(HostPolicy::Loopback { allowed: vec![] }, false)
-            .with_state(Arc::new(AppState::new()))
-    }
-
-    /// The POST a hostile page can make without a preflight: `text/plain`,
-    /// `no-cors`, the command JSON as its body.
-    fn forged_command(origin: &'static str, site: &'static str) -> Request<Body> {
-        Request::post("/commands")
-            .header("host", "localhost:9000")
-            .header("origin", origin)
-            .header("sec-fetch-site", site)
-            .header("content-type", "text/plain")
-            .body(Body::from(
-                r#"{"cmd":"run_tmux_command","args":{"command":"run-shell 'touch /tmp/pwned'"}}"#,
-            ))
-            .unwrap()
-    }
-
-    fn same_origin_command(body: &'static str) -> Request<Body> {
-        Request::post("/commands")
-            .header("host", "localhost:9000")
-            .header("origin", "http://localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .header("content-type", "application/json")
-            .header("x-connection-id", "1")
-            .body(Body::from(body))
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn a_read_only_server_refuses_every_write() {
-        let state = Arc::new(AppState::new().with_read_only(true));
-        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
-        for body in [
-            r#"{"cmd":"run_tmux_command","args":{"command":"kill-server"}}"#,
-            r#"{"cmd":"query_tmux","args":{"command":"list-panes"}}"#,
-            r#"{"cmd":"set_client_size","args":{"cols":10,"rows":5}}"#,
-            r#"{"cmd":"set_cursor_blink","args":{"enabled":false}}"#,
-            r#"{"cmd":"set_send_ask","args":{"enabled":false}}"#,
-            // A read, but one that answers with the server's home path.
-            r#"{"cmd":"get_trace_settings"}"#,
-        ] {
-            let response = app
-                .clone()
-                .oneshot(same_origin_command(body))
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{body}");
-        }
-        // A viewer's tree has no repositories: the answer is empty, and no
-        // `git` ran for it.
-        let response = app
-            .clone()
-            .oneshot(same_origin_command(r#"{"cmd":"list_git_worktrees"}"#))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(parsed["result"], serde_json::json!([]));
-        // `/trace` writes to the server's disk; a viewer's server has no
-        // such route at all.
-        let trace = Request::post("/trace")
-            .header("host", "localhost:9000")
-            .header("origin", "http://localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .body(Body::from("[]"))
-            .unwrap();
-        let response = app.clone().oneshot(trace).await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    /// A read-only server has no arbitrary-file-read route.
-    ///
-    /// It is the reason a read-only server is not automatically safe to
-    /// expose: refusing every non-read COMMAND says nothing about it, and it
-    /// reads anything the server process can, anywhere on the disk. SEC-11: the
-    /// viewer's router is built without it (`viewer_routes`), so there is no
-    /// handler to refuse — the route is not there.
-    #[tokio::test]
-    async fn a_read_only_server_has_no_file_route() {
-        let state = Arc::new(AppState::new().with_read_only(true));
-        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
-
-        let request = Request::get("/api/browse/etc/hosts")
-            .header("host", "localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        // ...while the pictures that are part of the screen still have a route
-        // (a missing one is a 404 from the handler, not from the router; the
-        // point is that the route answers as itself, not as the file route).
-        let request = Request::get("/api/images/%251/1")
-            .header("host", "localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_ne!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-    }
-
-    /// ...and a normal server still serves it, so the guard above is the
-    /// read-only flag talking and not a route that stopped working.
-    #[tokio::test]
-    async fn a_writable_server_still_serves_the_file_route() {
-        let request = Request::get("/api/browse/etc/hosts")
-            .header("host", "localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .body(Body::empty())
-            .unwrap();
-        let response = app().oneshot(request).await.unwrap();
-        assert_ne!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn a_page_on_another_origin_cannot_post_a_command() {
-        for (origin, site) in [
-            ("https://evil.example", "cross-site"),
-            ("http://localhost:3000", "same-site"),
-            ("null", "cross-site"),
-        ] {
-            let response = app().oneshot(forged_command(origin, site)).await.unwrap();
-            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{origin}");
-            assert!(response
-                .headers()
-                .get("access-control-allow-origin")
-                .is_none());
+            let seqs: Vec<u64> = b.replay_since(0).into_iter().map(|(s, _)| s).collect();
+            let expected: Vec<u64> = (1..=(4 * per_thread) as u64).collect();
+            assert_eq!(seqs, expected, "the ring is out of order or has a gap");
         }
     }
 
-    #[tokio::test]
-    async fn a_page_on_another_origin_cannot_read_a_file() {
-        let request = Request::get("/api/browse/etc/hosts")
-            .header("host", "localhost:9000")
-            .header("sec-fetch-site", "cross-site")
-            .body(Body::empty())
-            .unwrap();
-        let response = app().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn the_app_itself_reaches_the_handler() {
-        // An empty body gets past the guard and is refused by the handler's
-        // decoder — a 400, not the guard's 403.
-        let request = Request::post("/commands")
-            .header("host", "localhost:9000")
-            .header("origin", "http://localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .body(Body::empty())
-            .unwrap();
-        let response = app().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn a_session_name_that_would_split_the_command_line_is_refused() {
-        for request in [
-            Request::get("/events?session=x%0Arun-shell%20id").body(Body::empty()),
-            Request::post("/commands?session=x%0Arun-shell%20id").body(Body::empty()),
-        ] {
-            let mut request = request.unwrap();
-            request.headers_mut().insert(
-                "host",
-                axum::http::HeaderValue::from_static("localhost:9000"),
-            );
-            let response = app().oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        }
-    }
-
-    /// Every API route, paired with a concrete URL to probe it with. The
-    /// enumeration test below asserts this table names exactly the routes
-    /// `api_routes` declares — no more, no fewer.
-    const COVERED_ROUTES: &[(&str, &str)] = &[
-        ("/events", "/events"),
-        ("/commands", "/commands"),
-        ("/trace", "/trace"),
-        ("/api/browse/{*path}", "/api/browse/etc/hosts"),
-        ("/api/images/{pane_id}/{image_id}", "/api/images/1/0"),
-    ];
-
-    /// A request for `route` in the shape a page on another origin sends one.
-    fn cross_origin_request_for(route: &str) -> Option<Request<Body>> {
-        let (_, target) = COVERED_ROUTES.iter().find(|(name, _)| *name == route)?;
-        let builder = if route == "/commands" || route == "/trace" {
-            Request::post(*target)
-        } else {
-            Request::get(*target)
-        };
-        Some(
-            builder
-                .header("host", "localhost:9000")
-                .header("origin", "https://evil.example")
-                .header("sec-fetch-site", "cross-site")
-                .body(Body::empty())
-                .unwrap(),
-        )
-    }
-
-    /// The route table as `api_routes` and the two builders under it declare
-    /// it, read out of this file's own source.
-    ///
-    /// The guard is the `.layer()` in `api_routes`, and it covers whatever
-    /// `writable_routes` / `viewer_routes` built. A route added anywhere else
-    /// — or a whole new route nobody thought to test — is served with no
-    /// origin check at all, which on this API means a remote shell. So the
-    /// routes are enumerated rather than listed by hand: a new one that the
-    /// coverage table below does not know about fails this test by name.
-    fn declared_routes() -> Vec<String> {
-        let source = include_str!("state.rs");
-        let start = source
-            .find("pub fn api_routes")
-            .expect("api_routes moved out of state.rs");
-        let body = &source[start..];
-        let end = body
-            .find("// Internal Handlers")
-            .expect("the route builders are no longer followed by the handlers");
-        let body = &body[..end];
-
-        // The literal is split so this scan does not find itself.
-        let needle = concat!(".", "route(");
-        let mut routes = Vec::new();
-        let mut rest = body;
-        while let Some(idx) = rest.find(needle) {
-            rest = rest[idx + needle.len()..].trim_start();
-            let rest_after_quote = rest
-                .strip_prefix('"')
-                .expect("a route's path is not a string literal");
-            let close = rest_after_quote
-                .find('"')
-                .expect("unterminated route literal");
-            routes.push(rest_after_quote[..close].to_string());
-            rest = &rest_after_quote[close..];
-        }
-        assert!(!routes.is_empty(), "found no routes in api_routes");
-        routes
-    }
-
-    #[tokio::test]
-    async fn every_route_the_router_declares_is_behind_the_guard() {
-        let declared: std::collections::BTreeSet<String> = declared_routes().into_iter().collect();
-        let covered: std::collections::BTreeSet<String> = COVERED_ROUTES
-            .iter()
-            .map(|(name, _)| (*name).to_string())
-            .collect();
-        assert_eq!(
-            declared, covered,
-            "the route table and COVERED_ROUTES disagree. A route added to api_routes must be \
-             probed here, or it ships with nobody having checked the guard reaches it."
-        );
-
-        for route in declared {
-            let request = cross_origin_request_for(&route).unwrap_or_else(|| {
-                panic!(
-                    "route {route} is new and not covered by the guard test. \
-                     Add it to `cross_origin_request_for` so a page on another \
-                     origin is proven unable to reach it."
-                )
-            });
-            let response = app().oneshot(request).await.unwrap();
-            assert_eq!(
-                response.status(),
-                StatusCode::FORBIDDEN,
-                "route {route} answered a cross-origin request — it is declared after the guard layer, or outside api_routes"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn every_route_refuses_a_rebound_host_on_a_loopback_bind() {
-        // DNS rebinding: the page looks same-origin to the browser, but the
-        // Host header still carries the attacker's own domain.
-        for route in declared_routes() {
-            let mut request = cross_origin_request_for(&route).expect("covered above");
-            let headers = request.headers_mut();
-            headers.insert(
-                "host",
-                axum::http::HeaderValue::from_static("attacker.example:9000"),
-            );
-            headers.insert(
-                "origin",
-                axum::http::HeaderValue::from_static("http://attacker.example:9000"),
-            );
-            headers.insert(
-                "sec-fetch-site",
-                axum::http::HeaderValue::from_static("same-origin"),
-            );
-            let response = app().oneshot(request).await.unwrap();
-            assert_eq!(
-                response.status(),
-                StatusCode::FORBIDDEN,
-                "route {route} served a rebound domain"
-            );
-        }
-    }
-
-    /// Blocking the buttons in the UI is not enforcement: a viewer can POST
-    /// whatever it likes. Every write must be refused by the server.
-    #[tokio::test]
-    async fn a_read_only_server_refuses_keystrokes_and_resizes() {
-        let state = Arc::new(AppState::new().with_read_only(true));
-        let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
-        for body in [
-            // Typing into a pane — the write a viewer most obviously wants.
-            r#"{"cmd":"run_tmux_command","args":{"command":"send-keys -t %1 'rm -rf ~' Enter"}}"#,
-            r#"{"cmd":"run_tmux_command","args":{"command":"send-keys -l x"}}"#,
-            // A read-shaped tmux command still rides the same channel, and
-            // nothing here can tell a read from a write.
-            r#"{"cmd":"query_tmux","args":{"command":"list-panes"}}"#,
-            // Resizing changes the session under whoever is writing in it.
-            r#"{"cmd":"set_client_size","args":{"cols":10,"rows":5}}"#,
-            // Anything that writes a tmux option.
-            r#"{"cmd":"set_theme","args":{"name":"nord"}}"#,
-            r#"{"cmd":"set_theme_mode","args":{"mode":"dark"}}"#,
-            r#"{"cmd":"set_trace_enabled","args":{"enabled":true}}"#,
-        ] {
-            let response = app
-                .clone()
-                .oneshot(same_origin_command(body))
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{body}");
-            let bytes = axum::body::to_bytes(response.into_body(), 4096)
-                .await
-                .unwrap();
-            let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(parsed["error"], "read-only server", "{body}");
-        }
-    }
-
-    /// The image route takes a pane id and an image id straight from the URL.
-    /// They index an in-memory map, never the filesystem — a traversal-shaped
-    /// id must come back empty rather than serving a file.
-    #[tokio::test]
-    async fn the_image_route_never_reads_from_disk() {
-        for target in [
-            "/api/images/..%2F..%2F..%2Fetc%2Fhosts/0",
-            "/api/images/%2Fetc%2Fpasswd/0",
-            "/api/images/1/0",
-        ] {
-            let request = Request::get(target)
-                .header("host", "localhost:9000")
-                .body(Body::empty())
-                .unwrap();
-            let response = app().oneshot(request).await.unwrap();
-            assert_eq!(
-                response.status(),
-                StatusCode::NOT_FOUND,
-                "{target} did not 404"
-            );
-            let bytes = axum::body::to_bytes(response.into_body(), 4096)
-                .await
-                .unwrap();
-            let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(parsed["error"], "image not found", "{target}");
-        }
-    }
-
-    /// The trace ingest writes to a file on this machine, so its body is
-    /// capped. Without the cap one request fills the disk.
-    #[tokio::test]
-    async fn an_oversized_trace_body_is_refused_before_it_is_read() {
-        let oversized = "x".repeat(300 * 1024);
-        let request = Request::post("/trace")
-            .header("host", "localhost:9000")
-            .header("origin", "http://localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .body(Body::from(oversized))
-            .unwrap();
-        let response = app().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    #[test]
+    fn oldest_seq_is_none_when_empty() {
+        let b = SessionBroadcast::new();
+        assert_eq!(b.oldest_seq(), None);
     }
 }

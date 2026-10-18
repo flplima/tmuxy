@@ -1,0 +1,356 @@
+use super::*;
+use crate::PaneId;
+
+/// Safe wrapper around vt100::Parser::process that catches panics from
+/// internal vt100 bugs (e.g., subtract overflow in grid.rs col_wrap).
+/// Split bytes into whole UTF-8 characters, so a hyperlinked run can be fed to
+/// vt100 one character at a time without tearing a multi-byte sequence. Any
+/// byte that is not a continuation byte (`10xxxxxx`) starts a new chunk, which
+/// also keeps a stray escape inside a link on its own chunk.
+fn utf8_chunks(data: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut starts: Vec<usize> = (0..data.len())
+        .filter(|&i| data[i] & 0xC0 != 0x80)
+        .collect();
+    starts.push(data.len());
+    (0..starts.len().saturating_sub(1)).map(move |i| &data[starts[i]..starts[i + 1]])
+}
+
+pub(super) fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
+    let terminal_ptr = terminal as *mut vt100::Parser;
+    // SAFETY: We have exclusive access to the parser (&mut self in callers).
+    // catch_unwind requires FnOnce: UnwindSafe, which &mut vt100::Parser isn't.
+    // We use AssertUnwindSafe because after a panic the parser state may be
+    // inconsistent, but the caller will recreate it on next capture-pane refresh.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        unsafe { &mut *terminal_ptr }.process(data);
+    }));
+    if result.is_err() {
+        warn!("vt100 caught panic during process(), terminal state may be stale");
+    }
+}
+
+/// Extract DECSCUSR (Set Cursor Style) from raw terminal output.
+/// Format: ESC [ Ps SP q  where Ps is 0-6.
+/// Updates `shape` with the last DECSCUSR value found in the data.
+fn extract_cursor_shape(data: &[u8], shape: &mut u8) {
+    // Scan for pattern: 0x1b '[' <digits> ' ' 'q'
+    let len = data.len();
+    let mut i = 0;
+    while i < len {
+        if data[i] == 0x1b && i + 1 < len && data[i + 1] == b'[' {
+            // Start of CSI sequence
+            let mut j = i + 2;
+            // Parse digits
+            let digit_start = j;
+            while j < len && data[j].is_ascii_digit() {
+                j += 1;
+            }
+            // Check for SP q suffix
+            if j + 1 < len && data[j] == b' ' && data[j + 1] == b'q' && j > digit_start {
+                if let Ok(ps) = std::str::from_utf8(&data[digit_start..j])
+                    .unwrap_or("")
+                    .parse::<u8>()
+                {
+                    if ps <= 6 {
+                        *shape = ps;
+                    }
+                }
+                i = j + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
+impl PaneState {
+    /// Feed vt100 the OSC-stripped bytes, recording which cells a hyperlink
+    /// covers as they are written.
+    ///
+    /// Output with no hyperlink in it takes one bulk `process()` call, exactly
+    /// as before. Only the bytes *inside* an OSC 8 pair take the slow path:
+    /// they go in one character at a time and vt100 is asked where the cursor
+    /// sat before and after each one, so the mark lands on the cell the
+    /// character actually occupies. That is the whole point — the parser used
+    /// to derive those coordinates from its own newline counting, which is
+    /// blind to CSI cursor movement and drifted the map onto unrelated text.
+    fn feed_terminal(&mut self, osc: super::osc::OscOutput) {
+        if osc.links.is_empty() {
+            safe_process(&mut self.terminal, &osc.bytes);
+            self.sync_url_scroll();
+            return;
+        }
+
+        let mut at = 0usize;
+        for (start, end, url) in &osc.links {
+            if *start > at {
+                safe_process(&mut self.terminal, &osc.bytes[at..*start]);
+                self.sync_url_scroll();
+            }
+            self.feed_linked(&osc.bytes[*start..*end], url);
+            at = *end;
+        }
+        if at < osc.bytes.len() {
+            safe_process(&mut self.terminal, &osc.bytes[at..]);
+            self.sync_url_scroll();
+        }
+    }
+
+    /// Write one hyperlinked run, marking every cell it paints.
+    fn feed_linked(&mut self, bytes: &[u8], url: &std::sync::Arc<str>) {
+        for chunk in utf8_chunks(bytes) {
+            let (row, col) = self.terminal.screen().cursor_position();
+            safe_process(&mut self.terminal, chunk);
+            // Shift the marks already on screen BEFORE adding this one, so the
+            // cell we are about to record isn't shifted by its own scroll.
+            let scrolled = self.sync_url_scroll();
+            let (row2, col2) = self.terminal.screen().cursor_position();
+
+            // Where the pre-write line sits now, after any scroll this write
+            // caused. Equal to `row2` when the character stayed on its line.
+            let row_before = i64::from(row) - scrolled;
+            let (mark_row, from, to) = if i64::from(row2) == row_before {
+                (row2, col, col2)
+            } else {
+                // Wrapped onto a new line: the character is at its start.
+                (row2, 0, col2)
+            };
+            // The character each marked cell now holds is recorded with the
+            // mark: an overwrite is invisible to a coordinate map, so the text
+            // is what tells a live link from a dead one later. Read out of
+            // vt100 (not from `chunk`) so a wide glyph's continuation cell is
+            // spelled exactly as the extraction will spell it.
+            let marks: Vec<(u16, String)> = (from..to)
+                .map(|c| {
+                    (
+                        c,
+                        crate::screen_cell_char(self.terminal.screen(), mark_row, c),
+                    )
+                })
+                .collect();
+            for (c, ch) in marks {
+                self.osc_parser
+                    .mark_cell(u32::from(mark_row), u32::from(c), url, &ch);
+            }
+        }
+    }
+
+    /// Take the current grid's scroll counter as the new zero point, without
+    /// shifting anything. Called after the grid is replaced or reflowed, when
+    /// the marks have just been cleared and no delta is meaningful.
+    fn rebaseline_scroll(&mut self) {
+        let screen = self.terminal.screen();
+        self.scroll_baseline_alt = screen.alternate_screen();
+        self.last_scroll_delta = screen.scroll_delta();
+    }
+
+    /// Shift recorded URL marks by however far vt100 actually scrolled since
+    /// the last check, and return that delta so a caller can re-base a cursor
+    /// position it read before the write.
+    fn sync_url_scroll(&mut self) -> i64 {
+        let screen = self.terminal.screen();
+        let alt = screen.alternate_screen();
+        let now = screen.scroll_delta();
+
+        if alt != self.scroll_baseline_alt {
+            // A different grid entirely: its counter is unrelated to the one
+            // the marks were taken against, and the text under them is not on
+            // screen. Re-base and drop the marks rather than shift by a
+            // meaningless delta — a stale URL landing on the alternate screen's
+            // content is the exact failure this whole path exists to prevent.
+            self.scroll_baseline_alt = alt;
+            self.last_scroll_delta = now;
+            self.osc_parser.clear_cells();
+            return 0;
+        }
+
+        let delta = now - self.last_scroll_delta;
+        self.last_scroll_delta = now;
+        match delta.cmp(&0) {
+            std::cmp::Ordering::Greater => self.osc_parser.shift_rows_up(delta as u32),
+            std::cmp::Ordering::Less => {
+                self.osc_parser.shift_rows_down(delta.unsigned_abs() as u32)
+            }
+            std::cmp::Ordering::Equal => {}
+        }
+        delta
+    }
+
+    /// Replay the `%output` that arrived for this pane before it existed —
+    /// during a split, `%output` often lands before the `%layout-change` or
+    /// list-panes row that creates the pane. Returns how many bytes it was.
+    pub(super) fn replay_early_output(
+        &mut self,
+        early_output: &mut HashMap<PaneId, Vec<u8>>,
+    ) -> usize {
+        let Some(early) = early_output.remove(&self.id) else {
+            return 0;
+        };
+        self.output_bytes += early.len() as u64;
+        self.process_output(&early);
+        early.len()
+    }
+
+    /// Process new output for this pane (appends to existing buffer)
+    pub fn process_output(&mut self, content: &[u8]) {
+        self.content_dirty = true;
+
+        // Extract DECSCUSR (Set Cursor Style) before other processing.
+        // Format: CSI Ps SP q  (e.g., \x1b[5 q for blinking bar)
+        // We scan for the last occurrence since only the final state matters.
+        extract_cursor_shape(content, &mut self.cursor_shape);
+
+        // Process through image parser to extract image sequences
+        let image_result = self.image_parser.process(content);
+        for (id, stored) in image_result.new_images {
+            self.image_store.insert(id, stored);
+            self.image_store_order.push_back(id);
+        }
+        // SEC-22: nothing evicted while the pane lived, so a loop printing
+        // images grew the process without bound — the server's own store is
+        // trimmed only for DEAD panes. The images a pane can actually be
+        // showing are bounded by its screen; this is far above that and
+        // bounded, which is the point.
+        while self.image_store.len() > MAX_STORED_IMAGES_PER_PANE {
+            match self.image_store_order.pop_front() {
+                Some(oldest) => {
+                    self.image_store.remove(&oldest);
+                }
+                // The order log and the store disagree (an id was removed
+                // elsewhere): drop the store's own oldest rather than spin.
+                None => {
+                    if let Some(&any) = self.image_store.keys().next() {
+                        self.image_store.remove(&any);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Process remaining bytes through OSC parser to extract hyperlinks/clipboard
+        // Returns content with OSC sequences stripped for vt100, plus the byte
+        // ranges an OSC 8 link was open over.
+        let osc = self.osc_parser.process(&image_result.clean_bytes);
+
+        // Process through terminal emulator, recording hyperlink cells as we go
+        self.feed_terminal(osc);
+
+        // Derive alternate_on and mouse_any_flag from the vt100 parser state.
+        // This is more reliable than polling list-panes, as it updates immediately
+        // when the application sends the escape sequence.
+        self.alternate_on = self.terminal.screen().alternate_screen();
+        self.mouse_any_flag = !matches!(
+            self.terminal.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::None
+        );
+        self.cursor_hidden = self.terminal.screen().hide_cursor();
+
+        // Update image parser cursor position from vt100 state
+        let screen = self.terminal.screen();
+        let (row, col) = screen.cursor_position();
+        self.image_parser.update_cursor(row, col);
+    }
+
+    /// Reset terminal and process capture-pane output.
+    /// capture-pane returns plain text with ANSI colors but no cursor positioning,
+    /// so we need to reset to top-left before processing.
+    pub fn reset_and_process_capture(&mut self, content: &[u8]) {
+        self.content_dirty = true;
+        self.cached_content = None;
+
+        // Create fresh terminal to clear all state
+        self.terminal = self.fresh_terminal();
+        // Keep image placements: the capture text can't recreate them (tmux
+        // strips image escapes from captured history).
+        self.image_parser.reset_for_capture();
+        // capture-pane output carries no OSC 8 sequences (tmux strips them), so
+        // the old cell→URL map can only mis-attach stale URLs to fresh content
+        // at the same coordinates. Clear it and let live %output repopulate.
+        self.osc_parser.reset();
+
+        let normalized = normalize_capture_bytes(content);
+        safe_process(&mut self.terminal, &normalized);
+        self.rebaseline_scroll();
+    }
+
+    /// A parser for this pane's size, already in the modes tmux reports.
+    ///
+    /// The alternate screen (`?1049h`) and mouse tracking (`?1000h`) are state
+    /// the application set once, possibly long before this client attached. A
+    /// parser rebuilt for a capture refill (or a window move) never saw those
+    /// sequences — capture-pane replays screen contents, not the modes — so it
+    /// reported neither, while list-panes kept reporting both. The derived
+    /// flags then flapped between the two sources on every %output /
+    /// list-panes pair.
+    ///
+    /// For `alternate_on` that showed up as the pane re-rendering a few times
+    /// a second (the "blinking" pane running Claude Code). For
+    /// `mouse_any_flag` it split a single scroll gesture in two: wheel events
+    /// that landed while the flag read true were sent to the application as
+    /// SGR mouse reports, and the ones in between — the flag momentarily false
+    /// with the alternate screen still on — went as arrow keys, so a
+    /// mouse-tracking app received both for one flick of the trackpad (see
+    /// `sendScrollLines` in tmuxy-ui/src/hooks/scrollUtils.ts, where mouse
+    /// tracking and alt-screen are deliberately exclusive).
+    ///
+    /// Entering the modes up front keeps the captured screen in the grid tmux
+    /// drew it on and the two sources in agreement. Any tracking mode makes
+    /// the flag true, so plain `?1000h` restores it whichever variant
+    /// (1000/1002/1003) the application actually chose; a later `?1000l` from
+    /// the application still clears it.
+    pub(super) fn fresh_terminal(&self) -> vt100::Parser {
+        let w = (self.width as u16).max(1);
+        let h = (self.height as u16).max(1);
+        let mut terminal = vt100::Parser::new(h, w, self.scrollback_rows);
+        if self.alternate_on {
+            terminal.process(b"\x1b[?1049h");
+        }
+        if self.mouse_any_flag {
+            terminal.process(b"\x1b[?1000h");
+        }
+        // A hidden cursor is a mode too: rebuilt without it, a full-screen
+        // program that hid its cursor long ago (a browser pane, a pager)
+        // grew a block cursor over its picture after every capture refill.
+        if self.cursor_hidden {
+            terminal.process(b"\x1b[?25l");
+        }
+        terminal
+    }
+
+    /// Resize the terminal.
+    /// Returns true if the dimensions actually changed.
+    pub fn resize(&mut self, width: u32, height: u32) -> bool {
+        if self.width != width || self.height != height {
+            self.width = width;
+            self.height = height;
+            self.content_dirty = true;
+            self.cached_content = None;
+            // Guard: vt100 panics on zero dimensions (subtract overflow in grid.rs)
+            let w = (width as u16).max(1);
+            let h = (height as u16).max(1);
+            // Reflow the existing grid IN PLACE, preserving content and cursor
+            // anchoring. The previous approach recreated the parser and replayed
+            // the whole accumulated raw %output buffer, which re-scrolled that
+            // output through a fresh grid — leaving short content BOTTOM-anchored
+            // (blank rows prepended, prompt glued to the last row) after a
+            // swap/resize in the fully client-side (v86) path, where there is no
+            // authoritative capture-pane pass to correct the replay. vt100's
+            // `set_size` rewraps each row to the new width and grows/shrinks the
+            // grid from the bottom, so top-anchored content stays where it is and
+            // the cursor is clamped — matching what a real terminal does on
+            // SIGWINCH. This also subsumes the original %layout-change case the
+            // replay was added for (content is reflowed, never lost).
+            self.terminal.screen_mut().set_size(h, w);
+            self.image_parser.reset_for_resize();
+            // Drop stale hyperlink cell mappings (reflowed coordinates no longer
+            // match) and realign the scroll compensation to the new height.
+            self.osc_parser.reset();
+            self.osc_parser.set_viewport_height(height);
+            self.rebaseline_scroll();
+            true
+        } else {
+            false
+        }
+    }
+}

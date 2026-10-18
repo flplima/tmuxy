@@ -22,66 +22,12 @@ const os = require('os');
 const path = require('path');
 const { getBrowser, waitForCondition, openSidebarKeyboard } = require('./helpers');
 const { TMUXY_PORT } = require('./helpers/config');
-const { isolatedServer } = require('./helpers/snapshot-server');
+const { isolatedServer, shapeOf, comparable, engineOrSkip } = require('./helpers/snapshot-server');
 
 const SNAPSHOT_PORT = TMUXY_PORT + 200;
 const SESSION = 'snapshot';
 /** A second session, made and killed so the menu has an exited one to offer. */
 const SPARE = 'spare';
-
-/** The snapshot JSON, without the one field a save is allowed to change. */
-function shapeOf(file) {
-  const snapshot = JSON.parse(fs.readFileSync(file, 'utf8'));
-  delete snapshot.saved_at;
-  return snapshot;
-}
-
-/**
- * A tmux layout reduced to its tree: `d363,139x27,0,0[139x13,0,0,0,…]`
- * becomes `P[P,P]`. The checksum, every size and every pane id are the
- * client's and tmux's to assign, and a restored session is sized by the
- * client that attaches to it next — the splits are what was saved.
- */
-function layoutTree(layout) {
-  return layout.replace(/^[0-9a-f]{4},/, '').replace(/\d+x\d+,\d+,\d+(,\d+)?/g, 'P');
-}
-
-/**
- * What one snapshot must share with another for the session to count as the
- * same one: windows by index, type, parent and layout tree; panes by index,
- * directory, tags and the program's own word. Not `command`: that is what
- * `ps` saw in the foreground at that moment, and the restore OFFERS it at the
- * prompt rather than running it, so a save after the restore sees a shell.
- */
-function comparable(shape) {
-  return {
-    windows: shape.windows.map((w) => ({
-      ...w,
-      layout: layoutTree(w.layout),
-      // A restore offers what was running rather than running it, so what
-      // was a `command` before comes back as an `offer` (checked apart).
-      panes: w.panes.map(({ command, offer, ...pane }) => pane),
-    })),
-    // The group's member parked out of view comes back parked, in its group.
-    hidden: (shape.hidden ?? []).map(({ command, offer, ...member }) => member),
-  };
-}
-
-/** A Chromium the browser pane can launch, or null with the reason printed. */
-function engineOrSkip() {
-  const named = process.env.TMUXY_CHROME || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-  if (named && fs.existsSync(named)) return named;
-  const usual = [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-  ];
-  const found = usual.find((p) => fs.existsSync(p));
-  if (!found)
-    console.warn('session-snapshot: no Chromium-family browser, the browser pane is left out');
-  return found ?? null;
-}
 
 describe('Scenario 32: Session snapshots', () => {
   const scratch = path.join(os.tmpdir(), `tmuxy-snapshot-e2e-${process.pid}`);
