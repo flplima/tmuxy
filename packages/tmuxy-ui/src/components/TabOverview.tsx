@@ -370,6 +370,8 @@ function TabOverviewInner() {
         className="tab-overview-grid"
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
         role="listbox"
+        aria-label="Tabs"
+        aria-keyshortcuts="Enter Delete"
         aria-activedescendant={`tab-overview-slot-${selected}`}
         style={
           {
@@ -417,10 +419,12 @@ function TabOverviewInner() {
                 </span>
                 {!readOnly && (
                   <Tooltip label="Close tab">
-                    <button
-                      type="button"
+                    {/* A pointer shortcut for Delete on the selected slot: an
+                        option may hold no control of its own, so this is no
+                        button, and is hidden from assistive technology. */}
+                    <span
                       className="tab-overview-slot-close"
-                      aria-label={`Close tab ${slot.position}`}
+                      aria-hidden="true"
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -428,7 +432,7 @@ function TabOverviewInner() {
                       }}
                     >
                       ✕
-                    </button>
+                    </span>
                   </Tooltip>
                 )}
               </div>

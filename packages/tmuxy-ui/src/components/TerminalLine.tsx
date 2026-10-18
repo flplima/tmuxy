@@ -114,10 +114,18 @@ export interface TerminalLineProps {
    * row it covers to the whole address. Absent, the row detects its own.
    */
   autoUrls?: DetectedUrl[];
+  /** False draws a link's text as plain text: a picture of a pane, not the pane. */
+  links?: boolean;
 }
 
 export const TerminalLine = memo(
-  function TerminalLine({ line, selectionRange, wrapped, autoUrls: rowUrls }: TerminalLineProps) {
+  function TerminalLine({
+    line,
+    selectionRange,
+    wrapped,
+    autoUrls: rowUrls,
+    links = true,
+  }: TerminalLineProps) {
     // How wide a symbol really is can only be measured against the font the
     // page ends up using, and at first paint that is not yet the one it will
     // settle on. The measurement cache says when it has changed its mind; a
@@ -241,7 +249,7 @@ export const TerminalLine = memo(
           }
         }
 
-        if (linkUrl) {
+        if (linkUrl && links) {
           const cls = [linkClass, selectedClass].filter(Boolean).join(' ');
           spans.push(
             <a
@@ -250,6 +258,9 @@ export const TerminalLine = memo(
               target="_blank"
               rel="noopener noreferrer"
               draggable={false}
+              // A pointer target only: the pane's text is hidden from
+              // assistive technology, and Tab in a pane belongs to tmux.
+              tabIndex={-1}
               style={style}
               className={cls}
               // Opened through openExternalUrl rather than the anchor's own
@@ -351,6 +362,7 @@ export const TerminalLine = memo(
     // `data-wrapped` is what the copy path reads, so a row that stops (or
     // starts) wrapping has to redraw even when its cells are untouched.
     if (prevProps.wrapped !== nextProps.wrapped) return false;
+    if (prevProps.links !== nextProps.links) return false;
 
     // A neighbour's change can alter this row's links (the URL it continues).
     if (

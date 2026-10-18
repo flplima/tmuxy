@@ -399,6 +399,8 @@ export const WindowTabs = memo(function WindowTabs() {
         ref={listRef}
         className={`tab-list${isSingleTab ? ' tab-list-single' : ''}`}
         onPointerLeave={handleStripLeave}
+        role="tablist"
+        aria-label="Tabs"
       >
         {visibleWindows.map((window, idx) => {
           const visualIndex = idx + 1;
@@ -440,6 +442,8 @@ export const WindowTabs = memo(function WindowTabs() {
               onClick={() => handleWindowClick(window)}
               onContextMenu={(e) => handleContextMenu(e, window.id)}
               role="tab"
+              // The strip's one tab stop is the active tab.
+              tabIndex={window.active ? 0 : -1}
               aria-selected={window.active}
               aria-label={`Tab ${visualIndex}: ${window.name}${window.active ? ' (active)' : ''}`}
             >

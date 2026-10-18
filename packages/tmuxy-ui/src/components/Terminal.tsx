@@ -88,6 +88,8 @@ interface TerminalProps {
    * the application's, forwarded as SGR, and a selection would fight it.
    */
   selectable?: boolean;
+  /** False for a thumbnail: link text is drawn, but nothing is a link. */
+  links?: boolean;
 }
 
 // Empty line constant for padding
@@ -157,6 +159,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   cursorShape = 0,
   cursorHidden = false,
   selectable = false,
+  links = true,
 }) => {
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
@@ -263,6 +266,7 @@ export const Terminal: React.FC<TerminalProps> = ({
             selectionRange={getSelectionRange(lineIndex)}
             wrapped={isWrappedRow(line, width)}
             autoUrls={rowUrls[lineIndex]}
+            links={links}
           />
         ))}
       </pre>

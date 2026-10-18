@@ -75,6 +75,37 @@ describe('keyboardActor — Tab / Shift-Tab', () => {
     pressKey({ key: 'Tab', shiftKey: true });
     expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 BTab');
   });
+
+  describe('on a header button', () => {
+    let button: HTMLButtonElement;
+    beforeEach(() => {
+      button = document.createElement('button');
+      document.body.appendChild(button);
+    });
+    afterEach(() => button.remove());
+
+    const pressTabOn = (target: HTMLElement) => {
+      const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event;
+    };
+
+    it('moves the focus on when the keyboard put it there', () => {
+      button.focus();
+      const before = handle.events.length;
+      const event = pressTabOn(button);
+      expect(sendCommands(handle.events.slice(before))).toEqual([]);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('is still the shell’s after a click left the focus there', () => {
+      window.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }));
+      button.focus();
+      window.dispatchEvent(new MouseEvent('pointerup', { button: 0, bubbles: true }));
+      pressTabOn(button);
+      expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 Tab');
+    });
+  });
 });
 
 /**

@@ -135,7 +135,8 @@ export function MarkdownView({ url, onHeading }: MarkdownViewProps) {
   }
 
   return (
-    <div className="widget-markdown">
+    // A tab stop of its own, so the keyboard can scroll a long document.
+    <div className="widget-markdown" tabIndex={0}>
       <Markdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </Markdown>

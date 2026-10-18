@@ -30,6 +30,8 @@ function ensureInput(): HTMLInputElement {
     input = document.createElement('input');
     input.type = 'text';
     input.setAttribute('inputmode', 'text');
+    // Focused by the app, never by Tab: the page's tab order is the chrome's.
+    input.tabIndex = -1;
     input.autocomplete = 'off';
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', 'off');

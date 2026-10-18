@@ -47,6 +47,7 @@ import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { splitTableSwitch } from '../../domain/keyTables';
 import { decodePaneAsk, type AskAnswer } from '../../utils/paneAsk';
 import { getLatches, pressKey } from '../../utils/keyLatch';
+import { noteFocus, PANE_SURFACE, tabWalksChrome } from '../../utils/chromeTab';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 
 /**
@@ -488,6 +489,15 @@ export function createKeyboardActor() {
       // The hidden keyboard input is not one of those: its keydowns are
       // classified below, and its text arrives through `input` events.
       if (isRealFormControl(event.target)) return;
+      if (
+        event.key === 'Tab' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        tabWalksChrome(event.target)
+      ) {
+        return;
+      }
 
       // Skip while an IME is mid-composition — the composed text arrives whole
       // on compositionend, so forwarding the individual keydowns would garble
@@ -1175,10 +1185,27 @@ export function createKeyboardActor() {
       return !!selection && !selection.isCollapsed && selection.toString().length > 0;
     };
 
-    const restoreKeyboardFocus = () => {
+    /**
+     * Hand the browser's focus on to the keyboard input when it sits on a pane.
+     * After a click, a pane's row in the tree counts too: clicking it switches
+     * to that pane, and typing next is meant for it. A row the keyboard
+     * reached is chrome, and keeps the focus so Tab can walk on. A clicked tab
+     * hands it on as well: the click switches what the keyboard types into,
+     * it is not a move into the chrome.
+     */
+    const restoreKeyboardFocus = (byPointer: boolean) => {
       if (isTouchDevice() || hasSelection()) return;
       const active = document.activeElement as HTMLElement | null;
-      const pane = active?.closest?.('[data-pane-id][tabindex]') as HTMLElement | null;
+      if (byPointer && active?.matches?.('[role="tab"]')) {
+        const paneId = realPaneId(activePaneId);
+        if (paneId === null) return;
+        focusKeyboardInput(paneId);
+        keyboardFocusEstablished = true;
+        return;
+      }
+      const pane = active?.closest?.(
+        byPointer ? '[data-pane-id][tabindex]' : PANE_SURFACE,
+      ) as HTMLElement | null;
       if (!pane || pane !== active) return;
       const paneId = realPaneId(isModelPaneId(pane.dataset.paneId) ? pane.dataset.paneId : null);
       if (paneId === null) return;
@@ -1197,12 +1224,13 @@ export function createKeyboardActor() {
     const handlePointerCancel = () => {
       primaryPointerDown = false;
     };
-    const handleFocusIn = () => {
-      if (!primaryPointerDown) restoreKeyboardFocus();
+    const handleFocusIn = (event: FocusEvent) => {
+      noteFocus(event.target, primaryPointerDown);
+      if (!primaryPointerDown) restoreKeyboardFocus(false);
     };
     const handlePointerUp = () => {
       primaryPointerDown = false;
-      restoreKeyboardFocus();
+      restoreKeyboardFocus(true);
     };
 
     window.addEventListener('pointerdown', handlePointerDown, true);

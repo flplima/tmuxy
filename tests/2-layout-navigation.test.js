@@ -1487,10 +1487,7 @@ describe('Scenario 5: Pane Groups', () => {
     // for the whole strip belonged to whichever member happened to be showing,
     // and could never close a parked one.
     for (const tab of tabs) {
-      expect(tab.buttons).toEqual([
-        expect.stringMatching(/^Pane menu for %\d+$/),
-        expect.stringMatching(/^Close pane %\d+$/),
-      ]);
+      expect(tab.controls).toEqual(['⋮', '✕']);
       expect(tab.controlsAfterTitle).toBe(true);
     }
     const widths = tabs.map((t) => t.width);

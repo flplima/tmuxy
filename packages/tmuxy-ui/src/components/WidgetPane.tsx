@@ -156,7 +156,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       role="group"
       aria-label={`Widget pane ${pane.tmuxId}`}
       data-pane-id={pane.tmuxId}
-      tabIndex={0}
+      tabIndex={-1}
       onMouseDown={() => {
         send({ type: 'FOCUS_PANE', paneId });
       }}

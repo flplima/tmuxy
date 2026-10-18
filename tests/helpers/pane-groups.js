@@ -170,7 +170,11 @@ async function getGroupTabInfo(page) {
       // ✕ at the right of that share, and a darker ground when it is parked.
       width: tab.getBoundingClientRect().width,
       background: getComputedStyle(tab).backgroundColor,
-      buttons: Array.from(tab.querySelectorAll('button')).map((b) => b.getAttribute('aria-label')),
+      // The member's own controls as drawn: pointer targets, so read by what
+      // shows on screen rather than by a role.
+      controls: Array.from(tab.querySelectorAll('.pane-tab-controls > *'))
+        .filter((el) => el.getBoundingClientRect().width > 0)
+        .map((el) => el.textContent.trim()),
       controlsAfterTitle: (() => {
         const controls = tab.querySelector('.pane-tab-controls');
         if (!controls) return null;

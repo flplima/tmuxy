@@ -90,6 +90,7 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabS
                   height={box.rows}
                   isActive={false}
                   paneId={box.paneId}
+                  links={false}
                 />
               </div>
             ) : (

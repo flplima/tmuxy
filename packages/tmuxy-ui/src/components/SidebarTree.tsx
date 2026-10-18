@@ -75,6 +75,7 @@ import type { TmuxPane, TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 import { isModelPaneId, isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 import { useReorderDrag } from '../hooks/useReorderDrag';
+import { tabWalksChrome } from '../utils/chromeTab';
 
 /**
  * A flattened, keyboard-navigable row: the attached session's tabs, each with
@@ -287,6 +288,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       // with the column focused. In a repeat window (`prefix s` then `s`)
       // only the repeated key is; anything else is the tree's again.
       if (bindingKeysRef.current(e.key)) return;
+      const target = e.target as HTMLElement | null;
       const {
         rows: rs,
         selectedIndex: idx,
@@ -311,8 +313,12 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       };
       switch (e.key) {
         case 'Tab':
-          // The tree owns the keyboard; letting Tab move the browser's focus to
-          // a header button meant the next Space "clicked" that button.
+          // From the selected row (the tree's one stop), or a control the keyboard reached,
+          // Tab moves on like anywhere else on the page. With the browser's
+          // focus on nothing (the column took the keyboard through a binding)
+          // or on a clicked button, it is claimed: moving the focus to a
+          // header button there meant the next Space "clicked" that button.
+          if (tabWalksChrome(target)) return;
           claim();
           return;
         case 'j':
@@ -525,6 +531,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               <button
                 type="button"
                 className="sidebar-tree-chevron"
+                // A pointer target; the keyboard folds a tab with l/h.
+                tabIndex={-1}
                 aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${label}`}
                 aria-expanded={!row.collapsed}
                 data-testid={`tree-chevron-${row.window.id}`}

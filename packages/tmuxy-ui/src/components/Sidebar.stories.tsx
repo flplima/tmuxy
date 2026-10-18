@@ -1200,32 +1200,41 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
     // moving and can tab onto a control that has not arrived yet.
     await waitFor(() => expect(sidebar.className).not.toContain('is-moving'), { timeout: 8000 });
 
-    // Start on the toggle: it is the last control in the header, so the first
-    // press wraps round to the first one and the walk covers the whole cycle.
-    // (Starting from nothing focused is not the same journey — with a pane
-    // focused, Tab belongs to the terminal, not to the page.)
+    // Walk both ways from the toggle until the focus leaves the page, which is
+    // what Tab past the last control does in any browser: a walk that never
+    // leaves is the trap. (Back into the page is the browser's own move, which
+    // a page cannot press for; from nothing focused, Tab is the terminal's.)
+    // The toggle is focused the way a keyboard user arrives, not by the click
+    // above: a clicked button keeps the focus, and the Tab typed next is the
+    // shell's.
+    toggle.blur();
     toggle.focus();
-    const stops: HTMLElement[] = [];
-    for (let press = 0; press < 30; press++) {
-      await userEvent.tab();
-      const focused = document.activeElement as HTMLElement;
-      expect(focused, 'Tab dropped the focus onto nothing').not.toBe(document.body);
-      if (focused === toggle) break; // wrapped round to where the walk started
-
-      // Every stop is a control the user can see — a focus ring on a clipped
-      // or zero-sized element is a stop nobody can find.
-      const box = focused.getBoundingClientRect();
-      expect(box.width, `a stop with no width: ${focused.className}`).toBeGreaterThan(0);
-      expect(box.height, `a stop with no height: ${focused.className}`).toBeGreaterThan(0);
-
-      expect(focused, 'Tab did not move the focus').not.toBe(stops[stops.length - 1]);
-      expect(
-        stops.includes(focused),
-        `Tab came back to ${focused.className} without wrapping — the focus is stuck`,
-      ).toBe(false);
-      stops.push(focused);
-    }
-    expect(stops.length, 'the walk never wrapped round').toBeLessThan(30);
+    const walk = async (shift: boolean): Promise<HTMLElement[]> => {
+      toggle.focus();
+      const stops: HTMLElement[] = [toggle];
+      for (let press = 0; press < 30; press++) {
+        await userEvent.tab({ shift });
+        const focused = document.activeElement as HTMLElement;
+        if (focused === document.body) return stops.slice(1);
+        const trace = stops.map((el) => el.className || el.tagName).join(' -> ');
+        expect(
+          focused,
+          `Tab did not move the focus off ${focused.className || focused.outerHTML.slice(0, 120)}: ${trace}`,
+        ).not.toBe(stops[stops.length - 1]);
+        expect(
+          stops.includes(focused),
+          `Tab came back to ${focused.className} without leaving the page: ${trace}`,
+        ).toBe(false);
+        // Every stop is a control the user can see — a focus ring on a clipped
+        // or zero-sized element is a stop nobody can find.
+        const box = focused.getBoundingClientRect();
+        expect(box.width, `a stop with no width: ${focused.className}`).toBeGreaterThan(0);
+        expect(box.height, `a stop with no height: ${focused.className}`).toBeGreaterThan(0);
+        stops.push(focused);
+      }
+      throw new Error('Tab never left the page in 30 presses');
+    };
+    const stops = [...(await walk(true)).reverse(), toggle, ...(await walk(false))];
 
     // In document order: the reading order and the tab order are the same.
     for (let i = 1; i < stops.length; i++) {

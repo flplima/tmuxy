@@ -85,6 +85,8 @@ const PaneTab = memo(function PaneTab({
       aria-disabled={disabled}
       onContextMenu={onContextMenu}
       role="tab"
+      // The strip's one tab stop is the tab it shows.
+      tabIndex={isSelectedTab && !disabled ? 0 : -1}
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
       data-pane-tab={pane.tmuxId}
@@ -404,21 +406,19 @@ export function PaneHeader({
   const isGroup = tabPanes.length > 1;
 
   /** One member's buttons, or the header's own when there is no group. */
+  // A member's ⋮ and ✕ sit inside its tab, which may hold no control of its
+  // own: they are pointer targets, hidden from assistive technology. The tab's
+  // context menu (right-click, or the menu key) carries the same actions.
   const controlsFor = (forPaneId: PaneId) =>
     readOnly ? null : (
-      <span className="pane-tab-controls">
+      <span className="pane-tab-controls" aria-hidden="true">
         <Tooltip label="Pane menu">
-          <button
-            className="pane-header-menu"
-            aria-haspopup="menu"
-            onClick={(e) => handleMenuClick(e, forPaneId)}
-            aria-label={`Pane menu for ${forPaneId}`}
-          >
+          <span className="pane-header-menu" onClick={(e) => handleMenuClick(e, forPaneId)}>
             ⋮
-          </button>
+          </span>
         </Tooltip>
         <Tooltip label="Close pane">
-          <button
+          <span
             className="pane-header-close"
             onClick={(e) => {
               e.stopPropagation();
@@ -428,10 +428,9 @@ export function PaneHeader({
               if (isFloat && forPaneId === activeTabId) onFloatClose?.();
               else handleClosePane(e, forPaneId);
             }}
-            aria-label={`Close pane ${forPaneId}`}
           >
             ✕
-          </button>
+          </span>
         </Tooltip>
       </span>
     );
@@ -449,10 +448,15 @@ export function PaneHeader({
       // header of the pane it shows. A tab handles its own right-click (and
       // stops it) so a group's member is named by where the pointer is.
       onContextMenu={(e) => handleContextMenu(e, activeTabId)}
-      role="tablist"
-      aria-label={`Pane tabs`}
     >
-      <div className={`pane-tabs${isGroup ? ' pane-tabs-group' : ''}`} ref={tabsRef}>
+      {/* The tab list is the strip of titles alone: the ⋮ and ✕ beside it are
+          buttons, which a tablist may not hold. */}
+      <div
+        className={`pane-tabs${isGroup ? ' pane-tabs-group' : ''}`}
+        ref={tabsRef}
+        role="tablist"
+        aria-label="Pane tabs"
+      >
         {tabPanes.map((tabPane, index) => {
           const isSelectedTab = tabPane.tmuxId === activeTabId;
           const isActivePane = tabPane.active && isSelectedTab;

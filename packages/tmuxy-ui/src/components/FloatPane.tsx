@@ -167,7 +167,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
         // does: the badge in its header, the accent wash over its content.
         className={`float-container${pane.marked ? ' pane-marked' : ''}`}
         onClick={handleClick}
-        tabIndex={0}
+        tabIndex={-1}
         data-pane-id={pane.tmuxId}
       >
         {!hideHeader && (

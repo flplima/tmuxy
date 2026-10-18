@@ -256,7 +256,7 @@ export const TmuxySession = memo(function TmuxySession() {
   return (
     <div className="widget-session" data-testid="session-switcher">
       <div className="widget-session-heading">Sessions</div>
-      <div className="widget-session-list">
+      <div className="widget-session-list" role="listbox" aria-label="Sessions">
         {sessionRows.map((row, i) => {
           const isSelected = rows[cursor] === row;
           return (
@@ -298,7 +298,7 @@ export const TmuxySession = memo(function TmuxySession() {
       {serverRows.length > 0 && (
         <>
           <div className="widget-session-heading">Servers</div>
-          <div className="widget-session-list">
+          <div className="widget-session-list" role="listbox" aria-label="Servers">
             {serverRows.map((row, i) => {
               const isSelected = rows[cursor] === row;
               return (

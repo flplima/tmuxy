@@ -379,7 +379,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
       data-pane-command={pane.command}
       data-alternate-on={pane.alternateOn}
       data-mouse-any-flag={pane.mouseAnyFlag}
-      tabIndex={0}
+      // Focusable for the pointer, which hands the focus on to the keyboard
+      // input; not a Tab stop, since Tab inside a pane is the terminal's.
+      tabIndex={-1}
       onMouseDown={(e) => {
         if (e.detail >= 3 && e.button === 0) {
           handleTripleClick(e);
