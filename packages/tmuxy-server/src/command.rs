@@ -97,6 +97,25 @@ pub enum ClientCommand {
     SetTraceLevel {
         level: String,
     },
+    /// Server picker and 4-step connect flow.
+    ListServers,
+    AddServer {
+        dest: String,
+        #[serde(default)]
+        socket: Option<String>,
+    },
+    RemoveServer {
+        id: String,
+    },
+    ProbeServer {
+        id: String,
+    },
+    ConnectServer {
+        id: String,
+        #[serde(default)]
+        session: Option<String>,
+    },
+    DetachClient,
 }
 
 impl ClientCommand {

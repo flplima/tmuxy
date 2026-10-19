@@ -208,7 +208,7 @@ Usage: tmuxy session <command> [args...]
 
 Commands:
   switch        Interactive session switcher [--float]
-  connect       SSH connection prompt [--web]
+  connect       Connect to a server and attach <dest> [--socket NAME]
   save          Snapshot a session now [name] [--scrollback N]
   restore       Rebuild a session from its snapshot <name> [--run]
   snapshots     The sessions that have a snapshot, and whether they run

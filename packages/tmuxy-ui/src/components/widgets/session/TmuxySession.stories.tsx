@@ -54,12 +54,13 @@ export const ListsTheAttachedSession: Story = {
     // No Servers section on a build with no server list — the web/demo case.
     expect(switcher.textContent).not.toContain('Servers');
 
-    // The verbs are advertised where the user can see them.
+    // The verbs are advertised where the user can see them (and never list `esc`).
     const actions = switcher.querySelector('.widget-session-actions') as HTMLElement;
     expect(actions).not.toBeNull();
-    for (const key of ['j/k', 'r', 'x', 'd', 'esc']) {
+    for (const key of ['j/k', 'r', 'x', 'd']) {
       expect(actions.textContent).toContain(key);
     }
+    expect(actions.textContent).not.toContain('esc');
   },
 };
 
@@ -82,22 +83,34 @@ export const ConnectingAsksForOneDestination: Story = {
       type: 'SERVERS_UPDATED',
       currentServerId: 'localhost',
       servers: [
-        { id: 'localhost', label: 'localhost', kind: 'local', socket: 'tmuxy' },
+        {
+          id: 'localhost',
+          label: 'localhost',
+          kind: 'local',
+          socket: 'tmuxy',
+          reachable: 'online',
+          session_count: 2,
+        },
         {
           id: 'ssh-box-tmuxy',
           label: 'felipe@box',
           kind: 'ssh',
           socket: 'tmuxy',
           ssh: { host: 'box', user: 'felipe' },
+          reachable: 'known',
         },
       ],
     });
 
     await waitFor(() => expect(switcher.textContent).toContain('Servers'), { timeout: 5000 });
-    expect(switcher.querySelector('[data-testid="server-row-ssh-box-tmuxy"]')).not.toBeNull();
+    const sshRow = switcher.querySelector(
+      '[data-testid="server-row-ssh-box-tmuxy"]',
+    ) as HTMLElement;
+    expect(sshRow).not.toBeNull();
+    expect(sshRow.textContent).toContain('ssh felipe@box · tmuxy');
+    expect(switcher.querySelector('[data-testid="session-connect-row"]')).not.toBeNull();
 
-    // `c` opens the form — two fields, and nothing else to fill in: keys,
-    // ports and jump hosts come from the user's own ~/.ssh/config.
+    // `c` opens the form — two fields, live read-back, and nothing else to fill in.
     await userEvent.keyboard('c');
     const form = await waitFor(
       () => {
@@ -109,10 +122,17 @@ export const ConnectingAsksForOneDestination: Story = {
     );
     const fields = form.querySelectorAll('input');
     expect(fields.length).toBe(2);
-    // The form says where everything it does NOT ask for comes from. Matched on
-    // words rather than the path itself, which JSX may wrap mid-token.
     expect(form.textContent).toContain('Keys');
     expect(form.textContent).toContain('jump hosts');
+
+    // Live read-back updates as the user types a destination and socket.
+    const readback = form.querySelector('[data-testid="session-connect-readback"]') as HTMLElement;
+    expect(readback).not.toBeNull();
+    expect(readback.textContent).toContain('→ tmux -L tmuxy on this machine');
+    await userEvent.type(fields[0], 'dev@prod');
+    await waitFor(() =>
+      expect(readback.textContent).toContain('→ ssh dev@prod, then tmux -L tmuxy'),
+    );
 
     // It is really drawn, inside the widget.
     const box = form.getBoundingClientRect();
@@ -125,6 +145,98 @@ export const ConnectingAsksForOneDestination: Story = {
       () => expect(switcher.querySelector('[data-testid="session-connect-form"]')).toBeNull(),
       { timeout: 5000 },
     );
+  },
+};
+
+/**
+ * Step 3 (Staged Connecting View) & Step 4 (Per-Server Sessions):
+ * Shows the 4 stages (`ssh`, `tmux`, `listing sessions`, `attach`), displays
+ * verbatim stderr when a stage fails, and transitions to Step 4 (`Sessions · <server>`)
+ * with the cursor starting on `+ new session…` when the server has 0 sessions.
+ */
+export const StagedConnectFlowAndPerServerSessions: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const switcher = await canvas.findByTestId('session-switcher', undefined, { timeout: 8000 });
+    const win = window as unknown as { app: { send(e: unknown): void } };
+
+    // 1. Trigger a failed Step 3 probe: verify ✗ and verbatim stderr are visible.
+    win.app.send({
+      type: 'PROBE_SERVER_RESULT',
+      probe: {
+        server: {
+          id: 'ssh-box-tmuxy',
+          label: 'felipe@box',
+          kind: 'ssh',
+          socket: 'tmuxy',
+          ssh: { host: 'box', user: 'felipe' },
+        },
+        status: 'failed',
+        stages: [
+          {
+            name: 'ssh',
+            label: 'ssh felipe@box',
+            status: 'failed',
+            elapsed_ms: 42,
+            error: 'felipe@box: Permission denied (publickey).',
+          },
+          { name: 'tmux', label: 'tmux on the socket tmuxy', status: 'pending' },
+          { name: 'sessions', label: 'listing sessions', status: 'pending' },
+          { name: 'attach', label: 'attach', status: 'pending' },
+        ],
+        sessions: [],
+      },
+    });
+
+    const stageView = await waitFor(
+      () => {
+        const el = switcher.querySelector('[data-testid="session-connecting-view"]') as HTMLElement;
+        if (!el) throw new Error('no connecting view yet');
+        return el;
+      },
+      { timeout: 5000 },
+    );
+    expect(stageView.getBoundingClientRect().height).toBeGreaterThan(0);
+    const errPre = stageView.querySelector(
+      '[data-testid="session-stage-error-ssh"]',
+    ) as HTMLElement;
+    expect(errPre).not.toBeNull();
+    expect(errPre.textContent).toContain('Permission denied (publickey)');
+
+    // 2. Complete the probe with 0 sessions: Step 4 opens for `felipe@box` and
+    // the cursor starts on `+ new session…`.
+    win.app.send({
+      type: 'PROBE_SERVER_RESULT',
+      probe: {
+        server: {
+          id: 'ssh-box-tmuxy',
+          label: 'felipe@box',
+          kind: 'ssh',
+          socket: 'tmuxy',
+          ssh: { host: 'box', user: 'felipe' },
+        },
+        status: 'done',
+        stages: [
+          { name: 'ssh', label: 'ssh felipe@box', status: 'done', elapsed_ms: 18 },
+          { name: 'tmux', label: 'tmux 3.5a on the socket tmuxy', status: 'done', elapsed_ms: 12 },
+          { name: 'sessions', label: 'listing sessions', status: 'done', elapsed_ms: 9 },
+          { name: 'attach', label: 'attach', status: 'done', elapsed_ms: 0 },
+        ],
+        sessions: [],
+      },
+    });
+
+    await waitFor(
+      () => {
+        const heading = switcher.querySelector('[data-testid="session-list-heading"]');
+        expect(heading?.textContent).toContain('Sessions · felipe@box');
+      },
+      { timeout: 5000 },
+    );
+    const newRow = switcher.querySelector('[data-testid="session-new-row"]') as HTMLElement;
+    expect(newRow).not.toBeNull();
+    expect(newRow.className).toContain('is-selected');
+    expect(newRow.getBoundingClientRect().height).toBeGreaterThan(0);
   },
 };
 

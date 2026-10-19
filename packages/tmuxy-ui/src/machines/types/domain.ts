@@ -236,6 +236,31 @@ export interface TmuxSshConfig {
   options?: string | null;
 }
 
+export type ServerReachability = 'online' | 'known' | 'offline';
+
+export type ProbeStageStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export interface ProbeStage {
+  name: string;
+  label: string;
+  status: ProbeStageStatus;
+  elapsed_ms?: number | null;
+  error?: string | null;
+}
+
+export interface RemoteSessionInfo {
+  name: string;
+  windows: number;
+  attached: boolean;
+}
+
+export interface ServerProbeState {
+  server: TmuxServer;
+  status: 'running' | 'done' | 'failed';
+  stages: ProbeStage[];
+  sessions: RemoteSessionInfo[];
+}
+
 /** A saved tmux server: a socket on this machine, or one reached over SSH. */
 export interface TmuxServer {
   id: string;
@@ -246,6 +271,12 @@ export interface TmuxServer {
   socket: string;
   /** Preferred session to attach to on this server, if any. */
   session?: string | null;
+  /** Last time this server was connected or probed (unix seconds). */
+  last_used?: number | null;
+  /** Reachability status reported by the server list or probe. */
+  reachable?: ServerReachability | null;
+  /** Number of sessions discovered on this server, if known. */
+  session_count?: number | null;
 }
 
 /**

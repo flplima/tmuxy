@@ -1,25 +1,20 @@
 /**
  * TmuxySession — the `session` widget: switch, rename, kill or detach the
- * session, and attach to another tmux server.
+ * session, and attach to another tmux server through the 4-step connect flow.
  *
  * Rendered as a tmuxy WIDGET, like the tree: a real pane runs
  * `tmuxy widget session` in a float, and this draws in place of its terminal.
- * It replaces the `tmuxy session switch --float` shell prompt, which asked for
- * a number with `read -rp` and could only switch.
  *
- * Two lists, because they answer different questions:
- *  - SESSIONS on the server this client is attached to. Switching is a tmux
- *    `switch-client`, so it is instant and available on web and desktop alike.
- *  - SERVERS: other tmux sockets, on this machine or reached over SSH. The
- *    backend retargets the live monitor (`connect_server`), so nothing
- *    relaunches. Desktop only — `list_servers` is a Tauri command, and a web
- *    client always uses the socket it was launched against, so on web this
- *    list is simply empty and the section does not draw.
- *
- * Keys are handled here rather than through `WidgetDefinition.onKeyDown`
- * because this widget owns a selection cursor, and that hook is stateless.
- * SidebarTree does the same: a capture-phase listener that runs before the
- * keyboard actor, so j/k never reach tmux.
+ * Four steps:
+ *  - Step 1 — SERVERS: reach dot (`online` / `known` / `offline`), label,
+ *    detail (`socket <name> · N sessions` or `ssh <user@host> · <socket> · <last_used>`),
+ *    and `+ another server…` at the end. `x` forgets a saved server.
+ *  - Step 2 — CONNECT FORM: `Connect to` (`[user@]host[:port]` or blank for
+ *    this machine) + `tmux socket` + live read-back line (`→ ssh …, then tmux -L …`).
+ *  - Step 3 — STAGED CONNECTING VIEW: 4 stages (`ssh`, `tmux -V`, `listing sessions`,
+ *    `attach`) with `✓` / spinner / `·` / `✗` + verbatim stderr on failure.
+ *  - Step 4 — SESSIONS · <server>: lists sessions on that server + `+ new session…`.
+ *    When a server has 0 sessions, the cursor starts on `+ new session…`.
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,90 +28,154 @@ import {
 } from '../../../machines/appHooks';
 import { selectSessions } from '../../../machines/selectors/ui';
 import { InlineRename } from '../../InlineRename';
-
-/** A row in the switcher: a session on this server, or another server. */
-type Row =
-  | { kind: 'session'; name: string; windows: number; current: boolean }
-  | { kind: 'server'; id: string; label: string; detail: string; current: boolean };
+import { formatServerDetail, resolveServerReachability, type Row } from './sessionHelpers';
+import {
+  SessionActionBar,
+  SessionConnectForm,
+  SessionConnectingView,
+  SessionServerList,
+} from './SessionSteps';
 
 export const TmuxySession = memo(function TmuxySession() {
   const send = useAppSend();
   const sessions = useAppSelectorShallow(selectSessions);
   const servers = useAppSelectorShallow((ctx) => ctx.servers);
   const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
+  const serverProbe = useAppSelector((ctx) => ctx.serverProbe);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
-  // Hosted by the detached overlay rather than by a float, which changes what
-  // activating a row means — see `activate`.
   const detached = useAppState('detached');
 
   const [cursor, setCursor] = useState(0);
   const [renaming, setRenaming] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The connect form. One destination field, one socket field — see the
-  // component docstring for why there is nothing else to fill in.
   const [connecting, setConnecting] = useState(false);
   const [dest, setDest] = useState('');
   const [socket, setSocket] = useState('');
 
+  const activeServerLabel = useMemo(() => {
+    if (serverProbe?.status === 'done') return serverProbe.server.label;
+    const current = servers.find((s) => s.id === currentServerId);
+    return current?.label ?? 'localhost';
+  }, [serverProbe, servers, currentServerId]);
+
+  const isProbedServerStep4 =
+    serverProbe?.status === 'done' && serverProbe.server.id !== (currentServerId ?? 'localhost');
+
   const sessionRows = useMemo<Row[]>(() => {
-    // Before the poll has answered (or on a sandbox that enumerates nothing)
-    // the attached session is still worth listing — it is the one we know.
+    if (serverProbe?.status === 'done') {
+      const targetId = serverProbe.server.id;
+      const isCurrentServer = targetId === (currentServerId ?? 'localhost');
+      const remoteRows: Row[] = serverProbe.sessions.map((s) => ({
+        kind: 'session' as const,
+        name: s.name,
+        windows: s.windows,
+        current: isCurrentServer && s.name === sessionName,
+        serverId: targetId,
+      }));
+      return [...remoteRows, { kind: 'new-session' as const, serverId: targetId }];
+    }
     const names = sessions.length > 0 ? sessions.map((s) => s.sessionName) : [sessionName];
-    return names.map((name) => ({
+    const localRows: Row[] = names.map((name) => ({
       kind: 'session' as const,
       name,
       windows: sessions.find((s) => s.sessionName === name)?.windows.length ?? 0,
       current: name === sessionName,
+      serverId: currentServerId,
     }));
-  }, [sessions, sessionName]);
+    return [...localRows, { kind: 'new-session' as const, serverId: currentServerId }];
+  }, [serverProbe, sessions, sessionName, currentServerId]);
 
-  const serverRows = useMemo<Row[]>(
-    () =>
-      servers.map((server) => ({
+  const serverRows = useMemo<Row[]>(() => {
+    if (servers.length === 0 || isProbedServerStep4) return [];
+    const mapped: Row[] = servers.map((server) => {
+      const current =
+        server.id === currentServerId ||
+        (!currentServerId && (server.id === 'localhost' || server.id === 'my-tmux'));
+      return {
         kind: 'server' as const,
         id: server.id,
         label: server.label,
-        // What actually distinguishes one server from another at a glance.
-        detail:
-          server.kind === 'ssh' && server.ssh
-            ? `ssh ${server.ssh.user ? `${server.ssh.user}@` : ''}${server.ssh.host}`
-            : server.socket,
-        current: server.id === currentServerId,
-      })),
-    [servers, currentServerId],
-  );
+        detail: formatServerDetail(server),
+        current,
+        reachable: resolveServerReachability(server, currentServerId),
+        deletable: server.id !== 'localhost' && server.id !== 'my-tmux' && !current,
+      };
+    });
+    return [...mapped, { kind: 'connect-server' as const }];
+  }, [servers, currentServerId, isProbedServerStep4]);
 
   const rows = useMemo(() => [...sessionRows, ...serverRows], [sessionRows, serverRows]);
-  const selected = rows[Math.min(cursor, rows.length - 1)];
+  const clampedCursor = Math.max(0, Math.min(cursor, Math.max(0, rows.length - 1)));
+  const selected = rows[clampedCursor];
 
-  // A viewer can switch what it watches; renaming, killing and detaching are the writer's.
+  // When a probed server finishes Step 3 (`done`), reset the cursor to row 0
+  // (which is the first session, or `+ new session…` when 0 sessions exist).
+  const probeDoneKey =
+    serverProbe?.status === 'done' ? `${serverProbe.server.id}:${serverProbe.sessions.length}` : '';
+  useEffect(() => {
+    if (probeDoneKey) setCursor(0);
+  }, [probeDoneKey]);
+
   const readOnly = useReadOnly();
-
-  /** Close the float this widget runs in — every verb is a one-shot. */
   const close = useCallback(() => send({ type: 'CLOSE_TOP_FLOAT' }), [send]);
+  const canConnect = servers.length > 0;
+
+  const openConnect = useCallback(() => {
+    if (canConnect) {
+      setConnecting(true);
+      setError(null);
+    }
+  }, [canConnect]);
 
   const activate = useCallback(
     (row: Row | undefined) => {
       if (!row) return;
-      if (row.kind === 'session') {
-        if (!row.current) send({ type: 'SWITCH_SESSION', sessionName: row.name });
-      } else if (!row.current || detached) {
-        // Detached, reconnecting to the server you were already on IS the way
-        // back in. Without this exception the "you are already there" guard
-        // leaves the overlay's only listed server inert and the user stuck.
-        send({ type: 'CONNECT_SERVER', serverId: row.id });
+      if (row.kind === 'connect-server') {
+        openConnect();
+        return;
       }
-      close();
+      if (row.kind === 'new-session') {
+        if (!readOnly) setCreatingSession(true);
+        return;
+      }
+      if (row.kind === 'session') {
+        const isRemote =
+          row.serverId &&
+          row.serverId !== currentServerId &&
+          row.serverId !== 'localhost' &&
+          row.serverId !== 'my-tmux';
+        if (isRemote) {
+          send({ type: 'CONNECT_SERVER', serverId: row.serverId!, session: row.name });
+        } else if (!row.current) {
+          send({ type: 'SWITCH_SESSION', sessionName: row.name });
+        }
+        close();
+        return;
+      }
+      if (row.kind === 'server') {
+        if (!row.current || detached) {
+          send({ type: 'CONNECT_SERVER', serverId: row.id });
+        }
+        close();
+      }
     },
-    [send, close, detached],
+    [send, close, detached, openConnect, readOnly, currentServerId],
   );
 
-  const killSelected = useCallback(
+  const deleteSelected = useCallback(
     (row: Row | undefined) => {
-      if (row?.kind !== 'session') return;
-      // Killing the session you are in would take the client down with it;
-      // tmux would pick another, but the switcher is the wrong place to learn
-      // that. Switch first, then kill.
+      if (!row) return;
+      if (row.kind === 'server') {
+        if (!row.deletable) {
+          setError('Cannot forget the active or default local server.');
+          return;
+        }
+        send({ type: 'REMOVE_SERVER', serverId: row.id });
+        setError(null);
+        return;
+      }
+      if (row.kind !== 'session') return;
       if (row.current) {
         setError('Switch to another session before killing this one.');
         return;
@@ -128,69 +187,138 @@ export const TmuxySession = memo(function TmuxySession() {
   );
 
   const detach = useCallback(() => {
-    // Close the float FIRST: closing it is a tmux `kill-pane`, and once the
-    // client is gone that command never lands — leaving the float alive behind
-    // the overlay, with a second copy of this widget inside it.
+    if (isProbedServerStep4) {
+      send({ type: 'CANCEL_SERVER_PROBE' });
+      return;
+    }
     close();
     send({ type: 'DETACH_CLIENT' });
-  }, [send, close]);
-
-  // Capture-phase so the keys never reach the pane behind the float.
-  /**
-   * Adding a server is desktop-only: `list_servers` is a Tauri command, so a
-   * web client never has one to add to. A desktop list always holds at least
-   * localhost, which makes a non-empty list the signal.
-   */
-  const canConnect = servers.length > 0;
-
-  const openConnect = useCallback(() => {
-    if (canConnect) setConnecting(true);
-  }, [canConnect]);
+  }, [send, close, isProbedServerStep4]);
 
   const submitConnect = useCallback(() => {
-    send({ type: 'ADD_SERVER', dest: dest.trim(), socket: socket.trim() || undefined });
+    const trimmedDest = dest.trim();
+    const trimmedSocket = socket.trim() || undefined;
+    send({ type: 'ADD_SERVER', dest: trimmedDest, socket: trimmedSocket, probe: true });
     setConnecting(false);
     setDest('');
     setSocket('');
-    // Saved, not attached: the poll lists it within a few seconds and Enter on
-    // the row attaches. Chaining the two would need the new id back, and the
-    // invoke path is fire-and-forget.
-    setError('Saved. It will appear under Servers in a moment.');
+    setError(null);
   }, [send, dest, socket]);
+
+  const commitNewSession = useCallback(
+    (name: string) => {
+      setCreatingSession(false);
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      if (isProbedServerStep4 && serverProbe) {
+        send({
+          type: 'CONNECT_SERVER',
+          serverId: serverProbe.server.id,
+          session: trimmed,
+        });
+        close();
+        return;
+      }
+      send({ type: 'DISPATCH_OP', op: TmuxOp.NewSession({ name: trimmed }) });
+      send({ type: 'SWITCH_SESSION', sessionName: trimmed });
+      close();
+    },
+    [send, close, isProbedServerStep4, serverProbe],
+  );
+
+  const commitRename = useCallback(
+    (name: string) => {
+      setRenaming(false);
+      if (selected?.kind !== 'session') return;
+      send({
+        type: 'DISPATCH_OP',
+        op: TmuxOp.RenameSession({ session: selected.name, name }),
+      });
+    },
+    [send, selected],
+  );
+
+  const isStep3 =
+    serverProbe !== null && (serverProbe.status === 'running' || serverProbe.status === 'failed');
+
+  const retryProbe = useCallback(() => {
+    if (!serverProbe) return;
+    send({
+      type: 'PROBE_SERVER',
+      serverId: serverProbe.server.id,
+      dest:
+        serverProbe.server.kind === 'ssh' && serverProbe.server.ssh
+          ? `${serverProbe.server.ssh.user ? `${serverProbe.server.ssh.user}@` : ''}${serverProbe.server.ssh.host}`
+          : undefined,
+      socket: serverProbe.server.socket,
+    });
+  }, [send, serverProbe]);
+
+  const cancelProbe = useCallback(() => {
+    send({ type: 'CANCEL_SERVER_PROBE' });
+  }, [send]);
 
   const stateRef = useRef({
     rows,
-    cursor,
+    cursor: clampedCursor,
     activate,
-    killSelected,
+    deleteSelected,
     detach,
     close,
     renaming,
+    creatingSession,
     connecting,
+    isStep3,
+    probeStatus: serverProbe?.status ?? null,
+    retryProbe,
+    cancelProbe,
     openConnect,
+    canConnect,
+    isProbedServerStep4,
     readOnly,
   });
   stateRef.current = {
     rows,
-    cursor,
+    cursor: clampedCursor,
     activate,
-    killSelected,
+    deleteSelected,
     detach,
     close,
     renaming,
+    creatingSession,
     connecting,
+    isStep3,
+    probeStatus: serverProbe?.status ?? null,
+    retryProbe,
+    cancelProbe,
     openConnect,
+    canConnect,
+    isProbedServerStep4,
     readOnly,
   };
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const s = stateRef.current;
-      // While a field is open every key belongs to it.
-      if (s.renaming || s.connecting) return;
+      if (s.renaming || s.creatingSession || s.connecting) return;
       const claim = () => {
         e.preventDefault();
         e.stopImmediatePropagation();
       };
+      if (s.isStep3) {
+        if (e.key === 'Escape' || (s.probeStatus === 'failed' && e.key === 'x')) {
+          claim();
+          s.cancelProbe();
+          return;
+        }
+        if (s.probeStatus === 'failed' && e.key === 'Enter') {
+          claim();
+          s.retryProbe();
+          return;
+        }
+        if (!e.ctrlKey && !e.altKey && !e.metaKey) e.stopImmediatePropagation();
+        return;
+      }
       const move = (delta: number) => {
         setCursor((c) => Math.max(0, Math.min(s.rows.length - 1, c + delta)));
       };
@@ -215,24 +343,31 @@ export const TmuxySession = memo(function TmuxySession() {
           return;
         case 'x':
           claim();
-          if (!s.readOnly) s.killSelected(s.rows[s.cursor]);
+          if (!s.readOnly) s.deleteSelected(s.rows[s.cursor]);
           return;
         case 'd':
+        case 'D':
           claim();
           if (!s.readOnly) s.detach();
           return;
         case 'c':
           claim();
-          s.openConnect();
+          if (s.canConnect && !s.isProbedServerStep4) {
+            s.openConnect();
+          } else if (!s.readOnly) {
+            setCreatingSession(true);
+          }
           return;
         case 'Escape':
         case 'q':
           claim();
-          s.close();
+          if (s.isProbedServerStep4) {
+            s.cancelProbe();
+          } else {
+            s.close();
+          }
           return;
         default:
-          // The widget owns the keyboard while it is up; anything else would
-          // otherwise be typed into the pane the float covers.
           if (!e.ctrlKey && !e.altKey && !e.metaKey) e.stopImmediatePropagation();
           return;
       }
@@ -241,168 +376,117 @@ export const TmuxySession = memo(function TmuxySession() {
     return () => window.removeEventListener('keydown', handler, true);
   }, []);
 
-  const commitRename = useCallback(
-    (name: string) => {
-      setRenaming(false);
-      if (selected?.kind !== 'session') return;
-      send({
-        type: 'DISPATCH_OP',
-        op: TmuxOp.RenameSession({ session: selected.name, name }),
-      });
-    },
-    [send, selected],
-  );
-
   return (
     <div className="widget-session" data-testid="session-switcher">
-      <div className="widget-session-heading">Sessions</div>
-      <div className="widget-session-list" role="listbox" aria-label="Sessions">
-        {sessionRows.map((row, i) => {
-          const isSelected = rows[cursor] === row;
-          return (
-            <div
-              key={`s:${row.kind === 'session' ? row.name : ''}`}
-              role="option"
-              aria-selected={isSelected}
-              className={`widget-session-row${isSelected ? ' is-selected' : ''}${
-                row.current ? ' is-current' : ''
-              }`}
-              data-testid={`session-row-${row.kind === 'session' ? row.name : ''}`}
-              onClick={() => {
-                setCursor(i);
-                activate(row);
-              }}
-            >
-              {renaming && isSelected && row.kind === 'session' ? (
-                <InlineRename
-                  value={row.name}
-                  ariaLabel={`Rename session ${row.name}`}
-                  onCommit={commitRename}
-                  onCancel={() => setRenaming(false)}
-                />
-              ) : (
-                <>
-                  <span className="widget-session-name">{row.kind === 'session' && row.name}</span>
-                  <span className="widget-session-meta">
-                    {row.kind === 'session' && row.windows > 0
-                      ? `${row.windows} window${row.windows === 1 ? '' : 's'}`
-                      : ''}
-                  </span>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {serverRows.length > 0 && (
+      {isStep3 && serverProbe ? (
+        <SessionConnectingView probe={serverProbe} onRetry={retryProbe} onCancel={cancelProbe} />
+      ) : (
         <>
-          <div className="widget-session-heading">Servers</div>
-          <div className="widget-session-list" role="listbox" aria-label="Servers">
-            {serverRows.map((row, i) => {
-              const isSelected = rows[cursor] === row;
+          <div className="widget-session-heading" data-testid="session-list-heading">
+            Sessions · {activeServerLabel}
+          </div>
+          <div className="widget-session-list" role="listbox" aria-label="Sessions">
+            {sessionRows.map((row, i) => {
+              const isSelected = rows[clampedCursor] === row;
+              if (row.kind === 'new-session') {
+                return (
+                  <div
+                    key="s:__new__"
+                    role="option"
+                    aria-selected={isSelected}
+                    className={`widget-session-row widget-session-action-row${
+                      isSelected ? ' is-selected' : ''
+                    }`}
+                    data-testid="session-new-row"
+                    onClick={() => {
+                      setCursor(i);
+                      activate(row);
+                    }}
+                  >
+                    {creatingSession ? (
+                      <InlineRename
+                        value=""
+                        testId="session-new-input"
+                        ariaLabel="New session name"
+                        onCommit={commitNewSession}
+                        onCancel={() => setCreatingSession(false)}
+                      />
+                    ) : (
+                      <span className="widget-session-name">+ new session…</span>
+                    )}
+                  </div>
+                );
+              }
               return (
                 <div
-                  key={`v:${row.kind === 'server' ? row.id : ''}`}
+                  key={`s:${row.kind === 'session' ? row.name : ''}`}
                   role="option"
                   aria-selected={isSelected}
                   className={`widget-session-row${isSelected ? ' is-selected' : ''}${
-                    row.current ? ' is-current' : ''
+                    row.kind === 'session' && row.current ? ' is-current' : ''
                   }`}
-                  data-testid={`server-row-${row.kind === 'server' ? row.id : ''}`}
+                  data-testid={`session-row-${row.kind === 'session' ? row.name : ''}`}
                   onClick={() => {
-                    setCursor(sessionRows.length + i);
+                    setCursor(i);
                     activate(row);
                   }}
                 >
-                  <span className="widget-session-name">{row.kind === 'server' && row.label}</span>
-                  <span className="widget-session-meta">{row.kind === 'server' && row.detail}</span>
+                  {renaming && isSelected && row.kind === 'session' ? (
+                    <InlineRename
+                      value={row.name}
+                      ariaLabel={`Rename session ${row.name}`}
+                      onCommit={commitRename}
+                      onCancel={() => setRenaming(false)}
+                    />
+                  ) : (
+                    <>
+                      <span className="widget-session-name">
+                        {row.kind === 'session' && row.name}
+                      </span>
+                      <span className="widget-session-meta">
+                        {row.kind === 'session' && row.windows > 0
+                          ? `${row.windows} window${row.windows === 1 ? '' : 's'}`
+                          : ''}
+                      </span>
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
-        </>
-      )}
 
-      {connecting && (
-        <form
-          className="widget-session-form"
-          data-testid="session-connect-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submitConnect();
-          }}
-          onKeyDown={(e) => {
-            // The fields own every key, including the app's own bindings.
-            e.stopPropagation();
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              setConnecting(false);
-            }
-          }}
-        >
-          <div className="widget-session-field">
-            <label htmlFor="session-connect-dest">Connect to</label>
-            <input
-              id="session-connect-dest"
-              autoFocus
-              value={dest}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder="user@host  ·  blank for this machine"
-              onChange={(e) => setDest(e.target.value)}
+          <SessionServerList
+            serverRows={serverRows}
+            selectedRow={rows[clampedCursor]}
+            sessionRowsCount={sessionRows.length}
+            onSelect={(idx, row) => {
+              setCursor(idx);
+              activate(row);
+            }}
+          />
+
+          {connecting && (
+            <SessionConnectForm
+              dest={dest}
+              socket={socket}
+              onDestChange={setDest}
+              onSocketChange={setSocket}
+              onSubmit={submitConnect}
+              onCancel={() => setConnecting(false)}
             />
-          </div>
-          <div className="widget-session-field">
-            <label htmlFor="session-connect-socket">tmux socket</label>
-            <input
-              id="session-connect-socket"
-              value={socket}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder="tmuxy"
-              onChange={(e) => setSocket(e.target.value)}
-            />
-          </div>
-          <p className="widget-session-hint">
-            Keys, ports and jump hosts come from your ~/.ssh/config — tmuxy runs your own ssh.
-          </p>
-        </form>
+          )}
+        </>
       )}
 
       {error && <div className="widget-session-error">{error}</div>}
 
-      <div className="widget-session-actions">
-        <span>
-          <kbd>j/k</kbd> move
-        </span>
-        <span>
-          <kbd>⏎</kbd> switch
-        </span>
-        {!readOnly && (
-          <>
-            <span>
-              <kbd>r</kbd> rename
-            </span>
-            <span>
-              <kbd>x</kbd> kill
-            </span>
-            <span>
-              <kbd>d</kbd> detach
-            </span>
-          </>
-        )}
-        {canConnect && (
-          <span>
-            <kbd>c</kbd> connect
-          </span>
-        )}
-        {!readOnly && (
-          <span>
-            <kbd>esc</kbd> close
-          </span>
-        )}
-      </div>
+      <SessionActionBar
+        isFailedProbe={isStep3 && serverProbe?.status === 'failed'}
+        selected={selected}
+        readOnly={readOnly}
+        canConnect={canConnect}
+        isProbedServerStep4={Boolean(isProbedServerStep4)}
+      />
     </div>
   );
 });

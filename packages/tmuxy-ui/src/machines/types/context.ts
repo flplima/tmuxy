@@ -16,6 +16,7 @@ import type {
   PaneGroup,
   ResizeState,
   RestorableSession,
+  ServerProbeState,
   SessionTreeNode,
   TmuxServer,
   TraceSettings,
@@ -304,6 +305,8 @@ export interface AppMachineContext {
    */
   servers: TmuxServer[];
   currentServerId: string | null;
+  /** Active or completed 4-stage probe for a target server (Step 3 / Step 4). */
+  serverProbe: ServerProbeState | null;
   /** Sessions a snapshot could bring back; see {@link RestorableSession}. */
   restorableSessions: RestorableSession[];
 }

@@ -6,15 +6,19 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
-use std::time::Duration;
 use tmuxy_core::command_router::Route;
-use tmuxy_core::control_mode::{MonitorCommand, MonitorCommandSender};
 use tmuxy_core::transport::{self, to_json};
 use tmuxy_core::CommandError;
-use tracing::{debug, trace, warn};
+use tracing::{trace, warn};
 
 use super::clients::{new_window_client_size, set_client_size};
 use super::emitter::{broadcast_theme_settings, refresh_keybindings, theme_settings_for};
+pub(super) use super::server_commands::wait_for_monitor;
+use super::server_commands::{
+    handle_add_server, handle_connect_server, handle_list_servers, handle_probe_server,
+    handle_remove_server, initial_state_for_size, query_via_control_mode, send_via_control_mode,
+    viewer_scrollback,
+};
 use super::SessionQuery;
 use crate::command::ClientCommand;
 use crate::state::AppState;
@@ -301,160 +305,14 @@ pub(super) async fn handle_command(
         ClientCommand::SetTraceLevel { level } => {
             Ok(serde_json::json!(transport::set_trace_level(&level)))
         }
+        ClientCommand::ListServers => handle_list_servers(state, session).await,
+        ClientCommand::AddServer { dest, socket } => handle_add_server(dest, socket).await,
+        ClientCommand::RemoveServer { id } => handle_remove_server(state, session, id).await,
+        ClientCommand::ProbeServer { id } => handle_probe_server(state, session, id).await,
+        ClientCommand::ConnectServer {
+            id,
+            session: session_override,
+        } => handle_connect_server(id, session_override).await,
+        ClientCommand::DetachClient => Ok(serde_json::json!(null)),
     }
-}
-
-/// Send a tmux command through control mode.
-async fn send_via_control_mode(
-    state: &Arc<AppState>,
-    session: &str,
-    command: &str,
-) -> Result<(), CommandError> {
-    let tx = state.monitor_tx(session).await?;
-    transport::run(&tx, command).await
-}
-
-/// The session's monitor command channel, waiting for the monitor to finish
-/// connecting if the request got here first.
-pub(super) async fn wait_for_monitor(
-    state: &Arc<AppState>,
-    session: &str,
-) -> Result<MonitorCommandSender, CommandError> {
-    transport::wait_for_monitor(|| async { state.monitor_tx(session).await.ok() }).await
-}
-
-/// A client's initial state, from a monitor that may still be connecting.
-async fn initial_state_via_control_mode(
-    state: &Arc<AppState>,
-    session: &str,
-) -> Result<tmuxy_core::TmuxState, CommandError> {
-    let tx = wait_for_monitor(state, session).await?;
-    transport::initial_state(&tx).await
-}
-
-/// How long a client's first state waits for the resize it just asked for.
-///
-/// tmux answers in milliseconds over a local socket. The bound is what stops a
-/// size tmux will not take (`resize_given_up` in the monitor) from holding up
-/// the first paint: past it the client is given the freshest state there is.
-const INITIAL_STATE_RESIZE_WAIT: Duration = Duration::from_millis(750);
-
-/// The initial state, agreeing with the size the session has been told to be.
-///
-/// A resize is QUEUED, not applied, when `set_client_size` returns: tmux's
-/// resize, and the `%layout-change` that reports it, land afterwards. So a
-/// state read straight after one is the grid from BEFORE it — and a client that
-/// applies this answer after the stream has already delivered the new grid goes
-/// back to the old one. On an idle session nothing follows to correct it, so it
-/// stays wrong: `UI=200x49, tmux=139x26`, the control-mode PTY's grid drawn by
-/// a client that had asked for its own, for as long as the session stays quiet.
-/// (Which is what the structural snapshot kept catching, in half of its runs.)
-///
-/// The target is `last_resize` — the size that reached tmux — and NOT whatever
-/// this call happened to deliver. A client sends its viewport as soon as it has
-/// measured one, so by the time it asks for state the resize is usually already
-/// on its way and this call delivers nothing: waiting only on its own delivery
-/// left exactly the common case unprotected, which is how the first version of
-/// this still failed half the time.
-///
-/// Nothing is invented: the answer is always a state the monitor gave us, just
-/// not one that is knowably stale.
-async fn initial_state_for_size(
-    state: &Arc<AppState>,
-    session: &str,
-) -> Result<tmuxy_core::TmuxState, CommandError> {
-    let mut snapshot = initial_state_via_control_mode(state, session).await?;
-    let asked = {
-        let sessions = state.sessions.read().await;
-        sessions.get(session).and_then(|conns| conns.last_resize)
-    };
-    let Some((cols, rows)) = asked else {
-        return Ok(snapshot);
-    };
-    let deadline = tokio::time::Instant::now() + INITIAL_STATE_RESIZE_WAIT;
-    while snapshot.total_width != cols || snapshot.total_height != rows {
-        if tokio::time::Instant::now() >= deadline {
-            debug!(
-                %session,
-                asked = ?(cols, rows),
-                got = ?(snapshot.total_width, snapshot.total_height),
-                "first state still disagrees with the size asked for; sending it anyway"
-            );
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        snapshot = initial_state_via_control_mode(state, session).await?;
-    }
-    Ok(snapshot)
-}
-
-/// Run a command through the session's control-mode connection and wait for
-/// what it printed. The counterpart of `send_via_control_mode` for reads.
-async fn query_via_control_mode(
-    state: &Arc<AppState>,
-    session: &str,
-    command: &str,
-) -> Result<String, CommandError> {
-    tracing::debug!(
-        target: "tmuxy_server::sse",
-        verb = command.split_whitespace().next().unwrap_or(""),
-        command,
-        "query"
-    );
-    let tx = state.monitor_tx(session).await?;
-    transport::query(&tx, command).await
-}
-
-/// The most rows of scrollback one request from a viewer is answered with.
-///
-/// A viewer is shown the screen and recent history, not the whole backlog.
-/// The monitor keeps `VIEWER_SCROLLBACK_ROWS` per pane, so this only bounds
-/// one response; it can never exceed what is held.
-const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
-
-/// A viewer's scrollback, answered from the monitor's own grid at zero tmux
-/// round trips (SEC-11/SEC-16).
-///
-/// An observer's aggregator keeps `VIEWER_SCROLLBACK_ROWS` of history per
-/// pane precisely so this request costs the writer's session nothing — it
-/// used to cost three in-band control-mode queries, on the connection that
-/// session shares, on every scroll.
-///
-/// The monitor holds only the
-/// session it monitors, so a pane it does not know is a pane this viewer was
-/// never shown, and the request is refused. The range is capped at
-/// `MAX_VIEWER_SCROLLBACK_ROWS` from the end, with the clamped `start`
-/// returned so the client lays the rows out where they belong.
-async fn viewer_scrollback(
-    state: &Arc<AppState>,
-    session: &str,
-    pane_id: tmuxy_core::PaneId,
-    start: i64,
-    end: i64,
-) -> Result<serde_json::Value, CommandError> {
-    let tx = state.monitor_tx(session).await?;
-    let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::GetScrollback {
-        pane_id: pane_id.clone(),
-        start,
-        end,
-        reply,
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
-    let chunk = rx
-        .await
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?
-        .ok_or_else(|| {
-            CommandError::invalid(format!("pane {pane_id} is not in session {session}"))
-        })?;
-
-    Ok(serde_json::json!({
-        "cells": chunk.cells,
-        "historySize": chunk.history_size,
-        "start": start,
-        "end": end,
-        "width": chunk.width
-    }))
 }

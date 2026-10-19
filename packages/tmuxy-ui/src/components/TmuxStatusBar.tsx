@@ -15,7 +15,13 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { useAppSelector, useAppSend, useAppConfig, useReadOnly } from '../machines/appHooks';
+import {
+  useAppSelector,
+  useAppSelectorShallow,
+  useAppSend,
+  useAppConfig,
+  useReadOnly,
+} from '../machines/appHooks';
 import {
   selectCommandMode,
   selectStatusMessage,
@@ -28,8 +34,8 @@ import {
 import { selectGridDimensions } from '../machines/selectors/layout';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { HINT_SEPARATOR, MODE_HINTS, normalHints, type Hint } from './statusLineHints';
+import { serverHostLabel } from './paneTabDisplay';
 import { SessionMenu } from './SessionMenu';
-import { isTauri } from '../utils/platform';
 import type { KeyBindings } from '../domain/wire';
 
 function Separator() {
@@ -146,6 +152,8 @@ export function TmuxStatusBar() {
   const statusMessage = useAppSelector(selectStatusMessage);
   const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
   const sessionName = useAppSelector(selectSessionName);
+  const servers = useAppSelectorShallow((ctx) => ctx.servers);
+  const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
   const keybindings = useAppSelector(selectKeyBindings);
   const prefixActive = useAppSelector(selectPrefixActive);
   const keyTable = useAppSelector(selectKeyTable);
@@ -170,11 +178,7 @@ export function TmuxStatusBar() {
     );
   }
 
-  const hostname = isDemo
-    ? 'demo@localhost'
-    : isTauri()
-      ? 'localhost'
-      : window.location.hostname || 'localhost';
+  const hostname = serverHostLabel(servers, currentServerId, isDemo);
 
   // Both ends of the status line open the same switcher (components/
   // SessionMenu): the host and the session name are two halves of "where am

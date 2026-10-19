@@ -14,15 +14,23 @@
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
-import { useAppSend, useAppSelector } from '../machines/appHooks';
+import {
+  useAppConfig,
+  useAppSend,
+  useAppSelector,
+  useAppSelectorShallow,
+} from '../machines/appHooks';
 import { selectRightSidebarPane } from '../machines/selectors/panesAndSidebars';
-import { sidebarShellTitle } from './paneTabDisplay';
+import { serverHostLabel, sidebarShellTitle } from './paneTabDisplay';
 import { Tooltip } from './Tooltip';
 import { SessionMenu } from './SessionMenu';
 
 export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' | 'right' }) {
   const send = useAppSend();
+  const { isDemo } = useAppConfig();
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
+  const servers = useAppSelectorShallow((ctx) => ctx.servers);
+  const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
   const rightPane = useAppSelector(selectRightSidebarPane);
   const focused = useAppSelector((ctx) =>
     side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
@@ -42,7 +50,7 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
     [send, side],
   );
 
-  const label = side === 'left' ? sessionName : sidebarShellTitle(rightPane);
+  const host = serverHostLabel(servers, currentServerId, isDemo);
 
   return (
     <span
@@ -50,7 +58,16 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
       data-testid={`sidebar-title-${side}`}
       onClick={focusColumn}
     >
-      <span className="sidebar-title-text">{label}</span>
+      <span className="sidebar-title-text">
+        {side === 'left' ? (
+          <>
+            <span className="sidebar-title-host">{host}</span>{' '}
+            <strong className="sidebar-title-session">[{sessionName}]</strong>
+          </>
+        ) : (
+          sidebarShellTitle(rightPane)
+        )}
+      </span>
       {side === 'left' && (
         <Tooltip label="Switch session">
           <button

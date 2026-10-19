@@ -97,6 +97,7 @@ fn styled_cell(c: &str) -> TerminalCell {
             underline: true,
             inverse: true,
             url: Some("https://example.com".to_string()),
+            size: None,
         },
     )
 }

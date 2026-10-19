@@ -1,0 +1,36 @@
+#!/bin/bash
+# Mock ssh binary for CLI tests
+if [ "${MOCK_SSH_FAIL:-}" = "1" ]; then
+  echo "${MOCK_SSH_STDERR:-ssh: Could not resolve hostname}" >&2
+  exit 255
+fi
+
+# Skip ssh options (-o ...) and destination to inspect remote command
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|-p|-i) shift 2 ;;
+    -*) shift ;;
+    *) shift; break ;;
+  esac
+done
+
+case "${1:-}" in
+  true)
+    exit 0
+    ;;
+  tmux)
+    shift
+    if [ "${1:-}" = "-V" ]; then
+      echo "tmux ${MOCK_TMUX_VERSION:-3.5a}"
+      exit 0
+    fi
+    if [ "${1:-}" = "-L" ] || [ "${1:-}" = "-S" ]; then
+      shift 2
+    fi
+    if [ "${1:-}" = "list-sessions" ]; then
+      [ -n "${MOCK_SSH_SESSIONS:-}" ] && printf '%b\n' "$MOCK_SSH_SESSIONS"
+      exit 0
+    fi
+    ;;
+esac
+exit 0

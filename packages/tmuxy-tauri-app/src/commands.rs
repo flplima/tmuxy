@@ -249,12 +249,19 @@ pub async fn restore_session(
 ///
 /// [`request_reconnect`]: crate::monitor::request_reconnect
 #[tauri::command]
-pub async fn connect_server(window: tauri::WebviewWindow, id: String) -> Result<(), CommandError> {
+pub async fn connect_server(
+    window: tauri::WebviewWindow,
+    id: String,
+    session: Option<String>,
+) -> Result<(), CommandError> {
     let state = windows::monitor_for(&window)?;
     let server = tmuxy_core::servers::find_server(&id)
         .ok_or_else(|| CommandError::invalid(format!("unknown server '{id}'")))?;
     let (socket, ssh) = server.connect_env();
-    let session = server.session.clone().unwrap_or_else(get_session);
+    let session = session
+        .or_else(|| server.session.clone())
+        .unwrap_or_else(get_session);
+    let _ = tmuxy_core::servers::touch_server(&id, Some(&session));
     crate::monitor::request_reconnect(
         &state,
         crate::monitor::ConnectTarget {
@@ -265,6 +272,17 @@ pub async fn connect_server(window: tauri::WebviewWindow, id: String) -> Result<
     )
     .await;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn remove_server(id: String) -> Result<Value, CommandError> {
+    helpers::remove_server_json(&id).await
+}
+
+#[tauri::command]
+pub async fn probe_server(window: tauri::WebviewWindow, id: String) -> Result<Value, CommandError> {
+    let state = windows::monitor_for(&window).ok();
+    helpers::probe_server_json(state, id).await
 }
 
 /// Save a server typed into the session switcher and return its id.

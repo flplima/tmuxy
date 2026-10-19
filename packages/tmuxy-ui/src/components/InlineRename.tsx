@@ -26,6 +26,7 @@ interface InlineRenameProps {
   onCancel: () => void;
   ariaLabel: string;
   className?: string;
+  testId?: string;
 }
 
 export function InlineRename({
@@ -34,6 +35,7 @@ export function InlineRename({
   onCancel,
   ariaLabel,
   className,
+  testId,
 }: InlineRenameProps) {
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +65,7 @@ export function InlineRename({
       type="text"
       value={draft}
       aria-label={ariaLabel}
-      data-testid="inline-rename"
+      data-testid={testId ?? 'inline-rename'}
       spellCheck={false}
       autoComplete="off"
       onChange={(e) => setDraft(e.target.value)}

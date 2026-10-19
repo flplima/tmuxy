@@ -17,6 +17,13 @@ use std::path::PathBuf;
 
 use crate::session::{config_dir, DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
 
+pub mod discovery;
+pub use discovery::{
+    enrich_and_scan_sockets, is_ephemeral_test_socket, now_unix_secs, parse_session_list,
+    probe_server, query_local_socket_sessions, remove_server, tmux_socket_dirs, touch_server,
+    ProbeStage, ProbeStageStatus, RemoteSessionInfo, ServerProbeResult, ServerReachability,
+};
+
 /// Where the local machine's server sits in the picker.
 pub const LOCALHOST_ID: &str = "localhost";
 
@@ -101,6 +108,15 @@ pub struct Server {
     /// Optional preferred session to attach to on this server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+    /// Unix timestamp (seconds) when this server was last added or connected to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used: Option<u64>,
+    /// Reachability state computed when listing or probing servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reachable: Option<ServerReachability>,
+    /// Number of non-stash sessions on this server when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_count: Option<usize>,
     /// Preserve unknown keys across roundtrips so a newer build's file isn't
     /// truncated when read+written by an older one (mirrors `ManagedState`).
     #[serde(flatten)]
@@ -133,6 +149,9 @@ impl Server {
             ssh: None,
             socket: socket.to_string(),
             session: None,
+            last_used: None,
+            reachable: Some(ServerReachability::Online),
+            session_count: None,
             extra: serde_json::Map::new(),
         }
     }
@@ -188,6 +207,9 @@ impl Server {
             }),
             socket,
             session: None,
+            last_used: now_unix_secs(),
+            reachable: Some(ServerReachability::Known),
+            session_count: None,
             extra: serde_json::Map::new(),
         })
     }
@@ -304,9 +326,9 @@ fn with_users_own_tmux(mut servers: Vec<Server>) -> Vec<Server> {
     }) {
         return servers;
     }
-    if !users_own_tmux_has_sessions() {
+    let Some(count) = query_local_socket_sessions(USERS_OWN_SOCKET) else {
         return servers;
-    }
+    };
     servers.push(Server {
         id: MY_TMUX_ID.to_string(),
         label: "my tmux".to_string(),
@@ -314,48 +336,51 @@ fn with_users_own_tmux(mut servers: Vec<Server>) -> Vec<Server> {
         ssh: None,
         socket: USERS_OWN_SOCKET.to_string(),
         session: None,
+        last_used: None,
+        reachable: Some(ServerReachability::Online),
+        session_count: Some(count),
         extra: serde_json::Map::new(),
     });
     servers
 }
 
-/// Does the user's own tmux server have any sessions?
-///
-/// A plain read against a DIFFERENT socket from the one tmuxy drives, so it is
-/// outside the control-mode rules entirely (see docs/TMUX.md). Any failure —
-/// no tmux on PATH, no server running, a permissions problem — answers "no",
-/// because the only use of the answer is whether to offer a menu entry.
-fn users_own_tmux_has_sessions() -> bool {
-    std::process::Command::new("tmux")
-        .args([
-            "-L",
-            USERS_OWN_SOCKET,
-            "list-sessions",
-            "-F",
-            "#{session_id}",
-        ])
-        .output()
-        .map(|out| out.status.success() && !out.stdout.is_empty())
-        .unwrap_or(false)
-}
-
-/// Read saved servers, always guaranteeing a `localhost` entry at the front.
+/// Read saved servers, always guaranteeing a `localhost` entry at the front,
+/// plus any live local sockets in tmux's socket directory.
 /// A missing, empty, or unparseable file yields just `[localhost]` rather than
 /// erroring — a broken server list should never brick the picker. Callers that
 /// then *write* the list back must instead use [`read_servers_strict`] so a
 /// parse failure aborts the write rather than persisting the empty fallback.
 pub fn read_servers() -> Vec<Server> {
-    with_users_own_tmux(with_localhost(
+    let base = with_users_own_tmux(with_localhost(
         read_servers_strict().ok().flatten().unwrap_or_default(),
-    ))
+    ));
+    let live_socket = crate::session::tmux_socket();
+    let live_ssh = crate::session::ssh_target().map(|v| v.join(" "));
+    enrich_and_scan_sockets(
+        base,
+        &tmux_socket_dirs(),
+        &live_socket,
+        live_ssh.as_deref(),
+        query_local_socket_sessions,
+    )
 }
 
-/// Overwrite the servers file with the given list.
+/// Overwrite the servers file with the given list (excluding transient runtime
+/// fields `reachable` and `session_count`).
 pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
     let path = servers_path();
-    let body = serde_json::to_string_pretty(servers).map_err(std::io::Error::other)?;
+    let persisted: Vec<Server> = servers
+        .iter()
+        .cloned()
+        .map(|mut s| {
+            s.reachable = None;
+            s.session_count = None;
+            s
+        })
+        .collect();
+    let body = serde_json::to_string_pretty(&persisted).map_err(std::io::Error::other)?;
     std::fs::write(&path, format!("{body}\n"))?;
     Ok(path)
 }
@@ -366,10 +391,13 @@ pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
 /// socket follows the live `TMUX_SOCKET`, so writing it would freeze whichever
 /// socket this app happened to be on into the file and hand that stale value
 /// to every later read. It is re-guaranteed on read instead.
-pub fn add_server(server: Server) -> std::io::Result<Vec<Server>> {
+pub fn add_server(mut server: Server) -> std::io::Result<Vec<Server>> {
     // Refuse to overwrite a file that exists but can't be parsed — reading it
     // leniently (empty fallback) and writing that back would wipe every saved
     // server on one transient corruption.
+    if server.last_used.is_none() {
+        server.last_used = now_unix_secs();
+    }
     let mut servers = read_servers_strict()?.unwrap_or_default();
     match servers.iter_mut().find(|s| s.id == server.id) {
         Some(existing) => *existing = server,

@@ -138,6 +138,9 @@ case "${1:-}" in
     ;;
   break-pane)
     ;;
+  -V)
+    echo "tmux ${MOCK_TMUX_VERSION:-3.5a}"
+    ;;
   *)
     ;;
 esac

@@ -38,3 +38,70 @@ describe('CLI connect subcommand', () => {
     expect(tmuxCalls).toHaveLength(0);
   });
 });
+
+describe('tmuxy session connect <dest> [--socket NAME]', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+
+  test('runs the 4 connect stages, persists last_used to servers.json, and publishes TMUXY_CONNECT_*', () => {
+    const tmpCfg = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-connect-cfg-'));
+    try {
+      const { exitCode, stdout, tmuxCalls } = runCLI(
+        ['session', 'connect', 'felipe@prod', '--socket', 'work'],
+        {
+          env: {
+            XDG_CONFIG_HOME: tmpCfg,
+            MOCK_SSH_SESSIONS: 'dev\n',
+          },
+        },
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout.trim().split('\n')).toEqual([
+        '✓ ssh felipe@prod',
+        '✓ tmux 3.5a on the socket work',
+        '✓ listing sessions',
+        '✓ attach',
+      ]);
+      expect(tmuxCalls).toEqual([
+        {
+          args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SSH 'felipe@prod'"],
+        },
+        {
+          args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SESSION 'dev'"],
+        },
+        {
+          args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_TO 'work'"],
+        },
+      ]);
+
+      const servers = JSON.parse(
+        fs.readFileSync(path.join(tmpCfg, 'tmuxy', 'servers.json'), 'utf8'),
+      );
+      expect(servers).toHaveLength(1);
+      expect(servers[0]).toMatchObject({
+        id: 'ssh-felipe-prod-work',
+        label: 'felipe@prod',
+        kind: 'ssh',
+        socket: 'work',
+        ssh: { host: 'prod', user: 'felipe' },
+      });
+      expect(typeof servers[0].last_used).toBe('number');
+    } finally {
+      fs.rmSync(tmpCfg, { recursive: true, force: true });
+    }
+  });
+
+  test('prints ✗ stage and verbatim ssh stderr when ssh fails', () => {
+    const { exitCode, stderr, tmuxCalls } = runCLI(['session', 'connect', 'badhost'], {
+      env: {
+        MOCK_SSH_FAIL: '1',
+        MOCK_SSH_STDERR: 'Permission denied (publickey).',
+      },
+    });
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain('✗ ssh badhost');
+    expect(stderr).toContain('Permission denied (publickey).');
+    expect(tmuxCalls).toHaveLength(0);
+  });
+});

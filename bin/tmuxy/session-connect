@@ -1,42 +1,238 @@
 #!/bin/bash
-# session-connect — SSH connection prompt (Tauri desktop app only)
+# session-connect — Staged server/session connect flow
 #
-# Creates a new tmux session running an SSH command and sets
-# TMUXY_SWITCH_TO for the frontend to pick up.
+# Usage: tmuxy session connect [<dest>] [--socket <name>] [--session <name>]
+#
+# Runs the 4-stage connect sequence (ssh -> tmux <ver> on socket -> listing
+# sessions -> attach), printing each stage's status to stdout/stderr, saves
+# the server to ~/.config/tmuxy/servers.json with `last_used`, and publishes
+# TMUXY_CONNECT_SSH / TMUXY_CONNECT_SESSION / TMUXY_CONNECT_TO through
+# run-shell for the monitor to attach.
 set -euo pipefail
 source "${0%/*}/_lib"
 
-for arg in "$@"; do
-  case "$arg" in
+dest=""
+target_socket=""
+session_name=""
+has_dest_arg=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      cat <<'EOF'
+Usage: tmuxy session connect [<dest>] [--socket <name>] [--session <name>]
+
+Connect to a tmux server on <dest> ([user@]host, or "localhost" / empty for
+this machine) and attach to a session on its socket (default: tmuxy).
+
+Stages:
+  1. ssh <user@host> (or localhost)
+  2. tmux <version> on the socket <name>
+  3. listing sessions
+  4. attach
+
+Options:
+  --socket <name>   tmux socket name (-L) or path (-S) (default: tmuxy)
+  --session <name>  Session to attach to on the target server
+  -h, --help        Show this help
+EOF
+      exit 0
+      ;;
     --web)
       echo "SSH connections are only available in the Tauri desktop app."
       exit 1
       ;;
-    --help|-h)
-      echo "Usage: tmuxy session connect [--web]"
-      echo ""
-      echo "Prompt for an SSH command and create a session for it."
-      echo "  --web   Print not-supported message and exit (used by web frontend)"
-      exit 0
+    --socket)
+      shift
+      if [ $# -eq 0 ] || [ -z "${1:-}" ]; then
+        echo "Error: --socket requires a socket name" >&2
+        exit 1
+      fi
+      target_socket="$1"
+      shift
+      ;;
+    --socket=*)
+      target_socket="${1#--socket=}"
+      shift
+      ;;
+    --session)
+      shift
+      if [ $# -eq 0 ] || [ -z "${1:-}" ]; then
+        echo "Error: --session requires a session name" >&2
+        exit 1
+      fi
+      session_name="$1"
+      shift
+      ;;
+    --session=*)
+      session_name="${1#--session=}"
+      shift
+      ;;
+    -*)
+      echo "Error: unknown option '$1'" >&2
+      exit 1
+      ;;
+    *)
+      if ! $has_dest_arg; then
+        dest="$1"
+        has_dest_arg=true
+      elif [ -z "$session_name" ]; then
+        session_name="$1"
+      fi
+      shift
       ;;
   esac
 done
 
-read -rp 'Enter SSH command (e.g., ssh user@host), or blank for localhost: ' ssh_cmd
-
-if [ -z "$ssh_cmd" ]; then
-  echo "Already connected to localhost."
-  exit 0
+if ! $has_dest_arg; then
+  read -rp 'Connect to ([user@]host, or blank for localhost): ' dest || true
 fi
 
-# Extract host for session name (strip user@ prefix, take first word)
-host=$(echo "$ssh_cmd" | awk '{print $NF}' | sed 's/.*@//')
-session_name="ssh_${host}"
+# Strip optional leading "ssh " if a user pasted a full ssh command.
+dest="${dest#ssh }"
+dest="$(printf '%s' "$dest" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
-# Create session running the SSH command. Route through run-shell — this runs
-# inside a control-mode-attached float, where a direct external new-session can
-# crash tmux 3.5a. Single-quote-escape the user-supplied command.
-safe_ssh_cmd="${ssh_cmd//\'/\'\\\'\'}"
-_run_safe "new-session -d -s '$session_name' '$safe_ssh_cmd'"
-echo "$session_name"
-_run_safe "set-environment -g TMUXY_SWITCH_TO '$session_name'"
+is_remote=true
+if [ -z "$dest" ] || [ "$dest" = "localhost" ]; then
+  is_remote=false
+  dest=""
+fi
+
+if [ -z "$target_socket" ]; then
+  if $is_remote; then
+    target_socket="tmuxy"
+  else
+    target_socket="$TMUX_SOCKET"
+  fi
+fi
+
+case "$target_socket" in
+  */*) target_sock_flag="-S" ;;
+  *) target_sock_flag="-L" ;;
+esac
+
+# --- Stage 1: ssh <dest> / localhost ---
+if $is_remote; then
+  ssh_err_file=$(mktemp)
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$dest" true 2>"$ssh_err_file"; then
+    ssh_err=$(cat "$ssh_err_file")
+    rm -f "$ssh_err_file"
+    echo "✗ ssh $dest" >&2
+    [ -n "$ssh_err" ] && echo "$ssh_err" >&2
+    exit 1
+  fi
+  rm -f "$ssh_err_file"
+  echo "✓ ssh $dest"
+else
+  echo "✓ localhost"
+fi
+
+# --- Stage 2: tmux <version> on the socket <name> ---
+ver_err_file=$(mktemp)
+if $is_remote; then
+  if ! raw_ver=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$dest" tmux -V 2>"$ver_err_file"); then
+    ver_err=$(cat "$ver_err_file")
+    rm -f "$ver_err_file"
+    echo "✗ tmux on the socket $target_socket" >&2
+    [ -n "$ver_err" ] && echo "$ver_err" >&2
+    exit 1
+  fi
+else
+  if ! raw_ver=$(_tmux -V 2>"$ver_err_file"); then
+    ver_err=$(cat "$ver_err_file")
+    rm -f "$ver_err_file"
+    echo "✗ tmux on the socket $target_socket" >&2
+    [ -n "$ver_err" ] && echo "$ver_err" >&2
+    exit 1
+  fi
+fi
+rm -f "$ver_err_file"
+tmux_ver="${raw_ver#tmux }"
+tmux_ver="${tmux_ver:-3.5a}"
+echo "✓ tmux $tmux_ver on the socket $target_socket"
+
+# --- Stage 3: listing sessions ---
+sess_err_file=$(mktemp)
+if $is_remote; then
+  sessions_out=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$dest" \
+    tmux "$target_sock_flag" "$target_socket" list-sessions -F '#{session_name}' 2>"$sess_err_file" || true)
+elif [ "$target_socket" = "$TMUX_SOCKET" ]; then
+  sessions_out=$(_tmux list-sessions -F '#{session_name}' 2>"$sess_err_file" || true)
+else
+  sessions_out=""
+fi
+rm -f "$sess_err_file"
+
+if [ -z "$session_name" ] && [ -n "$sessions_out" ]; then
+  session_name=$(printf '%s\n' "$sessions_out" | awk -v stash="$STASH_SESSION" '$0 != "" && $0 != stash { print $0; exit }')
+fi
+echo "✓ listing sessions"
+
+# --- Persist to servers.json when remote or non-live local socket ---
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-*//; s/-*$//'
+}
+
+save_server_entry() {
+  local cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy"
+  local file="$cfg_dir/servers.json"
+  local now
+  now=$(date +%s)
+  mkdir -p "$cfg_dir"
+  local id label kind host user
+  if $is_remote; then
+    id="ssh-$(slugify "$dest")-$(slugify "$target_socket")"
+    label="$dest"
+    kind="ssh"
+    if [[ "$dest" == *@* ]]; then
+      user="${dest%%@*}"
+      host="${dest#*@}"
+    else
+      user=""
+      host="$dest"
+    fi
+    host="${host%%:*}"
+  else
+    [ "$target_socket" = "$TMUX_SOCKET" ] && return 0
+    id="local-$(slugify "$target_socket")"
+    label="$target_socket"
+    kind="local"
+    host=""
+    user=""
+  fi
+  if command -v jq &>/dev/null; then
+    local existing="[]"
+    [ -f "$file" ] && existing=$(cat "$file" 2>/dev/null || echo "[]")
+    printf '%s' "$existing" | jq \
+      --arg id "$id" \
+      --arg label "$label" \
+      --arg kind "$kind" \
+      --arg socket "$target_socket" \
+      --arg host "$host" \
+      --arg user "$user" \
+      --argjson last_used "$now" \
+      'map(select(.id != $id)) + [
+        if $kind == "ssh" then
+          {id: $id, label: $label, kind: $kind, socket: $socket, last_used: $last_used, ssh: (if $user != "" then {host: $host, user: $user} else {host: $host} end)}
+        else
+          {id: $id, label: $label, kind: $kind, socket: $socket, last_used: $last_used}
+        end
+      ]' > "$file.tmp" 2>/dev/null && mv "$file.tmp" "$file" || rm -f "$file.tmp"
+  fi
+}
+
+save_server_entry
+
+# --- Stage 4: attach ---
+# Order matters: TMUXY_CONNECT_TO is the trigger polled by the desktop/server
+# watcher, so publish TMUXY_CONNECT_SSH and TMUXY_CONNECT_SESSION first.
+if $is_remote; then
+  _run_safe "set-environment -g TMUXY_CONNECT_SSH $(shquote "$dest")"
+else
+  _run_safe "set-environment -g -u TMUXY_CONNECT_SSH"
+fi
+if [ -n "$session_name" ]; then
+  _run_safe "set-environment -g TMUXY_CONNECT_SESSION $(shquote "$session_name")"
+fi
+_run_safe "set-environment -g TMUXY_CONNECT_TO $(shquote "$target_socket")"
+echo "✓ attach"

@@ -16,6 +16,9 @@ fn my_tmux_is_not_offered_twice() {
             ssh: None,
             socket: USERS_OWN_SOCKET.to_string(),
             session: None,
+            last_used: None,
+            reachable: None,
+            session_count: None,
             extra: serde_json::Map::new(),
         },
     ];
@@ -42,6 +45,8 @@ fn a_bare_host_needs_nothing_else() {
     assert_eq!(ssh.user, None);
     assert_eq!(ssh.port, None);
     assert_eq!(server.socket, DEFAULT_TMUX_SOCKET);
+    assert!(server.last_used.is_some());
+    assert_eq!(server.reachable, Some(ServerReachability::Known));
 }
 
 #[test]
@@ -182,6 +187,9 @@ fn ssh_server_connect_env_carries_the_tail() {
         }),
         socket: "tmuxy".to_string(),
         session: None,
+        last_used: None,
+        reachable: None,
+        session_count: None,
         extra: serde_json::Map::new(),
     };
     let (socket, ssh) = server.connect_env();
@@ -206,7 +214,59 @@ fn ssh_kind_without_block_is_treated_as_local() {
         ssh: None,
         socket: "tmuxy".to_string(),
         session: None,
+        last_used: None,
+        reachable: None,
+        session_count: None,
         extra: serde_json::Map::new(),
     };
     assert_eq!(server.connect_env().1, None);
+}
+
+#[test]
+fn enrich_and_scan_sockets_discovers_live_local_sockets_and_skips_test_sockets() {
+    let dir = std::env::temp_dir().join(format!("tmuxy-scan-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::write(dir.join("tmuxy"), b"").unwrap();
+    std::fs::write(dir.join("work"), b"").unwrap();
+    std::fs::write(dir.join("dead"), b"").unwrap();
+    std::fs::write(dir.join("tmuxy-test-123"), b"").unwrap();
+
+    let base = vec![
+        Server::localhost_on("tmuxy"),
+        Server::from_destination("user@prod", None).unwrap(),
+    ];
+    let enriched = enrich_and_scan_sockets(
+        base,
+        std::slice::from_ref(&dir),
+        "tmuxy",
+        None,
+        |sock| match sock {
+            "work" => Some(3),
+            _ => None,
+        },
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(enriched.len(), 3);
+    assert_eq!(enriched[0].id, LOCALHOST_ID);
+    assert_eq!(enriched[0].reachable, Some(ServerReachability::Online));
+    assert_eq!(enriched[1].id, "ssh-user-prod-tmuxy");
+    assert_eq!(enriched[1].reachable, Some(ServerReachability::Known));
+    assert_eq!(enriched[2].id, "local-work");
+    assert_eq!(enriched[2].socket, "work");
+    assert_eq!(enriched[2].reachable, Some(ServerReachability::Online));
+    assert_eq!(enriched[2].session_count, Some(3));
+}
+
+#[test]
+fn parse_session_list_filters_out_stash_session() {
+    let out = "main\t3\t1\n__tmuxy_stash\t2\t0\nnotes\t1\t0\n";
+    let sessions = parse_session_list(out);
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0].name, "main");
+    assert_eq!(sessions[0].windows, 3);
+    assert!(sessions[0].attached);
+    assert_eq!(sessions[1].name, "notes");
+    assert_eq!(sessions[1].windows, 1);
+    assert!(!sessions[1].attached);
 }

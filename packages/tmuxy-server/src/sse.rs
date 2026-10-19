@@ -2,6 +2,7 @@ mod clients;
 mod commands;
 mod emitter;
 mod monitor;
+mod server_commands;
 
 use axum::{
     extract::{Query, State},
