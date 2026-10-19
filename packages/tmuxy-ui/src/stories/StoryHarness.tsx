@@ -11,13 +11,13 @@ import { useMemo, useEffect, type ReactNode } from 'react';
 import {
   TmuxyProvider,
   TmuxyApp,
-  DemoAdapter,
-  DemoTransportLive,
+  V86TmuxAdapter,
+  V86TransportLive,
   type AppConfig,
   type RenderTabline,
 } from '../lib';
-import { V86TransportLive } from '../infra/transport/layers';
-import { V86TmuxAdapter } from '../infra/transport/drivers/v86/V86TmuxAdapter';
+import { DemoTransportLive } from '../infra/transport/layers';
+import { DemoAdapter } from '../infra/transport/drivers/demo/DemoAdapter';
 import {
   CHAR_HEIGHT,
   CONTAINER_PADDING_BOTTOM,

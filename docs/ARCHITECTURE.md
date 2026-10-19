@@ -33,7 +33,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 **tmuxy-server** — Axum HTTP server providing SSE streaming (with `Last-Event-Id` resync), HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and structured shutdown. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
-**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, and `LifoShell` — a real in-browser shell backed by `@lifo-sh/core`) for the demo site. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
+**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes two in-browser engines: the v86 one (`V86TmuxAdapter` — real tmux and bash in an x86 emulator, its control-mode stream parsed by tmuxy-core compiled to wasm), which the demo site and the v86 stories run, and a simulated one for the rest of Storybook (`DemoAdapter`, `DemoTmux`, and `DemoShell`, a line editor that understands a handful of commands). See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
 **tmuxy-tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Each OS window is its own client with its own monitor, in a tmux session group (see "One monitor per GUI window" in [DATA-FLOW.md](DATA-FLOW.md), which also covers the Tauri data flow).
 

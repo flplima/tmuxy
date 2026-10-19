@@ -1,5 +1,5 @@
 import { LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../../../../machines/constants';
-import type { LifoShell } from './LifoShell';
+import type { DemoShell } from './DemoShell';
 import {
   type CreateFloatOptions,
   type FakePane,
@@ -23,7 +23,7 @@ export interface DemoGroupsContext {
   totalHeight: number;
   allocPaneId: () => string;
   allocWindowId: () => string;
-  makeShell: (paneId: string, width: number, height: number) => LifoShell;
+  makeShell: (paneId: string, width: number, height: number) => DemoShell;
   setActivePaneId: (paneId: string) => void;
   setActiveWindowId: (windowId: string) => void;
   setWindows: (windows: FakeWindow[]) => void;

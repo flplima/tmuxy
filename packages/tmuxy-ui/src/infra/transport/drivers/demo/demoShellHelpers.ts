@@ -1,45 +1,10 @@
-import { Sandbox } from '@lifo-sh/core';
 import type { CellStyle, TerminalCell } from '../../../../domain/wire';
 
 export const DEMO_BANNER_LINES = [
   '\x1b[1;36mThis is a live demo! \x1b[0m',
   'Running 100% client-side.',
-  'Interactive shell powered by \x1b]8;;https://lifo.sh/\x07\x1b[1;33mlifo.sh\x1b[0m\x1b]8;;\x07',
   '',
 ];
-
-export async function createDemoSandbox(): Promise<Sandbox> {
-  return Sandbox.create({
-    cwd: '/home/demo',
-    env: {
-      HOME: '/home/demo',
-      USER: 'demo',
-      SHELL: '/bin/bash',
-      TERM: 'xterm-256color',
-      PWD: '/home/demo',
-      HOSTNAME: 'tmuxy',
-    },
-    files: {
-      '/home/demo/.bashrc':
-        '# ~/.bashrc\nexport PATH="$HOME/bin:$PATH"\nalias ll="ls -la"\nalias gs="git status"\n',
-      '/home/demo/projects/myapp/package.json':
-        '{\n  "name": "myapp",\n  "version": "1.0.0",\n  "scripts": {\n    "start": "node src/index.js",\n    "test": "jest"\n  },\n  "dependencies": {\n    "express": "^4.18.0"\n  }\n}\n',
-      '/home/demo/projects/myapp/src/index.js':
-        'const express = require("express");\nconst app = express();\n\napp.get("/", (req, res) => {\n  res.json({ message: "Hello, world!" });\n});\n\napp.listen(3000, () => {\n  console.log("Server running on port 3000");\n});\n',
-      '/home/demo/projects/myapp/README.md':
-        '# MyApp\n\nA simple Express.js application.\n\n## Getting Started\n\n```bash\nnpm install\nnpm start\n```\n\nThe server will start on port 3000.\n',
-      '/home/demo/documents/notes.txt':
-        'Meeting notes - 2024-01-15\n- Review Q4 metrics\n- Plan roadmap for Q1\n- Discuss hiring needs\n\nTODO:\n- Update documentation\n- Fix CI pipeline\n- Deploy v2.1\n',
-      '/home/demo/documents/todo.md':
-        '# TODO List\n\n- [x] Set up project structure\n- [x] Implement core features\n- [ ] Write tests\n- [ ] Deploy to production\n- [ ] Monitor performance\n',
-      '/etc/hostname': 'tmuxy-demo\n',
-      '/etc/os-release': 'NAME="Tmuxy Demo"\nVERSION="1.0"\nID=tmuxy\n',
-      '/home/demo/pane-group-1.txt': 'Did you notice that this pane has two tabs?',
-      '/home/demo/pane-group-2.txt':
-        'A pane group lets you stack several panes in the same position within your layout. The inactive panes live in hidden tmux windows.\n\nWhen you switch tabs, tmuxy swaps the visible pane with the hidden one.\n',
-    },
-  });
-}
 
 /**
  * Is `ch` a CSI final byte? CSI sequences run `\x1b[` + parameter/intermediate

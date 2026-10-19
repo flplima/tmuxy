@@ -26,7 +26,7 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | nightly `v86 / deterministic` | `npm run test-storybook -w tmuxy-ui` (every story, the axe pass on) | The `nightly`-tagged stories and accessibility |
 | `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit` | Dependency security alerts |
 | `build-frontend` / `build-server` | `npm run build -w tmuxy-ui` / `cargo build --profile ci -p tmuxy-server` | The frontend bundle and the `ci`-profile server every later job downloads; a failure here fails everything after it |
-| `node-checks / demo-build` | `npm run build -w tmuxy-demo` | The demo site build |
+| `node-checks / demo-build` | `npm run build --ignore-scripts -w tmuxy-demo` | The demo site compiles (without staging its v86 assets; a full `npm run build -w tmuxy-demo` needs `npm run build:wasm`, `fetch:v86-image` and `build:v86-snapshot` first) |
 | `macos-tests` | `npm run test:cli` every push; `cargo test --workspace` (on a Mac, with Homebrew tmux) when the push touches `packages/tmuxy-tauri-app/`, `control_mode/connection.rs`, `bin/` or the Cargo manifests, and on every tag — `build-app.yml` also runs it on a Mac daily and on tags | macOS-only shell, path and tmux behaviour |
 | nightly `tmux matrix / suites` | `npx jest tests/snapshots/` and `npx jest tests/8-tui-alternate-screen.test.js`, against the tmux version the job names | A tmux version the default CI tmux does not exercise |
 | nightly `v86 / sweep` | `npm run test-storybook:v86 -w tmuxy-ui` | The full v86 story sweep; a failure opens an issue |

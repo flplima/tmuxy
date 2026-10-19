@@ -35,23 +35,6 @@ export function press(init: KeyboardEventInit): void {
 /** A key that types itself: `a`, or a layout-native `ç` / `ü` / `й`. */
 export const plain = (char: string) => () => press({ key: char });
 
-/**
- * A dead-key sequence: the accent key produces `Dead`, and the next key arrives
- * already composed. macOS routes that through the IME, so the event that
- * carries the finished character is stamped keyCode 229.
- */
-export const dead = (char: string) => () => {
-  press({ key: 'Dead', keyCode: 229 });
-  press({ key: char, keyCode: 229 });
-};
-
-/** macOS Option as a compose key: Option+c arrives as `ç` with altKey set. */
-export const option = (char: string) => () => press({ key: char, altKey: true });
-
-/** AltGr third level: legacy ctrl+alt flags plus the AltGraph modifier state. */
-export const altGr = (char: string) => () =>
-  press({ key: char, ctrlKey: true, altKey: true, modifierAltGraph: true });
-
 /** IME composition (pinyin, kana, hangul, the emoji picker) committing `text`. */
 export const compose = (text: string) => () => {
   const target = focusTarget();
@@ -187,17 +170,3 @@ export function expectPainted(canvasElement: HTMLElement, rect: DOMRect, cells?:
     expect(rect.width / cellWidth(canvasElement)).toBeCloseTo(cells, 0);
   }
 }
-
-export const DIACRITICS_LANGUAGES: Array<[string, string]> = [
-  ['Portuguese', 'áàâãçéêíóôõúü'],
-  ['Spanish', 'ñáéíóúü¿¡'],
-  ['French', 'àâçéèêëîïôùûœ'],
-  ['German', 'äöüß'],
-  ['Nordic', 'åøæ'],
-  ['Polish', 'ąćęłńóśźż'],
-  ['Czech', 'čďěňřšťůž'],
-  ['Turkish', 'çğıöşü'],
-  ['Romanian', 'ăâîșț'],
-  ['Hungarian', 'őű'],
-  ['Vietnamese', 'ơưđ'],
-];

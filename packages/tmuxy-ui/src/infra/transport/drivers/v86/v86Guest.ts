@@ -2,6 +2,7 @@ import type { PaneContent, ServerStateEncoded, StateUpdateEncoded } from '../../
 
 const WASM_JS = '/wasm/tmuxy_wasm.js';
 const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';
+const V86_JS = '/v86/libv86.mjs';
 const V86_WASM = '/v86/v86.wasm';
 const STATE_URL = '/v86-img/tmux-state.bin';
 const STATE_GZ_URL = '/v86-img/tmux-state.bin.gz';
@@ -90,8 +91,11 @@ export function createDetachedScreen(): HTMLElement {
   return el;
 }
 
+/** The engine's JS glue is a served file, not a module of the bundle. */
 export async function loadWasmModule(): Promise<WasmModule> {
-  const wasm = (await import(/* @vite-ignore */ WASM_JS)) as unknown as WasmModule;
+  const wasm = (await import(
+    /* @vite-ignore */ /* webpackIgnore: true */ WASM_JS
+  )) as unknown as WasmModule;
   await wasm.default(WASM_BG);
   return wasm;
 }
@@ -110,7 +114,10 @@ export async function loadWasmModule(): Promise<WasmModule> {
 export async function createV86Emulator(
   screen: HTMLElement,
 ): Promise<{ emu: V86Emulator; loaded: Promise<void> }> {
-  const { V86 } = (await import('v86')) as unknown as {
+  // Served, like the engine's glue, rather than bundled: v86 takes its Node
+  // branches wherever `process` exists, and a bundler's `process` shim is
+  // enough to send it there.
+  const { V86 } = (await import(/* @vite-ignore */ /* webpackIgnore: true */ V86_JS)) as {
     V86: new (opts: Record<string, unknown>) => V86Emulator;
   };
   const emu: V86Emulator = new V86({

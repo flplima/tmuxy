@@ -1,11 +1,10 @@
 import type { StorybookConfig } from '@storybook/react-vite';
-import type { UserConfig } from 'vite';
 import { createRequire } from 'module';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 // Resolve the installed v86 build dir (wasm + libv86) robustly, regardless of
-// npm hoisting, so the v86 stories can fetch /v86/v86.wasm at runtime.
+// npm hoisting, so the v86 stories can load /v86/libv86.mjs and /v86/v86.wasm.
 // Storybook loads this config as ESM, so use createRequire for resolution.
 const nodeRequire = createRequire(import.meta.url);
 const v86Build = join(dirname(nodeRequire.resolve('v86/package.json')), 'build');
@@ -41,13 +40,6 @@ const config: StorybookConfig = {
   ],
   typescript: {
     reactDocgen: false,
-  },
-  // v86 is a large, hand-written ESM module that loads its own wasm at runtime;
-  // let Vite serve it as-is instead of pre-bundling it through esbuild.
-  viteFinal: async (cfg: UserConfig) => {
-    cfg.optimizeDeps = cfg.optimizeDeps ?? {};
-    cfg.optimizeDeps.exclude = [...(cfg.optimizeDeps.exclude ?? []), 'v86'];
-    return cfg;
   },
 };
 

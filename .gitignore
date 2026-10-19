@@ -42,6 +42,10 @@ storybook-static/
 
 # v86 spike assets (large guest kernel + BIOS, fetched via `npm run fetch:v86-image`)
 packages/tmuxy-ui/v86-assets
+# ...and the copies the demo serves them from (packages/tmuxy-demo/scripts/stage-v86-assets.mjs)
+packages/tmuxy-demo/public/v86
+packages/tmuxy-demo/public/v86-img
+packages/tmuxy-demo/public/wasm
 
 # Core dumps (e.g., zsh crashes during dev)
 core

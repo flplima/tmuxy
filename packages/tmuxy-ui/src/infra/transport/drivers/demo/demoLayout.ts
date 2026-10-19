@@ -1,5 +1,5 @@
 import type { WireImagePlacement } from '../../../../domain/wire';
-import type { LifoShell } from './LifoShell';
+import type { DemoShell } from './DemoShell';
 
 // ============================================
 // Layout Tree
@@ -27,7 +27,7 @@ export interface FakePane {
   id: string;
   numericId: number;
   windowId: string;
-  shell: LifoShell;
+  shell: DemoShell;
   command: string;
   /**
    * App-set pane title (OSC 0/2). Empty until something sets one, mirroring

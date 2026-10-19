@@ -1,15 +1,21 @@
-import type { CommandContext, Sandbox } from '@lifo-sh/core';
+/**
+ * A pane's shell in the demo engine: a line editor over a cell grid that
+ * runs what it is given on Enter, synchronously — `echo`, `printf` (with a
+ * `>` into the shared disk, `demoFiles.ts`), `mkdir -p`, `clear`, `exit` and
+ * `tmuxy open`; anything else is not found, as in a shell without it. The
+ * real thing, a real bash under a real tmux, is the v86 engine's.
+ */
+
 import { previewKind } from '../../../../domain/preview';
 import { previewArgs } from './demoPreview';
-import type { DemoFiles } from './demoFiles';
+import { DEMO_HOME, resolvePath, type DemoFiles } from './demoFiles';
 import type { PaneContent, CellLine, TerminalCell, CellStyle } from '../../../../domain/wire';
 import type { DemoTmux } from './DemoTmux';
-import { tmuxy as tmuxyCmd } from './commands/tmuxy';
-import { createDemoSandbox, DEMO_BANNER_LINES, writeAnsiText } from './lifoShellHelpers';
+import { DEMO_BANNER_LINES, writeAnsiText } from './demoShellHelpers';
+import { parseLine, printf } from './demoShellCommands';
 
-export class LifoShell {
-  cwd: string;
-  env: Map<string, string>;
+export class DemoShell {
+  cwd = DEMO_HOME;
   history: string[] = [];
   /**
    * The line being edited, one entry per Unicode CHARACTER. A plain string
@@ -21,16 +27,12 @@ export class LifoShell {
   cursorPos = 0;
   historyIndex = -1;
 
-  /** Called after an async command completes — triggers state re-emit in DemoAdapter */
+  /** Called when the screen changes on its own (a preview following its file). */
   onUpdate?: () => void;
 
-  private sandbox: Sandbox | null = null;
-  private sandboxPromise: Promise<Sandbox>;
   private tmux?: DemoTmux;
   private ownPaneId: string | null = null;
-  private busy = false;
-  private abortController: AbortController | null = null;
-  /** Ends a running `tmuxy open`: C-c reaches it here, before the abort. */
+  /** Ends a running `tmuxy open`, the one command that runs until C-c. */
   private stopPreview: (() => void) | null = null;
 
   private grid: PaneContent = [];
@@ -59,79 +61,71 @@ export class LifoShell {
   constructor(
     width: number,
     height: number,
-    private readonly files?: DemoFiles,
+    private readonly files: DemoFiles,
   ) {
     this.width = width;
     this.height = height;
-    this.cwd = '/home/demo';
-    this.env = new Map([
-      ['HOME', '/home/demo'],
-      ['USER', 'demo'],
-      ['SHELL', '/bin/bash'],
-      ['PATH', '/usr/bin:/bin'],
-      ['TERM', 'xterm-256color'],
-      ['PWD', '/home/demo'],
-    ]);
     this.initGrid();
-    this.sandboxPromise = this.initSandbox();
   }
 
-  private async initSandbox(): Promise<Sandbox> {
-    const sb = await createDemoSandbox();
-    this.sandbox = sb;
-    this.files?.join(sb.kernel.vfs);
-    this.registerCustomCommands(sb);
-    return sb;
-  }
-
-  private registerCustomCommands(sb: Sandbox): void {
-    sb.commands.register('tmuxy', async (ctx) => {
-      const preview = previewArgs(ctx.args);
-      if (preview) return this.runPreview(sb, preview, ctx);
-      const shellCtx = {
-        cwd: this.cwd,
-        env: this.env,
-        history: this.history,
-        tmux: this.tmux,
-      };
-      const result = tmuxyCmd(ctx.args, shellCtx);
-      if (result.output) ctx.stdout.write(result.output);
-      return result.exitCode;
-    });
+  /** Run one line; its output, or an error, goes to the screen or the `>` file. */
+  private run(line: string): void {
+    const { argv, redirect } = parseLine(line);
+    const [name, ...args] = argv;
+    let out = '';
+    switch (name) {
+      case undefined:
+        break;
+      case 'echo':
+        out = `${args.join(' ')}\n`;
+        break;
+      case 'printf':
+        out = printf(args[0] ?? '', args.slice(1));
+        break;
+      case 'mkdir':
+        for (const arg of args) if (arg !== '-p') this.files.mkdir(resolvePath(this.cwd, arg));
+        break;
+      case 'clear':
+        this.handleClearScreen();
+        break;
+      case 'tmuxy': {
+        const preview = previewArgs(args);
+        if (!preview) {
+          out = `tmuxy: ${args.join(' ')}: not in this demo\n`;
+          break;
+        }
+        const error = this.runPreview(preview);
+        if (!error) return;
+        this.writeOutput(error);
+        break;
+      }
+      default:
+        out = `bash: ${name}: command not found\n`;
+    }
+    if (redirect && !this.files.write(resolvePath(this.cwd, redirect), out)) {
+      this.writeOutput(`bash: ${redirect}: No such file or directory\n`);
+    } else if (!redirect && out) {
+      this.writeOutput(out);
+    }
+    this.writePrompt();
   }
 
   /**
    * `tmuxy open`, as `tmuxy-widget-preview` runs it: authorise the pane's
    * preview, show the widget, rewrite its rev line whenever the file changes,
-   * and block until C-c — which leaves the widget for the prompt. C-c calls
-   * `stopPreview` before it aborts the command, so the widget is gone before
-   * the shell redraws its prompt.
+   * and hold the shell until C-c, which leaves the widget for the prompt.
+   * Returns the error when there is nothing to open.
    */
-  private async runPreview(
-    sb: Sandbox,
-    args: { file: string; net: boolean; themed: boolean },
-    ctx: CommandContext,
-  ): Promise<number> {
+  private runPreview(args: { file: string; net: boolean; themed: boolean }): string | null {
     const paneId = this.ownPaneId;
     const tmux = this.tmux;
-    if (!tmux || !paneId) return 1;
-    const path = args.file.startsWith('/') ? args.file : `${ctx.cwd}/${args.file}`;
+    if (!tmux || !paneId) return 'tmuxy: no pane to open it in\n';
+    const path = resolvePath(this.cwd, args.file);
     if (!args.file || !previewKind(path)) {
-      ctx.stderr.write(`Error: a preview shows .html and .md files: ${args.file}\n`);
-      return 1;
+      return `Error: a preview shows .html and .md files: ${args.file}\n`;
     }
-    const contents = async () => {
-      try {
-        return await sb.fs.readFile(path);
-      } catch {
-        return null;
-      }
-    };
-    let last = await contents();
-    if (last === null) {
-      ctx.stderr.write(`Error: not a file: ${args.file}\n`);
-      return 1;
-    }
+    let last = this.files.read(path);
+    if (last === null) return `Error: not a file: ${args.file}\n`;
     let rev = 1;
     const name = path.slice(path.lastIndexOf('/') + 1);
     const lines = () => [
@@ -140,34 +134,29 @@ export class LifoShell {
       `__REV__:${rev}`,
     ];
     tmux.previews.open(paneId, path, args.net, lines());
-    this.onUpdate?.();
-    const timer = setInterval(async () => {
-      const now = await contents();
+    const timer = setInterval(() => {
+      const now = this.files.read(path);
       if (now === null || now === last) return;
       last = now;
       rev += 1;
       tmux.writeWidget(paneId, 'preview', lines());
       this.onUpdate?.();
     }, 500);
-    await new Promise<void>((resolve) => {
-      const close = () => {
-        if (this.stopPreview !== close) return;
-        this.stopPreview = null;
-        clearInterval(timer);
-        tmux.previews.close(paneId);
-        this.leaveWidget();
-        resolve();
-      };
-      this.stopPreview = close;
-      ctx.signal.addEventListener('abort', close, { once: true });
-    });
-    return 130;
+    this.stopPreview = () => {
+      this.stopPreview = null;
+      clearInterval(timer);
+      tmux.previews.close(paneId);
+      this.leaveWidget();
+      this.writePrompt();
+    };
+    return null;
   }
 
-  /** A file's bytes from this shell's sandbox, for `read_preview`. */
+  /** A file's bytes from the shared disk, for `read_preview`. */
   async readFileBytes(path: string): Promise<Uint8Array> {
-    const sb = this.sandbox ?? (await this.sandboxPromise);
-    return sb.fs.readFile(path, null);
+    const bytes = this.files.read(path);
+    if (!bytes) throw new Error(`${path}: no such file`);
+    return bytes;
   }
 
   /** Back from a widget to a terminal: an empty screen for the prompt. */
@@ -289,18 +278,17 @@ export class LifoShell {
     }
   }
 
-  writePrompt(): void {
-    const home = this.env.get('HOME') ?? '/home/demo';
-    let displayCwd = this.cwd;
-    if (this.cwd === home) {
-      displayCwd = '~';
-    } else if (this.cwd.startsWith(home + '/')) {
-      displayCwd = '~' + this.cwd.slice(home.length);
-    }
+  /** The working directory as the prompt shows it, `~` for home. */
+  private displayCwd(): string {
+    if (this.cwd === DEMO_HOME) return '~';
+    if (this.cwd.startsWith(`${DEMO_HOME}/`)) return `~${this.cwd.slice(DEMO_HOME.length)}`;
+    return this.cwd;
+  }
 
+  writePrompt(): void {
     this.writeStyled('demo@tmuxy', { fg: 2, bold: true });
     this.writeCell({ c: ':', s: undefined });
-    this.writeStyled(displayCwd, { fg: 4, bold: true });
+    this.writeStyled(this.displayCwd(), { fg: 4, bold: true });
     this.writeCell({ c: '$', s: undefined });
     this.writeCell({ c: ' ', s: undefined });
     this.promptRow = this.cursorRow;
@@ -311,9 +299,9 @@ export class LifoShell {
   // ============================================
 
   processKey(key: string): void {
-    // Ignore all keys while a command is running (except C-c)
-    if (this.busy) {
-      if (key === 'C-c') this.handleCtrlC();
+    // A running preview takes no input but C-c, which ends it.
+    if (this.stopPreview) {
+      if (key === 'C-c') this.stopPreview();
       return;
     }
 
@@ -351,8 +339,6 @@ export class LifoShell {
       this.handleCtrlK();
     } else if (key === 'C-w') {
       this.handleCtrlW();
-    } else if (key === 'Tab') {
-      // Tab completion not supported in lifo mode
     } else if (key === 'Space') {
       this.insertChar(' ');
     } else if (Array.from(key).length === 1 && key >= ' ') {
@@ -363,7 +349,7 @@ export class LifoShell {
   }
 
   processLiteral(text: string): void {
-    if (this.busy) return;
+    if (this.stopPreview) return;
     for (const ch of text) {
       this.insertChar(ch);
     }
@@ -406,73 +392,17 @@ export class LifoShell {
       return;
     }
 
-    if (line.length > 0) {
-      this.history.push(line);
-      this.busy = true;
-      this.abortController = new AbortController();
-      this.executeLineAsync(line, this.abortController.signal);
-    } else {
-      this.writePrompt();
-    }
-  }
-
-  private async executeLineAsync(line: string, signal: AbortSignal): Promise<void> {
-    try {
-      const sandbox = this.sandbox ?? (await this.sandboxPromise);
-
-      const result = await sandbox.commands.run(line, {
-        cwd: this.cwd,
-        signal,
-      });
-
-      // Track cwd changes (e.g. from cd)
-      const newCwd = sandbox.shell.getCwd();
-      if (newCwd !== this.cwd) {
-        this.cwd = newCwd;
-        this.env.set('PWD', this.cwd);
-      }
-
-      const output = (result.stdout + result.stderr).replace(/\r\n/g, '\n');
-      if (output) {
-        // Check for clear-screen escape
-        if (output.includes('\x1b[2J')) {
-          this.handleClearScreen();
-        } else {
-          this.writeOutput(output);
-        }
-      }
-    } catch (e: unknown) {
-      const isAbort =
-        e instanceof Error && (e.name === 'AbortError' || e.message.includes('abort'));
-      if (isAbort) {
-        this.writeText('^C');
-        this.newline();
-      } else {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.writeText(msg);
-        this.newline();
-      }
-    } finally {
-      this.busy = false;
-      this.abortController = null;
-      this.writePrompt();
-      this.onUpdate?.();
-    }
+    if (line.length > 0) this.history.push(line);
+    this.run(line);
   }
 
   private handleCtrlC(): void {
-    if (this.busy) {
-      this.stopPreview?.();
-      this.abortController?.abort();
-      // The executeLineAsync finally block handles the prompt
-    } else {
-      this.writeText('^C');
-      this.newline();
-      this.input = [];
-      this.cursorPos = 0;
-      this.historyIndex = -1;
-      this.writePrompt();
-    }
+    this.writeText('^C');
+    this.newline();
+    this.input = [];
+    this.cursorPos = 0;
+    this.historyIndex = -1;
+    this.writePrompt();
   }
 
   private handleClear(): void {
@@ -546,11 +476,7 @@ export class LifoShell {
   }
 
   private promptLength(): number {
-    const home = this.env.get('HOME') ?? '/home/demo';
-    let displayCwd = this.cwd;
-    if (this.cwd === home) displayCwd = '~';
-    else if (this.cwd.startsWith(home + '/')) displayCwd = '~' + this.cwd.slice(home.length);
-    return 'demo@tmuxy:'.length + displayCwd.length + '$ '.length;
+    return 'demo@tmuxy:'.length + this.displayCwd().length + '$ '.length;
   }
 
   private updateCursorPosition(): void {

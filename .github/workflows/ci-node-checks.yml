@@ -18,8 +18,11 @@ jobs:
           node-version: 22
           cache: npm
       - uses: ./.github/actions/install-node-modules
+      # That the site compiles. Without `prebuild`, which stages the v86
+      # guest's assets for the page to load at runtime: building those is
+      # Deploy Demo's, and a compile check has no use for them.
       - name: Build demo
-        run: npm run build -w tmuxy-demo
+        run: npm run build --ignore-scripts -w tmuxy-demo
 
   unit-tests:
     runs-on: ubuntu-latest

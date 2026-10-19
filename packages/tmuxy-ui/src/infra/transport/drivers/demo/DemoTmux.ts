@@ -1,5 +1,5 @@
 import type { PaneContent, ServerStateEncoded, WireImagePlacement } from '../../../../domain/wire';
-import { LifoShell } from './LifoShell';
+import { DemoShell } from './DemoShell';
 import { DemoPreviews } from './demoPreview';
 import { DemoBuffers } from './demoBuffers';
 import { DemoFiles } from './demoFiles';
@@ -85,23 +85,24 @@ export class DemoTmux {
   private totalHeight = 24;
   private sessionName = 'demo';
   private copyModePanes = new Set<string>();
-  private onAsyncUpdate?: () => void;
+  /** Called when state changes outside a command: an image attached, a preview's file edited. */
+  private onUpdate?: () => void;
 
   // Zoom state
   private zoomedPaneId: string | null = null;
   private savedLayout: LayoutNode | null = null;
 
-  setOnAsyncUpdate(cb: () => void): void {
-    this.onAsyncUpdate = cb;
+  setOnUpdate(cb: () => void): void {
+    this.onUpdate = cb;
   }
 
   /** The one disk every pane's shell sees (`demoFiles.ts`). */
   private readonly files = new DemoFiles();
 
-  private makeShell(paneId: string, width: number, height: number): LifoShell {
-    const shell = new LifoShell(width, height, this.files);
+  private makeShell(paneId: string, width: number, height: number): DemoShell {
+    const shell = new DemoShell(width, height, this.files);
     shell.setTmux(this, paneId);
-    shell.onUpdate = () => this.onAsyncUpdate?.();
+    shell.onUpdate = () => this.onUpdate?.();
     return shell;
   }
 
@@ -488,7 +489,7 @@ export class DemoTmux {
     if (!pane) return false;
     pane.images = pane.images ?? [];
     pane.images.push(placement);
-    this.onAsyncUpdate?.();
+    this.onUpdate?.();
     return true;
   }
 

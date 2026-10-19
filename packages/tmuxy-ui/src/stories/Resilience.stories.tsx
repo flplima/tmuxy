@@ -21,7 +21,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
-import type { DemoAdapter } from '../lib';
+import type { DemoAdapter } from '../infra/transport/drivers/demo/DemoAdapter';
 import { PaneId } from '../domain/ids';
 
 const meta: Meta<typeof AppHarness> = {

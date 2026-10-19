@@ -3,8 +3,8 @@
 import {
   TmuxyProvider,
   TmuxyApp,
-  DemoAdapter,
-  DemoTransportLive,
+  V86TmuxAdapter,
+  V86TransportLive,
   useAppFocused,
   type RenderTabline,
 } from 'tmuxy-ui';
@@ -31,55 +31,66 @@ const renderTabline: RenderTabline = ({ children }) => (
   <DemoTabline>{children}</DemoTabline>
 );
 
-const INIT_COMMANDS_DESKTOP = [
-  // Tab 1: welcome (3-pane layout)
-  'rename-window welcome',
-  'split-window -h',          // %1 (right)
-  'split-window -v',          // %2 (bottom-right)
-  'select-pane -t %0',        // select left pane
-  // Tab 2: features
-  'new-window',               // @1 with %3
-  'rename-window features',
-  'split-window -h',          // %4 (right)
-  'select-pane -t %3',        // select left
-  'split-window -v',          // %5 (bottom-left)
-  // Top-left pane (%3): pane group with 2 panes running cat
-  'select-pane -t %3',
-  'send-keys -t %3 -l cat ~/pane-group-1.txt',
-  'send-keys -t %3 Enter',
-  'tmuxy-pane-group-add',     // creates %6, swaps into view; %3 goes to group
-  'send-keys -l cat ~/pane-group-2.txt',       // goes to %6 (now active)
+// The two texts the features tab's pane group shows, written into the guest's
+// home before the panes `cat` them.
+const PANE_GROUP_FILES = [
+  ['pane-group-1.txt', 'Did you notice that this pane has two tabs?'],
+  [
+    'pane-group-2.txt',
+    'A pane group lets you stack several panes in the same position within your layout. The inactive panes live in hidden tmux windows.\\n\\nWhen you switch tabs, tmuxy swaps the visible pane with the hidden one.',
+  ],
+].map(([file, text]) => `run-shell "printf '${text}\\n' > ~/${file}"`);
+
+// A pane group in the active pane: one member showing the first text, a second
+// one the other, then back to the first, and then to the welcome tab. Run from
+// the pane's own shell with the CLI, as a user would: `group add` acts on the
+// shell's pane, and the new member is the one then showing in the features
+// tab (`m:features.`). Targets name the snapshot's session, `m`
+// (build-v86-snapshot.mjs), since a parked shell's own session is the stash.
+// The switch to the welcome tab is the line's own last step rather than an
+// init command, which would run before the shell got to it. Otherwise targets
+// are relative: the guest's pane ids are whatever its snapshot left them at.
+const PANE_GROUP_THEN_WELCOME = [
+  `send-keys -l "clear; cat ~/pane-group-1.txt; tmuxy pane group add && tmux send-keys -t m:features. 'clear; cat ~/pane-group-2.txt' Enter && tmuxy pane group switch \\$TMUX_PANE && tmux select-window -t m:welcome"`,
   'send-keys Enter',
-  'tmuxy-pane-group-next',    // switch back to %3 visible (first tab)
-  'select-window -t @0',      // back to welcome tab
+];
+
+// The guest's snapshot starts with one window of two side-by-side panes.
+const FEATURES_TAB = [
+  // Tab 2: features: left column split in two, its top pane a group
+  'new-window',
+  'rename-window features',
+  'split-window -h',
+  'select-pane -L',
+  'split-window -v',
+  'select-pane -U',
+  ...PANE_GROUP_THEN_WELCOME,
+];
+
+const INIT_COMMANDS_DESKTOP = [
+  ...PANE_GROUP_FILES,
+  // Tab 1: welcome: the two panes, the right one split in two
+  'rename-window welcome',
+  'split-window -v',
+  'select-pane -L',
+  ...FEATURES_TAB,
 ];
 
 const INIT_COMMANDS_MOBILE = [
-  // Tab 1: welcome (stacked panes for narrow screens)
+  ...PANE_GROUP_FILES,
+  // Tab 1: welcome: the two panes stacked, for narrow screens
   'rename-window welcome',
-  'split-window -v',          // %1 (bottom)
-  'select-pane -t %0',        // select top pane
-  // Tab 2: features (same 3-pane layout as desktop)
-  'new-window',               // @1 with %2
-  'rename-window features',
-  'split-window -h',          // %3 (right)
-  'select-pane -t %2',        // select left
-  'split-window -v',          // %4 (bottom-left)
-  // Top-left pane (%2): pane group with 2 panes running cat
-  'select-pane -t %2',
-  'send-keys -t %2 -l cat ~/pane-group-1.txt',
-  'send-keys -t %2 Enter',
-  'tmuxy-pane-group-add',     // creates %5, swaps into view; %2 goes to group
-  'send-keys -l cat ~/pane-group-2.txt',
-  'send-keys Enter',
-  'tmuxy-pane-group-next',
-  'select-window -t @0',      // back to welcome tab
+  'select-layout even-vertical',
+  'select-pane -U',
+  ...FEATURES_TAB,
 ];
 
 export default function TmuxyDemoInner() {
   const adapter = useMemo(() => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
-    return new DemoAdapter({ initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP });
+    return new V86TmuxAdapter({
+      initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP,
+    });
   }, []);
 
   const interacted = useRef(false);
@@ -100,7 +111,7 @@ export default function TmuxyDemoInner() {
     });
   }, [adapter]);
 
-  const transport = useMemo(() => DemoTransportLive(adapter), [adapter]);
+  const transport = useMemo(() => V86TransportLive(adapter), [adapter]);
 
   return (
     <div

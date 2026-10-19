@@ -6,6 +6,15 @@ on:
     paths:
       - 'packages/tmuxy-demo/**'
       - 'packages/tmuxy-ui/src/**'
+      # The demo runs real tmux in a v86 guest: the engine compiled to wasm,
+      # and what the guest's snapshot is built from, ship with it.
+      - 'packages/tmuxy-core/**'
+      - 'packages/tmuxy-wasm/**'
+      - 'packages/tmuxy-ui/scripts/build-v86-snapshot.mjs'
+      - 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs'
+      - 'bin/tmuxy-cli'
+      - 'bin/tmuxy/**'
+      - '.devcontainer/.tmuxy.defaults.conf'
       - '.github/workflows/deploy-demo.yml'
   workflow_dispatch:
 
@@ -21,7 +30,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
 
@@ -34,6 +43,46 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The v86 guest the demo runs, built as the storybook-probe job builds it
+      # (lint-and-tests.yml): wasm32 for tmuxy-wasm, i686-musl for the guest
+      # binaries build-v86-snapshot.mjs cross-compiles on a cache miss.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,i686-unknown-linux-musl
+
+      - uses: swatinem/rust-cache@v2
+
+      # The CLI and the crate must agree exactly on the bindgen schema.
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/{f=1; next} f && /^version = /{gsub(/["]/,""); sub(/version = /,""); print; exit}' Cargo.lock)
+          test -n "$version" || { echo "no wasm-bindgen in Cargo.lock"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+
+      - name: Build tmuxy-wasm
+        run: npm run build:wasm
+
+      # Same key as lint-and-tests.yml, so a snapshot either job built is reused.
+      - name: Cache v86 guest assets
+        id: v86-assets-cache
+        uses: actions/cache@v6
+        with:
+          path: packages/tmuxy-ui/v86-assets
+          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'bin/tmuxy-cli', 'bin/tmuxy/**', '.devcontainer/.tmuxy.defaults.conf') }}
+
+      - name: Build v86 guest assets (cache miss)
+        if: steps.v86-assets-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends zstd
+          npm run fetch:v86-image -w tmuxy-ui
+          npm run build:v86-snapshot -w tmuxy-ui
+
       - name: Build demo
         run: npm run build -w tmuxy-demo
         env:
@@ -45,6 +94,7 @@ jobs:
         run: |
           test -d packages/tmuxy-demo/out || { echo "demo export missing"; exit 1; }
           test -n "$(ls -A packages/tmuxy-demo/out)" || { echo "demo export is empty"; exit 1; }
+          test -s packages/tmuxy-demo/out/v86-img/tmux-state.bin.gz || { echo "demo export has no v86 snapshot"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

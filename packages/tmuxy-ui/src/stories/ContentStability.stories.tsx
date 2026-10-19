@@ -85,7 +85,10 @@ async function waitForPaneCount(canvas: Canvas, count: number, timeout = 8000): 
   );
 }
 
-/** Print a distinctive marker line into a specific pane and wait for it to render. */
+/**
+ * Print a distinctive marker line into a specific pane. The demo shell runs
+ * the line on the Enter itself, so what is left to wait for is the paint.
+ */
 async function parkMarker(
   canvasElement: HTMLElement,
   paneId: string,
@@ -93,9 +96,7 @@ async function parkMarker(
 ): Promise<void> {
   cmd(`send-keys -t ${paneId} -l 'echo ${marker}'`);
   cmd(`send-keys -t ${paneId} Enter`);
-  await waitFor(() => expect(getPaneLayout(canvasElement).textContent ?? '').toContain(marker), {
-    timeout: 8000,
-  });
+  await waitFor(() => expect(getPaneLayout(canvasElement).textContent ?? '').toContain(marker));
 }
 
 /**
