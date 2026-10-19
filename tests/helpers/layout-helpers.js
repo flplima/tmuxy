@@ -271,6 +271,7 @@ function slideProblem(series, direction) {
 }
 
 module.exports = {
+  ...require('./index'),
   verifyFloatVisible,
   waitForFloatModal,
   waitForNoModal,

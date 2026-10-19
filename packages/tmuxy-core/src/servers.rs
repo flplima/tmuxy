@@ -418,7 +418,10 @@ pub fn find_server(id: &str) -> Option<Server> {
 pub fn current_server_id() -> String {
     let socket = crate::session::tmux_socket();
     let ssh = crate::session::ssh_target().map(|v| v.join(" "));
-    read_servers()
+    let candidates = with_users_own_tmux(with_localhost(
+        read_servers_strict().ok().flatten().unwrap_or_default(),
+    ));
+    candidates
         .into_iter()
         .find(|s| {
             let (s_socket, s_ssh) = s.connect_env();

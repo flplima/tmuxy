@@ -230,6 +230,8 @@ fn enrich_and_scan_sockets_discovers_live_local_sockets_and_skips_test_sockets()
     std::fs::write(dir.join("work"), b"").unwrap();
     std::fs::write(dir.join("dead"), b"").unwrap();
     std::fs::write(dir.join("tmuxy-test-123"), b"").unwrap();
+    std::fs::write(dir.join("tmuxy-reply-test-54953"), b"").unwrap();
+    std::fs::write(dir.join("tmuxy-enforced-settings-11220"), b"").unwrap();
 
     let base = vec![
         Server::localhost_on("tmuxy"),

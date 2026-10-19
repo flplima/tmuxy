@@ -105,8 +105,25 @@ pub fn is_ephemeral_test_socket(name: &str) -> bool {
         "tmuxy-snap",
         "tmuxy-bench",
         "tmuxy-probe",
+        "tmuxy-enforced-settings",
+        "tmuxy-pin-race",
+        "tmuxy-initial-",
+        "tmuxy-reply-test",
+        "tmuxy-pane-groups",
+        "tmuxy-repro",
     ];
-    PREFIXES.iter().any(|p| name.starts_with(p))
+    if PREFIXES.iter().any(|p| name.starts_with(p)) {
+        return true;
+    }
+    // Any `tmuxy-<suite>-<pid>` socket left behind by an integration test.
+    if name.starts_with("tmuxy-")
+        && name
+            .rsplit_once('-')
+            .is_some_and(|(_, tail)| !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()))
+    {
+        return true;
+    }
+    false
 }
 
 /// Candidate `tmux-<uid>` directories owned/readable by the current user.
@@ -115,7 +132,7 @@ pub fn tmux_socket_dirs() -> Vec<PathBuf> {
     if let Ok(custom) = std::env::var("TMUXY_SOCKET_DIR") {
         let p = PathBuf::from(custom);
         if p.is_dir() {
-            dirs.push(p);
+            dirs.push(std::fs::canonicalize(&p).unwrap_or(p));
             return dirs;
         }
     }
@@ -142,25 +159,65 @@ pub fn tmux_socket_dirs() -> Vec<PathBuf> {
             }
             let path = entry.path();
             // Tmux creates `tmux-$UID` mode 0700, so `read_dir` succeeds only
-            // for the current user's socket directory.
-            if std::fs::read_dir(&path).is_ok() && !dirs.contains(&path) {
-                dirs.push(path);
+            // for the current user's socket directory. Canonicalize so `/tmp`
+            // and `/private/tmp` on macOS do not scan the same directory twice.
+            if std::fs::read_dir(&path).is_ok() {
+                let canonical = std::fs::canonicalize(&path).unwrap_or(path);
+                if !dirs.contains(&canonical) {
+                    dirs.push(canonical);
+                }
             }
         }
     }
     dirs
 }
 
+fn socket_mtime(socket: &str) -> Option<SystemTime> {
+    if socket.contains('/') {
+        return std::fs::metadata(socket).ok()?.modified().ok();
+    }
+    for dir in tmux_socket_dirs() {
+        if let Ok(meta) = std::fs::metadata(dir.join(socket)) {
+            if let Ok(mtime) = meta.modified() {
+                return Some(mtime);
+            }
+        }
+    }
+    None
+}
+
+fn dead_socket_cache(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, Option<SystemTime>>> {
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Option<SystemTime>>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 /// Count non-stash sessions on a local tmux socket that is NOT the live
 /// control-mode socket. Returns `None` if no server is running on that socket.
 pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
+    let mtime = socket_mtime(socket);
+    if let Ok(cache) = dead_socket_cache().lock() {
+        if let Some(cached_mtime) = cache.get(socket) {
+            if *cached_mtime == mtime {
+                return None;
+            }
+        }
+    }
     let flag = if socket.contains('/') { "-S" } else { "-L" };
     let out = Command::new("tmux")
         .args([flag, socket, "list-sessions", "-F", "#{session_name}"])
         .output()
         .ok()?;
     if !out.status.success() {
+        if let Ok(mut cache) = dead_socket_cache().lock() {
+            cache.insert(socket.to_string(), mtime);
+        }
         return None;
+    }
+    if let Ok(mut cache) = dead_socket_cache().lock() {
+        cache.remove(socket);
     }
     let stdout = String::from_utf8_lossy(&out.stdout);
     let count = stdout
@@ -270,6 +327,36 @@ fn is_no_server_stderr(stderr: &str) -> bool {
         || lower.contains("connection refused")
 }
 
+fn pending_stage(id: &str, label: impl Into<String>) -> ProbeStage {
+    ProbeStage {
+        id: id.to_string(),
+        label: label.into(),
+        status: ProbeStageStatus::Pending,
+        elapsed_ms: None,
+        error: None,
+    }
+}
+
+fn fail_stage(stage: &mut ProbeStage, t0: Instant, err: String) {
+    stage.status = ProbeStageStatus::Failed;
+    stage.elapsed_ms = Some(t0.elapsed().as_millis() as u64);
+    stage.error = Some(err);
+}
+
+fn failed_probe(
+    server_id: &str,
+    stages: Vec<ProbeStage>,
+    tmux_version: Option<String>,
+) -> ServerProbeResult {
+    ServerProbeResult {
+        server_id: server_id.to_string(),
+        ok: false,
+        stages,
+        sessions: Vec::new(),
+        tmux_version,
+    }
+}
+
 /// Run the staged connect probe (`ssh` -> `tmux -V` -> `listing sessions` -> `attach`)
 /// against `server`.
 ///
@@ -290,34 +377,10 @@ pub fn probe_server(
     };
 
     let mut stages = vec![
-        ProbeStage {
-            id: "ssh".to_string(),
-            label: ssh_stage_label.clone(),
-            status: ProbeStageStatus::Pending,
-            elapsed_ms: None,
-            error: None,
-        },
-        ProbeStage {
-            id: "tmux".to_string(),
-            label: format!("tmux on the socket {}", server.socket),
-            status: ProbeStageStatus::Pending,
-            elapsed_ms: None,
-            error: None,
-        },
-        ProbeStage {
-            id: "sessions".to_string(),
-            label: "listing sessions".to_string(),
-            status: ProbeStageStatus::Pending,
-            elapsed_ms: None,
-            error: None,
-        },
-        ProbeStage {
-            id: "attach".to_string(),
-            label: "attach".to_string(),
-            status: ProbeStageStatus::Pending,
-            elapsed_ms: None,
-            error: None,
-        },
+        pending_stage("ssh", ssh_stage_label),
+        pending_stage("tmux", format!("tmux on the socket {}", server.socket)),
+        pending_stage("sessions", "listing sessions"),
+        pending_stage("attach", "attach"),
     ];
 
     // Stage 1: SSH reachability (or immediate local check).
@@ -334,32 +397,17 @@ pub fn probe_server(
             }
             Ok(out) => {
                 let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                stages[0].status = ProbeStageStatus::Failed;
-                stages[0].elapsed_ms = Some(t0.elapsed().as_millis() as u64);
-                stages[0].error = Some(if err.is_empty() {
+                let msg = if err.is_empty() {
                     format!("ssh exited with {}", out.status)
                 } else {
                     err
-                });
-                return ServerProbeResult {
-                    server_id: server.id.clone(),
-                    ok: false,
-                    stages,
-                    sessions: Vec::new(),
-                    tmux_version: None,
                 };
+                fail_stage(&mut stages[0], t0, msg);
+                return failed_probe(&server.id, stages, None);
             }
             Err(e) => {
-                stages[0].status = ProbeStageStatus::Failed;
-                stages[0].elapsed_ms = Some(t0.elapsed().as_millis() as u64);
-                stages[0].error = Some(e.to_string());
-                return ServerProbeResult {
-                    server_id: server.id.clone(),
-                    ok: false,
-                    stages,
-                    sessions: Vec::new(),
-                    tmux_version: None,
-                };
+                fail_stage(&mut stages[0], t0, e.to_string());
+                return failed_probe(&server.id, stages, None);
             }
         }
     } else {
@@ -394,32 +442,17 @@ pub fn probe_server(
         }
         Ok(out) => {
             let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            stages[1].status = ProbeStageStatus::Failed;
-            stages[1].elapsed_ms = Some(t1.elapsed().as_millis() as u64);
-            stages[1].error = Some(if err.is_empty() {
+            let msg = if err.is_empty() {
                 format!("tmux -V exited with {}", out.status)
             } else {
                 err
-            });
-            return ServerProbeResult {
-                server_id: server.id.clone(),
-                ok: false,
-                stages,
-                sessions: Vec::new(),
-                tmux_version: None,
             };
+            fail_stage(&mut stages[1], t1, msg);
+            return failed_probe(&server.id, stages, None);
         }
         Err(e) => {
-            stages[1].status = ProbeStageStatus::Failed;
-            stages[1].elapsed_ms = Some(t1.elapsed().as_millis() as u64);
-            stages[1].error = Some(e.to_string());
-            return ServerProbeResult {
-                server_id: server.id.clone(),
-                ok: false,
-                stages,
-                sessions: Vec::new(),
-                tmux_version: None,
-            };
+            fail_stage(&mut stages[1], t1, e.to_string());
+            return failed_probe(&server.id, stages, None);
         }
     };
 
@@ -462,33 +495,18 @@ pub fn probe_server(
                     stages[2].elapsed_ms = Some(t2.elapsed().as_millis() as u64);
                     Vec::new()
                 } else {
-                    stages[2].status = ProbeStageStatus::Failed;
-                    stages[2].elapsed_ms = Some(t2.elapsed().as_millis() as u64);
-                    stages[2].error = Some(if err.is_empty() {
+                    let msg = if err.is_empty() {
                         format!("tmux list-sessions exited with {}", out.status)
                     } else {
                         err
-                    });
-                    return ServerProbeResult {
-                        server_id: server.id.clone(),
-                        ok: false,
-                        stages,
-                        sessions: Vec::new(),
-                        tmux_version,
                     };
+                    fail_stage(&mut stages[2], t2, msg);
+                    return failed_probe(&server.id, stages, tmux_version);
                 }
             }
             Err(e) => {
-                stages[2].status = ProbeStageStatus::Failed;
-                stages[2].elapsed_ms = Some(t2.elapsed().as_millis() as u64);
-                stages[2].error = Some(e.to_string());
-                return ServerProbeResult {
-                    server_id: server.id.clone(),
-                    ok: false,
-                    stages,
-                    sessions: Vec::new(),
-                    tmux_version,
-                };
+                fail_stage(&mut stages[2], t2, e.to_string());
+                return failed_probe(&server.id, stages, tmux_version);
             }
         }
     };

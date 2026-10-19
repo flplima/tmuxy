@@ -246,9 +246,9 @@ export function createServersActor(runtime: AppRuntime) {
           if (ctx?.leftSidebarOpen !== true) return Effect.void;
         }
 
-        // Sessions tree (tmux). ignore()d so a failing tick doesn't tear down
-        // the poll fiber.
-        return TmuxTransport.pipe(
+        // Sessions tree (tmux), servers, snapshots, and git discovery run
+        // concurrently so a slow socket scan never blocks snapshot listing.
+        const listSessions = TmuxTransport.pipe(
           Effect.flatMap((t) =>
             Effect.all([t.query(LIST_WINDOWS_COMMAND), t.query(LIST_PANES_COMMAND)], {
               concurrency: 'unbounded',
@@ -263,14 +263,12 @@ export function createServersActor(runtime: AppRuntime) {
               }),
             ),
           ),
-          // On the POLL cadence, not inside discover(): chaining it there made
-          // the server list hostage to the worktree-discovery interval, so most
-          // ticks skipped it and the switcher showed no servers at all.
-          Effect.flatMap(() => listServers()),
-          Effect.flatMap(() => listSnapshots()),
-          Effect.flatMap(() => discover(force)),
           Effect.ignore,
         );
+
+        return Effect.all([listSessions, listServers(), listSnapshots(), discover(force)], {
+          concurrency: 'unbounded',
+        }).pipe(Effect.asVoid, Effect.ignore);
       });
 
     // Initial tick (respects the sidebar gate) then repeat while attached. The

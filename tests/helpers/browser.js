@@ -55,6 +55,9 @@ async function getBrowser() {
       });
       const page = await context.newPage();
       page._context = context;
+      page.once('close', () => {
+        context.close().catch(() => {});
+      });
       await throttleCpu(page);
       surfacePageProblems(page);
       return page;
@@ -125,7 +128,9 @@ async function disconnectBrowser() {
   const browser = sharedBrowser;
   sharedBrowser = null;
   try {
-    await (browser.isConnected?.() === false ? Promise.resolve() : browser.close());
+    if (browser.isConnected?.() !== false) {
+      await browser.close();
+    }
   } catch {
     // Already gone — nothing to release.
   }
