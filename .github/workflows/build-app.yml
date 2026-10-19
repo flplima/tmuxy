@@ -798,10 +798,10 @@ jobs:
   #
   # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
   # `brew install --cask flplima/tap/tmuxy`. The DMG is signed and notarized
-  # (see the Apple secrets on the build job), so Gatekeeper accepts it; the
-  # cask's postflight still clears the quarantine xattr to skip the one-time
-  # "downloaded from the Internet" prompt. Requires the HOMEBREW_TAP_TOKEN
-  # secret (PAT with Contents:Write on flplima/homebrew-tap).
+  # (see the Apple secrets on the build job), and Homebrew's `binary` stanza
+  # links `tmuxy.app/Contents/MacOS/tmuxy` into `$(brew --prefix)/bin/tmuxy`.
+  # Requires the HOMEBREW_TAP_TOKEN secret (PAT with Contents:Write on
+  # flplima/homebrew-tap).
 
   bump-cask:
     # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
@@ -848,8 +848,11 @@ jobs:
           cd tap
           mkdir -p Casks
 
-          # Single-quoted heredoc so bash leaves Ruby `#{version}`
-          # interpolation untouched. Placeholders sed-replaced.
+          # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
+          # `brew install --cask flplima/tap/tmuxy`. Matches the official
+          # Homebrew/homebrew-cask format: `livecheck` (`:github_latest`) and the
+          # `binary` stanza linking `tmuxy.app/Contents/MacOS/tmuxy` into
+          # `$(brew --prefix)/bin/tmuxy` (no `postflight_steps`).
           cat > Casks/tmuxy.rb <<'CASK'
           cask "tmuxy" do
             version "__VERSION__"
@@ -860,53 +863,17 @@ jobs:
             desc "Web-based tmux interface"
             homepage "https://github.com/flplima/tmuxy"
 
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
             auto_updates false
             depends_on formula: "tmux"
             depends_on :macos
 
             app "tmuxy.app"
-
-            # `postflight_steps` is a declarative list Homebrew runs, sandboxed,
-            # after the app is installed; Homebrew 7 deprecated the plain-Ruby
-            # `postflight` block in its favour. Steps name their paths so the
-            # sandbox knows what to let them write: `{{appdir}}` is expanded
-            # by Homebrew, and `base: :home` roots a path at the user's home.
-            # The release workflow's verify-brew-cask job checks the wrapper
-            # actually lands: on a Homebrew that predated `postflight_steps`
-            # (alpha.63) the block parsed cleanly and did nothing.
-            postflight_steps do
-              # Homebrew marks the downloaded app with Gatekeeper's quarantine
-              # attribute, which puts a one-time "downloaded from the Internet"
-              # prompt in front of the first launch even for a notarized app.
-              # Removing it keeps that launch frictionless.
-              run "/usr/bin/xattr",
-                  args:         ["-dr", "com.apple.quarantine", "{{appdir}}/tmuxy.app"],
-                  must_succeed: false
-
-              # Record the app binary path and install a CLI wrapper at
-              # ~/.local/bin/tmuxy so `tmuxy pane list` etc. work immediately
-              # after install, without opening the GUI first.
-              mkdir_p ".config/tmuxy", base: :home
-              mkdir_p ".local/bin", base: :home
-              write_file ".config/tmuxy/launcher", "{{appdir}}/tmuxy.app/Contents/MacOS/tmuxy\n", base: :home
-              write_file ".local/bin/tmuxy", <<~WRAPPER, base: :home
-                #!/bin/sh
-                set -eu
-                LAUNCHER_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
-                if [ ! -f "$LAUNCHER_FILE" ]; then
-                  echo 'tmuxy: no launcher recorded — open the app once first.' >&2
-                  exit 1
-                fi
-                EXEC_PATH="$(cat "$LAUNCHER_FILE")"
-                if [ "$#" -gt 0 ]; then exec "$EXEC_PATH" "$@"; fi
-                APP_PATH="${EXEC_PATH%%/Contents/MacOS/*}"
-                if [ "$APP_PATH" != "$EXEC_PATH" ] && [ -d "$APP_PATH" ]; then
-                  exec /usr/bin/open "$APP_PATH"
-                fi
-                exec "$EXEC_PATH"
-              WRAPPER
-              set_permissions ".local/bin/tmuxy", "0755", base: :home, recursive: false
-            end
+            binary "#{appdir}/tmuxy.app/Contents/MacOS/tmuxy"
 
             zap trash: [
               "~/.config/tmuxy",
@@ -1082,8 +1049,8 @@ jobs:
   # a clean macOS runner with no tmuxy on it, installing the cask straight from
   # the tap the job above just pushed, and then running it. It is the only step
   # that exercises the whole chain — release assets reachable, cask sha256
-  # matching the published DMG, the postflight wrapper landing on PATH, the app
-  # launching from /Applications.
+  # matching the published DMG, Homebrew's `binary` symlink landing on PATH,
+  # and CLI subcommands working without `~/.config/tmuxy/launcher`.
   #
   # It runs AFTER the tap is bumped, so it cannot prevent a bad cask from being
   # published — it tells you within minutes that the published one is bad,
@@ -1103,6 +1070,7 @@ jobs:
         run: |
           set -euo pipefail
           test ! -e /Applications/tmuxy.app
+          test ! -e "$(brew --prefix)/bin/tmuxy"
           test ! -e "$HOME/.local/bin/tmuxy"
 
       # The cask the bump job pushed seconds ago; brew's tap clone can serve a
@@ -1115,10 +1083,9 @@ jobs:
           git -C "$(brew --repository flplima/tap)" reset --hard FETCH_HEAD
           brew install --cask flplima/tap/tmuxy
 
-      - name: The installed CLI reports the tag's version
+      - name: The installed CLI reports the tag's version and runs subcommands without launcher
         run: |
           set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
           command -v tmuxy
           VERSION_LINE=$(tmuxy --version)
           echo "$VERSION_LINE"
@@ -1126,13 +1093,15 @@ jobs:
           EXPECTED="tmuxy ${TAG#v}"
           [ "$VERSION_LINE" = "$EXPECTED" ] || {
             echo "brew installed '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
+          test ! -f "$HOME/.config/tmuxy/launcher"
+          tmuxy agent status
+          tmuxy session snapshots
 
       - name: The installed build serves its page
         env:
           PORT: '9124'
         run: |
           set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
           tmuxy server --port "$PORT" > "${RUNNER_TEMP}/brew-server.log" 2>&1 &
           for _ in $(seq 1 60); do
             if curl -fsS "http://127.0.0.1:${PORT}/" | grep -qi '<html'; then

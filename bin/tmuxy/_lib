@@ -131,6 +131,8 @@ find_server_cmd() {
     SERVER_CMD=("$root/target/release/tmuxy-server")
   elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
     SERVER_CMD=("$(cat "$launcher")" server)
+  elif [ -x "/Applications/tmuxy.app/Contents/MacOS/tmuxy" ]; then
+    SERVER_CMD=("/Applications/tmuxy.app/Contents/MacOS/tmuxy" server)
   else
     echo "Error: tmuxy-server binary not found. Run 'cargo build -p tmuxy-server' first." >&2
     return 1
