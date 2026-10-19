@@ -61,7 +61,7 @@ of the plan are implemented; see [§ Using it](#using-it).
   own), else `~/.local/state/tmuxy` on Linux and
   **`~/Library/Application Support/tmuxy` on macOS**, which has no XDG state
   dir. One resolution (`tmuxy-core/src/paths.rs`) serves the writer, `tmuxy
-trace`, the snapshots and the browser profiles, so a `--mark` lands in the
+trace` and the snapshots, so a `--mark` lands in the
   file the server is writing. Mode `0600`, rotated at 64 MiB with one `.1`
   backup. The
   remembered switch/level sit next to the other config, in
@@ -118,7 +118,7 @@ See [TELEMETRY-DESIGN.md](TELEMETRY-DESIGN.md) for this section: Design.
 
 The trace records **the shape of an action, never its content.** This is the
 line [SECURITY.md](SECURITY.md) draws (Risk #2: keystrokes and terminal output
-are the eavesdropping target; Risk #7 names an action-trace as a _wanted_ future
+are the eavesdropping target; Risk #6 names an action-trace as a _wanted_ future
 capability — but only one that excludes content).
 
 **Never recorded:**
@@ -128,7 +128,6 @@ capability — but only one that excludes content).
 - `%output` and `capture-pane` content — the rendered grid, scrollback, cell
   data
 - OSC 52 clipboard payloads and the `clipboard` SSE event body
-- `/api/browse` contents
 
 **Safe to record** (the action's shape): the typed `TmuxOp` / `MonitorCommand` /
 `ClientCommand` variant name; target pane/window ids; session name; connection
@@ -162,10 +161,6 @@ Structural enforcements, not just discipline:
    subscriber never sees its content.
 4. **A test that the tracer never emits a raw command string, grid cell, or
    unhashed name/path.** The redaction boundary is verified, not assumed.
-
-And one deployment rule: the trace file must live **outside** any path served by
-`/api/browse` (SECURITY.md Risk #4), or the trace itself becomes a readable secret
-over the network.
 
 ### Trace levels
 

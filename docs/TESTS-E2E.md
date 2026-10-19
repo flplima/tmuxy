@@ -12,7 +12,7 @@ The browser + tmux suites, the latency gate and the Tauri suite. Part of [TESTS.
 | --- | --- |
 | `tests/1-input-interaction.test.js` | Keyboard, paste, international input, mouse click/scroll/drag/SGR, mouse selection, copy mode navigate/yank, touch scroll (CDP touch events), viewport resize at 800x600 and 1920x1080 |
 | `tests/2-layout-navigation.test.js` | Windows/tabs, tab overview, marked and collapsible panes, zoom, drag to tab strip, pane groups, float lifecycle and close paths, sidebar tree, pinned dock, status bar, fzf in a float |
-| `tests/3-rendering-protocols.test.js` | OSC 8 hyperlinks, OSC 52 clipboard, Unicode, SGR faint, image protocols, browser widget |
+| `tests/3-rendering-protocols.test.js` | OSC 8 hyperlinks, OSC 52 clipboard, Unicode, SGR faint, image protocols |
 | `tests/4-session-connectivity.test.js` | Reload preserves state, offline/online connection overlay, multi-client, command routing, multi-session sidebar |
 | `tests/5-stress-stability.test.js` | Large output (`yes \| head -500`, `seq 1 2000`), rapid operations, glitch detection |
 | `tests/6-nvim-performance.test.js` | One nvim boot: rendering a 500-line file, cursor shape (DECSCUSR) through insert mode, half-page scrolling, discarding the edit |
@@ -22,7 +22,7 @@ The browser + tmux suites, the latency gate and the Tauri suite. Part of [TESTS.
 | `tests/11-webkit.test.js` | The same selection, copy and focus flows under Playwright WebKit — the only proxy CI has for WKWebView, where those bugs escaped. Skips loudly when WebKit is absent; `TMUXY_E2E_REQUIRE_WEBKIT=1` makes that a failure |
 | `tests/12-touch.test.js` | One phone-width (400x780) `hasTouch` context: tap to focus the hidden input, swipe to open the scroll view, tap targets in the tab strip, no horizontal overflow |
 | `tests/13-send-permission.test.js` | `tmuxy pane send -t` into another pane — the question drawn over the target, allowed from the sending pane (keys land) or declined (nothing lands), a long multi-line send in its scrolling block, and `@tmuxy-send-ask off` / `@tmuxy-send-allow` skipping it with the unread mark left behind |
-| `tests/14-widget-pane-pointer.test.js` | Pointer handling over a pane embedding an iframe (`browser` widget) — click to activate pane, mouse drag across iframe boundary for resizing |
+| `tests/14-widget-authorisation.test.js` | SEC-18: a widget marker printed by a shell draws nothing; `tmuxy widget tree` does, and its exit takes the authorisation with it |
 | `tests/15-session-snapshot.test.js` | Session snapshots on a server of the test's own (own socket, port and state dir) — autosave follows split, float, tab, group, sidebar and restore tags; SIGTERM + `kill-server` + restart rebuilds the shape; `forget` needs `--force` |
 | `tests/snapshots/snapshot.test.js` | Read-only UI ↔ tmux comparison, no interactions |
 

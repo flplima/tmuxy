@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by bin/tmuxy-cli — tab, widget, session, nav, open, run and connect subcommands.
+# Sourced by bin/tmuxy-cli — tab, widget, session, nav, run and connect subcommands.
 
 # --- Tab subcommands ---
 
@@ -138,22 +138,6 @@ cmd_widget() {
   shift 2>/dev/null || true
 
   case "$sub" in
-    browser)
-      case "${1:-}" in
-        --help|-h)
-          cat <<'BEOF'
-Usage: tmuxy widget browser [--color-filter] <file|url|->
-
-Options:
-  --color-filter  Recolour a page or an image into the theme's colours
-                  (markdown is already drawn in them)
-BEOF
-          return ;;
-        "") echo "Error: file, url or - required" >&2; return 1 ;;
-      esac
-      open_target "$@"
-      ;;
-
     tree)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy widget tree"; return ;;
@@ -281,31 +265,6 @@ cmd_nav() {
       return 1
       ;;
   esac
-}
-
-# --- Opening something in a browser pane ---
-
-# `tmuxy open` / `tmuxy widget browser`: a website goes to the real engine
-# (`tmuxy browser`), which draws it in the pane under the app's address bar —
-# a frame cannot show a site that refuses to be framed, and most big ones do.
-# Files, markdown and images stay with the widget, which draws them in the
-# theme. `-` (markdown on stdin) is never resolved first: resolving reads it.
-open_target() {
-  local filter="" arg resolved
-  for arg in "$@"; do
-    case "$arg" in
-      --color-filter) filter=1 ;;
-      - | --resolve) exec "$SCRIPTS_DIR/tmuxy-widget-browser" "$@" ;;
-    esac
-  done
-  resolved=$("$SCRIPTS_DIR/tmuxy-widget-browser" --resolve "$@") || exit $?
-  case "$resolved" in
-    http://* | https://*)
-      find_server_cmd
-      TMUXY_CLI="$SELF" exec "${SERVER_CMD[@]}" browser ${filter:+--color-filter} "$resolved"
-      ;;
-  esac
-  exec "$SCRIPTS_DIR/tmuxy-widget-browser" "$@"
 }
 
 # --- Run escape hatch ---

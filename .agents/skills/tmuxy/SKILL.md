@@ -45,32 +45,9 @@ tmuxy pane group add            # group the current pane (members become header 
 tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
 tmuxy pane send -t %id <keys...># type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
-tmuxy open <file|url|host>      # show an HTML file, a site, a .md file or an image
-tmuxy widget browser <file|url> # the same, spelled out
-tmuxy browser [url]             # a real browser drawn in the pane; `:` verbs drive it (see below)
-tmuxy browser --attach[=ENDPOINT] # the same, on a browser already running (your own profile)
 tmuxy run <tmux cmd>            # any tmux command, routed safely through run-shell
 tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
 ```
-
-## Driving a browser pane
-
-`tmuxy browser [url]` turns a pane into a real browser (your own Chrome/Chromium/Edge/
-Brave, drawn as a picture). `--attach` drives a browser that is already running — with
-no endpoint it finds one by itself (a profile's `DevToolsActivePort`, else 127.0.0.1:9222);
-Chrome 144+ exposes the user's own profile only after the consent prompt at
-`chrome://inspect/#remote-debugging`. The picture only means something when the server is
-the machine with the screen. Drive it from another pane, no API needed:
-
-```sh
-tmuxy pane send -t %ID ':goto example.com' Enter   # verbs: goto, eval, click, type, wait,
-tmuxy pane send -t %ID ':eval document.title' Enter #   text, title, url, shot, back,
-tmuxy pane capture %ID                             #   forward, reload, viewport, repl, help
-```
-
-Each verb answers on the pane's bottom row, which `tmuxy pane capture` reads back. `:repl`
-(or the toolbar's REPL button) swaps the picture for the verb log, so the user can see what
-you typed and what came back; `:repl off` brings the picture back.
 
 ## Personalizing tmuxy
 

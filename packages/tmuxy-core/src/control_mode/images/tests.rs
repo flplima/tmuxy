@@ -29,8 +29,8 @@ fn iterm2_preserve_aspect_ratio_zero_fills_its_cells() {
     );
 }
 
-/// A picture moved within the pane (a phone-sized page re-centred after a
-/// resize) replaces the one it is drawn over, rather than stacking beside it.
+/// A picture moved within the pane (re-centred after a resize) replaces the
+/// one it is drawn over, rather than stacking beside it.
 #[test]
 fn a_picture_drawn_over_another_replaces_it() {
     let mut parser = ImageParser::new();

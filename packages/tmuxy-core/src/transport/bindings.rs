@@ -15,14 +15,14 @@ use super::{query, run};
 ///
 /// A pane used to accumulate images forever: the store is only swept when the
 /// PANE goes away, and nothing retires an image whose placement was replaced.
-/// That was survivable while an image meant a picture someone `icat`ed, and is
-/// not survivable now that `tmuxy browser` draws a JPEG of the page
-/// several times a second — the same anchor, a new image id each time, so the
-/// placements stay at one while the bytes behind them grow without limit.
+/// That is survivable while an image means a picture someone `icat`ed, and is
+/// not for a program that redraws a picture several times a second — the same
+/// anchor, a new image id each time, so the placements stay at one while the
+/// bytes behind them grow without limit.
 ///
 /// Generous on purpose: this is a backstop against a stream, not a budget for
 /// ordinary use. A pane full of distinct pictures in its scrollback stays
-/// whole, and a page at 30KB a frame has room for several hundred frames
+/// whole, and a stream at 30KB a frame has room for several hundred frames
 /// before the oldest is dropped.
 pub const MAX_PANE_IMAGE_BYTES: usize = 24 * 1024 * 1024;
 

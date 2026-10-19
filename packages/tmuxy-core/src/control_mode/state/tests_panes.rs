@@ -9,9 +9,9 @@ pub(super) fn list_panes_line(title: &str, window_id: &str, border_title: &str) 
     // group_id, pane_state, ask and widget (the last four tail fields) are
     // left empty here; each has its own test below.
     format!(
-            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore,url
-            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,,,"
-        )
+        // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
+        "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,,"
+    )
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn list_panes_reads_the_pane_state_tail() {
     // free-text title and border in the middle can still carry commas.
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,needs-input,,,,",
+        "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,needs-input,,,",
     );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert_eq!(pane.pane_state.as_deref(), Some("needs-input"));
@@ -136,7 +136,7 @@ fn list_panes_reads_the_ask_tail() {
     // comma-split even when the question itself is full of commas.
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,eyJ0b2tlbiI6ImExIn0=,,,",
+        "%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,eyJ0b2tlbiI6ImExIn0=,,",
     );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert_eq!(pane.pane_ask.as_deref(), Some("eyJ0b2tlbiI6ImExIn0="));

@@ -60,8 +60,8 @@ pub struct ImagePlacement {
     pub protocol: ImageProtocol,
     /// Fill the cells exactly instead of fitting inside them: iTerm2's
     /// `preserveAspectRatio=0`. A picture whose cells ARE its coordinate
-    /// space (the browser pane maps a clicked cell to a page pixel) must not
-    /// be letterboxed, or a click lands where the picture is not.
+    /// space (a program that maps a clicked cell to a pixel of its picture)
+    /// must not be letterboxed, or a click lands where the picture is not.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stretch: bool,
 }
@@ -198,9 +198,9 @@ impl ImageParser {
     /// in between.
     ///
     /// Not only the same anchor: a picture drawn OVER another covers it. A
-    /// program that moves its picture — a browser pane centring a phone-sized
-    /// page in a pane that just changed size — otherwise left the old one on
-    /// screen beside the new, and every resize stacked another.
+    /// program that moves its picture — re-centring it in a pane that just
+    /// changed size — otherwise left the old one on screen beside the new,
+    /// and every resize stacked another.
     fn place(&mut self, placement: ImagePlacement) {
         self.placements.retain(|p| !overlaps(p, &placement));
         self.placements.push(placement);

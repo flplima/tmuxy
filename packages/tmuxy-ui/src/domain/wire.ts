@@ -141,8 +141,6 @@ export const WirePane = Schema.Struct({
   pane_widget: OptionalNull(Schema.String),
   /** `@tmuxy-pane-restore`: the line a session restore types to bring the pane back. */
   pane_restore: OptionalNull(Schema.String),
-  /** `@tmuxy-pane-url`: the address a live browser pane is showing. */
-  pane_url: OptionalNull(Schema.String),
 });
 export type WirePane = Schema.Schema.Type<typeof WirePane>;
 /** A pane before decoding: what a sandbox engine or a fixture builds. */
@@ -258,7 +256,6 @@ export const PaneDelta = Schema.Struct({
   pane_ask: OptionalNull(Schema.String),
   pane_widget: OptionalNull(Schema.String),
   pane_restore: OptionalNull(Schema.String),
-  pane_url: OptionalNull(Schema.String),
 });
 export type PaneDelta = Schema.Schema.Type<typeof PaneDelta>;
 

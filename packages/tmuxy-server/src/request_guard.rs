@@ -1,8 +1,7 @@
 //! Where an API request came from, checked before any handler runs.
 //!
-//! The API is a remote shell — `/commands` runs any tmux command and
-//! `/api/browse` reads any file — and a browser sends requests to it on behalf of
-//! whatever page its user has open. So every API request has to come from the
+//! The API is a remote shell — `/commands` runs any tmux command — and a
+//! browser sends requests to it on behalf of whatever page its user has open. So every API request has to come from the
 //! app itself:
 //!
 //! - `Sec-Fetch-Site`, which every current browser sends, must be `same-origin`

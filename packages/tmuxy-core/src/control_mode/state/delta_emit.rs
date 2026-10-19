@@ -281,9 +281,6 @@ impl StateAggregator {
         if prev.pane_restore != curr.pane_restore {
             delta.pane_restore = Some(curr.pane_restore.clone());
         }
-        if prev.pane_url != curr.pane_url {
-            delta.pane_url = Some(curr.pane_url.clone());
-        }
         if prev.selection_present != curr.selection_present {
             delta.selection_present = Some(curr.selection_present);
         }

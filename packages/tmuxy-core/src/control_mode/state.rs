@@ -378,7 +378,7 @@ pub use stash_and_helpers::{
     MAX_STORED_IMAGES_PER_PANE, MIN_CLIPBOARD_INTERVAL,
 };
 use stash_and_helpers::{
-    is_list_panes_line, is_stash_member_line, normalize_pane_command, pane_command, StashMember,
+    is_list_panes_line, is_stash_member_line, normalize_pane_command, StashMember,
 };
 use window_state::parse_layout_panes;
 pub use window_state::WindowState;

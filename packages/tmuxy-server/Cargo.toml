@@ -39,7 +39,6 @@ tmuxy-tree = { path = "../tmuxy-tree" }
 tmuxy-group = { path = "../tmuxy-group" }
 # The `tmuxy connect` form (src/connect.rs).
 ratatui = "0.30"
-chromiumoxide = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }

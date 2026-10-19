@@ -86,18 +86,6 @@ pub fn run() {
         .register_uri_scheme_protocol("tmuxyimg", |ctx, request| {
             window_setup::handle_tmuxyimg(ctx.app_handle(), request)
         })
-        // Local files the browser widget shows (`tmuxy widget browser`) — an
-        // HTML page, a markdown source, an image. The web build serves these
-        // over `/api/browse/<path>`; there is no HTTP server here, so the same
-        // path-shaped URLs arrive as `tmuxyfile://localhost/<path>` and are
-        // read straight off disk. Path-shaped (rather than `?path=`) so a
-        // framed page's relative links resolve to their neighbouring files.
-        //
-        // This reads anything the desktop app itself can read, which is the
-        // same reach the pane's own shell already has.
-        .register_uri_scheme_protocol("tmuxyfile", |_ctx, request| {
-            window_setup::handle_tmuxyfile(request)
-        })
         .setup(|app| {
             // The environment, for telling a Finder launch from a CLI one.
             let env = |key: &str| std::env::var(key).unwrap_or_else(|_| "(unset)".to_string());

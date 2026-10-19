@@ -391,7 +391,6 @@ export const connectionActions = {
         connected: false,
         error: null,
         copyModeStates: {},
-        browserStates: {},
         enableAnimations: false,
       }),
     );

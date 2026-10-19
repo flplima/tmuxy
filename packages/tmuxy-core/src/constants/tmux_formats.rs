@@ -90,8 +90,7 @@ pub const LIST_PANES_CMD: &str = concat!(
     "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id},",
     "#{@tmuxy-group-pos},#{@tmuxy-pane-state},#{@tmuxy-ask},#{@tmuxy-pane-widget},",
     // A shell line may hold commas; escaped, it stays one field.
-    "#{s/,/%2C/:@tmuxy-pane-restore},",
-    "#{s/,/%2C/:@tmuxy-pane-url}'",
+    "#{s/,/%2C/:@tmuxy-pane-restore}'",
 );
 
 // A macro as well as the const below so the subscription command can

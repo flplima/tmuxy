@@ -33,8 +33,6 @@ interface ScrollbackTerminalProps {
   images?: ImagePlacement[];
   /** Pane tmux ID (e.g., "%0") for image URL construction. */
   paneId?: PaneId;
-  /** CSS filter for the pictures (live browser's `--color-filter`). */
-  imageFilter?: string;
 }
 
 /**
@@ -178,7 +176,6 @@ export function ScrollbackTerminal({
   isActive,
   images,
   paneId,
-  imageFilter,
 }: ScrollbackTerminalProps) {
   const { charHeight } = useAppSelector(selectCharSize);
   const preRef = useRef<HTMLPreElement>(null);
@@ -375,7 +372,6 @@ export function ScrollbackTerminal({
                   width: cellsToCss(img.widthCells),
                   height: `calc(${img.heightCells} * var(--line-height-terminal))`,
                   objectFit: img.stretch ? 'fill' : undefined,
-                  filter: imageFilter,
                 }}
               />
             );

@@ -187,10 +187,10 @@ fn picture(len: usize) -> StoredImage {
 
 /// A pane that keeps producing frames must not grow without limit.
 ///
-/// The frame case is the one that bit: `tmuxy browser` draws at the same
-/// anchor, so the PLACEMENTS stay at one while every frame adds a new
-/// image id — and the store is otherwise only swept when the pane goes
-/// away. The desktop app kept every frame until it was relaunched.
+/// The frame case is the one that bites: a program redrawing its picture
+/// draws at the same anchor, so the PLACEMENTS stay at one while every frame
+/// adds a new image id — and the store is otherwise only swept when the pane
+/// goes away. The desktop app kept every frame until it was relaunched.
 #[test]
 fn a_pane_streaming_frames_stops_growing_but_keeps_the_newest() {
     let mut store = ImageStore::default();

@@ -138,7 +138,7 @@ where
 // =============================================================================
 
 /// Where snapshots live: under the state directory (`crate::paths`), the same
-/// place the trace and the browser profiles go.
+/// place the trace goes.
 pub fn default_dir() -> PathBuf {
     snapshot_dir(&crate::paths::state_dir())
 }

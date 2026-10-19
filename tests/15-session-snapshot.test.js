@@ -4,8 +4,8 @@
  * One test, because it is one feature with one promise: build a session the
  * way a user does, lose the tmux server, start tmuxy again, and find the same
  * session — the split, the float, the second tab, the pane group, the sidebar
- * column, the browser pane — with every pane in its directory and its program
- * offered in a banner rather than run.
+ * column — with every pane in its directory and its program offered in a
+ * banner rather than run.
  *
  * It runs on a server of its own (`isolatedServer`): the point of the test is
  * `kill-server`, which the shared suite server cannot survive. The proof that
@@ -22,7 +22,7 @@ const os = require('os');
 const path = require('path');
 const { getBrowser, waitForCondition, openSidebarKeyboard } = require('./helpers');
 const { TMUXY_PORT } = require('./helpers/config');
-const { isolatedServer, shapeOf, comparable, engineOrSkip } = require('./helpers/snapshot-server');
+const { isolatedServer, shapeOf, comparable } = require('./helpers/snapshot-server');
 
 const SNAPSHOT_PORT = TMUXY_PORT + 200;
 const SESSION = 'snapshot';
@@ -43,12 +43,6 @@ describe('Scenario 32: Session snapshots', () => {
 
   beforeAll(async () => {
     fs.mkdirSync(scratch, { recursive: true });
-    // Typed as a short path: a long command line into a pane drops characters.
-    fs.writeFileSync(
-      path.join(scratch, 'run'),
-      `#!/bin/sh\nexport TMUXY_STATE_DIR=${stateDir}\nexec ${path.join(process.cwd(), 'bin/tmuxy-cli')} browser --session e2e\n`,
-      { mode: 0o755 },
-    );
     browser = await getBrowser();
     await srv.start();
   }, 120000);
@@ -61,9 +55,7 @@ describe('Scenario 32: Session snapshots', () => {
     }
     await srv.stop();
     srv.killTmux();
-    // A browser profile under the state dir may still be being written by a
-    // Chromium on its way out; the retries outlast it.
-    fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    fs.rmSync(scratch, { recursive: true, force: true });
   }, 60000);
 
   /** A page on the isolated server, attached and showing at least one window. */
@@ -79,7 +71,7 @@ describe('Scenario 32: Session snapshots', () => {
     return p;
   }
 
-  test('the shape survives kill-server: split, float, tab, group, sidebar, browser pane, offered commands [nightly]', async () => {
+  test('the shape survives kill-server: split, float, tab, group, sidebar, offered commands [nightly]', async () => {
     page = await openPage();
 
     // 1. Build the session the way a user does: through the CLI and the keys.
@@ -93,9 +85,7 @@ describe('Scenario 32: Session snapshots', () => {
     // An interactive float answers with its pane's id.
     const floatPane = srv.cli(['pane', 'float', '--width', '60', '--height', '20']).trim();
     expect(floatPane).toMatch(/^%\d+$/);
-    // `tab create` answers with the new window's id, which is how it is
-    // selected later: a bare index is tmux's and depends on `base-index`.
-    const secondTab = srv.cli(['tab', 'create']);
+    srv.cli(['tab', 'create']);
     // The sidebar column is a window of its own, opened from the client.
     await page.bringToFront();
     await openSidebarKeyboard(page, 'left', { fixed: true });
@@ -110,32 +100,6 @@ describe('Scenario 32: Session snapshots', () => {
     // And a program that says nothing: the save finds it with `ps`. Sent
     // with tmux's own send-keys, which asks no one.
     srv.cli(['run', 'send-keys', '-t', floatPane, 'sleep 600', 'Enter']);
-    // A browser pane writes that tag itself, with the page it is on.
-    const engine = engineOrSkip();
-    if (engine) {
-      // Started the way another pane or an agent starts it — `tmuxy pane
-      // send` into the second tab's pane — and read back with `pane capture`,
-      // the same pair a script uses to drive it. Not typed through the page:
-      // with a float and a sidebar open, `.pane-active` is not that tab.
-      srv.cli(['tab', 'select', secondTab]);
-      srv.cli(['pane', 'send', `${scratch}/run`, 'Enter']);
-      const tell = (args) => {
-        try {
-          return srv.cli(args);
-        } catch (error) {
-          return String(error.message);
-        }
-      };
-      await waitForCondition(
-        page,
-        () => srv.cli(['pane', 'capture']).includes('about:blank'),
-        60000,
-        // On failure the message carries what the panes were doing, which is
-        // the only thing worth knowing about a pane that did not start.
-        () =>
-          `the browser pane to start in the second tab\npanes: ${tell(['pane', 'list', '--all', '--json'])}\nactive pane shows:\n${tell(['pane', 'capture'])}`,
-      );
-    }
 
     // 2. The autosave has followed every change: the latest snapshot holds
     //    the float, the group, the sidebar and the restore tags.
@@ -153,8 +117,7 @@ describe('Scenario 32: Session snapshots', () => {
           panes.some((p) => p.options && p.options['@tmuxy-group-id']) &&
           (shape.hidden ?? []).length === 1 &&
           panes.some((p) => p.restore_command === 'echo restored-ok') &&
-          panes.some((p) => (p.command ?? []).join(' ') === 'sleep 600') &&
-          (!engine || panes.some((p) => (p.restore_command ?? '').startsWith('tmuxy browser')))
+          panes.some((p) => (p.command ?? []).join(' ') === 'sleep 600')
         );
       },
       30000,

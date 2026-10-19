@@ -46,19 +46,6 @@ pub(super) fn normalize_pane_command(command: &str) -> String {
     command.to_string()
 }
 
-/// The command a pane is named by, once its widget tag is known.
-///
-/// A live browser pane runs the server binary (`tmuxy-server`, or `tmuxy` in
-/// the desktop app), which names nothing the user did: it is a browser. The tag
-/// (`browser-live`, set by `tmuxy browser` through the CLI) is what says so —
-/// never the output — so a plain `tmuxy-server` run in a shell keeps its name.
-pub(super) fn pane_command(command: String, widget: Option<&str>) -> String {
-    if widget == Some("browser-live") {
-        return "browser".to_string();
-    }
-    command
-}
-
 /// Is this string nothing but a dotted run of digits (`2.1.280`, `0.9`)?
 fn is_version_string(value: &str) -> bool {
     let mut parts = value.split('.');
@@ -139,7 +126,6 @@ fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
         pane_ask: None,
         pane_widget: None,
         pane_restore: None,
-        pane_url: None,
     }
 }
 

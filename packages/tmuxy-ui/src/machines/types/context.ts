@@ -6,7 +6,6 @@ import type { AskAnswer } from '../../utils/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type {
   AppNotification,
-  BrowserPaneState,
   DragState,
   FloatPaneState,
   GestureFlags,
@@ -206,8 +205,6 @@ export interface AppMachineContext {
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */
   copyModeStates: Record<PaneId, CopyModeState>;
-  /** Browser widget zoom and refresh per pane (absent until the user acts) */
-  browserStates: Record<PaneId, BrowserPaneState>;
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: PaneId[];
   /**

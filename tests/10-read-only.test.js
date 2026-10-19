@@ -5,7 +5,6 @@
  * normal server, the other watches the same session through the read-only one.
  */
 
-const path = require('path');
 const {
   createTestContext,
   delay,
@@ -18,8 +17,6 @@ const {
 } = require('./helpers');
 const { READ_ONLY_URL, startReadOnlyServer } = require('./helpers/read-only-server');
 const { getCopyModeState } = require('./helpers/copy-mode');
-
-const TMUXY_CLI = path.resolve(__dirname, '..', 'bin/tmuxy-cli');
 
 /**
  * What a page actually shows: the text and box of every terminal that is
@@ -416,45 +413,4 @@ describe('Scenario 30: Read-only viewer', () => {
 
     await viewer.close();
   }, 180000);
-
-  /**
-   * SEC-18. Whoever ran `tmuxy widget browser` in the session chose its page;
-   * a viewer watching that session did not, and their browser must not fetch
-   * it — a remote site would learn who is watching, and a local file the
-   * read-only server refuses anyway. The viewer sees the address, not the page.
-   */
-  test('a viewer sees which page a widget pane shows, and does not load it [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-    const writer = ctx.page;
-    const file = `/tmp/tmuxy-widget-viewer-${Date.now()}.html`;
-    await typeInTerminal(
-      writer,
-      `printf '<h1>PAGE</h1>' > ${file}; ${TMUXY_CLI} widget browser ${file}`,
-    );
-    await pressEnter(writer);
-    const frameBox = (page) =>
-      page.evaluate(() => {
-        const el = document.querySelector('.widget-browser-frame');
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return r.width > 20 && r.height > 20;
-      });
-    await waitForCondition(
-      writer,
-      async () => (await frameBox(writer)) === true,
-      30000,
-      'the writer to draw the frame',
-    );
-
-    await viewerServer();
-    const viewer = await ctx.browser.newPage();
-    await navigateToSession(viewer, ctx.session.name, READ_ONLY_URL);
-    const notice = viewer.locator('[data-testid="browser-read-only"]');
-    await notice.waitFor({ state: 'visible', timeout: 15000 });
-    expect(await notice.textContent()).toContain(file);
-    expect(await viewer.locator('iframe').count()).toBe(0);
-
-    await viewer.close();
-  }, 120000);
 });

@@ -84,10 +84,10 @@ fn commands_are_offered_not_typed_unless_asked() {
     let offered = joined(&plan(&fixture(), &RestoreOptions::default()));
     let vim = offer_payload("restore-0-1", "vim a");
     assert!(offered.contains(&format!("run: set-option -p -t work:0.1 @tmuxy-ask {vim}")));
-    let browser = offer_payload("restore-2-0", "tmuxy browser");
+    let lazygit = offer_payload("restore-2-0", "lazygit");
     assert!(
         offered.contains(&format!(
-            "run: set-option -p -t work:2.0 @tmuxy-ask {browser}"
+            "run: set-option -p -t work:2.0 @tmuxy-ask {lazygit}"
         )),
         "the restore tag wins"
     );
@@ -183,13 +183,13 @@ fn a_restore_keeps_the_programs_word_and_runs_the_chrome() {
     let lines = joined(&plan(&snapshot, &RestoreOptions::default()));
     let i_tag = lines
         .iter()
-        .position(|l| l == "run: set-option -p -t work:2.0 @tmuxy-pane-restore tmuxy browser")
-        .expect("the browser pane's word is written back");
+        .position(|l| l == "run: set-option -p -t work:2.0 @tmuxy-pane-restore lazygit")
+        .expect("the float's word is written back");
     assert_eq!(
         lines[i_tag + 1],
         format!(
             "run: set-option -p -t work:2.0 @tmuxy-ask {}",
-            offer_payload("restore-2-0", "tmuxy browser")
+            offer_payload("restore-2-0", "lazygit")
         )
     );
     assert!(!lines.contains(&"run: send-keys -t work:2.0 Enter".to_string()));

@@ -175,12 +175,9 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 | --- | --- | --- |
 | `/events` | GET | SSE stream (state updates, connection info) |
 | `/commands` | POST | tmux commands (no authentication unless `--password` is set — see SECURITY.md) |
-| `/api/browse/{*path}` | GET | Read a file at a path-shaped URL, typed by extension |
 | `/api/images/{pane_id}/{image_id}` | GET | Serve a decoded inline-image blob |
 | `/themes/{name}.css`, `/custom.css` | GET | The user's stylesheets from the config dir (a built-in theme name falls back to the bundled copy) |
 
 The stylesheet routes are answered by `tmuxy_core::session::resolve_user_css` in both builds: the web server serves them at the app's origin (ahead of the embedded bundle, and ahead of the Vite proxy in dev mode), the desktop app over its `tmuxycss:` scheme, and `tmuxy-ui/src/utils/themeManager.ts` picks between the two. Both hosts poll the config dir once a second (`transport::watch_config`): a saved stylesheet becomes a `css-changed` push, a saved `tmuxy.conf` is sourced on the control-mode connection and followed by the `keybindings` and `theme-settings` pushes a client's own `source-file` gets. `tmuxy config reload` is that second path — it marks the file modified and nothing more. See [ARCHITECTURE.md](ARCHITECTURE.md) for what the config dir holds.
 
-The file route exists for widget rendering: the browser widget frames it. The path lives in the URL rather than a query string, so a framed page's relative links resolve to the files beside it, and the response carries a real content type (see `tmuxy-core/src/mime.rs`) so HTML renders as a page instead of as source. The desktop app serves no HTTP; it answers the same requests over its `tmuxyfile:` scheme, and the frontend picks between the two in `tmuxy-ui/src/utils/fileUrl.ts` — the same split `Terminal.tsx` makes for inline images.
-
-Like every route it is gated by the optional `--password` Basic auth, but has no path restrictions beyond that. See [SECURITY.md](SECURITY.md) for the implications.
+Every route is gated by the optional `--password` Basic auth. See [SECURITY.md](SECURITY.md).

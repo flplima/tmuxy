@@ -1,96 +1,6 @@
 # Security: Untrusted Content and Recorded State
 
-The browser pane, session snapshots and hostile pane output. Part of [SECURITY.md](SECURITY.md).
-
-## A Real Browser Driven From a Pane Changes Whose Network This Is
-
-The browser widget frames LOCAL pages in the VIEWER's browser, so a file it
-opens has the viewer's cookies, and tmuxy never sees them. A website does not
-go there: `tmuxy open <website>` (and an address typed into the widget's bar)
-hands the pane to `tmuxy browser`, which inverts all of that, and none of the
-reasoning above carries over.
-
-**It runs as whoever typed the command, not as the server.** This is the single
-most important property, and it was not always true. The engine used to live in
-the tmuxy server, driven by a client command and streamed back over an HTTP
-route — which put the server's own network and the server's own uid behind a URL
-a viewer could choose, and made "may a read-only viewer drive a browser?" a
-question the code had to answer (SEC-11). Now the engine is launched by a
-program in a pane, so it has exactly the powers of the person at that terminal.
-There is no route, no client command, no read-only exemption to maintain, and
-nothing a viewer can name. A viewer who can send keys to a pane can already run
-any command; this is one of them. A read-only viewer sees the page as pane
-output — one picture, fetched once by the session's own engine — and its
-address bar is inert, since it would drive the pane by typing into it.
-
-**The network position is still not the viewer's.** `goto http://10.0.0.5/admin`
-from a pane on a machine reached over a tunnel is a request from inside THAT
-machine's network — a database admin page, a metadata endpoint at
-`169.254.169.254`, a service bound to loopback. That is true of `curl` in the
-same pane, which is the point: the power comes from being able to run commands
-there, not from this feature. What changed is only that it is no longer also
-reachable by anything that can speak to the server.
-
-**CDP is an unauthenticated full-control API, and the transport is now a
-loopback port.** Anything that can speak to the engine's debugging endpoint can
-read every cookie in the profile, run script in any page, and navigate to
-`file://` URLs — i.e. read the disk. The engine is launched on `127.0.0.1` with
-a **kernel-assigned** port, never `0.0.0.0` and never a fixed `9222` — the
-number every scanner and every other automation tool on the machine already
-tries, and the one that would let two tools collide into each other's browser.
-
-This is weaker than what came before, and the trade is deliberate rather than
-unnoticed. The previous engine used `--remote-debugging-pipe`, which speaks over
-inherited file descriptors and opens no socket at all; a random loopback port
-is reachable by any process on the machine that enumerates ports, which is a
-lower bar than inheriting an fd. What it buys is the whole implementation: the
-pipe transport was tmuxy's own code — the framing, the reply correlation, the fd
-placement Chromium numbers from the child's point of view — and it is now
-chromiumoxide's, which does not offer the pipe. On a single-user machine the
-distinction is small; on a shared one it is real, and a session whose profile
-holds logins (`--attach`, below) is where it starts to matter.
-
-**The profile is a credential store on disk.** A launched session gets a
-throwaway `--user-data-dir` of its own, removed when the session ends — waited
-for, not just asked: Chromium flushes its profile on the way out, so a directory
-removed before the process is gone is simply recreated. Nothing is retained and
-no login survives.
-
-`--attach` is the exception, and it is opt-in by its nature: it drives a browser
-somebody else started, which may be the user's REAL profile with its logins.
-Chrome will only expose that after an explicit consent prompt at
-`chrome://inspect/#remote-debugging`, so the decision is the user's and is made
-in their own browser rather than here. An attached browser is left running and
-its profile untouched when the pane closes — tmuxy does not clean up something
-it did not create.
-
-**The engine is the user's, not tmuxy's.** tmuxy ships no browser; it finds one
-(`TMUXY_CHROME`, then the platform's usual paths) and refuses the command when
-there is none. That means the engine is patched on the user's own schedule
-rather than pinned to a tmuxy release — the right side of that trade for a
-component with a browser's attack surface — and it means a machine without one
-simply does not have the feature.
-
-**The page is a picture written to a pty.** Each frame is an inline image
-(`OSC 1337`) emitted by the pane program, which is to say it is pane output and
-is governed by everything in "Pane Output Threat Model" below — nothing new, and
-no route of its own. A read-only viewer sees the picture because they can see
-the pane, the same way they can see any other command's output.
-
-**Input is a pty, not a protocol.** The pane program reads keystrokes and SGR
-mouse reports off its own terminal and turns them into CDP `Input.*` calls
-itself. The old shape had a client naming a CDP method, which needed an
-allowlist to stop it being a general door into CDP; nothing names a method any
-more, so there is nothing to allow or refuse. The tmux prefix never reaches the
-page either, and for the plainest possible reason: tmux takes it first, as it
-does for every program in a pane.
-
-**What a page cannot reach.** The engine runs headless with a profile of its
-own, no extensions and no access to the tmuxy API: a separate process whose only
-channel is CDP, with the pane program holding the other end. A page cannot send
-a tmux command, because nothing connects a page to `/commands` — unlike the
-framed local-file case above, where the page and the app shared an origin until
-the sandbox separated them.
+Session snapshots and hostile pane output. Part of [SECURITY.md](SECURITY.md).
 
 ## A Session Snapshot Is a Record of the Machine
 
@@ -103,11 +13,10 @@ its screen. That is a map of what the user was doing, kept on disk.
 Where it is kept follows from that. Snapshots live under the state directory
 (`TMUXY_STATE_DIR`, else the XDG state dir), one directory per tmux socket
 (`sessions/<socket>/`, since a `tmuxy` session on `tmuxy-dev` is not the one
-on `tmuxy`), next to the trace and the browser profiles — deliberately nowhere `/api/browse` can reach — and
-no route serves them. The commands that touch them (`list_snapshots`,
-`restore_session`) are **write** commands: a `--read-only`
-server does not answer them, for the same reason it does not serve the file
-routes (SEC-11) — a viewer is shown one session's screen, not the directories
+on `tmuxy`), next to the trace, and no route serves them. The commands that
+touch them (`list_snapshots`, `restore_session`) are **write** commands: a
+`--read-only` server does not answer them, for the same reason it does not serve
+`/trace` (SEC-11) — a viewer is shown one session's screen, not the directories
 and commands of every pane on the machine.
 
 A restore runs what a snapshot says only in the sense that each pane OFFERS

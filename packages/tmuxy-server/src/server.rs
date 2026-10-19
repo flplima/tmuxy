@@ -247,10 +247,6 @@ pub enum ServerAction {
     /// Inspect a local action-trace file: print a summary, or export a
     /// Chrome-trace/Perfetto timeline with `--export` (docs/TELEMETRY.md).
     Trace(crate::trace_view::TraceViewArgs),
-    /// Turn this pane into a browser: draw the page in it and send it input.
-    /// Backs `tmuxy browser` (and `tmuxy open` for a website).
-    #[cfg(unix)]
-    Browser(crate::browser::client::BrowserArgs),
     /// Save, restore, list or forget session snapshots. Backs
     /// `tmuxy session save|restore|snapshots|forget`.
     Session(crate::session_cli::SessionArgs),
@@ -348,10 +344,6 @@ pub async fn run(args: ServerArgs) {
                 std::process::exit(1);
             }
         },
-        #[cfg(unix)]
-        Some(ServerAction::Browser(browser_args)) => {
-            crate::browser::client::run(browser_args).await;
-        }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
         Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),

@@ -25,39 +25,6 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * Widget: a pane pointed at a page prints a `__TMUXY_WIDGET__:browser` marker
- * followed by its source; the UI detects it and swaps the terminal renderer for
- * the browser **widget component** — all client-side off the live %output
- * stream. The page is a `data:` document: a website is not framed any more
- * (it is handed to `tmuxy browser`, which the guest has no engine for).
- *
- * Driven through `tmuxy-widget` directly rather than the `tmuxy widget browser`
- * wrapper: the marker protocol is what the UI actually contracts on, and the
- * pinned boot snapshot predates the wrapper script.
- */
-export const Widget: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
-    pasteLine(
-      `{ echo '__SRC__:data:text/html,<h1>HELLO_WIDGET</h1>'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
-    );
-    await waitFor(
-      () => {
-        const doc = canvasElement.ownerDocument;
-        const frame = doc.querySelector('.widget-browser-frame') as HTMLIFrameElement | null;
-        expect(frame).not.toBeNull();
-        expect(frame!.getAttribute('src')).toBe('data:text/html,<h1>HELLO_WIDGET</h1>');
-        // Visible, not merely mounted: the frame sits under two stacked
-        // full-height boxes that a layout slip would collapse.
-        expect(frame!.getBoundingClientRect().height).toBeGreaterThan(50);
-      },
-      { timeout: 40000, interval: 500 },
-    );
-  },
-};
-
-/**
  * Sidebar tree (real tmux via v86). The sidebar is a native React tab/pane tree
  * derived from the live session state — no `tmuxy tree` TUI, no sidebar window.
  * The drawer opens, lists every tab and its panes, clicking a pane activates it
@@ -194,38 +161,17 @@ export const SidebarDragPaneToTab: Story = {
   },
 };
 
-// ───────────────────────── §6 Widgets & rich rendering ─────────────────────────
+// ───────────────────────── §6 Widgets ─────────────────────────
 
 /**
- * Markdown from a guest FILE: client-side there is no server behind
- * `/api/browse`, so the fetch fails — and the widget must mount and surface
- * that in its defined fallback rather than crash, render garbage, or silently
- * pretend the file loaded. This pins down the client-side contract for
- * file-backed sources.
- */
-export const WidgetBrowserMarkdownFile: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
-    pasteLine(
-      `printf '# FILE_WIDGET_7\\n' > /tmp/w7.md; { echo '__SRC__:/tmp/w7.md'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
-    );
-    await waitFor(
-      () => {
-        const widget = canvasElement.ownerDocument.querySelector('.widget-markdown-empty');
-        expect(widget).not.toBeNull();
-        expect(widget!.textContent ?? '').toMatch(/404|Failed|Error/i);
-      },
-      { timeout: 40000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Widget exit: Ctrl+C in a widget pane kills the widget process (SIGINT through
- * the real WidgetPane capture-phase handler → send-keys C-c), the terminal
- * returns, and the shell is usable again. This is what the browser widget's
- * "Close Browser" menu item does too.
+ * Widget exit: a pane running a widget prints a `__TMUXY_WIDGET__:<name>`
+ * marker and the UI swaps the terminal renderer for the widget component; Ctrl+C
+ * in it kills the widget process (SIGINT through the real WidgetPane
+ * capture-phase handler → send-keys C-c), the terminal returns, and the shell is
+ * usable again.
+ *
+ * Driven through `tmuxy-widget` directly: the marker protocol is what the UI
+ * actually contracts on.
  */
 export const WidgetExitRestoresShell: Story = {
   play: async ({ canvasElement }) => {
@@ -233,15 +179,19 @@ export const WidgetExitRestoresShell: Story = {
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
     const doc = canvasElement.ownerDocument;
-    pasteLine(
-      `{ echo '__SRC__:data:text/html,<p>widget-exit-5</p>'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
+    const widgetPane = () => doc.querySelector('.pane-wrapper[aria-label^="Widget pane"]');
+    pasteLine(`{ sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget tree`);
+    await waitFor(
+      () => {
+        const pane = widgetPane();
+        expect(pane).not.toBeNull();
+        // Visible, not merely mounted.
+        expect(pane!.getBoundingClientRect().height).toBeGreaterThan(50);
+      },
+      { timeout: 40000, interval: 500 },
     );
-    await waitFor(() => expect(doc.querySelector('.widget-browser')).not.toBeNull(), {
-      timeout: 40000,
-      interval: 500,
-    });
     await user.keyboard('{Control>}c{/Control}');
-    await waitFor(() => expect(doc.querySelector('.widget-browser')).toBeNull(), {
+    await waitFor(() => expect(widgetPane()).toBeNull(), {
       timeout: 20000,
       interval: 500,
     });

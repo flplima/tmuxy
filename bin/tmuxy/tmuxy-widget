@@ -11,13 +11,12 @@ COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
 # docs/TMUX.md).
 source "$(cd "$(dirname "$0")" && pwd)/_lib"
 # What the pane calls itself while the widget runs. A widget's own title
-# normally comes from what it is showing, which the UI reads out of the pane's
-# content — but a pane PARKED in a group's stash streams no content, so the
-# only thing a group's tab strip has for it is tmux's `pane_title`. Left alone
-# that is whatever the shell last set: the CLI's own path, which names nothing.
-# Announcing one over OSC 2 gives the parked member something to be called, and
-# costs the visible one nothing (the widget's own title wins there).
-TITLE="${2:-$COMPONENT}"
+# normally comes from the UI — but a pane PARKED in a group's stash streams no
+# content, so the only thing a group's tab strip has for it is tmux's
+# `pane_title`. Left alone that is whatever the shell last set: the CLI's own
+# path, which names nothing. Announcing the widget's name over OSC 2 gives the
+# parked member something to be called, and costs the visible one nothing (the
+# widget's own title wins there).
 
 # The marker below is pane OUTPUT, and anything the pane prints can carry it —
 # a crafted file, a commit message in `git log`, an ssh MOTD. This option is
@@ -39,11 +38,6 @@ _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget $(shquote
 # they did not choose.
 trap 'printf "\033]2;\007"; _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget"; clear; exec "${SHELL:-bash}" </dev/tty' EXIT
 
-printf '\033]2;%s\007' "$TITLE"
-# Only the widget NAME goes in the marker; an instance suffix
-# (`browser:live`) is part of the pane tag, not of the output. The client
-# compares the marker to the tag's name half, so a tagged instance still
-# matches, and the instance itself never travels through output — where it
-# would scroll away and where a pane could claim one it was not given.
-echo "__TMUXY_WIDGET__:${COMPONENT%%:*}"
+printf '\033]2;%s\007' "$COMPONENT"
+echo "__TMUXY_WIDGET__:${COMPONENT}"
 cat

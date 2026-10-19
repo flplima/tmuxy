@@ -12,7 +12,7 @@
     "macOSPrivateApi": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self' tauri: asset: tmuxyfile: tmuxyimg: tmuxycss: http://asset.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://tmuxycss.localhost http://ipc.localhost ipc:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' tmuxycss: http://tmuxycss.localhost; img-src 'self' data: blob: tauri: asset: tmuxyfile: tmuxyimg: http://asset.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:; font-src 'self' data:; media-src 'self' data: blob: tauri: asset: tmuxyfile: tmuxyimg: http://asset.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:; frame-src *; connect-src 'self' data: blob: tauri: asset: tmuxyfile: tmuxyimg: tmuxycss: http://asset.localhost http://tmuxycss.localhost http://tmuxyfile.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:"
+      "csp": "default-src 'self' tauri: asset: tmuxyimg: tmuxycss: http://asset.localhost http://tmuxyimg.localhost http://tmuxycss.localhost http://ipc.localhost ipc:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' tmuxycss: http://tmuxycss.localhost; img-src 'self' data: blob: tauri: asset: tmuxyimg: http://asset.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:; font-src 'self' data:; media-src 'self' data: blob: tauri: asset: tmuxyimg: http://asset.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:; connect-src 'self' data: blob: tauri: asset: tmuxyimg: tmuxycss: http://asset.localhost http://tmuxycss.localhost http://tmuxyimg.localhost http://ipc.localhost ipc:"
     }
   },
   "bundle": {

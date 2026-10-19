@@ -76,11 +76,6 @@ pub mod tmux_options {
     /// wanted when a snapshot is taken.
     pub const PANE_RESTORE: &str = "@tmuxy-pane-restore";
 
-    /// The address a pane is showing, written by the program in it — a live
-    /// browser pane (`tmuxy browser`) — so the app's address bar can show it.
-    /// The pane title is the PAGE's title; a URL needs a field of its own.
-    pub const PANE_URL: &str = "@tmuxy-pane-url";
-
     /// Pane-scoped group identity (e.g. `g5`). Set on every member of a pane
     /// group — the visible member (in the attached session) and each hidden
     /// member (parked in the [`crate::constants::STASH_SESSION`]). Panes sharing

@@ -1,10 +1,9 @@
-//! Where tmuxy keeps per-machine state: the trace file, session snapshots,
-//! browser profiles and screenshots.
+//! Where tmuxy keeps per-machine state: the trace file, the desktop app's log
+//! and session snapshots.
 //!
 //! One resolution for every host and every verb, so a `tmuxy trace --mark`
 //! stamps the file the server is writing and a test's `TMUXY_STATE_DIR` moves
-//! all of it at once. The directory is deliberately nowhere any route serves
-//! files from (docs/SECURITY.md).
+//! all of it at once.
 
 use std::ffi::OsString;
 use std::path::PathBuf;

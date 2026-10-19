@@ -359,9 +359,8 @@ fn is_truthy(var: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Default trace path under the state dir (`crate::paths`) — deliberately
-/// outside any directory served by `/api/browse`. Resolving the path creates
-/// nothing; the directory is made when the writer actually opens it.
+/// Default trace path under the state dir (`crate::paths`). Resolving the path
+/// creates nothing; the directory is made when the writer actually opens it.
 fn default_path() -> Option<PathBuf> {
     Some(crate::paths::trace_file())
 }

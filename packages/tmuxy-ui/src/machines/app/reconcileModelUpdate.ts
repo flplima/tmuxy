@@ -192,7 +192,6 @@ export const reconcileModelActions = {
     }
 
     updatedCopyModeStates = keepLivePanes(updatedCopyModeStates, currentPaneIdSet);
-    const updatedBrowserStates = keepLivePanes(context.browserStates, currentPaneIdSet);
 
     const hasDimensionChange =
       !context.resizeActive &&
@@ -259,7 +258,6 @@ export const reconcileModelActions = {
         floatPanes,
         askSelections: pruneAskSelections({ ...ctx, panes: transformed.panes }),
         copyModeStates: updatedCopyModeStates,
-        browserStates: updatedBrowserStates,
         resize: heldResize,
         suppressLayoutTransition: animateGeometry
           ? false

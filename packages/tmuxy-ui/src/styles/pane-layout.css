@@ -67,8 +67,8 @@
 
 /* A WIDGET pane has no terminal cells to line up with the tmux separator
    column, so it drops the horizontal padding a terminal pane keeps: the
-   widget — and the browser's address bar above it — spans the pane edge to
-   edge instead of sitting between two strips of pane background. */
+   widget spans the pane edge to edge instead of sitting between two strips of
+   pane background. */
 .pane-content-widget {
   padding-left: 0;
   padding-right: 0;

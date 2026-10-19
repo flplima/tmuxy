@@ -120,7 +120,7 @@ export default function Home() {
           </a>
           {' '}and streams state updates to a React frontend via SSE (or Tauri IPC, on the desktop
           app version). Being web-based allows it to support all kinds of fancy stuff like image
-          rendering, markdown previews, pane groups and floating panes, while under the
+          rendering, pane groups and floating panes, while under the
           hood <strong>it&apos;s still tmux</strong>.
         </p>
 

@@ -21,7 +21,7 @@ describe('safeHref', () => {
       'data:text/html,<script>alert(1)</script>',
       'blob:https://example.com/abc',
       'vscode://file/etc/passwd',
-      'tmuxyfile://localhost/etc/passwd',
+      'tmuxyimg://localhost/1/0',
       '  javascript:alert(1)',
     ]) {
       expect(safeHref(url)).toBeUndefined();

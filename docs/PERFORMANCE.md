@@ -253,7 +253,7 @@ The sub-keystroke numbers are not magic — `tab-switch` and (now)
 The harness measures what the user sees, and for a predicted op that is the
 prediction; the server's answer arrives later and reconciles.
 
-See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measured baseline; Axis D — retention over a long session; The browser pane's frames; Session snapshots.
+See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measured baseline; Axis D — retention over a long session; Session snapshots.
 
 ## What's still absent (by choice, for now)
 

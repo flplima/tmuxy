@@ -31,43 +31,6 @@ const renderTabline: RenderTabline = ({ children }) => (
   <DemoTabline>{children}</DemoTabline>
 );
 
-const MARKDOWN_CONTENT = [
-  '# Markdown in tmux?',
-  '',
-  'How is this possible?',
-  '',
-  'A shell command writes a widget marker +',
-  'content into the pane scrollback. The frontend',
-  'detects the marker and renders the appropriate',
-  'widget (markdown, image, or anything you want)',
-  'instead of the terminal grid.',
-  '',
-  'The **nyan cat GIF** on the left pane is',
-  'using the same widget system.',
-  'tmuxy detects a special marker in the pane',
-  'content and swaps the raw terminal grid for a',
-  'full image viewer — still inside tmux.',
-  '',
-  'The widget system is extensible: anything you',
-  'can render in React, you can render in a pane.',
-  '',
-  '```mermaid',
-  'flowchart TD',
-  '  A[shell cmd] -->|write marker| B[pane grid]',
-  '  B -->|stream| C{detectWidget}',
-  '  C -->|match| D[WidgetPane]',
-  '  D --> E[TmuxyMarkdown]',
-  '```',
-].join('\n');
-
-// Split URL into short lines (pane may be narrow); TmuxyImage joins them
-const NYAN_CAT_IMAGE = [
-  'https://gist.githubusercontent.com/',
-  'brudnak/',
-  'aba00c9a1c92d226f68e8ad8ba1e0a40/',
-  'raw/nyan-cat.gif',
-].join('\n');
-
 const INIT_COMMANDS_DESKTOP = [
   // Tab 1: welcome (3-pane layout)
   'rename-window welcome',
@@ -80,8 +43,6 @@ const INIT_COMMANDS_DESKTOP = [
   'split-window -h',          // %4 (right)
   'select-pane -t %3',        // select left
   'split-window -v',          // %5 (bottom-left)
-  `write-widget %5 image ${NYAN_CAT_IMAGE}`,
-  `write-widget %4 markdown ${MARKDOWN_CONTENT}`,
   // Top-left pane (%3): pane group with 2 panes running cat
   'select-pane -t %3',
   'send-keys -t %3 -l cat ~/pane-group-1.txt',
@@ -104,8 +65,6 @@ const INIT_COMMANDS_MOBILE = [
   'split-window -h',          // %3 (right)
   'select-pane -t %2',        // select left
   'split-window -v',          // %4 (bottom-left)
-  `write-widget %4 image ${NYAN_CAT_IMAGE}`,
-  `write-widget %3 markdown ${MARKDOWN_CONTENT}`,
   // Top-left pane (%2): pane group with 2 panes running cat
   'select-pane -t %2',
   'send-keys -t %2 -l cat ~/pane-group-1.txt',

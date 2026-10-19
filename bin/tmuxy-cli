@@ -94,11 +94,9 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
-  open        Show a page, file or image in a browser pane (alias of widget browser)
-  widget      Display widgets (browser, tree, session)
+  widget      Display widgets (tree, session)
   tree        Browse tabs and panes as a tree in this terminal
   run         Run any tmux command safely
-  browser     Turn this pane into a browser: a real engine, drawn in the pane
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
@@ -192,10 +190,6 @@ usage_widget() {
 Usage: tmuxy widget <command> [args...]
 
 Commands:
-  browser       Show a page: a local HTML file, a URL, a markdown file
-                (rendered, with mermaid), or an image. `-` reads markdown
-                from stdin. --color-filter recolours a page or an image
-                into the theme's colours.
   tree          Display the tabs+panes tree (the left sidebar's content)
   session       Switch, rename, kill or detach the session; connect to
                 another tmux socket, locally or over SSH
@@ -306,31 +300,6 @@ case "${1:-}" in
     shift
     cmd_widget "$@"
     ;;
-  open)
-    shift
-    case "${1:-}" in
-      --help|-h)
-        cat <<'OEOF'
-Usage: tmuxy open [--color-filter] <file|url|host|->
-
-Show a page in a browser pane: a local HTML, markdown or image file, a
-website, or a host — `localhost:3000`, `192.168.1.10:8080` and
-`example.com/docs` are read as addresses when no such file exists. `-`
-renders markdown from stdin. The same as `tmuxy widget browser`.
-
-A website opens in `tmuxy browser` — a real engine drawn in the pane, under
-an address bar — so a site that refuses to be framed still shows. Files,
-markdown and images are drawn by the app, in the theme.
-
-Options:
-  --color-filter  Recolour a page or an image into the theme's colours
-  --resolve       Print what the target resolves to and open nothing
-OEOF
-        ;;
-      "") echo "Error: file, url or host required" >&2; exit 1 ;;
-      *) open_target "$@" ;;
-    esac
-    ;;
   tree)
     shift
     case "${1:-}" in
@@ -344,82 +313,6 @@ OEOF
         exec "${SERVER_CMD[@]}" tree "$@"
         ;;
     esac
-    ;;
-  browser)
-    shift
-    case "${1:-}" in
-      --help | -h)
-        cat <<'BEOF'
-Usage: tmuxy browser [--session NAME] [--attach[=ENDPOINT]] [--color-filter]
-                     [--viewport auto|desktop|mobile] [url]
-
-Turn this pane into a browser: a real engine draws the page IN THE PANE as an
-inline image, under the app's address bar (back, forward, refresh, the
-address, page size, open externally). The mouse and keyboard reach the page. It shows
-sites that refuse to be framed and works the same in the web UI and the
-desktop app. `tmuxy open <website>` opens one too.
-
-`:` opens a command line on the bottom row for the verbs below, whose output
-prints there. Another pane or an agent drives it with
-`tmuxy pane send -t %ID ':goto example.com' Enter` and reads the answer back
-with `tmuxy pane capture` — no API needed. ctrl+c leaves.
-
-The engine is your own Chrome/Chromium/Edge/Brave; tmuxy ships none. Set
-TMUXY_CHROME to choose one.
-
-Verbs (after `:`):
-  goto <url>              navigate (a bare host gets a scheme)
-  eval <js>               evaluate in the page and print the result
-  click <selector>        click the first match
-  type <selector> <text>  focus a selector and type
-  wait <selector>         block until a selector exists
-  text [selector]         the visible text of the page, or of one element
-  title | url             the page's title or current URL
-  shot [path]             save a PNG
-  back | forward | reload history
-  viewport auto|desktop|mobile  lay out for the pane, 1440x900 or 400x800
-  repl [on|off]           show the verb log in the pane instead of the picture
-                          (the toolbar's REPL button does the same); bare toggles
-
-Options:
-  --session NAME     Which session (default: one per pane); names the
-                     throwaway profile, so one engine per name
-  --attach[=ENDPOINT] Drive a browser that is already running, by DevTools
-                     endpoint (`ws://...`, or `http://127.0.0.1:PORT`); bare,
-                     it finds one: a profile's DevToolsActivePort, else a
-                     listener on 127.0.0.1:9222. For the desktop app's own
-                     browser, or for your REAL profile with its logins — which
-                     Chrome 144+ exposes after the consent prompt at
-                     chrome://inspect/#remote-debugging (older Chrome: start it
-                     with --remote-debugging-port and a --user-data-dir). The
-                     page is still drawn in the pane and still takes the mouse
-                     and keys; the browser is left running when the pane
-                     closes. Put the url BEFORE a bare --attach.
-                     The picture is only meaningful when the server is the
-                     machine with the screen: over SSH the browser is on the
-                     server, and this pane is where you see it.
-  --color-filter     Recolour the page into the theme's colours
-  --viewport SIZE    What the page lays out for: auto (the pane, the
-                     default), desktop (1440x900) or mobile (400x800)
-
-In a pane, `TMUXY_CELL_PX=WxH` overrides the cell size used to size the page
-when the terminal does not report one.
-
-Examples:
-  tmuxy browser localhost:3000
-  tmuxy pane float --width 160 --height 48 tmuxy browser github.com
-  tmuxy browser --session agent1
-  tmuxy browser github.com --attach          # in the browser you are logged in to
-  tmuxy browser --attach=http://127.0.0.1:9222
-BEOF
-        exit 0
-        ;;
-    esac
-    # Straight to the binary: the pane program IS `tmuxy browser`, which draws
-    # its own screen. It is told where THIS CLI is, so it can write its
-    # restore tag through `tmuxy pane restore-cmd` wherever tmuxy is installed.
-    find_server_cmd
-    TMUXY_CLI="$SELF" exec "${SERVER_CMD[@]}" browser "$@"
     ;;
   cleanup)
     shift

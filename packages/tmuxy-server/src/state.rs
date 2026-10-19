@@ -16,7 +16,7 @@ use crate::request_guard::HostPolicy;
 mod handlers;
 pub(crate) use handlers::build_response;
 pub use handlers::find_workspace_root;
-use handlers::{browse_handler, image_handler};
+use handlers::image_handler;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
@@ -367,19 +367,16 @@ fn writable_routes() -> Router<Arc<AppState>> {
             "/trace",
             post(crate::sse::trace_handler).layer(axum::extract::DefaultBodyLimit::max(256 * 1024)),
         )
-        .route("/api/browse/{*path}", get(browse_handler))
 }
 
 /// What a viewer's server serves, and all of it: the state stream, the read
 /// commands (`/commands` refuses the rest before dispatch), and the pictures
 /// that are part of the screen it shows.
 ///
-/// SEC-11. "Read-only" is about the SESSION; the file route is a different
-/// power — it reads any file the server process can, anywhere on the disk —
-/// and `/trace` writes to it. A read-only server is the one meant to be handed
-/// to people who are not trusted with the machine, so those routes do not
-/// exist on it rather than exist and refuse. Only the browser widget uses the
-/// file route, and a viewer cannot open one (it takes a command).
+/// SEC-11. "Read-only" is about the SESSION; `/trace` is a different power —
+/// it writes to the disk. A read-only server is the one meant to be handed to
+/// people who are not trusted with the machine, so that route does not exist
+/// on it rather than exist and refuse.
 fn viewer_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/events", get(crate::sse::sse_handler))

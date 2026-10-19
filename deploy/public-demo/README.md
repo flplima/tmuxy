@@ -4,8 +4,7 @@ A tmuxy viewer anyone can open, showing a real tmux session nobody can touch.
 
 ## Why it is shaped this way
 
-A read-only server refuses every command that is not a read, and it refuses the
-arbitrary-file-read route outright (`/api/browse` — see
+A read-only server refuses every command that is not a read (see
 [docs/SECURITY.md](../../docs/SECURITY.md)). That is the lock on the door.
 
 It is not the whole answer, because a public demo is the one deployment where
@@ -42,10 +41,6 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:9100/commands \
   -H 'Host: localhost:9100' -H 'Sec-Fetch-Site: same-origin' \
   -d '{"cmd":"run_tmux_command","args":{"command":"kill-server"}}'
 # 403
-
-curl -s -o /dev/null -w '%{http_code}\n' 'localhost:9100/api/browse/etc/hosts' \
-  -H 'Host: localhost:9100' -H 'Sec-Fetch-Site: same-origin'
-# 404 — a read-only server has no file routes at all
 ```
 
 ## What it deliberately does not do

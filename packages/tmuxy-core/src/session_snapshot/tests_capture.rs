@@ -237,7 +237,7 @@ pub(super) fn fixture() -> Snapshot {
                     active: true,
                     cwd: "/tmp".into(),
                     command: None,
-                    restore_command: Some("tmuxy browser".into()),
+                    restore_command: Some("lazygit".into()),
                     options: BTreeMap::new(),
                     scrollback: None,
                     offer: None,

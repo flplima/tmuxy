@@ -166,20 +166,4 @@ function comparable(shape) {
   };
 }
 
-/** A Chromium the browser pane can launch, or null with the reason printed. */
-function engineOrSkip() {
-  const named = process.env.TMUXY_CHROME || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-  if (named && fs.existsSync(named)) return named;
-  const usual = [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-  ];
-  const found = usual.find((p) => fs.existsSync(p));
-  if (!found)
-    console.warn('session-snapshot: no Chromium-family browser, the browser pane is left out');
-  return found ?? null;
-}
-
-module.exports = { isolatedServer, shapeOf, layoutTree, comparable, engineOrSkip };
+module.exports = { isolatedServer, shapeOf, layoutTree, comparable };

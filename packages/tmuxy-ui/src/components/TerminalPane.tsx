@@ -10,7 +10,7 @@
  * preventDefault(), and manually adjusts scrollTop on the scroll container.
  */
 
-import { useRef, useState, useCallback, useSyncExternalStore } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
 import {
@@ -42,10 +42,6 @@ import { OfferBanner } from './OfferBanner';
 import { paneSendFor } from '../utils/paneAsk';
 import { isCollapsedPane } from '../constants/layout';
 import { extractSelectedText } from '../utils/copyMode';
-import { themeFilterId } from '../utils/themeColorFilter';
-import { getThemeVersion, subscribeTheme } from '../utils/themeManager';
-import { BrowserLiveBar } from './widgets/browser/BrowserLiveBar';
-import { LIVE_BROWSER_WIDGET, parseLiveHeader } from './widgets/browser/live';
 import { ScrollPositionIndicator } from './TerminalPaneScroll';
 import { usePaneNativeListeners, useTerminalPaneScroll } from './terminalPaneScrollHooks';
 import type { PaneId } from '../domain/ids';
@@ -97,7 +93,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
   const { forwardScrollToParent } = useAppConfig();
-  const themeVersion = useSyncExternalStore(subscribeTheme, getThemeVersion, getThemeVersion);
   // The screen the live grid draws: held still while the browser has a
   // selection on it, so new output cannot slide other text under the
   // highlight. The scroll view holds its own rows by absolute line.
@@ -222,17 +217,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   // re-lays out the stack).
   const collapsed = isCollapsedPane(pane);
 
-  // A live browser (`tmuxy browser`): the app's address bar over the top row
-  // the pane program leaves for it. Both halves are needed — the tag, which
-  // only the program can set (through the CLI), and the header it writes.
-  const liveHeader =
-    pane.paneWidget === LIVE_BROWSER_WIDGET && shown.content[0]
-      ? parseLiveHeader(shown.content[0].map((cell) => cell.c).join(''))
-      : null;
-  // The filter's id carries the theme's version: WebKit keeps the picture it
-  // filtered until the REFERENCE changes, so a new theme recoloured nothing.
-  const liveFilterId = `${themeFilterId(pane.tmuxId)}-${themeVersion}`;
-
   return (
     <div
       ref={wrapperRef}
@@ -295,7 +279,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                   isActive={holdsKeyboard}
                   images={pane.images}
                   paneId={pane.tmuxId}
-                  imageFilter={liveHeader?.colorFilter ? `url(#${liveFilterId})` : undefined}
                 />
               )}
               {/* The live screen stays MOUNTED behind an open scroll view,
@@ -332,10 +315,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     selectionStartY={pane.selectionStartY}
                     images={copyState ? undefined : pane.images}
                     paneId={pane.tmuxId}
-                    imageFilter={liveHeader?.colorFilter ? `url(#${liveFilterId})` : undefined}
-                    // A live browser's grid is for scripts, not people — except
-                    // in the REPL view, where the grid IS the log being shown.
-                    textHidden={!!liveHeader && !liveHeader.repl}
                     cursorShape={pane.cursorShape}
                     cursorHidden={pane.cursorHidden}
                     selectable={!pane.mouseAnyFlag}
@@ -350,15 +329,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
               — that is where the pane's title and its close button live. */}
           <AskOverlay paneId={paneId} />
           <OfferBanner paneId={paneId} />
-
-          {liveHeader && !copyState && (
-            <BrowserLiveBar
-              paneId={pane.tmuxId}
-              header={liveHeader}
-              url={pane.url ?? ''}
-              filterId={liveFilterId}
-            />
-          )}
 
           {/* Scroll position indicator — flashes on scroll in copy mode */}
           {copyState && (

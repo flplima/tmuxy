@@ -394,7 +394,7 @@ impl PaneState {
             terminal.process(b"\x1b[?1000h");
         }
         // A hidden cursor is a mode too: rebuilt without it, a full-screen
-        // program that hid its cursor long ago (a browser pane, a pager)
+        // program that hid its cursor long ago (an image viewer, a pager)
         // grew a block cursor over its picture after every capture refill.
         if self.cursor_hidden {
             terminal.process(b"\x1b[?25l");

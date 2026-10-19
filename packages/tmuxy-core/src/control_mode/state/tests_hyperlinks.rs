@@ -302,7 +302,7 @@ fn clear_from_home_erases_the_screen() {
 fn list_panes_carries_the_marked_flag() {
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,,,,,,",
+        "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,,,,,",
     );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert!(pane.marked);

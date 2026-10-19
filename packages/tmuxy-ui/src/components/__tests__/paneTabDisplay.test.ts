@@ -128,14 +128,6 @@ describe('the icon an application announces', () => {
     });
   });
 
-  it('draws a globe for a browser pane, named after its page', () => {
-    // The backend names a live browser pane `browser` (from its tag), whatever
-    // binary it runs; the page's title is the pane's title.
-    const page = pane({ command: 'browser', title: 'Example Domain' });
-    expect(getTabIcon(page)).toBe('\uf0ac');
-    expect(paneRowLines(page)).toEqual({ process: 'browser', title: 'Example Domain' });
-  });
-
   it('leaves the plain title alone for the places that draw no icon', () => {
     expect(getTabText(pane({ title: '\u273b claude' }))).toBe('\u273b claude');
   });

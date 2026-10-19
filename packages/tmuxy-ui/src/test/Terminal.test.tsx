@@ -239,8 +239,9 @@ describe('Terminal', () => {
   });
 
   it('fills the cells when the picture asks to, and fits inside them otherwise', () => {
-    // A browser pane maps a clicked cell to a page pixel as if its picture
-    // filled the cells; letterboxed, every click landed off the thing under it.
+    // A program that maps a clicked cell to a pixel of its picture needs the
+    // picture to fill the cells; letterboxed, every click lands off the thing
+    // under it.
     render(
       <Terminal
         content={createContent(['x'])}

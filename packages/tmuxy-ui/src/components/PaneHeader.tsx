@@ -30,7 +30,7 @@ interface PaneHeaderProps {
   paneId: PaneId;
   /** Override the tab title for this pane (used by widgets) */
   titleOverride?: string;
-  /** Widget name for icon lookup (e.g., "markdown", "image") */
+  /** Widget name for icon lookup (e.g., "session") */
   widgetName?: string;
   /** Float pane mode: hides group add button, wires close to onFloatClose */
   isFloat?: boolean;

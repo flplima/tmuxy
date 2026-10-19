@@ -3,10 +3,9 @@
 #
 # Usage: tmuxy-widget-tree
 #
-# The tree has no content to stream. Unlike the image/markdown widgets — which
-# pipe a payload the React component renders — the tree is derived entirely from
-# the tmux state the app already holds, so this only has to declare the widget
-# and keep the pane alive so the pane (and therefore the column) stays open.
+# The tree has no content to stream: it is derived entirely from the tmux state
+# the app already holds, so this only has to declare the widget and keep the
+# pane alive so the pane (and therefore the column) stays open.
 #
 # The pane still matters: it is what gives the left sidebar a real pane id, so
 # it can be focused, navigated into with ctrl+hjkl, and sized by the backend

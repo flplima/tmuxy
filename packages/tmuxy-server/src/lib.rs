@@ -2,13 +2,11 @@
 //!
 //! The public surface is what the desktop binary (`tmuxy-tauri-app`) links:
 //! `server` to run the CLI, `connect` for the add-a-server form, and the
-//! logging setup. `browser` is public for the engine's integration tests
-//! (`tests/browser_engine.rs`). Everything else is this crate's own, so that
-//! rustc's dead-code lint can see what nothing uses any more.
+//! logging setup. Everything else is this crate's own, so that rustc's
+//! dead-code lint can see what nothing uses any more.
 
 mod agents;
 mod auth;
-pub mod browser;
 mod command;
 pub mod connect;
 mod dev;
@@ -33,26 +31,11 @@ pub use command::ClientCommand;
 /// until `tmuxy_core::trace::init` installs the writer, so registering it here
 /// costs nothing when tracing is off.
 pub fn init_logging() {
-    init_logging_with(DEFAULT_LOG_FILTER)
+    install(DEFAULT_LOG_FILTER, None);
 }
 
 /// The filter used when `RUST_LOG` says nothing.
-pub const DEFAULT_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info,warn";
-
-/// The same, for a command that OWNS THE SCREEN.
-///
-/// `tmuxy browser` draws a picture of a page over the whole pane; a
-/// stray `WARN` from a dependency written to stderr lands in the middle of it,
-/// and chromiumoxide emits one for every CDP message it does not model. So the
-/// blanket `warn` goes: tmuxy's own logs still appear (they are few, and worth
-/// seeing), and `RUST_LOG` still overrides everything when something needs
-/// debugging.
-pub const QUIET_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info";
-
-/// `init_logging`, with the default filter named explicitly.
-pub fn init_logging_with(default_filter: &str) {
-    install(default_filter, None);
-}
+const DEFAULT_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info,warn";
 
 /// `init_logging`, plus the tmuxy crates' lines at `info` and above appended
 /// to `log_file`, without colour. The desktop app's stderr goes nowhere when

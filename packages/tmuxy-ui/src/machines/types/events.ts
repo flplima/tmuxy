@@ -172,22 +172,6 @@ export type AppMachineEvent =
   | { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string }
   | { type: 'SELECT_TAB'; windowId: WindowId }
 
-  // Browser widget (components/widgets/browser)
-  | { type: 'BROWSER_ZOOM'; paneId: PaneId; source: string; delta: number }
-  | { type: 'BROWSER_RELOAD'; paneId: PaneId; source: string }
-  | { type: 'BROWSER_COPY_URL'; url: string }
-  | { type: 'BROWSER_NAVIGATE'; paneId: PaneId; source: string; url: string }
-  | { type: 'BROWSER_HISTORY'; paneId: PaneId; source: string; delta: -1 | 1 }
-  | { type: 'BROWSER_OPEN_EXTERNAL'; url: string }
-  | { type: 'BROWSER_OPEN_LIVE'; paneId: PaneId; url: string; colorFilter: boolean }
-  | {
-      type: 'BROWSER_PAGE_TITLE';
-      paneId: PaneId;
-      source: string;
-      url: string;
-      title: string;
-    }
-
   // Copy mode & scrollback events
   | {
       type: 'ENTER_COPY_MODE';

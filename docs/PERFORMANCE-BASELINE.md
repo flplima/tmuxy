@@ -1,6 +1,6 @@
 # Performance: Measured Baseline and Retention
 
-The numbers measured so far, long-session retention, and the browser pane and snapshot costs. Part of [PERFORMANCE.md](PERFORMANCE.md).
+The numbers measured so far, long-session retention, and snapshot costs. Part of [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Measured baseline
 
@@ -184,36 +184,6 @@ run page: an artifact is only read by someone who already suspects something.
 CI runs it with a smaller load than the harness defaults — a shared runner is
 slower at both halves, and the plateau comparison needs its windows to be clean
 more than it needs them to be large.
-
-## The browser pane's frames
-
-`tmuxy browser` draws the page as an inline JPEG written to the pty
-(`browser/pane.rs`), so every frame is base64 through control mode — the same
-channel that carries keystroke echo, which is what Axis C is measured on. The
-budget therefore matters, and it is kept by three knobs in
-`browser/session.rs`: JPEG quality 60, an encoded-size cap of 1600×1000, and a
-**time** budget of one frame per 200ms.
-
-Measured on an M-series mac, an article on Wikipedia in an 80×24 pane, scrolled
-continuously with the wheel for ten seconds (the worst case — a page being
-scrolled repaints as fast as the compositor can):
-
-|  | Before the time budget | With it |
-| --- | --- | --- |
-| Frames published | 183 | 58 |
-| Median frame (base64) | 43 KB | 43 KB |
-| Rate while scrolling | ~18 fps | ~5 fps |
-| Through the pty | ~580 KB/s | **~215 KB/s** |
-
-An idle page publishes nothing; the pane still redraws its last frame every 3
-seconds so a client that attaches later sees the page at all (tmux strips image
-escapes from scrollback, so there is nothing to replay), which costs about
-**14 KB/s** for a pane someone is looking at and nothing for one they are not.
-
-The throttle has to be the time budget and not CDP's `everyNthFrame`, which
-counts compositor frames: at 4, the one-or-two frames a STILL page produces
-after a navigation were all dropped, and the pane went on showing the page it
-had left. See `FRAME_EVERY_NTH` for the longer version.
 
 ## Session snapshots
 

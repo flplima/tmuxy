@@ -103,9 +103,6 @@ export const FIELD_OWNERS = {
   // ---- copyMode ----
   copyModeStates: 'copyMode',
 
-  // ---- browser ----
-  browserStates: 'browser',
-
   // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',
@@ -236,7 +233,6 @@ export function createInitialContext(): AppMachineContext {
     gesture: null,
     keybindings: null,
     copyModeStates: {},
-    browserStates: {},
     lastLayoutCommandTime: 0,
     suppressLayoutTransition: false,
     lastUpdateAnimated: false,

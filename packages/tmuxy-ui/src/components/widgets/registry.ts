@@ -14,9 +14,9 @@ export interface WidgetProps {
  * One entry in a widget's own section of the pane menu.
  *
  * Items are pure data derived from machine context, so the menu can show what
- * the widget can currently do (a `Back` greyed out with nowhere to go) without
- * reaching into the widget component — which is a sibling of the header the
- * menu hangs off, not an ancestor.
+ * the widget can currently do (an action greyed out when it has nothing to act
+ * on) without reaching into the widget component — which is a sibling of the
+ * header the menu hangs off, not an ancestor.
  */
 export interface WidgetMenuItem {
   /** Stable id — the React key, and what tests click by. */
@@ -29,19 +29,11 @@ export interface WidgetMenuItem {
   event: AppMachineEvent;
 }
 
-/** What a widget's key handler is given to act with. */
-export interface WidgetKeyContext {
-  paneId: PaneId;
-  lines: string[];
-  send: (event: AppMachineEvent) => void;
-}
-
 /**
  * Everything the app needs to know about a widget beyond how it draws.
  *
  * A widget renders inside a pane it does not own the chrome of: the tab title,
- * the process icon, the ⋮ menu and the key routing all belong to shared
- * components. Rather than teaching each of those about each widget, a widget
+ * the process icon and the ⋮ menu all belong to shared components. Rather than teaching each of those about each widget, a widget
  * declares its contributions here and they are picked up by name.
  */
 export interface WidgetDefinition {
@@ -59,11 +51,6 @@ export interface WidgetDefinition {
     paneId: PaneId,
     lines: string[],
   ) => WidgetMenuItem[];
-  /**
-   * Keys the widget claims, handled capture-phase in `WidgetPane` before the
-   * keyboard actor forwards anything to tmux. Return true when handled.
-   */
-  onKeyDown?: (event: KeyboardEvent, ctx: WidgetKeyContext) => boolean;
 }
 
 // Registry of widget name -> definition
@@ -87,9 +74,9 @@ const WIDGET_MARKER_PREFIX = '__TMUXY_WIDGET__:';
  * `tmuxy-widget` out of band. It is required, because the marker itself
  * travels in pane OUTPUT: `cat` of a crafted file, a commit message in
  * `git log`, `curl` output or an ssh MOTD could otherwise replace the pane
- * with a browser widget pointed at an attacker's page — an iframe, inside the
- * terminal, that looks like the terminal. Nothing in the content authorises
- * anything; the option says the user asked for this widget in this pane.
+ * with a widget the user never asked for — app UI drawn where the terminal
+ * should be. Nothing in the content authorises anything; the option says the
+ * user asked for this widget in this pane.
  */
 export function detectWidget(
   content: PaneContent,

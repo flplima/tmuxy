@@ -134,8 +134,6 @@ pub struct PaneState {
     pub pane_widget: Option<String>,
     /// `@tmuxy-pane-restore`: how the pane says it comes back after a restore.
     pub pane_restore: Option<String>,
-    /// `@tmuxy-pane-url`: the address a live browser pane is showing.
-    pub pane_url: Option<String>,
     /// Bytes of `%output` this pane has had, for the trace's lifecycle events
     /// (`pane first output`): a pane that never gets any is the thing to see.
     pub output_bytes: u64,
@@ -215,7 +213,6 @@ impl PaneState {
             pane_ask: None,
             pane_widget: None,
             pane_restore: None,
-            pane_url: None,
             output_bytes: 0,
             last_clipboard_write: None,
             copy_mode_content: None,
@@ -390,7 +387,6 @@ impl PaneState {
             pane_ask: self.pane_ask.clone(),
             pane_widget: self.pane_widget.clone(),
             pane_restore: self.pane_restore.clone(),
-            pane_url: self.pane_url.clone(),
         })
     }
 }

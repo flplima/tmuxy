@@ -89,7 +89,8 @@ describe('CLI help output', () => {
       [['widget'], 'Usage: tmuxy widget <command>'],
       [['widget', '--help'], 'Usage: tmuxy widget <command>'],
       [['widget', '-h'], 'Usage: tmuxy widget <command>'],
-      [['widget', 'browser', '--help'], 'Usage: tmuxy widget browser'],
+      [['widget', 'tree', '--help'], 'Usage: tmuxy widget tree'],
+      [['widget', 'session', '--help'], 'Usage: tmuxy widget session'],
     ])('tmuxy %j shows help', (args, expected) => {
       const { stdout, exitCode } = runCLI(args);
       expect(exitCode).toBe(0);

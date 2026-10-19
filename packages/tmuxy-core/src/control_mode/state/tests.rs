@@ -17,7 +17,7 @@ fn a_capture_refill_keeps_a_hidden_cursor_hidden() {
     );
 }
 
-/// A program that redraws on SIGWINCH (`tmuxy browser`) is in the
+/// A program that redraws a picture on SIGWINCH is in the
 /// middle of writing a frame when the resize reaches the pane. Dropping the
 /// half already read left vt100 printing the rest of the base64 as text,
 /// over the rows the picture was meant to cover.
@@ -204,25 +204,6 @@ pub(super) fn seed_active_pane(agg: &mut StateAggregator, pane_id: &str, window_
 #[test]
 fn a_bare_version_command_is_named_claude() {
     assert_eq!(normalize_pane_command("2.1.280"), "claude");
-}
-
-/// A browser pane runs the server binary; every surface that names a pane
-/// by its command (the tree, the tabs) said `tmuxy-server` instead.
-#[test]
-fn a_live_browser_pane_is_named_browser_not_after_its_binary() {
-    let mut agg = StateAggregator::new();
-    agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,tmuxy-server,Example,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,browser-live,,https://example.com/",
-        );
-    assert_eq!(agg.panes.get("%3").expect("pane parsed").command, "browser");
-    agg.parse_list_panes_line(
-        "%4,0,0,0,80,24,0,0,1,tmuxy-server,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,,,",
-    );
-    assert_eq!(
-        agg.panes.get("%4").expect("pane parsed").command,
-        "tmuxy-server",
-        "untagged, it is just a program running in a shell"
-    );
     assert_eq!(normalize_pane_command("0.9"), "claude");
 
     // Anything a real executable is plausibly called stays untouched,

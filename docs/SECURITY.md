@@ -19,9 +19,9 @@ It does **not** assume the user's browser is trusted: the same browser that has 
 
 If any of these assumptions are violated, the risks described below apply.
 
-See [SECURITY-NETWORK.md](SECURITY-NETWORK.md) for these sections: Where the Server Listens; Cross-Origin Requests; Local Files Are Served Sandboxed; Deployment Recommendations.
+See [SECURITY-NETWORK.md](SECURITY-NETWORK.md) for these sections: Where the Server Listens; Cross-Origin Requests; What the App Will Load and Draw; Deployment Recommendations.
 
-See [SECURITY-CONTENT.md](SECURITY-CONTENT.md) for these sections: A Real Browser Driven From a Pane Changes Whose Network This Is; A Session Snapshot Is a Record of the Machine; Pane Output Threat Model.
+See [SECURITY-CONTENT.md](SECURITY-CONTENT.md) for these sections: A Session Snapshot Is a Record of the Machine; Pane Output Threat Model.
 
 ## Input That Reaches Control Mode
 
@@ -69,15 +69,7 @@ Control mode reads one command per line, so a newline inside anything written in
 
 What the server does _not_ do is interpolate a client's command into a shell of its own: every command goes down the monitor's control-mode connection as a tmux command line, reads included, so there is no `sh -c` for shell metacharacters to escape from.
 
-### 4. Unrestricted File Access (High)
-
-**Risk:** The `/api/browse` endpoint reads arbitrary files, with no path restrictions beyond Unix file permissions.
-
-**Impact:** Information disclosure to any allowed client — SSH keys, configuration files, source code, credentials, and any file readable by the server process. Other origins are refused ([Cross-Origin Requests](SECURITY-NETWORK.md#cross-origin-requests)) and a served page is sandboxed ([Local Files Are Served Sandboxed](SECURITY-NETWORK.md#local-files-are-served-sandboxed)).
-
-**Mitigation:** The server should run as an unprivileged user. Do not run tmuxy as root. A `--read-only` server refuses the route outright ([Read-Only Server](#read-only-server)), which is what makes a viewer safe to hand to someone who is not trusted with the machine.
-
-### 5. `--no-auth` on a Routable Address (Medium)
+### 4. `--no-auth` on a Routable Address (Medium)
 
 **Risk:** Everyone on the network can reach the server with no password.
 
@@ -85,13 +77,13 @@ What the server does _not_ do is interpolate a client's command into a shell of 
 
 **Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container's published port on a single-user machine. DNS rebinding on top of this is now refused by the `Host` check unless the bind is a wildcard with no `--allowed-host` ([Cross-Origin Requests](SECURITY-NETWORK.md#cross-origin-requests)); naming the host closes that case.
 
-### 6. Browsers Without Fetch Metadata (Low)
+### 5. Browsers Without Fetch Metadata (Low)
 
-**Risk:** A browser that sends neither `Sec-Fetch-Site` nor `Origin` on a simple `GET` (old releases) lets a hostile page trigger `GET` routes — open an event stream, request a file.
+**Risk:** A browser that sends neither `Sec-Fetch-Site` nor `Origin` on a simple `GET` (old releases) lets a hostile page trigger `GET` routes — open an event stream, request a picture.
 
 **Impact:** The page cannot read any response (no CORS headers), and a session name that would inject a command is refused. The requests themselves still reach the server.
 
-### 7. No Audit Logging (Medium)
+### 6. No Audit Logging (Medium)
 
 **Risk:** No logging of commands executed, sessions created, or clients connected. Requests refused by the origin check are logged as warnings.
 
@@ -136,7 +128,6 @@ Implemented:
 - **Loopback by default** — a routable address needs a password or `--no-auth`
 - **Optional HTTP Basic auth** — `--password` / `TMUXY_PASSWORD` gates every route
 - **Cross-origin guard** — Fetch Metadata, `Origin` and `Host` checks on every API route; no CORS headers
-- **Sandboxed file routes** — served HTML never runs with the server's origin
 - **Read-only server** — `--read-only` serves viewers that cannot send input, run commands or resize the session
 
 Not yet implemented, but would improve the security posture:
@@ -146,7 +137,6 @@ Not yet implemented, but would improve the security posture:
 - **Command allowlisting** — Restrict which tmux commands clients can execute
 - **Per-client permissions** — writers and viewers on one server, instead of one server per role
 - **Audit logging** — Log all commands and client connections
-- **Path restrictions** — Limit `/api/browse` to specific directories
 - **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional HTTP Basic Auth](SECURITY-NETWORK.md#optional-http-basic-auth))
 
 ## Related

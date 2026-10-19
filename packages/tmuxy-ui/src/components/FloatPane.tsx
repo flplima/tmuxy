@@ -9,13 +9,12 @@
  * Green border on all sides when active
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback } from 'react';
 import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
 import { OfferBanner } from './OfferBanner';
-import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import { getWidget } from './widgets/registry';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
@@ -59,12 +58,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
-
-  // A float showing the browser widget has the same hole a tiled one does:
-  // a click inside the frame never reaches `handleClick`, so the float would
-  // not take focus. See `useFramedPaneFocus`.
-  const containerRef = useRef<HTMLDivElement>(null);
-  useFramedPaneFocus(floatState.paneId, containerRef);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -156,7 +149,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       closable={!readOnly}
     >
       <div
-        ref={containerRef}
         // A float can be marked too (`prefix m` in it, then `join-pane -s`
         // from elsewhere), and it wears the mark the same way a tiled pane
         // does: the badge in its header, the accent wash over its content.

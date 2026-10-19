@@ -45,7 +45,6 @@ const full: TmuxPane = {
   paneState: 'idle',
   paneAsk: null,
   paneWidget: null,
-  url: null,
 };
 
 /** Fields that are not the pane's to show: identity, content (compared by line). */

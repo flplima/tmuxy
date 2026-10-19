@@ -71,37 +71,20 @@ fn list_windows_carries_the_sidebar_hidden_flag() {
 /// The group id rides in the final `list-panes` tail field.
 /// SEC-18. The `__TMUXY_WIDGET__:` marker is pane OUTPUT, so the client
 /// needs something the output cannot forge before it replaces a pane with
-/// an iframe. `tmuxy-widget` writes this option; the marker alone means
+/// a widget. `tmuxy-widget` writes this option; the marker alone means
 /// nothing.
 #[test]
 fn list_panes_reads_the_widget_authorisation_tail() {
     let mut agg = StateAggregator::new();
-    agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,bash,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,browser,,",
-    );
+    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,bash,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,tree,");
     assert_eq!(
         agg.panes
             .get("%3")
             .expect("pane parsed")
             .pane_widget
             .as_deref(),
-        Some("browser")
+        Some("tree")
     );
-}
-
-/// A live browser pane says where it is in the last field; an address can
-/// hold commas, sent as `%2C` so the field count holds.
-#[test]
-fn list_panes_reads_the_address_a_browser_pane_shows() {
-    let mut agg = StateAggregator::new();
-    agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,tmuxy-server,Example,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,browser-live,tmuxy browser,https://example.com/a%2Cb",
-        );
-    let pane = agg.panes.get("%3").expect("pane parsed");
-    assert_eq!(pane.pane_url.as_deref(), Some("https://example.com/a,b"));
-    assert_eq!(pane.pane_restore.as_deref(), Some("tmuxy browser"));
-    assert_eq!(pane.pane_widget.as_deref(), Some("browser-live"));
-    assert_eq!(pane.title, "Example");
 }
 
 #[test]
@@ -116,8 +99,8 @@ fn list_panes_reads_the_group_position_and_a_restore_line_with_commas() {
     let mut agg = StateAggregator::new();
     // tail: alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
     agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,zsh,t,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,2,idle,,,claude --resume x%2C y,",
-        );
+        "%3,0,0,0,80,24,0,0,1,zsh,t,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,2,idle,,,claude --resume x%2C y",
+    );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert_eq!(pane.group_id, Some(gid("g5")));
     assert_eq!(pane.group_pos, Some(2));
@@ -130,14 +113,14 @@ fn list_panes_reads_the_group_position_and_a_restore_line_with_commas() {
 fn list_panes_parses_group_id() {
     let mut agg = StateAggregator::new();
     // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,GID,POS,STATE,ASK,WIDGET,RESTORE
-    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,");
+    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,");
     assert_eq!(
         agg.panes.get("%3").expect("pane parsed").group_id.clone(),
         Some(gid("g5"))
     );
 
     // Empty tail → no group.
-    agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,,");
+    agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,");
     assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
 }
 
@@ -222,7 +205,7 @@ fn a_parked_members_real_title_survives() {
 fn stash_members_emit_stubs_only_for_active_groups() {
     let mut agg = StateAggregator::new();
     // Visible member of g5 in window @4.
-    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,");
+    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,");
     // Hidden member of g5, plus an orphan in g6 (no visible member).
     agg.handle_command_response(
         "stashmember,%7,@9,g5,,vim,hidden-title\nstashmember,%8,@9,g6,,top,orphan",

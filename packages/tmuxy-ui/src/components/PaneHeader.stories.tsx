@@ -52,20 +52,20 @@ export const SinglePane: Story = {
 export const WithWidgetIcon: Story = {
   render: () => (
     <ProviderHarness height={50}>
-      <FirstPaneHeader widgetName="markdown" titleOverride="README.md" />
+      <FirstPaneHeader widgetName="session" titleOverride="Sessions" />
     </ProviderHarness>
   ),
   parameters: {
     docs: {
       description: {
-        story: 'When widgetName is provided, the icon switches to the widget glyph (markdown).',
+        story: 'When widgetName is provided, the icon switches to the widget glyph (session).',
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(() => {
-      expect(canvas.getByText('README.md')).toBeInTheDocument();
+      expect(canvas.getByText('Sessions')).toBeInTheDocument();
     });
   },
 };

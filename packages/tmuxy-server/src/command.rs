@@ -70,8 +70,8 @@ pub enum ClientCommand {
     /// that would let anyone reaching the server probe the filesystem.
     ListGitWorktrees,
     /// The sessions that have a snapshot to restore from (`session_snapshot`):
-    /// `[{ name, savedAt }]`. Write-only, like the file routes: a snapshot
-    /// names working directories and commands, which a viewer is not shown.
+    /// `[{ name, savedAt }]`. Write-only: a snapshot names working
+    /// directories and commands, which a viewer is not shown.
     ListSnapshots,
     /// Rebuild a session from its latest snapshot, through this session's
     /// control-mode client. Refused when the session is already running.

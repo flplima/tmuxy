@@ -80,28 +80,14 @@ async fn a_read_only_server_refuses_every_write() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-/// A read-only server has no arbitrary-file-read route.
-///
-/// It is the reason a read-only server is not automatically safe to
-/// expose: refusing every non-read COMMAND says nothing about it, and it
-/// reads anything the server process can, anywhere on the disk. SEC-11: the
-/// viewer's router is built without it (`viewer_routes`), so there is no
-/// handler to refuse — the route is not there.
+/// The pictures that are part of the screen still have a route on a
+/// read-only server (a missing one is a 404 from the handler, not from the
+/// router; the point is that the route answers as itself).
 #[tokio::test]
-async fn a_read_only_server_has_no_file_route() {
+async fn a_read_only_server_still_serves_the_screens_pictures() {
     let state = Arc::new(AppState::new().with_read_only(true));
     let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
 
-    let request = Request::get("/api/browse/etc/hosts")
-        .header("host", "localhost:9000")
-        .header("sec-fetch-site", "same-origin")
-        .body(Body::empty())
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    // ...while the pictures that are part of the screen still have a route
-    // (a missing one is a 404 from the handler, not from the router; the
-    // point is that the route answers as itself, not as the file route).
     let request = Request::get("/api/images/%251/1")
         .header("host", "localhost:9000")
         .header("sec-fetch-site", "same-origin")
@@ -109,19 +95,6 @@ async fn a_read_only_server_has_no_file_route() {
         .unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
     assert_ne!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-}
-
-/// ...and a normal server still serves it, so the guard above is the
-/// read-only flag talking and not a route that stopped working.
-#[tokio::test]
-async fn a_writable_server_still_serves_the_file_route() {
-    let request = Request::get("/api/browse/etc/hosts")
-        .header("host", "localhost:9000")
-        .header("sec-fetch-site", "same-origin")
-        .body(Body::empty())
-        .unwrap();
-    let response = app().oneshot(request).await.unwrap();
-    assert_ne!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -138,17 +111,6 @@ async fn a_page_on_another_origin_cannot_post_a_command() {
             .get("access-control-allow-origin")
             .is_none());
     }
-}
-
-#[tokio::test]
-async fn a_page_on_another_origin_cannot_read_a_file() {
-    let request = Request::get("/api/browse/etc/hosts")
-        .header("host", "localhost:9000")
-        .header("sec-fetch-site", "cross-site")
-        .body(Body::empty())
-        .unwrap();
-    let response = app().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -188,7 +150,6 @@ const COVERED_ROUTES: &[(&str, &str)] = &[
     ("/events", "/events"),
     ("/commands", "/commands"),
     ("/trace", "/trace"),
-    ("/api/browse/{*path}", "/api/browse/etc/hosts"),
     ("/api/images/{pane_id}/{image_id}", "/api/images/1/0"),
 ];
 

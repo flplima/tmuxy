@@ -31,8 +31,6 @@ import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
 import { notificationsState } from './states/notifications';
 import { notificationsActions } from './actions/notifications';
-import { browserState } from './states/browser';
-import { browserActions } from './actions/browser';
 import { copyModeState } from './states/copyMode';
 import { copyModeActions } from './actions/copyMode';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
@@ -84,7 +82,6 @@ export const appMachine = setup({
     ...commandUiActions,
     ...notificationsActions,
     ...copyModeActions,
-    ...browserActions,
     ...groupsAndFloatsActions,
     ...sidebarsActions,
     ...tabOverviewActions,
@@ -194,7 +191,6 @@ export const appMachine = setup({
     idle: {
       on: {
         ...copyModeState.on,
-        ...browserState.on,
         ...groupsAndFloatsIdleEvents,
         ...sidebarsIdleEvents,
         ...layoutState.on,

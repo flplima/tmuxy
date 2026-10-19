@@ -118,8 +118,6 @@ export const TmuxPane = Schema.mutable(
      * so authorises nothing on its own — see `components/widgets/detectWidget`.
      */
     paneWidget: optionalFrom('pane_widget', Schema.NullOr(Schema.String)),
-    /** `@tmuxy-pane-url`: what a live browser pane is showing (its address bar). */
-    url: optionalFrom('pane_url', Schema.NullOr(Schema.String)),
   }),
 );
 export type TmuxPane = Schema.Schema.Type<typeof TmuxPane>;

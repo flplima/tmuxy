@@ -304,45 +304,6 @@ export interface RestorableSession {
   savedAt: number;
 }
 
-/**
- * A browser-widget pane's zoom and refresh count.
- *
- * The page is not stored: it is the source the pane's widget marker declares,
- * read from the pane content, so a pane nobody has zoomed or refreshed needs no
- * record at all. See components/widgets/browser/view.ts.
- */
-export interface BrowserPaneState {
-  /**
-   * The marker source this record belongs to. A pane outlives the browser
-   * running in it — close one and open another and the pane id is the same —
-   * so a record whose source no longer matches the pane's is a previous
-   * browser's and is ignored.
-   */
-  source: string;
-  zoom: number;
-  /** Bumped by a refresh; changes the load so a cached response is bypassed. */
-  reloadNonce: number;
-  /**
-   * Where this pane has been, oldest first, starting with the source its
-   * widget marker declared. Only the app's OWN navigations are in it — an
-   * address typed into the bar, a back or a forward. A link followed inside
-   * the frame is the page's own business: the frame is another document (and,
-   * for a website, another origin), so nothing in it is visible from here.
-   * That is why the bar shows where the pane was POINTED rather than claiming
-   * to mirror the page, and why back/forward move between those points.
-   */
-  history: string[];
-  /** Which entry of `history` is showing. */
-  historyIndex: number;
-  /**
-   * The `<title>` of the page showing, and the URL it was read from — kept
-   * together so a title never outlives the page it belongs to. Absent until
-   * one is read, and for a page whose HTML cannot be read at all (see
-   * `BROWSER_PAGE_TITLE`).
-   */
-  pageTitle?: { url: string; title: string };
-}
-
 /** The trackpad gestures tmuxy.conf allows. */
 export interface GestureFlags {
   swipeTabs: boolean;
