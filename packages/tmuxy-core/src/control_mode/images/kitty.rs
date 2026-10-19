@@ -188,7 +188,7 @@ impl ImageParser {
         self.next_id += 1;
         self.place(ImagePlacement {
             id,
-            row: self.cursor_row,
+            row: i32::from(self.cursor_row),
             col: self.cursor_col,
             width_cells,
             height_cells,

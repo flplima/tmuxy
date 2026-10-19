@@ -24,8 +24,7 @@ mod sixel_and_iterm;
 use serde::{Deserialize, Serialize};
 pub(super) use sixel_and_iterm::find_osc_end;
 use sixel_and_iterm::{
-    base64_decode, detect_mime_type, ends_with_cursor_home, has_escape_terminator,
-    names_alternate_screen, overlaps, rgba_to_png, undouble_escapes,
+    base64_decode, detect_mime_type, has_escape_terminator, overlaps, rgba_to_png,
 };
 
 // `std::time::Instant::now()` panics on wasm32; web-time backs it with
@@ -49,8 +48,8 @@ pub enum ImageProtocol {
 pub struct ImagePlacement {
     /// Unique image ID (auto-incremented within this parser).
     pub id: u32,
-    /// Row where the image starts (0-indexed, screen-relative).
-    pub row: u16,
+    /// Row where the image starts (0-indexed, screen-relative; negative when scrolled into history).
+    pub row: i32,
     /// Column where the image starts (0-indexed).
     pub col: u16,
     /// Width in terminal cells.
@@ -207,6 +206,33 @@ impl ImageParser {
         self.placements.push(placement);
     }
 
+    /// Shift all active placements up by `delta` rows as the terminal scrolls,
+    /// evicting only placements whose bottom edge has scrolled past the
+    /// scrollback buffer (`-(max_scrollback as i32)`).
+    pub fn shift_rows_up(&mut self, delta: u32, max_scrollback: usize) {
+        if delta == 0 {
+            return;
+        }
+        let d = delta as i32;
+        let limit = -(max_scrollback as i32);
+        for p in &mut self.placements {
+            p.row = p.row.saturating_sub(d);
+        }
+        self.placements
+            .retain(|p| p.row.saturating_add(i32::from(p.height_cells)) > limit);
+    }
+
+    /// Shift all active placements down by `delta` rows on reverse scroll.
+    pub fn shift_rows_down(&mut self, delta: u32) {
+        if delta == 0 {
+            return;
+        }
+        let d = delta as i32;
+        for p in &mut self.placements {
+            p.row = p.row.saturating_add(d);
+        }
+    }
+
     /// Reset for a capture-pane refill: clear in-flight transfer state but
     /// PRESERVE placements. capture-pane output never contains the original
     /// image escapes (tmux strips them from history), so clearing placements
@@ -220,14 +246,16 @@ impl ImageParser {
         self.cursor_col = 0;
     }
 
-    /// Reset for a pane resize: retire the placements (their cells were just
-    /// reflowed) but KEEP the transfer in flight. The bytes still to come are
-    /// the rest of an escape the application already started writing; a
-    /// program that redraws on SIGWINCH is mid-frame at exactly this moment,
-    /// and dropping the head made vt100 print the remaining base64 as text.
-    pub fn reset_for_resize(&mut self) {
-        self.placements.clear();
-        self.main_screen_placements = None;
+    /// Reset for a pane resize: on the alternate screen, retire placements
+    /// (the full-screen application will redraw on `SIGWINCH`), while on the
+    /// primary screen preserve placements (CLI tools like `kitten icat`,
+    /// `chafa`, `imgcat` have already exited and will not redraw on zoom or
+    /// resize). Always keep in-flight transfers intact so a resize mid-frame
+    /// does not spill the remaining base64 as text.
+    pub fn reset_for_resize(&mut self, in_alt_screen: bool) {
+        if in_alt_screen || self.main_screen_placements.is_some() {
+            self.placements.clear();
+        }
     }
 
     pub fn update_cursor(&mut self, row: u16, col: u16) {
@@ -235,55 +263,30 @@ impl ImageParser {
         self.cursor_col = col;
     }
 
-    /// Process raw output bytes, extracting image sequences from any of the
-    /// three supported protocols. Returns cleaned bytes (image sequences
-    /// stripped) and any newly completed images to store.
-    /// Undo tmux's DCS passthrough — `ESC P tmux; <payload, every ESC doubled>
-    /// ESC \` — so the payload is parsed as if the application had written it
-    /// to the terminal itself. Returns `None` when there is nothing wrapped.
-    ///
-    /// An application inside tmux is meant to wrap any escape tmux does not
-    /// understand; that is how the image protocols reach a terminal sitting
-    /// behind tmux. tmuxy is not behind tmux — it reads the pane stream — so
-    /// the wrapper arrives here intact and has to be undone. Reading it also
-    /// keeps the pane's title intact: tmux takes a bare APC string for a title
-    /// (its `input_exit_apc`), so a Kitty frame sent unwrapped turns the pane
-    /// title into base64 while it draws.
-    fn unwrap_passthrough(&mut self, content: &[u8]) -> Option<Vec<u8>> {
-        const PREFIX: &[u8] = b"\x1bPtmux;";
-        if !content.windows(PREFIX.len()).any(|w| w == PREFIX) {
-            return None;
+    pub fn process(&mut self, content: &[u8]) -> ImageProcessResult {
+        let mut clean_bytes = Vec::with_capacity(content.len());
+        let new_images = self.process_with(content, |chunk, _| {
+            clean_bytes.extend_from_slice(chunk);
+        });
+        ImageProcessResult {
+            clean_bytes,
+            new_images,
         }
-        let mut out = Vec::with_capacity(content.len());
-        let mut i = 0;
-        while i < content.len() {
-            if content[i..].starts_with(PREFIX) {
-                match undouble_escapes(&content[i + PREFIX.len()..]) {
-                    Some((payload, consumed)) => {
-                        out.extend_from_slice(&payload);
-                        i += PREFIX.len() + consumed;
-                    }
-                    None => {
-                        // Truncated at the chunk boundary: hold the tail so the
-                        // next call sees the whole wrapper.
-                        let tail = &content[i..];
-                        if tail.len() <= MAX_PENDING_IMAGE {
-                            self.pending.extend_from_slice(tail);
-                        } else {
-                            out.extend_from_slice(tail);
-                        }
-                        return Some(out);
-                    }
-                }
-            } else {
-                out.push(content[i]);
-                i += 1;
-            }
-        }
-        Some(out)
     }
 
-    pub fn process(&mut self, content: &[u8]) -> ImageProcessResult {
+    /// Process raw output bytes, flushing clean (non-image) byte spans through
+    /// `on_clean_bytes` before each image placement or screen switch so the
+    /// caller can advance its terminal emulator and update `(cursor_row,
+    /// cursor_col)` and scroll offsets at the exact point in the byte stream
+    /// where each image escape appears.
+    pub fn process_with<F>(
+        &mut self,
+        content: &[u8],
+        mut on_clean_bytes: F,
+    ) -> Vec<(u32, StoredImage)>
+    where
+        F: FnMut(&[u8], &mut Self),
+    {
         // Prepend any incomplete image escape carried over from the last chunk.
         let buffered;
         let content: &[u8] = if self.pending.is_empty() {
@@ -317,7 +320,7 @@ impl ImageParser {
                 // screen with it. Only watched, never consumed: vt100 still has
                 // to clear its own grid.
                 if nxt == b'[' {
-                    self.observe_csi(&content[i..], &output);
+                    self.observe_csi(&content[i..], &mut output, &mut on_clean_bytes);
                 } else if nxt == b'c' {
                     // RIS: a full reset leaves nothing behind on either screen.
                     self.placements.clear();
@@ -326,6 +329,13 @@ impl ImageParser {
 
                 // iTerm2: ESC ] 1337 ; File= ...
                 if nxt == b']' {
+                    if !output.is_empty()
+                        && content[i..].starts_with(b"\x1b]1337;")
+                        && find_osc_end(&content[i + 2..]).is_some()
+                    {
+                        let flushed = std::mem::take(&mut output);
+                        on_clean_bytes(&flushed, self);
+                    }
                     if let Some((consumed, image)) = self.try_parse_iterm2(&content[i..]) {
                         if let Some((id, stored)) = image {
                             new_images.push((id, stored));
@@ -337,6 +347,13 @@ impl ImageParser {
 
                 // Kitty Graphics Protocol: ESC _ G ... ESC \
                 if nxt == b'_' {
+                    if !output.is_empty()
+                        && content[i..].starts_with(b"\x1b_G")
+                        && has_escape_terminator(&content[i + 2..])
+                    {
+                        let flushed = std::mem::take(&mut output);
+                        on_clean_bytes(&flushed, self);
+                    }
                     if let Some((consumed, image)) = self.try_parse_kitty(&content[i..]) {
                         if let Some((id, stored)) = image {
                             new_images.push((id, stored));
@@ -348,6 +365,10 @@ impl ImageParser {
 
                 // Sixel: ESC P ... q ... ESC \
                 if nxt == b'P' {
+                    if !output.is_empty() && has_escape_terminator(&content[i + 2..]) {
+                        let flushed = std::mem::take(&mut output);
+                        on_clean_bytes(&flushed, self);
+                    }
                     if let Some((consumed, image)) = self.try_parse_sixel(&content[i..]) {
                         if let Some((id, stored)) = image {
                             new_images.push((id, stored));
@@ -377,58 +398,11 @@ impl ImageParser {
             i += 1;
         }
 
-        ImageProcessResult {
-            clean_bytes: output,
-            new_images,
+        if !output.is_empty() {
+            on_clean_bytes(&output, self);
         }
-    }
 
-    /// Retire pictures for the CSI sequences that empty a screen.
-    ///
-    /// A placement is anchored to cells, not drawn into them, so vt100 clearing
-    /// the grid never touched it: after `clear`, or after an editor quit, the
-    /// picture stayed on screen over whatever came next. `emitted` is the clean
-    /// output so far, to see whether an erase-below starts from the top left.
-    fn observe_csi(&mut self, data: &[u8], emitted: &[u8]) {
-        let mut j = 2;
-        let private = data.get(j) == Some(&b'?');
-        if private {
-            j += 1;
-        }
-        let start = j;
-        while j < data.len() && (data[j].is_ascii_digit() || data[j] == b';') {
-            j += 1;
-        }
-        let Some(&final_byte) = data.get(j) else {
-            return;
-        };
-        let params = &data[start..j];
-        match (private, final_byte) {
-            // ED 2 erases the whole screen; ED 0 (the default) erases from the
-            // cursor down, which is the whole screen right after a home — the
-            // `ESC [ H ESC [ J` pair curses applications clear with.
-            (false, b'J') => {
-                let erase_below = params.is_empty() || params == b"0";
-                if params == b"2" || (erase_below && ends_with_cursor_home(emitted)) {
-                    self.placements.clear();
-                }
-            }
-            (true, b'h') if names_alternate_screen(params) => {
-                match self.main_screen_placements {
-                    None => {
-                        self.main_screen_placements = Some(std::mem::take(&mut self.placements))
-                    }
-                    // Entering again clears the alternate screen.
-                    Some(_) => self.placements.clear(),
-                }
-            }
-            (true, b'l') if names_alternate_screen(params) => {
-                if let Some(main) = self.main_screen_placements.take() {
-                    self.placements = main;
-                }
-            }
-            _ => {}
-        }
+        new_images
     }
 }
 

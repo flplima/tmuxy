@@ -125,13 +125,13 @@ stored bytes (already in the format the browser expects: PNG/JPEG/WebP)
 Each `ImagePlacement` carries:
 
 - `id` — monotonic per-pane image counter, matches the URL path
-- `row`, `col` — top-left cell coordinates within the pane grid
+- `row`, `col` — top-left cell coordinates (`row` is signed `i32`: `0..height-1` on the live viewport, negative when scrolled into scrollback history)
 - `width_cells`, `height_cells` — bounding box in terminal cells
 - `protocol` — one of `iterm2`, `kitty`, `sixel`
 
-The frontend positions the `<img>` absolutely inside `.terminal-images` in cell units — `--cell-w` horizontally, `--line-height-terminal` vertically — so the image stays anchored to the same cell range as the surrounding text reflows. This is the same grid the rows and the cursor use; see [The cell grid invariant](RICH-RENDERING-CELL-GRID.md). When `width=auto` / `height=auto` is requested, the parser converts pixels to cells using the pane's current cell size estimate.
+The frontend positions the `<img>` absolutely inside `.terminal-images` in cell units — `--cell-w` horizontally, `--line-height-terminal` vertically — so the image stays aligned to the same cell grid as the surrounding text. This is the same grid the rows and the cursor use; see [The cell grid invariant](RICH-RENDERING-CELL-GRID.md). When `width=auto` / `height=auto` is requested, the parser converts pixels to cells using the pane's current cell size estimate.
 
-**Known limitation — placements are viewport-cell anchored, not content-tracked.** The `row`/`col` anchor is the cursor position at decode time and never moves afterwards: the core's vt100 emulator runs with zero scrollback, so there is no scroll signal to shift placements when later output scrolls the screen. An image therefore stays pinned to its original viewport cell while text scrolls underneath it (iTerm2, by contrast, scrolls images with content). Content-tracked placements would require a scrolled-lines counter in the vt100 layer plus row adjustment and off-screen culling in `control_mode/images.rs`. The `ImageAnchoredDuringScroll` story guards the current anchored behavior.
+**Content-tracked scrolling and scroll/copy mode.** `PaneState::sync_url_scroll` reads `vt100::Screen::scroll_delta()` as terminal output is processed and calls `ImageParser::shift_rows_up` / `shift_rows_down` to shift each placement's `row` in lockstep with the surrounding text. Placements that scroll above the live viewport (`row < 0`) are retained until their bottom edge (`row + height_cells`) passes the scrollback limit (`VIEWER_SCROLLBACK_ROWS`), and `ScrollbackTerminal.tsx` renders `.terminal-images` at `top: calc((historySize + row) * var(--line-height-terminal))` so images remain visible when scrolling back in scroll or copy mode. Primary-screen placements also survive pane zoom and resize (`ImageParser::reset_for_resize` only clears placements on the alternate screen, where full-screen apps redraw on `SIGWINCH`).
 
 See [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) for this section: The cell grid invariant.
 

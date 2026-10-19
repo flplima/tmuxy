@@ -13,20 +13,29 @@
 
 import { useRef, useLayoutEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
+import { resolveImageSrc } from './Terminal';
 import { useAppSelector } from '../machines/appHooks';
 import { selectCharSize } from '../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
-import { sameCellStyle } from './terminalShared';
+import { cellsToCss, sameCellStyle } from './terminalShared';
 import { isRowLoaded, isWrappedRow } from '../utils/copyMode';
 import { detectUrlsAcrossRows, sameUrls, type DetectedUrl } from '../utils/urlDetect';
 import { setLinkHot } from '../utils/linkHover';
 import type { CopyModeState } from '../domain/copyMode';
+import type { ImagePlacement } from '../domain/client';
+import type { PaneId } from '../domain/ids';
 import type { CellLine } from '../domain/wire';
 
 interface ScrollbackTerminalProps {
   copyState: CopyModeState;
   /** Whether the pane holds the keyboard; only then is the copy cursor drawn. */
   isActive: boolean;
+  /** Image placements on this pane (live rows >= 0, scrollback rows < 0). */
+  images?: ImagePlacement[];
+  /** Pane tmux ID (e.g., "%0") for image URL construction. */
+  paneId?: PaneId;
+  /** CSS filter for the pictures (live browser's `--color-filter`). */
+  imageFilter?: string;
 }
 
 /**
@@ -165,7 +174,13 @@ function selectedRowSpan(pre: HTMLElement): { start: number; end: number } | nul
   return { start: Math.min(a, b), end: Math.max(a, b) };
 }
 
-export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalProps) {
+export function ScrollbackTerminal({
+  copyState,
+  isActive,
+  images,
+  paneId,
+  imageFilter,
+}: ScrollbackTerminalProps) {
   const { charHeight } = useAppSelector(selectCharSize);
   const preRef = useRef<HTMLPreElement>(null);
   // Mounted rows by absolute row, with what each was last painted with.
@@ -182,7 +197,7 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
   );
 
   const { totalLines, scrollTop, height, cursorRow, cursorCol, lines, loadedRanges } = copyState;
-  const { selectionAnchor, selectionMode, width, mode } = copyState;
+  const { selectionAnchor, selectionMode, width, mode, historySize } = copyState;
   const isCopyMode = mode === 'copy';
 
   // A client selection paints in either view. Copy mode is where one usually
@@ -320,6 +335,9 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
         left: 0,
         right: 0,
         height: totalLines * charHeight,
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--tmuxy-font-size, 15px)',
+        overflow: 'hidden',
       }}
     >
       <pre
@@ -337,6 +355,33 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       />
       {isCursorVisible && (
         <Cursor x={cursorCol} y={cursorRow} char={cursorChar} copyMode={true} mode="block" />
+      )}
+      {images && images.length > 0 && paneId && (
+        <div className="terminal-images">
+          {images.map((img) => {
+            const absRow = historySize + img.row;
+            if (absRow + img.heightCells <= 0 || absRow >= totalLines) return null;
+            return (
+              <img
+                key={img.id}
+                className="terminal-image"
+                src={resolveImageSrc(paneId, img.id)}
+                alt=""
+                data-protocol={img.protocol}
+                data-image-id={img.id}
+                style={{
+                  position: 'absolute',
+                  top: `calc(${absRow} * var(--line-height-terminal))`,
+                  left: cellsToCss(img.col),
+                  width: cellsToCss(img.widthCells),
+                  height: `calc(${img.heightCells} * var(--line-height-terminal))`,
+                  objectFit: img.stretch ? 'fill' : undefined,
+                  filter: imageFilter,
+                }}
+              />
+            );
+          })}
+        </div>
       )}
     </div>
   );

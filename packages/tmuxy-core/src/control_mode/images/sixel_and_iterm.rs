@@ -63,7 +63,7 @@ impl ImageParser {
         self.next_id += 1;
         self.place(ImagePlacement {
             id,
-            row: self.cursor_row,
+            row: i32::from(self.cursor_row),
             col: self.cursor_col,
             width_cells,
             height_cells,
@@ -151,7 +151,7 @@ impl ImageParser {
         self.next_id += 1;
         self.place(ImagePlacement {
             id,
-            row: self.cursor_row,
+            row: i32::from(self.cursor_row),
             col: self.cursor_col,
             width_cells,
             height_cells,
@@ -170,6 +170,110 @@ impl ImageParser {
             )),
         ))
     }
+
+    /// Undo tmux's DCS passthrough — `ESC P tmux; <payload, every ESC doubled>
+    /// ESC \` — so the payload is parsed as if the application had written it
+    /// to the terminal itself. Returns `None` when there is nothing wrapped.
+    ///
+    /// An application inside tmux is meant to wrap any escape tmux does not
+    /// understand; that is how the image protocols reach a terminal sitting
+    /// behind tmux. tmuxy is not behind tmux — it reads the pane stream — so
+    /// the wrapper arrives here intact and has to be undone. Reading it also
+    /// keeps the pane's title intact: tmux takes a bare APC string for a title
+    /// (its `input_exit_apc`), so a Kitty frame sent unwrapped turns the pane
+    /// title into base64 while it draws.
+    pub(super) fn unwrap_passthrough(&mut self, content: &[u8]) -> Option<Vec<u8>> {
+        const PREFIX: &[u8] = b"\x1bPtmux;";
+        if !content.windows(PREFIX.len()).any(|w| w == PREFIX) {
+            return None;
+        }
+        let mut out = Vec::with_capacity(content.len());
+        let mut i = 0;
+        while i < content.len() {
+            if content[i..].starts_with(PREFIX) {
+                match undouble_escapes(&content[i + PREFIX.len()..]) {
+                    Some((payload, consumed)) => {
+                        out.extend_from_slice(&payload);
+                        i += PREFIX.len() + consumed;
+                    }
+                    None => {
+                        // Truncated at the chunk boundary: hold the tail so the
+                        // next call sees the whole wrapper.
+                        let tail = &content[i..];
+                        if tail.len() <= MAX_PENDING_IMAGE {
+                            self.pending.extend_from_slice(tail);
+                        } else {
+                            out.extend_from_slice(tail);
+                        }
+                        return Some(out);
+                    }
+                }
+            } else {
+                out.push(content[i]);
+                i += 1;
+            }
+        }
+        Some(out)
+    }
+
+    /// Retire pictures for the CSI sequences that empty a screen.
+    ///
+    /// A placement is anchored to cells, not drawn into them, so vt100 clearing
+    /// the grid never touched it: after `clear`, or after an editor quit, the
+    /// picture stayed on screen over whatever came next. `emitted` is the clean
+    /// output so far, to see whether an erase-below starts from the top left.
+    pub(super) fn observe_csi<F>(&mut self, data: &[u8], emitted: &mut Vec<u8>, on_flush: &mut F)
+    where
+        F: FnMut(&[u8], &mut Self),
+    {
+        let mut j = 2;
+        let private = data.get(j) == Some(&b'?');
+        if private {
+            j += 1;
+        }
+        let start = j;
+        while j < data.len() && (data[j].is_ascii_digit() || data[j] == b';') {
+            j += 1;
+        }
+        let Some(&final_byte) = data.get(j) else {
+            return;
+        };
+        let params = &data[start..j];
+        match (private, final_byte) {
+            // ED 2 erases the whole screen; ED 0 (the default) erases from the
+            // cursor down, which is the whole screen right after a home — the
+            // `ESC [ H ESC [ J` pair curses applications clear with.
+            (false, b'J') => {
+                let erase_below = params.is_empty() || params == b"0";
+                if params == b"2" || (erase_below && ends_with_cursor_home(emitted)) {
+                    self.placements.clear();
+                }
+            }
+            (true, b'h') if names_alternate_screen(params) => {
+                if !emitted.is_empty() {
+                    let flushed = std::mem::take(emitted);
+                    on_flush(&flushed, self);
+                }
+                match self.main_screen_placements {
+                    None => {
+                        self.main_screen_placements = Some(std::mem::take(&mut self.placements))
+                    }
+                    // Entering again clears the alternate screen.
+                    Some(_) => self.placements.clear(),
+                }
+            }
+            (true, b'l') if names_alternate_screen(params) => {
+                if !emitted.is_empty() {
+                    let flushed = std::mem::take(emitted);
+                    on_flush(&flushed, self);
+                }
+                if let Some(main) = self.main_screen_placements.take() {
+                    self.placements = main;
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 // -------------------------------------------------------------------
@@ -179,11 +283,12 @@ impl ImageParser {
 /// Whether the bytes end with a cursor move to the top left (CUP to 1;1).
 /// Whether two placements share a cell.
 pub(super) fn overlaps(a: &ImagePlacement, b: &ImagePlacement) -> bool {
-    let span = |start: u16, len: u16| (start, start.saturating_add(len.max(1)));
-    let (a_left, a_right) = span(a.col, a.width_cells);
-    let (b_left, b_right) = span(b.col, b.width_cells);
-    let (a_top, a_bottom) = span(a.row, a.height_cells);
-    let (b_top, b_bottom) = span(b.row, b.height_cells);
+    let span_u16 = |start: u16, len: u16| (start, start.saturating_add(len.max(1)));
+    let span_i32 = |start: i32, len: u16| (start, start.saturating_add(i32::from(len.max(1))));
+    let (a_left, a_right) = span_u16(a.col, a.width_cells);
+    let (b_left, b_right) = span_u16(b.col, b.width_cells);
+    let (a_top, a_bottom) = span_i32(a.row, a.height_cells);
+    let (b_top, b_bottom) = span_i32(b.row, b.height_cells);
     a_left < b_right && b_left < a_right && a_top < b_bottom && b_top < a_bottom
 }
 

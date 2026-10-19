@@ -167,9 +167,18 @@ impl PaneState {
         let delta = now - self.last_scroll_delta;
         self.last_scroll_delta = now;
         match delta.cmp(&0) {
-            std::cmp::Ordering::Greater => self.osc_parser.shift_rows_up(delta as u32),
+            std::cmp::Ordering::Greater => {
+                let d = delta as u32;
+                self.osc_parser.shift_rows_up(d);
+                let max_sb = self
+                    .scrollback_rows
+                    .max(crate::constants::VIEWER_SCROLLBACK_ROWS);
+                self.image_parser.shift_rows_up(d, max_sb);
+            }
             std::cmp::Ordering::Less => {
-                self.osc_parser.shift_rows_down(delta.unsigned_abs() as u32)
+                let d = delta.unsigned_abs() as u32;
+                self.osc_parser.shift_rows_down(d);
+                self.image_parser.shift_rows_down(d);
             }
             std::cmp::Ordering::Equal => {}
         }
@@ -200,9 +209,28 @@ impl PaneState {
         // We scan for the last occurrence since only the final state matters.
         extract_cursor_shape(content, &mut self.cursor_shape);
 
-        // Process through image parser to extract image sequences
-        let image_result = self.image_parser.process(content);
-        for (id, stored) in image_result.new_images {
+        // Ensure image parser starts with the current vt100 cursor position.
+        let (init_row, init_col) = self.terminal.screen().cursor_position();
+        self.image_parser.update_cursor(init_row, init_col);
+
+        // Temporarily take `image_parser` so the clean-bytes callback can
+        // mutate `self` (feeding `osc_parser` and `vt100` and shifting image
+        // placements on scroll) right before each image escape is placed.
+        let mut image_parser = std::mem::take(&mut self.image_parser);
+        let new_images = image_parser.process_with(content, |clean_bytes, parser| {
+            // Put placements on `self.image_parser` while `feed_terminal`
+            // runs so `sync_url_scroll` shifts them by any scroll delta
+            // caused by `clean_bytes`.
+            std::mem::swap(&mut self.image_parser.placements, &mut parser.placements);
+            let osc = self.osc_parser.process(clean_bytes);
+            self.feed_terminal(osc);
+            std::mem::swap(&mut self.image_parser.placements, &mut parser.placements);
+            let (row, col) = self.terminal.screen().cursor_position();
+            parser.update_cursor(row, col);
+        });
+        self.image_parser = image_parser;
+
+        for (id, stored) in new_images {
             self.image_store.insert(id, stored);
             self.image_store_order.push_back(id);
         }
@@ -227,14 +255,6 @@ impl PaneState {
                 }
             }
         }
-
-        // Process remaining bytes through OSC parser to extract hyperlinks/clipboard
-        // Returns content with OSC sequences stripped for vt100, plus the byte
-        // ranges an OSC 8 link was open over.
-        let osc = self.osc_parser.process(&image_result.clean_bytes);
-
-        // Process through terminal emulator, recording hyperlink cells as we go
-        self.feed_terminal(osc);
 
         // Derive alternate_on and mouse_any_flag from the vt100 parser state.
         // This is more reliable than polling list-panes, as it updates immediately
@@ -272,6 +292,8 @@ impl PaneState {
         let normalized = normalize_capture_bytes(content);
         safe_process(&mut self.terminal, &normalized);
         self.rebaseline_scroll();
+        let (row, col) = self.terminal.screen().cursor_position();
+        self.image_parser.update_cursor(row, col);
     }
 
     /// A parser for this pane's size, already in the modes tmux reports.
@@ -342,12 +364,14 @@ impl PaneState {
             // SIGWINCH. This also subsumes the original %layout-change case the
             // replay was added for (content is reflowed, never lost).
             self.terminal.screen_mut().set_size(h, w);
-            self.image_parser.reset_for_resize();
+            self.image_parser.reset_for_resize(self.alternate_on);
             // Drop stale hyperlink cell mappings (reflowed coordinates no longer
             // match) and realign the scroll compensation to the new height.
             self.osc_parser.reset();
             self.osc_parser.set_viewport_height(height);
             self.rebaseline_scroll();
+            let (row, col) = self.terminal.screen().cursor_position();
+            self.image_parser.update_cursor(row, col);
             true
         } else {
             false

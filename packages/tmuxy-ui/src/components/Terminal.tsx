@@ -32,7 +32,7 @@ import { paneNumber, type PaneId } from '../domain/ids';
  * `window.__tmuxyImageSrc` — useful for serving data:/blob: URLs without
  * standing up a real backend.
  */
-function resolveImageSrc(paneId: PaneId, imageId: number): string {
+export function resolveImageSrc(paneId: PaneId, imageId: number): string {
   const numericPaneId = paneNumber(paneId);
   if (typeof window !== 'undefined') {
     const override = (
@@ -250,6 +250,11 @@ export const Terminal: React.FC<TerminalProps> = ({
     return lines[cursorRow]?.[effectiveCursorX]?.c || ' ';
   }, [cursorVisible, lines, cursorRow, effectiveCursorX]);
 
+  const visibleImages = useMemo(
+    () => images?.filter((img) => img.row + img.heightCells > 0 && img.row < height),
+    [images, height],
+  );
+
   return (
     <div className="terminal-container" data-testid="terminal" role="log" aria-live="off">
       <pre
@@ -280,9 +285,9 @@ export const Terminal: React.FC<TerminalProps> = ({
           blink={cursorBlinks}
         />
       )}
-      {images && images.length > 0 && paneId && (
+      {visibleImages && visibleImages.length > 0 && paneId && (
         <div className="terminal-images">
-          {images.map((img) => (
+          {visibleImages.map((img) => (
             <img
               // Keyed by WHERE it sits, not by which frame it is. A preview
               // repaints at the same anchor once a second with a fresh id; on

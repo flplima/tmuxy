@@ -44,6 +44,48 @@ fn a_resize_mid_frame_does_not_spill_the_frame_as_text() {
     );
 }
 
+#[test]
+fn inline_images_scroll_with_content_and_survive_primary_screen_resize() {
+    let mut pane = PaneState::new(pid("%1"), 40, 10);
+    // Preceding text in the same chunk advances the cursor to row 2 before
+    // the image is placed, and trailing newlines scroll the 10-row screen.
+    pane.process_output(
+        b"line0\r\nline1\r\n\x1b]1337;File=inline=1;width=10;height=3:iVBORw0KGgo=\x07",
+    );
+    assert_eq!(pane.image_parser.placements.len(), 1);
+    assert_eq!(pane.image_parser.placements[0].row, 2);
+
+    // Scrolling the pane by 5 lines (7 newlines reach row 9 + 5 scroll) shifts
+    // the placement from row 2 to row -3 (into scrollback history).
+    for _ in 0..12 {
+        pane.process_output(b"\r\n");
+    }
+    assert_eq!(pane.image_parser.placements.len(), 1);
+    assert_eq!(pane.image_parser.placements[0].row, -3);
+
+    // Zooming/resizing on the primary screen preserves placements.
+    pane.resize(80, 24);
+    assert_eq!(
+        pane.image_parser.placements.len(),
+        1,
+        "primary-screen placement must survive pane zoom/resize"
+    );
+
+    // On the alternate screen, resize clears placements so the full-screen
+    // application's SIGWINCH redraw starts clean.
+    pane.process_output(b"\x1b[?1049h\x1b]1337;File=inline=1;width=10;height=3:iVBORw0KGgo=\x07");
+    assert_eq!(pane.image_parser.placements.len(), 1);
+    pane.resize(40, 10);
+    assert!(
+        pane.image_parser.placements.is_empty(),
+        "alt-screen placement is retired on resize"
+    );
+    // Leaving the alternate screen restores the primary-screen placement.
+    pane.process_output(b"\x1b[?1049l");
+    assert_eq!(pane.image_parser.placements.len(), 1);
+    assert_eq!(pane.image_parser.placements[0].row, -3);
+}
+
 /// SEC-11. A viewer's scroll used to cost three in-band control-mode
 /// queries on the writer's own connection. An observer's panes keep the
 /// history themselves, so the rows come back with no tmux involved at

@@ -289,7 +289,15 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
             }}
           >
             <div style={{ height: copyState ? totalHeight : '100%', position: 'relative' }}>
-              {copyState && <ScrollbackTerminal copyState={copyState} isActive={holdsKeyboard} />}
+              {copyState && (
+                <ScrollbackTerminal
+                  copyState={copyState}
+                  isActive={holdsKeyboard}
+                  images={pane.images}
+                  paneId={pane.tmuxId}
+                  imageFilter={liveHeader?.colorFilter ? `url(#${liveFilterId})` : undefined}
+                />
+              )}
               {/* The live screen stays MOUNTED behind an open scroll view,
                   hidden rather than replaced. Chrome cancels a touch sequence
                   the moment its target leaves the document, and the target of
@@ -322,7 +330,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     selectionStart={selectionStart}
                     selectionStartX={pane.selectionStartX}
                     selectionStartY={pane.selectionStartY}
-                    images={pane.images}
+                    images={copyState ? undefined : pane.images}
                     paneId={pane.tmuxId}
                     imageFilter={liveHeader?.colorFilter ? `url(#${liveFilterId})` : undefined}
                     // A live browser's grid is for scripts, not people — except

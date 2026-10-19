@@ -323,6 +323,26 @@ describe('Terminal', () => {
     expect(second?.getAttribute('src')).toBe('/api/images/0/2');
   });
 
+  it('hides placements scrolled completely above row 0 while keeping partially visible ones', () => {
+    render(
+      <Terminal
+        content={createContent(['x'])}
+        paneId={pid('%0')}
+        height={10}
+        images={[
+          { id: 1, row: -6, col: 0, widthCells: 10, heightCells: 4, protocol: 'kitty' },
+          { id: 2, row: -2, col: 0, widthCells: 10, heightCells: 4, protocol: 'kitty' },
+        ]}
+      />,
+    );
+    const imgs = screen
+      .getByTestId('terminal')
+      .querySelectorAll<HTMLImageElement>('img.terminal-image');
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].dataset.imageId).toBe('2');
+    expect(imgs[0].style.top).toBe('calc(-2 * var(--line-height-terminal))');
+  });
+
   it('sets aria-live to off to avoid flooding screen readers', () => {
     const content = createContent(['Hello World', 'Line 2']);
     render(<Terminal content={content} />);

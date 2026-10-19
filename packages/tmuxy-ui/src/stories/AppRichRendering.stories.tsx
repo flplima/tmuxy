@@ -141,37 +141,29 @@ export const Osc8Hyperlink: Story = {
 };
 
 /**
- * Image placements are CELL-ANCHORED, not content-tracked (see
- * docs/RICH-RENDERING.md "Placement geometry"): the core's vt100 keeps no
- * scrollback (limit 0), so a placement pins to its decode-time viewport cell
- * and later output scrolling the screen does NOT move it. This story guards
- * that documented behavior — the placement survives a 60-line burst without
- * unmounting or drifting. (Its predecessor, ImageScrollsWithContent,
- * asserted iTerm2-style scroll-tracking the renderer never implemented and
- * passed only via a transient-null escape hatch during capture refreshes.
- * Content-tracked placements would need a scroll counter in the vt100 layer.)
+ * Image placements are content-tracked: as new lines scroll the terminal,
+ * `ImageParser::shift_rows_up` shifts each placement's `row` up by the
+ * vt100 scroll delta so the image scrolls with its surrounding text and leaves
+ * the live viewport once scrolled past row 0 (remaining accessible in
+ * scroll/copy mode until evicted past the scrollback limit).
  */
 export const ImageAnchoredDuringScroll: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     const doc = canvasElement.ownerDocument;
-    pasteLine(`printf '\\033]1337;File=inline=1:${INLINE_PNG_B64}\\a\\n'`);
-    let firstTop = 0;
+    pasteLine(`printf '\\033]1337;File=inline=1;height=2:${INLINE_PNG_B64}\\a\\n'`);
     await waitFor(
       () => {
         const img = doc.querySelector('img[src^="data:image/png"]');
         expect(img).not.toBeNull();
-        firstTop = img!.getBoundingClientRect().top;
       },
       { timeout: 40000, interval: 500 },
     );
     pasteLine('seq 1 60');
-    // Wait for the burst to actually render before judging the placement.
+    // Wait for the burst to scroll the 2-row image completely off the live viewport.
     await waitForBurstTail(canvas, (text) => /585960(\D|$)/.test(text.replace(/\s+/g, '')));
-    // Anchored: same element, same cell → same rendered position.
     const img = doc.querySelector('img[src^="data:image/png"]');
-    expect(img).not.toBeNull();
-    expect(img!.getBoundingClientRect().top).toBe(firstTop);
+    expect(img).toBeNull();
   },
 };
