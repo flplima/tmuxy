@@ -5,6 +5,7 @@ use tmuxy_core::session;
 
 use crate::commands;
 use crate::monitor;
+#[cfg(target_os = "macos")]
 use crate::titlebar;
 use crate::window_style::WindowStyles;
 use crate::windows;

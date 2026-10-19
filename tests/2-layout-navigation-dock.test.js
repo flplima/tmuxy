@@ -2,6 +2,29 @@
  * Layout & Navigation E2E Tests (Pinned Terminal Dock & Tree Grid Order)
  */
 
+const {
+  createTestContext,
+  delay,
+  focusPage,
+  waitForPaneCount,
+  waitForWindowCount,
+  typeInTerminal,
+  pressEnter,
+  TMUXY_CLI,
+  splitPaneKeyboard,
+  openSidebarKeyboard,
+  sendPrefixCommand,
+  createWindowKeyboard,
+  afterFrames,
+  waitForCondition,
+  waitForShellPrompt,
+  cursorAnchorCenter,
+  sampleCursorGlide,
+  glidePositions,
+  sampleSidebarSlide,
+  slideProblem,
+} = require('./helpers/layout-helpers');
+
 describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
