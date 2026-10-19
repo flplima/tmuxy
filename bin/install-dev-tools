@@ -76,8 +76,9 @@ if [ "$FULL" -eq 1 ]; then
     # `npm run test:tauri` drives the desktop build through this.
     install_crate tauri-driver
     # `npm run build:wasm` — the CLI version must match the wasm-bindgen crate
-    # pinned in Cargo.lock, which is why this one is not floating.
-    install_crate wasm-bindgen-cli --version 0.2.111 --locked
+    # pinned in Cargo.lock, so it is read from there, as CI reads it.
+    wasm_bindgen=$(awk '/^name = "wasm-bindgen"$/{f=1; next} f && /^version = /{gsub(/["]/,""); sub(/version = /,""); print; exit}' "$(dirname "$0")/../Cargo.lock")
+    install_crate wasm-bindgen-cli --version "$wasm_bindgen" --locked
 fi
 
 echo "[dev-tools] agent-browser"
