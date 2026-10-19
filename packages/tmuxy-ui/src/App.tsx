@@ -46,6 +46,7 @@ import {
   selectSidebarFocused,
 } from './machines/selectors/ui';
 import { cellMetricsStyle } from './utils/cellMetrics';
+import { useSelectionRows } from './hooks/useSelectionRows';
 import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/SmoothCursor';
@@ -86,6 +87,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const gridType = useAppSelector(selectGridType);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
+  useSelectionRows();
 
   // The container being observed. Switching to or from the phone layout
   // mounts it somewhere else, and the new element is observed in its place.

@@ -116,15 +116,15 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     const still = await cellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
     expect(Math.abs(still.box.top - at.box.top)).toBeLessThanOrEqual(1);
 
-    // The selection wears the terminal's colours reversed: the foreground as
-    // its background, the palette's gray for the text.
+    // The selection wears the theme's two colours reversed: its foreground as
+    // the ground, its background as the text.
     const paint = await ctx.page.evaluate(() => {
       const node = window.getSelection().getRangeAt(0).startContainer;
       const el = node.nodeType === 1 ? node : node.parentElement;
       const sel = getComputedStyle(el, '::selection');
       const probe = document.createElement('span');
       probe.style.backgroundColor = 'var(--term-foreground)';
-      probe.style.color = 'var(--term-bright-black)';
+      probe.style.color = 'var(--term-background)';
       document.body.appendChild(probe);
       const want = getComputedStyle(probe);
       const result = {
@@ -195,6 +195,50 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
         )})`,
     );
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+
+    // 4. Across rows, the selection is drawn as a terminal draws it: the
+    //    first row from where it starts to the pane's edge, an empty row in
+    //    the middle across its whole width, the last row up to where it ends.
+    await runCommand(ctx.page, "printf 'ROWS_%s\\n\\nROWS_%s\\n' ONE_A THREE_B", 'ROWS_THREE_B');
+    const one = await shownCellsOf(ctx.page, '.pane-layout-item', 'ROWS_ONE_A');
+    const three = await shownCellsOf(ctx.page, '.pane-layout-item', 'ROWS_THREE_B');
+    await ctx.page.mouse.move(one.first, one.y);
+    await ctx.page.mouse.down();
+    await ctx.page.mouse.move(three.first + 40, three.y, { steps: 10 });
+    await ctx.page.mouse.up();
+    let fills = null;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        fills = await ctx.page.evaluate(() => {
+          const lines = [...document.querySelectorAll('.pane-layout-item .terminal-line')];
+          const last = (needle) =>
+            lines.filter((l) => (l.textContent || '').startsWith(needle)).pop();
+          const first = last('ROWS_ONE_A');
+          const end = last('ROWS_THREE_B');
+          const empty = lines[lines.indexOf(first) + 1];
+          const fill = (row) => {
+            const after = getComputedStyle(row, '::after');
+            return {
+              shown: after.content !== 'none',
+              width: parseFloat(after.width) || 0,
+              row: row.getBoundingClientRect().width,
+              bg: after.backgroundColor,
+            };
+          };
+          return { first: fill(first), empty: fill(empty), end: fill(end) };
+        });
+        return fills.empty.shown;
+      },
+      5000,
+      () => `the selection to fill the rows it runs past (${JSON.stringify(fills)})`,
+    );
+    expect(fills.empty.width).toBeGreaterThan(fills.empty.row * 0.95);
+    expect(fills.first.width).toBeGreaterThan(0);
+    expect(fills.first.width).toBeLessThan(fills.first.row);
+    expect(fills.empty.bg).toBe(paint.wantBg);
+    expect(fills.end.shown).toBe(false);
+    await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
   }, 120000);
 
   test('in copy mode a drag copies on release, blinks, and leaves copy mode', async () => {
@@ -254,7 +298,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
       const cell = document.querySelector('[data-copy-mode="true"] .terminal-selected');
       const probe = document.createElement('span');
       probe.style.backgroundColor = 'var(--term-foreground)';
-      probe.style.color = 'var(--term-bright-black)';
+      probe.style.color = 'var(--term-background)';
       document.body.appendChild(probe);
       const got = getComputedStyle(cell);
       const want = getComputedStyle(probe);

@@ -120,10 +120,11 @@
   --cursor-copy-bg: var(--theme-accent);
 
   /* Selected text, in copy mode and in the browser's own selection alike: the
-     terminal's colours reversed — the foreground as the background — with the
-     palette's gray for the text. */
+     theme's own two colours reversed — its foreground as the ground, its
+     background as the text (white on black in the default dark face becomes
+     black on white), whatever colours the selected cells were drawn in. */
   --selection-bg: var(--term-foreground, var(--term-white));
-  --selection-fg: var(--term-bright-black);
+  --selection-fg: var(--term-background, var(--term-black));
 
   /* Colors - Tmux Status */
   --tmux-status-bg: var(--term-green);

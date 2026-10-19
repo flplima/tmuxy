@@ -353,6 +353,15 @@
   color: var(--selection-fg);
 }
 
+/* A row the browser's selection runs past is selected to the pane's edge, as
+   a terminal draws it: the rest of the row, past its last cell, is filled
+   (utils/selectionRows.ts). An empty row is filled entirely. */
+.terminal-selectable .terminal-line-selected-on::after {
+  content: '';
+  flex: 1 1 auto;
+  background-color: var(--selection-bg);
+}
+
 .terminal-cursor-underline {
   background-color: transparent;
   color: inherit;
