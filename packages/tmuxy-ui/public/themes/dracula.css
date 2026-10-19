@@ -27,7 +27,9 @@
   --bg-dark-alt: #252630;
   --bg-medium: #2d2f3d;
   --bg-elevated-alt: #3b3d50;
-  --bg-highlight: #44475a;
+  /* A step under dracula's current-line #44475a, so the pink accent reads at
+     4.5:1 on the keyboard cursor's band too. */
+  --bg-highlight: #393b4c;
   --bg-highlight-alt: #525570;
 
   --text-primary: #f8f8f2;
@@ -44,10 +46,9 @@
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #50fa7b;
-  /* The accent: dracula's purple (#bd93f9, #7c5ac2 on the light face), its
-     lightness moved just enough to read at 4.5:1 on every ground it is
-     drawn on, hue and saturation kept. */
-  --theme-accent: #caa9fa;
+  /* The accent: dracula's pink, exactly; on the light face it is darkened
+     just enough to read at 4.5:1, hue and saturation kept. */
+  --theme-accent: #ff79c6;
   --accent-orange: #ffb86c;
   --accent-green-bg: #1a3d2a;
 
@@ -118,7 +119,7 @@
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #007a3e;
-  --theme-accent: #7956c1;
+  --theme-accent: #cd0076;
   --accent-orange: #c2410c;
   --accent-green-bg: #e6f5ec;
 
