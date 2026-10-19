@@ -201,16 +201,29 @@
   color: var(--text-secondary);
 }
 
+/* The current tab's sub-lines — id, cwd and branch, title — sit a step above
+   the dim every inactive tab is drawn in, so an inactive tab and its panes
+   recede behind the current one as a block. The step is up from the current
+   tab rather than down from the rest: `--text-dimmed` is already each theme's
+   floor for readable text, and dimming under it fails the contrast it was
+   chosen to keep. Halfway to the pane's own colour, in a dark theme or a
+   light one. */
+.sidebar-tree-pane.in-current-tab :is(.sidebar-tree-id, .sidebar-tree-where, .sidebar-tree-title) {
+  color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-dimmed));
+}
+
 /* Where the keyboard actually is: the theme's accent (gruvbox's yellow, the
    default's green), the colour of the active pane's frame. After the current
-   tab's pane colour, so it wins over it. */
-.sidebar-tree-pane.is-active {
+   tab's pane colour, so it wins over it. The whole row wears it — its id, its
+   cwd and branch, its title — so the one pane that takes the keys reads as one
+   thing, not a bright name over dim lines. */
+.sidebar-tree-pane.is-active,
+.sidebar-tree-pane.is-active :is(.sidebar-tree-id, .sidebar-tree-where, .sidebar-tree-title) {
   color: var(--theme-accent);
 }
 
-/* A tab's window id and a pane's id, held at the right edge and quieter than
-   the name: the handle a script or `tmuxy` command takes, not something to
-   read first. */
+/* A pane's id, held at the right edge and quieter than the name: the handle a
+   script or `tmuxy` command takes, not something to read first. */
 .sidebar-tree-id {
   flex: 0 0 auto;
   margin-left: auto;
@@ -245,20 +258,18 @@
   color: inherit;
 }
 
-/* A tab row is a heading, already quiet or bright as a whole: its id, count
-   and fold control take the row's own colour, which is held to the row's
-   ground (the active tab's faint band included). */
-.sidebar-tree-tab > .sidebar-tree-id {
-  font-weight: bold;
-}
-
-.sidebar-tree-tab :is(.sidebar-tree-id, .sidebar-tree-count, .sidebar-tree-chevron) {
+/* A tab row is a heading, already quiet or bright as a whole: its count and
+   fold control take the row's own colour, which is held to the row's ground
+   (the active tab's faint band included). */
+.sidebar-tree-tab :is(.sidebar-tree-count, .sidebar-tree-chevron) {
   color: inherit;
 }
 
-/* How many panes a tab holds — the other half of what a collapsed tab shows. */
+/* How many panes a tab holds — the other half of what a collapsed tab shows,
+   held at the row's right edge. */
 .sidebar-tree-count {
   flex: 0 0 auto;
+  margin-left: auto;
   padding-left: var(--spacing-xs);
   font-size: 0.85em;
   color: var(--text-dimmed);

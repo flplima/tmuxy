@@ -214,7 +214,6 @@ export function SidebarTreeRow({
             {summary.count}
           </span>
         )}
-        <span className="sidebar-tree-id">{row.window.id}</span>
       </div>
     );
   }
