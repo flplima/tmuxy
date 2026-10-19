@@ -11,7 +11,9 @@
  * copy-pasted in both files and had already begun to drift.
  */
 
+import { paneNumber, type PaneId } from '../domain/ids';
 import type { CellColor, CellStyle } from '../domain/wire';
+import { isTauri, tauriSchemeUrl } from '../utils/platform';
 
 /**
  * CSS variables for the standard 16 ANSI colors.
@@ -165,7 +167,8 @@ export function sameCellStyle(a: CellStyle | undefined, b: CellStyle | undefined
       !a.italic === !b.italic &&
       !a.underline === !b.underline &&
       !a.inverse === !b.inverse &&
-      a.url === b.url)
+      a.url === b.url &&
+      a.size === b.size)
   );
 }
 
@@ -181,4 +184,32 @@ export function sameCellStyle(a: CellStyle | undefined, b: CellStyle | undefined
  */
 export function cellsToCss(n: number): string {
   return `calc(${n} * var(--cell-w, 1ch))`;
+}
+
+/**
+ * Resolve the URL the browser should load for a given image placement.
+ *
+ * On the web that is the server's `/api/images/...` route. The desktop app
+ * serves no HTTP at all, so it hands the same bytes out through its own
+ * `tmuxyimg:` scheme (registered in `tmuxy-tauri-app/src/gui.rs`).
+ *
+ * Tests and Storybook stories can override the resolver by setting
+ * `window.__tmuxyImageSrc` — useful for serving data:/blob: URLs without
+ * standing up a real backend.
+ */
+export function resolveImageSrc(paneId: PaneId, imageId: number): string {
+  const numericPaneId = paneNumber(paneId);
+  if (typeof window !== 'undefined') {
+    const override = (
+      window as unknown as {
+        __tmuxyImageSrc?: (paneId: string, imageId: number) => string | undefined;
+      }
+    ).__tmuxyImageSrc;
+    if (override) {
+      const resolved = override(paneId, imageId);
+      if (resolved) return resolved;
+    }
+    if (isTauri()) return tauriSchemeUrl('tmuxyimg', `/${numericPaneId}/${imageId}`);
+  }
+  return `/api/images/${numericPaneId}/${imageId}`;
 }

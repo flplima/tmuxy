@@ -71,6 +71,17 @@ pub enum CellColor {
     Rgb { r: u8, g: u8, b: u8 },
 }
 
+/// Line/character size multiplier (`ESC # 3..6` DEC line sizes or `OSC 66` text sizing).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CellSize {
+    #[serde(rename = "dwl")]
+    DoubleWidth,
+    #[serde(rename = "dhl-top")]
+    DoubleHeightTop,
+    #[serde(rename = "dhl-bottom")]
+    DoubleHeightBottom,
+}
+
 /// Cell style attributes (only present if cell has non-default styling)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct CellStyle {
@@ -97,6 +108,10 @@ pub struct CellStyle {
     /// OSC 8 hyperlink URL (if cell is part of a hyperlink)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Double-width / double-height cell size (`dwl`, `dhl-top`, `dhl-bottom`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub size: Option<CellSize>,
 }
 
 pub(crate) fn is_false(b: &bool) -> bool {
@@ -113,6 +128,7 @@ impl CellStyle {
             && !self.underline
             && !self.inverse
             && self.url.is_none()
+            && self.size.is_none()
     }
 }
 
@@ -177,6 +193,7 @@ pub fn extract_cells_with_urls(
 ) -> PaneContent {
     let (rows, cols) = screen.size();
     let mut lines: Vec<TerminalLine> = Vec::with_capacity(rows as usize);
+    let mut prev_chars: Vec<String> = Vec::new();
 
     for row in 0..rows {
         let mut line: Vec<TerminalCell> = Vec::with_capacity(cols as usize);
@@ -188,10 +205,18 @@ pub fn extract_cells_with_urls(
             .map(|col| screen_cell_char(screen, row, col))
             .collect();
         let row_urls = osc_parser.map(|p| p.row_urls(row as u32, &chars));
+        let row_sizes = osc_parser.map(|p| p.row_sizes(row as u32, &chars, &prev_chars));
+        let row_line_size = match screen.row_line_size(row) {
+            vt100::LineSize::Single => None,
+            vt100::LineSize::DoubleWidth => Some(CellSize::DoubleWidth),
+            vt100::LineSize::DoubleHeightTop => Some(CellSize::DoubleHeightTop),
+            vt100::LineSize::DoubleHeightBottom => Some(CellSize::DoubleHeightBottom),
+        };
+        prev_chars.clone_from(&chars);
 
         // `chars` is consumed here, so collecting the row up front costs no
         // allocation over building each cell's string in place.
-        for (col, char_content) in chars.into_iter().enumerate() {
+        for (col, mut char_content) in chars.into_iter().enumerate() {
             let col = col as u16;
             // `screen.cell` only returns None when row/col exceed the grid bounds,
             // which the `0..rows` / `0..cols` loops guarantee against.
@@ -215,6 +240,14 @@ pub fn extract_cells_with_urls(
                 .as_ref()
                 .and_then(|urls| urls[col as usize].map(str::to_string));
 
+            let osc_size = row_sizes.as_ref().and_then(|sizes| sizes[col as usize]);
+            if let Some((_, ch)) = osc_size {
+                if char_content == " " {
+                    char_content = ch.to_string();
+                }
+            }
+            let size = osc_size.map(|(sz, _)| sz).or(row_line_size);
+
             let style = CellStyle {
                 fg,
                 bg,
@@ -224,14 +257,26 @@ pub fn extract_cells_with_urls(
                 underline: cell.underline(),
                 inverse: cell.inverse(),
                 url,
+                size,
             };
 
             line.push(TerminalCell::with_style(char_content, style));
         }
 
-        // Trim trailing empty cells
+        // Trim trailing empty cells (ignoring line-wide `row_line_size` on blank tail cells)
         while let Some(last) = line.last() {
-            if last.char.trim().is_empty() && last.style.is_none() {
+            let unstyled_or_line_size_only = last.style.as_ref().is_none_or(|s| {
+                s.fg.is_none()
+                    && s.bg.is_none()
+                    && !s.bold
+                    && !s.dim
+                    && !s.italic
+                    && !s.underline
+                    && !s.inverse
+                    && s.url.is_none()
+                    && s.size == row_line_size
+            });
+            if last.char.trim().is_empty() && unstyled_or_line_size_only {
                 line.pop();
             } else {
                 break;

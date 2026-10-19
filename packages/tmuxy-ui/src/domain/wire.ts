@@ -1,23 +1,13 @@
 /**
  * The wire: every shape the backend sends the client, as Effect Schemas.
  *
- * This is the single definition of the protocol on the TypeScript side. The
- * types are derived from the schemas (`Schema.Schema.Type<…>`), so a field
- * cannot be added to one and forgotten in the other. They mirror the Rust
- * types in `tmuxy-core` (`TmuxState`, `TmuxPane`, `TmuxWindow`, `TmuxDelta`,
- * `PaneDelta`, `WindowDelta`, `KeyBindings`, `theme::Appearance`) and the
- * server's SSE frames (`tmuxy-server/src/sse.rs`); the committed
- * `packages/protocol-fixtures` are decoded through these schemas so a drift
- * fails a test.
+ * Single definition of the protocol on the TypeScript side (`Schema.Schema.Type<…>`),
+ * mirroring `tmuxy-core` (`TmuxState`, `TmuxPane`, `TmuxWindow`, `TmuxDelta`,
+ * `PaneDelta`, `WindowDelta`, `KeyBindings`, `theme::Appearance`) and `tmuxy-server/src/sse.rs`.
+ * Committed `packages/protocol-fixtures` decode through these schemas.
  *
- * Every payload is decoded once, where it enters the client (see
- * `infra/transport/wireDecode.ts`). Ids are the branded schemas of `domain/ids.ts`, so
- * from the boundary on a pane id cannot be confused with a window id.
- *
- * Pane content is the hot path — a full state carries every cell of every
- * pane — so the cell grid is checked for its outer shape only (an array of
- * rows) and the cells are trusted. The cell schemas still define the cell
- * types.
+ * Payloads decode once at entry (`infra/transport/wireDecode.ts`) with branded IDs (`domain/ids.ts`).
+ * Pane content is checked for outer shape only (array of rows) on the hot path.
  */
 
 import { Schema } from 'effect';
@@ -34,6 +24,10 @@ export const CellColor = Schema.Union(
 );
 export type CellColor = Schema.Schema.Type<typeof CellColor>;
 
+/** Line/character size multiplier (`ESC # 3..6` DEC line sizes or `OSC 66` text sizing). */
+export const CellSize = Schema.Literal('dwl', 'dhl-top', 'dhl-bottom');
+export type CellSize = Schema.Schema.Type<typeof CellSize>;
+
 /** A cell's style; every attribute optional. */
 export const CellStyle = Schema.mutable(
   Schema.Struct({
@@ -47,6 +41,8 @@ export const CellStyle = Schema.mutable(
     inverse: Schema.optional(Schema.Boolean),
     /** OSC 8 hyperlink. */
     url: Schema.optional(Schema.String),
+    /** Double-width / double-height cell size (`dwl`, `dhl-top`, `dhl-bottom`). */
+    size: Schema.optional(CellSize),
   }),
 );
 export type CellStyle = Schema.Schema.Type<typeof CellStyle>;

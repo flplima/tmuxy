@@ -13,11 +13,10 @@
 
 import { useRef, useLayoutEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
-import { resolveImageSrc } from './Terminal';
 import { useAppSelector } from '../machines/appHooks';
 import { selectCharSize } from '../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
-import { cellsToCss, sameCellStyle } from './terminalShared';
+import { cellsToCss, resolveImageSrc, sameCellStyle } from './terminalShared';
 import { isRowLoaded, isWrappedRow } from '../utils/copyMode';
 import { detectUrlsAcrossRows, sameUrls, type DetectedUrl } from '../utils/urlDetect';
 import { setLinkHot } from '../utils/linkHover';

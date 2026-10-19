@@ -75,19 +75,56 @@ impl PaneState {
     /// to derive those coordinates from its own newline counting, which is
     /// blind to CSI cursor movement and drifted the map onto unrelated text.
     fn feed_terminal(&mut self, osc: super::osc::OscOutput) {
-        if osc.links.is_empty() {
+        if osc.links.is_empty() && osc.sized.is_empty() {
             safe_process(&mut self.terminal, &osc.bytes);
             self.sync_url_scroll();
             return;
         }
 
+        if osc.sized.is_empty() {
+            let mut at = 0usize;
+            for (start, end, url) in &osc.links {
+                if *start > at {
+                    safe_process(&mut self.terminal, &osc.bytes[at..*start]);
+                    self.sync_url_scroll();
+                }
+                self.feed_linked(&osc.bytes[*start..*end], url);
+                at = *end;
+            }
+            if at < osc.bytes.len() {
+                safe_process(&mut self.terminal, &osc.bytes[at..]);
+                self.sync_url_scroll();
+            }
+            return;
+        }
+
         let mut at = 0usize;
-        for (start, end, url) in &osc.links {
+        for (start, end, size, mirror_bottom) in &osc.sized {
             if *start > at {
                 safe_process(&mut self.terminal, &osc.bytes[at..*start]);
                 self.sync_url_scroll();
             }
-            self.feed_linked(&osc.bytes[*start..*end], url);
+            let active_url = osc
+                .links
+                .iter()
+                .find(|(ls, le, _)| *ls <= *start && *end <= *le)
+                .map(|(_, _, u)| u);
+            for chunk in utf8_chunks(&osc.bytes[*start..*end]) {
+                let (mark_row, marks) = self.write_and_collect_marks(chunk);
+                for (c, ch) in marks {
+                    self.osc_parser.mark_sized_cell(
+                        u32::from(mark_row),
+                        u32::from(c),
+                        *size,
+                        &ch,
+                        *mirror_bottom,
+                    );
+                    if let Some(url) = active_url {
+                        self.osc_parser
+                            .mark_cell(u32::from(mark_row), u32::from(c), url, &ch);
+                    }
+                }
+            }
             at = *end;
         }
         if at < osc.bytes.len() {
@@ -96,38 +133,32 @@ impl PaneState {
         }
     }
 
+    fn write_and_collect_marks(&mut self, chunk: &[u8]) -> (u16, Vec<(u16, String)>) {
+        let (row, col) = self.terminal.screen().cursor_position();
+        safe_process(&mut self.terminal, chunk);
+        let scrolled = self.sync_url_scroll();
+        let (row2, col2) = self.terminal.screen().cursor_position();
+        let row_before = i64::from(row) - scrolled;
+        let (mark_row, from, to) = if i64::from(row2) == row_before {
+            (row2, col, col2)
+        } else {
+            (row2, 0, col2)
+        };
+        let marks = (from..to)
+            .map(|c| {
+                (
+                    c,
+                    crate::screen_cell_char(self.terminal.screen(), mark_row, c),
+                )
+            })
+            .collect();
+        (mark_row, marks)
+    }
+
     /// Write one hyperlinked run, marking every cell it paints.
     fn feed_linked(&mut self, bytes: &[u8], url: &std::sync::Arc<str>) {
         for chunk in utf8_chunks(bytes) {
-            let (row, col) = self.terminal.screen().cursor_position();
-            safe_process(&mut self.terminal, chunk);
-            // Shift the marks already on screen BEFORE adding this one, so the
-            // cell we are about to record isn't shifted by its own scroll.
-            let scrolled = self.sync_url_scroll();
-            let (row2, col2) = self.terminal.screen().cursor_position();
-
-            // Where the pre-write line sits now, after any scroll this write
-            // caused. Equal to `row2` when the character stayed on its line.
-            let row_before = i64::from(row) - scrolled;
-            let (mark_row, from, to) = if i64::from(row2) == row_before {
-                (row2, col, col2)
-            } else {
-                // Wrapped onto a new line: the character is at its start.
-                (row2, 0, col2)
-            };
-            // The character each marked cell now holds is recorded with the
-            // mark: an overwrite is invisible to a coordinate map, so the text
-            // is what tells a live link from a dead one later. Read out of
-            // vt100 (not from `chunk`) so a wide glyph's continuation cell is
-            // spelled exactly as the extraction will spell it.
-            let marks: Vec<(u16, String)> = (from..to)
-                .map(|c| {
-                    (
-                        c,
-                        crate::screen_cell_char(self.terminal.screen(), mark_row, c),
-                    )
-                })
-                .collect();
+            let (mark_row, marks) = self.write_and_collect_marks(chunk);
             for (c, ch) in marks {
                 self.osc_parser
                     .mark_cell(u32::from(mark_row), u32::from(c), url, &ch);
@@ -279,18 +310,49 @@ impl PaneState {
         self.content_dirty = true;
         self.cached_content = None;
 
+        // Snapshot DEC line-size attributes before rebuilding `self.terminal`:
+        // tmux strips `ESC # 3..6` from `capture-pane` output, so we re-apply
+        // the line size on any row whose trimmed text still matches.
+        let prev_screen = self.terminal.screen();
+        let (prev_rows, prev_cols) = prev_screen.size();
+        let saved_line_sizes: Vec<(u16, vt100::LineSize, String)> = (0..prev_rows)
+            .filter_map(|r| {
+                let ls = prev_screen.row_line_size(r);
+                if ls == vt100::LineSize::Single {
+                    return None;
+                }
+                let text: String = (0..prev_cols)
+                    .map(|c| crate::screen_cell_char(prev_screen, r, c))
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string();
+                Some((r, ls, text))
+            })
+            .collect();
+
         // Create fresh terminal to clear all state
         self.terminal = self.fresh_terminal();
         // Keep image placements: the capture text can't recreate them (tmux
         // strips image escapes from captured history).
         self.image_parser.reset_for_capture();
-        // capture-pane output carries no OSC 8 sequences (tmux strips them), so
-        // the old cell→URL map can only mis-attach stale URLs to fresh content
-        // at the same coordinates. Clear it and let live %output repopulate.
-        self.osc_parser.reset();
+        // Clear stale hyperlink mappings while preserving OSC 66 `sized_cells`
+        // (validated against live characters in `OscParser::row_sizes`).
+        self.osc_parser.reset_for_capture();
 
         let normalized = normalize_capture_bytes(content);
         safe_process(&mut self.terminal, &normalized);
+        for (r, ls, prev_text) in saved_line_sizes {
+            let screen = self.terminal.screen();
+            let (_, cols) = screen.size();
+            let cur_text: String = (0..cols)
+                .map(|c| crate::screen_cell_char(screen, r, c))
+                .collect::<String>()
+                .trim_end()
+                .to_string();
+            if cur_text == prev_text {
+                self.terminal.screen_mut().set_row_line_size(r, ls);
+            }
+        }
         self.rebaseline_scroll();
         let (row, col) = self.terminal.screen().cursor_position();
         self.image_parser.update_cursor(row, col);

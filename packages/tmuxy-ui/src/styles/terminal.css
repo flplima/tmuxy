@@ -240,6 +240,33 @@
   letter-spacing: 0;
 }
 
+/* DEC line-size (DECDWL / DECDHL) and Kitty OSC 66 scaled text.
+   The outer span owns a 2N-cell width and 1-row height with overflow clipped;
+   the inner span scales 2x horizontally (and 2x vertically for top/bottom
+   double-height halves, with the bottom half shifted up by one row height). */
+.terminal-scaled {
+  position: relative;
+  overflow: hidden;
+}
+
+.terminal-scaled-text {
+  display: inline-block;
+  transform-origin: left top;
+  line-height: inherit;
+}
+
+.terminal-scaled-text[data-size='dwl'] {
+  transform: scaleX(2);
+}
+
+.terminal-scaled-text[data-size='dhl-top'] {
+  transform: scale(2, 2);
+}
+
+.terminal-scaled-text[data-size='dhl-bottom'] {
+  transform: translateY(-100%) scale(2, 2);
+}
+
 .pane-scroll-container {
   background-color: transparent;
 }

@@ -293,21 +293,8 @@ export const FatNarrowGlyph: Story = {
 };
 
 /**
- * Whatever a row does not fill takes its last cell's background (`::after`),
- * so a status line shorter than the pane still reads edge to edge. The pane's
- * padding columns are the RowEdges layer's job (see its stories).
- */
-/**
- * A row ends where its cells end.
- *
- * The last cell's background used to flood the rest of the line so that a
- * status bar stopping short still read edge to edge. A row's last cell is not
- * an edge, though: the last cell of a line of block art is a pixel of the
- * picture, and running its colour to the pane border drew a bar across the
- * screen out of an ASCII-art logo — which no other terminal does, because the
- * cells to the right simply hold the default background. The pane's padding
- * columns are still painted, by RowEdges, for a row that reaches the last
- * column.
+ * A row ends where its cells end: the last cell's background does not flood
+ * the rest of the line, so block art and status bars stop at their own columns.
  */
 export const UnfilledWidthStaysUnpainted: Story = {
   args: {
@@ -319,8 +306,6 @@ export const UnfilledWidthStaysUnpainted: Story = {
   play: async ({ canvasElement }) => {
     await cellGridReady();
     const line = canvasElement.querySelector('.terminal-line') as HTMLElement;
-    // Nothing is drawn past the cells: no filler box, and the row itself has
-    // no background of its own to show through.
     expect(getComputedStyle(line, '::after').content).toBe('none');
     expect(getComputedStyle(line).backgroundColor).toBe('rgba(0, 0, 0, 0)');
     const lineBox = line.getBoundingClientRect();
@@ -330,12 +315,8 @@ export const UnfilledWidthStaysUnpainted: Story = {
 };
 
 /**
- * Block Elements are painted per CELL, not per run.
- *
- * Consecutive cells that share a style are one span, so `▌▌▌▌` is a single
- * box — and a background sized in percent made it one left half across the
- * whole run. Every logo and progress bar built from half blocks and quadrants
- * came out stretched. The tile is a cell wide and repeats.
+ * Block Elements are painted per CELL, not per run: a 1-cell tile repeats across
+ * consecutive cells that share a style.
  */
 export const BlockRunTilesPerCell: Story = {
   args: {
@@ -345,10 +326,8 @@ export const BlockRunTilesPerCell: Story = {
     await cellGridReady();
     const cellW = cellWidthOf(grid(canvasElement));
     const span = canvasElement.querySelector('.terminal-line > span') as HTMLElement;
-    // One span for the whole run…
     expect(span.textContent).toBe('▌▌▌▌▌▌▌▌');
     expect(span.getBoundingClientRect().width).toBeCloseTo(8 * cellW, 0);
-    // …painted with a one-cell tile, repeated across it.
     const style = getComputedStyle(span);
     expect(parseFloat(style.backgroundSize)).toBeCloseTo(cellW, 0);
     expect(style.backgroundRepeat).toBe('repeat-x');
@@ -356,13 +335,8 @@ export const BlockRunTilesPerCell: Story = {
 };
 
 /**
- * The other way a glyph can be too big for its cell.
- *
- * `⎿` above is fat by ADVANCE: it pushes the rest of the run along, which is
- * visible in the layout. A Nerd Font icon is fat by INK — it advances exactly
- * one cell, so nothing shifts, and then paints a third of a cell past the box
- * it was given, straight over whatever comes next. Measuring the advance alone
- * misses it entirely.
+ * A Nerd Font icon fat by INK shrinks into its cell when the font draws it past
+ * `cellW`, while text after it stays on the grid.
  */
 export const FatInkIcon: Story = {
   tags: ['nightly'],
@@ -372,16 +346,8 @@ export const FatInkIcon: Story = {
   play: async ({ canvasElement }) => {
     await cellGridReady();
     const cellW = cellWidthOf(grid(canvasElement));
-
-    // What the font actually does with this glyph decides what should happen
-    // to it, and that differs by machine: the same icon measures a third wider
-    // than its cell here and exactly one cell on a CI runner. So the contract
-    // is asserted rather than the glyph — too wide to paint means shrunk to
-    // fit, and fitting already means left alone.
     const naturalInk = await measureGlyphNaturalInk(canvasElement, ICON);
 
-    // The face landing invalidates the fit cache and re-renders the line, so
-    // the box the assertion wants may still be a render away.
     await waitFor(() => {
       const box = canvasElement.querySelector('.terminal-fit') as HTMLElement | null;
       if (naturalInk > cellW + 0.5) {
@@ -395,29 +361,18 @@ export const FatInkIcon: Story = {
         expect(scale).toBeGreaterThan(0);
         expect(naturalInk * scale).toBeLessThanOrEqual(cellW + 1);
       } else {
-        // This font draws it inside its cell, so there is nothing to correct —
-        // and correcting it anyway would shrink a glyph that already fit.
         expect(box, 'the icon fits its cell here and should have been left alone').toBeNull();
       }
     });
 
-    // ...and the text after it starts where the grid says, not shifted along.
     const label = runCells(spanWithText(canvasElement, '  main'), cellW);
     expect(label.start).toBeCloseTo(3, 1);
   },
 };
 
 /**
- * Emoji on a coloured row, as nvim draws them on its cursor line.
- *
- * ☑️ (a narrow symbol widened by VS16) and ✅ are both two columns to tmux,
- * so each arrives as the glyph's cell plus a continuation cell. Both glyphs
- * paint two cells wide from a one-cell box, so the paint order decides what
- * the user sees: the next cell's background was drawn after the glyph and
- * covered its right half.
- * A hit test cannot see ink that overflows its box, so the lift is asserted
- * through the paint order it relies on — the glyph's own stacking layer inside
- * an isolated row — alongside the sizes the user sees.
+ * Emoji on a coloured row: `.terminal-wide` lifts the 1-cell glyph box above the
+ * continuation cell's background.
  */
 export const EmojiOnAColouredRow: Story = {
   args: {
@@ -441,23 +396,44 @@ export const EmojiOnAColouredRow: Story = {
       const span = spanWithText(canvasElement, glyph);
       const next = span.nextElementSibling as HTMLElement;
 
-      // One cell of box on the grid...
       expect(span.getBoundingClientRect().width / cellW).toBeCloseTo(1, 1);
-      // ...painting over the cell after it, not under it.
       expect(span.classList.contains('terminal-wide')).toBe(true);
       expect(getComputedStyle(span).position).toBe('relative');
       expect(Number(getComputedStyle(span).zIndex)).toBeGreaterThan(0);
       expect(getComputedStyle(next).zIndex).toBe('auto');
 
-      // Full size: never handed to the shrink-to-fit path, and its text still
-      // advances about two cells.
       expect(span.querySelector('.terminal-fit-glyph')).toBeNull();
       const range = document.createRange();
       range.selectNodeContents(span);
       expect(range.getBoundingClientRect().width / cellW).toBeGreaterThan(1.2);
 
-      // The cell it spills into is the row's colour, not a hole in it.
       expect(getComputedStyle(next).backgroundColor).toBe(getComputedStyle(span).backgroundColor);
     }
+  },
+};
+
+export const DoubleHeightAndWidth: Story = {
+  args: {
+    line: [
+      ...styled('WIDE', { size: 'dwl', bold: true }),
+      ...styled('TOP', { size: 'dhl-top', fg: 2 }),
+      ...styled('BOT', { size: 'dhl-bottom', fg: 2 }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    await cellGridReady();
+    const cellW = cellWidthOf(grid(canvasElement));
+    const scaled = canvasElement.querySelectorAll<HTMLElement>('.terminal-scaled');
+    expect(scaled).toHaveLength(3);
+    expect(scaled[0].getBoundingClientRect().width).toBeCloseTo(8 * cellW, 0);
+    expect(scaled[0].querySelector('.terminal-scaled-text')?.getAttribute('data-size')).toBe('dwl');
+    expect(scaled[1].getBoundingClientRect().width).toBeCloseTo(6 * cellW, 0);
+    expect(scaled[1].querySelector('.terminal-scaled-text')?.getAttribute('data-size')).toBe(
+      'dhl-top',
+    );
+    expect(scaled[2].getBoundingClientRect().width).toBeCloseTo(6 * cellW, 0);
+    expect(scaled[2].querySelector('.terminal-scaled-text')?.getAttribute('data-size')).toBe(
+      'dhl-bottom',
+    );
   },
 };

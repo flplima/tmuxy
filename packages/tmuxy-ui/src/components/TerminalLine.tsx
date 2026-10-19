@@ -52,6 +52,9 @@ function styleKey(s: CellStyle | undefined): number {
   if (s.underline) h = (h ^ 4) * 0x01000193;
   if (s.inverse) h = (h ^ 8) * 0x01000193;
   if (s.dim) h = (h ^ 16) * 0x01000193;
+  if (s.size === 'dwl') h = (h ^ 32) * 0x01000193;
+  else if (s.size === 'dhl-top') h = (h ^ 64) * 0x01000193;
+  else if (s.size === 'dhl-bottom') h = (h ^ 96) * 0x01000193;
   if (s.url) {
     for (let i = 0; i < s.url.length; i++) {
       h = (h ^ s.url.charCodeAt(i)) * 0x01000193;
@@ -193,7 +196,8 @@ export const TerminalLine = memo(
         // instead of pushing the rest of the line — which is what caused the
         // horizontal jitter when only a few characters changed (e.g. spinners).
         let style: CSSProperties = currentGroup.style ? buildCellStyle(currentGroup.style) : {};
-        style.width = cellsToCss(currentGroup.cells.length);
+        const cellSize = currentGroup.style?.size;
+        style.width = cellsToCss(currentGroup.cells.length * (cellSize ? 2 : 1));
         const blockCh = currentGroup.blockCh;
         // OSC 8 explicit URL takes priority over auto-detected
         const oscUrl = currentGroup.style?.url;
@@ -208,7 +212,8 @@ export const TerminalLine = memo(
         // painting over the run that follows (see utils/glyphFit.ts). The
         // scale goes on an inner element so the span keeps its 1-cell box.
         const fitClass = currentGroup.fit !== null ? 'terminal-fit' : undefined;
-        const content =
+        const scaledClass = cellSize ? 'terminal-scaled' : undefined;
+        const innerContent =
           currentGroup.fit !== null ? (
             <span
               className="terminal-fit-glyph"
@@ -219,13 +224,25 @@ export const TerminalLine = memo(
           ) : (
             text
           );
+        const content = cellSize ? (
+          <span className="terminal-scaled-text" data-size={cellSize}>
+            {innerContent}
+          </span>
+        ) : (
+          innerContent
+        );
 
         // Apply selection highlight — override fg/bg via inline style
         // A wide glyph paints past its 1-cell box into the next cell; lifting
         // it keeps that cell's background from painting over its right half.
         const wideClass = currentGroup.wide ? 'terminal-wide' : undefined;
         const selectedClass =
-          [currentGroup.selected ? 'terminal-selected' : undefined, fitClass, wideClass]
+          [
+            currentGroup.selected ? 'terminal-selected' : undefined,
+            fitClass,
+            wideClass,
+            scaledClass,
+          ]
             .filter(Boolean)
             .join(' ') || undefined;
         if (currentGroup.selected) {

@@ -343,6 +343,39 @@ describe('Terminal', () => {
     expect(imgs[0].style.top).toBe('calc(-2 * var(--line-height-terminal))');
   });
 
+  it('renders DEC/OSC 66 scaled cells with 2x width and data-size wrappers', () => {
+    const content: PaneContent = [
+      [
+        { c: 'T', s: { size: 'dhl-top' } },
+        { c: 'O', s: { size: 'dhl-top' } },
+        { c: 'P', s: { size: 'dhl-top' } },
+      ],
+      [
+        { c: 'T', s: { size: 'dhl-bottom' } },
+        { c: 'O', s: { size: 'dhl-bottom' } },
+        { c: 'P', s: { size: 'dhl-bottom' } },
+      ],
+      [
+        { c: 'W', s: { size: 'dwl' } },
+        { c: 'I', s: { size: 'dwl' } },
+      ],
+    ];
+    render(<Terminal content={content} height={3} />);
+
+    const scaled = screen.getByTestId('terminal').querySelectorAll<HTMLElement>('.terminal-scaled');
+    expect(scaled).toHaveLength(3);
+    expect(scaled[0].style.width).toBe(cellsToCss(6));
+    expect(scaled[0].querySelector('.terminal-scaled-text')?.getAttribute('data-size')).toBe(
+      'dhl-top',
+    );
+    expect(scaled[1].style.width).toBe(cellsToCss(6));
+    expect(scaled[1].querySelector('.terminal-scaled-text')?.getAttribute('data-size')).toBe(
+      'dhl-bottom',
+    );
+    expect(scaled[2].style.width).toBe(cellsToCss(4));
+    expect(scaled[2].querySelector('.terminal-scaled-text')?.getAttribute('data-size')).toBe('dwl');
+  });
+
   it('sets aria-live to off to avoid flooding screen readers', () => {
     const content = createContent(['Hello World', 'Line 2']);
     render(<Terminal content={content} />);

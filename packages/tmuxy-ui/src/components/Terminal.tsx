@@ -8,46 +8,15 @@
 import { useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
 import { Cursor } from './Cursor';
-import { cellsToCss } from './terminalShared';
+import { cellsToCss, resolveImageSrc } from './terminalShared';
 import { cursorShapeToMode } from '../utils/cursorShape';
 import { isWrappedRow } from '../utils/copyMode';
 import { detectUrlsAcrossRows } from '../utils/urlDetect';
 import { setLinkHot } from '../utils/linkHover';
-import { isTauri, tauriSchemeUrl } from '../utils/platform';
 import type { CursorMode } from './Cursor';
 import type { ImagePlacement } from '../domain/client';
 import type { PaneContent, CellLine } from '../domain/wire';
-import { paneNumber, type PaneId } from '../domain/ids';
-
-/**
- * Resolve the URL the browser should load for a given image placement.
- *
- * On the web that is the server's `/api/images/...` route. The desktop app
- * serves no HTTP at all, so it hands the same bytes out through its own
- * `tmuxyimg:` scheme (registered in `tmuxy-tauri-app/src/gui.rs`); asking it
- * for `/api/images/...` resolved against the app's own origin and quietly
- * loaded nothing, which is why no image protocol ever drew there.
- *
- * Tests and Storybook stories can override the resolver by setting
- * `window.__tmuxyImageSrc` — useful for serving data:/blob: URLs without
- * standing up a real backend.
- */
-export function resolveImageSrc(paneId: PaneId, imageId: number): string {
-  const numericPaneId = paneNumber(paneId);
-  if (typeof window !== 'undefined') {
-    const override = (
-      window as unknown as {
-        __tmuxyImageSrc?: (paneId: string, imageId: number) => string | undefined;
-      }
-    ).__tmuxyImageSrc;
-    if (override) {
-      const resolved = override(paneId, imageId);
-      if (resolved) return resolved;
-    }
-    if (isTauri()) return tauriSchemeUrl('tmuxyimg', `/${numericPaneId}/${imageId}`);
-  }
-  return `/api/images/${numericPaneId}/${imageId}`;
-}
+import type { PaneId } from '../domain/ids';
 
 interface TerminalProps {
   content: PaneContent;

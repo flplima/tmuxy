@@ -204,15 +204,20 @@ export function renderLineToDOM(
     applyStyleToElement(target as HTMLSpanElement, groupStyle, groupSelected);
     // After the style: a selected span has its className replaced there.
     if (groupWide) target.classList.add('terminal-wide');
+    const cellSize = groupStyle?.size;
     // Pin the span to an exact number of character cells, matching
-    // TerminalLine's stable-grid behaviour: a glyph whose advance differs
-    // from the cell (emoji, CJK) paints within/over its fixed box instead of
-    // pushing the rest of the line. Wide chars sit in their own 1-cell box
-    // (see the group-break below) and overflow into the blank continuation
-    // cell — previously the scrollback renderer had neither, so wide glyphs
-    // misaligned copy-mode lines against the live-terminal grid.
-    target.style.width = cellsToCss(end - groupStart);
-    target.textContent = text;
+    // TerminalLine's stable-grid behaviour (2x width when DEC/OSC66 scaled).
+    target.style.width = cellsToCss((end - groupStart) * (cellSize ? 2 : 1));
+    if (cellSize) {
+      target.classList.add('terminal-scaled');
+      const inner = document.createElement('span');
+      inner.className = 'terminal-scaled-text';
+      inner.dataset.size = cellSize;
+      inner.textContent = text;
+      target.appendChild(inner);
+    } else {
+      target.textContent = text;
+    }
     el.appendChild(target);
   };
 

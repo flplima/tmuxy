@@ -14,14 +14,16 @@ use std::sync::Arc;
 /// without bound.
 const MAX_PENDING_OSC: usize = 64 * 1024;
 
-/// Bytes destined for vt100, plus the hyperlink spans inside them.
+/// Bytes destined for vt100, plus the hyperlink and OSC 66 sized spans inside them.
 #[derive(Debug, Default)]
 pub struct OscOutput {
-    /// The input with OSC sequences stripped out.
+    /// The input with OSC sequences stripped out (except OSC 66 text payloads).
     pub bytes: Vec<u8>,
     /// `(start, end, url)` half-open ranges into `bytes`, in order and
     /// non-overlapping, that were emitted while an OSC 8 link was open.
     pub links: Vec<(usize, usize, Arc<str>)>,
+    /// `(start, end, size, mirror_bottom)` half-open ranges into `bytes` emitted by OSC 66.
+    pub sized: Vec<(usize, usize, crate::CellSize, bool)>,
 }
 
 fn push_link(links: &mut Vec<(usize, usize, Arc<str>)>, start: usize, end: usize, url: Arc<str>) {
@@ -45,6 +47,12 @@ pub struct CellMark {
     /// multiply a long URL by every cell on the screen.
     url: Arc<str>,
     ch: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SizedMark {
+    pub size: crate::CellSize,
+    pub ch: String,
 }
 
 /// The longest OSC 8 URL honoured. Longer ones open no link and their text is
@@ -82,6 +90,8 @@ pub struct OscParser {
     /// a mark is only good while the character it was written on is still
     /// there.
     cell_urls: HashMap<(u32, u32), CellMark>,
+    /// Kitty OSC 66 text-sizing marks per cell coordinate: (row, col) -> [`SizedMark`].
+    sized_cells: HashMap<(u32, u32), SizedMark>,
     /// An incomplete OSC sequence split across `%output` chunks, carried into
     /// the next `process()` call so the sequence isn't torn (header rendered as
     /// garbage, payload lost).
@@ -102,6 +112,17 @@ impl OscParser {
         self.pending_clipboard = None;
         self.pending_title = None;
         self.cell_urls.clear();
+        self.sized_cells.clear();
+        self.pending.clear();
+    }
+
+    /// Reset parser state for a `capture-pane` refresh while preserving
+    /// `sized_cells` (validated against live characters in [`OscParser::row_sizes`]).
+    pub fn reset_for_capture(&mut self) {
+        self.active_hyperlink = None;
+        self.pending_clipboard = None;
+        self.pending_title = None;
+        self.cell_urls.clear();
         self.pending.clear();
     }
 
@@ -118,29 +139,48 @@ impl OscParser {
     /// that line moved — a bare `\n` at the bottom, an `ESC M`, a `CSI S`, or
     /// an application repainting itself.
     pub fn shift_rows_up(&mut self, rows: u32) {
-        if rows == 0 || self.cell_urls.is_empty() {
+        if rows == 0 {
             return;
         }
-        self.cell_urls = self
-            .cell_urls
-            .drain()
-            .filter_map(|((row, col), url)| row.checked_sub(rows).map(|r| ((r, col), url)))
-            .collect();
+        if !self.cell_urls.is_empty() {
+            self.cell_urls = self
+                .cell_urls
+                .drain()
+                .filter_map(|((row, col), url)| row.checked_sub(rows).map(|r| ((r, col), url)))
+                .collect();
+        }
+        if !self.sized_cells.is_empty() {
+            self.sized_cells = self
+                .sized_cells
+                .drain()
+                .filter_map(|((row, col), m)| row.checked_sub(rows).map(|r| ((r, col), m)))
+                .collect();
+        }
     }
 
     /// Shift every mark down by `rows`, dropping what falls off the bottom.
     /// The reverse-scroll counterpart of [`shift_rows_up`].
     pub fn shift_rows_down(&mut self, rows: u32) {
-        if rows == 0 || self.cell_urls.is_empty() {
+        if rows == 0 {
             return;
         }
         let height = self.viewport_height;
-        self.cell_urls = self
-            .cell_urls
-            .drain()
-            .map(|((row, col), url)| ((row + rows, col), url))
-            .filter(|((row, _), _)| height == 0 || *row < height)
-            .collect();
+        if !self.cell_urls.is_empty() {
+            self.cell_urls = self
+                .cell_urls
+                .drain()
+                .map(|((row, col), url)| ((row + rows, col), url))
+                .filter(|((row, _), _)| height == 0 || *row < height)
+                .collect();
+        }
+        if !self.sized_cells.is_empty() {
+            self.sized_cells = self
+                .sized_cells
+                .drain()
+                .map(|((row, col), m)| ((row + rows, col), m))
+                .filter(|((row, _), _)| height == 0 || *row < height)
+                .collect();
+        }
     }
 
     /// Record that the cell at `(row, col)` carries `url`. Called once vt100
@@ -160,10 +200,68 @@ impl OscParser {
         );
     }
 
+    /// Record an OSC 66 sized cell at `(row, col)` (and `(row + 1, col)` when `mirror_bottom` is true).
+    pub fn mark_sized_cell(
+        &mut self,
+        row: u32,
+        col: u32,
+        size: crate::CellSize,
+        ch: &str,
+        mirror_bottom: bool,
+    ) {
+        if self.viewport_height == 0 || row < self.viewport_height {
+            self.sized_cells.insert(
+                (row, col),
+                SizedMark {
+                    size,
+                    ch: ch.to_string(),
+                },
+            );
+        }
+        if mirror_bottom && (self.viewport_height == 0 || row + 1 < self.viewport_height) {
+            self.sized_cells.insert(
+                (row + 1, col),
+                SizedMark {
+                    size: crate::CellSize::DoubleHeightBottom,
+                    ch: ch.to_string(),
+                },
+            );
+        }
+    }
+
     /// Drop every cell mark, keeping the open-hyperlink state. Used when the
     /// grid the marks referred to is replaced wholesale (alternate screen).
     pub fn clear_cells(&mut self) {
         self.cell_urls.clear();
+        self.sized_cells.clear();
+    }
+
+    /// Return valid OSC 66 `(CellSize, &str)` marks for `row`.
+    pub fn row_sizes<'a>(
+        &'a self,
+        row: u32,
+        chars: &[String],
+        prev_chars: &[String],
+    ) -> Vec<Option<(crate::CellSize, &'a str)>> {
+        let mut out = vec![None; chars.len()];
+        if self.sized_cells.is_empty() {
+            return out;
+        }
+        for (col, slot) in out.iter_mut().enumerate() {
+            let Some(mark) = self.sized_cells.get(&(row, col as u32)) else {
+                continue;
+            };
+            let valid = if mark.size == crate::CellSize::DoubleHeightBottom {
+                (chars[col] == " " || chars[col] == mark.ch)
+                    && prev_chars.get(col).is_some_and(|up| *up == mark.ch)
+            } else {
+                chars[col] == mark.ch
+            };
+            if valid {
+                *slot = Some((mark.size, mark.ch.as_str()));
+            }
+        }
+        out
     }
 
     /// The hyperlink on each column of `row`, with stale marks dropped.
@@ -233,6 +331,7 @@ impl OscParser {
         let mut out = OscOutput {
             bytes: Vec::with_capacity(content.len()),
             links: Vec::new(),
+            sized: Vec::new(),
         };
         // Offset in `out.bytes` where the open hyperlink started. A link still
         // open at the end of a chunk closes at that end and reopens at 0 in the
@@ -246,6 +345,11 @@ impl OscParser {
                 // OSC sequence: ESC ] ... ST or ESC ] ... BEL
                 match self.find_osc_end(&content[i..]) {
                     Some((osc_end, osc_content)) => {
+                        if let Some(rest) = osc_content.strip_prefix(b"66;") {
+                            helpers::emit_osc66(rest, &mut out);
+                            i += osc_end;
+                            continue;
+                        }
                         let before = self.active_url().cloned();
                         self.parse_osc(osc_content);
                         let after = self.active_url().cloned();
@@ -361,7 +465,7 @@ impl OscParser {
         let base64_data = parts[1];
 
         // Decode base64
-        if let Ok(decoded) = base64_decode(base64_data) {
+        if let Ok(decoded) = helpers::base64_decode(base64_data) {
             if let Ok(text) = String::from_utf8(decoded) {
                 self.pending_clipboard = Some(text);
             }
@@ -379,41 +483,7 @@ impl OscParser {
     }
 }
 
-/// Simple base64 decoder (standard alphabet)
-fn base64_decode(input: &str) -> Result<Vec<u8>, &'static str> {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let mut output = Vec::new();
-    let mut buffer: u32 = 0;
-    let mut bits = 0;
-
-    for c in input.bytes() {
-        if c == b'=' {
-            // Padding
-            break;
-        }
-        if c == b'\n' || c == b'\r' || c == b' ' {
-            // Skip whitespace
-            continue;
-        }
-
-        let value = match ALPHABET.iter().position(|&x| x == c) {
-            Some(v) => v as u32,
-            None => return Err("Invalid base64 character"),
-        };
-
-        buffer = (buffer << 6) | value;
-        bits += 6;
-
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buffer >> bits) as u8);
-            buffer &= (1 << bits) - 1;
-        }
-    }
-
-    Ok(output)
-}
+mod helpers;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
