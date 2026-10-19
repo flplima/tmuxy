@@ -41,14 +41,14 @@ out/
 storybook-static/
 
 # v86 spike assets (large guest kernel + BIOS, fetched via `npm run fetch:v86-image`)
-packages/tmuxy-ui/v86-assets/
+packages/tmuxy-ui/v86-assets
 
 # Core dumps (e.g., zsh crashes during dev)
 core
 core.*
 
 # Generated wasm bindings (build via npm run build:wasm)
-packages/tmuxy-wasm/pkg/
+packages/tmuxy-wasm/pkg
 target/
 
 # Local reference images (not tracked)
