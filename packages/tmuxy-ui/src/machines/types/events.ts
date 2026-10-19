@@ -168,6 +168,8 @@ export type AppMachineEvent =
   | { type: 'CLOSE_TAB'; windowId: WindowId }
   | { type: 'RENAME_ACTIVE_TAB' }
   | { type: 'TAB_RENAME_REQUEST_TAKEN' }
+  | { type: 'RENAME_PANE'; paneId: PaneId }
+  | { type: 'PANE_RENAME_REQUEST_TAKEN' }
   | { type: 'TOGGLE_STACKED_PANES' }
   | { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string }
   | { type: 'SELECT_TAB'; windowId: WindowId }

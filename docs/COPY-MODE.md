@@ -165,9 +165,10 @@ extracted selection to the system clipboard via the keyboard actor's native `cop
 
 **Everywhere else** the hook deliberately does nothing on those gestures and prevents no default, so
 the browser selects — which also means double-click word boundaries come from the engine rather than
-a cell heuristic. Right-click reads that selection (`utils/nativeSelection.ts`), picking the word
-under the pointer first when nothing is selected; a right-click does not move browser focus to the
-hidden keyboard input, which would collapse the selection it is about to read. While the menu is up
+a cell heuristic. Right-click reads that selection (`utils/nativeSelection.ts`) and opens the
+selection's menu over it; with nothing selected it opens the pane's own menu instead, the one its
+header opens (`PaneContextMenu`). A right-click does not move browser focus to the hidden keyboard
+input, which would collapse the selection it is about to read. While the menu is up
 the selection is pinned (`SelectionContextMenu`): the menu takes focus on open and each item on
 hover, and WebKit collapses the document selection whenever focus moves — so whatever collapses it,
 it is put back until the menu closes.

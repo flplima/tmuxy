@@ -138,6 +138,7 @@ export const FIELD_OWNERS = {
   prefixRepeatOnly: 'commandUi',
   keyTable: 'commandUi',
   keysViewOpen: 'commandUi',
+  paneRenameRequest: 'commandUi',
 
   // ---- notifications ----
   notifications: 'notifications',
@@ -254,6 +255,7 @@ export function createInitialContext(): AppMachineContext {
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
+    paneRenameRequest: null,
     baseFontSize: loadFontSizeFromStorage(),
   };
 }

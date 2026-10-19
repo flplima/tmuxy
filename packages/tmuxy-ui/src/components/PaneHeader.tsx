@@ -64,6 +64,17 @@ export function PaneHeader({
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   // The pane whose title is being edited in its own header, if any.
   const [renamingPaneId, setRenamingPaneId] = useState<PaneId | null>(null);
+  // Rename from the pane content's own menu asks the header for the field,
+  // the same one the header's menu opens — when the pane is one of its own.
+  const paneRenameRequest = useAppSelector((c) => c.paneRenameRequest);
+  const ownsRenameRequest =
+    paneRenameRequest !== null &&
+    (paneRenameRequest === paneId || groupPanes.some((p) => p.tmuxId === paneRenameRequest));
+  useEffect(() => {
+    if (!ownsRenameRequest || !paneRenameRequest) return;
+    setRenamingPaneId(paneRenameRequest);
+    send({ type: 'PANE_RENAME_REQUEST_TAKEN' });
+  }, [ownsRenameRequest, paneRenameRequest, send]);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,

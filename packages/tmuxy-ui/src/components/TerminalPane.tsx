@@ -13,12 +13,9 @@
 import { useRef, useState, useCallback } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
-import {
-  cloneNativeSelectionRange,
-  readNativeSelection,
-  selectWordAtPoint,
-} from '../utils/nativeSelection';
+import { cloneNativeSelectionRange, readNativeSelection } from '../utils/nativeSelection';
 import { PaneHeader } from './PaneHeader';
+import { PaneContextMenu } from './PaneContextMenu';
 import { SelectionContextMenu } from './SelectionContextMenu';
 import {
   useAppSend,
@@ -28,6 +25,7 @@ import {
   useCopyModeState,
   useAppSelector,
   useAppConfig,
+  useReadOnly,
 } from '../machines/appHooks';
 import { selectCharSize } from '../machines/selectors/layout';
 import { selectKeyboardElsewhere } from '../machines/selectors/ui';
@@ -72,6 +70,7 @@ interface TerminalPaneProps {
 
 export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: TerminalPaneProps) {
   const send = useAppSend();
+  const readOnly = useReadOnly();
   const pane = usePane(paneId);
   // The grid to draw: the pane's own, or the last real one while a capture
   // refresh leaves it momentarily empty. A pane-group switch does `swap-pane`,
@@ -110,6 +109,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     /** The browser's selection the menu is about; null for copy mode's own. */
     range: Range | null;
   } | null>(null);
+  // The pane's own menu, opened by a right-click with nothing selected.
+  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null);
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
   // In copy mode, use copyState.totalLines for scroll container height so it
@@ -184,28 +185,22 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
 
       e.preventDefault();
 
-      // Copy mode keeps its own cell selection; everywhere else the browser's
-      // selection is the real one. Right-clicking with nothing selected picks
-      // the word under the pointer first, the way a right-click does in a
-      // browser or a native terminal — no mode change, no cursor.
-      if (copyState?.mode === 'copy' && copyState.selectionMode) {
-        const text = extractSelectedText(copyState);
-        if (text) setSelectionMenu({ x: e.clientX, y: e.clientY, text, range: null });
+      // With text selected, the menu is about the text. Copy mode keeps its
+      // own cell selection; everywhere else the browser's is the real one.
+      // The range is taken now, not when the menu mounts: by then the menu has
+      // focus, and WebKit has collapsed the selection it is about.
+      const copyText =
+        copyState?.mode === 'copy' && copyState.selectionMode ? extractSelectedText(copyState) : '';
+      const text = copyText || readNativeSelection();
+      if (text) {
+        const range = copyText ? null : cloneNativeSelectionRange();
+        setSelectionMenu({ x: e.clientX, y: e.clientY, text, range });
         return;
       }
-
-      let text = readNativeSelection();
-      if (!text) {
-        selectWordAtPoint(e.clientX, e.clientY);
-        text = readNativeSelection();
-      }
-      // The range is taken now, not when the menu mounts: by then the menu
-      // has focus, and WebKit has collapsed the selection it is about.
-      if (text) {
-        setSelectionMenu({ x: e.clientX, y: e.clientY, text, range: cloneNativeSelectionRange() });
-      }
+      // With nothing selected, it is about the pane: the header's own menu.
+      if (!readOnly) setPaneMenu({ x: e.clientX, y: e.clientY });
     },
-    [pane?.mouseAnyFlag, copyState],
+    [pane?.mouseAnyFlag, copyState, readOnly],
   );
 
   if (!pane) return null;
@@ -255,6 +250,15 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
           selectedText={selectionMenu.text}
           selectionRange={selectionMenu.range}
           onClose={() => setSelectionMenu(null)}
+        />
+      )}
+      {!collapsed && paneMenu && (
+        <PaneContextMenu
+          paneId={paneId}
+          x={paneMenu.x}
+          y={paneMenu.y}
+          onClose={() => setPaneMenu(null)}
+          onRename={() => send({ type: 'RENAME_PANE', paneId })}
         />
       )}
       {!collapsed && (

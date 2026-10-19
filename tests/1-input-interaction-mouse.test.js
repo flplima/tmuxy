@@ -329,6 +329,74 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
   }, 180000);
 });
 
+// ==================== Scenario 7b: Right-click with nothing selected ====================
+
+describe('Scenario 7b: Right-click with nothing selected', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  /** The labels of the menu that is open, waiting for one to be. */
+  const openMenuLabels = async (page) => {
+    await waitForCondition(
+      page,
+      () => page.evaluate(() => !!document.querySelector('[role="menu"] [role^="menuitem"]')),
+      5000,
+      'a menu to open',
+    );
+    return page.evaluate(() =>
+      [...document.querySelectorAll('[role="menu"] [role^="menuitem"]')].map((el) =>
+        el.textContent.trim(),
+      ),
+    );
+  };
+  const closeMenu = async (page) => {
+    await page.keyboard.press('Escape');
+    await waitForCondition(
+      page,
+      async () => (await page.$('[role="menu"]')) === null,
+      5000,
+      'the menu to close',
+    );
+  };
+
+  test("opens the pane's own menu, the header's, and its Rename opens the header's field", async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await runCommand(ctx.page, 'echo RIGHT_CLICK_TARGET', 'RIGHT_CLICK_TARGET');
+    await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+
+    // The header's menu, for comparison.
+    await ctx.page.locator('.pane-header').first().click({ button: 'right' });
+    const fromHeader = await openMenuLabels(ctx.page);
+    await closeMenu(ctx.page);
+
+    // The content, on text but with nothing selected: the same menu, and no
+    // word selected under the pointer.
+    const box = await ctx.page.locator('[role="log"]').first().boundingBox();
+    await ctx.page.mouse.click(box.x + 40, box.y + 8, { button: 'right' });
+    const fromContent = await openMenuLabels(ctx.page);
+    expect(fromContent).toEqual(fromHeader);
+    expect(fromContent).toContain('Rename Pane');
+    expect(await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
+
+    // Rename from it opens the field in the pane's header.
+    await ctx.page.locator('[role="menuitem"]', { hasText: 'Rename Pane' }).first().click();
+    await ctx.page.waitForSelector('.pane-header [data-testid="inline-rename"]', {
+      timeout: 5000,
+    });
+    await ctx.page.keyboard.press('Escape');
+    await waitForCondition(
+      ctx.page,
+      async () => (await ctx.page.$('[data-testid="inline-rename"]')) === null,
+      5000,
+      'the rename field to close',
+    );
+  }, 60000);
+});
+
 // ==================== Scenario 7c: Mouse lands on the clicked cell ====================
 
 describe('Scenario 7c: Mouse lands on the clicked cell', () => {

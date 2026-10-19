@@ -263,6 +263,8 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
+  /** A pane whose header has been asked to open its rename field; null once it has. */
+  paneRenameRequest: PaneId | null;
   /** Base font size for terminal text in pixels */
   baseFontSize: number;
   /** Timestamp of last layout command (for debouncing rapid layout changes) */

@@ -1,7 +1,8 @@
 /**
  * Action implementations for the commandUi slice (a root-level `on` block).
  *
- * Owns commandMode, statusMessage, prefixActive, keyTable, keysViewOpen.
+ * Owns commandMode, statusMessage, prefixActive, keyTable, keysViewOpen,
+ * paneRenameRequest.
  *
  * A submitted command is raised as SEND_TMUX_COMMAND: it is a string the
  * user typed, parsed and routed like a binding (see ../dispatch.ts).
@@ -13,6 +14,16 @@ import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
 import { READ_ONLY_NOTICE } from '../../../domain/readOnly';
 
 export const commandUiActions = {
+  /**
+   * Rename a pane from a menu that is not its header's — the pane content's
+   * own right-click menu: its header opens the field, as its own menu does.
+   */
+  commandUi_requestPaneRename: assignCtx(({ event }) =>
+    event.type === 'RENAME_PANE' ? { paneRenameRequest: event.paneId } : {},
+  ),
+
+  commandUi_paneRenameRequestTaken: assignCtx(() => ({ paneRenameRequest: null })),
+
   commandUi_setPrefixActive: assignCtx(({ event }) => {
     if (event.type !== 'PREFIX_MODE_CHANGE') return {};
     return {
