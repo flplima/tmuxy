@@ -78,19 +78,18 @@ impl Session {
                     .await
                     .map_err(|e| SessionError::Engine(e.to_string()))?;
             }
-            // chromiumoxide answers `Page.navigate` only once the frame events
-            // of a tab it set up itself arrive, and a tab that was already open
-            // in an attached browser never delivers them: every attached `goto`
-            // timed out after the page had in fact loaded. The page navigates
-            // itself instead, and the old document is marked first so the wait
-            // below can tell it from the new one.
+            // chromiumoxide's `Page::goto` waits on frame lifecycle events that
+            // an already-open tab in an attached browser never delivers, while
+            // JS `location.assign` is blocked by Chrome when navigating from
+            // `about:blank` or `https:` to a `file://` URL. Sending raw CDP
+            // `Page.navigate` via `execute` after marking the old document
+            // avoids both.
             Attachment::Attached => {
-                let target =
-                    serde_json::to_string(url).map_err(|e| SessionError::Engine(e.to_string()))?;
-                self.eval(&format!(
-                    "window.{NAV_MARK} = true; location.assign({target})"
-                ))
-                .await?;
+                let _ = self.eval(&format!("window.{NAV_MARK} = true")).await;
+                self.page
+                    .execute(NavigateParams::new(url.to_string()))
+                    .await
+                    .map_err(|e| SessionError::Engine(e.to_string()))?;
             }
         }
         // Settling on `document.readyState` rather than a load event: the event
