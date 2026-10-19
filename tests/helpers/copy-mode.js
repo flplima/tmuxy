@@ -129,8 +129,30 @@ async function waitForTmuxOutOfMode(page, timeout = 15000) {
   );
 }
 
+/**
+ * Wheel up over the pane under the mouse until the scroll view opens, and
+ * return its state. One tick per poll, each a full row or more, and the view
+ * checked before the next: a burst of sub-row deltas can all land before the
+ * client has the pane's history size on a slow runner, and a tick that
+ * arrives then does nothing.
+ */
+async function wheelIntoScrollView(page, timeout = 15000) {
+  await waitForCondition(
+    page,
+    async () => {
+      if ((await getCopyModeState(page))?.mode === 'scroll') return true;
+      await page.mouse.wheel(0, -120);
+      return false;
+    },
+    timeout,
+    'the wheel to open the scroll view',
+  );
+  return getCopyModeState(page);
+}
+
 module.exports = {
   getCopyModeState,
+  wheelIntoScrollView,
   waitForCopyMode,
   waitForTmuxOutOfMode,
   enterCopyModeAndWait,

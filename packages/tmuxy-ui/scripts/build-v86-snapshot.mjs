@@ -37,10 +37,12 @@ const WORK = join(ASSETS, '.bundle-root');
 // Pinned Alpine x86 packages for --fetch-binaries (binaries are otherwise
 // reused from the existing tmux-bundle.tar). Alpine rotates point releases
 // WITHOUT keeping the old files (the CI cache-miss path then 404s) — bump
-// these when a URL dies. tmux comes from edge (stable ships an older tmux
-// with the control-mode crash bugs documented in docs/TMUX.md).
+// these when a URL dies. tmux comes from a newer release than the rest (v3.22
+// ships an older tmux with the control-mode crash bugs documented in
+// docs/TMUX.md), and from a numbered release, never edge, which drops a
+// version the day it ships the next.
 const ALPINE = 'https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86';
-const ALPINE_EDGE = 'https://dl-cdn.alpinelinux.org/alpine/edge/main/x86';
+const ALPINE_TMUX = 'https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86';
 const APKS = [
   `${ALPINE}/musl-1.2.5-r12.apk`,
   `${ALPINE}/bash-5.2.37-r0.apk`,
@@ -48,7 +50,7 @@ const APKS = [
   `${ALPINE}/ncurses-terminfo-base-6.5_p20250503-r0.apk`,
   `${ALPINE}/libncursesw-6.5_p20250503-r0.apk`,
   `${ALPINE}/libevent-2.1.13-r0.apk`,
-  `${ALPINE_EDGE}/tmux-3.7c-r0.apk`,
+  `${ALPINE_TMUX}/tmux-3.7c-r0.apk`,
 ];
 
 const exists = (p) =>

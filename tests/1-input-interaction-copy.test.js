@@ -8,6 +8,7 @@ const {
   runCommand,
   assertContentMatch,
   getCopyModeState,
+  wheelIntoScrollView,
   waitForCondition,
   waitForCopyMode,
   waitForTmuxOutOfMode,
@@ -409,8 +410,7 @@ describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     });
     await ctx.page.mouse.move(pane.x, pane.y);
-    await ctx.page.mouse.wheel(0, -360);
-    await copyStateWhere(ctx.page, (s) => s.mode === 'scroll', 'the wheel to open the scroll view');
+    await wheelIntoScrollView(ctx.page);
 
     await select(second, 'the second tab to be current');
     await select(first, 'the first tab to be current again');
@@ -442,12 +442,7 @@ describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
 
     // The next wheel opens a view from the bottom, not from the top of history.
     await ctx.page.mouse.move(pane.x, pane.y);
-    await ctx.page.mouse.wheel(0, -120);
-    const reopened = await copyStateWhere(
-      ctx.page,
-      (s) => s.mode === 'scroll',
-      'the wheel to open the scroll view again',
-    );
+    const reopened = await wheelIntoScrollView(ctx.page);
     expect(reopened.scrollTop).toBeGreaterThan(reopened.totalLines - reopened.height - 20);
   }, 120000);
 });
