@@ -315,12 +315,18 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     const cs = await enterCopyModeAndWait(ctx.page);
     expect(cs.active).toBe(true);
     expect(cs.mode).toBe('copy');
-    const inCopyMode = await ctx.page.evaluate(() => ({
-      copyModeEl: !!document.querySelector('[data-copy-mode="true"]'),
-      statusSaysCopyMode: document.body.innerText.includes('[COPY MODE]'),
-    }));
-    expect(inCopyMode.copyModeEl).toBe(true);
-    expect(inCopyMode.statusSaysCopyMode).toBe(true);
+    expect(await ctx.page.evaluate(() => !!document.querySelector('[data-copy-mode="true"]'))).toBe(
+      true,
+    );
+    // The header's `[COPY MODE]` is tmux's `pane_in_mode`, which arrives with a
+    // later state update than the client's own view: wait for it, however
+    // slow the runner.
+    await waitForCondition(
+      ctx.page,
+      () => ctx.page.evaluate(() => document.body.innerText.includes('[COPY MODE]')),
+      15000,
+      'the pane header to say [COPY MODE]',
+    );
 
     await ctx.page.keyboard.press('q');
     await waitForCopyMode(ctx.page, false);
