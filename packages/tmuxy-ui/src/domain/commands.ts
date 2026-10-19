@@ -22,6 +22,7 @@ import {
   literalText,
   mouseReport,
   NAV_WORD,
+  pastedText,
   script,
   target,
 } from './commandHelpers';
@@ -109,11 +110,14 @@ export type TmuxOp = Data.TaggedEnum<{
   SetPaneTitle: { readonly paneId: PaneId; readonly title: string };
   /** Reset the current pane's terminal and drop its history. */
   ClearPane: NoFields;
+  /** tmux's top paste buffer into the current pane, bracketed if the pane asked. */
   PasteBuffer: NoFields;
   /** Key names (`C-c`, `Up`) to a pane — or, as a last resort, a session's active pane. */
   SendKeys: { readonly target: PaneId | string; readonly keys: string };
   /** Text typed literally, line by line. */
   SendText: { readonly target: PaneId | string; readonly text: string };
+  /** Text pasted as one paste: bracketed when the program in the pane asked for it. */
+  PasteText: { readonly target: PaneId | string; readonly text: string };
   /** An SGR mouse report for a mouse-tracking pane; coordinates are 1-based cells. */
   SendMouse: {
     readonly paneId: PaneId;
@@ -280,11 +284,13 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'ClearPane':
       return list(['send-keys -R', 'clear-history']);
     case 'PasteBuffer':
-      return 'paste-buffer';
+      return 'paste-buffer -p';
     case 'SendKeys':
       return `send-keys -t ${op.target} ${op.keys}`;
     case 'SendText':
       return literalText(op.target, op.text);
+    case 'PasteText':
+      return pastedText(op.target, op.text);
     case 'SendMouse':
       return mouseReport(op);
     case 'EnterCopyMode':

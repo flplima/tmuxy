@@ -105,7 +105,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
 
     deps.parent.send({
       type: 'DISPATCH_OP',
-      op: TmuxOp.SendText({ target: deps.getKeyTarget(), text }),
+      op: TmuxOp.PasteText({ target: deps.getKeyTarget(), text }),
     });
   };
 

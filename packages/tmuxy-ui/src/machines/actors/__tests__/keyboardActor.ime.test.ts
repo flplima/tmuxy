@@ -234,7 +234,9 @@ describe('keyboardActor — desktop IME', () => {
     input.remove();
 
     pasteText('for the pane');
-    expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'for the pane'"]);
+    expect(sendCommands(handle.events)).toEqual([
+      'set-buffer -b tmuxy-paste "for the pane"\npaste-buffer -p -d -b tmuxy-paste -t %3',
+    ]);
   });
 
   it('leaves composition from a real form control in the browser', () => {
@@ -521,7 +523,8 @@ describe('keyboardActor — desktop IME', () => {
       "send-keys -t tmuxy -l -- 'x'",
       'send-keys -t tmuxy Tab',
       "send-keys -t tmuxy -l -- '한'",
-      "send-keys -t tmuxy -l -- '붙여넣기'",
+      'set-buffer -b tmuxy-paste "\\353\\266\\231\\354\\227\\254\\353\\204\\243\\352\\270\\260"\n' +
+        'paste-buffer -p -d -b tmuxy-paste -t tmuxy',
     ]);
     expect(sendCommands(handle.events).join('\n')).not.toContain(placeholder);
   });

@@ -263,10 +263,10 @@ describe('CLI pane subcommands', () => {
     test('pastes text', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', 'hello world']);
       expect(exitCode).toBe(0);
-      // load-buffer first, then run-shell pasteb
+      // load-buffer first, then run-shell pasteb, bracketed if the pane asked
       expect(tmuxCalls).toHaveLength(2);
       expect(tmuxCalls[0].args).toEqual(['load-buffer', '-']);
-      expect(tmuxCalls[1].args).toEqual(['run-shell', 'tmux -L tmuxy pasteb']);
+      expect(tmuxCalls[1].args).toEqual(['run-shell', 'tmux -L tmuxy pasteb -p']);
     });
 
     test('errors with no text', () => {

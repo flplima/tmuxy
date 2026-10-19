@@ -26,7 +26,8 @@ export function list(commands: ReadonlyArray<string>): string {
  * literal would end the `send-keys` there and run the rest of the text as tmux
  * commands of its own — `run-shell` included. Each line of text goes as its own
  * `send-keys -l` (split into chunks so no command line grows unbounded), with
- * an `Enter` between lines: what pasting the text into a terminal does.
+ * an `Enter` between lines: what typing the text line by line does. A paste
+ * goes through `pastedText` instead.
  *
  * `--` ends the options: without it, text starting with a dash (`-la`, or the
  * `-$` of `"line-$i"` when fast typing batches it so) is read as flags, tmux
@@ -41,6 +42,85 @@ export function literalText(to: string, text: string): string {
     }
     if (i < lines.length - 1) commands.push(`send-keys -t ${to} Enter`);
   });
+  return commands.join('\n');
+}
+
+/**
+ * The buffer a paste travels through. Named, so a paste never replaces the
+ * buffer the user last yanked, and dropped again once pasted.
+ */
+const PASTE_BUFFER = 'tmuxy-paste';
+
+/** The bracketed-paste markers. A pasted text must not carry its own. */
+const BRACKET_MARKERS = ['\x1b[200~', '\x1b[201~'];
+
+/**
+ * `text` with every bracketed-paste marker removed — repeatedly, since taking
+ * one out can join the halves of another around it.
+ */
+function withoutBracketMarkers(text: string): string {
+  let out = text;
+  let previous;
+  do {
+    previous = out;
+    for (const marker of BRACKET_MARKERS) out = out.split(marker).join('');
+  } while (out !== previous);
+  return out;
+}
+
+/** What a double-quoted tmux string may carry as itself; the rest is escaped. */
+const PLAIN_IN_DOUBLE_QUOTES = /^[A-Za-z0-9 !%&'()*+,\-./:<=>?@[\]^_`|]$/;
+
+const utf8 = new TextEncoder();
+
+/**
+ * `text` as a double-quoted tmux string in which every character outside a
+ * plain set is an octal byte escape (`\012` for a newline).
+ *
+ * The escapes cover what tmux's parser would otherwise read as syntax — the
+ * quote, `\`, `$` and `~` (expanded inside double quotes), `;`, the `#{`
+ * of a format — and, above all, the newline: control mode reads one command
+ * per line, so a raw one would end the command there. Non-ASCII goes as its
+ * UTF-8 bytes, which tmux reassembles.
+ */
+export function tmuxDoubleQuoted(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    if (PLAIN_IN_DOUBLE_QUOTES.test(ch)) {
+      out += ch;
+      continue;
+    }
+    for (const byte of utf8.encode(ch)) out += '\\' + byte.toString(8).padStart(3, '0');
+  }
+  return `"${out}"`;
+}
+
+/**
+ * The command lines that paste `text` into `to` the way a terminal pastes.
+ *
+ * The text is staged in a tmux buffer and delivered with `paste-buffer -p`,
+ * which wraps it in the bracketed-paste markers when the program in the pane
+ * asked for them (`?2004h`) and sends it bare, each newline a Return, when it
+ * did not. tmux decides from the pane's own mode, so the client tracks none of
+ * it, and the paste reaches the pane in one write. Typed line by line instead
+ * (`literalText`), a shell, an editor or an agent's TUI ran the first line the
+ * moment its newline arrived and took the rest as fresh input.
+ *
+ * Markers already in the text are removed, so a clipboard cannot close the
+ * paste early and have what follows read as typed keys. The text is staged in
+ * chunks (`set-buffer -a` after the first) so no command line grows
+ * unbounded, and `-d` drops the buffer once pasted.
+ */
+export function pastedText(to: string, text: string): string {
+  const chars = Array.from(withoutBracketMarkers(text).replace(/\r\n/g, '\n'));
+  const commands: string[] = [];
+  for (let i = 0; i < chars.length; i += LITERAL_CHUNK_SIZE) {
+    const chunk = chars.slice(i, i + LITERAL_CHUNK_SIZE).join('');
+    const append = i === 0 ? '' : '-a ';
+    commands.push(`set-buffer ${append}-b ${PASTE_BUFFER} ${tmuxDoubleQuoted(chunk)}`);
+  }
+  if (commands.length === 0) return '';
+  commands.push(`paste-buffer -p -d -b ${PASTE_BUFFER} -t ${to}`);
   return commands.join('\n');
 }
 

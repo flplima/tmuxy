@@ -26,6 +26,8 @@ const {
   pasteText,
 } = require('./helpers');
 
+const BRACKETED_PASTE_SCRIPT = require('path').join(__dirname, 'helpers', 'bracketed-paste.py');
+
 // ==================== Scenario 1: General Layout ====================
 
 describe('Scenario 1: General Layout', () => {
@@ -270,6 +272,25 @@ describe('Scenario 2b: Browser Paste', () => {
     await pasteText(ctx.page, `echo ${TOKEN} with spaces`);
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, `${TOKEN} with spaces`);
+  }, 60000);
+
+  test('a multi-line paste reaches a bracketed-paste program as ONE paste, not a Return per line', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await focusPage(ctx.page);
+
+    // A program that turned bracketed paste on (`?2004h`), as shells, editors
+    // and agents' TUIs do. Typed a line at a time, a paste reached it as
+    // `line one` + Return — the TUI submitted the first line and took the rest
+    // as fresh input.
+    await typeInTerminal(ctx.page, `clear; python3 ${BRACKETED_PASTE_SCRIPT}`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'READY');
+
+    await pasteText(ctx.page, 'line one\nline two\nline three');
+    await waitForTerminalText(ctx.page, 'PASTED:line one|line two|line three');
+    expect(await getTerminalText(ctx.page)).not.toContain('SUBMITTED:');
+    await waitForShellPrompt(ctx.page);
   }, 60000);
 });
 

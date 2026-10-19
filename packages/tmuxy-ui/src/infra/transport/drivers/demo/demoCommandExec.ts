@@ -67,6 +67,26 @@ export function executeDemoCommand(
     return;
   }
 
+  // A paste: the text staged in a buffer as a double-quoted string of octal
+  // byte escapes (`tmuxDoubleQuoted`), which the generic parser below would
+  // mangle, then pasted. The demo's shell has no bracketed-paste mode, so the
+  // paste arrives the way tmux delivers one to such a pane: the text, with
+  // each newline a Return.
+  const setBuffer = command.match(/^set-buffer\s+(-a\s+)?-b\s+(\S+)\s+"(.*)"$/);
+  if (setBuffer) {
+    tmux.setBuffer(setBuffer[2], decodeDoubleQuoted(setBuffer[3]), setBuffer[1] !== undefined);
+    return;
+  }
+  const pasteBuffer = command.match(/^paste-buffer\s+-p\s+-d\s+-b\s+(\S+)\s+-t\s+(\S+)$/);
+  if (pasteBuffer) {
+    const [, buffer, target] = pasteBuffer;
+    (tmux.readBuffer(buffer, true) ?? '').split('\n').forEach((line, i) => {
+      if (i > 0) handleSendKeys(['-t', target, 'Enter']);
+      if (line) handleSendKeys(['-t', target, '-l', '--', line]);
+    });
+    return;
+  }
+
   // Parse tmux command
   const parts = parseTmuxCommand(command);
   if (parts.length === 0) return;
@@ -455,6 +475,24 @@ export function executeDemoCommand(
     default:
       break;
   }
+}
+
+/** The body of a double-quoted tmux string: `\ooo` byte escapes, `\x` for x. */
+export function decodeDoubleQuoted(body: string): string {
+  const bytes: number[] = [];
+  const utf8 = new TextEncoder();
+  const chars = Array.from(body);
+  for (let i = 0; i < chars.length; i++) {
+    const octal = chars[i] === '\\' ? /^[0-7]{3}/.exec(chars.slice(i + 1, i + 4).join('')) : null;
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8));
+      i += 3;
+    } else {
+      if (chars[i] === '\\') i++;
+      bytes.push(...utf8.encode(chars[i] ?? ''));
+    }
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
 }
 
 function parseTmuxCommand(command: string): string[] {

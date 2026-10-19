@@ -63,8 +63,12 @@ const cases: Array<[TmuxOp, string]> = [
   ],
   [TmuxOp.SetPaneTitle({ paneId: pid('%4'), title: "Bob's" }), "select-pane -t %4 -T 'Bob'\\''s'"],
   [TmuxOp.ClearPane(), 'send-keys -R \\; clear-history'],
-  [TmuxOp.PasteBuffer(), 'paste-buffer'],
+  [TmuxOp.PasteBuffer(), 'paste-buffer -p'],
   [TmuxOp.SendKeys({ target: pid('%3'), keys: 'C-c' }), 'send-keys -t %3 C-c'],
+  [
+    TmuxOp.PasteText({ target: pid('%3'), text: 'ls -la' }),
+    'set-buffer -b tmuxy-paste "ls -la"\npaste-buffer -p -d -b tmuxy-paste -t %3',
+  ],
   [TmuxOp.SendKeys({ target: 'main', keys: 'Up' }), 'send-keys -t main Up'],
   [TmuxOp.SendText({ target: pid('%3'), text: "it's" }), "send-keys -t %3 -l -- 'it'\\''s'"],
   // Text that starts with a dash stays text: without `--` tmux read `-$` (fast
@@ -232,6 +236,47 @@ describe('toTmuxCommand', () => {
       'send-keys -t %1 Enter',
     ]);
   });
+
+  it('pastes multi-line text as ONE paste, so a bracketed-paste program inserts every line', () => {
+    const text = 'line one\r\nline two\nline three';
+    expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')).toEqual([
+      'set-buffer -b tmuxy-paste "line one\\012line two\\012line three"',
+      'paste-buffer -p -d -b tmuxy-paste -t %3',
+    ]);
+  });
+
+  it('escapes what tmux or control mode would read as syntax, and keeps non-ASCII whole', () => {
+    // A raw newline would end the command line; `;`, `$`, `~`, `#{`, quotes
+    // and backslashes mean something inside a double-quoted tmux string.
+    const text = 'echo $HOME; ls #{x}\n~ "q" \\ é';
+    const [stage] = toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n');
+    expect(stage).toBe(
+      'set-buffer -b tmuxy-paste ' +
+        '"echo \\044HOME\\073 ls \\043\\173x\\175\\012\\176 \\042q\\042 \\134 \\303\\251"',
+    );
+  });
+
+  it('strips bracket markers from the text, so a clipboard cannot close the paste early', () => {
+    const text = 'safe\x1b[201~rm -rf ~\x1b[200~';
+    const [stage] = toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n');
+    expect(stage).toBe('set-buffer -b tmuxy-paste "saferm -rf \\176"');
+    // A marker split around another reassembles once the inner one goes.
+    const nested = 'a\x1b[20\x1b[201~1~b';
+    const [again] = toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text: nested })).split(
+      '\n',
+    );
+    expect(again).toBe('set-buffer -b tmuxy-paste "ab"');
+  });
+
+  it('stages a long paste in chunks, appending each after the first', () => {
+    const text = 'x'.repeat(1200);
+    expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%1'), text })).split('\n')).toEqual([
+      `set-buffer -b tmuxy-paste "${'x'.repeat(500)}"`,
+      `set-buffer -a -b tmuxy-paste "${'x'.repeat(500)}"`,
+      `set-buffer -a -b tmuxy-paste "${'x'.repeat(200)}"`,
+      'paste-buffer -p -d -b tmuxy-paste -t %1',
+    ]);
+  });
 });
 
 describe('AnswerAsk', () => {
@@ -317,7 +362,7 @@ describe('binding strings round-trip through their op', () => {
     'resize-pane -Z',
     'resize-pane -t %4 -Z',
     "select-pane -t %4 -T 'title'",
-    'paste-buffer',
+    'paste-buffer -p',
     'copy-mode',
     'copy-mode -t %3',
     'new-window',

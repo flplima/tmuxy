@@ -62,7 +62,7 @@ const BARE: ReadonlyArray<[RegExp, () => TmuxOp]> = [
   [/^(swap-pane|swapp)$/, () => TmuxOp.SwapMarked()],
   [/^(join-pane|joinp)$/, () => TmuxOp.JoinMarked()],
   [/^(break-pane|breakp)$/, () => TmuxOp.BreakPane({ paneId: null })],
-  [/^(paste-buffer|pasteb)$/, () => TmuxOp.PasteBuffer()],
+  [/^(paste-buffer|pasteb)( -p)?$/, () => TmuxOp.PasteBuffer()],
   [/^kill-session$/, () => TmuxOp.KillSession({ name: null })],
   [/^(next-window|nextw|next)(\s|$)/, () => TmuxOp.SelectWindow({ target: 'next' })],
   [/^(previous-window|prevw|prev)(\s|$)/, () => TmuxOp.SelectWindow({ target: 'previous' })],

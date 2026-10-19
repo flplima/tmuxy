@@ -132,7 +132,7 @@ the alias too, for commands built in-code).
 
 ## Client-Side Placeholder Substitution
 
-Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{pane_width}`, and `#{pane_height}` in **every outgoing command** with the active pane's values (`appMachine`'s SEND_TMUX_COMMAND handler). This is deliberate — prefix-binding commands are written against these placeholders — but it means text typed or pasted into a terminal containing those three exact placeholders is substituted before tmux ever sees it, on every transport (server, Tauri, v86).
+Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{pane_width}`, and `#{pane_height}` in **every outgoing command** with the active pane's values (`appMachine`'s SEND_TMUX_COMMAND handler). This is deliberate — prefix-binding commands are written against these placeholders — but it means text typed into a terminal containing those three exact placeholders is substituted before tmux ever sees it, on every transport (server, Tauri, v86). A paste is exempt: it travels with `#` and `{` as octal escapes (see `pastedText`), so the placeholder never appears in the command.
 
 ## Bash Variable Conflicts
 

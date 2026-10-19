@@ -63,6 +63,8 @@ export class DemoTmux {
    * `tmuxy-widget` writes the option before printing its marker.
    */
   private paneWidgets = new Map<string, string>();
+  /** tmux's named paste buffers (`set-buffer -b`), which a paste travels through. */
+  private buffers = new Map<string, string>();
   private windows: FakeWindow[] = [];
   private activeWindowId = '@0';
   private activePaneId = '%0';
@@ -535,6 +537,18 @@ export class DemoTmux {
   /** Navigate to previous pane in group */
   groupPrev(paneId?: string): boolean {
     return demoGroupPrev(this.groupsContext(), paneId);
+  }
+
+  /** `set-buffer [-a] -b name`: replace a buffer, or append to it. */
+  setBuffer(name: string, text: string, append: boolean): void {
+    this.buffers.set(name, (append ? (this.buffers.get(name) ?? '') : '') + text);
+  }
+
+  /** A buffer's text, dropped from the store when `remove` (`paste-buffer -d`). */
+  readBuffer(name: string, remove: boolean): string | undefined {
+    const text = this.buffers.get(name);
+    if (remove) this.buffers.delete(name);
+    return text;
   }
 
   /** Replace a pane's content with a widget marker + content lines */

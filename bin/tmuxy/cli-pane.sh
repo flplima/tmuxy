@@ -221,7 +221,9 @@ cmd_pane() {
       esac
       local text="$*"
       _tmux load-buffer - <<< "$text"
-      _run_safe "pasteb"
+      # -p: bracketed when the program in the pane asked for it (?2004h), so a
+      # multi-line paste is inserted rather than run a line at a time.
+      _run_safe "pasteb -p"
       ;;
 
     float)
