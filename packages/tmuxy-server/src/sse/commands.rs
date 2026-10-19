@@ -64,7 +64,7 @@ pub async fn commands_handler(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
 
-    // Action tracing (docs/TELEMETRY.md): if the client tagged this command with
+    // Action tracing (docs/TRACING.md): if the client tagged this command with
     // an action id, record it so the trace can correlate the request leg
     // (client send → server receive) exactly. Content-free — just the id.
     if let Some(action_id) = headers.get("x-action-id").and_then(|v| v.to_str().ok()) {
@@ -295,7 +295,7 @@ pub(super) async fn handle_command(
             transport::restore_named(&name, &tx).await?;
             Ok(serde_json::json!(null))
         }
-        // Debug menu (docs/TELEMETRY.md). The trace file lives on THIS host, so
+        // Debug menu (docs/TRACING.md). The trace file lives on THIS host, so
         // a browser client can read the switch and the path but cannot open the
         // file — the in-app menu hides that item off the desktop.
         ClientCommand::GetTraceSettings => Ok(transport::trace_settings_json()),

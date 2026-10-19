@@ -126,7 +126,7 @@ export const ThemeSubmenu: Story = {
 };
 
 /**
- * Debug submenu — the local action trace and nothing else (docs/TELEMETRY.md).
+ * Debug submenu — the local action trace and nothing else (docs/TRACING.md).
  *
  * The switch is the gate: with tracing off there is no level to pick and no
  * file worth opening, so every item below it is disabled. Flipping it on has

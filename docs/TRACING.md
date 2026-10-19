@@ -1,4 +1,4 @@
-# Telemetry & Tracing
+# Action Tracing
 
 **tmuxy does not track you.** There is no analytics, no phone-home, no data sent
 to us or anyone else — ever. What this document describes is a _local debugging
@@ -112,7 +112,7 @@ the in-memory SSE replay ring and control-mode tail, the in-app activity log
 (`LOG_APPEND` → `context.log`, which carries command strings and so never
 leaves the app), and the dev-gated `latencyTracker` + `PerfHud`.
 
-See [TELEMETRY-DESIGN.md](TELEMETRY-DESIGN.md) for this section: Design.
+See [TRACING-DESIGN.md](TRACING-DESIGN.md) for this section: Design.
 
 ## Safety — the redaction boundary
 

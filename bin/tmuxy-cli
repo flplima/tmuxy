@@ -100,7 +100,7 @@ Commands:
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
-  trace       Inspect/export a local action-trace file (docs/TELEMETRY.md)
+  trace       Inspect/export a local action-trace file (docs/TRACING.md)
   config      Re-apply tmuxy.conf (reload) or change a setting (use-tmux-conf)
   gui         Open the desktop GUI application
 
@@ -349,7 +349,7 @@ CEOF
     ;;
   trace)
     shift
-    # Inspect/export a local action-trace file (docs/TELEMETRY.md).
+    # Inspect/export a local action-trace file (docs/TRACING.md).
     if [ "$1" = "check" ] || [ "$1" = "health" ]; then
       shift
       find_server_cmd

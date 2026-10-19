@@ -39,7 +39,7 @@ export class TauriAdapter implements SequencedAdapter {
 
   // Keyboard batching
   private keyBatcher: KeyBatcher | null = null;
-  /** Per-instance counter for minting trace action ids (docs/TELEMETRY.md).
+  /** Per-instance counter for minting trace action ids (docs/TRACING.md).
    * Client-only on Tauri: IPC has no header to carry it to the backend the way
    * the web `X-Action-Id` does, so this correlates the client-side legs and
    * keeps the two adapters symmetric. */
@@ -169,7 +169,7 @@ export class TauriAdapter implements SequencedAdapter {
 
       this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', readOnly: false }));
 
-      // Action tracing (docs/TELEMETRY.md): ask the local backend whether it is
+      // Action tracing (docs/TRACING.md): ask the local backend whether it is
       // recording; only then ship our events to it over IPC.
       tracer.setServerEnabled(!!(await invoke<boolean>('trace_enabled')));
       tracer.setSink((events) => {

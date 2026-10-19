@@ -1,6 +1,6 @@
 /**
  * uiPrefs state — the `on` slice for theme, font size, animations, and the
- * local action-trace switch (docs/TELEMETRY.md).
+ * local action-trace switch (docs/TRACING.md).
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
  * enableAnimations, animationsAllowed, cursorBlink, sendAsk, tabOverviewCols, gestureFlags,

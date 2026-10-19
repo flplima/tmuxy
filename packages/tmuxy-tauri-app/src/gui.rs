@@ -294,7 +294,7 @@ pub fn run() {
             commands::list_gui_windows,
             commands::set_window_style,
             commands::get_window_style,
-            // Local action tracing (docs/TELEMETRY.md): the frontend tracer
+            // Local action tracing (docs/TRACING.md): the frontend tracer
             // queries `trace_enabled` and ships batches to `record_trace`.
             commands::trace_enabled,
             commands::restart_app,

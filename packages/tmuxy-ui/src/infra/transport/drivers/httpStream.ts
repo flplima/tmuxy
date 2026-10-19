@@ -136,7 +136,7 @@ export async function postCommandJson<T>(
     headers: {
       'Content-Type': 'application/json',
       'X-Connection-Id': String(connectionId),
-      // Correlate the request leg in the trace (docs/TELEMETRY.md).
+      // Correlate the request leg in the trace (docs/TRACING.md).
       ...(actionId ? { 'X-Action-Id': actionId } : {}),
     },
     body: JSON.stringify({ cmd, args: args || {} }),
@@ -276,7 +276,7 @@ export function openSseConnection(
     on('connection-info', ConnectionInfo, (data) => {
       cb.onConnected(data);
 
-      // Action tracing (docs/TELEMETRY.md): the server tells us whether it
+      // Action tracing (docs/TRACING.md): the server tells us whether it
       // is recording; only then do we ship our own events, and only through
       // the same-origin /trace sink. The server independently rejects when
       // off, so this is a hint, not the gate.

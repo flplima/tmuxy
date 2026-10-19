@@ -59,7 +59,7 @@ enum AppCommand {
     Gui,
     /// The web server (delegates to tmuxy-server).
     Server,
-    /// Inspect/export a local action-trace file (docs/TELEMETRY.md).
+    /// Inspect/export a local action-trace file (docs/TRACING.md).
     Trace,
     /// `connect` with no socket: the add-a-server form, run in-process because
     /// this binary links it (via tmuxy-server), so the packaged app needs no

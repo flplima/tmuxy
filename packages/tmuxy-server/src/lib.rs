@@ -27,7 +27,7 @@ pub use command::ClientCommand;
 /// dropped, leaving the server to exit with no diagnostic output.
 ///
 /// Registers two layers: the stderr `fmt` layer (existing behaviour) and the
-/// NDJSON `trace` layer (`docs/TELEMETRY.md`). The trace layer stays a no-op
+/// NDJSON `trace` layer (`docs/TRACING.md`). The trace layer stays a no-op
 /// until `tmuxy_core::trace::init` installs the writer, so registering it here
 /// costs nothing when tracing is off.
 pub fn init_logging() {

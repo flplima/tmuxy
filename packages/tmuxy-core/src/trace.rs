@@ -1,4 +1,4 @@
-//! Local action tracing — see `docs/TELEMETRY.md`.
+//! Local action tracing — see `docs/TRACING.md`.
 //!
 //! Off by default. When enabled, writes a single append-only NDJSON file that
 //! **never leaves the machine**, used only to reconstruct cross-layer behaviour
@@ -70,7 +70,7 @@ const VERBATIM: &[&str] = &[
     "shell",
     "via",
     "viewers",
-    // window-chrome geometry (docs/TELEMETRY.md: tauri layer) — logical px
+    // window-chrome geometry (docs/TRACING.md: tauri layer) — logical px
     "height",
     "y",
 ];
@@ -110,7 +110,7 @@ static PROCESS_START: OnceLock<Instant> = OnceLock::new();
 static LEVEL: AtomicU8 = AtomicU8::new(TraceLevel::Shape as u8);
 static SALT: OnceLock<u64> = OnceLock::new();
 
-/// Usefulness↔sensitivity dial (docs/TELEMETRY.md). `Shape` is the safe,
+/// Usefulness↔sensitivity dial (docs/TRACING.md). `Shape` is the safe,
 /// shareable default (typed variants, ids, hashed names, no strings). `Labeled`
 /// un-hashes names/paths and keeps error text (reveals project/dir names).
 /// `Full` additionally keeps command strings — local-debug only, never share.
@@ -186,7 +186,7 @@ fn salt() -> u64 {
 // Gating & initialisation
 // =============================================================================
 
-/// Resolve the gating rules from `docs/TELEMETRY.md` and, if tracing should be
+/// Resolve the gating rules from `docs/TRACING.md` and, if tracing should be
 /// on, spawn the writer, start recording and say so on stderr — loudly, so a
 /// trace is never a surprise. Returns the resolved file path when enabled,
 /// `None` when off.

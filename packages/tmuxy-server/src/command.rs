@@ -89,7 +89,7 @@ pub enum ClientCommand {
     SetSendAsk {
         enabled: bool,
     },
-    /// Debug menu: read the trace switch/level/path (docs/TELEMETRY.md).
+    /// Debug menu: read the trace switch/level/path (docs/TRACING.md).
     GetTraceSettings,
     SetTraceEnabled {
         enabled: bool,

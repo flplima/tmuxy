@@ -5,7 +5,7 @@
  * height follows the font size. The Rust side lives in
  * `tmuxy-tauri-app/src/titlebar.rs`.
  *
- * Each title-bar action is traced (docs/TELEMETRY.md) under an `action_id`
+ * Each title-bar action is traced (docs/TRACING.md) under an `action_id`
  * that the Rust side echoes on its own events, so `tmuxy trace` joins the
  * client invoke to the native outcome (zoom state, button geometry).
  */

@@ -2,7 +2,7 @@
  * The E2E suites' Jest environment: the node one, plus a trace marker at the
  * start and end of every test.
  *
- * The server under test writes its action trace (docs/TELEMETRY.md) to
+ * The server under test writes its action trace (docs/TRACING.md) to
  * `TMUXY_E2E_TRACE`; a marker in that file says which test was running, so a
  * failure can be read as one test's slice instead of a whole run's. When a
  * test fails, the trace health check for that slice is printed with it —

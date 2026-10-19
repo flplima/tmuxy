@@ -16,7 +16,7 @@ See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effec
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
-See [docs/TELEMETRY.md](docs/TELEMETRY.md) for unified cross-layer action tracing into a single local NDJSON file (schema, seams, redaction boundary).
+See [docs/TRACING.md](docs/TRACING.md) for unified cross-layer action tracing into a single local NDJSON file (schema, seams, redaction boundary).
 See [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) for the failing-CI-job → local-command map.
 See [docs/ARCHITECTURE-INDEX.md](docs/ARCHITECTURE-INDEX.md) for where a given concern lives in the tree.
 
@@ -34,7 +34,7 @@ Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> -
 | The dev server    | `npm start`, `npm stop`, `npm restart`, `npm logs`                                                                 | `bin/dev` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev`                                                                  |
 | A one-off server  | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev`                                                         | No watcher — what to reach for when `cargo watch` is missing                                                                                |
 | Drive the app     | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                                                                                       |
-| The trace         | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TELEMETRY.md](docs/TELEMETRY.md)                                                                    |
+| The trace         | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TRACING.md](docs/TRACING.md)                                                                    |
 | Server logs       | `npm logs` (`bin/dev-server`), or the server's own stderr                                                          | `RUST_LOG` filters it                                                                                                                       |
 
 **Three sockets, never mixed:** a released build serves `tmuxy`, the dev server

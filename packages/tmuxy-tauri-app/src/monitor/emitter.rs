@@ -82,7 +82,7 @@ impl LogSink for TauriEmitter {
         // Mirrored to the log file so a bug report carries the *reason* a
         // connection died, which is otherwise only visible to the running UI
         // and gone on reconnect. A command or tmux's output is raw content:
-        // `trace`, below the action trace's floor (docs/TELEMETRY.md).
+        // `trace`, below the action trace's floor (docs/TRACING.md).
         match kind {
             LogKind::Error => tracing::warn!(target: "tmuxy_tauri_app::monitor", "{message}"),
             LogKind::Info => tracing::info!(target: "tmuxy_tauri_app::monitor", "{message}"),

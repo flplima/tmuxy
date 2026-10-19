@@ -360,7 +360,7 @@ pub fn api_routes(host_policy: HostPolicy, read_only: bool) -> Router<Arc<AppSta
 /// Everything the app can ask of a server its owner writes through.
 fn writable_routes() -> Router<Arc<AppState>> {
     viewer_routes()
-        // Client trace ingest (docs/TELEMETRY.md). Capped at 256 KiB/request so a
+        // Client trace ingest (docs/TRACING.md). Capped at 256 KiB/request so a
         // hostile client can't exhaust the disk in one call; the handler also
         // fails closed when tracing is off.
         .route(

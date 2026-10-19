@@ -131,7 +131,7 @@ export function discoverServerPid(explicitPid) {
   if (explicitPid) return Number(explicitPid);
   // `bin/dev-server` writes `<pid>\t<start time>` to
   // `$STATE_DIR/<target>-server.pid`, where STATE_DIR follows the platform
-  // (the same split as the trace file — see docs/TELEMETRY.md).
+  // (the same split as the trace file — see docs/TRACING.md).
   const stateDirs = [
     process.env.TMUXY_STATE_DIR,
     `${process.env.XDG_STATE_HOME ?? `${process.env.HOME}/.local/state`}/tmuxy`,

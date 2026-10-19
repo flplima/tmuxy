@@ -165,7 +165,7 @@ pub async fn start_monitoring(
             }
             // Which way a session is born is one of the few things that differs
             // between one that comes up and one whose pane stays blank, so the
-            // trace keeps it (docs/TELEMETRY.md, pane lifecycle).
+            // trace keeps it (docs/TRACING.md, pane lifecycle).
             match &existing_tx {
                 Some((_, _, viewers)) => {
                     debug!(%session, via = "courier", viewers = *viewers, "session creation path")

@@ -52,7 +52,7 @@ export class HttpAdapter implements SequencedAdapter {
   private readonly reconnectSchedule: Schedule.Schedule<unknown>;
   private connectionId: number = 0;
   private connected = false;
-  /** Per-connection counter for minting trace action ids (docs/TELEMETRY.md). */
+  /** Per-connection counter for minting trace action ids (docs/TRACING.md). */
   private traceActionSeq = 0;
   private reconnecting = false;
   // Session-name override set by switchSession. Instance-scoped (not a module

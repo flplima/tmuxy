@@ -144,7 +144,7 @@ beforeAll(async () => {
       // runs — or a run and a dev server — fought over one port while each
       // believed it had its own. tmuxEnv() is the helpers' own resolution.
       // Traced, so a failure can be read across the layers rather than from
-      // its last log lines (docs/TELEMETRY.md; markers per test come from
+      // its last log lines (docs/TRACING.md; markers per test come from
       // tests/helpers/trace-environment.js). The state dir was just cleared,
       // so the file is this run's alone.
       const server = spawn(

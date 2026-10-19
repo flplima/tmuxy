@@ -72,12 +72,12 @@ body:
   - type: textarea
     id: trace
     attributes:
-      label: Telemetry Trace
+      label: Action Trace
       description: |
         If possible, attach or paste relevant entries from your local trace file.
         - macOS: `~/Library/Application Support/tmuxy/trace.ndjson`
         - Linux: `~/.local/state/tmuxy/trace.ndjson`
-        See docs/TELEMETRY.md for redaction and format details.
+        See docs/TRACING.md for redaction and format details.
     validations:
       required: false
   - type: textarea

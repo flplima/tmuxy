@@ -15,7 +15,7 @@ pub fn state_dir() -> PathBuf {
     state_dir_from(std::env::var_os("TMUXY_STATE_DIR"))
 }
 
-/// The file the action trace is written to (docs/TELEMETRY.md), unless
+/// The file the action trace is written to (docs/TRACING.md), unless
 /// `--trace <path>` names another.
 pub fn trace_file() -> PathBuf {
     state_dir().join("trace.ndjson")

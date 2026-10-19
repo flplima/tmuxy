@@ -1,6 +1,6 @@
-# Telemetry Design
+# Action Tracing Design
 
-The trace file's schema, its instrumentation seams and correlation. Part of [TELEMETRY.md](TELEMETRY.md).
+The trace file's schema, its instrumentation seams and correlation. Part of [TRACING.md](TRACING.md).
 
 ## Design
 
@@ -44,7 +44,7 @@ every `info!`/`warn!`/`error!` — with **zero new call sites**. The work is:
 The handful of hot-path events that matter for causality but aren't yet spans
 (aggregator `step`, monitor flush decision, emitter dispatch) get one
 `#[instrument]` or structured event each — recording the **typed variant name
-and ids only**, never the command string (see [§ Safety](TELEMETRY.md#safety--the-redaction-boundary)).
+and ids only**, never the command string (see [§ Safety](TRACING.md#safety--the-redaction-boundary)).
 
 ### The frontend side generalizes what exists
 

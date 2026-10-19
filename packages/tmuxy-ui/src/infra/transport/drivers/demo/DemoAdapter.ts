@@ -312,7 +312,7 @@ export class DemoAdapter implements TmuxAdapter {
           { name: 'tokyonight', displayName: 'Tokyo Night' },
         ] as T;
 
-      // Local action tracing (docs/TELEMETRY.md). The demo has no backend to
+      // Local action tracing (docs/TRACING.md). The demo has no backend to
       // write an NDJSON file, so it models the switch in memory: the Debug
       // menu is fully explorable, and nothing is ever recorded.
       case 'get_trace_settings':

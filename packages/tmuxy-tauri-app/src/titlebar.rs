@@ -16,7 +16,7 @@
 //! frontend forwards it and the user's macOS "Double-click a window's title
 //! bar to" setting (`AppleActionOnDoubleClick`) is honoured.
 //!
-//! Every action is traced (docs/TELEMETRY.md) with the client's `action_id`
+//! Every action is traced (docs/TRACING.md) with the client's `action_id`
 //! and content-free geometry, so `tmuxy trace` shows the invoke joined to its
 //! native outcome. Events name their target explicitly: this crate's bin target
 //! is `tmuxy`, so `module_path!()` would fall outside the trace allowlist.

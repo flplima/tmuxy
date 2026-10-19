@@ -136,7 +136,7 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
 }
 
 /**
- * Debug — the local action trace and nothing else (docs/TELEMETRY.md). The
+ * Debug — the local action trace and nothing else (docs/TRACING.md). The
  * settings are read when the submenu opens rather than held: the backend is
  * the authority (a DO_NOT_TRACK kill switch can refuse an enable).
  */

@@ -183,7 +183,7 @@ pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, C
 /// The status bar is the window's title bar; it reports its rendered height
 /// (logical px) so the native window buttons stay centred on it.
 ///
-/// `action_id` is the client's trace correlation id (docs/TELEMETRY.md).
+/// `action_id` is the client's trace correlation id (docs/TRACING.md).
 #[tauri::command]
 pub fn set_titlebar_height(window: tauri::WebviewWindow, height: f64, action_id: Option<String>) {
     titlebar::set_height(&window, height, action_id.as_deref());
@@ -405,7 +405,7 @@ pub fn restart_app(app: tauri::AppHandle) {
 }
 
 /// Whether local action tracing is active on this desktop backend
-/// (docs/TELEMETRY.md). The frontend tracer ships events only when this is true.
+/// (docs/TRACING.md). The frontend tracer ships events only when this is true.
 #[tauri::command]
 pub fn trace_enabled() -> bool {
     tmuxy_core::trace::is_enabled()

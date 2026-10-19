@@ -34,7 +34,7 @@ pub use bindings::*;
 /// of SHAPE (a split, a closed pane, a tag, a program starting — never bytes
 /// arriving), which is what a snapshot follows. And the emit is traced by the
 /// DELTA seq and kind, so the return leg joins to the client's applied `seq`
-/// (docs/TELEMETRY.md); the transport's own ids are another counter.
+/// (docs/TRACING.md); the transport's own ids are another counter.
 /// Content-free.
 pub fn on_state_update(
     update: &StateUpdate,
@@ -161,7 +161,7 @@ pub fn to_json(
 /// Decide a client command's route (`command_router`) and record the WHAT as
 /// its tmux verb — the first token, a fixed subcommand name and never the
 /// args; the full command string is admitted only at trace level `full`
-/// (docs/TELEMETRY.md). `size` is the viewport a freshly created window
+/// (docs/TRACING.md). `size` is the viewport a freshly created window
 /// should be sized to, when a client has reported one.
 pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
     tracing::debug!(
@@ -193,7 +193,7 @@ pub async fn git_worktrees_json(
     to_json(repositories, "worktrees")
 }
 
-/// Everything the Debug menu needs to render itself (docs/TELEMETRY.md): the
+/// Everything the Debug menu needs to render itself (docs/TRACING.md): the
 /// switch position, the level, the file it writes to, and whether a
 /// `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switch forbids turning it on at all
 /// (in which case the UI shows the control disabled rather than a switch that

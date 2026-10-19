@@ -1,4 +1,4 @@
-//! `tmuxy trace` — inspect a local NDJSON action-trace file (docs/TELEMETRY.md).
+//! `tmuxy trace` — inspect a local NDJSON action-trace file (docs/TRACING.md).
 //!
 //! Loads the append-only NDJSON written by the trace `Layer` and the `/trace`
 //! ingest, and either prints a per-action summary (correlating by `action_id`)

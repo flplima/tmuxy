@@ -102,7 +102,7 @@ pub(super) fn spawn_parser_task(
                     // EOF — tmux process exited (or PTY was closed). tmux's
                     // parting words (often a `%error` or `%exit detached`
                     // line) are raw control-mode output, so they are logged at
-                    // `trace`, below the action trace's floor (docs/TELEMETRY.md).
+                    // `trace`, below the action trace's floor (docs/TRACING.md).
                     let tail: Vec<String> = {
                         let guard = recent_output.lock().await;
                         let n = guard.len();

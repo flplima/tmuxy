@@ -243,7 +243,7 @@ jobs:
       # what decides a pane's size, and a pane too small to show a prompt
       # looks exactly like a shell that never started.
       RUST_LOG: 'info,tmuxy_server::sse=debug'
-      # The server's action trace (docs/TELEMETRY.md), with a marker at each
+      # The server's action trace (docs/TRACING.md), with a marker at each
       # test's start and end (tests/helpers/trace-environment.js). Read by the
       # health check below on every job, uploaded when a shard fails.
       TMUXY_E2E_TRACE: /tmp/tmuxy-e2e-trace.ndjson

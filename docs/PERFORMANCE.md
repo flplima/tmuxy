@@ -287,7 +287,7 @@ See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measu
 
 ## Related
 
-- [TELEMETRY.md](TELEMETRY.md) — the trace file that generalizes `latencyTracker` into a cross-layer timeline
+- [TRACING.md](TRACING.md) — the trace file that generalizes `latencyTracker` into a cross-layer timeline
 - [DATA-FLOW.md](DATA-FLOW.md) — the transports Axis B measures
 - [NON-GOALS.md](NON-GOALS.md) — input prediction and the other latency techniques we deliberately skip
 - [TESTS.md](TESTS.md) — the Storybook probes the Axis-A story measurements ride on, and where the Axis-C job sits among the suites

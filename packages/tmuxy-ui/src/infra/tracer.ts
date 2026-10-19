@@ -1,5 +1,5 @@
 /**
- * Client-side action tracer (docs/TELEMETRY.md).
+ * Client-side action tracer (docs/TRACING.md).
  *
  * Emits content-free "action shape" events — XState transitions, adapter
  * send/apply boundaries, Effect outcomes — and batch-ships them to the server's

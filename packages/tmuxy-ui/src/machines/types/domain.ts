@@ -347,7 +347,7 @@ export type GestureState =
       phase: 'tracking' | 'handoff';
     };
 
-/** Usefulness↔sensitivity dial for the local action trace (docs/TELEMETRY.md). */
+/** Usefulness↔sensitivity dial for the local action trace (docs/TRACING.md). */
 export type TraceLevel = 'shape' | 'labeled' | 'full';
 
 /** The Debug menu's view of local action tracing, as the backend reports it. */

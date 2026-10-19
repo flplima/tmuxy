@@ -147,7 +147,7 @@ export const uiPrefsActions = {
     enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
   }),
 
-  // --- Local action tracing (docs/TELEMETRY.md) -----------------------------
+  // --- Local action tracing (docs/TRACING.md) -----------------------------
   // Each mutation asks the backend and then re-reads it, rather than assuming
   // the request took: a kill switch can refuse an enable, and the level is
   // normalised server-side, so the menu must render the backend's answer.

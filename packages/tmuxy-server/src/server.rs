@@ -70,7 +70,7 @@ pub struct ServerArgs {
     #[arg(long)]
     pub dev: bool,
 
-    /// Enable local action tracing to an NDJSON file (see docs/TELEMETRY.md).
+    /// Enable local action tracing to an NDJSON file (see docs/TRACING.md).
     /// Pass a path to choose the file, or bare `--trace` for the default under
     /// the state dir. Off by default on release builds; the trace never leaves
     /// this machine. `DO_NOT_TRACK=1` or `TMUXY_NO_TRACE=1` force it off.
@@ -245,7 +245,7 @@ pub enum ServerAction {
     #[command(hide = true)]
     Connect,
     /// Inspect a local action-trace file: print a summary, or export a
-    /// Chrome-trace/Perfetto timeline with `--export` (docs/TELEMETRY.md).
+    /// Chrome-trace/Perfetto timeline with `--export` (docs/TRACING.md).
     Trace(crate::trace_view::TraceViewArgs),
     /// Save, restore, list or forget session snapshots. Backs
     /// `tmuxy session save|restore|snapshots|forget`.
@@ -298,7 +298,7 @@ pub async fn run(args: ServerArgs) {
                     }
                 };
             require_tmux();
-            // Action tracing per the gating rules (docs/TELEMETRY.md), which
+            // Action tracing per the gating rules (docs/TRACING.md), which
             // announces itself. Only on the actual server-start path — never
             // for stop/status/tree/connect.
             tmuxy_core::trace::init(args.trace.clone(), dev_mode);
