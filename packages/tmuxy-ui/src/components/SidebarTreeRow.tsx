@@ -128,7 +128,10 @@ export function SidebarTreeRow({
           if (tabReorder.handlePointerUp(e)?.active) suppressClickRef.current = true;
         }}
         onPointerCancel={tabReorder.handlePointerCancel}
-        onClick={() => {
+        onClick={(e) => {
+          // A row picks a target; the click must not go on to the column,
+          // which would take the keyboard back from it.
+          e.stopPropagation();
           if (suppressClickRef.current) {
             suppressClickRef.current = false;
             return;
@@ -240,7 +243,10 @@ export function SidebarTreeRow({
       data-pane-state={state}
       data-testid={`tree-pane-${row.pane.tmuxId}`}
       draggable={!readOnly}
-      onClick={() => activate(row)}
+      onClick={(e) => {
+        e.stopPropagation();
+        activate(row);
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();

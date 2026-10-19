@@ -150,6 +150,9 @@ export const ClickTabAndPaneActivate: Story = {
       tree.querySelector(`[data-testid="tree-tab-${otherTab.id}"]`) as HTMLElement,
     );
     await waitFor(() => expect(app().context.activeWindowId).toBe(otherTab.id), { timeout: 5000 });
+    // A click picks a target, it does not move into the tree: the keyboard
+    // goes to the tab, not to the column the row sits in.
+    expect(tree.getAttribute('data-focused')).toBe('false');
     // Wait for the switch to SETTLE, not just the optimistic flip: the state
     // carries every window's panes (like the server's), so the new tab's
     // panes must be there before one can be picked.
@@ -165,6 +168,18 @@ export const ClickTabAndPaneActivate: Story = {
       tree.querySelector(`[data-testid="tree-pane-${target.tmuxId}"]`) as HTMLElement,
     );
     await waitFor(() => expect(app().context.activePaneId).toBe(target.tmuxId), { timeout: 5000 });
+    expect(tree.getAttribute('data-focused')).toBe('false');
+
+    // And what is typed next lands in that pane — `j` and `k` are tree keys,
+    // so a tree still holding the keyboard would eat them.
+    await userEvent.setup({ delay: 5 }).keyboard('echo jk-typed');
+    await waitFor(
+      () =>
+        expect(
+          document.querySelector(`.pane-wrapper[data-pane-id="${target.tmuxId}"]`)?.textContent,
+        ).toContain('echo jk-typed'),
+      { timeout: 5000 },
+    );
   },
 };
 

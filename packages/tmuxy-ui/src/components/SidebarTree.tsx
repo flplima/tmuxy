@@ -157,7 +157,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     (row: Row) => {
       switch (row.kind) {
         case 'tab':
+          // The tab's active pane takes the keyboard, as FOCUS_PANE gives it
+          // to a pane row's pane.
           send({ type: 'SELECT_TAB', windowId: row.window.id });
+          send({ type: 'BLUR_LEFT_SIDEBAR' });
           return;
         case 'pane':
           // `select-pane` only changes which pane is active WITHIN its window;
