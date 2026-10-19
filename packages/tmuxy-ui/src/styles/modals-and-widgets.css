@@ -345,8 +345,10 @@
   color: var(--text-muted);
 }
 
+/* Recedes behind the session names, but stays readable on the selected row's
+   ground: `--text-muted` fell under 4.5:1 there. */
 .widget-session-action-row {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .widget-session-reach-dot {
