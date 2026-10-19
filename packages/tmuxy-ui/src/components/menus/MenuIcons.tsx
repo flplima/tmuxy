@@ -1,7 +1,9 @@
 /**
- * The small line icons menu items carry, drawn inline so they take the
+ * A menu item's icon (`domain/menus/icons.ts`), drawn inline so it takes the
  * item's colour (muted at rest, full on hover — see `.menu-item-icon`).
  */
+
+import { MENU_ICONS, type MenuIconName } from '../../domain/menus/icons';
 
 const iconProps = {
   className: 'menu-item-icon',
@@ -16,22 +18,28 @@ const iconProps = {
   'aria-hidden': true,
 } as const;
 
-/** Two sheets, one over the other. */
-export function CopyIcon() {
+export function MenuIcon({ name }: { name: MenuIconName }) {
   return (
-    <svg {...iconProps}>
-      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-      <path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
-    </svg>
-  );
-}
-
-/** A keyboard: the text goes to the program as if typed. */
-export function SendKeysIcon() {
-  return (
-    <svg {...iconProps}>
-      <rect x="1.5" y="4" width="13" height="8.5" rx="1.5" />
-      <path d="M4 7h.01M6.5 7h.01M9 7h.01M11.5 7h.01M4 9.5h.01M11.5 9.5h.01M6.5 9.5h3" />
+    <svg {...iconProps} data-icon={name}>
+      {MENU_ICONS[name].map((shape, i) => {
+        switch (shape[0]) {
+          case 'path':
+            return <path key={i} d={shape[1]} />;
+          case 'rect':
+            return (
+              <rect
+                key={i}
+                x={shape[1]}
+                y={shape[2]}
+                width={shape[3]}
+                height={shape[4]}
+                rx={shape[5]}
+              />
+            );
+          case 'circle':
+            return <circle key={i} cx={shape[1]} cy={shape[2]} r={shape[3]} />;
+        }
+      })}
     </svg>
   );
 }

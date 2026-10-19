@@ -13,14 +13,16 @@ import type { MenuAction, MenuNode, MenuSpec, PredefinedItem } from '../../domai
 import type { MenuDispatch } from '../../components/menus/SpecMenu';
 import type {
   CheckMenuItem,
+  IconMenuItem,
   Menu,
   MenuItem,
   PredefinedMenuItem,
   Submenu,
 } from '@tauri-apps/api/menu';
+import { nativeMenuIcon } from './nativeIcons';
 
 type MenuApi = typeof import('@tauri-apps/api/menu');
-type NativeItem = CheckMenuItem | MenuItem | PredefinedMenuItem | Submenu;
+type NativeItem = CheckMenuItem | IconMenuItem | MenuItem | PredefinedMenuItem | Submenu;
 
 const PREDEFINED: Record<
   PredefinedItem,
@@ -72,14 +74,18 @@ async function buildItem(
     // A heading is an item nothing happens on.
     case 'header':
       return api.MenuItem.new({ text: node.label, enabled: false });
-    case 'item':
-      return api.MenuItem.new({
+    case 'item': {
+      const options = {
         id: node.id,
         text: node.external ? `${node.label}…` : node.label,
         enabled: !node.disabled,
         accelerator: node.accelerator,
         action: run(node.action),
-      });
+      };
+      // An icon that cannot be drawn leaves the item plain, not missing.
+      const icon = node.icon ? await nativeMenuIcon(node.icon) : null;
+      return icon ? api.IconMenuItem.new({ ...options, icon }) : api.MenuItem.new(options);
+    }
     case 'checkbox':
       return api.CheckMenuItem.new({
         id: node.id,

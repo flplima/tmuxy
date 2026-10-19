@@ -11,6 +11,7 @@
  */
 
 import type { AppMachineEvent } from '../../machines/types/events';
+import type { MenuIconName } from './icons';
 
 /** What choosing an item does. */
 export type MenuAction =
@@ -58,7 +59,7 @@ export type MenuNode =
       action: MenuAction;
       /** Opens something outside the app; drawn with an ↗. */
       external?: boolean;
-      icon?: 'copy' | 'send-keys';
+      icon?: MenuIconName;
     })
   | (ItemBase & { kind: 'checkbox'; checked: boolean; action: MenuAction })
   | {

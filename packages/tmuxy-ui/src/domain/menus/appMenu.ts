@@ -12,6 +12,7 @@ import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
 import { paneMenuSpec } from './paneMenu';
 import { tabMenuSpec } from './tabMenu';
 import { keyHint } from './keyHint';
+import type { MenuIconName } from './icons';
 import { MENU_OPS } from '../../components/menus/menuActions';
 import {
   action,
@@ -32,12 +33,12 @@ export interface AppMenuOptions {
 }
 
 /** The layouts tmux offers, in the order the menus list them. */
-export const LAYOUTS: ReadonlyArray<{ id: string; label: string }> = [
-  { id: 'view-layout-even-horizontal', label: 'Even Horizontal' },
-  { id: 'view-layout-even-vertical', label: 'Even Vertical' },
-  { id: 'view-layout-main-horizontal', label: 'Main Horizontal' },
-  { id: 'view-layout-main-vertical', label: 'Main Vertical' },
-  { id: 'view-layout-tiled', label: 'Tiled' },
+export const LAYOUTS: ReadonlyArray<{ id: string; label: string; icon: MenuIconName }> = [
+  { id: 'view-layout-even-horizontal', label: 'Even Horizontal', icon: 'layout-even-horizontal' },
+  { id: 'view-layout-even-vertical', label: 'Even Vertical', icon: 'layout-even-vertical' },
+  { id: 'view-layout-main-horizontal', label: 'Main Horizontal', icon: 'layout-main-horizontal' },
+  { id: 'view-layout-main-vertical', label: 'Main Vertical', icon: 'layout-main-vertical' },
+  { id: 'view-layout-tiled', label: 'Tiled', icon: 'layout-tiled' },
 ];
 
 const MODES: ReadonlyArray<{ mode: ThemeMode; label: string }> = [
@@ -91,13 +92,20 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
     ...(env.readOnly
       ? []
       : LAYOUTS.map(
-          (l): MenuNode => ({ kind: 'item', id: l.id, label: l.label, action: action(l.id) }),
+          (l): MenuNode => ({
+            kind: 'item',
+            id: l.id,
+            label: l.label,
+            icon: l.icon,
+            action: action(l.id),
+          }),
         )),
     separator,
     {
       kind: 'item',
       id: 'view-font-bigger',
       label: 'Make Text Bigger',
+      icon: 'text-bigger',
       accelerator: 'CmdOrCtrl+=',
       action: event({ type: 'INCREASE_FONT_SIZE' }),
     },
@@ -105,6 +113,7 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       kind: 'item',
       id: 'view-font-smaller',
       label: 'Make Text Smaller',
+      icon: 'text-smaller',
       accelerator: 'CmdOrCtrl+-',
       action: event({ type: 'DECREASE_FONT_SIZE' }),
     },
@@ -112,6 +121,7 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       kind: 'item',
       id: 'view-font-reset',
       label: 'Make Text Normal Size',
+      icon: 'text-normal',
       accelerator: 'CmdOrCtrl+0',
       action: event({ type: 'RESET_FONT_SIZE' }),
     },
@@ -176,6 +186,7 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       kind: 'item',
       id: 'trace-open',
       label: 'Open trace.ndjson',
+      icon: 'file',
       disabled: !trace?.enabled,
       action: event({ type: 'OPEN_TRACE_FILE' }),
     },
@@ -183,6 +194,7 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       kind: 'item',
       id: 'trace-copy-path',
       label: 'Copy trace.ndjson Path',
+      icon: 'copy',
       disabled: !trace?.enabled || !trace?.path,
       action: local('trace-copy-path'),
     },
@@ -190,6 +202,7 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       kind: 'item',
       id: 'debug-copy-state',
       label: 'Copy App State',
+      icon: 'copy',
       action: local('debug-copy-state'),
     },
   ]);
@@ -201,6 +214,7 @@ export function helpMenuSpec(env: MenuEnv): MenuSpec {
       kind: 'item',
       id: 'help-reveal-log-file',
       label: 'Reveal Log File',
+      icon: 'folder',
       action: local('help-reveal-log-file'),
     },
     env.isTauri && separator,
@@ -215,11 +229,18 @@ export function helpMenuSpec(env: MenuEnv): MenuSpec {
       kind: 'item',
       id: 'help-report-bug',
       label: 'Report a Bug',
+      icon: 'bug',
       external: true,
       action: action('help-report-bug'),
     },
     separator,
-    { kind: 'item', id: 'help-about', label: 'About tmuxy', action: local('about') },
+    {
+      kind: 'item',
+      id: 'help-about',
+      label: 'About tmuxy',
+      icon: 'info',
+      action: local('about'),
+    },
   ]);
 }
 
@@ -236,12 +257,14 @@ export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'
         kind: 'item',
         id: 'session-reload-config',
         label: 'Reload Config',
+        icon: 'reload',
         action: action('session-reload-config'),
       },
     env.isTauri && {
       kind: 'item',
       id: 'restart-app',
       label: 'Restart App',
+      icon: 'restart',
       action: action('restart-app'),
     },
   ]);
@@ -265,6 +288,7 @@ export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'
         kind: 'item',
         id: 'quit',
         label: 'Quit',
+        icon: 'quit',
         accelerator: 'Ctrl+Q',
         action: local('quit'),
       },
@@ -278,6 +302,7 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec 
       kind: 'item',
       id: 'session-new',
       label: 'New Session',
+      icon: 'new',
       disabled: env.isDemo,
       action: action('session-new'),
     },
@@ -285,6 +310,7 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec 
       kind: 'item',
       id: 'session-rename',
       label: 'Rename Session',
+      icon: 'rename',
       keyHint: keyHint(keybindings, MENU_OPS['session-rename']),
       disabled: env.isDemo,
       action: action('session-rename'),
@@ -293,6 +319,7 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec 
       kind: 'item',
       id: 'session-detach',
       label: 'Detach Session',
+      icon: 'detach',
       keyHint: keyHint(keybindings, TmuxOp.RawCommand({ command: 'detach-client' })),
       disabled: env.isDemo,
       action: action('session-detach'),
@@ -302,6 +329,7 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec 
       kind: 'item',
       id: 'session-kill',
       label: 'Kill Session…',
+      icon: 'trash',
       disabled: env.isDemo,
       action: local('confirm-kill-session'),
     },

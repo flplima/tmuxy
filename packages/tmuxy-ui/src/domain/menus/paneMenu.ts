@@ -11,6 +11,7 @@ import { MENU_OPS } from '../../components/menus/menuActions';
 import { TmuxOp } from '../commands';
 import type { PaneId } from '../ids';
 import { keyHint } from './keyHint';
+import type { MenuIconName } from './icons';
 import { action, event, local, separator, tidy, type MenuNode, type MenuSpec } from './spec';
 
 export interface PaneMenuOptions {
@@ -47,10 +48,16 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
     action: event(item.event),
   }));
 
-  const op = (id: keyof typeof MENU_OPS, label: string, disabled = false): MenuNode => ({
+  const op = (
+    id: keyof typeof MENU_OPS,
+    label: string,
+    icon: MenuIconName,
+    disabled = false,
+  ): MenuNode => ({
     kind: 'item',
     id,
     label,
+    icon,
     keyHint: hint(id),
     disabled,
     action: action(id),
@@ -63,23 +70,25 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       kind: 'item',
       id: 'pane-rename',
       label: 'Rename Pane',
+      icon: 'rename',
       action: local('pane-rename'),
     },
     options.rename && separator,
-    op('pane-split-below', 'Split Pane Below'),
-    op('pane-split-right', 'Split Pane Right'),
+    op('pane-split-below', 'Split Pane Below', 'split-below'),
+    op('pane-split-right', 'Split Pane Right', 'split-right'),
     separator,
-    navigation && op('pane-next', 'Next Pane', single),
-    navigation && op('pane-previous', 'Previous Pane', single),
+    navigation && op('pane-next', 'Next Pane', 'next', single),
+    navigation && op('pane-previous', 'Previous Pane', 'previous', single),
     navigation && separator,
-    navigation && op('pane-swap-prev', 'Swap with Previous', single),
-    navigation && op('pane-swap-next', 'Swap with Next', single),
+    navigation && op('pane-swap-prev', 'Swap with Previous', 'swap', single),
+    navigation && op('pane-swap-next', 'Swap with Next', 'swap', single),
     navigation && separator,
-    isMarked ? op('pane-unmark', 'Unmark Pane') : op('pane-mark', 'Mark Pane'),
+    isMarked ? op('pane-unmark', 'Unmark Pane', 'mark') : op('pane-mark', 'Mark Pane', 'mark'),
     {
       kind: 'item',
       id: 'pane-swap-marked',
       label: 'Swap with Marked Pane',
+      icon: 'swap',
       disabled: !hasMarked || isMarked,
       action: action('pane-swap-marked'),
     },
@@ -87,28 +96,37 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       kind: 'item',
       id: 'pane-join-marked',
       label: 'Join Marked Pane Here',
+      icon: 'join',
       disabled: !hasMarked || isMarked,
       action: action('pane-join-marked'),
     },
     separator,
-    op('pane-move-new-tab', 'Move to New Tab'),
+    op('pane-move-new-tab', 'Move to New Tab', 'move-out'),
     {
       kind: 'item',
       id: 'pane-add-to-group',
       label: 'Add Pane to Group',
+      icon: 'group',
       action: action('pane-add-to-group'),
     },
     separator,
-    op('pane-copy-mode', 'Copy Mode'),
-    op('pane-paste', 'Paste'),
-    { kind: 'item', id: 'pane-clear', label: 'Clear Screen', action: action('pane-clear') },
+    op('pane-copy-mode', 'Copy Mode', 'copy-mode'),
+    op('pane-paste', 'Paste', 'paste'),
+    {
+      kind: 'item',
+      id: 'pane-clear',
+      label: 'Clear Screen',
+      icon: 'clear',
+      action: action('pane-clear'),
+    },
     separator,
-    op('view-zoom', 'Zoom Pane'),
+    op('view-zoom', 'Zoom Pane', 'zoom'),
     separator,
     {
       kind: 'item',
       id: 'pane-close',
       label: 'Close Pane',
+      icon: 'close',
       keyHint: keyHint(keybindings, TmuxOp.KillPane({ paneId: null })),
       action: action('pane-close'),
     },

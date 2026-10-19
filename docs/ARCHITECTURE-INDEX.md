@@ -16,7 +16,7 @@ Feature-to-files retrieval map for agents.
 | Frontend state machine | `packages/tmuxy-ui/src` (XState machine and hooks) |
 | CLI dispatcher and event queue | `bin/tmuxy-cli` |
 | Tauri bridge and desktop shell | `packages/tmuxy-tauri-app` |
-| Menus: one spec per surface, rendered in-app or natively | `packages/tmuxy-ui/src/domain/menus/` (the specs)<br>`packages/tmuxy-ui/src/components/menus/SpecMenu.tsx` (the in-app renderer and `useMenuDispatch`)<br>`packages/tmuxy-ui/src/infra/menus/nativeMenu.ts`, `components/menus/NativeMenuBar.tsx`, `useNativeMenu.ts` (the desktop's)<br>`packages/tmuxy-ui/src/components/menus/menuActions.ts` (`executeMenuAction`, `MENU_OPS`) |
+| Menus: one spec per surface, rendered in-app or natively | `packages/tmuxy-ui/src/domain/menus/` (the specs; `icons.ts`, the item icons both renderers draw)<br>`packages/tmuxy-ui/src/components/menus/SpecMenu.tsx` (the in-app renderer and `useMenuDispatch`)<br>`packages/tmuxy-ui/src/infra/menus/nativeMenu.ts`, `components/menus/NativeMenuBar.tsx`, `useNativeMenu.ts` (the desktop's)<br>`packages/tmuxy-ui/src/components/menus/menuActions.ts` (`executeMenuAction`, `MENU_OPS`) |
 | GUI windows on one session, and the Window menu | `packages/tmuxy-tauri-app/src/windows.rs`<br>`packages/tmuxy-ui/src/domain/menus/windowMenu.ts`<br>`packages/tmuxy-ui/src/utils/guiWindows.ts` |
 | Window styles (iTerm2's set) | `packages/tmuxy-tauri-app/src/window_style.rs` |
 | Trackpad gestures (desktop only): native phases → the grid | `packages/tmuxy-tauri-app/src/gestures.rs` (the shell's half)<br>`packages/tmuxy-ui/src/machines/actors/gestureActor.ts` (`window.tmuxyGesture`)<br>`packages/tmuxy-ui/src/machines/app/actions/gestures.ts`, `utils/gestures.ts`, `components/GestureStage.tsx` |

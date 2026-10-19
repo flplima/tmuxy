@@ -73,6 +73,19 @@ export function NativeMenuBar() {
     };
   }, [host, refreshWindows]);
 
+  // The bar's icons are drawn in the system's menu text colour
+  // (`infra/menus/nativeIcons.ts`): a change of appearance draws them again.
+  useEffect(() => {
+    if (host !== 'native-bar' || typeof window.matchMedia !== 'function') return;
+    const scheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const redraw = () => {
+      const { spec, dispatch } = latest.current;
+      void setNativeAppMenu(spec, dispatch).catch(() => {});
+    };
+    scheme.addEventListener('change', redraw);
+    return () => scheme.removeEventListener('change', redraw);
+  }, [host]);
+
   // The seam the desktop E2E suite tests: the bar's spec and setting it. A
   // WebDriver cannot click a native menu, so this is how the suite checks that
   // the spec is built and that the platform takes it.

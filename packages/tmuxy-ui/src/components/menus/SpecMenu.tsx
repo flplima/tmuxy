@@ -13,7 +13,6 @@ import { MenuItem, MenuDivider, MenuHeader, MenuRadioGroup, SubMenu } from '../f
 import { useAppSend } from '../../machines/appHooks';
 import type { MenuAction, MenuNode, MenuSpec } from '../../domain/menus/spec';
 import { executeMenuAction } from './menuActions';
-import { CopyIcon, SendKeysIcon } from './MenuIcons';
 import type { PaneId } from '../../domain/ids';
 
 export type MenuDispatch = (action: MenuAction) => void;
@@ -49,8 +48,6 @@ export function useMenuDispatch(options: MenuDispatchOptions = {}): MenuDispatch
   );
 }
 
-const ICONS = { copy: CopyIcon, 'send-keys': SendKeysIcon } as const;
-
 function dataAttributes(data?: Record<string, string>): Record<string, string> {
   if (!data) return {};
   return Object.fromEntries(Object.entries(data).map(([k, v]) => [`data-${k}`, v]));
@@ -70,24 +67,22 @@ function renderNode(node: MenuNode, index: number, dispatch: MenuDispatch): Reac
     // The platform draws these itself; the in-app menu has no counterpart.
     case 'predefined':
       return null;
-    case 'item': {
-      const Icon = node.icon ? ICONS[node.icon] : null;
+    case 'item':
       return (
         <MenuItem
           key={node.id}
           disabled={node.disabled}
+          icon={node.icon}
           className={node.className}
           data-testid={node.testId}
           {...dataAttributes(node.data)}
           onClick={() => dispatch(node.action)}
         >
-          {Icon && <Icon />}
           {node.label}
           {node.external && <span className="menu-external">{'↗'}</span>}
           {node.keyHint && <span className="menu-keybinding">{node.keyHint}</span>}
         </MenuItem>
       );
-    }
     case 'checkbox':
       return (
         <MenuItem

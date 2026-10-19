@@ -34,6 +34,8 @@ import {
 import type { SurfaceAnchor, SurfacePlacement } from './useFloatingSurface';
 import { MenuPanel } from './MenuPanel';
 import { MenuTreeContext, PanelContext } from './menuContexts';
+import { MenuIcon } from '../menus/MenuIcons';
+import type { MenuIconName } from '../../domain/menus/icons';
 import './Menu.css';
 
 /** What an item's `onClick` receives — the shape the call sites already read. */
@@ -85,6 +87,8 @@ export interface MenuItemProps extends Omit<
   checked?: boolean;
   /** For a radio item: which value of its group this one is. */
   value?: string;
+  /** The icon in the item's leading column; a checkbox or radio shows its check there. */
+  icon?: MenuIconName;
 }
 
 /** One line of a menu. Choosing it does its thing and closes the menu. */
@@ -95,6 +99,7 @@ export function MenuItem({
   type,
   checked = false,
   value,
+  icon,
   className,
   ...rest
 }: MenuItemProps) {
@@ -131,6 +136,11 @@ export function MenuItem({
       }}
       {...rest}
     >
+      {/* Every item has the column, so the labels line up whether or not the
+          one above had an icon or a check in it. */}
+      <span className="menu-item-lead" aria-hidden="true">
+        {type ? isChecked && <MenuIcon name="check" /> : icon && <MenuIcon name={icon} />}
+      </span>
       {children}
     </div>
   );
@@ -234,6 +244,7 @@ export function SubMenu({ label, children, disabled = false, onMenuChange }: Sub
           panel?.setOpenId(reactId);
         }}
       >
+        <span className="menu-item-lead" aria-hidden="true" />
         {label}
         {/* Drawn here rather than as CSS `content`, which some accessible-name
             computations read: the arrow is decoration, and an item called

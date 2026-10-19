@@ -70,6 +70,7 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv): MenuS
         kind: 'item',
         id: 'session-connect',
         label: 'Connect over SSH…',
+        icon: 'connect',
         testId: 'session-menu-connect',
         action: event({ type: 'OPEN_CONNECT_FLOAT' }),
       },

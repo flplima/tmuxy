@@ -89,16 +89,20 @@
   letter-spacing: 0.04em;
 }
 
-/* Item icon: muted at rest, the item's colour once it is the one you would
-   choose. */
-.menu-item-icon {
-  flex: 0 0 auto;
+/* The leading column: an item's icon, or a checked item's check. Icons are
+   muted at rest and take the item's colour once it is the one you would
+   choose; a check is the state itself, so it is always at full colour. */
+.menu-item-lead {
+  display: flex;
+  flex: 0 0 14px;
+  height: 14px;
   margin-right: 8px;
   color: var(--text-muted);
 }
 
-.floating-menu-item:hover .menu-item-icon,
-.floating-menu-item:focus .menu-item-icon {
+.floating-menu-item:hover .menu-item-lead,
+.floating-menu-item:focus .menu-item-lead,
+.floating-menu-item[aria-checked] .menu-item-lead {
   color: inherit;
 }
 

@@ -122,6 +122,22 @@ export const ThemeSubmenu: Story = {
     expect(menu.getByRole('menuitemcheckbox', { name: /system/i })).toBeInTheDocument();
     const checked = [dark, light].filter((el) => el.getAttribute('aria-checked') === 'true');
     expect(checked).toHaveLength(1);
+
+    // And the check is drawn, not only announced: a mark in the checked
+    // item's leading column, none in the other's — whose label still starts
+    // where the checked one's does.
+    const mark = (el: HTMLElement) => el.querySelector('.menu-item-lead [data-icon="check"]');
+    const unchecked = checked[0] === dark ? light : dark;
+    const box = mark(checked[0])?.getBoundingClientRect();
+    expect(box?.width).toBeGreaterThan(0);
+    expect(box?.height).toBeGreaterThan(0);
+    expect(mark(unchecked)).toBeNull();
+    const labelLeft = (el: HTMLElement) => {
+      const range = document.createRange();
+      range.selectNodeContents(el.lastChild ?? el);
+      return range.getBoundingClientRect().left;
+    };
+    expect(labelLeft(unchecked)).toBeCloseTo(labelLeft(checked[0]), 0);
   },
 };
 
