@@ -51,3 +51,55 @@ export const Demo: Story = {
     expect(host).toHaveTextContent(/demo@localhost/);
   },
 };
+
+/** The bar's box, whichever line it is drawing. */
+const barBox = (canvasElement: HTMLElement) => {
+  const bar = canvasElement.querySelector(
+    '[data-testid="tmux-status-bar"], [data-testid="tmux-command-mode"]',
+  );
+  const box = bar?.getBoundingClientRect();
+  return box ? { top: box.top, height: box.height } : null;
+};
+
+/**
+ * The bar keeps one height in every mode. It used to be as tall as its tallest
+ * item: the host and session labels in normal mode, the hint row alone in a
+ * mode, the prompt with its padding at `:`, so it moved by a few pixels on
+ * every prefix press.
+ */
+export const SameHeightInEveryMode: Story = {
+  render: () => (
+    <ProviderHarness height={60}>
+      <TmuxStatusBar />
+    </ProviderHarness>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => canvas.getByTestId('tmux-status-bar'), { timeout: 5000 });
+    const send = (event: Record<string, unknown>) =>
+      (window as unknown as { app: { send(e: Record<string, unknown>): void } }).app.send(event);
+    const normal = barBox(canvasElement);
+    expect(normal?.height).toBeGreaterThan(0);
+
+    const states: Array<[string, Record<string, unknown>, string]> = [
+      ['prefix', { type: 'PREFIX_MODE_CHANGE', active: true }, 'prefix'],
+      ['pane table', { type: 'KEY_TABLE_CHANGE', table: 'pane' }, 'pane'],
+    ];
+    for (const [name, event, mode] of states) {
+      send(event);
+      await waitFor(() =>
+        expect(canvasElement.querySelector(`[data-key-mode="${mode}"]`)).not.toBeNull(),
+      );
+      expect(barBox(canvasElement), name).toEqual(normal);
+    }
+    send({ type: 'KEY_TABLE_CHANGE', table: null });
+    send({ type: 'PREFIX_MODE_CHANGE', active: false });
+
+    send({ type: 'OPEN_COMMAND_PROMPT', prompt: null, initial: '', template: null });
+    await waitFor(() => expect(canvas.getByTestId('tmux-command-mode')).toBeInTheDocument());
+    expect(barBox(canvasElement), 'command prompt').toEqual(normal);
+    send({ type: 'COMMAND_MODE_CANCEL' });
+    await waitFor(() => expect(canvas.getByTestId('tmux-status-bar')).toBeInTheDocument());
+    expect(barBox(canvasElement), 'back to normal').toEqual(normal);
+  },
+};

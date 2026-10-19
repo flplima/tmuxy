@@ -315,10 +315,19 @@
    Tmux Status Bar (Bottom)
    ============================================ */
 
+/* One height whatever the line shows: a terminal row with 4px above and below,
+   the TMUX_STATUS_BAR_HEIGHT the pane area is sized around
+   (constants/layout.ts). Left to its content, the bar was as tall as its
+   tallest item — the host and session labels in normal mode, the hint row
+   alone in a mode, the prompt with its padding at `:` — so entering a mode
+   moved it by a few pixels. */
 .tmux-status-bar {
   width: 100%;
+  height: calc(var(--line-height-terminal) + 2 * var(--spacing-md));
+  flex: none;
   background-color: var(--tmux-status-bg);
   display: flex;
+  align-items: center;
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
