@@ -83,12 +83,20 @@ async function enterCopyModeAndWait(page, timeout = 15000) {
       async () => {
         const cs = await getCopyModeState(page);
         if (!cs?.active) return true; // left copy mode — the caller will say so
+        const inMode = await page.evaluate(() => {
+          const ctx = window.app?.getSnapshot?.()?.context;
+          const pane = ctx?.panes?.find((p) => p.tmuxId === ctx.activePaneId);
+          return !!pane?.inMode;
+        });
         return (
-          !cs.loading && (cs.loadedRanges?.length ?? 0) > 0 && typeof cs.cursorRow === 'number'
+          inMode &&
+          !cs.loading &&
+          (cs.loadedRanges?.length ?? 0) > 0 &&
+          typeof cs.cursorRow === 'number'
         );
       },
       timeout,
-      'copy mode to finish loading the scrollback it will navigate',
+      'copy mode to finish loading the scrollback and tmux to confirm in_mode',
     );
   } catch {
     // Not fatal: a pane with no history to load never reports rows, and the
