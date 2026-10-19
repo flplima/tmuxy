@@ -114,6 +114,21 @@ function face(theme: Theme, mode: Mode): Story {
       const painted = paint(cell, 'color');
       cell.remove();
       painted.forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
+
+      // The face has arrived only once nothing is still fading into it: the
+      // chrome's colours transition, and the probe's contrast pass reads what
+      // is painted when the story ends — a label half-way from the old face's
+      // colour to the new one's. Transitions only: the cursor's blink never
+      // ends.
+      await waitFor(
+        () =>
+          expect(
+            document
+              .getAnimations()
+              .filter((a) => a instanceof CSSTransition && a.playState === 'running'),
+          ).toEqual([]),
+        { timeout: 5000, interval: 100 },
+      );
     },
   };
 }
