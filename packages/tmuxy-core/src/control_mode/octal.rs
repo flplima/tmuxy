@@ -6,7 +6,9 @@
 /// Decode octal escape sequences from control mode output.
 ///
 /// Characters with ASCII values below 32 and backslash (`\`) are escaped as `\xxx`
-/// where `xxx` is a three-digit octal number.
+/// where `xxx` is a three-digit octal number. Every other byte — a pane's
+/// UTF-8 included, which tmux sends raw and may cut mid-character — is copied
+/// through untouched, so the input is bytes, not text.
 ///
 /// # Examples
 /// ```
@@ -21,9 +23,9 @@
 /// // Mixed content
 /// assert_eq!(decode_octal(r"Hello\033[1mWorld"), b"Hello\x1b[1mWorld".to_vec());
 /// ```
-pub fn decode_octal(input: &str) -> Vec<u8> {
-    let mut result = Vec::with_capacity(input.len());
-    let bytes = input.as_bytes();
+pub fn decode_octal(input: impl AsRef<[u8]>) -> Vec<u8> {
+    let bytes = input.as_ref();
+    let mut result = Vec::with_capacity(bytes.len());
     let mut i = 0;
 
     while i < bytes.len() {

@@ -120,6 +120,9 @@ pub(super) fn spawn_parser_task(
                         buf.pop();
                     }
 
+                    // Text for the log of recent lines only. The parser takes
+                    // the bytes: a pane's output can stop mid-character, and
+                    // read as text that character is lost.
                     let line = String::from_utf8_lossy(&buf).to_string();
 
                     if !line.is_empty() {
@@ -131,7 +134,7 @@ pub(super) fn spawn_parser_task(
                         }
                     }
 
-                    if let Some(event) = parser.parse_line(&line) {
+                    if let Some(event) = parser.parse_line(&buf) {
                         // Signal readiness on first parsed event
                         if let Some(rtx) = ready_tx.take() {
                             let _ = rtx.send(());

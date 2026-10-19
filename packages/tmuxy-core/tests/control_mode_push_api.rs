@@ -116,3 +116,41 @@ fn copy_mode_yank_mirrors_paste_buffer_to_clipboard() {
     assert_eq!(clipboard.len(), 1, "exactly one clipboard write");
     assert_eq!(clipboard[0].1, "yanked line one\nyanked line two");
 }
+
+/// tmux passes a pane's UTF-8 through raw and cuts `%output` wherever its read
+/// ended. zsh-autosuggestions repaints a line byte by byte, so a wide CJK
+/// character arrives as three lines of one byte each — and the next thing zsh
+/// sends is a cursor move counted in columns. The character must land on the
+/// screen whole and the cursor two columns past it, where tmux has it, or that
+/// move redraws the line in the wrong place.
+#[test]
+fn a_character_split_across_output_lines_reaches_the_screen_whole() {
+    let mut parser = Parser::new();
+    let mut agg = StateAggregator::with_session_name("m");
+    let mut feed = |line: &[u8]| {
+        if let Some(event) = parser.parse_line(line) {
+            agg.step(event);
+        }
+    };
+    for line in STREAM.split('\n') {
+        feed(line.as_bytes());
+    }
+
+    let 語 = "語".as_bytes();
+    feed("%output %0 \\033[H\\033[2Kab日本".as_bytes());
+    for byte in 語 {
+        feed(&[b"%extended-output %0 0 : ".as_slice(), &[*byte]].concat());
+    }
+    // zsh's next move: back over the whole word, counted the way tmux counts.
+    feed(b"%output %0 \\033[8D!");
+
+    let state = agg.to_tmux_state();
+    let pane = state.panes.iter().find(|p| p.tmux_id == "%0").unwrap();
+    let row: String = pane.content[0]
+        .iter()
+        .map(|cell| cell.char.as_str())
+        .collect();
+    // Each wide glyph is followed by its blank continuation cell.
+    assert_eq!(row.trim_end(), "!b日 本 語", "row 0 of the pane");
+    assert_eq!(pane.cursor_x, 1, "the cursor, after `!` over column 0");
+}

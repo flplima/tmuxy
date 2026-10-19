@@ -16,23 +16,23 @@ use tmuxy_core::control_mode::{decode_octal, ImageParser, OscParser, Parser};
 use tmuxy_core::layout;
 
 /// Escape a byte string the way tmux control mode does: everything below
-/// ASCII 32 and the backslash itself becomes a three-digit octal escape.
-fn tmux_escape(bytes: &[u8]) -> String {
-    let mut out = String::new();
+/// ASCII 32 and the backslash itself becomes a three-digit octal escape, and
+/// every other byte — a pane's UTF-8 included — goes through raw.
+fn tmux_escape(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
     for &b in bytes {
         if b < 32 || b == b'\\' {
-            out.push_str(&format!("\\{:03o}", b));
+            out.extend_from_slice(format!("\\{:03o}", b).as_bytes());
         } else {
-            out.push(b as char);
+            out.push(b);
         }
     }
     out
 }
 
-/// Bytes that survive `tmux_escape` unchanged (ASCII only, so the escaped
-/// form is itself a `&str` the parser can be handed).
+/// What a pane writes: any byte, valid UTF-8 or not.
 fn escapable_bytes() -> impl Strategy<Value = Vec<u8>> {
-    prop::collection::vec(0u8..=127, 0..64)
+    prop::collection::vec(any::<u8>(), 0..64)
 }
 
 /// Arbitrary bytes, including invalid UTF-8 — what a pane really emits.
@@ -94,7 +94,7 @@ proptest! {
     #[test]
     fn output_notifications_round_trip(pane in 0u32..64, bytes in escapable_bytes()) {
         let mut parser = Parser::new();
-        let line = format!("%output %{} {}", pane, tmux_escape(&bytes));
+        let line = [format!("%output %{pane} ").into_bytes(), tmux_escape(&bytes)].concat();
         match parser.parse_line(&line) {
             Some(tmuxy_core::control_mode::ControlModeEvent::Output { pane_id, content }) => {
                 prop_assert_eq!(pane_id.number(), pane);
@@ -102,6 +102,25 @@ proptest! {
             }
             other => prop_assert!(false, "expected an Output event, got {:?}", other),
         }
+    }
+
+    /// tmux cuts `%output` wherever its read of the pane ended, mid-character
+    /// included. Cut anywhere, the lines must carry the pane's bytes exactly:
+    /// a fragment read as text became U+FFFD and the character was lost.
+    #[test]
+    fn output_cut_anywhere_carries_the_bytes(bytes in escapable_bytes(), cut in any::<prop::sample::Index>()) {
+        let mut parser = Parser::new();
+        let at = cut.index(bytes.len() + 1);
+        let mut carried = Vec::new();
+        for part in [&bytes[..at], &bytes[at..]] {
+            let line = [b"%output %0 ".to_vec(), tmux_escape(part)].concat();
+            if let Some(tmuxy_core::control_mode::ControlModeEvent::Output { content, .. }) =
+                parser.parse_line(&line)
+            {
+                carried.extend(content);
+            }
+        }
+        prop_assert_eq!(carried, bytes);
     }
 
     /// The OSC decoder strips sequences out of the vt100 stream. Arbitrary

@@ -38,6 +38,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | A8 | `change_type` surfaces during suppressed emissions so settling timers extend on window changes. | liveness | `state.rs` (`step_at`) | `state_aggregator_sideeffects.rs › change_type_is_surfaced…`, `› step_at_extends…`; `state_aggregator_props.rs › emit_state_change…` (property) |
 | A9 | Moved panes hold `%output` until capture lands and drop old content; others keep content during capture. | safety | `state.rs` (refill) | — |
 | A10 | Stray `%end`/`%error` without `%begin` never produces a command response. | safety | `parser.rs` | `parser.rs › stray_end_without_begin_is_ignored`; `pane_bytes_props.rs › …arbitrary_lines`, `› …hostile_notifications` (properties) |
+| A11 | A pane's output bytes reach the emulator exactly, wherever tmux cut its `%output` lines — a character split across lines included; pane output is never read as text. | safety | `parser.rs` (`parse_line`), `connection/spawn.rs` | `pane_bytes_props.rs › output_cut_anywhere_carries_the_bytes` (property); `control_mode_push_api.rs › a_character_split_across_output_lines_reaches_the_screen_whole` |
 
 ## M — monitor dispatch
 
