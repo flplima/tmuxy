@@ -10,7 +10,7 @@
  * failure.
  */
 
-import { useAppSelector, useAppSend } from '../machines/AppContext';
+import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { selectNotifications } from '../machines/selectors/ui';
 import './Snackbar.css';
 

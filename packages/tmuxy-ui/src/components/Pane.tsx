@@ -6,7 +6,7 @@
  */
 
 import { memo } from 'react';
-import { usePane } from '../machines/AppContext';
+import { usePane } from '../machines/appHooks';
 import { LogProfiler } from '../utils/renderLog';
 import { usePaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { WidgetPane } from './WidgetPane';

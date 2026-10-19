@@ -7,7 +7,7 @@
 
 import { useRef, useState } from 'react';
 import { FloatingMenu } from '../floating/Menu';
-import { useAppSelector } from '../../machines/AppContext';
+import { useAppSelector } from '../../machines/appHooks';
 import { appMenuSpec } from '../../domain/menus/appMenu';
 import { renderSpec } from './SpecMenu';
 import { useMenuEnv } from './menuEnv';

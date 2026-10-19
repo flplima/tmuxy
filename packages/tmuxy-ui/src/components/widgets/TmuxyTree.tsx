@@ -13,7 +13,7 @@
  */
 
 import { SidebarTree } from '../SidebarTree';
-import { useAppSelector } from '../../machines/AppContext';
+import { useAppSelector } from '../../machines/appHooks';
 
 export function TmuxyTree() {
   const focused = useAppSelector((ctx) => ctx.leftSidebarFocused);

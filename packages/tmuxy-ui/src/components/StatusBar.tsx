@@ -17,7 +17,7 @@
 
 import { memo, useCallback } from 'react';
 import type { RenderTabline } from '../App';
-import { useAppSelector, useReadOnly } from '../machines/AppContext';
+import { useAppSelector, useReadOnly } from '../machines/appHooks';
 import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
 import { CONTAINER_PADDING_X } from '../constants/layout';
 import { isTauri } from '../utils/platform';

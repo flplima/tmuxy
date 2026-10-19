@@ -15,7 +15,7 @@ import React, { useCallback, useReducer, useRef, useMemo, ReactNode } from 'reac
 import { ResizeDividers } from './ResizeDividers';
 import { computePaneBox } from '../constants/layout';
 import { gridExtent } from '../machines/app/helpers';
-import { useAppSelector, useAppSend, useIsDragging, useIsResizing } from '../machines/AppContext';
+import { useAppSelector, useAppSend, useIsDragging, useIsResizing } from '../machines/appHooks';
 import {
   selectVisiblePanes,
   selectActivePaneTree,
@@ -52,11 +52,8 @@ import {
   type RenderItem,
   type ShiftAnim,
 } from './PaneLayoutMorph';
-import {
-  PaneLayoutItem,
-  usePaneDragResizeListeners,
-  usePaneZoomObserver,
-} from './AnimatedPaneWrapper';
+import { PaneLayoutItem } from './AnimatedPaneWrapper';
+import { usePaneDragResizeListeners, usePaneZoomObserver } from './paneWrapperHooks';
 
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;

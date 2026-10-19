@@ -4,7 +4,6 @@
  */
 
 import {
-  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -15,7 +14,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useAppSelector } from '../../machines/AppContext';
+import { useAppSelector } from '../../machines/appHooks';
 import { selectAnimationsAllowed } from '../../machines/selectors/ui';
 import {
   SURFACE_EXIT_MS,
@@ -24,6 +23,12 @@ import {
   type SurfaceAnchor,
   type SurfacePlacement,
 } from './useFloatingSurface';
+import {
+  MenuTreeContextValue,
+  MenuTreeContext,
+  PanelContextValue,
+  PanelContext,
+} from './menuContexts';
 
 /**
  * The open state handed to `useFloatingSurface`, as a module constant.
@@ -33,21 +38,6 @@ import {
  * describe beyond "open", so there is one value and it never changes.
  */
 const OPEN = { open: true } as const;
-
-export interface MenuTreeContextValue {
-  /** Scopes outside-click detection: every panel of one menu shares it. */
-  rootId: string;
-  /** Choosing anything puts the whole menu away, submenus included. */
-  closeAll: () => void;
-}
-export const MenuTreeContext = createContext<MenuTreeContextValue | null>(null);
-
-export interface PanelContextValue {
-  /** Which submenu of THIS panel is open, by the id its trigger owns. */
-  openId: string | null;
-  setOpenId: (id: string | null) => void;
-}
-export const PanelContext = createContext<PanelContextValue | null>(null);
 
 /** Every item of `panel`, in document order, skipping the disabled ones. */
 function navigableItems(panel: HTMLElement): HTMLElement[] {

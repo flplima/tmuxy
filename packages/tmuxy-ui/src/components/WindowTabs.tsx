@@ -43,7 +43,7 @@ import {
   useAppSelector,
   useAppSelectorShallow,
   useReadOnly,
-} from '../machines/AppContext';
+} from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectTabDrop } from '../machines/selectors/layout';
 import { selectAnimationsAllowed } from '../machines/selectors/ui';
@@ -55,7 +55,8 @@ import type { TmuxWindow } from '../domain/client';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
 import { isModelWindowId, type WindowId } from '../domain/ids';
 import type { PaneStateName } from '../utils/paneState';
-import { selectTabStates, useShowActiveTab, WindowTabItem } from './WindowTabItem';
+import { selectTabStates, useShowActiveTab } from './windowTabState';
+import { WindowTabItem } from './WindowTabItem';
 
 /**
  * How long the hover card survives the pointer leaving the strip. Just enough

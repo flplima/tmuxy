@@ -15,7 +15,7 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { useAppSelector, useAppSend, useAppConfig, useReadOnly } from '../machines/AppContext';
+import { useAppSelector, useAppSend, useAppConfig, useReadOnly } from '../machines/appHooks';
 import {
   selectCommandMode,
   selectStatusMessage,

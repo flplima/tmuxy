@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, within } from 'storybook/test';
 import { TerminalLine } from './TerminalLine';
-import { CellGridDecorator, cellGridReady, cellWidthOf, runCells } from '../stories/cellGrid';
+import { CellGridDecorator } from '../stories/cellGrid';
+import { cellGridReady, cellWidthOf, runCells } from '../stories/cellGridHelpers';
 import {
   CELL_TOLERANCE,
   CURSOR_LINE,

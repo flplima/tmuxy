@@ -16,7 +16,7 @@
  * therefore the keys) stays constant when only positions/orientations change.
  */
 
-import { useAppSend, useReadOnly } from '../machines/AppContext';
+import { useAppSend, useReadOnly } from '../machines/appHooks';
 import type { PaneCellBox } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
 import { haptics } from '../utils/haptics';

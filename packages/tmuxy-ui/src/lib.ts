@@ -7,8 +7,9 @@
 
 import './components/widgets/init';
 
-export { AppProvider as TmuxyProvider, useAppFocused } from './machines/AppContext';
-export type { AppConfig } from './machines/AppContext';
+export { AppProvider as TmuxyProvider } from './machines/AppContext';
+export { useAppFocused } from './machines/appHooks';
+export type { AppConfig } from './machines/appContexts';
 export { default as TmuxyApp } from './App';
 export type { RenderTabline } from './App';
 export { DemoAdapter } from './infra/transport/drivers/demo/DemoAdapter';

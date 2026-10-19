@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import './SmoothCursor.css';
 import { getCursorAnchor, getCursorAnchorVersion, subscribeCursorAnchor } from './cursorAnchor';
 import { isSceneChange, parseScene, sceneKey, type Scene } from './cursorScene';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 
 /**
  * The cursor as a single overlay that glides between positions, Neovide-style.

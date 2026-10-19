@@ -1,4 +1,4 @@
-import { useAppConfig, useReadOnly } from '../../machines/AppContext';
+import { useAppConfig, useReadOnly } from '../../machines/appHooks';
 import { isMacPlatform, isTauri } from '../../utils/platform';
 import type { MenuEnv } from '../../domain/menus/spec';
 

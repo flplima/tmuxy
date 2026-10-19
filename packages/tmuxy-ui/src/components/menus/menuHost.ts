@@ -1,4 +1,4 @@
-import { useAppSelector } from '../../machines/AppContext';
+import { useAppSelector } from '../../machines/appHooks';
 import { isMacPlatform, isTauri } from '../../utils/platform';
 
 /**

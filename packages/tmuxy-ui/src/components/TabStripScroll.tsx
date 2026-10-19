@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useLayoutEffect, useState } from 'react';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 import { selectAnimationsAllowed } from '../machines/selectors/ui';
 import { Tooltip } from './Tooltip';
 

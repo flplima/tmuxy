@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
 import { withTmuxView } from './tmuxView';
-import { enableRenderLog, renderLogMark, renderCountSince } from '../utils/renderLog';
+import { enableRenderLog, renderLogMark, renderCountSince } from '../utils/renderLogStore';
 import { ContentMutationRecorder } from './contentMutation';
 import {
   pasteLine,

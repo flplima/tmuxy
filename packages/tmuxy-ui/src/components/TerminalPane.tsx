@@ -28,7 +28,7 @@ import {
   useCopyModeState,
   useAppSelector,
   useAppConfig,
-} from '../machines/AppContext';
+} from '../machines/appHooks';
 import { selectCharSize } from '../machines/selectors/layout';
 import { selectKeyboardElsewhere } from '../machines/selectors/ui';
 import { usePaneMouse } from '../hooks/usePaneMouse';
@@ -46,11 +46,8 @@ import { themeFilterId } from '../utils/themeColorFilter';
 import { getThemeVersion, subscribeTheme } from '../utils/themeManager';
 import { BrowserLiveBar } from './widgets/browser/BrowserLiveBar';
 import { LIVE_BROWSER_WIDGET, parseLiveHeader } from './widgets/browser/live';
-import {
-  ScrollPositionIndicator,
-  usePaneNativeListeners,
-  useTerminalPaneScroll,
-} from './TerminalPaneScroll';
+import { ScrollPositionIndicator } from './TerminalPaneScroll';
+import { usePaneNativeListeners, useTerminalPaneScroll } from './terminalPaneScrollHooks';
 import type { PaneId } from '../domain/ids';
 
 interface TerminalPaneProps {

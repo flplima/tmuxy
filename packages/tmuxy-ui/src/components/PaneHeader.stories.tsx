@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor } from 'storybook/test';
 import { PaneHeader } from './PaneHeader';
 import { ProviderHarness } from '../stories/StoryHarness';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 import { selectPanes } from '../machines/selectors/layout';
 
 const meta: Meta<typeof PaneHeader> = {

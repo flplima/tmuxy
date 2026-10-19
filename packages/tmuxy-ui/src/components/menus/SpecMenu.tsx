@@ -10,7 +10,7 @@
 
 import { useCallback } from 'react';
 import { MenuItem, MenuDivider, MenuHeader, MenuRadioGroup, SubMenu } from '../floating/Menu';
-import { useAppSend } from '../../machines/AppContext';
+import { useAppSend } from '../../machines/appHooks';
 import type { MenuAction, MenuNode, MenuSpec } from '../../domain/menus/spec';
 import { executeMenuAction } from './menuActions';
 import { CopyIcon, SendKeysIcon } from './MenuIcons';

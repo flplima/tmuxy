@@ -31,7 +31,7 @@ import {
   useAppSelector,
   useAppSelectorShallow,
   useReadOnly,
-} from '../machines/AppContext';
+} from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes, selectContainerSize, selectCharSize } from '../machines/selectors/layout';
 import { selectTabOverviewCols } from '../machines/selectors/ui';

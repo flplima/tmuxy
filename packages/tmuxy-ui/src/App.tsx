@@ -28,7 +28,7 @@ import {
   useAppState,
   useAppConfig,
   useReadOnly,
-} from './machines/AppContext';
+} from './machines/appHooks';
 import {
   selectPreviewPanes,
   selectContainerSize,

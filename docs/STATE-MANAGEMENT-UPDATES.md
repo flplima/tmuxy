@@ -83,7 +83,7 @@ twice.
 
 ### React Integration
 
-Components consume the machine via hooks defined in `tmuxy-ui/src/machines/AppContext.tsx`:
+Components consume the machine via hooks defined in `tmuxy-ui/src/machines/appHooks.ts`:
 
 - `useAppSelector(selector)` — Subscribe to derived state
 - `useAppSend()` — Get event sender function

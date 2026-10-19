@@ -16,7 +16,7 @@
  */
 
 import { memo } from 'react';
-import { useAppSend, usePane, useReadOnly } from '../machines/AppContext';
+import { useAppSend, usePane, useReadOnly } from '../machines/appHooks';
 import { paneOfferFor } from '../utils/paneAsk';
 import type { PaneId } from '../domain/ids';
 import './OfferBanner.css';

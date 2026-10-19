@@ -23,7 +23,7 @@ import {
   renderLogMark,
   renderCountSince,
   renderCountsById,
-} from '../utils/renderLog';
+} from '../utils/renderLogStore';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/RenderBudgets',

@@ -11,7 +11,7 @@
  * terminal).
  */
 
-import { useAppSend, useAppSelector, useReadOnly } from '../machines/AppContext';
+import { useAppSend, useAppSelector, useReadOnly } from '../machines/appHooks';
 import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
 import { SidebarGlyph } from './SidebarColumn';
 import { Tooltip } from './Tooltip';

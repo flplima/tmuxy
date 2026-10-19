@@ -19,7 +19,7 @@ import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import { getWidget } from './widgets/registry';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
-import { useAppSend, useAppSelector, useReadOnly } from '../machines/AppContext';
+import { useAppSend, useAppSelector, useReadOnly } from '../machines/appHooks';
 import { selectCharSize, selectContainerSize } from '../machines/selectors/layout';
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
 import { LogProfiler } from '../utils/renderLog';

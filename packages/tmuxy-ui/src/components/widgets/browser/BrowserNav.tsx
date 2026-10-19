@@ -20,7 +20,7 @@
  */
 
 import { memo, useRef, useState, type ReactNode } from 'react';
-import { useAppSend } from '../../../machines/AppContext';
+import { useAppSend } from '../../../machines/appHooks';
 import { isOpenableUrl } from '../../../utils/openUrl';
 import { Tooltip } from '../../Tooltip';
 

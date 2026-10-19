@@ -12,7 +12,7 @@
  */
 
 import { memo, useRef, useState } from 'react';
-import { useAppSend, useReadOnly } from '../../../machines/AppContext';
+import { useAppSend, useReadOnly } from '../../../machines/appHooks';
 import { FloatingMenu } from '../../floating/Menu';
 import { renderSpec, useMenuDispatch } from '../../menus/SpecMenu';
 import { belowElement, useNativeMenu } from '../../menus/useNativeMenu';

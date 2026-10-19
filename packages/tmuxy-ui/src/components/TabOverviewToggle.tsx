@@ -7,7 +7,7 @@
  * overview is open; dispatches the same event the keybinding sends.
  */
 
-import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { Tooltip } from './Tooltip';
 
 export function TabOverviewToggle() {

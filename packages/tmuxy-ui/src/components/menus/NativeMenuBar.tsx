@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { useAppSelector } from '../../machines/AppContext';
+import { useAppSelector } from '../../machines/appHooks';
 import { menuBarSpec } from '../../domain/menus/menuBar';
 import { itemIds, type MenuSpec } from '../../domain/menus/spec';
 import { setNativeAppMenu } from '../../infra/menus/nativeMenu';

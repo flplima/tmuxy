@@ -32,7 +32,8 @@ import {
   type ReactNode,
 } from 'react';
 import type { SurfaceAnchor, SurfacePlacement } from './useFloatingSurface';
-import { MenuPanel, MenuTreeContext, PanelContext } from './MenuPanel';
+import { MenuPanel } from './MenuPanel';
+import { MenuTreeContext, PanelContext } from './menuContexts';
 import './Menu.css';
 
 /** What an item's `onClick` receives — the shape the call sites already read. */

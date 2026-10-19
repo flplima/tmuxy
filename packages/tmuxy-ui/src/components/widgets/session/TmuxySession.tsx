@@ -30,7 +30,7 @@ import {
   useAppSelectorShallow,
   useAppState,
   useReadOnly,
-} from '../../../machines/AppContext';
+} from '../../../machines/appHooks';
 import { selectSessions } from '../../../machines/selectors/ui';
 import { InlineRename } from '../../InlineRename';
 

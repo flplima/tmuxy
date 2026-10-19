@@ -29,7 +29,7 @@ import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { SidebarTree } from './SidebarTree';
 import { SidebarTitle } from './SidebarTitle';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarCellMetrics } from '../machines/selectors/layout';
 import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';

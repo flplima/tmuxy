@@ -9,7 +9,7 @@
  * pane once, while it is open.
  */
 
-import { useAppActor, usePane } from '../../machines/AppContext';
+import { useAppActor, usePane } from '../../machines/appHooks';
 import { detectWidget, getWidget, type WidgetDefinition, type WidgetMenuItem } from './registry';
 import type { PaneId } from '../../domain/ids';
 

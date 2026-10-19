@@ -23,7 +23,7 @@
  */
 
 import { useEffect, type RefObject } from 'react';
-import { useAppSend } from '../machines/AppContext';
+import { useAppSend } from '../machines/appHooks';
 import type { PaneId } from '../domain/ids';
 
 /**

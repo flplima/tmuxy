@@ -4,7 +4,7 @@
  */
 
 import { FloatingMenu } from './floating/Menu';
-import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { paneMenuSpec } from '../domain/menus/paneMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';

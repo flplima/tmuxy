@@ -16,7 +16,7 @@ import {
   useIsSinglePane,
   useIsDragging,
   useIsResizing,
-} from '../machines/AppContext';
+} from '../machines/appHooks';
 import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import type { PaneId } from '../domain/ids';
 

@@ -3,7 +3,7 @@
  */
 
 import { memo, type ReactNode } from 'react';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
 import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor } from '../utils/paneState';

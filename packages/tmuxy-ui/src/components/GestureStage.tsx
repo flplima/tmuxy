@@ -15,7 +15,7 @@
  */
 
 import { useLayoutEffect, useRef } from 'react';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 import { selectContainerSize } from '../machines/selectors/layout';
 import { selectGesture } from '../machines/selectors/ui';
 import { nudgeCursorAnchor } from './cursorAnchor';

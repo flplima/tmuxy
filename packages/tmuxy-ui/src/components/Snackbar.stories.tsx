@@ -7,7 +7,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { Snackbar } from './Snackbar';
-import { useAppSend } from '../machines/AppContext';
+import { useAppSend } from '../machines/appHooks';
 import { ProviderHarness } from '../stories/StoryHarness';
 
 const meta: Meta<typeof Snackbar> = {

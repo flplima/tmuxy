@@ -7,7 +7,7 @@
  * cluster to their right is the dock's).
  */
 
-import { useAppSend, useReadOnly } from '../machines/AppContext';
+import { useAppSend, useReadOnly } from '../machines/appHooks';
 import { Tooltip } from './Tooltip';
 
 export function NewTabButton() {

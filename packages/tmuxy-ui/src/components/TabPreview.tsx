@@ -31,7 +31,7 @@ import {
   useAppSelector,
   useAppSelectorShallow,
   useReadOnly,
-} from '../machines/AppContext';
+} from '../machines/appHooks';
 import { selectPanes, selectCharSize, selectContainerSize } from '../machines/selectors/layout';
 import { selectAnimationsAllowed } from '../machines/selectors/ui';
 import { Tooltip } from './Tooltip';

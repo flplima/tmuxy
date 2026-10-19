@@ -28,7 +28,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { useAppSelector, useAppSend, useReadOnly } from '../../../machines/AppContext';
+import { useAppSelector, useAppSend, useReadOnly } from '../../../machines/appHooks';
 import type { WidgetProps } from '../registry';
 import { browserView } from './view';
 import { classifySource, isWebsite, loadUrl, parseColorFilter } from './source';

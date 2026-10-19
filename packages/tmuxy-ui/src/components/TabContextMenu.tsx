@@ -5,7 +5,7 @@
  */
 
 import { FloatingMenu } from './floating/Menu';
-import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { tabMenuSpec } from '../domain/menus/tabMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';

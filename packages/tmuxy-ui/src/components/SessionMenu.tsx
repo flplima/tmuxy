@@ -26,7 +26,7 @@
 
 import type React from 'react';
 import { FloatingMenu } from './floating/Menu';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 import { sessionSwitcherSpec } from '../domain/menus/sessionSwitcher';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';

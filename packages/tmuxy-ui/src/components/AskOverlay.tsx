@@ -25,7 +25,7 @@
  */
 
 import { memo } from 'react';
-import { useAppSend, useAppSelector, usePane, useReadOnly } from '../machines/AppContext';
+import { useAppSend, useAppSelector, usePane, useReadOnly } from '../machines/appHooks';
 import { paneSendFor, sentText, sentTextIsLong } from '../utils/paneAsk';
 import type { AskAnswer } from '../utils/paneAsk';
 import './AskOverlay.css';

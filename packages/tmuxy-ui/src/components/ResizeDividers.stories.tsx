@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, fireEvent } from 'storybook/test';
 import { ResizeDividers } from './ResizeDividers';
 import { ProviderHarness } from '../stories/StoryHarness';
-import { useAppSelector } from '../machines/AppContext';
+import { useAppSelector } from '../machines/appHooks';
 import { selectActivePaneTree, selectVisiblePanes } from '../machines/selectors/panesAndSidebars';
 
 const CHAR_W = 8;

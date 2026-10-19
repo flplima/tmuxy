@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor } from 'storybook/test';
 import { TerminalLine } from './TerminalLine';
 import type { CellLine } from '../domain/wire';
-import { CellGridDecorator, cellGridReady, cellWidthOf } from '../stories/cellGrid';
+import { CellGridDecorator } from '../stories/cellGrid';
+import { cellGridReady, cellWidthOf } from '../stories/cellGridHelpers';
 
 /**
  * One row, every kind of glyph that does not fit its cell.

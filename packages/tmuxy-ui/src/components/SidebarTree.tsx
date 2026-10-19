@@ -53,7 +53,7 @@ import {
   useAppSelector,
   useAppSelectorShallow,
   useReadOnly,
-} from '../machines/AppContext';
+} from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes } from '../machines/selectors/layout';
 import { selectSessions, selectRepositories } from '../machines/selectors/ui';
@@ -68,11 +68,11 @@ import {
   isPlaceholderPane,
   rowDomId,
   rowKey,
-  SidebarTreeRow,
   useSidebarGitContext,
   type MenuState,
   type Row,
-} from './SidebarTreeRow';
+} from './sidebarTreeRows';
+import { SidebarTreeRow } from './SidebarTreeRow';
 
 export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boolean }) {
   const send = useAppSend();

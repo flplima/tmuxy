@@ -7,7 +7,7 @@
  * keyboard actor), as does a click outside the list.
  */
 
-import { useAppSelector, useAppSend } from '../machines/AppContext';
+import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { selectKeyBindings } from '../machines/selectors/ui';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { splitTableSwitch } from '../domain/keyTables';

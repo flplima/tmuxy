@@ -15,7 +15,7 @@ import {
   usePane,
   usePaneGroup,
   useReadOnly,
-} from '../machines/AppContext';
+} from '../machines/appHooks';
 import { PaneContextMenu } from './PaneContextMenu';
 import { PaneTab } from './PaneTab';
 import { Tooltip } from './Tooltip';

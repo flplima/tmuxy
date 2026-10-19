@@ -8,7 +8,7 @@
 
 import { useEffect } from 'react';
 import { FloatingMenu } from './floating/Menu';
-import { useAppSend } from '../machines/AppContext';
+import { useAppSend } from '../machines/appHooks';
 import { TmuxOp } from '../domain/commands';
 import { selectionMenuSpec } from '../domain/menus/selectionMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';

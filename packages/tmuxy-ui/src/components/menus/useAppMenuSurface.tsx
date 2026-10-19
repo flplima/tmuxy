@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../Modal';
-import { useAppSend, useAppActor, useAppSelector } from '../../machines/AppContext';
+import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
 import { isTauri } from '../../utils/platform';
 import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
 import {

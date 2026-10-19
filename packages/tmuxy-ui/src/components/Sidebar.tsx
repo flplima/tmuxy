@@ -25,7 +25,7 @@
 
 import { memo, useCallback } from 'react';
 import { SidebarColumn } from './SidebarColumn';
-import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { useAppSend, useAppSelector } from '../machines/appHooks';
 import {
   selectLeftSidebarPane,
   selectRightSidebarPane,
