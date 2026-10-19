@@ -240,11 +240,7 @@ export const KeyboardNavigate: Story = {
 // Right-clicking a pane / tab node opens the same context menu the header uses
 // ---------------------------------------------------------------------------
 
-// Nightly while quarantined for `probe-timeout` (scripts/probe-quarantine.json):
-// a story that is going to sit at the per-story deadline costs the commit
-// probe two minutes a push and gates nothing there.
 export const RightClickContextMenus: Story = {
-  tags: ['nightly'],
   args: {
     height: 500,
     initCommands: ['rename-window one', 'new-window', 'rename-window two', 'split-window -h'],
@@ -258,6 +254,21 @@ export const RightClickContextMenus: Story = {
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
+    await waitFor(
+      () => {
+        const tabs = app().context.windows.filter((win) => win.windowType === 'tab');
+        expect(tabs.length).toBeGreaterThanOrEqual(2);
+        for (const w of tabs) {
+          expect(tree.querySelector(`[data-testid="tree-tab-${w.id}"]`)).not.toBeNull();
+        }
+        const panes = tabPanes();
+        expect(panes.length).toBeGreaterThanOrEqual(2);
+        for (const pane of panes) {
+          expect(tree.querySelector(`[data-testid="tree-pane-${pane.tmuxId}"]`)).not.toBeNull();
+        }
+      },
+      { timeout: 8000 },
+    );
 
     // Right-click a pane node → the pane context menu (same items as the header).
     const paneId = tabPanes()[0].tmuxId;

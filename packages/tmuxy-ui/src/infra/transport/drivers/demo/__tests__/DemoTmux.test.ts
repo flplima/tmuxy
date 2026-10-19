@@ -245,7 +245,7 @@ describe('DemoTmux', () => {
       expect(() => Schema.decodeUnknownSync(ServerState)(state)).not.toThrow();
     });
   });
-  describe('float sizing', () => {
+  describe('float and sidebar sizing', () => {
     it('keeps its own dimensions across a viewport resize', () => {
       // A float is a hidden window in real tmux and keeps its own size.
       // setSize used to apply the surface layout to float windows too, so any
@@ -259,6 +259,20 @@ describe('DemoTmux', () => {
       expect(pane).toBeDefined();
       expect(pane?.width).toBe(40);
       expect(pane?.height).toBe(10);
+    });
+
+    it('killing the active tab never selects a sidebar window or resizes it to the surface', () => {
+      const tab2 = tmux.newWindow();
+      const sidebarPaneId = tmux.createSidebar('left', 'tree');
+      expect(sidebarPaneId).not.toBeNull();
+
+      tmux.killWindow(tab2);
+      tmux.setSize(120, 40);
+
+      const state = tmux.getState();
+      expect(state.active_window_id).toBe('@0');
+      const sidebarPane = state.panes.find((p) => p.tmux_id === sidebarPaneId);
+      expect(sidebarPane?.width).not.toBe(120);
     });
   });
 

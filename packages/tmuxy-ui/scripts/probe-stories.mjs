@@ -131,6 +131,21 @@ async function probeStory(browser, id, attempt) {
           channel.on('storyErrored', failure('storyErrored'));
           channel.on('playFunctionThrewException', failure('playFunctionThrewException'));
           channel.on('storyMissing', failure('storyMissing'));
+          for (const reason of [
+            'storyThrewException',
+            'storyErrored',
+            'playFunctionThrewException',
+            'storyMissing',
+          ]) {
+            const prev = channel.last?.(reason);
+            if (prev && prev.length > 0) {
+              failure(reason)(prev[0]);
+              return;
+            }
+          }
+          if (channel.last?.('storyRendered')?.length) {
+            success();
+          }
         }),
       PER_STORY_TIMEOUT_MS,
     );

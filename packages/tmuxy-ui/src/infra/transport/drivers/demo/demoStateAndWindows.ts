@@ -297,16 +297,17 @@ export function killDemoWindow(ctx: DemoGroupsContext, windowId?: string): boole
     ctx.clearZoom();
   }
 
-  // If no windows left, create a new one
-  if (ctx.windows.length === 0) {
+  // If no tab windows left, create a new one
+  const tabWindows = ctx.windows.filter((w) => w.windowType === 'tab');
+  if (tabWindows.length === 0) {
     ctx.newWindow();
     return true;
   }
 
-  // If active window was killed, select next
+  // If active window was killed, select next tab window (never a sidebar/float/group window)
   if (ctx.activeWindowId === targetId) {
-    const newIdx = Math.min(idx, ctx.windows.length - 1);
-    ctx.selectWindow(ctx.windows[newIdx].id);
+    const newIdx = Math.min(idx, tabWindows.length - 1);
+    ctx.selectWindow(tabWindows[newIdx].id);
   }
 
   return true;

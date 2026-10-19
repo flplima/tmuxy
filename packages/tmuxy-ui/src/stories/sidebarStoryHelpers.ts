@@ -35,12 +35,15 @@ export function tabPanes() {
   return app().context.panes.filter((p) => tabWindowIds.has(p.windowId));
 }
 
-/** Wait until the sidebar drawer + tree portal into document.body. */
+/** Wait until the sidebar drawer + tree portal into document.body with rendered rows. */
 export async function waitForTree(): Promise<HTMLElement> {
   return waitFor(
     () => {
       const el = document.querySelector('.sidebar-tree') as HTMLElement | null;
       if (!el) throw new Error('no .sidebar-tree yet');
+      if (el.querySelectorAll('[role="treeitem"]').length === 0) {
+        throw new Error('sidebar-tree has no treeitems yet');
+      }
       return el;
     },
     { timeout: 8000 },

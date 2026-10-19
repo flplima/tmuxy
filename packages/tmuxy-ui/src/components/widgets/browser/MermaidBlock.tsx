@@ -40,10 +40,17 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
 
   useEffect(() => {
     initMermaid();
-    const id = `mermaid-${++renderCounter}`;
     let cancelled = false;
 
-    mermaid.render(id, chart).then(
+    const renderChart = async () => {
+      try {
+        return await mermaid.render(`mermaid-${++renderCounter}`, chart);
+      } catch {
+        return await mermaid.render(`mermaid-${++renderCounter}`, chart);
+      }
+    };
+
+    renderChart().then(
       ({ svg }) => {
         if (!cancelled && containerRef.current) {
           // Parsed and stripped rather than assigned to `innerHTML`: this

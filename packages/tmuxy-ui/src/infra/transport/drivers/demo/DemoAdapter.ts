@@ -243,6 +243,13 @@ export class DemoAdapter implements TmuxAdapter {
       case 'run_tmux_command': {
         const command = args?.command as string;
         if (!command) return null as T;
+        if (this.initCommands.length > 0) {
+          for (const initCmd of this.initCommands) {
+            this.executeCommand(initCmd);
+          }
+          this.initCommands = [];
+        }
+        this.firstSizeHandled = true;
         if (this.failCommand) {
           const reason = this.failCommand(command);
           if (typeof reason === 'string') {

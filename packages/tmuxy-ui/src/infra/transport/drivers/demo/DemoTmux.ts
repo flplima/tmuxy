@@ -172,11 +172,8 @@ export class DemoTmux {
     this.totalWidth = cols;
     this.totalHeight = rows;
     for (const win of this.windows) {
-      // Floats keep their own size, like real tmux (a float is a hidden
-      // window). Applying the surface layout to them resized a float created
-      // at floatWidth x floatHeight to the full surface on the next
-      // set_client_size, so it snapped to fullscreen on any viewport change.
-      if (win.windowType === 'group' || win.windowType === 'float') continue;
+      // Floats, groups, and sidebars keep their own size, like real tmux.
+      if (win.windowType !== 'tab') continue;
       this.applyLayout(win);
     }
   }

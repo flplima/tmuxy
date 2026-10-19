@@ -45,8 +45,16 @@ const config: StorybookConfig = {
   // v86 is a large, hand-written ESM module that loads its own wasm at runtime;
   // let Vite serve it as-is instead of pre-bundling it through esbuild.
   viteFinal: async (cfg: UserConfig) => {
+    cfg.resolve = cfg.resolve ?? {};
+    const existingAlias = cfg.resolve.alias;
+    const mermaidEsm = nodeRequire.resolve('mermaid/dist/mermaid.esm.min.mjs');
+    if (Array.isArray(existingAlias)) {
+      cfg.resolve.alias = [...existingAlias, { find: /^mermaid$/, replacement: mermaidEsm }];
+    } else {
+      cfg.resolve.alias = { ...(existingAlias ?? {}), mermaid: mermaidEsm };
+    }
     cfg.optimizeDeps = cfg.optimizeDeps ?? {};
-    cfg.optimizeDeps.exclude = [...(cfg.optimizeDeps.exclude ?? []), 'v86'];
+    cfg.optimizeDeps.exclude = [...(cfg.optimizeDeps.exclude ?? []), 'v86', 'mermaid'];
     return cfg;
   },
 };
