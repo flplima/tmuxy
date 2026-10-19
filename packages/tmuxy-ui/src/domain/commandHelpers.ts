@@ -110,6 +110,11 @@ export function tmuxDoubleQuoted(text: string): string {
  * paste early and have what follows read as typed keys. The text is staged in
  * chunks (`set-buffer -a` after the first) so no command line grows
  * unbounded, and `-d` drops the buffer once pasted.
+ *
+ * A `paste-buffer` reaches its target alone, where typed input in a window
+ * with `synchronize-panes` on reaches every pane of it. So when the target is
+ * synchronized the paste goes to each of those panes (`paste-synced`), as a
+ * paste from the outer terminal would under native tmux.
  */
 export function pastedText(to: string, text: string): string {
   const chars = Array.from(withoutBracketMarkers(text).replace(/\r\n/g, '\n'));
@@ -120,8 +125,20 @@ export function pastedText(to: string, text: string): string {
     commands.push(`set-buffer ${append}-b ${PASTE_BUFFER} ${tmuxDoubleQuoted(chunk)}`);
   }
   if (commands.length === 0) return '';
-  commands.push(`paste-buffer -p -d -b ${PASTE_BUFFER} -t ${to}`);
+  commands.push(pasteBufferInto(to));
   return commands.join('\n');
+}
+
+/**
+ * The staged paste delivered to `to`, or to every synchronized pane of its
+ * window. Only a pane id goes into the script's command line, which a shell
+ * reads: the fallback target, a session name, could be anything at all.
+ */
+export function pasteBufferInto(to: string): string {
+  const single = `paste-buffer -p -d -b ${PASTE_BUFFER} -t ${to}`;
+  if (!/^%\d+$/.test(to)) return single;
+  const synced = script('paste-synced', to, PASTE_BUFFER);
+  return `if-shell -F -t ${to} '#{pane_synchronized}' '${synced}' '${single}'`;
 }
 
 /**

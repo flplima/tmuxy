@@ -3,6 +3,7 @@ import { pid } from '../../../test/wire';
 import { createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
 import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
+import { pasteBufferInto } from '../../../domain/commandHelpers';
 import * as mobileKeyboard from '../../../utils/mobileKeyboard';
 
 function spawnKeyboardActor(activePaneId = pid('%3')) {
@@ -235,7 +236,7 @@ describe('keyboardActor — desktop IME', () => {
 
     pasteText('for the pane');
     expect(sendCommands(handle.events)).toEqual([
-      'set-buffer -b tmuxy-paste "for the pane"\npaste-buffer -p -d -b tmuxy-paste -t %3',
+      `set-buffer -b tmuxy-paste "for the pane"\n${pasteBufferInto('%3')}`,
     ]);
   });
 
@@ -524,7 +525,7 @@ describe('keyboardActor — desktop IME', () => {
       'send-keys -t tmuxy Tab',
       "send-keys -t tmuxy -l -- '한'",
       'set-buffer -b tmuxy-paste "\\353\\266\\231\\354\\227\\254\\353\\204\\243\\352\\270\\260"\n' +
-        'paste-buffer -p -d -b tmuxy-paste -t tmuxy',
+        pasteBufferInto('tmuxy'),
     ]);
     expect(sendCommands(handle.events).join('\n')).not.toContain(placeholder);
   });

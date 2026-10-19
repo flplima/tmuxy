@@ -6,6 +6,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
+
+/** The paste's last line: `to` alone, or every synchronized pane of its window. */
+const pasteInto = (to: string) =>
+  `if-shell -F -t ${to} '#{pane_synchronized}' 'run-shell "$HOME/.config/tmuxy/bin/tmuxy/paste-synced ${to} tmuxy-paste"' 'paste-buffer -p -d -b tmuxy-paste -t ${to}'`;
 import {
   isLayoutChange,
   isMultiStep,
@@ -67,7 +71,7 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.SendKeys({ target: pid('%3'), keys: 'C-c' }), 'send-keys -t %3 C-c'],
   [
     TmuxOp.PasteText({ target: pid('%3'), text: 'ls -la' }),
-    'set-buffer -b tmuxy-paste "ls -la"\npaste-buffer -p -d -b tmuxy-paste -t %3',
+    `set-buffer -b tmuxy-paste "ls -la"\n${pasteInto('%3')}`,
   ],
   [TmuxOp.SendKeys({ target: 'main', keys: 'Up' }), 'send-keys -t main Up'],
   [TmuxOp.SendText({ target: pid('%3'), text: "it's" }), "send-keys -t %3 -l -- 'it'\\''s'"],
@@ -241,7 +245,7 @@ describe('toTmuxCommand', () => {
     const text = 'line one\r\nline two\nline three';
     expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')).toEqual([
       'set-buffer -b tmuxy-paste "line one\\012line two\\012line three"',
-      'paste-buffer -p -d -b tmuxy-paste -t %3',
+      pasteInto('%3'),
     ]);
   });
 
@@ -268,13 +272,19 @@ describe('toTmuxCommand', () => {
     expect(again).toBe('set-buffer -b tmuxy-paste "ab"');
   });
 
+  it('pastes into a session target alone: a name never reaches the shell the synced paste runs in', () => {
+    expect(toTmuxCommand(TmuxOp.PasteText({ target: "x'; touch y; '", text: 'a' }))).toBe(
+      `set-buffer -b tmuxy-paste "a"\npaste-buffer -p -d -b tmuxy-paste -t x'; touch y; '`,
+    );
+  });
+
   it('stages a long paste in chunks, appending each after the first', () => {
     const text = 'x'.repeat(1200);
     expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%1'), text })).split('\n')).toEqual([
       `set-buffer -b tmuxy-paste "${'x'.repeat(500)}"`,
       `set-buffer -a -b tmuxy-paste "${'x'.repeat(500)}"`,
       `set-buffer -a -b tmuxy-paste "${'x'.repeat(200)}"`,
-      'paste-buffer -p -d -b tmuxy-paste -t %1',
+      pasteInto('%1'),
     ]);
   });
 });

@@ -6,18 +6,25 @@ import { ResizeGlitchRecorder } from './resizeGlitch';
  * command into a terminal is ubiquitous) that the keyboardActor handles via its
  * `paste` listener. Crucially, paste captures the send target (active pane) ONCE
  * and emits one `set-buffer` + `paste-buffer -p` pair, so the still-settling
- * v86 boot can't flap the target between characters. The guest's shell does not
- * ask for bracketed paste, so the trailing newline runs the line. Per-keystroke
- * send-keys races that instability and drops/misroutes chars; paste is
- * deterministic while still driving the full real chain (keyboardActor →
- * send-keys → emulated tmux → bash → %output → WASM core → render).
+ * v86 boot can't flap the target between characters. Per-keystroke send-keys
+ * races that instability and drops/misroutes chars; paste is deterministic
+ * while still driving the full real chain (keyboardActor → send-keys →
+ * emulated tmux → bash → %output → WASM core → render).
+ *
+ * The line is then run with Enter, as a user runs a pasted one: the guest's
+ * bash asks for bracketed paste, and a newline inside a bracketed paste is
+ * text in the line, not a Return.
  */
 export function pasteLine(text: string): void {
   const data = new DataTransfer();
-  data.setData('text/plain', `${text}\n`);
+  data.setData('text/plain', text);
   window.dispatchEvent(
     new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
   );
+  const enter = { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true };
+  const target = document.activeElement ?? window;
+  target.dispatchEvent(new KeyboardEvent('keydown', enter));
+  target.dispatchEvent(new KeyboardEvent('keyup', enter));
 }
 
 export const activePaneId = () =>

@@ -1,0 +1,18 @@
+#!/bin/bash
+# A browser paste into a synchronized window: the staged buffer $2 pasted into
+# every pane of $1's window that has synchronize-panes on and no mode up — the
+# panes tmux duplicates typed input to — and then dropped. A `paste-buffer`
+# reaches its target alone, so without this a paste went to one pane while
+# typing went to all. Run by the client's paste (`pastedText`) only when $1 is
+# synchronized.
+set -euo pipefail
+source "${0%/*}/_lib"
+
+TARGET="${1:?target pane required}"
+BUFFER="${2:?buffer name required}"
+
+PANES=$(_tmux list-panes -t "$TARGET" -F '#{?#{&&:#{pane_synchronized},#{?pane_in_mode,0,1}},#{pane_id},}')
+for pane in $PANES; do
+  _tmux paste-buffer -p -b "$BUFFER" -t "$pane"
+done
+_tmux delete-buffer -b "$BUFFER"

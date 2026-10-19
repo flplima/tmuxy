@@ -165,19 +165,16 @@ export const CopyModeExit: Story = {
 // ───────────────────────── §7 Input edge cases ─────────────────────────
 
 /**
- * Multi-line paste: one paste of three lines becomes per-line `send-keys -l` +
- * Enter chunks — bash must run all three commands, in order, exactly once.
+ * Multi-line paste: one paste of three lines reaches bash as one bracketed
+ * paste, and the Enter after it runs all three commands, in order, exactly
+ * once — no line runs early on a newline of its own.
  */
 export const PasteMultiline: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
-    const data = new DataTransfer();
-    data.setData('text/plain', 'echo ML_A4\necho ML_B4\necho ML_C4\n');
-    window.dispatchEvent(
-      new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
-    );
+    pasteLine('echo ML_A4\necho ML_B4\necho ML_C4');
     await waitFor(
       () => {
         const text = paneGroups(canvas)

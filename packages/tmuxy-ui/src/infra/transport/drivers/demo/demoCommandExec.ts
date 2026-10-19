@@ -71,13 +71,14 @@ export function executeDemoCommand(
   // byte escapes (`tmuxDoubleQuoted`), which the generic parser below would
   // mangle, then pasted. The demo's shell has no bracketed-paste mode, so the
   // paste arrives the way tmux delivers one to such a pane: the text, with
-  // each newline a Return.
+  // each newline a Return. Nor does it synchronize panes, so of the paste's
+  // `if-shell` on `pane_synchronized` it is the plain `paste-buffer` that runs.
   const setBuffer = command.match(/^set-buffer\s+(-a\s+)?-b\s+(\S+)\s+"(.*)"$/);
   if (setBuffer) {
     tmux.buffers.set(setBuffer[2], decodeDoubleQuoted(setBuffer[3]), setBuffer[1] !== undefined);
     return;
   }
-  const pasteBuffer = command.match(/^paste-buffer\s+-p\s+-d\s+-b\s+(\S+)\s+-t\s+(\S+)$/);
+  const pasteBuffer = command.match(/'paste-buffer\s+-p\s+-d\s+-b\s+(\S+)\s+-t\s+([^\s']+)'$/);
   if (pasteBuffer) {
     const [, buffer, target] = pasteBuffer;
     (tmux.buffers.read(buffer, true) ?? '').split('\n').forEach((line, i) => {
