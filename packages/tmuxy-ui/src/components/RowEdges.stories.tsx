@@ -7,6 +7,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
 import { RowEdges } from './RowEdges';
 import type { CellLine } from '../domain/wire';
+import { channels } from '../stories/colorChannels';
 
 function styled(str: string, style: Record<string, unknown>): CellLine {
   return str.split('').map((c) => ({ c, s: style }));
@@ -80,9 +81,9 @@ export const ThreeRows: Story = {
     const [row1Left, row2Left] = lefts;
     expect(row2Left.getBoundingClientRect().bottom).toBeCloseTo(box.bottom, 0);
     expect(row1Left.getBoundingClientRect().bottom).toBeCloseTo(box.bottom - 24, 0);
-    expect(getComputedStyle(row1Left).backgroundColor).toBe('rgb(168, 153, 132)');
+    expect(channels(getComputedStyle(row1Left).backgroundColor)).toEqual([168, 153, 132]);
     // Inverse video paints the foreground.
-    expect(getComputedStyle(row2Left).backgroundColor).toBe('rgb(1, 2, 3)');
+    expect(channels(getComputedStyle(row2Left).backgroundColor)).toEqual([1, 2, 3]);
   },
 };
 
@@ -108,6 +109,6 @@ export const ArtDoesNotBleedToTheBorder: Story = {
     // The left edge is still painted: column 0 is against the padding.
     const lefts = canvasElement.querySelectorAll<HTMLElement>('.terminal-edge-left');
     expect(lefts).toHaveLength(1);
-    expect(getComputedStyle(lefts[0]).backgroundColor).toBe('rgb(0, 0, 255)');
+    expect(channels(getComputedStyle(lefts[0]).backgroundColor)).toEqual([0, 0, 255]);
   },
 };

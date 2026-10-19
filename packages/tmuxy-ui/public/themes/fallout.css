@@ -1,4 +1,10 @@
-/* Fallout theme - Pip-Boy inspired glowing green on dark green */
+/* Fallout theme - Pip-Boy inspired glowing green on dark green
+
+   Monochrome: every colour is one of the face's two greens (--fallout-fg,
+   --fallout-bg) or a blend of them, noted as "N% fg" — the share of the
+   foreground over the background — so nothing on screen leaves the line
+   between the two. A TUI's 256-colour and truecolor cells keep to it too
+   (--term-extended-colors). */
 
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
 
@@ -9,11 +15,13 @@
   --font-size-lg: 16px;
 
   --fallout-fg: #33ff33;
-  --fallout-fg-dim: #1a9e1a;
-  --fallout-fg-faint: #0d5a0d;
   --fallout-bg: #0a1a0a;
-  --fallout-bg-light: #0f260f;
-  --fallout-bg-lighter: #143214;
+  --fallout-fg-dim: #23a323; /* 60% fg */
+  --fallout-fg-faint: #165f16; /* 30% fg */
+  --fallout-bg-light: #0c250c; /* 5% fg */
+  --fallout-bg-lighter: #0e310e; /* 10% fg */
+  --fallout-highlight: #103c10; /* 15% fg */
+  --fallout-highlight-alt: #134a13; /* 21% fg */
 
   --term-black: var(--fallout-bg);
   --term-red: var(--fallout-fg);
@@ -23,7 +31,7 @@
   --term-magenta: var(--fallout-fg);
   --term-cyan: var(--fallout-fg);
   --term-white: var(--fallout-fg);
-  --term-bright-black: var(--fallout-fg-dim);
+  --term-bright-black: var(--fallout-fg);
   --term-bright-red: var(--fallout-fg);
   --term-bright-green: var(--fallout-fg);
   --term-bright-yellow: var(--fallout-fg);
@@ -34,25 +42,26 @@
 
   --term-foreground: var(--fallout-fg);
   --term-background: var(--fallout-bg);
+  --term-extended-colors: 0%;
 
   --bg-black: var(--fallout-bg);
-  --window-bg-rgb: 15, 38, 15;
-  --bg-dark: #081408;
-  --bg-dark-alt: #0c1e0c;
+  --window-bg-rgb: 12, 37, 12; /* --fallout-bg-light */
+  --bg-dark: var(--fallout-bg);
+  --bg-dark-alt: #0b1f0b; /* 2% fg */
   --bg-medium: var(--fallout-bg-light);
   --bg-elevated-alt: var(--fallout-bg-lighter);
-  --bg-highlight: #1a3d1a;
-  --bg-highlight-alt: #1f4a1f;
+  --bg-highlight: var(--fallout-highlight);
+  --bg-highlight-alt: var(--fallout-highlight-alt);
 
   --text-primary: var(--fallout-fg);
-  --text-secondary: #2bcc2b;
+  --text-secondary: #2ddd2d; /* 85% fg */
   --text-muted: var(--fallout-fg-dim);
-  --text-dimmed: #199e19;
+  --text-dimmed: #23a823; /* 62% fg */
   --text-subtle: var(--fallout-fg-faint);
   --text-dark: var(--fallout-bg);
 
-  --border-medium: #1a3d1a;
-  --border-light: #1f4a1f;
+  --border-medium: var(--fallout-highlight);
+  --border-light: var(--fallout-highlight-alt);
 
   --pane-header-text-active: var(--fallout-fg);
   --pane-header-text-inactive: var(--text-dimmed);
@@ -60,7 +69,7 @@
   --accent-green: var(--fallout-fg);
   --theme-accent: var(--accent-green);
   --accent-orange: var(--text-primary);
-  --accent-green-bg: #0d2a0d;
+  --accent-green-bg: #0d2a0d; /* 7% fg */
 
   --accent-blue-light: rgba(51, 255, 51, 0.8);
   --accent-blue-bg: rgba(51, 255, 51, 0.1);
@@ -68,11 +77,11 @@
   --accent-blue-bg-active: rgba(51, 255, 51, 0.35);
 
   --link-color: var(--fallout-fg);
-  --link-hover: #55ff55;
+  --link-hover: var(--fallout-fg);
   --link-active: var(--fallout-fg-dim);
 
   --error-color: var(--fallout-fg);
-  --error-light: #55ff55;
+  --error-light: var(--fallout-fg);
 
   --cursor-bg: var(--fallout-fg);
   --cursor-text: var(--fallout-bg);
@@ -95,11 +104,13 @@
   --font-size-lg: 16px;
 
   --fallout-light-fg: #2a3a1a;
-  --fallout-light-fg-dim: #556a40;
-  --fallout-light-fg-faint: #8a9a78;
   --fallout-light-bg: #c5c8a0;
-  --fallout-light-bg-dark: #b8bb95;
-  --fallout-light-bg-darker: #acaf8a;
+  --fallout-light-fg-dim: #556240; /* 72% fg */
+  --fallout-light-fg-faint: #8a926d; /* 38% fg */
+  --fallout-light-bg-dark: #b9bd95; /* 8% fg */
+  --fallout-light-bg-darker: #acb18b; /* 16% fg */
+  --fallout-light-highlight: #9ea57f; /* 25% fg */
+  --fallout-light-highlight-alt: #8f9671; /* 35% fg */
 
   --term-black: var(--fallout-light-bg);
   --term-red: var(--fallout-light-fg);
@@ -109,36 +120,37 @@
   --term-magenta: var(--fallout-light-fg);
   --term-cyan: var(--fallout-light-fg);
   --term-white: var(--fallout-light-fg);
-  --term-bright-black: var(--fallout-light-fg-dim);
+  --term-bright-black: var(--fallout-light-fg);
   --term-bright-red: var(--fallout-light-fg);
   --term-bright-green: var(--fallout-light-fg);
   --term-bright-yellow: var(--fallout-light-fg);
   --term-bright-blue: var(--fallout-light-fg);
   --term-bright-magenta: var(--fallout-light-fg);
   --term-bright-cyan: var(--fallout-light-fg);
-  --term-bright-white: #1a2a10;
+  --term-bright-white: var(--fallout-light-fg);
 
   --term-foreground: var(--fallout-light-fg);
   --term-background: var(--fallout-light-bg);
+  --term-extended-colors: 0%;
 
   --bg-black: var(--fallout-light-bg);
-  --window-bg-rgb: 184, 187, 149;
+  --window-bg-rgb: 185, 189, 149; /* --fallout-light-bg-dark */
   --bg-dark: var(--fallout-light-bg-dark);
-  --bg-dark-alt: #bec19a;
+  --bg-dark-alt: #bfc29b; /* 4% fg */
   --bg-medium: var(--fallout-light-bg-darker);
-  --bg-elevated-alt: #a0a380;
-  --bg-highlight: #9ea17f;
-  --bg-highlight-alt: #888b6e;
+  --bg-elevated-alt: #a0a680; /* 24% fg */
+  --bg-highlight: var(--fallout-light-highlight);
+  --bg-highlight-alt: var(--fallout-light-highlight-alt);
 
   --text-primary: var(--fallout-light-fg);
-  --text-secondary: #354524;
+  --text-secondary: #354423; /* 93% fg */
   --text-muted: var(--fallout-light-fg-dim);
-  --text-dimmed: #354525;
+  --text-dimmed: #354423; /* 93% fg */
   --text-subtle: var(--fallout-light-fg-faint);
   --text-dark: var(--fallout-light-bg);
 
-  --border-medium: #a0a380;
-  --border-light: #959878;
+  --border-medium: #a0a680; /* 24% fg */
+  --border-light: #959c76; /* 31% fg */
 
   --pane-header-text-active: var(--fallout-light-fg);
   --pane-header-text-inactive: var(--text-dimmed);
@@ -146,7 +158,7 @@
   --accent-green: var(--fallout-light-fg);
   --theme-accent: var(--accent-green);
   --accent-orange: var(--text-primary);
-  --accent-green-bg: #b5b890;
+  --accent-green-bg: #b6ba93; /* 10% fg */
 
   --accent-blue-light: rgba(42, 58, 26, 0.7);
   --accent-blue-bg: rgba(42, 58, 26, 0.08);
@@ -154,11 +166,11 @@
   --accent-blue-bg-active: rgba(42, 58, 26, 0.25);
 
   --link-color: var(--fallout-light-fg);
-  --link-hover: #1a2a10;
+  --link-hover: var(--fallout-light-fg);
   --link-active: var(--fallout-light-fg-dim);
 
   --error-color: var(--fallout-light-fg);
-  --error-light: #1a2a10;
+  --error-light: var(--fallout-light-fg);
 
   --cursor-bg: var(--fallout-light-fg);
   --cursor-text: var(--fallout-light-bg);

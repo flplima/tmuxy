@@ -40,11 +40,14 @@
   --border-medium: #292e42;
   --border-light: #343a52;
 
-  --pane-header-text-active: #c0caf5;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #9ece6a;
-  --theme-accent: var(--accent-green);
+  /* The accent: tokyo night's blue (#7aa2f7, #2e7de9 on the light face), its
+     lightness moved just enough to read at 4.5:1 on every ground it is
+     drawn on, hue and saturation kept. */
+  --theme-accent: #7ca4f7;
   --accent-orange: #ff9e64;
   --accent-green-bg: #1e2a1e;
 
@@ -111,11 +114,11 @@
   --border-medium: #c4c5ca;
   --border-light: #b8b9be;
 
-  --pane-header-text-active: #345ab4;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #4c6531;
-  --theme-accent: var(--accent-green);
+  --theme-accent: #145bbc;
   /* Darkened to 4.5:1 on the panes and the chrome. */
   --accent-orange: #924c00;
   --accent-green-bg: #e0ecd5;

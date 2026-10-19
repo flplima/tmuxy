@@ -18,14 +18,15 @@
   --term-bright-cyan: #8ec07c;
   --term-bright-white: #ebdbb2;
 
+  /* The panes on gruvbox's dark0_hard, the chrome around them on dark0. */
   --term-foreground: #ebdbb2;
-  --term-background: #282828;
+  --term-background: #1d2021;
 
-  --bg-black: #282828;
-  --window-bg-rgb: 50, 48, 47;
+  --bg-black: #1d2021;
+  --window-bg-rgb: 40, 40, 40;
   --bg-dark: #1d2021;
   --bg-dark-alt: #242424;
-  --bg-medium: #32302f;
+  --bg-medium: #282828;
   --bg-elevated-alt: #3c3836;
   --bg-highlight: #3d3937;
   --bg-highlight-alt: #665c54;
@@ -64,7 +65,7 @@
   --error-light: #fb4934;
 
   --cursor-bg: #ebdbb2;
-  --cursor-text: #282828;
+  --cursor-text: #1d2021;
   --cursor-inactive: #928374;
 
   /* Status bar: dark gray (instead of olive green) */

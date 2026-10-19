@@ -109,7 +109,6 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
 /** Theme names bundled with tmuxy (mirrors the server's `get_themes_list`). */
 const BUNDLED_THEMES: { name: string; displayName: string }[] = [
   { name: 'default', displayName: 'Default' },
-  { name: 'cold-harbor', displayName: 'Cold Harbor' },
   { name: 'dracula', displayName: 'Dracula' },
   { name: 'fallout', displayName: 'Fallout' },
   { name: 'gruvbox', displayName: 'Gruvbox' },

@@ -93,7 +93,7 @@ function contrast(a: [number, number, number], b: [number, number, number]): num
 
 describe('theme faces', () => {
   it('finds every theme with both faces', () => {
-    expect(THEME_FILES.length).toBeGreaterThanOrEqual(8);
+    expect(THEME_FILES.length).toBeGreaterThanOrEqual(7);
     expect(FACES).toHaveLength(THEME_FILES.length * 2);
   });
 
@@ -103,8 +103,8 @@ describe('theme faces', () => {
       const missing = Object.keys(DEFAULT_DARK.own).filter((name) => !(name in face.own));
       expect(missing).toEqual([]);
       // Extra names are tokens styles.css already reads, or the theme's own
-      // helpers, prefixed with its name (`--fallout-fg`, `--cold-bg`).
-      const prefix = `--${face.theme.split('-')[0]}-`;
+      // helpers, prefixed with its name (`--fallout-fg`).
+      const prefix = `--${face.theme}-`;
       const stray = Object.keys(face.own).filter(
         (name) => !(name in DEFAULT_DARK.own) && !(name in ROOT) && !name.startsWith(prefix),
       );

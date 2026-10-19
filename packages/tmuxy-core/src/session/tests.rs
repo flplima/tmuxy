@@ -84,7 +84,7 @@ fn the_users_file_is_served_first_and_a_built_in_falls_back_to_the_bundle() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
         resolve_user_css_in(&dir, "/themes/nord.css").as_deref(),
-        Some(BUNDLED_THEMES[5].1.as_bytes())
+        Some(BUNDLED_THEMES[4].1.as_bytes())
     );
     assert_eq!(resolve_user_css_in(&dir, "custom.css"), Some(Vec::new()));
     assert!(resolve_user_css_in(&dir, "themes/mine.css").is_none());
@@ -102,6 +102,28 @@ fn the_users_file_is_served_first_and_a_built_in_falls_back_to_the_bundle() {
         Some(b"b".to_vec())
     );
     assert_eq!(resolve_user_css_in(&dir, "custom.css"), Some(b"c".to_vec()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_built_in_theme_the_build_no_longer_ships_is_removed_and_a_users_own_kept() {
+    let dir = std::env::temp_dir().join(format!("tmuxy-themes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("retired.css"),
+        format!("{BUILT_IN_THEME_HEADER}:root {{}}"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("mine.css"), ":root {}").unwrap();
+
+    ensure_themes_in(&dir);
+
+    assert!(!dir.join("retired.css").exists());
+    assert!(dir.join("mine.css").exists());
+    for (name, _) in BUNDLED_THEMES {
+        assert!(dir.join(name).exists(), "{name}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

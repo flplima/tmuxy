@@ -303,7 +303,6 @@ export class DemoAdapter implements TmuxAdapter {
       case 'get_themes_list':
         return [
           { name: 'default', displayName: 'Default' },
-          { name: 'cold-harbor', displayName: 'Cold Harbor' },
           { name: 'dracula', displayName: 'Dracula' },
           { name: 'fallout', displayName: 'Fallout' },
           { name: 'gruvbox', displayName: 'Gruvbox' },

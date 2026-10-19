@@ -38,6 +38,11 @@
   /* Terminal defaults */
   --term-foreground: var(--term-white);
   --term-background: var(--term-black);
+  /* How much of a 256-colour or truecolor cell's own colour is drawn; the
+     rest is its lightness between --term-foreground and --term-background
+     (cellColorToCss). A monochrome theme sets 0%, so a TUI's colours keep to
+     its two. */
+  --term-extended-colors: 100%;
 
   /* Colors - Backgrounds */
   --bg-black: var(--term-black);

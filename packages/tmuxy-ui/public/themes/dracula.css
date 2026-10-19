@@ -40,11 +40,14 @@
   --border-medium: #44475a;
   --border-light: #525570;
 
-  --pane-header-text-active: #f8f8f2;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #50fa7b;
-  --theme-accent: var(--accent-green);
+  /* The accent: dracula's purple (#bd93f9, #7c5ac2 on the light face), its
+     lightness moved just enough to read at 4.5:1 on every ground it is
+     drawn on, hue and saturation kept. */
+  --theme-accent: #caa9fa;
   --accent-orange: #ffb86c;
   --accent-green-bg: #1a3d2a;
 
@@ -111,11 +114,11 @@
   --border-medium: #d0d0d0;
   --border-light: #c0c0c0;
 
-  --pane-header-text-active: #282a36;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #007a3e;
-  --theme-accent: var(--accent-green);
+  --theme-accent: #7956c1;
   --accent-orange: #c2410c;
   --accent-green-bg: #e6f5ec;
 

@@ -1,6 +1,6 @@
 /**
- * The app shell on every theme face (demo engine): eight themes, dark and
- * light, sixteen stories.
+ * The app shell on every theme face (demo engine): seven themes, dark and
+ * light, fourteen stories.
  *
  * A theme is only a re-declaration of the token names, so each story loads
  * one face and checks the chrome paints those names where the design says:
@@ -13,6 +13,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
+import { cellColorToCss } from '../components/terminalShared';
+import { channels } from './colorChannels';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/Theme Faces',
@@ -30,31 +32,11 @@ const meta: Meta<typeof AppHarness> = {
 export default meta;
 type Story = StoryObj<typeof AppHarness>;
 
-type Theme =
-  | 'default'
-  | 'cold-harbor'
-  | 'dracula'
-  | 'fallout'
-  | 'gruvbox'
-  | 'nord'
-  | 'solarized'
-  | 'tokyonight';
+type Theme = 'default' | 'dracula' | 'fallout' | 'gruvbox' | 'nord' | 'solarized' | 'tokyonight';
 type Mode = 'dark' | 'light';
 
 const app = () =>
   (window as unknown as { app: { send(event: { type: string; [k: string]: unknown }): void } }).app;
-
-/** A colour's red, green and blue on 0–255: hex, `rgb()` or `color(srgb …)`. */
-function channels(colour: string): number[] {
-  const hex = colour.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-  if (hex) {
-    const h = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join('') : hex[1];
-    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-  }
-  const srgb = colour.match(/^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/);
-  if (srgb) return srgb.slice(1, 4).map((c) => Math.round(Number(c) * 255));
-  return (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map((c) => Math.round(Number(c)));
-}
 
 /**
  * A token's colour as channels. Read off the root rather than painted on a
@@ -110,14 +92,34 @@ function face(theme: Theme, mode: Mode): Story {
         },
         { timeout: 5000, interval: 100 },
       );
+
+      // A 256-colour cell (196, pure red) is the face's too: its own colour
+      // for --term-extended-colors of it, the rest its lightness (21%)
+      // between the pane's foreground and background — exactly red on most
+      // faces, and on a monochrome one a blend of its two colours. The demo
+      // shell cannot print an escape, so the cell is the colour a terminal
+      // line paints it in, on a span in the pane.
+      const cell = document.createElement('span');
+      cell.style.color = cellColorToCss(196);
+      activePane.appendChild(cell);
+      const share =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--term-extended-colors'),
+        ) / 100;
+      const fg = token('--term-foreground');
+      const bg = token('--term-background');
+      const expected = [255, 0, 0].map(
+        (c, i) => c * share + (bg[i] + (fg[i] - bg[i]) * 0.21) * (1 - share),
+      );
+      const painted = paint(cell, 'color');
+      cell.remove();
+      painted.forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
     },
   };
 }
 
 export const DefaultDark = face('default', 'dark');
 export const DefaultLight = face('default', 'light');
-export const ColdHarborDark = face('cold-harbor', 'dark');
-export const ColdHarborLight = face('cold-harbor', 'light');
 export const DraculaDark = face('dracula', 'dark');
 export const DraculaLight = face('dracula', 'light');
 export const FalloutDark = face('fallout', 'dark');

@@ -40,36 +40,38 @@ const STANDARD_16_VARS = [
 
 /**
  * Convert CellColor to a CSS color string. Standard 16 colors go through the
- * theme CSS variables; extended 256 colors and RGB are computed.
+ * theme CSS variables. Extended 256 colors and RGB are computed, then put
+ * through the theme too: `--term-extended-colors` of the cell's own colour,
+ * the rest its lightness between the pane's foreground and background — so
+ * a monochrome theme (0%) draws a TUI's truecolor in its own two colours,
+ * and every other (100%) draws it exactly.
  */
 export function cellColorToCss(color: CellColor): string {
-  if (typeof color === 'number') {
-    if (color < 16) return STANDARD_16_VARS[color];
-    return getAnsi256Color(color);
-  }
-  return `rgb(${color.r}, ${color.g}, ${color.b})`;
+  if (typeof color === 'number' && color < 16) return STANDARD_16_VARS[color];
+  const [r, g, b] = typeof color === 'number' ? ansi256Rgb(color) : [color.r, color.g, color.b];
+  const lightness = Math.round((0.2126 * r + 0.7152 * g + 0.0722 * b) / 2.55);
+  return (
+    `color-mix(in srgb, rgb(${r}, ${g}, ${b}) var(--term-extended-colors), ` +
+    `color-mix(in srgb, var(--term-foreground) ${lightness}%, var(--term-background)))`
+  );
 }
 
 /**
- * Get ANSI 256 color as hex. Only ever called for index >= 16 —
+ * An ANSI 256 color's RGB. Only ever called for index >= 16 —
  * `cellColorToCss` handles 0..15 via the theme CSS-var path before reaching
  * here.
  */
-function getAnsi256Color(index: number): string {
+function ansi256Rgb(index: number): [number, number, number] {
   // 216 color cube (6x6x6)
   if (index < 232) {
     const i = index - 16;
-    const r = Math.floor(i / 36);
-    const g = Math.floor((i % 36) / 6);
-    const b = i % 6;
-    const toHex = (v: number) => (v === 0 ? 0 : 55 + v * 40).toString(16).padStart(2, '0');
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    const level = (v: number) => (v === 0 ? 0 : 55 + v * 40);
+    return [level(Math.floor(i / 36)), level(Math.floor((i % 36) / 6)), level(i % 6)];
   }
 
   // 24 grayscale
   const gray = 8 + (index - 232) * 10;
-  const hex = gray.toString(16).padStart(2, '0');
-  return `#${hex}${hex}${hex}`;
+  return [gray, gray, gray];
 }
 
 /**

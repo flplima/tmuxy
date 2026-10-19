@@ -40,11 +40,14 @@
   --border-medium: #3b4252;
   --border-light: #4c566a;
 
-  --pane-header-text-active: #eceff4;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #a3be8c;
-  --theme-accent: var(--accent-green);
+  /* The accent: nord's frost — nord8, and nord10 (#5e81ac) on the light
+     face, darkened just enough to read at 4.5:1 there, hue and saturation
+     kept. */
+  --theme-accent: #88c0d0;
   /* nord12, lifted to 4.5:1 on the panes and the chrome. */
   --accent-orange: #daa18f;
   --accent-green-bg: #2e3a2e;
@@ -112,11 +115,11 @@
   --border-medium: #d8dee9;
   --border-light: #cdd3de;
 
-  --pane-header-text-active: #2e3440;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #566e3d;
-  --theme-accent: var(--accent-green);
+  --theme-accent: #4a6990;
   /* nord12, darkened to 4.5:1 on the panes and the chrome. */
   --accent-orange: #a45036;
   --accent-green-bg: #e5f0dc;

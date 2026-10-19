@@ -40,13 +40,16 @@
   --border-medium: #073642;
   --border-light: #0a4050;
 
-  --pane-header-text-active: #93a1a1;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   /* Solarized green, a touch lighter so the active tab reads at 4.5:1 on the
      base02 chrome. */
   --accent-green: #91a319;
-  --theme-accent: var(--accent-green);
+  /* The accent: solarized's blue (#268bd2), lightened here and darkened on
+     the light face just enough to read at 4.5:1 on every ground it is drawn
+     on, hue and saturation kept. */
+  --theme-accent: #4aa1de;
   /* Solarized orange, lifted to 4.5:1 on the panes and the chrome. */
   --accent-orange: #eb794a;
   --accent-green-bg: #1a2a00;
@@ -114,11 +117,11 @@
   --border-medium: #e0dac8;
   --border-light: #d4cebc;
 
-  --pane-header-text-active: #586e75;
+  --pane-header-text-active: var(--theme-accent);
   --pane-header-text-inactive: var(--text-dimmed);
 
   --accent-green: #627100;
-  --theme-accent: var(--accent-green);
+  --theme-accent: #1f70a9;
   /* Solarized orange, darkened to 4.5:1 on the panes and the chrome. */
   --accent-orange: #bd4615;
   --accent-green-bg: #eff5d0;

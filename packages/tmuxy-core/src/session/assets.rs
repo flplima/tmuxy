@@ -14,10 +14,6 @@ pub(super) const BUNDLED_THEMES: &[(&str, &str)] = &[
         include_str!("../../../tmuxy-ui/public/themes/default.css"),
     ),
     (
-        "cold-harbor.css",
-        include_str!("../../../tmuxy-ui/public/themes/cold-harbor.css"),
-    ),
-    (
         "dracula.css",
         include_str!("../../../tmuxy-ui/public/themes/dracula.css"),
     ),
@@ -144,19 +140,26 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
 /// The first line of every built-in theme file in the config dir: the file is
 /// the app's, refreshed on every launch like `tmuxy.defaults.conf`, so an edit
 /// to it is lost on the next start. A custom theme is a copy under a new name.
-const BUILT_IN_THEME_HEADER: &str =
+pub(super) const BUILT_IN_THEME_HEADER: &str =
     "/* Shipped by tmuxy and rewritten on every launch — copy this file to a new name to customize it. */\n";
 
 /// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and holds
-/// the bundled theme CSS files, each rewritten to this build's copy. Any
-/// other `*.css` there is the user's and is left alone. Returns the path to
-/// the themes directory.
+/// the bundled theme CSS files, each rewritten to this build's copy. Returns
+/// the path to the themes directory.
 pub fn ensure_themes() -> PathBuf {
     let themes_dir = config_dir().join("themes");
+    ensure_themes_in(&themes_dir);
+    themes_dir
+}
 
-    if let Err(e) = std::fs::create_dir_all(&themes_dir) {
+/// [`ensure_themes`] for a given directory. A built-in file this build no
+/// longer ships — one that still opens with [`BUILT_IN_THEME_HEADER`] — is
+/// removed, or the theme list (read from this directory) would offer a theme
+/// the app dropped. Any other `*.css` there is the user's and is left alone.
+pub(super) fn ensure_themes_in(themes_dir: &Path) {
+    if let Err(e) = std::fs::create_dir_all(themes_dir) {
         warn!(dir = ?themes_dir, error = %e, "could not create themes dir");
-        return themes_dir;
+        return;
     }
 
     for (name, content) in BUNDLED_THEMES {
@@ -166,7 +169,24 @@ pub fn ensure_themes() -> PathBuf {
         );
     }
 
-    themes_dir
+    let Ok(entries) = std::fs::read_dir(themes_dir) else {
+        return;
+    };
+    for path in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".css") || BUNDLED_THEMES.iter().any(|(n, _)| *n == name) {
+            continue;
+        }
+        let built_in =
+            std::fs::read_to_string(&path).is_ok_and(|css| css.starts_with(BUILT_IN_THEME_HEADER));
+        if built_in {
+            if let Err(e) = std::fs::remove_file(&path) {
+                warn!(?path, error = %e, "could not remove a retired built-in theme");
+            }
+        }
+    }
 }
 
 /// Whether `name` can be a theme's file stem or a `--css-variable` suffix:
