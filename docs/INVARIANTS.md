@@ -1,101 +1,149 @@
 # Invariants
 
-The claims one layer makes that another layer depends on, in one place, each with the test that holds it to the claim. The code's doc comments explain _how_ an invariant is kept; this file is the index of _what_ is promised across a seam and _whether anything checks it_.
-
-A row is here because a layer on the other side of a seam relies on it — the client on the server's stream, the monitor on the aggregator's effect order, tmux on what the router lets through. Local assertions stay in the code. If a claim only matters inside one function, it does not belong here.
-
-## How to read a row
+Cross-layer promises, in one place, each with the test that holds it. Doc comments explain _how_ an invariant is kept; this file indexes _what_ is promised across a seam and _whether anything checks it_. Module-local assertions stay in code.
 
 | Column | Meaning |
 | --- | --- |
-| `Id` | Stable name, prefixed by seam (table below). Cite it in commits and test titles; never renumber. |
-| `Kind` | `ordering` (A before B), `safety` (X never happens), `liveness` (Y always happens, or within a bound). The kind sets the bar for the enforcer: an ordering or liveness claim needs a property or an interleaving test, not one scripted run. |
-| `Stated in` | Where the code says it, so the mechanism is one hop away. |
-| `Enforced by` | The test that fails when the claim breaks, as `file › test title`. `(example)` marks a single scripted ordering standing in for an ordering/liveness claim — covered, but thinly. `—` means nothing checks it. |
+| `Id` | Stable name prefixed by seam. Cite in commits and test titles; never renumber. |
+| `Kind` | `ordering` (A before B), `safety` (X never happens), `liveness` (Y happens within a bound). Ordering/liveness want a property or interleaving test, not one scripted run. |
+| `Stated in` | Code defining the mechanism. |
+| `Enforced by` | `file › test title`. `(example)` marks a single scripted run standing in for a property; `—` means uncovered. |
 
 | Prefix | Seam |
 | --- | --- |
-| `A` | Control-mode events → `StateAggregator` → `SideEffect`s (sans-IO, Rust) |
-| `M` | `SideEffect`s → `TmuxMonitor` dispatch → tmux commands (Rust runtime) |
-| `X` | The tmux connection and the command router |
-| `S` | Server → client stream (SSE seq, ring buffer, first state) |
-| `C` | Client stream stage: sequencer, resync, per-frame coalescing (TypeScript) |
-| `Q` | Client command queue and keyboard batching |
+| `A` | Control-mode events → `StateAggregator` → `SideEffect`s (`tmuxy-core`, sans-IO) |
+| `M` | `SideEffect`s → `TmuxMonitor` dispatch → tmux commands (`tmuxy-core` runtime) |
+| `X` | Tmux connection and command router (`tmuxy-core`) |
+| `S` | Server → client stream: SSE seq, ring buffer, first state (`tmuxy-server`) |
+| `C` | Client stream stage: sequencer, resync, per-frame coalescing (`tmuxy-ui`) |
+| `Q` | Client command queue and keyboard batching (`tmuxy-ui`) |
 | `P` | Client model: predictions and reconcile (`TmuxClientModel`) |
-| `U` | UI-mode records that mirror tmux (copy mode, resize preview, scrollback) |
+| `U` | UI-mode records: copy mode, resize preview, scrollback, menus |
 | `R` | Read-only clients |
 | `L` | Session lifecycle: attach, restore, autosave |
 
-The rules that keep this file honest are in `AGENTS.md` (Testing & Bug Fixes): a bug-fix commit on a seam cites or adds a row, and a row's enforcer is a test title that exists.
+See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enforcer is a test title that exists.
 
 ## A — aggregator effects
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| A1 | Within one step the effects come in a fixed order: `AdoptUntaggedWindows`, then `StoreImages`/`WriteClipboard`, then `SendTmuxCommand`/`CommandReply`, then `RefreshAfterWindowAdd`, then `RefreshPanes`, then `ResumePane`, then `EmitState` last. | ordering | `packages/tmuxy-core/src/control_mode/state.rs` (`step_at`) | `packages/tmuxy-core/tests/state_aggregator_props.rs › effects_within_a_step_follow_the_documented_order` (property over output, clipboard writes, inline images, window adds and closes, focus changes, reply blocks, title changes, paste buffers and flow control on a seeded aggregator; `› the_seam_events_reach_every_effect_of_a1` proves those events reach every effect variant, so the property is not vacuous) |
-| A2 | A window add or close is re-listed before it is emitted: `RefreshAfterWindowAdd` precedes any `EmitState` in that step, for linked and unlinked adds and for closes alike. | ordering | `state.rs` (`SideEffect::RefreshAfterWindowAdd`, `step_at`) | `state_aggregator_props.rs › window_add_refresh_precedes_any_emit` (property, `WindowAdd` only); A1 covers the other event kinds |
-| A3 | A step that only tags windows is still promoted to a `Window` change, so an untagged window never waits for the next unrelated event to reach the client. | liveness | `state.rs` (`step_at`, auto-adopt) | — |
-| A4 | A capture response is routed to its pane by its marker, never by arrival order or output shape; a capture for a pane that is gone is discarded. | safety | `state.rs` (`queue_captures`, marker routing) | `state.rs › capture_routing_is_marker_exact_and_theft_proof`, `› capture_marker_survives_strftime_padding`, `› capture_for_dead_pane_is_discarded_and_released`, `› a_failed_capture_releases_its_pane_without_an_end_marker` (the shape tmux sends: an `%error`, and no END marker, since an error drops the rest of a `;` list); `state_aggregator_props.rs › queue_captures_is_idempotent_across_repeats` (property, de-duplication only) |
-| A5 | Output between reply markers never reaches the pane or window parsers; a mismatched END fails the older reply, and the newer reply never inherits the older one's output. | safety | `state.rs` (reply blocks) | `state.rs › a_query_between_markers_never_reaches_the_pane_parser`, `› a_mismatched_end_marker_fails_the_stale_reply`, `› non_list_panes_output_does_not_create_panes` |
-| A6 | A reply-wrapped command is three lines (BEGIN, the command, END) that run in send order, and the END block follows even after an `%error`. | ordering | `state.rs` (`reply_wrapped_lines`) | `state.rs › reply_markers_collect_the_blocks_between_them`, `› a_failed_block_fails_the_reply_and_still_closes_it`; `packages/tmuxy-core/tests/reply_channel.rs › replies_come_back_from_a_live_control_mode_connection` (real tmux) |
-| A7 | Settling emits at most one consolidated `EmitState` and always clears by the safety ceiling; with no events observed it clears silently. | liveness | `state.rs` (`arm_settling`, `tick`) | `state_aggregator_props.rs › settling_window_emits_at_most_once_and_clears`, `› settling_round_trips`, `› suppressed_window_events_do_not_emit_state` (properties); `state_aggregator_sideeffects.rs › tick_after_deadline_emits_and_clears_when_events_observed`, `› tick_safety_timeout_clears_silently_when_no_events` |
-| A8 | `change_type` is reported even when the emission is suppressed, so the monitor's settling timer sees window changes it must extend for. | liveness | `state.rs` (`step`, `step_at`) | `state_aggregator_sideeffects.rs › change_type_is_surfaced_even_when_emission_is_suppressed`, `› step_at_extends_settling_on_window_events_only`; `state_aggregator_props.rs › emit_state_change_matches_step_change` (property) |
-| A9 | A pane that moved windows has its `%output` held until its capture lands, and its old content is not kept; any other pane with a capture in flight keeps its content meanwhile. | safety | `state.rs` (window move, capture refill) | — |
-| A10 | A stray `%end`/`%error` without a `%begin` never produces a command response. | safety | `packages/tmuxy-core/src/control_mode/parser.rs` | `parser.rs › stray_end_without_begin_is_ignored`; `packages/tmuxy-core/tests/pane_bytes_props.rs › control_mode_parser_survives_arbitrary_lines`, `› control_mode_parser_survives_hostile_notifications` (properties, no-panic only) |
+| A1 | Step effect order: `AdoptUntaggedWindows` → `StoreImages`/`WriteClipboard` → `SendTmuxCommand`/`CommandReply` → `RefreshAfterWindowAdd` → `RefreshPanes` → `ResumePane` → `EmitState`. | ordering | `state.rs` (`step_at`) | `state_aggregator_props.rs › effects_within_a_step…`, `› the_seam_events_reach…` (property) |
+| A2 | Window add/close relists before emit: `RefreshAfterWindowAdd` precedes `EmitState`. | ordering | `state.rs` (`step_at`) | `state_aggregator_props.rs › window_add_refresh_precedes_any_emit` (property); A1 |
+| A3 | Tag-only steps promote to `Window` change so untagged windows emit immediately. | liveness | `state.rs` (`step_at`) | — |
+| A4 | Captures route by marker, never arrival order or shape; dead-pane captures are discarded. | safety | `state.rs` (`queue_captures`) | `state.rs › capture_routing…`, `› capture_marker…`, `› capture_for_dead_pane…`, `› a_failed_capture…`; `state_aggregator_props.rs › queue_captures…` (property) |
+| A5 | Output between reply markers skips pane/window parsers; mismatched END fails the older reply cleanly. | safety | `state.rs` (replies) | `state.rs › a_query_between_markers…`, `› a_mismatched_end_marker…`, `› non_list_panes_output…` |
+| A6 | Reply-wrapped commands send `BEGIN`, cmd, `END` in order; `END` runs even after `%error`. | ordering | `state.rs` (`reply_wrapped_lines`) | `state.rs › reply_markers_collect…`, `› a_failed_block_fails…`; `reply_channel.rs › replies_come_back…` (real tmux) |
+| A7 | Settling emits at most one `EmitState` and clears by safety ceiling (silently if idle). | liveness | `state.rs` (`arm_settling`, `tick`) | `state_aggregator_props.rs › settling_window…`, `› settling_round_trips`, `› suppressed_window…` (properties); `state_aggregator_sideeffects.rs › tick_after_deadline…`, `› tick_safety_timeout…` |
+| A8 | `change_type` surfaces during suppressed emissions so settling timers extend on window changes. | liveness | `state.rs` (`step_at`) | `state_aggregator_sideeffects.rs › change_type_is_surfaced…`, `› step_at_extends…`; `state_aggregator_props.rs › emit_state_change…` (property) |
+| A9 | Moved panes hold `%output` until capture lands and drop old content; others keep content during capture. | safety | `state.rs` (refill) | — |
+| A10 | Stray `%end`/`%error` without `%begin` never produces a command response. | safety | `parser.rs` | `parser.rs › stray_end_without_begin_is_ignored`; `pane_bytes_props.rs › …arbitrary_lines`, `› …hostile_notifications` (properties) |
 
 ## M — monitor dispatch
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| M1 | The monitor dispatches a step's effects in the order the aggregator returned them, one to one. | ordering | `packages/tmuxy-core/src/control_mode/monitor.rs` (effect dispatch) | `monitor.rs › a_step_sends_its_effects_commands_in_effect_order` (a scripted link and a recording emitter write one log: the wire order of a window add, a reply block, an inline image, an OSC 52 write, a pane refresh, a flow pause, a paste-buffer read and its clipboard write, and a window close — every `SideEffect` variant, the ones that reach the emitter placed against the ones that reach tmux — with each step's exact shape asserted; reversing the dispatch fails it); the effect order itself is A1's property, and the dispatch is a single scripted run |
-| M2 | After a window add or close, and on initial sync, `list-panes` is sent before `list-windows` (the stash list last), so a window is never emitted with its panes missing. The native monitor and the wasm host both send `window_relist_commands`. | ordering | `state.rs` (`window_relist_commands`), `monitor.rs` (`refresh_after_window_add`, initial sync) | `packages/tmuxy-core/tests/monitor_command_order.rs › a_window_relist_sends_panes_before_windows_and_the_stash_last` |
-| M3 | `RefreshPanes` sends `list-panes` before the per-pane `capture-pane`s, so a capture uses a fresh cursor position. | ordering | `state.rs` (`pane_refresh_commands`, `SideEffect::RefreshPanes`), `monitor.rs` | `monitor_command_order.rs › a_pane_refresh_lists_panes_before_every_capture` (property) |
-| M4 | A window is told to stop sizing itself (`window-size manual`, `aggressive-resize off`) immediately before it is sized, and the first `resizew` of a connection comes after that, so SIGWINCH redraws never race the capture responses. | ordering | `monitor.rs` (client-size pass) | `monitor.rs › a_window_is_told_to_stop_sizing_itself_before_it_is_sized` (example) |
-| M5 | The client-size pass runs after the step's own effects, never ahead of its `EmitState`. | ordering | `monitor.rs` (run loop) | — |
-| M6 | A `GetState` request is answered only once panes and windows are synced and no capture is in flight, and only after the current event's refreshes are queued; a waiting client gives up after 15 s. The first state a client receives reflects the last resize it sent, waiting up to 750 ms for it. | liveness | `monitor.rs` (`GetState`), `packages/tmuxy-core/src/transport.rs`, `packages/tmuxy-server/src/sse.rs` | `sse.rs › a_clients_first_state_is_not_the_grid_from_before_its_resize`, `› a_first_state_waits_for_a_resize_an_earlier_call_sent`, `› a_client_that_sets_no_size_waits_for_nothing`; `packages/tmuxy-core/tests/initial_state.rs`, `initial_state_history.rs` (real tmux) |
-| M7 | Every reply resolves within `REPLY_TIMEOUT`, or at once when its send failed. | liveness | `monitor.rs` (`pending_replies`) | `reply_channel.rs` (success and error paths only; the timeout path is —) |
-| M8 | Reply ids are monotonic for the monitor's life, so a late block from an expired reply never matches a newer one. | safety | `monitor.rs` (reply id counter) | — |
-| M9 | A `%session-changed` for another session is filtered before the aggregator sees it. | safety | `monitor.rs` (event filter) | — |
-| M10 | A resize is judged by tmux's report: at most three retries per size, each only after a new report, and a new size restarts the count. A size that reached no monitor is asked for again. | liveness | `monitor.rs` (resize attempts), `sse.rs` | `monitor.rs › a_window_tmux_did_not_resize_is_asked_again`, `› a_window_is_not_asked_again_until_tmux_has_reported_since`, `› a_size_tmux_keeps_refusing_stops_being_asked`, `› a_new_size_starts_its_own_attempts`, `› a_window_with_no_panes_yet_is_still_asked`; `sse.rs › a_size_that_reached_no_monitor_is_asked_for_again` |
-| M11 | UI choices are re-applied after `source-file` (the UI wins), and the enforced settings after both. | ordering | `monitor.rs` (connect sequence) | `packages/tmuxy-core/tests/enforced_settings.rs › connecting_enforces_the_settings_the_layout_depends_on` (final values only; the order is —) |
+| M1 | Monitor dispatches step effects one-to-one in exact aggregator order. | ordering | `monitor.rs` | `monitor.rs › a_step_sends_its_effects_commands_in_effect_order` (example; order is A1) |
+| M2 | Window add/close and initial sync send `list-panes` before `list-windows` (stash last) in monitor and wasm. | ordering | `state.rs`, `monitor.rs` | `monitor_command_order.rs › a_window_relist_sends_panes_before_windows…` |
+| M3 | `RefreshPanes` sends `list-panes` before per-pane `capture-pane`s for fresh cursor positions. | ordering | `state.rs`, `monitor.rs` | `monitor_command_order.rs › a_pane_refresh_lists_panes_before_every_capture` (property) |
+| M4 | Windows set `window-size manual` and `aggressive-resize off` before first `resizew` so SIGWINCH never races captures. | ordering | `monitor.rs` | `monitor.rs › a_window_is_told_to_stop_sizing_itself_before_it_is_sized` (example) |
+| M5 | Client-size pass runs after the step's own effects, never ahead of `EmitState`. | ordering | `monitor.rs` | — |
+| M6 | `GetState` waits for sync, captures, and queued refreshes (15 s cap); first state awaits resize up to 750 ms. | liveness | `monitor.rs`, `transport.rs`, `sse.rs` | `sse.rs › a_clients_first_state…`, `› a_first_state_waits…`, `› a_client_that_sets_no_size…`; `initial_state.rs`, `initial_state_history.rs` (real tmux) |
+| M7 | Every reply resolves within `REPLY_TIMEOUT`, or immediately on send failure. | liveness | `monitor.rs` | `reply_channel.rs` (success/error; timeout is —) |
+| M8 | Reply ids are monotonic so expired reply blocks never match newer ones. | safety | `monitor.rs` | — |
+| M9 | `%session-changed` for another session is filtered before reaching the aggregator. | safety | `monitor.rs` | — |
+| M10 | Resizes retry <=3 times per size after new tmux reports; new sizes reset count; unmonitored sizes re-request. | liveness | `monitor.rs`, `sse.rs` | `monitor.rs › a_window_tmux_did_not_resize…`, `› …not_asked_again…`, `› a_size_tmux_keeps_refusing…`, `› a_new_size_starts…`, `› a_window_with_no_panes…`; `sse.rs › a_size_that_reached_no_monitor…` |
+| M11 | UI choices re-apply after `source-file` (UI wins), and enforced settings after both. | ordering | `monitor.rs` | `enforced_settings.rs › connecting_enforces_the_settings…` (final values; order is —) |
 
 ## X — the tmux connection and the router
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| X1 | A client command reaches control mode byte-identical: no target is added (a pin holds), `resize-window` is refused, and `new-window` is rewritten to `splitw ; breakp` keeping its pin. | safety | `packages/tmuxy-core/src/command_router.rs` | `command_router.rs › a_pinned_list_reaches_tmux_untouched`, `› resize_window_is_refused_wherever_it_sits_in_the_list`, `› new_window_is_rewritten_and_keeps_its_pin`; `packages/tmuxy-core/tests/pinned_split_race.rs › a_pinned_split_survives_a_concurrent_select_window` (real tmux) |
-| X2 | No tmux command runs as a subprocess while control mode is attached; every client command, read or write, goes through the control-mode connection (`docs/TMUX.md`). | safety | `command_router.rs`, `docs/TMUX.md` | `tests/cli/` (every call carries the socket flag); the ESLint ban on `tmuxExec` in E2E interaction helpers (`docs/TESTS.md`) |
-| X3 | The control-mode client is never killed with SIGKILL; it detaches and is given 3 s. | safety | `packages/tmuxy-core/src/control_mode/connection.rs` | — |
-| X4 | Attach and create are serialized by one lock and done in one command (`new-session -A`); the attach path never creates a session. | safety | `connection.rs` | `connection.rs › creating_a_session_attaches_in_the_same_command`, `› attaching_never_creates_a_session` (the lock is —) |
+| X1 | Client commands keep pins intact, refuse `resize-window`, and rewrite `new-window` to `splitw ; breakp`. | safety | `command_router.rs` | `command_router.rs › a_pinned_list…`, `› resize_window_is_refused…`, `› new_window_is_rewritten…`; `pinned_split_race.rs › a_pinned_split_survives…` (real tmux) |
+| X2 | No tmux subprocess runs while control mode is attached; all reads/writes use control mode (`docs/TMUX.md`). | safety | `command_router.rs`, `docs/TMUX.md` | `tests/cli/` (socket flag); ESLint ban on `tmuxExec` in E2E (`docs/TESTS.md`) |
+| X3 | Control-mode client is never killed with SIGKILL; it detaches with a 3 s grace period. | safety | `connection.rs` | — |
+| X4 | Attach and create serialize under one lock via `new-session -A`; attach never creates a session. | safety | `connection.rs` | `connection.rs › creating_a_session_attaches…`, `› attaching_never_creates_a_session` (lock is —) |
 
 ## S — server stream
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| S1 | Per session, broadcast seqs count up from 1 and the ring buffer holds them in order, however many tasks broadcast at once; 0 is the seq of nothing. | ordering | `packages/tmuxy-server/src/state.rs` (`SessionBroadcast::broadcast`) | `state.rs › seqs_are_monotonic_from_one`, `› concurrent_broadcasters_keep_the_ring_in_order` (a stress run: threads released together, repeated; the old split-lock interleaving is likely, not certain, to show), `› replay_since_returns_strictly_newer`, `› ring_buffer_drops_oldest_at_capacity` |
-| S2 | A client never sees a duplicate, and never a gap the ring could have filled: a replay on connect happens only when the ring still holds `Last-Event-Id + 1`, a lagged subscriber is replayed everything the ring still holds above what it already got, and anything at or below the last replayed seq is dropped. A lag deeper than the ring leaves one gap, below the ring's oldest entry, which the client's sequencer sees as a jump in delta seqs (it never reads the SSE ids) and answers with a refetch (C1); a lag that drops only other events is seen by nothing. The ring is exactly the channel's capacity, so a lag never drops an event the channel still held. | safety | `packages/tmuxy-server/src/sse.rs` (stream handler) | `sse.rs › the_first_broadcast_reaches_a_client_that_subscribed_before_it` (drives the handler), `› a_lagged_stream_is_served_the_ring_tail_once_in_order` (drives the handler with a stream nobody reads while the session outruns the ring), `› a_client_that_stops_reading_gets_the_ring_tail_once_with_the_gap_below_it` (the loop's arithmetic: the one gap is exactly at the ring's edge), `› a_client_beyond_the_buffer_is_not_resumed_from_it` |
-| S3 | A client reconnecting from beyond the ring is served no replay at all; the first live delta is then a gap its sequencer refetches on (C1). A partial replay on connect would leave it believing it had caught up. | safety | `sse.rs` (replay decision) | `sse.rs › a_client_beyond_the_buffer_is_not_resumed_from_it` (`can_replay_from` only; the handler's connect path is —) |
-| S4 | A stream ends on shutdown, and the last client leaving keeps the monitor alive for a 2 s grace period. | liveness | `sse.rs` | `sse.rs › open_stream_ends_when_the_server_shuts_down`, `› the_last_client_leaving_keeps_the_monitor_through_the_grace_period` |
-| S5 | The monitor's reconnect gives up after five short runs and broadcasts a fatal, so a client is never left retrying forever. | liveness | `sse.rs` (monitor supervision) | — |
+| S1 | Per-session broadcast seqs count from 1 (0 = empty) and the ring preserves concurrent broadcast order. | ordering | `tmuxy-server/src/state.rs` | `state.rs › seqs_are_monotonic…`, `› concurrent_broadcasters_keep…`, `› replay_since_returns…`, `› ring_buffer_drops_oldest…` |
+| S2 | No duplicates or fillable gaps: connect replays from `Last-Event-Id + 1`; lag replays ring tail (dropping `<= last_replayed`) or leaves one edge gap for C1. | safety | `sse.rs` | `sse.rs › the_first_broadcast…`, `› a_lagged_stream…`, `› a_client_that_stops_reading…`, `› a_client_beyond_the_buffer…` |
+| S3 | Reconnecting beyond the ring serves no replay so the first live delta triggers a gap refetch (C1). | safety | `sse.rs` | `sse.rs › a_client_beyond_the_buffer…` (`can_replay_from`; connect path is —) |
+| S4 | Streams end on shutdown; the last client leaving keeps the monitor for a 2 s grace period. | liveness | `sse.rs` | `sse.rs › open_stream_ends…`, `› the_last_client_leaving_keeps…` |
+| S5 | Monitor reconnect gives up after 5 short runs and broadcasts fatal so clients stop retrying. | liveness | `sse.rs` | — |
 
-See [INVARIANTS-CLIENT.md](INVARIANTS-CLIENT.md) for these sections: C — client stream stage; Q — command queue and input; P — client model; U — UI-mode records; R — read-only clients.
+## C — client stream stage
+
+| Id | Invariant | Kind | Stated in | Enforced by |
+| --- | --- | --- | --- | --- |
+| C1 | Deltas apply only to their base state; missing, misordered, repeated or undecodable deltas drop and refetch full state. | safety | `stateSequencer.ts`, `stateFeed.ts`, `deltaProtocol.ts` | `stateSequencer.test.ts › asks for a resync…`, `› treats a payload…`; `stateFeed.test.ts › a payload…`; `deltaProtocol.test.ts`; `HttpAdapter.test.ts › a state update…` |
+| C2 | Pre-full-state deltas are ignored; full states/answers carry `seq` so a delta lost after sync triggers a gap. | safety | `stateSequencer.ts`, `deltaProtocol.ts` | `stateSequencer.test.ts › ignores a delta…`, `› a delta lost…`; `stateFeed.props.test.ts › never paints backwards…` (property); `deltaProtocol.test.ts › no gap…` |
+| C3 | At most one refetch runs in flight; arriving deltas are boundedly held, and failed refetches retry on next delta. | safety | `stateFeed.ts`, `stateSequencer.ts` | `stateFeed.props.test.ts › never paints backwards…` (property); `stateFeed.test.ts › a gap refetches…`; `stateSequencer.test.ts › the deltas…` |
+| C4 | Post-refetch publish merges the answer, held deltas `> seq`, and queued deltas monotonically; held gaps refetch. | ordering | `stateFeed.ts`, `stateSequencer.ts` | `stateFeed.props.test.ts › never paints backwards…` (property) |
+| C5 | Once synced, initial-state answers only fill empty panes; before sync or after a gap, they set starting state. | ordering | `deltaProtocol.ts`, `stateSequencer.ts` | `HttpAdapter.test.ts › an initial-state answer…`, `› …does not take back…`, `› after a gap…`; `stateSequencer.test.ts › after a gap…`; `stateFeed.props.test.ts › never paints backwards…` (property) |
+| C6 | New connections or session switches reset sequencing so old delta seqs never gate new streams. | safety | `HttpAdapter.ts`, `TauriAdapter.ts` | — |
+| C7 | Transport publishes events in arrival order (including pre-`connect` subscribers); web frame-hold never reorders state ahead of earlier events. | ordering | `TmuxTransport.ts`, `events.ts`, `stateFeed.ts` | `TmuxTransport.test.ts › publishes what the driver pushes…`; `stateFeed.test.ts › publishes a full state…` (examples; per-frame hold is —) |
+| C8 | States coalesce to one per frame (latest wins); older states never paint after newer ones. | ordering | `stateFeed.ts` | — |
+| C9 | Each pane id appears at most once in client state, and a delta removes exactly the panes it nulls. | safety | `deltaProtocol.ts` | `deltaProtocol.props.test.ts` (property) |
+| C10 | Dropped/silent streams retry with backoff, online/visibility/Retry reconnect immediately, refused streams stop, and `EventSource` is singleton. | liveness | `HttpAdapter.ts` | `HttpAdapter.test.ts › keeps retrying…`, `› ten drops…`, `› a pinged stream…`, `› a stream the server refuses…`, `› dedupes concurrent…`; `tests/4-session-connectivity.test.js › six drops…` [nightly] |
+
+## Q — command queue and input
+
+| Id | Invariant | Kind | Stated in | Enforced by |
+| --- | --- | --- | --- | --- |
+| Q1 | Mutations serialize in issue order so splits never land in a tab a queued `select-window` is leaving. | ordering | `HttpAdapter.ts`, `TauriAdapter.ts` | `HttpAdapter.test.ts › runs run_tmux_command…` (example; Tauri is —); `tests/4-session-connectivity.test.js › 2 panes → reload…` |
+| Q2 | Keystroke batches share the mutation queue and non-`send-keys` flush pending batches first. | ordering | `TauriAdapter.ts`, `HttpAdapter.ts`, `keyBatching.ts` | `keyBatching.test.ts › flushAll drains…` (batcher only; mutation interleaving is —) |
+| Q3 | Lone keystrokes send on leading edge; literal/special order holds; hex-byte sends (`-H`) never batch. | ordering | `keyBatching.ts` | `keyBatching.test.ts › sends an isolated…`, `› preserves literal→special…`, `› preserves special→literal…`, `› never intercepts…`; `tests/1-input-interaction.test.js › Type → backspace…` |
+| Q4 | Client reads (`query_tmux`) run unserialized; order vs. mutations holds in-band on control mode (A6). | ordering | `HttpAdapter.ts`, `docs/DATA-FLOW.md` | — |
+
+## P — client model
+
+| Id | Invariant | Kind | Stated in | Enforced by |
+| --- | --- | --- | --- | --- |
+| P1 | Placeholder (predicted) pane or window ids are never sent to tmux as targets. | safety | `commands.ts` | `dispatch.test.ts › leaves the target to tmux…`, `› once tmux has confirmed them…` |
+| P2 | Ops mark in-flight before send and always settle: unacked sweeps at `OP_STALE_TIMEOUT_MS`, acked at `OP_ACKED_STALE_TIMEOUT_MS`, errors roll back. | liveness | `TmuxStore.ts`, `model.ts`, `types.ts` | `model.test.ts › stale ops…`, `› in-flight ops…`; `TmuxStore.test.ts › dispatch rolls back…`, `› TransportError…` |
+| P3 | Pending ops re-reconcile on a timer so time-based verdicts fire on an idle stream. | liveness | `TmuxStore.ts` | — |
+| P4 | Confirmed focus ops linger (`FOCUS_CONFIRM_LINGER_MS`), yield to a 3rd pane after `FOCUS_SUPERSEDE_GRACE_MS`, drop on newer focus, and skip dead panes. | ordering | `ops.ts`, `model.ts` | `ops.test.ts › holds a confirmed…`, `› holds through stale…`, `› holds briefly…` (examples; `dropSupersededFocusOps` is —); `tests/2-layout-navigation.test.js › Clicking an inactive tab…` [nightly] |
+| P5 | In-flight splits never claim the same pane id within a reconcile pass. | safety | `ops.ts` (`reconcile`) | — |
+| P6 | `NewWindow` placeholders match only tab windows with a pane; the patch hides unmatched newborns. | safety | `windowOps.ts` | `ops.test.ts › stays pending until…`, `› patch hides a tab-typed-but-paneless…` |
+| P7 | Session switch clears pending ops and committed state before the new session's first state. | ordering | `tmuxStoreActor.ts`, `appMachine.ts` | `workflows.test.ts › TmuxStore — clear…` (store only; order vs. first state is —) |
+| P8 | `MoveWindow` predicts dropped strip order immediately and holds until server places the window beside its anchor. | ordering | `windowOps.ts`, `tabOverview.ts` | `ops.test.ts › MoveWindow predict…`; `tests/2-layout-navigation.test.js › a tab dragged along the strip…` |
+
+## U — UI-mode records
+
+| Id | Invariant | Kind | Stated in | Enforced by |
+| --- | --- | --- | --- | --- |
+| U1 | At most one copy-mode record per pane; exit closes only if seen in mode, cooldown ignores stale `in_mode`, and viewers never auto-enter. | ordering | `copyMode.ts`, `docs/COPY-MODE.md` | `reconcilePaneMode.test.ts › a snapshot…`, `› is ignored…`, `› never happens…`; `copyMode.test.ts › the end of a blink…` (examples) |
+| U2 | Resize preview holds for two matching quiet updates or a 2 s fallback that never clobbers newer resizes. | liveness | `appMachine.ts`, `layout.ts` | `layout.test.ts › the 2s RESIZE_COMPLETED…`, `› …does not clobber…` (two-quiet-updates hold is —) |
+| U3 | Only the latest scrollback fetch per pane applies; different panes fetch concurrently without cancelling. | ordering | `tmuxActor.ts` | `tmuxActor.test.ts › interrupts the previous fetch…`, `› different paneId fetches…` |
+| U4 | Group switch holds swap over stale snapshots, drops if a pane dies, and never selects parked/stash panes. | safety | `appMachine.ts`, `windowOps.ts` | `tests/7-regression-bugs.test.js › Clicking three pane-group tabs…` [nightly] (E2E only) |
+| U5 | Every menu renders a `domain/menus/` spec and dispatches via `executeMenuAction` or machine events. | safety | `domain/menus/`, `SpecMenu.tsx`, `nativeMenu.ts` | `specs.test.ts`; `menuActions.test.ts › sends the op of every op-backed item…` |
+
+## R — read-only clients
+
+| Id | Invariant | Kind | Stated in | Enforced by |
+| --- | --- | --- | --- | --- |
+| R1 | Read-only clients allow only read commands, cancel mutations, and never send a viewport. | safety | `readOnly.ts`, `HttpAdapter.ts`, `stateFeed.ts` | `HttpAdapter.test.ts › a read-only server…`; `tests/10-read-only.test.js › viewer follows output…`, `› a viewer cannot reach…` |
+| R2 | Read-only store predicts only local focus, and `notReadOnly` drops mutating events before side effects. | safety | `TmuxStore.ts`, `readOnlyGuard.ts`, `tmuxActor.ts` | `TmuxStore.test.ts › refuses anything…`, `› a tab switch…`, `› pane focus is kept…`; guard is E2E only (`tests/10-read-only.test.js`) |
 
 ## L — session lifecycle
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| L1 | A snapshot restore runs after attach and after the initial sync, and holds the autosave keeper from before it is spawned, so the placeholder window is never saved and a running session is never restored over. | ordering | `packages/tmuxy-core/src/transport.rs`, `packages/tmuxy-core/src/session_snapshot.rs` | `session_snapshot.rs › a_restore_in_flight_holds_the_autosave_and_its_end_asks_for_one`; `transport.rs › a_running_session_is_not_restored_over` |
-| L2 | A restore plan never uses `new-window`; panes are split in index order, each layout is applied after its splits, and focus is restored last. | ordering | `session_snapshot.rs` (restore plan) | `session_snapshot.rs › a_restore_never_uses_new_window_and_applies_each_layout_after_its_splits`, `› focus_is_restored_last`, `› a_reordered_group_is_restored_in_its_order`; `tests/15-session-snapshot.test.js › the shape survives kill-server…` [nightly] |
-| L3 | A new session is never created through a connection that is about to close. | safety | `appMachine.ts` (session create), `HttpAdapter.ts` | regression example only (`tests/4-session-connectivity.test.js`) |
-| L4 | A disconnect while still connecting ends in `disconnected`, never in a spinner that nothing clears. | liveness | `appMachine.ts` (`connecting`) | `machines/app/__tests__/disconnected.test.ts › ends a connection that never completed`, `› ends a reconnection the backend gave up on` |
+| L1 | Snapshot restore runs after attach/sync and holds autosave from before spawn so placeholders aren't saved and live sessions aren't overwritten. | ordering | `transport.rs`, `session_snapshot.rs` | `session_snapshot.rs › a_restore_in_flight…`; `transport.rs › a_running_session_is_not_restored_over` |
+| L2 | Restore plans avoid `new-window`, split panes in index order, apply layouts after splits, and restore focus last. | ordering | `session_snapshot.rs` | `session_snapshot.rs › a_restore_never_uses…`, `› focus_is_restored_last`, `› a_reordered_group…`; `tests/15-session-snapshot.test.js › the shape survives…` [nightly] |
+| L3 | New sessions are never created on a closing connection. | safety | `appMachine.ts`, `HttpAdapter.ts` | `tests/4-session-connectivity.test.js` (regression example) |
+| L4 | Disconnect during `connecting` transitions to `disconnected`, never a stuck spinner. | liveness | `appMachine.ts` (`connecting`) | `disconnected.test.ts › ends a connection…`, `› ends a reconnection…` |
 
 ## What the ledger says today
 
-Read off the `Enforced by` column (a reader adding a row keeps this list current): A3, A9, M5, M8, M9, X3, S5, C6, C8, Q4, P3 and P5 have no enforcer at all; M7, M11, X4, S3, C7, Q1, Q2, P4, P7 and U2 have one for part of the claim and a `—` for the rest (the timeout path in M7, the order in M11 and P7, the lock in X4, the handler's connect path in S3, the per-frame hold in C7, the Tauri queue in Q1, the interleaving with a mutation in Q2, the superseded focus ops in P4, the two-quiet-updates hold in U2); and M4, Q1 and U1 are pinned by scripted examples rather than a property. The rows with the worst bug history — C3, C4 and C5, the initial-state answer against the stream, fixed twice — now have a property that drives every interleaving of lost emissions, stale answers and failed refetches; writing it and S2's handler test found two bugs the examples had passed over (a first broadcast every fresh subscriber dropped, and a ring two broadcasters could write out of order). The remaining `—` rows are where the next property pays for itself.
+- **Uncovered (`—`)**: A3, A9, M5, M8, M9, X3, S5, C6, C8, Q4, P3, P5.
+- **Partial**: M7 (timeout), M11 (order), X4 (lock), S3 (connect), C7 (frame hold), Q1 (Tauri), Q2 (interleaving), P4 (`dropSupersededFocusOps`), P7 (first-state order), U2 (2-update hold).
+- **Example only**: M1, M4, Q1, U1.
+- **Property**: C3–C5 (`stateFeed.props.test.ts`) and S2 (`sse.rs`).
 
 ## Related
 
-- `docs/STATE-MANAGEMENT.md` — the aggregator, the monitor, and the client model the rows describe
-- `docs/DATA-FLOW.md` — the stream the `S` and `C` rows are about
-- `docs/TESTS.md` — the layers an enforcer can live in, and the bug-fix tagging rule
-- `docs/TMUX.md` — the control-mode constraints behind `X1` and `X2`
+- `docs/STATE-MANAGEMENT.md`, `docs/DATA-FLOW.md`, `docs/TESTS.md`, `docs/TMUX.md`
