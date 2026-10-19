@@ -202,6 +202,7 @@ async function killWindowKeyboard(page) {
 }
 
 module.exports = {
+  activeWindowId,
   createWindowKeyboard,
   pressUntilWindowChanged,
   nextWindowKeyboard,

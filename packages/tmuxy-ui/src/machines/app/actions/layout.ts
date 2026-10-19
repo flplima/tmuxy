@@ -27,6 +27,7 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import type { PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
+import { scrollViewsIn } from '../helpers';
 
 // Fallback for clearing the optimistic resize preview if the server-confirmed
 // TMUX_STATE_UPDATE never arrives. Scheduled as a delayed self-event by id and
@@ -135,6 +136,10 @@ export const layoutActions = {
         lastActivePaneByWindow,
       }),
     );
+    // The tab left behind keeps no scroll view open (see closeScrollViewsIn).
+    for (const paneId of scrollViewsIn(context, context.activeWindowId)) {
+      enqueue.raise({ type: 'EXIT_SCROLL_MODE', paneId });
+    }
 
     // Through the STORE: the SelectWindow op's patch + confirm-linger hold
     // the optimistic tab selection over stale snapshots for seconds (the

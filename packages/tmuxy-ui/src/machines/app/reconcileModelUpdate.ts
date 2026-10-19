@@ -13,6 +13,7 @@ import { isBoxPermutation, samePanes } from './layoutChange';
 import {
   buildGroupsFromPanes,
   buildFloatPanesFromWindows,
+  closeScrollViewsIn,
   gridExtent,
   keepLivePanes,
 } from './helpers';
@@ -192,6 +193,13 @@ export const reconcileModelActions = {
     }
 
     updatedCopyModeStates = keepLivePanes(updatedCopyModeStates, currentPaneIdSet);
+    if (context.activeWindowId && transformed.activeWindowId !== context.activeWindowId) {
+      updatedCopyModeStates = closeScrollViewsIn(
+        updatedCopyModeStates,
+        transformed.panes,
+        context.activeWindowId,
+      );
+    }
 
     const hasDimensionChange =
       !context.resizeActive &&

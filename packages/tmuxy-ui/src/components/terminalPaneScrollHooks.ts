@@ -108,6 +108,37 @@ export function useTerminalPaneScroll({
     }
   });
 
+  // A tab the user is not on stays mounted but `display: none`, and a scroll
+  // container with no box loses its offset. Shown again, it sat at the top of
+  // the spacer while the scrollback view rendered only the rows around its own
+  // `scrollTop` — a blank pane — and the first wheel step, read from row 0,
+  // threw the view to the start of history. The sync above cannot see this:
+  // the state's `scrollTop` never changed. Coming back on screen is a resize
+  // from nothing, so the offset is put back then.
+  const latestRef = useRef({ copyState, charHeight });
+  latestRef.current = { copyState, charHeight };
+  const observedRef = useRef<{ el: HTMLElement; observer: ResizeObserver } | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (observedRef.current?.el === el) return;
+    observedRef.current?.observer.disconnect();
+    observedRef.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let hidden = el.clientHeight === 0;
+    const observer = new ResizeObserver(() => {
+      const wasHidden = hidden;
+      hidden = el.clientHeight === 0;
+      if (!wasHidden || hidden) return;
+      const { copyState: state, charHeight: rowHeight } = latestRef.current;
+      suppressScrollRef.current = true;
+      el.scrollTop = state ? state.scrollTop * rowHeight : el.scrollHeight;
+      suppressScrollRef.current = false;
+    });
+    observer.observe(el);
+    observedRef.current = { el, observer };
+  });
+  useEffect(() => () => observedRef.current?.observer.disconnect(), []);
+
   return { scrollIndicatorRef, handleContainerScroll };
 }
 

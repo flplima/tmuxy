@@ -85,6 +85,47 @@ export function keepLivePanes<V>(
 }
 
 /**
+ * The scrollback records with every scroll view on tab `windowId` closed.
+ *
+ * A scroll view is the client's own: tmux knows nothing of it, and it hides
+ * the pane's live screen behind old history. Left open on a tab the user
+ * switched away from, it held that pane on whatever they had scrolled to
+ * while its program went on printing, and the tab came back to it. Copy mode
+ * stays: the pane really is in it, and leaving is tmux's business.
+ *
+ * Applied wherever the current tab changes: a tab picked in this client
+ * (`SELECT_TAB`, which switches before tmux answers, closes them with
+ * `EXIT_SCROLL_MODE`) and a switch the model update reports.
+ */
+export function closeScrollViewsIn(
+  states: Ctx['copyModeStates'],
+  panes: ReadonlyArray<{ tmuxId: PaneId; windowId: WindowId | null }>,
+  windowId: WindowId | null,
+): Ctx['copyModeStates'] {
+  const closing = scrollViewsIn({ copyModeStates: states, panes }, windowId);
+  if (closing.length === 0) return states;
+  const next = { ...states };
+  for (const paneId of closing) delete next[paneId];
+  return next;
+}
+
+/** The panes on tab `windowId` with a scroll view open. */
+export function scrollViewsIn(
+  context: {
+    copyModeStates: Ctx['copyModeStates'];
+    panes: ReadonlyArray<{ tmuxId: PaneId; windowId: WindowId | null }>;
+  },
+  windowId: WindowId | null,
+): PaneId[] {
+  return context.panes
+    .filter(
+      (pane) =>
+        pane.windowId === windowId && context.copyModeStates[pane.tmuxId]?.mode === 'scroll',
+    )
+    .map((pane) => pane.tmuxId);
+}
+
+/**
  * Build pane groups from panes.
  *
  * Group membership is intrinsic to each pane via `@tmuxy-group-id` (e.g. `g5`) —

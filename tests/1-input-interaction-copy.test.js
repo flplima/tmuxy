@@ -12,6 +12,8 @@ const {
   waitForCopyMode,
   waitForTmuxOutOfMode,
   enterCopyModeAndWait,
+  createWindowKeyboard,
+  activeWindowId,
 } = require('./helpers');
 
 /**
@@ -263,6 +265,191 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     await runCommand(ctx.page, 'echo COPY_EXIT', 'COPY_EXIT');
     await assertContentMatch(ctx.page, 'Scenario 9 end');
   }, 180000);
+});
+
+// ==================== Scenario 9b: Copy Mode Across a Tab Switch ====================
+
+/**
+ * What the active pane's scrollback container shows: its offset in rows, and
+ * the text of the row drawn at its middle (empty when nothing is drawn there).
+ */
+function scrollbackOnScreen(page) {
+  return page.evaluate(() => {
+    const { activePaneId, charHeight } = window.app.getSnapshot().context;
+    const el = document.querySelector(
+      `.pane-wrapper[data-pane-id="${activePaneId}"] .pane-scroll-container`,
+    );
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      row: Math.round(el.scrollTop / charHeight),
+      height: r.height,
+      text: hit?.closest('.terminal-line')?.textContent?.trim() ?? '',
+    };
+  });
+}
+
+describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('a pane in copy mode comes back from another tab drawn where it was, and the wheel moves on from there', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // A second tab to go to, then back to the first with history behind it.
+    const first = await activeWindowId(ctx.page);
+    await createWindowKeyboard(ctx.page);
+    const second = await activeWindowId(ctx.page);
+    await ctx.page.click(`.tab-name[data-window-id="${first}"]`);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activeWindowId(ctx.page)) === first,
+      10000,
+      'the first tab to be current again',
+    );
+    await runCommand(ctx.page, 'seq 1 600', '600');
+
+    // Copy mode, a few half-pages up into the history.
+    await focusPage(ctx.page);
+    const entry = await enterCopyModeAndWait(ctx.page);
+    for (let i = 0; i < 4; i++) {
+      await ctx.page.keyboard.down('Control');
+      await ctx.page.keyboard.press('u');
+      await ctx.page.keyboard.up('Control');
+    }
+    const scrolled = await copyStateWhere(
+      ctx.page,
+      (s) => s.scrollTop < entry.scrollTop - 20 && !s.loading,
+      'four Ctrl+u to scroll the copy-mode view up',
+    );
+    let shown = null;
+    await waitForCondition(
+      ctx.page,
+      async () => !!(shown = await scrollbackOnScreen(ctx.page)) && /^\d+$/.test(shown.text),
+      10000,
+      () => `history rows drawn in the scrolled view (${JSON.stringify(shown)})`,
+    );
+
+    // Away and back. The pane was display:none in between.
+    await ctx.page.click(`.tab-name[data-window-id="${second}"]`);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activeWindowId(ctx.page)) === second,
+      10000,
+      'the second tab to be current',
+    );
+    await ctx.page.click(`.tab-name[data-window-id="${first}"]`);
+    await waitForCondition(
+      ctx.page,
+      async () => (await activeWindowId(ctx.page)) === first,
+      10000,
+      'the first tab to be current again',
+    );
+
+    // Still in copy mode, at the same row, with that row's text on screen —
+    // not an empty spacer at the top of the history.
+    const back = await copyStateWhere(ctx.page, (s) => s.mode === 'copy', 'copy mode to survive');
+    expect(back.scrollTop).toBe(scrolled.scrollTop);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        !!(shown = await scrollbackOnScreen(ctx.page)) &&
+        shown.height > 0 &&
+        Math.abs(shown.row - scrolled.scrollTop) <= 1 &&
+        /^\d+$/.test(shown.text),
+      10000,
+      () => `the view drawn at row ${scrolled.scrollTop} again (${JSON.stringify(shown)})`,
+    );
+
+    // A wheel step moves on from that row, not from the top of the history.
+    const box = await ctx.page.evaluate(() => {
+      const r = document.querySelector('.pane-scroll-container').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await ctx.page.mouse.move(box.x, box.y);
+    await ctx.page.mouse.wheel(0, 120);
+    const wheeled = await copyStateWhere(
+      ctx.page,
+      (s) => s.scrollTop !== scrolled.scrollTop,
+      'the wheel to move the view',
+    );
+    expect(wheeled.scrollTop).toBeGreaterThan(scrolled.scrollTop);
+  }, 120000);
+
+  test('a wheel scroll view left open on a tab is closed by leaving it, and the tab comes back live', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    const first = await activeWindowId(ctx.page);
+    await createWindowKeyboard(ctx.page);
+    const second = await activeWindowId(ctx.page);
+    const select = async (windowId, label) => {
+      await ctx.page.click(`.tab-name[data-window-id="${windowId}"]`);
+      await waitForCondition(
+        ctx.page,
+        async () => (await activeWindowId(ctx.page)) === windowId,
+        10000,
+        label,
+      );
+    };
+    await select(first, 'the first tab to be current again');
+    await runCommand(ctx.page, 'seq 1 600', '600');
+
+    // The wheel opens the client's scroll view over the history.
+    const pane = await ctx.page.evaluate(() => {
+      const { activePaneId } = window.app.getSnapshot().context;
+      const r = document
+        .querySelector(`.pane-wrapper[data-pane-id="${activePaneId}"] .pane-scroll-container`)
+        .getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await ctx.page.mouse.move(pane.x, pane.y);
+    await ctx.page.mouse.wheel(0, -360);
+    await copyStateWhere(ctx.page, (s) => s.mode === 'scroll', 'the wheel to open the scroll view');
+
+    await select(second, 'the second tab to be current');
+    await select(first, 'the first tab to be current again');
+
+    // Back on the tab: no view held open over it, and its live screen drawn —
+    // a real box with the last output on it.
+    let live = null;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        live = await ctx.page.evaluate(() => {
+          const { activePaneId, copyModeStates } = window.app.getSnapshot().context;
+          const log = document.querySelector(
+            `.pane-wrapper[data-pane-id="${activePaneId}"] [role="log"]`,
+          );
+          const r = log?.getBoundingClientRect();
+          return {
+            view: copyModeStates[activePaneId]?.mode ?? null,
+            height: r?.height ?? 0,
+            text: log?.textContent ?? '',
+          };
+        });
+        return live.view === null && live.height > 0 && live.text.includes('600');
+      },
+      10000,
+      () =>
+        `the tab to come back on its live screen (${JSON.stringify(live?.view)}, ${live?.height})`,
+    );
+
+    // The next wheel opens a view from the bottom, not from the top of history.
+    await ctx.page.mouse.move(pane.x, pane.y);
+    await ctx.page.mouse.wheel(0, -120);
+    const reopened = await copyStateWhere(
+      ctx.page,
+      (s) => s.mode === 'scroll',
+      'the wheel to open the scroll view again',
+    );
+    expect(reopened.scrollTop).toBeGreaterThan(reopened.totalLines - reopened.height - 20);
+  }, 120000);
 });
 
 // ==================== Scenario 10: Copy Mode Select & Yank ====================
