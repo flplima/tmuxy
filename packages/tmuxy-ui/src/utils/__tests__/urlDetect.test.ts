@@ -94,6 +94,58 @@ describe('detectUrlsAcrossRows', () => {
     expect(perRow).toEqual([[], []]);
   });
 
+  describe('a URL the program wrapped itself, short of the edge and indented', () => {
+    // A 40-column pane; the program wraps at its own box, a few columns in.
+    const pane = 40;
+    const url = 'https://example.com/docs/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5';
+    const at = (row: number, perRow: ReturnType<typeof detectUrlsAcrossRows>) =>
+      perRow[row].map((m) => m.url);
+
+    it('links every row it covers to the whole address', () => {
+      const lines = rows(
+        `⏺ See ${url.slice(0, 30)}`, // ends at column 36
+        `  ${url.slice(30, 64)}`,
+        `  for the details.`,
+      );
+      const perRow = detectUrlsAcrossRows(lines, pane);
+      expect(at(0, perRow)).toEqual([url]);
+      expect(at(1, perRow)).toEqual([url]);
+      expect(perRow[1][0]).toMatchObject({ start: 2, end: 2 + url.length - 30 });
+      expect(at(2, perRow)).toEqual([]);
+    });
+
+    it('runs through a box border and across three rows', () => {
+      const long = `${url}/more/segments-that-go-on/and-on-and-on/xyz`;
+      const lines = rows(
+        `│ ${long.slice(0, 34)} │`,
+        `│ ${long.slice(34, 68)} │`,
+        `│ ${long.slice(68)}`,
+      );
+      const perRow = detectUrlsAcrossRows(lines, pane);
+      for (const row of [0, 1, 2]) expect(at(row, perRow)).toEqual([long]);
+    });
+
+    it('keeps a dot the break fell after', () => {
+      const lines = rows(`see https://docs.example.com/guide/v2.`, `  html?x=1 ok`);
+      expect(at(0, detectUrlsAcrossRows(lines, pane))).toEqual([
+        'https://docs.example.com/guide/v2.html?x=1',
+      ]);
+    });
+
+    it('does not run on into a word, a list item, or a row that left room', () => {
+      const ending = `see https://example.com/docs/abcdefghij`; // ends at column 39
+      for (const next of ['  and the rest of it', '  - next item', '  2. second item']) {
+        expect(at(0, detectUrlsAcrossRows(rows(ending, next), pane))).toEqual([
+          'https://example.com/docs/abcdefghij',
+        ]);
+      }
+      // Fifteen columns short of the edge: the line ended there.
+      expect(
+        at(0, detectUrlsAcrossRows(rows('see https://example.com/x', '  /more/path'), pane)),
+      ).toEqual(['https://example.com/x']);
+    });
+  });
+
   it('rows outside a wrapped line are detected on their own', () => {
     const perRow = detectUrlsAcrossRows(rows('x https://a', 'b.test/1 y', 'https://c.t'), width);
     expect(perRow[0]).toEqual([{ start: 2, end: 11, url: 'https://ab.test/1' }]);

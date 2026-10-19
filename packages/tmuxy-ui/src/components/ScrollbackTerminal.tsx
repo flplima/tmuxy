@@ -18,7 +18,12 @@ import { selectCharSize } from '../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
 import { cellsToCss, resolveImageSrc, sameCellStyle } from './terminalShared';
 import { isRowLoaded, isWrappedRow } from '../utils/copyMode';
-import { detectUrlsAcrossRows, sameUrls, type DetectedUrl } from '../utils/urlDetect';
+import {
+  continuesInto,
+  detectUrlsAcrossRows,
+  sameUrls,
+  type DetectedUrl,
+} from '../utils/urlDetect';
 import { setLinkHot } from '../utils/linkHover';
 import type { CopyModeState } from '../domain/copyMode';
 import type { ImagePlacement } from '../domain/client';
@@ -241,13 +246,19 @@ export function ScrollbackTerminal({
     }
 
     // The row's links, detected over the logical line it is part of: up
-    // through every row that wrapped into it, down through what it wraps into.
+    // through every row that ran on into it, down through what it runs into
+    // (`continuesInto`: a terminal wrap, or a program's own).
+    const runsOn = (row: number) =>
+      continuesInto(
+        lineFor(row, lines, loadedRanges),
+        lineFor(row + 1, lines, loadedRanges),
+        width,
+      );
     const urlsFor = (row: number, line: CellLine): DetectedUrl[] => {
       let first = row;
-      while (first > 0 && isWrappedRow(lineFor(first - 1, lines, loadedRanges), width)) first--;
+      while (first > 0 && runsOn(first - 1)) first--;
       let last = row;
-      while (last < totalLines - 1 && isWrappedRow(lineFor(last, lines, loadedRanges), width))
-        last++;
+      while (last < totalLines - 1 && runsOn(last)) last++;
       if (first === last) return detectUrlsAcrossRows([line], width)[0];
       const group: CellLine[] = [];
       for (let r = first; r <= last; r++) group.push(lineFor(r, lines, loadedRanges));
