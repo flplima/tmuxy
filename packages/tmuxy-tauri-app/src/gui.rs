@@ -86,6 +86,13 @@ pub fn run() {
         .register_uri_scheme_protocol("tmuxyimg", |ctx, request| {
             window_setup::handle_tmuxyimg(ctx.app_handle(), request)
         })
+        // A `preview` pane's composed page, staged by `stage_preview` and
+        // loaded by the pane's frame, served under the page's own policy —
+        // the web server's `GET /api/preview/{pane}`.
+        .manage(tmuxy_core::preview::PreviewPages::default())
+        .register_uri_scheme_protocol("tmuxypreview", |ctx, request| {
+            window_setup::handle_tmuxypreview(ctx.app_handle(), request)
+        })
         .setup(|app| {
             // The environment, for telling a Finder launch from a CLI one.
             let env = |key: &str| std::env::var(key).unwrap_or_else(|_| "(unset)".to_string());
@@ -262,6 +269,9 @@ pub fn run() {
             // the React frontend's INVOKE / FETCH_SCROLLBACK_CELLS paths work
             // identically under Tauri)
             commands::get_scrollback_cells,
+            // The `preview` widget's document, resources and framed page
+            commands::read_preview,
+            commands::stage_preview,
             commands::get_theme_settings,
             commands::set_theme,
             commands::set_cursor_blink,

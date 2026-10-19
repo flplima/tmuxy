@@ -44,6 +44,14 @@ export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
    * v86), which never enumerate sessions.
    */
   query?(command: string): Promise<string>;
+  /**
+   * Stage a `preview` pane's composed page and resolve with the URL its frame
+   * loads it from — a route on the web, the `tmuxypreview:` scheme on the
+   * desktop — where it is served under the page's own sandboxing policy
+   * (`tmuxy_core::preview`). Each call's URL is new, so the frame reloads.
+   * Absent on v86, which has no server to stage it on.
+   */
+  stagePreview?(paneId: string, html: string): Promise<string>;
 }
 
 /**

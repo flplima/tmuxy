@@ -58,6 +58,16 @@ pub enum ClientCommand {
         #[serde(default = "default_scrollback_end")]
         end: i64,
     },
+    /// A `preview` pane's document (`path` absent) or a resource it links
+    /// (`path` relative to it). The pane names nothing on disk: what it may
+    /// read is the pane's own `@tmuxy-pane-preview`, asked of tmux on every
+    /// call (`tmuxy_core::preview`). Write-only: a viewer is not served files.
+    ReadPreview {
+        #[serde(rename = "paneId")]
+        pane_id: tmuxy_core::PaneId,
+        #[serde(default)]
+        path: Option<String>,
+    },
     GetThemeSettings,
     SetTheme {
         name: String,

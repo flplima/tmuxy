@@ -28,7 +28,20 @@ import {
 } from './selectors/panesAndSidebars';
 import { selectReadOnly } from './selectors/ui';
 import type { PaneId } from '../domain/ids';
-import { AppActorContext, AppConfigContext, type AppConfig } from './appContexts';
+import {
+  AppActorContext,
+  AppConfigContext,
+  AppRuntimeContext,
+  type AppConfig,
+} from './appContexts';
+import type { AppRuntime } from '../infra/runtime';
+
+/** The app's Effect runtime (see `AppRuntimeContext`). */
+export function useAppRuntime(): AppRuntime {
+  const runtime = useContext(AppRuntimeContext);
+  if (!runtime) throw new Error('useAppRuntime must be used within AppProvider');
+  return runtime;
+}
 
 export function useAppActor(): AppMachineActor {
   const actor = useContext(AppActorContext);

@@ -152,6 +152,10 @@ cmd_widget() {
       exec "$SCRIPTS_DIR/tmuxy-widget-session"
       ;;
 
+    preview)
+      exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
+      ;;
+
     --help|-h)
       usage_widget
       ;;

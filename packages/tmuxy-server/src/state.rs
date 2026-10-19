@@ -214,6 +214,9 @@ pub struct AppState {
     /// when a config is sourced, which is a writer's act on a writer's server —
     /// a viewer's server sources nothing, so the first read is the last.
     pub viewer_theme_settings: tokio::sync::OnceCell<serde_json::Value>,
+    /// The pages `preview` panes frame, staged by the client and served to
+    /// the pane's frame by `/api/preview/{pane}` (`tmuxy_core::preview`).
+    pub preview_pages: tmuxy_core::preview::PreviewPages,
 }
 
 /// A live `/events` stream's place in the server's budget, released on drop.
@@ -239,6 +242,7 @@ impl Default for AppState {
             session_pin: None,
             live_streams: AtomicU64::new(0),
             viewer_theme_settings: tokio::sync::OnceCell::new(),
+            preview_pages: tmuxy_core::preview::PreviewPages::default(),
         }
     }
 }
@@ -366,6 +370,17 @@ fn writable_routes() -> Router<Arc<AppState>> {
         .route(
             "/trace",
             post(crate::sse::trace_handler).layer(axum::extract::DefaultBodyLimit::max(256 * 1024)),
+        )
+        // A `preview` pane's page: POSTed by the client once it has composed
+        // it, then loaded by the pane's frame (`tmuxy_core::preview`). Not on
+        // a viewer's server, which is shown no files (SEC-11).
+        .route(
+            "/api/preview/{pane_id}",
+            get(crate::sse::preview_page_handler)
+                .post(crate::sse::stage_preview_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    tmuxy_core::preview::MAX_STAGED_BYTES,
+                )),
         )
 }
 

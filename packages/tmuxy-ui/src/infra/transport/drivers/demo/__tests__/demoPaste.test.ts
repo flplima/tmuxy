@@ -36,7 +36,7 @@ describe('demo paste', () => {
     const text = 'x'.repeat(1200);
     const { tmux, sent } = replay(text);
     expect(sent).toEqual([['-t', '%0', '-l', '--', text]]);
-    expect(tmux.readBuffer('tmuxy-paste', false)).toBeUndefined();
+    expect(tmux.buffers.read('tmuxy-paste', false)).toBeUndefined();
   });
 
   it('decodes the octal byte escapes tmux reads, UTF-8 included', () => {

@@ -270,6 +270,7 @@ tmuxy skill                     # print this guide
 tmuxy pane list --json          # id, tab, width, height, command, active (--all = every tab)
 tmuxy pane split [-h|-v] [--json] # split pane (returns %id or JSON)
 tmuxy pane float [opts] [cmd]   # open a float
+tmuxy open <file.md|file.html>  # preview a markdown doc (mermaid too) or a page in this pane; follows the file, ctrl+c closes it
 tmuxy pane capture [%id] --json # read what's on a pane's screen
 tmuxy pane send ls Enter        # type into a pane
 tmuxy pane select -U|-D|-L|-R|%id # select pane

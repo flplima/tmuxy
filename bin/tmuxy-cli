@@ -94,7 +94,8 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
-  widget      Display widgets (tree, session)
+  widget      Display widgets (tree, session, preview)
+  open        Preview a local .html or .md file in this pane (tmuxy widget preview)
   tree        Browse tabs and panes as a tree in this terminal
   run         Run any tmux command safely
   cleanup     Reap shells left hanging by a pane that died while starting up
@@ -193,6 +194,8 @@ Commands:
   tree          Display the tabs+panes tree (the left sidebar's content)
   session       Switch, rename, kill or detach the session; connect to
                 another tmux socket, locally or over SSH
+  preview       Show a local .html or .md file, kept up to date as it
+                changes [--net] [--no-theme] [file] (also: tmuxy open)
 EOF
 }
 
@@ -299,6 +302,10 @@ case "${1:-}" in
   widget)
     shift
     cmd_widget "$@"
+    ;;
+  open)
+    shift
+    cmd_widget preview "$@"
     ;;
   tree)
     shift

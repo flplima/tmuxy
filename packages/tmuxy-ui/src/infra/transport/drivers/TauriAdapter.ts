@@ -17,6 +17,7 @@ import { decodeEvent } from '../wireDecode';
 import { KeyBatcher } from '../keyBatching';
 import { latencyTracker } from '../../latencyTracker';
 import { tracer } from '../../tracer';
+import { tauriSchemeUrl } from '../../../utils/platform';
 
 // ============================================
 // Tauri Adapter
@@ -265,6 +266,19 @@ export class TauriAdapter implements SequencedAdapter {
   async query(command: string): Promise<string> {
     const { invoke } = await import('@tauri-apps/api/core');
     return invoke<string>('query_tmux', { command });
+  }
+
+  /** Bumped per staged page, so each one is a new URL and the frame reloads. */
+  private previewVersion = 0;
+
+  /** Stage a preview pane's page; its frame loads it from `tmuxypreview:`. */
+  async stagePreview(paneId: string, html: string): Promise<string> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('stage_preview', { paneId, html });
+    return tauriSchemeUrl(
+      'tmuxypreview',
+      `/${paneId.replace(/^%/, '')}?v=${++this.previewVersion}`,
+    );
   }
 
   /** Mint a per-instance action id (e.g. `a-t-17`); the `t` marks the Tauri

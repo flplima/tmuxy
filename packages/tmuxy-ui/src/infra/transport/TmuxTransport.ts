@@ -40,6 +40,8 @@ export interface TmuxTransportService {
   ) => Effect.Effect<A, AdapterError>;
   /** Read from tmux (see `TmuxAdapter.query`); a TransportError where it cannot (demo, v86). */
   readonly query: (command: string) => Effect.Effect<string, AdapterError>;
+  /** Stage a preview pane's page (see `TmuxAdapter.stagePreview`); its frame's URL. */
+  readonly stagePreview: (paneId: string, html: string) => Effect.Effect<string, AdapterError>;
   readonly switchSession: (sessionName: string) => Effect.Effect<void, AdapterError>;
   /** Retry a dropped connection now rather than at the next backoff tick. */
   readonly reconnectNow: Effect.Effect<void>;
@@ -104,6 +106,10 @@ export function serviceOver(
     },
     query: (command: string) =>
       driver.query ? attempt(command, () => driver.query!(command)) : unsupported('query', command),
+    stagePreview: (paneId: string, html: string) =>
+      driver.stagePreview
+        ? attempt('stage_preview', () => driver.stagePreview!(paneId, html))
+        : unsupported('stagePreview', 'stage_preview'),
     switchSession: (sessionName: string) =>
       driver.switchSession
         ? attempt('switchSession', () => driver.switchSession!(sessionName))

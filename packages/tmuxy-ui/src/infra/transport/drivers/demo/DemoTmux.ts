@@ -1,5 +1,8 @@
 import type { PaneContent, ServerStateEncoded, WireImagePlacement } from '../../../../domain/wire';
 import { LifoShell } from './LifoShell';
+import { DemoPreviews } from './demoPreview';
+import { DemoBuffers } from './demoBuffers';
+import { DemoFiles } from './demoFiles';
 import {
   type CreateFloatOptions,
   type FakePane,
@@ -63,8 +66,14 @@ export class DemoTmux {
    * `tmuxy-widget` writes the option before printing its marker.
    */
   private paneWidgets = new Map<string, string>();
-  /** tmux's named paste buffers (`set-buffer -b`), which a paste travels through. */
-  private buffers = new Map<string, string>();
+  /** The panes running `tmuxy open` (`demoPreview.ts`). */
+  readonly previews = new DemoPreviews({
+    shellOf: (id) => this.panes.get(id)?.shell,
+    widgetOf: (id) => this.paneWidgets.get(id),
+    writeWidget: (id, name, lines) => this.writeWidget(id, name, lines),
+    clearWidget: (id) => this.clearWidget(id),
+  });
+  readonly buffers = new DemoBuffers();
   private windows: FakeWindow[] = [];
   private activeWindowId = '@0';
   private activePaneId = '%0';
@@ -86,8 +95,11 @@ export class DemoTmux {
     this.onAsyncUpdate = cb;
   }
 
+  /** The one disk every pane's shell sees (`demoFiles.ts`). */
+  private readonly files = new DemoFiles();
+
   private makeShell(paneId: string, width: number, height: number): LifoShell {
-    const shell = new LifoShell(width, height);
+    const shell = new LifoShell(width, height, this.files);
     shell.setTmux(this, paneId);
     shell.onUpdate = () => this.onAsyncUpdate?.();
     return shell;
@@ -539,18 +551,6 @@ export class DemoTmux {
     return demoGroupPrev(this.groupsContext(), paneId);
   }
 
-  /** `set-buffer [-a] -b name`: replace a buffer, or append to it. */
-  setBuffer(name: string, text: string, append: boolean): void {
-    this.buffers.set(name, (append ? (this.buffers.get(name) ?? '') : '') + text);
-  }
-
-  /** A buffer's text, dropped from the store when `remove` (`paste-buffer -d`). */
-  readBuffer(name: string, remove: boolean): string | undefined {
-    const text = this.buffers.get(name);
-    if (remove) this.buffers.delete(name);
-    return text;
-  }
-
   /** Replace a pane's content with a widget marker + content lines */
   writeWidget(paneId: string, widgetName: string, lines: string[]): void {
     const pane = this.panes.get(paneId);
@@ -559,6 +559,13 @@ export class DemoTmux {
     this.paneWidgets.set(paneId, widgetName);
     pane.title = widgetName;
     pane.command = widgetName;
+  }
+
+  /** A widget has exited: its tag goes, and the pane is a shell again. */
+  clearWidget(paneId: string): void {
+    this.paneWidgets.delete(paneId);
+    const pane = this.panes.get(paneId);
+    if (pane) pane.title = pane.command = 'bash';
   }
 
   renameWindow(windowId: string, name: string): boolean {

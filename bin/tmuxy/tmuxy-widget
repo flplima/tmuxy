@@ -1,11 +1,13 @@
 #!/bin/bash
-# Usage: some-command | tmuxy-widget <component-name>
+# Usage: some-command | tmuxy-widget <component-name> [title]
 #
-# Prints the widget marker, then passes stdin through to stdout.
+# Prints the widget marker, then passes stdin through to stdout. The title,
+# the component's name by default, is what the pane calls itself meanwhile.
 # On exit (Ctrl+C, pipe close, SIGTERM), clears the terminal so the
 # widget marker disappears and starts an interactive shell so the
 # pane remains alive.
-COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
+COMPONENT="${1:?Usage: tmuxy-widget <component-name> [title]}"
+TITLE="${2:-$COMPONENT}"
 
 # `shquote` / `_run_safe` (mutations go through `tmux run-shell`, see
 # docs/TMUX.md).
@@ -36,8 +38,14 @@ _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget $(shquote
 # must not be able to bring the widget back. The shell that replaces the widget
 # is the user's own: closing a widget is not a reason to land them in a bash
 # they did not choose.
-trap 'printf "\033]2;\007"; _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget"; clear; exec "${SHELL:-bash}" </dev/tty' EXIT
+#
+# The first thing it does is ignore another Ctrl+C: one pressed twice would
+# otherwise kill the trap halfway, leaving the marker on the screen and the
+# authorisation on the pane over a shell. The default is back before the
+# shell starts, since an ignored signal survives `exec` — and a shell started
+# with Ctrl+C ignored passes that on to everything it runs.
+trap 'trap "" INT; printf "\033]2;\007"; _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget"; clear; trap - INT; exec "${SHELL:-bash}" </dev/tty' EXIT
 
-printf '\033]2;%s\007' "$COMPONENT"
+printf '\033]2;%s\007' "$TITLE"
 echo "__TMUXY_WIDGET__:${COMPONENT}"
 cat

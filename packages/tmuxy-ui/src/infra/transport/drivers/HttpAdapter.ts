@@ -16,6 +16,7 @@ import {
   openSseConnection,
   postCommandFireAndForgetEffect,
   postCommandJson,
+  postPreviewPage,
   probeRefusalReason,
   RECONNECT_SCHEDULE,
   REOPEN_AFTER_DROP_MS,
@@ -403,6 +404,16 @@ export class HttpAdapter implements SequencedAdapter {
   /**
    * Internal invoke implementation
    */
+  /** Bumped per staged page, so each one is a new URL and the frame reloads. */
+  private previewVersion = 0;
+
+  async stagePreview(paneId: string, html: string): Promise<string> {
+    if (this.readOnly) throw new Cancelled({ reason: READ_ONLY_REASON });
+    const path = `/api/preview/${paneId.replace(/^%/, '')}`;
+    await postPreviewPage(buildEndpointUrl(path, this.getEffectiveSession()), html);
+    return `${buildEndpointUrl(path)}?v=${++this.previewVersion}`;
+  }
+
   private async invokeInternal<T>(
     cmd: string,
     args?: Record<string, unknown>,

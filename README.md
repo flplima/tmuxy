@@ -183,6 +183,7 @@ tmuxy pane group move %4 0       # move a group member to the front
 tmuxy pane send -t %3 make Enter # type into %3; the user allows it there first
 tmuxy session save               # snapshot the session (restored on the next start)
 tmuxy widget tree                # the session/tab/pane tree, as a pane
+tmuxy open notes.md              # preview a markdown file or a page, following it as it changes
 ```
 
 ## getting started (development)

@@ -22,7 +22,12 @@ import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../infra/store/TmuxStore';
 import { measureCellMetrics } from '../utils/cellMetrics';
 import { isTauri } from '../utils/platform';
-import { AppActorContext, AppConfigContext, type AppConfig } from './appContexts';
+import {
+  AppActorContext,
+  AppConfigContext,
+  AppRuntimeContext,
+  type AppConfig,
+} from './appContexts';
 
 export function AppProvider({
   children,
@@ -40,20 +45,23 @@ export function AppProvider({
   // effects on it. The TmuxStore is the client model — owns optimistic patches
   // and reconciliation; the tmuxStoreActor bridges it into XState so the
   // appMachine context stays a passive mirror of the store's derived snapshot.
-  const [actors] = useState(() => {
+  const [{ runtime, actors }] = useState(() => {
     const runtime = makeAppRuntime(transport ?? transportForEnvironment());
     const store = makeTmuxStore();
     return {
-      tmuxActor: createTmuxActor(runtime),
-      tmuxStoreActor: createTmuxStoreActor(store, runtime),
-      keyboardActor: createKeyboardActor(),
-      linkModifierActor: createLinkModifierActor(),
-      // Trackpad gestures are the desktop app's (docs/DESKTOP.md): the web
-      // build keeps the machine's no-op actor and the browser its own
-      // wheel, pinch-zoom and history swipe.
-      ...((config?.desktopGestures ?? isTauri()) ? { gestureActor: createGestureActor() } : {}),
-      sizeActor: createSizeActor(measureCellMetrics, { phoneLayout: config?.phoneLayout }),
-      serversActor: createServersActor(runtime),
+      runtime,
+      actors: {
+        tmuxActor: createTmuxActor(runtime),
+        tmuxStoreActor: createTmuxStoreActor(store, runtime),
+        keyboardActor: createKeyboardActor(),
+        linkModifierActor: createLinkModifierActor(),
+        // Trackpad gestures are the desktop app's (docs/DESKTOP.md): the web
+        // build keeps the machine's no-op actor and the browser its own
+        // wheel, pinch-zoom and history swipe.
+        ...((config?.desktopGestures ?? isTauri()) ? { gestureActor: createGestureActor() } : {}),
+        sizeActor: createSizeActor(measureCellMetrics, { phoneLayout: config?.phoneLayout }),
+        serversActor: createServersActor(runtime),
+      },
     };
   });
 
@@ -83,7 +91,9 @@ export function AppProvider({
 
   return (
     <AppConfigContext.Provider value={config ?? {}}>
-      <AppActorContext.Provider value={actorRef}>{children}</AppActorContext.Provider>
+      <AppRuntimeContext.Provider value={runtime}>
+        <AppActorContext.Provider value={actorRef}>{children}</AppActorContext.Provider>
+      </AppRuntimeContext.Provider>
     </AppConfigContext.Provider>
   );
 }

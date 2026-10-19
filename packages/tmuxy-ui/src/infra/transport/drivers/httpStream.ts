@@ -155,6 +155,22 @@ export async function postCommandJson<T>(
   return data.result as T;
 }
 
+/**
+ * Stage a preview pane's page (`POST /api/preview/{pane}`). A refusal is the
+ * server's `{ error, kind }`, thrown as `postCommandJson` throws one.
+ */
+export async function postPreviewPage(url: string, html: string): Promise<void> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    body: html,
+  });
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    throw isCommandFailure(body) ? body : new Error(`HTTP ${response.status}`);
+  }
+}
+
 export function postCommandFireAndForgetEffect(
   session: string,
   connectionId: number,

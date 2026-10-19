@@ -21,7 +21,7 @@ If any of these assumptions are violated, the risks described below apply.
 
 See [SECURITY-NETWORK.md](SECURITY-NETWORK.md) for these sections: Where the Server Listens; Cross-Origin Requests; What the App Will Load and Draw; Deployment Recommendations.
 
-See [SECURITY-CONTENT.md](SECURITY-CONTENT.md) for these sections: A Session Snapshot Is a Record of the Machine; Pane Output Threat Model.
+See [SECURITY-CONTENT.md](SECURITY-CONTENT.md) for these sections: A Preview Reads One File; A Session Snapshot Is a Record of the Machine; Pane Output Threat Model.
 
 ## Input That Reaches Control Mode
 

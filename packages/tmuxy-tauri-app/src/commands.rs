@@ -118,6 +118,33 @@ pub async fn get_scrollback_cells(
     transport::scrollback_cells(&tx, &pane_id, start, end).await
 }
 
+/// A `preview` pane's document or a resource it links — the web server's
+/// `read_preview`, authorised by tmux through this window's monitor.
+#[tauri::command]
+pub async fn read_preview(
+    window: tauri::WebviewWindow,
+    pane_id: String,
+    path: Option<String>,
+) -> Result<Value, CommandError> {
+    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    tmuxy_core::preview::read_preview(&tx, &pane_id, path).await
+}
+
+/// Stage a `preview` pane's composed page for its frame, which loads it from
+/// the `tmuxypreview:` scheme — the web server's `POST /api/preview/{pane}`.
+#[tauri::command]
+pub async fn stage_preview(
+    window: tauri::WebviewWindow,
+    pages: tauri::State<'_, tmuxy_core::preview::PreviewPages>,
+    pane_id: String,
+    html: String,
+) -> Result<(), CommandError> {
+    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    tmuxy_core::preview::stage_page(&tx, &pages, pane_id, html).await
+}
+
 /// The theme name, mode and appearance, read over this window's monitor —
 /// waiting for one that is still connecting, since the webview asks at start.
 #[tauri::command]

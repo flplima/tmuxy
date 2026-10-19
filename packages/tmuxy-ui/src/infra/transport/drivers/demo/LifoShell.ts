@@ -1,4 +1,7 @@
-import type { Sandbox } from '@lifo-sh/core';
+import type { CommandContext, Sandbox } from '@lifo-sh/core';
+import { previewKind } from '../../../../domain/preview';
+import { previewArgs } from './demoPreview';
+import type { DemoFiles } from './demoFiles';
 import type { PaneContent, CellLine, TerminalCell, CellStyle } from '../../../../domain/wire';
 import type { DemoTmux } from './DemoTmux';
 import { tmuxy as tmuxyCmd } from './commands/tmuxy';
@@ -27,6 +30,8 @@ export class LifoShell {
   private ownPaneId: string | null = null;
   private busy = false;
   private abortController: AbortController | null = null;
+  /** Ends a running `tmuxy open`: C-c reaches it here, before the abort. */
+  private stopPreview: (() => void) | null = null;
 
   private grid: PaneContent = [];
   private scrollback: CellLine[] = [];
@@ -50,7 +55,12 @@ export class LifoShell {
     this.input = Array.from(text);
   }
 
-  constructor(width: number, height: number) {
+  /** `files`: the disk this shell shares with the session's other panes. */
+  constructor(
+    width: number,
+    height: number,
+    private readonly files?: DemoFiles,
+  ) {
     this.width = width;
     this.height = height;
     this.cwd = '/home/demo';
@@ -69,12 +79,15 @@ export class LifoShell {
   private async initSandbox(): Promise<Sandbox> {
     const sb = await createDemoSandbox();
     this.sandbox = sb;
+    this.files?.join(sb.kernel.vfs);
     this.registerCustomCommands(sb);
     return sb;
   }
 
   private registerCustomCommands(sb: Sandbox): void {
     sb.commands.register('tmuxy', async (ctx) => {
+      const preview = previewArgs(ctx.args);
+      if (preview) return this.runPreview(sb, preview, ctx);
       const shellCtx = {
         cwd: this.cwd,
         env: this.env,
@@ -85,6 +98,83 @@ export class LifoShell {
       if (result.output) ctx.stdout.write(result.output);
       return result.exitCode;
     });
+  }
+
+  /**
+   * `tmuxy open`, as `tmuxy-widget-preview` runs it: authorise the pane's
+   * preview, show the widget, rewrite its rev line whenever the file changes,
+   * and block until C-c — which leaves the widget for the prompt. C-c calls
+   * `stopPreview` before it aborts the command, so the widget is gone before
+   * the shell redraws its prompt.
+   */
+  private async runPreview(
+    sb: Sandbox,
+    args: { file: string; net: boolean; themed: boolean },
+    ctx: CommandContext,
+  ): Promise<number> {
+    const paneId = this.ownPaneId;
+    const tmux = this.tmux;
+    if (!tmux || !paneId) return 1;
+    const path = args.file.startsWith('/') ? args.file : `${ctx.cwd}/${args.file}`;
+    if (!args.file || !previewKind(path)) {
+      ctx.stderr.write(`Error: a preview shows .html and .md files: ${args.file}\n`);
+      return 1;
+    }
+    const contents = async () => {
+      try {
+        return await sb.fs.readFile(path);
+      } catch {
+        return null;
+      }
+    };
+    let last = await contents();
+    if (last === null) {
+      ctx.stderr.write(`Error: not a file: ${args.file}\n`);
+      return 1;
+    }
+    let rev = 1;
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    const lines = () => [
+      ...(args.themed ? [] : ['__NO_THEME__']),
+      `__FILE__:${name}`,
+      `__REV__:${rev}`,
+    ];
+    tmux.previews.open(paneId, path, args.net, lines());
+    this.onUpdate?.();
+    const timer = setInterval(async () => {
+      const now = await contents();
+      if (now === null || now === last) return;
+      last = now;
+      rev += 1;
+      tmux.writeWidget(paneId, 'preview', lines());
+      this.onUpdate?.();
+    }, 500);
+    await new Promise<void>((resolve) => {
+      const close = () => {
+        if (this.stopPreview !== close) return;
+        this.stopPreview = null;
+        clearInterval(timer);
+        tmux.previews.close(paneId);
+        this.leaveWidget();
+        resolve();
+      };
+      this.stopPreview = close;
+      ctx.signal.addEventListener('abort', close, { once: true });
+    });
+    return 130;
+  }
+
+  /** A file's bytes from this shell's sandbox, for `read_preview`. */
+  async readFileBytes(path: string): Promise<Uint8Array> {
+    const sb = this.sandbox ?? (await this.sandboxPromise);
+    return sb.fs.readFile(path, null);
+  }
+
+  /** Back from a widget to a terminal: an empty screen for the prompt. */
+  private leaveWidget(): void {
+    this.widgetGrid = false;
+    this.scrollback = [];
+    this.initGrid();
   }
 
   /**
@@ -372,6 +462,7 @@ export class LifoShell {
 
   private handleCtrlC(): void {
     if (this.busy) {
+      this.stopPreview?.();
       this.abortController?.abort();
       // The executeLineAsync finally block handles the prompt
     } else {

@@ -74,13 +74,13 @@ export function executeDemoCommand(
   // each newline a Return.
   const setBuffer = command.match(/^set-buffer\s+(-a\s+)?-b\s+(\S+)\s+"(.*)"$/);
   if (setBuffer) {
-    tmux.setBuffer(setBuffer[2], decodeDoubleQuoted(setBuffer[3]), setBuffer[1] !== undefined);
+    tmux.buffers.set(setBuffer[2], decodeDoubleQuoted(setBuffer[3]), setBuffer[1] !== undefined);
     return;
   }
   const pasteBuffer = command.match(/^paste-buffer\s+-p\s+-d\s+-b\s+(\S+)\s+-t\s+(\S+)$/);
   if (pasteBuffer) {
     const [, buffer, target] = pasteBuffer;
-    (tmux.readBuffer(buffer, true) ?? '').split('\n').forEach((line, i) => {
+    (tmux.buffers.read(buffer, true) ?? '').split('\n').forEach((line, i) => {
       if (i > 0) handleSendKeys(['-t', target, 'Enter']);
       if (line) handleSendKeys(['-t', target, '-l', '--', line]);
     });

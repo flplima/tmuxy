@@ -121,6 +121,15 @@ pub mod tmux_options {
     /// honours it only when this option names the same widget.
     pub const PANE_WIDGET: &str = "@tmuxy-pane-widget";
 
+    /// The one file a `preview` pane may read, written by
+    /// `tmuxy-widget-preview` out of band and cleared when it exits; honoured
+    /// only while [`PANE_WIDGET`] is `preview` (`crate::preview`).
+    pub const PANE_PREVIEW: &str = "@tmuxy-pane-preview";
+
+    /// `1` when the preview was opened with `--net`: its page may load from
+    /// the network.
+    pub const PANE_PREVIEW_NET: &str = "@tmuxy-pane-preview-net";
+
     /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
     pub const THEME: &str = "@tmuxy-theme";
     /// Theme mode: `dark` / `light` / `auto` (follow the OS).

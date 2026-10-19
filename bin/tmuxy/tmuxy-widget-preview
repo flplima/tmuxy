@@ -1,0 +1,127 @@
+#!/bin/bash
+# Show a local HTML or markdown file in a tmuxy `preview` widget pane
+#
+# Usage: tmuxy-widget-preview [--net] [--no-theme] [file]
+#
+#   file        an .html/.htm or .md/.markdown file; without one, the first of
+#               index.html, README.md or readme.md in the current directory
+#   --net       let a page load from the network (off: the page is offline,
+#               and only what sits beside it is shown)
+#   --no-theme  draw the page in its own colours, not the theme's
+#
+# The UI renders the file — markdown in the app (mermaid included), a page in
+# a sandboxed frame — and reads it through tmuxy rather than off a URL. What it
+# may read is decided here, out of band: the file's path and the --net choice
+# are pane options, written through `run-shell` before the widget marker and
+# cleared on the way out, so nothing the pane prints and nothing a client asks
+# can point the preview anywhere else (see docs/SECURITY-CONTENT.md).
+#
+# The file is watched — inotify where there is one, a poll every second
+# otherwise — and each change rewrites one line under the marker, which is
+# what tells the UI to read it again.
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+# `_run_safe` / `shquote` (mutations go through `tmux run-shell`, docs/TMUX.md).
+source "$SCRIPTS_DIR/_lib"
+
+usage() {
+  sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+NET=""
+THEME=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --net) NET=1; shift ;;
+    --no-theme) THEME=""; shift ;;
+    --help|-h) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+FILE="${1:-}"
+if [ -z "$FILE" ]; then
+  for candidate in index.html README.md readme.md; do
+    if [ -f "$candidate" ]; then FILE="$candidate"; break; fi
+  done
+  if [ -z "$FILE" ]; then
+    echo "Error: no file given, and no index.html or README.md here" >&2
+    exit 1
+  fi
+fi
+
+if [ ! -f "$FILE" ]; then
+  echo "Error: not a file: $FILE" >&2
+  exit 1
+fi
+case "$(printf '%s' "$FILE" | tr '[:upper:]' '[:lower:]')" in
+  *.html|*.htm|*.md|*.markdown) ;;
+  *) echo "Error: a preview shows .html and .md files: $FILE" >&2; exit 1 ;;
+esac
+if [ -z "${TMUX_PANE:-}" ]; then
+  echo "Error: run this inside a tmuxy pane" >&2
+  exit 1
+fi
+
+DIR="$(cd "$(dirname "$FILE")" && pwd -P)"
+ABS="$DIR/$(basename "$FILE")"
+NAME="$(basename "$ABS")"
+case "$ABS" in
+  *$'\n'*) echo "Error: a file name with a newline cannot be previewed" >&2; exit 1 ;;
+esac
+
+PANE="$(shquote "$TMUX_PANE")"
+# The path goes with this script. Ctrl+C ends the widget first — its own exit
+# takes `@tmuxy-pane-widget` with it, which alone stops the preview being
+# read — and this script ends once the pane's shell does.
+cleanup() {
+  _run_safe "set-option -p -u -t $PANE @tmuxy-pane-preview" || true
+  _run_safe "set-option -p -u -t $PANE @tmuxy-pane-preview-net" || true
+}
+trap cleanup EXIT
+
+_run_safe "set-option -p -t $PANE @tmuxy-pane-preview $(shquote "$ABS")"
+if [ -n "$NET" ]; then
+  _run_safe "set-option -p -t $PANE @tmuxy-pane-preview-net 1"
+else
+  _run_safe "set-option -p -u -t $PANE @tmuxy-pane-preview-net"
+fi
+
+# What the file is now: its checksum and size, or `missing` in the moment an
+# editor's save has replaced it.
+fingerprint() {
+  local sum
+  sum="$(cksum <"$ABS" 2>/dev/null)" || sum="missing"
+  printf '%s' "${sum// /-}"
+}
+
+# Block until the file may have changed: an inotify event in its folder (an
+# editor that saves by renaming replaces the file, so the folder is what is
+# watched), or a second either way.
+settle() {
+  if command -v inotifywait >/dev/null 2>&1; then
+    inotifywait -qq -t 1 -e close_write,moved_to,create,modify "$DIR" 2>/dev/null || true
+  else
+    sleep 1
+  fi
+}
+
+watch_file() {
+  if [ -z "$THEME" ]; then echo "__NO_THEME__"; fi
+  echo "__FILE__:${NAME}"
+  local last="" now
+  while :; do
+    now="$(fingerprint)"
+    if [ "$now" != "$last" ]; then
+      last="$now"
+      printf '\r\033[K__REV__:%s' "$now"
+    fi
+    settle
+  done
+}
+
+watch_file | "${SCRIPTS_DIR}/tmuxy-widget" preview "$NAME"

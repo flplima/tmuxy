@@ -182,6 +182,22 @@ export class DemoAdapter implements TmuxAdapter {
 
   disconnect(): void {}
 
+  /** Each pane's last staged page, revoked when the next replaces it. */
+  private previewPages = new Map<string, string>();
+
+  /**
+   * Stage a preview pane's page. There is no server here to serve it under a
+   * policy header, so the page is a blob; the frame's `sandbox` attribute
+   * still gives it an opaque origin of its own.
+   */
+  async stagePreview(paneId: string, html: string): Promise<string> {
+    const previous = this.previewPages.get(paneId);
+    if (previous) URL.revokeObjectURL(previous);
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    this.previewPages.set(paneId, url);
+    return url;
+  }
+
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     switch (cmd) {
       case 'get_initial_state': {
@@ -197,6 +213,12 @@ export class DemoAdapter implements TmuxAdapter {
         this.initCommands = []; // Only run once
         return decodeServerStateOrThrow(this.tmux.getState()) as T;
       }
+
+      case 'read_preview':
+        return (await this.tmux.previews.read(
+          args?.paneId as string,
+          args?.path as string | undefined,
+        )) as T;
 
       case 'get_scrollback_cells': {
         const paneId = args?.paneId as string;

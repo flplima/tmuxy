@@ -166,6 +166,34 @@ pub(super) fn handle_tmuxycss(
     .unwrap_or_default()
 }
 
+pub(super) fn handle_tmuxypreview(
+    app: &tauri::AppHandle,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Vec<u8>> {
+    use tauri::Manager;
+    let not_found = || {
+        tauri::http::Response::builder()
+            .status(tauri::http::StatusCode::NOT_FOUND)
+            .body(Vec::new())
+            .unwrap_or_default()
+    };
+    // tmuxypreview://localhost/<pane digits>
+    let number = request.uri().path().trim_start_matches('/').to_string();
+    let Ok(pane) = tmuxy_core::PaneId::parse(&format!("%{number}")) else {
+        return not_found();
+    };
+    let Some(page) = app.state::<tmuxy_core::preview::PreviewPages>().page(&pane) else {
+        return not_found();
+    };
+    let mut builder = tauri::http::Response::builder().status(tauri::http::StatusCode::OK);
+    for (name, value) in page.headers() {
+        builder = builder.header(name, value);
+    }
+    builder
+        .body(page.html.into_bytes())
+        .unwrap_or_else(|_| not_found())
+}
+
 pub(super) fn handle_tmuxyimg(
     app: &tauri::AppHandle,
     request: tauri::http::Request<Vec<u8>>,

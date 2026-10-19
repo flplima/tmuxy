@@ -2,6 +2,7 @@ mod clients;
 mod commands;
 mod emitter;
 mod monitor;
+mod preview;
 mod server_commands;
 
 use axum::{
@@ -28,6 +29,7 @@ pub use clients::start_viewer_monitor;
 pub use commands::{commands_handler, trace_handler};
 pub use emitter::watch_config_dir;
 pub use monitor::start_monitoring;
+pub use preview::{preview_page_handler, stage_preview_handler};
 
 use clients::cleanup_connection;
 #[cfg(test)]

@@ -258,6 +258,10 @@ pub(super) async fn handle_command(
             let tx = state.monitor_tx(session).await?;
             transport::scrollback_cells(&tx, &pane_id, start, end).await
         }
+        ClientCommand::ReadPreview { pane_id, path } => {
+            let tx = state.monitor_tx(session).await?;
+            tmuxy_core::preview::read_preview(&tx, &pane_id, path).await
+        }
         ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
         ClientCommand::SetTheme { name, mode } => {
             let tx = state.monitor_tx(session).await?;

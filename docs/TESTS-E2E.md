@@ -23,6 +23,7 @@ The browser + tmux suites, the latency gate and the Tauri suite. Part of [TESTS.
 | `tests/12-touch.test.js` | One phone-width (400x780) `hasTouch` context: tap to focus the hidden input, swipe to open the scroll view, tap targets in the tab strip, no horizontal overflow |
 | `tests/13-send-permission.test.js` | `tmuxy pane send -t` into another pane — the question drawn over the target, allowed from the sending pane (keys land) or declined (nothing lands), a long multi-line send in its scrolling block, and `@tmuxy-send-ask off` / `@tmuxy-send-allow` skipping it with the unread mark left behind |
 | `tests/14-widget-authorisation.test.js` | SEC-18: a widget marker printed by a shell draws nothing; `tmuxy widget tree` does, and its exit takes the authorisation with it |
+| `tests/14-widget-preview.test.js` | `tmuxy open` on a markdown document (diagram and image drawn, followed as the file changes at the same scroll position, Ctrl+C back to a shell that still takes Ctrl+C, and the read refused afterwards) and on a page (framed offline with only its own folder's files, kept in place across a change, Ctrl+C from inside the frame) |
 | `tests/15-session-snapshot.test.js` | Session snapshots on a server of the test's own (own socket, port and state dir) — autosave follows split, float, tab, group, sidebar and restore tags; SIGTERM + `kill-server` + restart rebuilds the shape; `forget` needs `--force` |
 | `tests/snapshots/snapshot.test.js` | Read-only UI ↔ tmux comparison, no interactions |
 

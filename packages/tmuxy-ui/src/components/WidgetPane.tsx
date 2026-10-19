@@ -12,9 +12,12 @@ import {
   useAppSelector,
   useAppSend,
   usePane,
+  useIsDragging,
   useIsPaneInActiveWindow,
+  useIsResizing,
   useIsSinglePane,
 } from '../machines/appHooks';
+import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
 import type { PaneId } from '../domain/ids';
 
 interface WidgetPaneProps {
@@ -28,6 +31,16 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   const definition = getWidget(widgetInfo.widgetName)!;
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  // A widget that embeds a frame (a page preview) swallows the mousedown that
+  // would otherwise activate its pane; this reads the focus change instead.
+  useFramedPaneFocus(paneId, wrapperRef);
+  // While a divider or a pane is being dragged, the gesture belongs to the app
+  // and to nothing inside a pane. Both hooks run every render — `||` between
+  // two hook calls makes the second one conditional.
+  const dragging = useIsDragging();
+  const resizing = useIsResizing();
+  const gestureInFlight = dragging || resizing;
 
   // The widget's own title when it declares one; without one the header
   // shows the pane's.
@@ -64,6 +77,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
 
   return (
     <div
+      ref={wrapperRef}
       className={`pane-wrapper ${isSinglePane ? 'pane-single' : ''}`}
       style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
       role="group"
@@ -75,7 +89,21 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       }}
     >
       <PaneHeader paneId={paneId} titleOverride={widgetTitle} widgetName={widgetInfo.widgetName} />
-      <div className="pane-content pane-content-widget" style={{ flex: 1, overflow: 'hidden' }}>
+      {/* `pointer-events: none` for the length of a drag or a resize, because
+          an embedded frame captures the pointer the moment it crosses into the
+          pane: the `mousemove`s stop reaching the window listener the gesture
+          runs on, so the divider stops following the cursor — and the
+          `mouseup` is swallowed too, leaving the resize stuck on until some
+          later click lands outside a frame. Nothing inside a pane needs the
+          pointer while the app is already using it. */}
+      <div
+        className="pane-content pane-content-widget"
+        style={{
+          flex: 1,
+          overflow: 'hidden',
+          pointerEvents: gestureInFlight ? 'none' : undefined,
+        }}
+      >
         <WidgetComponent paneId={paneId} lines={widgetInfo.contentLines} />
       </div>
     </div>

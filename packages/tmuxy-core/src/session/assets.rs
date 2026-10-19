@@ -128,6 +128,10 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../../bin/tmuxy/tmuxy-widget"),
     ),
     (
+        "tmuxy/tmuxy-widget-preview",
+        include_str!("../../../../bin/tmuxy/tmuxy-widget-preview"),
+    ),
+    (
         "tmuxy/tmuxy-widget-session",
         include_str!("../../../../bin/tmuxy/tmuxy-widget-session"),
     ),

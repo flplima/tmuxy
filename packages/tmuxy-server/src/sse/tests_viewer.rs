@@ -418,6 +418,10 @@ async fn a_viewer_is_served_the_reads_and_refused_everything_else() {
         serde_json::json!({ "cmd": "set_trace_enabled", "args": { "enabled": true } }),
         serde_json::json!({ "cmd": "set_trace_level", "args": { "level": "debug" } }),
         serde_json::json!({ "cmd": "get_trace_settings" }),
+        // A preview reads a file on the server's disk; a viewer is shown the
+        // session's screen, not its files.
+        serde_json::json!({ "cmd": "read_preview", "args": { "paneId": "%1" } }),
+        serde_json::json!({ "cmd": "read_preview", "args": { "paneId": "%1", "path": "a.css" } }),
     ] {
         assert!(
             serve_viewer(parse(body.clone()), "watched", &viewer)

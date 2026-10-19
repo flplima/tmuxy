@@ -47,6 +47,8 @@ async fn a_read_only_server_refuses_every_write() {
         r#"{"cmd":"set_send_ask","args":{"enabled":false}}"#,
         // A read, but one that answers with the server's home path.
         r#"{"cmd":"get_trace_settings"}"#,
+        // A read of a file on the server's disk.
+        r#"{"cmd":"read_preview","args":{"paneId":"%1"}}"#,
     ] {
         let response = app
             .clone()
@@ -78,6 +80,118 @@ async fn a_read_only_server_refuses_every_write() {
         .unwrap();
     let response = app.clone().oneshot(trace).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    // Nor a preview's page, staged or served.
+    for method in ["GET", "POST"] {
+        let request = Request::builder()
+            .method(method)
+            .uri("/api/preview/1")
+            .header("host", "localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::from("<p>x</p>"))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method}");
+    }
+}
+
+fn preview_page_request(site: &'static str) -> Request<Body> {
+    Request::get("/api/preview/7?v=1")
+        .header("host", "localhost:9000")
+        .header("sec-fetch-site", site)
+        .header("sec-fetch-dest", "iframe")
+        .body(Body::empty())
+        .unwrap()
+}
+
+/// A preview's page is served under its own policy whoever loads it: an
+/// opaque origin (`sandbox` without `allow-same-origin`), offline unless the
+/// preview was opened with `--net`, never sniffed or cached.
+#[tokio::test]
+async fn a_staged_page_is_served_sandboxed_and_offline() {
+    let state = Arc::new(AppState::new());
+    state
+        .preview_pages
+        .stage(
+            tmuxy_core::PaneId::parse("%7").unwrap(),
+            "<h1>page</h1>".into(),
+            false,
+        )
+        .unwrap();
+    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, false).with_state(state);
+
+    let response = app
+        .clone()
+        .oneshot(preview_page_request("same-origin"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let csp = header("content-security-policy");
+    assert!(csp.starts_with("sandbox allow-scripts;"), "{csp}");
+    assert!(!csp.contains("allow-same-origin"), "{csp}");
+    assert!(csp.contains("connect-src 'none'"), "{csp}");
+    assert_eq!(header("x-content-type-options"), "nosniff");
+    assert_eq!(header("cache-control"), "no-store");
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(&body[..], b"<h1>page</h1>");
+
+    // Asked for from the page itself — an opaque origin, so `cross-site` —
+    // or any other page, the guard refuses it like every API route.
+    let response = app
+        .clone()
+        .oneshot(preview_page_request("cross-site"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // A pane with nothing staged has no page.
+    let missing = Request::get("/api/preview/8")
+        .header("host", "localhost:9000")
+        .header("sec-fetch-site", "same-origin")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(missing).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// Staging asks tmux whether the pane is a preview at all; with no session
+/// to ask, nothing is staged.
+#[tokio::test]
+async fn a_page_is_not_staged_for_a_pane_tmux_has_not_authorised() {
+    let state = Arc::new(AppState::new());
+    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, false).with_state(state.clone());
+    let request = Request::post("/api/preview/3")
+        .header("host", "localhost:9000")
+        .header("origin", "http://localhost:9000")
+        .header("sec-fetch-site", "same-origin")
+        .body(Body::from("<script>evil()</script>"))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Nor from a page on another origin, which the guard turns away first.
+    let forged = Request::post("/api/preview/3")
+        .header("host", "localhost:9000")
+        .header("origin", "https://evil.example")
+        .header("sec-fetch-site", "cross-site")
+        .header("content-type", "text/plain")
+        .body(Body::from("<script>evil()</script>"))
+        .unwrap();
+    let response = app.oneshot(forged).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(state
+        .preview_pages
+        .page(&tmuxy_core::PaneId::parse("%3").unwrap())
+        .is_none());
 }
 
 /// The pictures that are part of the screen still have a route on a
@@ -151,6 +265,7 @@ const COVERED_ROUTES: &[(&str, &str)] = &[
     ("/commands", "/commands"),
     ("/trace", "/trace"),
     ("/api/images/{pane_id}/{image_id}", "/api/images/1/0"),
+    ("/api/preview/{pane_id}", "/api/preview/1"),
 ];
 
 /// A request for `route` in the shape a page on another origin sends one.

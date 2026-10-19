@@ -6,6 +6,7 @@
 
 import { createContext } from 'react';
 import type { AppMachineActor } from './app/appMachine';
+import type { AppRuntime } from '../infra/runtime';
 
 export interface AppConfig {
   /** When true, wheel events on panes with no scrollback bubble to the parent page */
@@ -29,3 +30,11 @@ export interface AppConfig {
 export const AppConfigContext = createContext<AppConfig>({});
 
 export const AppActorContext = createContext<AppMachineActor | null>(null);
+
+/**
+ * The app's Effect runtime, for a component that has to ASK the backend
+ * something and wait for the answer — a `preview` widget reading its file —
+ * without the answer passing through the machine, which carries no payloads
+ * a trace should not see and no documents megabytes long.
+ */
+export const AppRuntimeContext = createContext<AppRuntime | null>(null);
