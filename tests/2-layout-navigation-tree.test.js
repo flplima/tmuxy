@@ -24,7 +24,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix t opens fixed sidebar → tree shows tabs/panes → focus + Enter activates a tab → l blurs → q closes', async () => {
+  test('prefix t opens fixed sidebar → tree shows tabs/panes → focus + Enter activates a tab and hands it the keyboard → l blurs → q closes', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -212,14 +212,13 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     // on a session row and fire SWITCH_SESSION — silently moving the whole
     // client to another session mid-test. The title focuses the column and
     // does nothing else.
-    await ctx.page.click('[data-testid="sidebar-title-left"] .sidebar-title-text');
-    await waitForCondition(
-      ctx.page,
-      async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused === true),
-      5000,
-      'leftSidebarFocused set after click',
-    );
+    const sidebarFocused = () =>
+      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused);
+    const focusTree = async (label) => {
+      await ctx.page.click('[data-testid="sidebar-title-left"] .sidebar-title-text');
+      await waitForCondition(ctx.page, async () => (await sidebarFocused()) === true, 5000, label);
+    };
+    await focusTree('leftSidebarFocused set after click');
 
     // Give the keyboard actor time to process UPDATE_LEFT_SIDEBAR_FOCUSED (async
     // message from XState, may lag the context update).
@@ -305,21 +304,25 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       10000,
       'tree Enter to activate the first window',
     );
+    // Activating a row hands the keyboard to what it picked, the tab's pane.
+    await waitForCondition(
+      ctx.page,
+      async () => (await sidebarFocused()) === false,
+      5000,
+      'the tree to hand the keyboard to the tab it activated',
+    );
 
     // Step 6: `l` (nav right, out of the column) blurs the tree — the column
     // stays open, focus returns to the panes. Escape is deliberately not a
     // sidebar key, so it must leave the focus where it is.
+    await focusTree('tree focused again before Escape');
     await ctx.page.keyboard.press('Escape');
     await afterFrames(ctx.page);
-    const focusedAfterEscape = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.leftSidebarFocused,
-    );
-    expect(focusedAfterEscape).toBe(true);
+    expect(await sidebarFocused()).toBe(true);
     await ctx.page.keyboard.press('l');
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused === false),
+      async () => (await sidebarFocused()) === false,
       5000,
       'leftSidebarFocused cleared after l',
     );
@@ -337,14 +340,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
 
     // Step 7: `q` from inside the focused tree closes the sidebar — the
     // column is removed and the toggle returns to its unpressed state.
-    await ctx.page.click('[data-testid="sidebar-title-left"] .sidebar-title-text');
-    await waitForCondition(
-      ctx.page,
-      async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused === true),
-      5000,
-      'tree focused again before q',
-    );
+    await focusTree('tree focused again before q');
     await ctx.page.keyboard.press('q');
     await ctx.page.waitForFunction(() => !document.querySelector('.sidebar-column-left'), {
       timeout: 10000,
