@@ -337,8 +337,15 @@ describe('Scenario 24: Session Switcher (web)', () => {
         20000,
         'the page to move to the session New Session made',
       );
-      // tmux holds it, and the page shows its own single pane, not the first's.
-      expect(tmuxExec(`list-sessions -F '#{session_name}'`).split('\n')).toContain(created);
+      // tmux holds it — the page names it as soon as it switches, which can be
+      // before tmux lists it — and the page shows its own single pane, not
+      // the first's.
+      await waitForCondition(
+        ctx.page,
+        async () => tmuxExec(`list-sessions -F '#{session_name}'`).split('\n').includes(created),
+        15000,
+        () => `tmux to list ${created}`,
+      );
       await waitForCondition(
         ctx.page,
         async () => {
