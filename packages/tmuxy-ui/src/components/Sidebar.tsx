@@ -40,7 +40,6 @@ const SIDES = {
     selectPane: selectLeftSidebarPane,
     focusEvent: 'FOCUS_LEFT_SIDEBAR',
     toggleEvent: 'TOGGLE_LEFT_SIDEBAR',
-    closeLabel: 'Close the tree sidebar',
     testId: 'sidebar-content',
   },
   right: {
@@ -48,7 +47,6 @@ const SIDES = {
     selectPane: selectRightSidebarPane,
     focusEvent: 'FOCUS_RIGHT_SIDEBAR',
     toggleEvent: 'TOGGLE_RIGHT_SIDEBAR',
-    closeLabel: 'Close the pinned terminal',
     testId: 'right-sidebar-content',
   },
 } as const;
@@ -62,11 +60,10 @@ export const Sidebar = memo(function Sidebar({ side }: { side: 'left' | 'right' 
 });
 
 function SidebarInner({ side }: { side: 'left' | 'right' }) {
-  const { selectPane, focusEvent, toggleEvent, closeLabel, testId } = SIDES[side];
+  const { selectPane, focusEvent, toggleEvent, testId } = SIDES[side];
   const send = useAppSend();
   const layout = useAppSelector(selectSidebarLayout);
   const open = side === 'left' ? layout.leftOpen : layout.rightOpen;
-  const closing = side === 'left' ? layout.leftClosing : layout.rightClosing;
   const width = side === 'left' ? layout.leftWidth : layout.rightWidth;
   const focused = useAppSelector((ctx) =>
     side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
@@ -79,21 +76,17 @@ function SidebarInner({ side }: { side: 'left' | 'right' }) {
   const handleFocus = useCallback(() => send({ type: focusEvent }), [send, focusEvent]);
   const handleClose = useCallback(() => send({ type: toggleEvent }), [send, toggleEvent]);
 
-  if (!open && !closing) return null;
+  if (!open) return null;
 
   return (
     <SidebarColumn
       side={side}
       width={width}
-      closing={closing}
-      moving={layout.motion}
-      overlay={layout.overlay}
       focused={focused}
       pane={pane}
       startFailed={startFailed}
       onFocus={handleFocus}
       onClose={handleClose}
-      closeLabel={closeLabel}
       testId={testId}
     />
   );

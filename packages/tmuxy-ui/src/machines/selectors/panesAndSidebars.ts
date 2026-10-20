@@ -3,12 +3,7 @@ import type { AppMachineContext } from '../types/context';
 import type { FloatPaneState, PaneGroup } from '../types/domain';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../../utils/memoize';
-import {
-  DEFAULT_CHAR_WIDTH,
-  LEFT_SIDEBAR_COLS,
-  RIGHT_SIDEBAR_COLS,
-  SIDEBAR_OVERLAY_MIN_COLS,
-} from '../constants';
+import { DEFAULT_CHAR_WIDTH, LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../constants';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaneTree } from '../../domain/wire';
 import { previewInputs, selectPreviewPanes, selectSidebarCellMetrics } from './layout';
@@ -68,107 +63,48 @@ export const selectLeftSidebarPane = createMemoizedSelector(
 );
 
 /**
- * The width the pane area will have once the columns have finished moving, in
- * pixels — the body minus its padding minus whatever ends up docked beside the
- * grid.
- *
- * Null when there is nothing to predict: the body has not been measured, or a
- * column overlays the panes instead of docking (the pane area's width does not
- * change then).
+ * The width the pane area has with the columns that are open, in pixels — the
+ * body minus its padding minus the columns docked beside the grid. Null before
+ * the body has been measured.
  */
 export function selectSettledPaneWidth(context: AppMachineContext): number | null {
   if (context.bodyWidth <= 0) return null;
   const layout = selectSidebarLayout(context);
-  if (layout.overlay) return null;
   const docked =
     (layout.leftOpen ? layout.leftWidth : 0) + (layout.rightOpen ? layout.rightWidth : 0);
   return context.bodyWidth - 2 * CONTAINER_PADDING_X - docked;
 }
 
+/**
+ * The two columns: which are open, and how wide. A column is always docked
+ * beside the grid, whatever the window's size, and opens and shuts at once.
+ */
 export const selectSidebarLayout = createMemoizedSelector(
   (ctx: AppMachineContext) =>
     [
       ctx.leftSidebarOpen,
       ctx.rightSidebarOpen,
-      ctx.leftSidebarFixed,
-      ctx.rightSidebarFixed,
-      ctx.leftSidebarClosing,
-      ctx.rightSidebarClosing,
-      ctx.sidebarMotion,
-      ctx.containerWidth,
-      ctx.bodyWidth,
       ctx.charWidth,
       ctx.cellGap,
       ctx.baseFontSize,
-      ctx.readOnly,
       ctx.windows,
       ctx.sidebarColsPreview,
     ] as const,
   (
     context: AppMachineContext,
-  ): {
-    leftOpen: boolean;
-    rightOpen: boolean;
-    /** Closed, but still rendered while it slides shut. */
-    leftClosing: boolean;
-    rightClosing: boolean;
-    /** A column is sliding; the columns carry their transition while it is. */
-    motion: boolean;
-    /** True when the open column overlays the panes instead of docking. */
-    overlay: boolean;
-    leftWidth: number;
-    rightWidth: number;
-  } => {
+  ): { leftOpen: boolean; rightOpen: boolean; leftWidth: number; rightWidth: number } => {
     const charWidth = context.charWidth || DEFAULT_CHAR_WIDTH;
     const draggedCols = (side: 'left' | 'right') => {
       const preview = context.sidebarColsPreview;
       if (preview && preview.side === side) return preview.cols;
       return context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
     };
-    const leftWidth = (draggedCols('left') ?? LEFT_SIDEBAR_COLS) * charWidth;
-    const rightWidth =
-      (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * selectSidebarCellMetrics(context).cellWidth;
-    const { leftSidebarOpen: leftOpen, leftSidebarClosing: leftClosing } = context;
-    let { rightSidebarOpen: rightOpen, rightSidebarClosing: rightClosing } = context;
-
-    const docked =
-      (leftOpen || leftClosing ? leftWidth : 0) + (rightOpen || rightClosing ? rightWidth : 0);
-    const bodyWidth =
-      context.bodyWidth > 0
-        ? context.bodyWidth
-        : context.containerWidth + 2 * CONTAINER_PADDING_X + docked;
-    const remaining = bodyWidth - 2 * CONTAINER_PADDING_X - docked;
-    const freed =
-      !context.readOnly &&
-      (((leftOpen || leftClosing) && !context.leftSidebarFixed) ||
-        ((rightOpen || rightClosing) && !context.rightSidebarFixed));
-    const overlay = docked > 0 && (freed || remaining / charWidth <= SIDEBAR_OVERLAY_MIN_COLS);
-
-    if (overlay && leftOpen && rightOpen) rightOpen = false;
-    if (overlay && leftOpen && rightClosing) rightClosing = false;
-
-    if (overlay && context.readOnly) {
-      return {
-        leftOpen: false,
-        rightOpen: false,
-        leftClosing: false,
-        rightClosing: false,
-        motion: context.sidebarMotion,
-        overlay,
-        leftWidth,
-        rightWidth,
-      };
-    }
-
     return {
-      leftOpen,
-      rightOpen,
-      leftClosing,
-      rightClosing,
-      motion: context.sidebarMotion,
-      overlay,
-      leftWidth,
-      rightWidth,
+      leftOpen: context.leftSidebarOpen,
+      rightOpen: context.rightSidebarOpen,
+      leftWidth: (draggedCols('left') ?? LEFT_SIDEBAR_COLS) * charWidth,
+      rightWidth:
+        (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * selectSidebarCellMetrics(context).cellWidth,
     };
   },
 );

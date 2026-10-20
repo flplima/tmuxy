@@ -145,27 +145,11 @@ export const TreeSitsOnTheChrome: Story = {
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
-    const column = document.querySelector('.sidebar-column-left') as HTMLElement;
     const transparent = 'rgba(0, 0, 0, 0)';
 
-    // Over the panes, the column brings the window's ground with it — the
-    // panes must not read through the tree.
-    await waitFor(() => expect(column).toHaveClass('is-overlay'));
-    const windowGround = document.createElement('span');
-    windowGround.style.backgroundColor = 'rgb(var(--window-bg-rgb))';
-    document.body.appendChild(windowGround);
-    expect(getComputedStyle(column).backgroundColor).toBe(
-      getComputedStyle(windowGround).backgroundColor,
-    );
-    windowGround.remove();
-
-    // Fixed (`prefix s` on the open column), it docks beside the grid, and
-    // from the tree up to and including the column every element is
-    // see-through: a sidebar is chrome, so the window's ground runs on behind
-    // it and only the panes are dark.
-    await userEvent.keyboard('{Control>}a{/Control}');
-    await userEvent.keyboard('s');
-    await waitFor(() => expect(column).not.toHaveClass('is-overlay'));
+    // Docked beside the grid, from the tree up to and including the column
+    // every element is see-through: a sidebar is chrome, so the window's
+    // ground runs on behind it and only the panes are dark.
     let el: HTMLElement | null = tree;
     while (el && !el.classList.contains('sidebar-column')) {
       expect(getComputedStyle(el).backgroundColor, el.className).toBe(transparent);

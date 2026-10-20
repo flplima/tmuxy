@@ -42,52 +42,6 @@
   -webkit-user-select: none;
 }
 
-/* ---- The slide ---- */
-/* Opening and closing move the column's box between zero and its width; as a
-   flex sibling of the pane container, that is also what slides the grid's
-   width. Only a column in motion carries the transition (`.is-moving`, held by
-   the machine for the slide's duration): a column that is already open when
-   the app loads, or whose width the user drags, must not ease into place. */
-.sidebar-column.is-moving {
-  transition:
-    flex-basis var(--transition-sidebar),
-    width var(--transition-sidebar),
-    min-width var(--transition-sidebar),
-    max-width var(--transition-sidebar);
-}
-
-/* Where an opening column starts from: the browser transitions from these
-   values on the column's first frame. */
-@starting-style {
-  .sidebar-column.is-moving {
-    flex-basis: 0;
-    width: 0;
-    min-width: 0;
-    max-width: 0;
-  }
-}
-
-/* A closing column is still rendered (see the machine's sidebarMotion) at a
-   box going to zero. */
-.sidebar-column.is-closing {
-  flex-basis: 0;
-  width: 0;
-  min-width: 0;
-  max-width: 0;
-}
-
-/* The content keeps the column's full width throughout, anchored to the
-   column's INNER edge, so it slides with the divider instead of rewrapping to
-   every in-between width — a tree column glides in from the left, the dock
-   from the right. */
-.sidebar-column > .sidebar-body {
-  width: var(--sidebar-width);
-}
-
-.sidebar-column-left > .sidebar-body {
-  align-self: flex-end;
-}
-
 /* A column is chrome: it paints no ground of its own, so the window's grey
    runs on behind the tree and only the panes are dark. The pinned terminal
    shows whether it has the keyboard the way a pane's text does, from the same
@@ -135,32 +89,6 @@
   border-left-color: var(--pane-focus-border);
 }
 
-/* Narrow windows: the column floats over the panes and the tab strip above
-   them rather than taking width out of a grid that has none to give. It starts
-   at the top of the app chrome, so its own header lands where the tab strip
-   was. */
-.sidebar-column.is-overlay {
-  position: absolute;
-  top: calc(-1 * var(--statusbar-height));
-  bottom: 0;
-  /* Beats the `height: 100%` above, which would otherwise win over the
-     top/bottom pair and leave the column a header-row short at the bottom. */
-  height: auto;
-  z-index: 30;
-  /* Docked, a column is chrome and lets the window's ground show through;
-     over the panes it has to bring that ground with it, opaque, or the panes
-     would read through the tree. */
-  background-color: rgb(var(--window-bg-rgb));
-}
-
-.sidebar-column-left.is-overlay {
-  left: 0;
-}
-
-.sidebar-column-right.is-overlay {
-  right: 0;
-}
-
 /* The drag strip on a column's inner edge. Invisible until grabbed — it sits on
    the divider, and a permanently drawn grip would read as a second border. Wider
    than the 1px divider so it is actually catchable with a mouse. Kept just
@@ -190,76 +118,6 @@
 .sidebar-resize-handle.is-dragging {
   background: var(--accent-blue-light);
   opacity: 0.35;
-}
-
-.sidebar-backdrop {
-  position: absolute;
-  inset: calc(-1 * var(--statusbar-height)) 0 0;
-  background: rgb(0 0 0 / 55%);
-  z-index: 29;
-  transition: opacity var(--transition-sidebar);
-}
-
-@starting-style {
-  .sidebar-backdrop {
-    opacity: 0;
-  }
-}
-
-.sidebar-backdrop.is-closing {
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* Only an OVERLAYING column has a header — a docked one puts its title in the
-   app header instead. Exactly one terminal row tall, like a pane header. */
-.sidebar-header {
-  flex: 0 0 var(--statusbar-height);
-  height: var(--statusbar-height);
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xl);
-  padding: 0 var(--spacing-2xl);
-  font-family: var(--font-mono);
-  font-size: var(--tmuxy-sidebar-font-size, calc(var(--tmuxy-font-size, 15px) * 0.8));
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border-medium);
-}
-
-/* min-width:0 is what actually enables the ellipsis: a flex item defaults to
-   min-width:auto and refuses to shrink below its text, so without it a long
-   title overflows the column instead of truncating. */
-/* Holds the column's SidebarTitle, which dims itself while the column does
-   not have the keyboard. */
-.sidebar-header-title {
-  display: flex;
-  justify-content: center;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.sidebar-header-close {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  color: inherit;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.sidebar-header-close:hover {
-  background: var(--bg-highlight);
 }
 
 /* Basis 0, not auto: the body's height is the column's free space, never its

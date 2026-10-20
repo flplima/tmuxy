@@ -123,15 +123,14 @@ async function openFloatFromCli(ctx) {
 // ==================== Scenario 6e: Pinned Terminal Dock ====================
 
 /**
- * Watch a sidebar column and the pane container slide: after `trigger`, sample
+ * Watch a sidebar column and the pane container change: after `trigger`, sample
  * both widths on every frame from the first frame the column's width changes
  * until `settleMs` after it, and return the series — so a test can assert the
- * column actually eased between its two sizes (several distinct in-between
- * widths, monotonic) and the grid's width moved with it. The trigger is a tmux
- * keybinding round trip, so the first movement can be a while coming; sampling
- * gives up after `timeoutMs` without one.
+ * column went straight from one width to the other, with no frame in between.
+ * The trigger is a tmux keybinding round trip, so the first change can be a
+ * while coming; sampling gives up after `timeoutMs` without one.
  */
-async function sampleSidebarSlide(
+async function sampleSidebarToggle(
   page,
   trigger,
   columnSelector,
@@ -257,16 +256,12 @@ async function cursorAnchorCenter(page, scopeSelector) {
 }
 
 /**
- * Why the series is NOT an eased slide (several distinct widths, never
- * reversing direction), or null when it is — so the failure shows the frames.
+ * Why the series is NOT a jump (one width, then the other, nothing between),
+ * or null when it is — so the failure shows the frames.
  */
-function slideProblem(series, direction) {
+function jumpProblem(series) {
   const distinct = [...new Set(series)];
-  const reversal = series.findIndex(
-    (v, i) => i > 0 && (direction > 0 ? v < series[i - 1] : v > series[i - 1]),
-  );
-  if (distinct.length < 3) return `only ${distinct.length} distinct widths: ${series.join(',')}`;
-  if (reversal !== -1) return `reversed at frame ${reversal}: ${series.join(',')}`;
+  if (distinct.length > 2) return `${distinct.length} distinct widths: ${series.join(',')}`;
   return null;
 }
 
@@ -280,9 +275,9 @@ module.exports = {
   CENTRE_TOLERANCE_PX,
   isCentred,
   openFloatFromCli,
-  sampleSidebarSlide,
+  sampleSidebarToggle,
   sampleCursorGlide,
   glidePositions,
   cursorAnchorCenter,
-  slideProblem,
+  jumpProblem,
 };

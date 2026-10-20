@@ -7,16 +7,12 @@
  * a shell; everything else about them — width, focus cue, the pane rendering
  * below — is the same, and lives here.
  *
- * Two layouts, chosen by `selectSidebarLayout`:
- *
- *  - DOCKED (the normal case): a real flex sibling of the pane area, NOT an
- *    overlay. Because the pane container flexes into the remaining width, its
- *    ResizeObserver reports the reduced size and tmux re-tiles the panes to fit;
- *    panes never render underneath a sidebar. The column carries no header of
- *    its own — its title lives in the app header, aligned to the same divider.
- *  - OVERLAY (a window too narrow to share): the column floats over the panes
- *    and the tab strip above them, with a backdrop, and grows its own one-row
- *    header — there is no app-header room left to put the title in.
+ * The column is always docked: a real flex sibling of the pane area, whatever
+ * the window's size. Because the pane container flexes into the remaining
+ * width, its ResizeObserver reports the reduced size and tmux re-tiles the
+ * panes to fit; panes never render underneath a sidebar. The column carries no
+ * header of its own — its title lives in the app header, aligned to the same
+ * divider. It opens and shuts at once.
  *
  * Geometry is a contract with the backend: `apply_client_size`
  * (tmuxy-core/src/control_mode/monitor.rs) sizes a `sidebar-*` window to
@@ -28,25 +24,17 @@
 import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { SidebarTree } from './SidebarTree';
-import { SidebarTitle } from './SidebarTitle';
 import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarCellMetrics } from '../machines/selectors/layout';
 import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../domain/client';
-import { Tooltip } from './Tooltip';
 
 interface SidebarColumnProps {
   /** Which edge the column docks to; drives the border and focus cue side. */
   side: 'left' | 'right';
   /** Column width in pixels, derived from the cell grid by the caller. */
   width: number;
-  /** Closed and sliding shut: rendered at its full width inside a box going to zero. */
-  closing: boolean;
-  /** A slide is in progress, so the column carries its width transition. */
-  moving: boolean;
-  /** True while the column floats over the panes instead of docking beside them. */
-  overlay: boolean;
   focused: boolean;
   /** The column's pane, or null while its window is still being broken out. */
   pane: TmuxPane | null;
@@ -54,25 +42,19 @@ interface SidebarColumnProps {
   startFailed: boolean;
   /** Focus request from a click anywhere in the column. */
   onFocus: () => void;
-  /** The overlay header's close button (and the failure state's). */
+  /** The failure state's close button. */
   onClose: () => void;
-  /** Tooltip/aria text for the close button (the two mean different things). */
-  closeLabel: string;
   testId: string;
 }
 
 export const SidebarColumn = memo(function SidebarColumn({
   side,
   width,
-  closing,
-  moving,
-  overlay,
   focused,
   pane,
   startFailed,
   onFocus,
   onClose,
-  closeLabel,
   testId,
 }: SidebarColumnProps) {
   const handleClick = useCallback(
@@ -96,49 +78,17 @@ export const SidebarColumn = memo(function SidebarColumn({
         } as CSSProperties)
       : undefined;
 
-  const handleClose = useCallback(
-    (e: React.MouseEvent) => {
-      // Without this the click also lands on the column and focuses what we
-      // are about to close.
-      e.stopPropagation();
-      onClose();
-    },
-    [onClose],
-  );
-
   return (
     <aside
-      className={`sidebar-column sidebar-column-${side}${focused ? ' is-focused' : ''}${
-        overlay ? ' is-overlay' : ''
-      }${moving ? ' is-moving' : ''}${closing ? ' is-closing' : ''}`}
+      className={`sidebar-column sidebar-column-${side}${focused ? ' is-focused' : ''}`}
       // The width is a custom property, not the width itself, so the
-      // stylesheet can pin the column to it on all four axes (`flex: 0 0`
+      // stylesheet can pin the column to it on all four axes: `flex: 0 0`
       // alone still lets a wide child stretch the column, silently desyncing
-      // it from the cell count the backend sized the pane to) AND drive it to
-      // zero for the slide — an inline width would beat both.
+      // it from the cell count the backend sized the pane to.
       style={{ '--sidebar-width': `${width}px`, ...cellVars } as CSSProperties}
       onClick={handleClick}
       data-testid={testId}
     >
-      {overlay && (
-        <div className="sidebar-header">
-          {/* The same title the app header carries for a docked column, the
-              session switcher on the left one included. */}
-          <span className="sidebar-header-title">
-            <SidebarTitle side={side} />
-          </span>
-          <Tooltip label={closeLabel}>
-            <button
-              type="button"
-              className="sidebar-header-close"
-              aria-label={closeLabel}
-              onClick={handleClose}
-            >
-              <SidebarGlyph side={side} />
-            </button>
-          </Tooltip>
-        </div>
-      )}
       <div className="sidebar-body">
         <SidebarPane
           side={side}

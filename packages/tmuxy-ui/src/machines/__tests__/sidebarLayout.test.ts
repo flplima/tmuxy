@@ -1,13 +1,10 @@
 /**
- * The docked/overlay decision must be a pure function of the window's body
- * width — never of the pane container's width, which itself depends on the
- * decision. The old selector read the container, so at 600–1150 px the column
- * flipped between docked and overlay on every layout pass and tmux re-tiled
- * the panes each time.
+ * A sidebar column is always docked beside the grid, at any window width: the
+ * layout is which columns are open and how wide they are, nothing else.
  */
 import { describe, expect, it } from 'vitest';
 import { wid } from '../../test/wire';
-import { selectSidebarLayout } from '../selectors/panesAndSidebars';
+import { selectSettledPaneWidth, selectSidebarLayout } from '../selectors/panesAndSidebars';
 import { createInitialContext } from '../app/context';
 import type { AppMachineContext } from '../types/context';
 import type { TmuxWindow } from '../../domain/client';
@@ -35,15 +32,8 @@ function sidebarWindow(side: 'left' | 'right', extra: Partial<TmuxWindow> = {}):
   };
 }
 
-/** Both columns fixed, so the width rule is what decides; a test frees one itself. */
 function ctx(overrides: Partial<AppMachineContext>): AppMachineContext {
-  return {
-    ...createInitialContext(),
-    charWidth: CHAR,
-    leftSidebarFixed: true,
-    rightSidebarFixed: true,
-    ...overrides,
-  };
+  return { ...createInitialContext(), charWidth: CHAR, ...overrides };
 }
 
 /** The pane container's content width for a body of `bodyWidth` with `dockedPx` taken by columns. */
@@ -51,87 +41,21 @@ const containerFor = (bodyWidth: number, dockedPx: number) =>
   bodyWidth - 2 * CONTAINER_PADDING_X - dockedPx;
 
 describe('selectSidebarLayout', () => {
-  it('docks a 30-col tree when the panes keep more than 60 columns', () => {
-    const body = 1280;
-    const layout = selectSidebarLayout(
-      ctx({
-        leftSidebarOpen: true,
-        windows: [sidebarWindow('left')],
-        bodyWidth: body,
-        containerWidth: containerFor(body, 30 * CHAR),
-      }),
-    );
-    expect(layout).toMatchObject({ leftOpen: true, overlay: false, leftWidth: 30 * CHAR });
-  });
-
-  it('overlays a column the user freed (prefix s s) even where it would dock', () => {
-    const body = 1280;
-    const layout = selectSidebarLayout(
-      ctx({
-        leftSidebarOpen: true,
-        leftSidebarFixed: false,
-        windows: [sidebarWindow('left')],
-        bodyWidth: body,
-        containerWidth: containerFor(body, 0),
-      }),
-    );
-    expect(layout).toMatchObject({ leftOpen: true, overlay: true });
-  });
-
-  it('overlays when the panes would be left with 60 columns or fewer', () => {
-    // 700 px: (700 − 24 − 270) / 9 ≈ 45 columns for the panes.
-    const body = 700;
-    const layout = selectSidebarLayout(
-      ctx({
-        leftSidebarOpen: true,
-        windows: [sidebarWindow('left')],
-        bodyWidth: body,
-        containerWidth: containerFor(body, 30 * CHAR),
-      }),
-    );
-    expect(layout.overlay).toBe(true);
-  });
-
-  it('gives the same answer whether the column is currently docked or overlaying', () => {
-    // The regression: in overlay the container is the full body width. If the
-    // selector read the container, this state would flip back to docked and
-    // the two would alternate forever.
-    const body = 700;
-    const base = { leftSidebarOpen: true, windows: [sidebarWindow('left')], bodyWidth: body };
-    const whileDocked = selectSidebarLayout(
-      ctx({ ...base, containerWidth: containerFor(body, 30 * CHAR) }),
-    );
-    const whileOverlaying = selectSidebarLayout(
-      ctx({ ...base, containerWidth: containerFor(body, 0) }),
-    );
-    expect(whileDocked.overlay).toBe(true);
-    expect(whileOverlaying.overlay).toBe(true);
-  });
-
-  it('shows only the tree when both columns would overlay', () => {
-    const body = 1000;
+  it.each([1280, 700, 400])('docks both columns, side by side, in a %ipx window', (body) => {
+    const docked = 30 * CHAR + 35 * CHAR;
     const layout = selectSidebarLayout(
       ctx({
         leftSidebarOpen: true,
         rightSidebarOpen: true,
         windows: [sidebarWindow('left'), sidebarWindow('right')],
         bodyWidth: body,
-        containerWidth: containerFor(body, 0),
+        containerWidth: containerFor(body, docked),
       }),
     );
-    expect(layout).toMatchObject({ overlay: true, leftOpen: true, rightOpen: false });
-  });
-
-  it('falls back to the container plus docked columns before the body is measured', () => {
-    const layout = selectSidebarLayout(
-      ctx({
-        leftSidebarOpen: true,
-        windows: [sidebarWindow('left')],
-        bodyWidth: 0,
-        containerWidth: containerFor(1280, 30 * CHAR),
-      }),
+    expect(layout).toMatchObject({ leftOpen: true, rightOpen: true, leftWidth: 30 * CHAR });
+    expect(selectSettledPaneWidth(ctx({ leftSidebarOpen: true, bodyWidth: body }))).toBe(
+      body - 2 * CONTAINER_PADDING_X - 30 * CHAR,
     );
-    expect(layout.overlay).toBe(false);
   });
 
   it('draws a dragged width from the window, and a live preview ahead of it', () => {

@@ -15,7 +15,6 @@ import {
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
 import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
-import { loadSidebarFixed } from '../../utils/sidebarDock';
 import { loadThemeFromStorage } from '../../utils/themeManager';
 
 /**
@@ -109,10 +108,8 @@ export const FIELD_OWNERS = {
 
   // ---- sidebars ----
   leftSidebarOpen: 'sidebars',
-  leftSidebarFixed: 'sidebars',
   leftSidebarFocused: 'sidebars',
   rightSidebarOpen: 'sidebars',
-  rightSidebarFixed: 'sidebars',
   rightSidebarFocused: 'sidebars',
   leftSidebarStartFailed: 'sidebars',
   rightSidebarStartFailed: 'sidebars',
@@ -120,9 +117,6 @@ export const FIELD_OWNERS = {
   rightSidebarStarting: 'sidebars',
   sidebarColsPreview: 'sidebars',
   dockRowsSent: 'sidebars',
-  sidebarMotion: 'sidebars',
-  leftSidebarClosing: 'sidebars',
-  rightSidebarClosing: 'sidebars',
   collapsedTabIds: 'sidebars',
 
   // ---- tabOverview ----
@@ -166,7 +160,6 @@ export const FIELD_OWNERS = {
  * not module load — which matters for tests that stub localStorage.
  */
 export function createInitialContext(): AppMachineContext {
-  const sidebarFixed = loadSidebarFixed();
   return {
     connected: false,
     error: null,
@@ -204,10 +197,8 @@ export function createInitialContext(): AppMachineContext {
     floatPanes: {},
     focusedFloatPaneId: null,
     leftSidebarOpen: false,
-    leftSidebarFixed: sidebarFixed.left,
     leftSidebarFocused: false,
     rightSidebarOpen: false,
-    rightSidebarFixed: sidebarFixed.right,
     rightSidebarFocused: false,
     leftSidebarStartFailed: false,
     rightSidebarStartFailed: false,
@@ -215,9 +206,6 @@ export function createInitialContext(): AppMachineContext {
     rightSidebarStarting: false,
     sidebarColsPreview: null,
     dockRowsSent: null,
-    sidebarMotion: false,
-    leftSidebarClosing: false,
-    rightSidebarClosing: false,
     collapsedTabIds: [],
     tabOverviewOpen: false,
     tabOverviewSelected: 0,

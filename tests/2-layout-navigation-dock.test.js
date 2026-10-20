@@ -21,8 +21,8 @@ const {
   cursorAnchorCenter,
   sampleCursorGlide,
   glidePositions,
-  sampleSidebarSlide,
-  slideProblem,
+  sampleSidebarToggle,
+  jumpProblem,
 } = require('./helpers/layout-helpers');
 
 describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
@@ -43,7 +43,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
 
     // Step 1: Open the dock via the real keybinding. First open also CREATES
     // its tmux window, so this covers the create path.
-    await openSidebarKeyboard(ctx.page, 'right', { fixed: true });
+    await openSidebarKeyboard(ctx.page, 'right');
 
     // Step 2: The column docks against the right edge of the viewport, full
     // height — a flex sibling of the pane area, not an overlay.
@@ -276,23 +276,22 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     expect(openAfterBlur).toBe(true);
 
     // Step 8: the header toggle HIDES the column but keeps the shell alive —
-    // prefix S reopens the same terminal, scrollback and all. Both ways the
-    // column SLIDES: its width eases to zero and back, and the pane
-    // container's width eases with it, rather than either jumping between
-    // the two layouts.
+    // prefix S reopens the same terminal, scrollback and all. Both ways it is
+    // instant: the column and the pane container go straight from one width
+    // to the other, with no frame in between.
     const dockWidth = await ctx.page.evaluate(() =>
       Math.round(
         document.querySelector('[data-testid="right-sidebar-content"]').getBoundingClientRect()
           .width,
       ),
     );
-    const closing = await sampleSidebarSlide(
+    const closing = await sampleSidebarToggle(
       ctx.page,
       () => ctx.page.click('button[aria-label="Toggle terminal sidebar"]'),
       '[data-testid="right-sidebar-content"]',
     );
-    expect(slideProblem(closing.column, -1)).toBeNull();
-    expect(slideProblem(closing.container, +1)).toBeNull();
+    expect(jumpProblem(closing.column)).toBeNull();
+    expect(jumpProblem(closing.container)).toBeNull();
     expect(closing.column[0]).toBe(dockWidth);
     expect(closing.column[closing.column.length - 1]).toBe(0);
     await ctx.page.waitForFunction(
@@ -304,13 +303,13 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     );
     expect(windowSurvivedHide).toBe(true);
 
-    const opening = await sampleSidebarSlide(
+    const opening = await sampleSidebarToggle(
       ctx.page,
       () => sendPrefixCommand(ctx.page, 'S', { shift: true }),
       '[data-testid="right-sidebar-content"]',
     );
-    expect(slideProblem(opening.column, +1)).toBeNull();
-    expect(slideProblem(opening.container, -1)).toBeNull();
+    expect(jumpProblem(opening.column)).toBeNull();
+    expect(jumpProblem(opening.container)).toBeNull();
     expect(opening.column[opening.column.length - 1]).toBe(dockWidth);
     await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 10000 });
     await waitForCondition(
@@ -362,7 +361,7 @@ describe('Scenario 6l: The tree lists panes in grid order', () => {
 
     const treeOpen = () =>
       ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
-    if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
+    if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left');
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
     // What the grid shows, left to right, and what the tree lists.

@@ -18,9 +18,9 @@ Both sidebars are **chrome windows of exactly the same shape as a float**: a sin
 
 The left column's pane carries **no content**: `bin/tmuxy/tmuxy-widget-tree` prints the widget marker and blocks, and the UI renders the registered `tree` widget in place of the pane's terminal, deriving the tree from state it already holds. The pane exists so the column has a real pane identity — something `ctrl+hjkl` and `tmuxy nav` can move into, and the backend can size — rather than being invisible to tmux entirely.
 
-Both columns are normally real flex siblings of the pane area, so an open sidebar shrinks the pane container and tmux re-tiles the panes into what is left. Below `SIDEBAR_OVERLAY_MIN_COLS` of terminal content left for the tab, a column stops docking and overlays the panes with a backdrop instead, and only one column may be open (`selectSidebarLayout`).
+Both columns are always real flex siblings of the pane area, whatever the window's size, so an open sidebar shrinks the pane container and tmux re-tiles the panes into what is left (`selectSidebarLayout`). A column opens and shuts at once, with no slide; `prefix s` / `prefix S` toggle them.
 
-Neither column draws a header while docked — its title lives in the app header, in a cluster sized to exactly that column's width so the two dividers line up. An overlaying column grows its own header, because there is no app-header room left beside it.
+Neither column draws a header — its title lives in the app header, in a cluster sized to exactly that column's width so the two dividers line up.
 
 Three consequences for the backend:
 

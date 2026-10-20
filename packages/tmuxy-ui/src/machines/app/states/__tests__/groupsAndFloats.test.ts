@@ -1,12 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../../test/wire';
 import { assign } from 'xstate';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from '../groupsAndFloats';
 import { sidebarsGlobalEvents, sidebarsIdleEvents } from '../sidebars';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
 import { sidebarsActions } from '../../actions/sidebars';
-import { SIDEBAR_MOTION_SETTLE_MS } from '../../../constants';
-import { createInitialContext } from '../../context';
 const groupsAndFloatsGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { FloatPaneState } from '../../../types/domain';
@@ -106,24 +104,9 @@ describe('groupsAndFloats state', () => {
     expect(ctx.focusedFloatPaneId).toBeNull();
   });
 
-  it('the sidebar key on an open column docks it, and a reload finds it docked', () => {
-    localStorage.clear();
-    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
-      leftSidebarOpen: true,
-    });
-    let ctx = sendAndGetContext(actor, { type: 'SIDEBAR_KEY', side: 'left' });
-    expect(ctx.leftSidebarFixed).toBe(true);
-    expect(ctx.rightSidebarFixed).toBe(false);
-    expect(createInitialContext().leftSidebarFixed).toBe(true);
-
-    ctx = sendAndGetContext(actor, { type: 'SIDEBAR_KEY', side: 'left' });
-    expect(ctx.leftSidebarFixed).toBe(false);
-    expect(createInitialContext().leftSidebarFixed).toBe(false);
-  });
-
-  describe('sidebar motion', () => {
+  describe('sidebar toggles', () => {
     // The toggles also handle SET_TARGET_SIZE here so the test can see the
-    // settled size the motion predicts (appMachine owns the real handler).
+    // size they ask for (appMachine owns the real handler).
     const withSizeRecorder = {
       on: { ...groupsAndFloatsState.on, SET_TARGET_SIZE: { actions: 'recordTargetSize' } },
     } as const;
@@ -135,10 +118,8 @@ describe('groupsAndFloats state', () => {
       }),
     };
     // A 1000px body, 10px cells, 24px rows: the grid is 100 cols wide with
-    // nothing docked and 35 narrower once the 35-col dock is open (fixed, so
-    // it docks rather than overlaying).
+    // nothing docked and 35 narrower once the 35-col dock is open.
     const measured = {
-      rightSidebarFixed: true,
       bodyWidth: 1000 + 24,
       containerWidth: 1000,
       containerHeight: 480,
@@ -148,56 +129,24 @@ describe('groupsAndFloats state', () => {
       targetRows: 20,
     };
 
-    it('opening the dock sizes the grid for the settled layout at once and settles after the slide', () => {
-      vi.useFakeTimers();
-      try {
-        const actor = mountState(withSizeRecorder, actions, groupsAndFloatsGuards, measured);
-        let ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
-        expect(ctx.rightSidebarOpen).toBe(true);
-        expect(ctx.sidebarMotion).toBe(true);
-        expect(ctx.rightSidebarClosing).toBe(false);
-        // 35 dock columns in the 12px sidebar font (8px cells) leave the grid
-        // 1000 - 280 = 720px, 72 columns.
-        expect(ctx.targetCols).toBe(72);
-
-        vi.advanceTimersByTime(SIDEBAR_MOTION_SETTLE_MS + 1);
-        ctx = actor.getSnapshot().context;
-        expect(ctx.sidebarMotion).toBe(false);
-      } finally {
-        vi.useRealTimers();
-      }
+    it('opening the dock sizes the grid for it at once', () => {
+      const actor = mountState(withSizeRecorder, actions, groupsAndFloatsGuards, measured);
+      const ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
+      expect(ctx.rightSidebarOpen).toBe(true);
+      // 35 dock columns in the 12px sidebar font (8px cells) leave the grid
+      // 1000 - 280 = 720px, 72 columns.
+      expect(ctx.targetCols).toBe(72);
     });
 
-    it('closing keeps the column rendered as closing until the slide settles, then drops it', () => {
-      vi.useFakeTimers();
-      try {
-        const actor = mountState(withSizeRecorder, actions, groupsAndFloatsGuards, {
-          ...measured,
-          rightSidebarOpen: true,
-        });
-        let ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
-        expect(ctx.rightSidebarOpen).toBe(false);
-        expect(ctx.rightSidebarClosing).toBe(true);
-        expect(ctx.sidebarMotion).toBe(true);
-        expect(ctx.targetCols).toBe(100);
-
-        // Reopening mid-slide reverses it without a settle in between.
-        ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
-        expect(ctx.rightSidebarOpen).toBe(true);
-        expect(ctx.rightSidebarClosing).toBe(false);
-        expect(ctx.sidebarMotion).toBe(true);
-
-        ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
-        expect(ctx.rightSidebarClosing).toBe(true);
-        vi.advanceTimersByTime(SIDEBAR_MOTION_SETTLE_MS - 10);
-        expect(actor.getSnapshot().context.rightSidebarClosing).toBe(true);
-        vi.advanceTimersByTime(20);
-        ctx = actor.getSnapshot().context;
-        expect(ctx.rightSidebarClosing).toBe(false);
-        expect(ctx.sidebarMotion).toBe(false);
-      } finally {
-        vi.useRealTimers();
-      }
+    it('closing it gives the grid its width back at once', () => {
+      const actor = mountState(withSizeRecorder, actions, groupsAndFloatsGuards, {
+        ...measured,
+        rightSidebarOpen: true,
+        targetCols: 72,
+      });
+      const ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
+      expect(ctx.rightSidebarOpen).toBe(false);
+      expect(ctx.targetCols).toBe(100);
     });
   });
 });

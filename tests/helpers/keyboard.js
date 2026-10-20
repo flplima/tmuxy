@@ -192,32 +192,17 @@ async function sendPrefixCommand(page, key, options = {}) {
 
 /**
  * Open a sidebar column with its key: `prefix s` for the tree (left),
- * `prefix S` for the pinned terminal (right). A column opens over the panes;
- * with `fixed`, the same key goes again while the prefix is still armed for it
- * (`prefix s s`), which docks the column beside the grid instead — one key to
- * look, the same key twice to keep. On a column already open, one press fixes
- * or frees it.
+ * `prefix S` for the pinned terminal (right). It opens docked beside the grid.
+ * A column already open is left as it is, since the key would close it.
  */
-async function openSidebarKeyboard(page, side, { fixed = false } = {}) {
-  const key = side === 'left' ? 's' : 'Shift+S';
+async function openSidebarKeyboard(page, side) {
   const open = await page.evaluate(
     (s) => window.app?.getSnapshot()?.context?.[`${s}SidebarOpen`] === true,
     side,
   );
-  if (open) {
-    // The usual focus click on the terminal would land on the backdrop of an
-    // overlaying column and close it: the chord goes straight to the keyboard.
-    await waitForKeybindings(page);
-    const prefix = await getPrefixKey(page);
-    await page.keyboard.down(prefix.modifier);
-    await page.keyboard.press(prefix.key);
-    await page.keyboard.up(prefix.modifier);
-    await waitForPrefixActive(page);
-  } else {
-    await sendTmuxPrefix(page);
-  }
-  await page.keyboard.press(key);
-  if (fixed) await page.keyboard.press(key);
+  if (open) return;
+  await sendTmuxPrefix(page);
+  await page.keyboard.press(side === 'left' ? 's' : 'Shift+S');
   await waitForPrefixConsumed(page);
 }
 

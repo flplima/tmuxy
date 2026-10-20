@@ -16,7 +16,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
-import { fixColumn } from '../stories/fixColumn';
 import { app, tabPanes, waitForTree, rightClick, menuLabels } from '../stories/sidebarStoryHelpers';
 
 const meta: Meta<typeof AppHarness> = {
@@ -80,7 +79,7 @@ export const OpenShowsTree: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// `prefix s` opens the sidebar; the same key again frees or fixes it
+// `prefix s` opens the sidebar docked beside the grid, and closes it again
 // ---------------------------------------------------------------------------
 
 export const OpenViaPrefixS: Story = {
@@ -90,31 +89,23 @@ export const OpenViaPrefixS: Story = {
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
     const user = userEvent.setup({ delay: 5 });
     const prefix = () => user.keyboard('{Control>}a{/Control}');
-    const column = () => document.querySelector('.sidebar-column-left') as HTMLElement;
-    // Docked, the grid starts where the column ends; overlaying, under it.
-    const gridUnderColumn = () => {
+    const column = () => document.querySelector('.sidebar-column-left') as HTMLElement | null;
+    // Docked, the grid starts where the column ends.
+    const gridBesideColumn = () => {
       const pane = canvasElement.querySelector('.pane-layout-item')!.getBoundingClientRect();
-      return pane.left < column().getBoundingClientRect().right - 1;
+      return pane.left >= column()!.getBoundingClientRect().right - 1;
     };
 
-    // One key to look: the column opens over the panes.
+    // The column opens docked at once, and the grid reflows beside it.
     await prefix();
     await user.keyboard('s');
     await waitForTree();
-    await waitFor(() => expect(column()).toHaveClass('is-overlay'), { timeout: 5000 });
-    await waitFor(() => expect(gridUnderColumn()).toBe(true), { timeout: 5000 });
+    await waitFor(() => expect(gridBesideColumn()).toBe(true), { timeout: 5000 });
 
-    // The same key twice to keep (`prefix s s`): it docks, and the grid
-    // reflows beside it.
-    await user.keyboard('s');
-    await waitFor(() => expect(column()).not.toHaveClass('is-overlay'), { timeout: 5000 });
-    await waitFor(() => expect(gridUnderColumn()).toBe(false), { timeout: 5000 });
-
-    // `prefix s` on an open, fixed column frees it to overlay again.
+    // `prefix s` again closes it, at once too.
     await prefix();
     await user.keyboard('s');
-    await waitFor(() => expect(column()).toHaveClass('is-overlay'), { timeout: 5000 });
-    await waitFor(() => expect(gridUnderColumn()).toBe(true), { timeout: 5000 });
+    await waitFor(() => expect(column()).toBeNull(), { timeout: 5000 });
   },
 };
 
@@ -396,12 +387,9 @@ export const TogglesKeepTheirPlace: Story = {
   play: async ({ canvasElement }) => {
     // The click that opens a column must close it from the same spot: the
     // tree's toggle stays at the header's left end and the dock's at its
-    // right end, whether the columns are open or closed. Both columns fixed,
-    // so both can be open at once (overlaying, only one shows).
+    // right end, whether the columns are open or closed.
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
-    await fixColumn(canvasElement, 'left');
-    await fixColumn(canvasElement, 'right');
     const left = await canvas.findByRole('button', { name: /toggle tree sidebar/i });
     const right = await canvas.findByRole('button', { name: /toggle terminal sidebar/i });
     const place = () => ({

@@ -370,7 +370,7 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
     // With the dock open, nav right from the rightmost pane goes into it.
     await navigatePaneKeyboard(ctx.page, 'right');
     await until('nav right to reach the right pane again', (w) => w.activeX > 0);
-    await openSidebarKeyboard(ctx.page, 'right', { fixed: true });
+    await openSidebarKeyboard(ctx.page, 'right');
     await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
     // Opening the dock hands it the keyboard once its pane exists, a beat
     // after the column draws; a nav pressed before then goes to the grid.

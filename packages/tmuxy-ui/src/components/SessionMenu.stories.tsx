@@ -14,7 +14,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
-import { fixColumn } from '../stories/fixColumn';
 
 const meta: Meta<typeof AppHarness> = {
   title: 'Mocked App/SessionMenu',
@@ -53,8 +52,7 @@ export const TheSwitcherIsADropdown: Story = {
     const user = userEvent.setup({ delay: 5 });
 
     // The column has to be open for its title — and the switcher on it — to
-    // be there at all; docked, the title sits in the tab strip.
-    await fixColumn(canvasElement, 'left');
+    // be there at all: the title sits in the tab strip, above the column.
     const toggle = await canvas.findByRole(
       'button',
       { name: /toggle tree sidebar/i },

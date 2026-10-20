@@ -41,27 +41,10 @@ export const LEFT_SIDEBAR_COLS = 30;
 export const RIGHT_SIDEBAR_COLS = 35;
 
 /**
- * Below this many columns of terminal content left for the tab after a sidebar
- * takes its width, the sidebar stops being a flex sibling and overlays the
- * panes (and the tab strip) with a backdrop instead — shrinking the grid any
- * further leaves nothing usable behind it. Only one column may overlay at a
- * time.
- */
-export const SIDEBAR_OVERLAY_MIN_COLS = 60;
-
-/**
  * Bounds a sidebar column may be dragged between, in columns. Mirror
  * `sidebar_dock::MIN_COLS` / `MAX_COLS` in `tmuxy-core/src/constants.rs`, which
  * clamps the same way — so a drag can never preview a width the backend would
  * then refuse to size the pane to.
  */
-/**
- * How long a sidebar column takes to slide open or shut. Mirrors
- * `--transition-sidebar` in styles.css; the settle event fires a little after
- * it so the column's transition classes come off once it has stopped moving.
- */
-export const SIDEBAR_TRANSITION_MS = 200;
-export const SIDEBAR_MOTION_SETTLE_MS = SIDEBAR_TRANSITION_MS + 50;
-
 export const SIDEBAR_MIN_COLS = 16;
 export const SIDEBAR_MAX_COLS = 120;

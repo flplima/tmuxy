@@ -17,7 +17,6 @@ import { Pane } from './components/Pane';
 import { FloatContainer } from './components/FloatPane';
 import { KeysView } from './components/KeysView';
 import { Sidebar } from './components/Sidebar';
-import { SidebarBackdrop } from './components/SidebarBackdrop';
 import { TabOverview } from './components/TabOverview';
 import { GestureStage } from './components/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
@@ -214,10 +213,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             one real tmux pane. As flex siblings they shrink the pane container,
             whose ResizeObserver then reports the reduced width so tmux re-tiles
             the panes into the space that's left — never under a sidebar. Left is
-            the tree widget, right the pinned terminal. In a window too narrow to
-            share, `selectSidebarLayout` switches them to overlaying the panes
-            over this backdrop instead. */}
-        {showLayout && !phone && <SidebarBackdrop />}
+            the tree widget, right the pinned terminal. */}
         {showLayout && !phone && <Sidebar side="left" />}
         {phone ? (
           <>

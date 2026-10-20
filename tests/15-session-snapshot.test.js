@@ -88,7 +88,7 @@ describe('Scenario 32: Session snapshots', () => {
     srv.cli(['tab', 'create']);
     // The sidebar column is a window of its own, opened from the client.
     await page.bringToFront();
-    await openSidebarKeyboard(page, 'left', { fixed: true });
+    await openSidebarKeyboard(page, 'left');
     await waitForCondition(
       page,
       () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true),
@@ -266,7 +266,7 @@ describe('Scenario 32: Session snapshots', () => {
     // A new browser has no docking remembered, so the restored tree column
     // overlays the panes; it is closed from its own header.
     if (await page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen)) {
-      await page.click('button[aria-label="Close the tree sidebar"]');
+      await page.click('button[aria-label="Toggle tree sidebar"]');
       await waitForCondition(
         page,
         () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === false),
@@ -299,11 +299,7 @@ describe('Scenario 32: Session snapshots', () => {
     //    must read the list as it opens, not wait for the tree's poll), and
     //    choosing it rebuilds the session and switches to it.
     if (await page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen)) {
-      // A docked column closes from its toggle; an overlaying one covers the
-      // toggle with its backdrop and closes from its own header instead.
-      const headerClose = page.locator('button[aria-label="Close the tree sidebar"]');
-      if (await headerClose.isVisible()) await headerClose.click();
-      else await page.click('button[aria-label="Toggle tree sidebar"]');
+      await page.click('button[aria-label="Toggle tree sidebar"]');
       await waitForCondition(
         page,
         () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === false),

@@ -1,8 +1,8 @@
 /**
  * Action implementations for the sidebars state slice.
  *
- * Owns context fields for both sidebars' open, fixed, focus, resize-preview,
- * dock-rows, and motion state.
+ * Owns context fields for both sidebars' open, focus, resize-preview and
+ * dock-rows state.
  */
 
 import { assign, sendTo } from 'xstate';
@@ -15,62 +15,25 @@ import {
 } from '../../selectors/panesAndSidebars';
 import { selectDockRows } from '../../selectors/layout';
 import { calculateTargetSize } from '../../../utils/layout';
-import { saveSidebarFixed } from '../../../utils/sidebarDock';
-import { SIDEBAR_MOTION_SETTLE_MS } from '../../constants';
 import { releaseKeyboard } from '../helpers';
 
 /** How long a sidebar may sit on "starting…" before the column reports a failure. */
 export const SIDEBAR_START_TIMEOUT_MS = 4000;
 
-const SIDEBAR_MOTION_ID = 'sidebar-motion';
-
 /** Safety net: drop a resize preview the server never confirmed. */
 const SIDEBAR_PREVIEW_TIMEOUT_MS = 5000;
 
 /**
- * The pane grid's size once the columns have finished sliding, from the app
- * body's width minus whatever will be docked beside the grid. Null before the
- * body has been measured, or while a column overlays (the grid's width does
- * not change then).
+ * Tell the grid its size with `side` open or shut, the moment the toggle is
+ * made: tmux re-tiles once, for the width the column leaves, rather than after
+ * the container's next measure.
  */
-function settledTargetSize(context: Ctx): { cols: number; rows: number } | null {
-  if (context.containerHeight <= 0) return null;
-  const width = selectSettledPaneWidth(context);
-  if (width === null) return null;
-  return calculateTargetSize(context.charWidth, width, context.containerHeight);
-}
-
-/**
- * Start a column sliding. The grid is told its settled size right away so
- * tmux re-tiles once, under the moving column, instead of once per frame of
- * the slide; SET_TARGET_SIZE drops the in-between sizes until the settle
- * event, which is (re)armed here so a toggle mid-slide simply extends it.
- */
-function beginSidebarMotion(
-  context: Ctx,
-  enqueue: Enqueue,
-  side: 'left' | 'right',
-  willOpen: boolean,
-) {
-  const next: Ctx = {
-    ...context,
-    sidebarMotion: true,
-    [`${side}SidebarOpen`]: willOpen,
-    [`${side}SidebarClosing`]: !willOpen,
-  };
-  enqueue(
-    assign({
-      sidebarMotion: true,
-      [`${side}SidebarClosing`]: !willOpen,
-    }),
-  );
-  enqueue.cancel(SIDEBAR_MOTION_ID);
-  enqueue.raise(
-    { type: 'SIDEBAR_MOTION_SETTLED' as const },
-    { delay: SIDEBAR_MOTION_SETTLE_MS, id: SIDEBAR_MOTION_ID },
-  );
-  const size = settledTargetSize(next);
-  if (size) enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size, force: true });
+function retileFor(context: Ctx, enqueue: Enqueue, side: 'left' | 'right', willOpen: boolean) {
+  if (context.containerHeight <= 0) return;
+  const width = selectSettledPaneWidth({ ...context, [`${side}SidebarOpen`]: willOpen });
+  if (width === null) return;
+  const size = calculateTargetSize(context.charWidth, width, context.containerHeight);
+  enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size });
 }
 
 export const sidebarsActions = {
@@ -109,32 +72,10 @@ export const sidebarsActions = {
     enqueue(assign({ collapsedTabIds }));
   }),
 
-  /**
-   * `prefix s` / `prefix S`: open that column, or — when it is already open —
-   * fix it beside the grid (docked, reflowing the panes) or free it to
-   * overlay them.
-   */
-  sidebars_sidebarKey: act(({ context, event, enqueue }) => {
-    if (event.type !== 'SIDEBAR_KEY') return;
-    const left = event.side === 'left';
-    if (!(left ? context.leftSidebarOpen : context.rightSidebarOpen)) {
-      enqueue.raise({
-        type: left ? ('TOGGLE_LEFT_SIDEBAR' as const) : ('TOGGLE_RIGHT_SIDEBAR' as const),
-      });
-      return;
-    }
-    const fixed = {
-      left: left ? !context.leftSidebarFixed : context.leftSidebarFixed,
-      right: left ? context.rightSidebarFixed : !context.rightSidebarFixed,
-    };
-    saveSidebarFixed(fixed);
-    enqueue(assign({ leftSidebarFixed: fixed.left, rightSidebarFixed: fixed.right }));
-  }),
-
   sidebars_toggleLeftSidebar: act(({ context, enqueue }) => {
     const willOpen = !context.leftSidebarOpen;
     enqueue(assign({ leftSidebarOpen: willOpen, leftSidebarStartFailed: false }));
-    beginSidebarMotion(context, enqueue, 'left', willOpen);
+    retileFor(context, enqueue, 'left', willOpen);
 
     if (willOpen) {
       enqueue(sendTo('servers', { type: 'REFRESH_SESSIONS' as const }));
@@ -199,7 +140,7 @@ export const sidebarsActions = {
   sidebars_toggleRightSidebar: act(({ context, enqueue }) => {
     const willOpen = !context.rightSidebarOpen;
     enqueue(assign({ rightSidebarOpen: willOpen, rightSidebarStartFailed: false }));
-    beginSidebarMotion(context, enqueue, 'right', willOpen);
+    retileFor(context, enqueue, 'right', willOpen);
 
     if (willOpen) {
       const pane = selectRightSidebarPane(context);
@@ -241,20 +182,6 @@ export const sidebarsActions = {
       );
     }
     releaseKeyboard(context, enqueue, 'right');
-  }),
-
-  sidebars_sidebarMotionSettled: act(({ context, enqueue }) => {
-    enqueue(
-      assign({ sidebarMotion: false, leftSidebarClosing: false, rightSidebarClosing: false }),
-    );
-    if (context.containerWidth > 0 && context.containerHeight > 0) {
-      const size = calculateTargetSize(
-        context.charWidth,
-        context.containerWidth,
-        context.containerHeight,
-      );
-      enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size, force: true });
-    }
   }),
 
   sidebars_sidebarStartTimeout: act(({ context, event, enqueue }) => {

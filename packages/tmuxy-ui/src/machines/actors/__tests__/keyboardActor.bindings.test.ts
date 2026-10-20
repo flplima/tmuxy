@@ -380,28 +380,22 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
     actor.stop();
   });
 
-  it('prefix s opens the column, s again reaches it, and any other key is typed as usual', () => {
+  it('prefix s toggles the left column once, and the next s is typed like any key', () => {
     const { actor, child, events } = spawnWithLiveContext(pid('%1'));
     child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
-    const sidebarKeys = () => events.filter((e) => e.type === 'SIDEBAR_KEY');
+    const toggles = () => events.filter((e) => e.type === 'TOGGLE_LEFT_SIDEBAR');
 
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: 's' });
-    pressKey({ key: 's' });
-    expect(sidebarKeys()).toEqual([
-      { type: 'SIDEBAR_KEY', side: 'left' },
-      { type: 'SIDEBAR_KEY', side: 'left' },
-    ]);
+    expect(toggles()).toEqual([{ type: 'TOGGLE_LEFT_SIDEBAR' }]);
 
-    pressKey({ key: 'j' });
-    expect(lastSendCommand(events)).toBe("send-keys -t %1 -l -- 'j'");
-    expect(sidebarKeys()).toHaveLength(2);
+    pressKey({ key: 's' });
+    expect(lastSendCommand(events)).toBe("send-keys -t %1 -l -- 's'");
+    expect(toggles()).toHaveLength(1);
 
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: 's' });
-    pressKey({ key: 'a', ctrlKey: true });
-    pressKey({ key: 's' });
-    expect(sidebarKeys()).toHaveLength(4);
+    expect(toggles()).toHaveLength(2);
     expect(sendCommands(events)).not.toContain('send-keys -t %1 C-a');
     actor.stop();
   });

@@ -5,7 +5,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
-import { fixColumn } from '../stories/fixColumn';
 import { app, tabPanes, waitForTree } from '../stories/sidebarStoryHelpers';
 
 const meta: Meta<typeof AppHarness> = {
@@ -49,13 +48,9 @@ export const FixedSidebarReflowsPanes: Story = {
       },
       { timeout: 8000 },
     );
-    // A column opens over the panes; `prefix s` on the open column fixes it.
-    await userEvent.keyboard('{Control>}a{/Control}');
-    await userEvent.keyboard('s');
-
     // After: the sidebar is a real column, and every pane sits to the RIGHT of
     // it (no overlap) while still reaching the same right edge (fills the space
-    // that's left — the pane area recalculated, it's not an overlay).
+    // that's left — the pane area recalculated).
     await waitFor(
       () => {
         const s = sidebar.getBoundingClientRect();
@@ -82,17 +77,17 @@ export const FixedSidebarReflowsPanes: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// The RIGHT column's slide leaves the panes' left edge exactly where it was
+// Opening the RIGHT column leaves the panes' left edge exactly where it was
 // ---------------------------------------------------------------------------
 
-export const RightColumnSlideDoesNotMoveTheLeftEdge: Story = {
+export const RightColumnDoesNotMoveTheLeftEdge: Story = {
   tags: ['nightly'],
   args: { height: 500, initCommands: ['split-window -h'] },
   parameters: {
     docs: {
       description: {
         story:
-          "Toggling the dock resizes the pane area from its right edge, so its LEFT edge must not move — not at the end, and not for a frame in between. The grid is re-tiled for the settled width the moment the toggle starts, so it is centred against that width rather than against the container's live one; centring a settled grid inside a still-moving container is what used to walk the panes sideways for the length of the animation.",
+          'Toggling the dock resizes the pane area from its right edge, so its LEFT edge must not move — not at the end, and not for a frame in between, while the grid is re-tiled for the width the column leaves.',
       },
     },
   },
@@ -104,9 +99,6 @@ export const RightColumnSlideDoesNotMoveTheLeftEdge: Story = {
       );
       return rects.length ? Math.min(...rects.map((r) => r.left)) : null;
     };
-    await waitFor(() => expect(leftEdge()).not.toBeNull(), { timeout: 8000 });
-    // A docked dock is what resizes the pane area.
-    await fixColumn(canvasElement, 'right');
     await waitFor(() => expect(leftEdge()).not.toBeNull(), { timeout: 8000 });
 
     const before = leftEdge()!;
@@ -126,7 +118,7 @@ export const RightColumnSlideDoesNotMoveTheLeftEdge: Story = {
     );
     await userEvent.click(toggle);
 
-    // Wait for the column to be there and the slide to be over.
+    // Wait for the column to be there, and a few frames past it.
     await waitFor(
       () => {
         const el = document.querySelector('.sidebar-column-right') as HTMLElement | null;
@@ -147,7 +139,7 @@ export const RightColumnSlideDoesNotMoveTheLeftEdge: Story = {
     expect(Math.max(...rects.map((r) => r.right))).toBeLessThanOrEqual(dock.left + 1);
 
     // ...and the left edge never moved, at any frame of it. The tolerance is
-    // the sub-cell remainder the grid is centred within, not room for a slide.
+    // the sub-cell remainder the grid is centred within.
     expect(samples.length).toBeGreaterThan(5);
     const drift = Math.max(...samples.map((x) => Math.abs(x - before)));
     expect(drift).toBeLessThan(6);
@@ -163,8 +155,6 @@ export const DragResizesTheColumn: Story = {
   args: { height: 500 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    // A docked column, so the grid gives up what the column takes.
-    await fixColumn(canvasElement, 'left');
     const toggle = await canvas.findByRole(
       'button',
       { name: /toggle tree sidebar/i },
@@ -182,11 +172,6 @@ export const DragResizesTheColumn: Story = {
     );
     const handle = column.querySelector('.sidebar-resize-handle') as HTMLElement;
     expect(handle).not.toBeNull();
-    // The column slides open; measure it once it has stopped moving, or the
-    // widths below are mid-slide and a column short. Generously — on a loaded
-    // machine the slide alone can take seconds, which is a slow runner rather
-    // than a column that never settles.
-    await waitFor(() => expect(column.className).not.toContain('is-moving'), { timeout: 8000 });
 
     const startWidth = column.getBoundingClientRect().width;
     // The width the grid has left. A column that grew without the grid giving
@@ -275,7 +260,6 @@ export const TallTreeScrollsInsideTheColumn: Story = {
     const tree = await waitForTree();
     const column = document.querySelector('.sidebar-column-left') as HTMLElement;
     expect(column).not.toBeNull();
-    await waitFor(() => expect(column.className).not.toContain('is-moving'), { timeout: 3000 });
 
     // Every tab and its pane got a row — far more rows than the column is tall.
     const rows = () => [...tree.querySelectorAll('[role="treeitem"]')] as HTMLElement[];
@@ -360,9 +344,6 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
 
     const sidebar = document.querySelector('.sidebar-column-left') as HTMLElement;
     expect(sidebar).not.toBeNull();
-    // The column slides in; walking it mid-slide measures boxes that are still
-    // moving and can tab onto a control that has not arrived yet.
-    await waitFor(() => expect(sidebar.className).not.toContain('is-moving'), { timeout: 8000 });
 
     // Walk both ways from the toggle until the focus leaves the page, which is
     // what Tab past the last control does in any browser: a walk that never

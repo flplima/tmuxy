@@ -399,7 +399,8 @@
   opacity: 0.85;
 }
 
-/* See .sidebar-header-title: min-width:0 is required for the ellipsis. */
+/* min-width:0 is what allows the ellipsis: a flex item defaults to min-width:auto
+   and would refuse to shrink below its text. */
 .sidebar-tree-label {
   flex: 1 1 auto;
   min-width: 0;

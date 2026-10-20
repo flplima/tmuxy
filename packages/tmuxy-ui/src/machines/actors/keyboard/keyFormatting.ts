@@ -80,12 +80,6 @@ export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
 export const STICKY_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set(['tab-left', 'tab-right']);
 
 /**
- * How long the prefix stays armed after `prefix s` / `prefix S`, so the same
- * key again (`prefix s s`) reaches the column it just opened.
- */
-export const SIDEBAR_REPEAT_MS = 600;
-
-/**
  * macOS Option+key produces special Unicode characters instead of altKey=true.
  * This maps those characters back to their base keys for tmux M- notation.
  */

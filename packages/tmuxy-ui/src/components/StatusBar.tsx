@@ -58,8 +58,7 @@ export const StatusBar = memo(function StatusBar({
 }: {
   renderTabline?: RenderTabline;
 }) {
-  const { leftOpen, rightOpen, overlay, leftWidth, rightWidth } =
-    useAppSelector(selectSidebarLayout);
+  const { leftOpen, rightOpen, leftWidth, rightWidth } = useAppSelector(selectSidebarLayout);
   const readOnly = useReadOnly();
   const leftFocused = useAppSelector((ctx) => ctx.leftSidebarFocused);
   const rightFocused = useAppSelector((ctx) => ctx.rightSidebarFocused);
@@ -83,13 +82,12 @@ export const StatusBar = memo(function StatusBar({
   // width: the left one stays at the header's left end (right after the menu)
   // and the right one at its right end, whatever is open, so the same click
   // that opened a column closes it. The "+" and the overview button sit
-  // between the strip and the dock's cluster, over the pane area. A docked column takes its width out of
-  // the tab list, which is what keeps the strip aligned with the pane grid;
-  // an overlaying one carries its own header instead, so the header here
-  // stays in its closed shape.
-  const dockedLeft = leftOpen && !overlay;
+  // between the strip and the dock's cluster, over the pane area. An open
+  // column takes its width out of the tab list, which is what keeps the strip
+  // aligned with the pane grid.
+  const dockedLeft = leftOpen;
   const windowStyle = useWindowStyle();
-  const dockedRight = rightOpen && !overlay;
+  const dockedRight = rightOpen;
   // The bar's own 12px inset already covers the gap between the window edge and
   // the column's outer edge, so a cluster spans the column MINUS that inset in
   // order to end exactly on the column's divider.

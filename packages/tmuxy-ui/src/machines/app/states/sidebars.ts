@@ -1,11 +1,10 @@
 /**
  * sidebars state — the `on` slice for the two sidebar columns (tree + dock).
  *
- * Owns context fields: leftSidebarOpen, leftSidebarFixed, leftSidebarFocused,
- * rightSidebarOpen, rightSidebarFixed, rightSidebarFocused,
- * leftSidebarStartFailed, rightSidebarStartFailed, leftSidebarStarting,
- * rightSidebarStarting, sidebarColsPreview, dockRowsSent, sidebarMotion,
- * leftSidebarClosing, rightSidebarClosing, collapsedTabIds.
+ * Owns context fields: leftSidebarOpen, leftSidebarFocused, rightSidebarOpen,
+ * rightSidebarFocused, leftSidebarStartFailed, rightSidebarStartFailed,
+ * leftSidebarStarting, rightSidebarStarting, sidebarColsPreview, dockRowsSent,
+ * collapsedTabIds.
  */
 
 import { notReadOnly } from '../readOnlyGuard';
@@ -16,13 +15,8 @@ export const sidebarsGlobalEvents = {
     guard: notReadOnly,
     actions: 'sidebars_toggleLeftSidebar',
   },
-  SIDEBAR_KEY: {
-    guard: notReadOnly,
-    actions: 'sidebars_sidebarKey',
-  },
   TOGGLE_TAB_COLLAPSE: { actions: 'sidebars_toggleTabCollapse' },
   SIDEBAR_START_TIMEOUT: { actions: 'sidebars_sidebarStartTimeout' },
-  SIDEBAR_MOTION_SETTLED: { actions: 'sidebars_sidebarMotionSettled' },
   SIDEBAR_RESIZE_PREVIEW: {
     guard: notReadOnly,
     actions: 'sidebars_sidebarResizePreview',

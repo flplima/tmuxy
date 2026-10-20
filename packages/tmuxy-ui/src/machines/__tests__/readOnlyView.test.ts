@@ -58,20 +58,12 @@ describe('selectFitScale', () => {
 });
 
 describe('selectSidebarLayout for a read-only client', () => {
-  const narrow = { leftSidebarOpen: true, bodyWidth: 700, containerWidth: 676 };
-
-  it('never overlays a column it could not close', () => {
-    expect(selectSidebarLayout(ctx({ ...narrow, readOnly: true }))).toMatchObject({
-      leftOpen: false,
-      rightOpen: false,
-    });
-    expect(selectSidebarLayout(ctx(narrow))).toMatchObject({ leftOpen: true, overlay: true });
-  });
-
-  it("still docks the writer's columns when there is room", () => {
-    const layout = selectSidebarLayout(
-      ctx({ leftSidebarOpen: true, bodyWidth: 1600, containerWidth: 1276, readOnly: true }),
-    );
-    expect(layout).toMatchObject({ leftOpen: true, overlay: false });
+  it("docks the writer's columns as it docks a writer's own, at any width", () => {
+    for (const bodyWidth of [700, 1600]) {
+      const layout = selectSidebarLayout(
+        ctx({ leftSidebarOpen: true, bodyWidth, containerWidth: bodyWidth - 324, readOnly: true }),
+      );
+      expect(layout).toMatchObject({ leftOpen: true, rightOpen: false });
+    }
   });
 });

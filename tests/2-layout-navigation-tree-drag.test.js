@@ -28,7 +28,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix p: the PANE chip, x closes panes until esc → prefix t: the TAB chip, c opens a tab → prefix s overlays the tree, prefix s again docks it → prefix S S docks the terminal → prefix ? lists PANE', async () => {
+  test('prefix p: the PANE chip, x closes panes until esc → prefix t: the TAB chip, c opens a tab → prefix s docks the tree → prefix S docks the terminal → prefix ? lists PANE', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
@@ -106,7 +106,6 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
           .filter((p) => !p.classList.contains('pane-window-hidden'))
           .map((p) => p.getBoundingClientRect());
         return {
-          overlay: el.classList.contains('is-overlay'),
           left: box.left,
           right: box.right,
           width: box.width,
@@ -115,36 +114,25 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
         };
       }, side);
 
-    // prefix s: the tree opens over the panes.
+    // prefix s: the tree opens docked, the grid starting where it ends.
     await openSidebarKeyboard(page, 'left');
     await waitForCondition(
       page,
       async () => {
         const c = await column('left');
-        return c !== null && c.overlay && c.width > 50 && c.gridLeft < c.right - 1;
-      },
-      15000,
-      'the tree overlaying the panes',
-    );
-    // prefix s on the open column: it docks, and the grid moves out from under it.
-    await openSidebarKeyboard(page, 'left');
-    await waitForCondition(
-      page,
-      async () => {
-        const c = await column('left');
-        return c !== null && !c.overlay && c.gridLeft >= c.right - 1;
+        return c !== null && c.width > 50 && c.gridLeft >= c.right - 1;
       },
       15000,
       async () => `the tree docked beside the grid (${JSON.stringify(await column('left'))})`,
     );
 
-    // prefix S S: the terminal opens and docks at once, the grid ending where it starts.
-    await openSidebarKeyboard(page, 'right', { fixed: true });
+    // prefix S: the terminal opens docked too, the grid ending where it starts.
+    await openSidebarKeyboard(page, 'right');
     await waitForCondition(
       page,
       async () => {
         const c = await column('right');
-        return c !== null && !c.overlay && c.width > 50 && c.gridRight <= c.left + 1;
+        return c !== null && c.width > 50 && c.gridRight <= c.left + 1;
       },
       20000,
       async () => `the terminal docked beside the grid (${JSON.stringify(await column('right'))})`,
@@ -224,7 +212,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
     // the same key would free it to overlay the panes.
     const treeOpen = () =>
       ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
-    if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
+    if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left');
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
     // A state mark wherever it is drawn: the tree row and the pane's header
@@ -339,7 +327,7 @@ describe('Scenario 6m: Dragging in the tree moves panes between tabs and reorder
     );
     expect(secondWindowId).not.toBe(firstWindowId);
 
-    await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
+    await openSidebarKeyboard(ctx.page, 'left');
     await ctx.page.waitForSelector(`[data-testid="tree-tab-${secondWindowId}"]`, {
       timeout: 20000,
     });

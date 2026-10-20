@@ -123,7 +123,7 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
 
     // A chrome window (the right sidebar) takes tmux index 2 BEFORE the tabs
     // that follow, so strip position and tmux index disagree from here on.
-    await openSidebarKeyboard(page, 'right', { fixed: true });
+    await openSidebarKeyboard(page, 'right');
     await waitForCondition(page, async () => (await state()).chrome >= 1, 8000, 'the dock window');
     await createWindowKeyboard(page);
     await createWindowKeyboard(page);

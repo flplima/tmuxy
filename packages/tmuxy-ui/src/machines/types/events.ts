@@ -104,8 +104,6 @@ export type AppMachineEvent =
       type: 'SET_TARGET_SIZE';
       cols: number;
       rows: number;
-      /** From the sidebar motion itself: applied even while a column is sliding. */
-      force?: boolean;
     }
   | { type: 'SET_CONTAINER_SIZE'; width: number; height: number }
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
@@ -144,10 +142,8 @@ export type AppMachineEvent =
   | { type: 'BLUR_LEFT_SIDEBAR' }
   | { type: 'TOGGLE_TAB_COLLAPSE'; windowId: WindowId }
   | { type: 'TOGGLE_RIGHT_SIDEBAR' }
-  | { type: 'SIDEBAR_KEY'; side: 'left' | 'right' }
   | { type: 'SYNC_DOCK_ROWS' }
   | { type: 'SYNC_FLOAT_FOCUS' }
-  | { type: 'SIDEBAR_MOTION_SETTLED' }
   | { type: 'FOCUS_RIGHT_SIDEBAR' }
   | { type: 'BLUR_RIGHT_SIDEBAR' }
   | { type: 'SIDEBAR_START_TIMEOUT'; side: 'left' | 'right' }

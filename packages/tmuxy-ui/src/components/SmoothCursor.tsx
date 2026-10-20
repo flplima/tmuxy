@@ -169,11 +169,11 @@ export function SmoothCursor() {
   );
   // The anchor also moves when the DOM around it does without the pane's
   // cursor re-rendering: the pane grid zooming into the Tab Overview, a
-  // sidebar sliding, a font or viewport change. A single key over those
+  // sidebar opening or shutting, a font or viewport change. A single key over those
   // states wakes the overlay to follow.
   const layoutKey = useAppSelector(
     (ctx) =>
-      `${ctx.tabOverviewOpen}|${ctx.sidebarMotion}|${ctx.leftSidebarOpen}|${ctx.rightSidebarOpen}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
+      `${ctx.tabOverviewOpen}|${ctx.leftSidebarOpen}|${ctx.rightSidebarOpen}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
   );
   const scene = useAppSelector((ctx) =>
     sceneKey({

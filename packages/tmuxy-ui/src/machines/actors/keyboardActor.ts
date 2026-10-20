@@ -18,7 +18,6 @@ import {
   isRealFormControl,
   isTextKey,
   realPaneId,
-  SIDEBAR_REPEAT_MS,
   STICKY_CLIENT_KEYS,
 } from './keyboard/keyFormatting';
 import { handleModalOrCopyKeyDown, readLiveSnapshot } from './keyboard/modalAndCopyKeys';
@@ -124,9 +123,9 @@ export function createKeyboardActor() {
     const runClientKey = (key: ClientKey) => {
       switch (key) {
         case 'left-sidebar':
-          return input.parent.send({ type: 'SIDEBAR_KEY', side: 'left' });
+          return input.parent.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
         case 'right-sidebar':
-          return input.parent.send({ type: 'SIDEBAR_KEY', side: 'right' });
+          return input.parent.send({ type: 'TOGGLE_RIGHT_SIDEBAR' });
         case 'tab-overview':
           return input.parent.send({ type: 'TOGGLE_TAB_OVERVIEW' });
         case 'keys-view':
@@ -241,11 +240,7 @@ export function createKeyboardActor() {
         const clientKey = CLIENT_KEYS.prefix[bindingKey];
         if (clientKey) {
           runClientKey(clientKey);
-          if (clientKey === 'left-sidebar' || clientKey === 'right-sidebar') {
-            prefixMode.enter(SIDEBAR_REPEAT_MS, new Set([bindingKey]));
-          } else {
-            prefixMode.exit();
-          }
+          prefixMode.exit();
           notifyKeyPress(event);
           return;
         }

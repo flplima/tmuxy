@@ -20,7 +20,6 @@ import {
   selectVisiblePanes,
   selectActivePaneTree,
   selectHiddenWindowPanes,
-  selectSettledPaneWidth,
   selectGroupSwitchPaneIds,
 } from '../machines/selectors/panesAndSidebars';
 import {
@@ -59,6 +58,9 @@ interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
 }
 
+/** The outline every pane draws outside its box (`.pane-layout-item`). */
+const PANE_OUTLINE_PX = 1;
+
 export function PaneLayout({ children }: PaneLayoutProps) {
   const send = useAppSend();
 
@@ -72,26 +74,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     totalWidth: serverTotalWidth,
     totalHeight: serverTotalHeight,
   } = useAppSelector(selectGridDimensions);
-  const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
-  // While a sidebar column slides, the container's width changes every frame
-  // but the GRID does not: it was re-tiled for the settled width the moment
-  // the toggle started (`beginSidebarMotion`). Centring a settled grid inside
-  // a moving container is what used to walk the pane area sideways for the
-  // length of the animation — opening the RIGHT column moved the panes' LEFT
-  // edge, which nothing about that gesture should touch. Measuring against
-  // the width the grid was sized for holds it still, and it is already the
-  // width the offset would settle at.
-  //
-  // The GRID's width is taken from the target too, for the same reason: tmux's
-  // re-tile lands somewhere in the middle of the animation, and an offset
-  // computed from the old column count steps when it arrives. Both halves of
-  // the sum settled means the offset is its final value from the first frame,
-  // so the pane area simply does not move.
-  const sidebarMotion = useAppSelector((ctx) => ctx.sidebarMotion);
-  const settledPaneWidth = useAppSelector(selectSettledPaneWidth);
-  const targetCols = useAppSelector((ctx) => ctx.targetCols);
-  const settledMotion = sidebarMotion && settledPaneWidth !== null && settledPaneWidth > 0;
-  const centeringWidth = settledMotion ? settledPaneWidth : containerWidth;
+  const { width: containerWidth } = useAppSelector(selectContainerSize);
   const dragOffsetX = useAppSelector(selectDragOffsetX);
   const dragOffsetY = useAppSelector(selectDragOffsetY);
   const enableAnimations = useAppSelector(selectEnableAnimations);
@@ -153,34 +136,22 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // padding, which centers the terminal text within the +1-cell-wide box.
   const hPadding = charWidth / 2;
 
-  // Center the pane grid in the container.
+  // Centre the pane grid across the container, and hang it from the top.
   // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so its dimensions match
   // containerWidth/Height (content-box from ResizeObserver). No padding-box
   // arithmetic needed — pane positions are relative to the content area directly.
+  // The rows fill the height in whole cells, and what is left over — up to a
+  // row — goes below the grid: split above and below, it was a band of empty
+  // ground between the tab strip and the panes. One pixel down, for the 1px
+  // outline every pane draws outside its own box (pane-layout.css).
   const liveCenteringOffset = useMemo(() => {
-    const paneContentWidth = (settledMotion ? targetCols : totalWidth) * charWidth;
-    const paneContentHeight = totalHeight * charHeight;
+    const paneContentWidth = totalWidth * charWidth;
     // Clamp x so content never overflows the right edge.
     // This handles transient states where tmux totalWidth > targetCols.
-    const idealX = (centeringWidth - paneContentWidth) / 2;
-    const maxX = centeringWidth - paneContentWidth;
-    return {
-      x: Math.max(0, Math.min(idealX, maxX)),
-      // Round to integer pixels so pane tops sit on whole-pixel rows —
-      // matches the Math.round applied to `left` in getPaneStyle and
-      // avoids sub-pixel anti-aliasing across cell-row boundaries.
-      y: Math.round(Math.max(0, (containerHeight - paneContentHeight) / 2)),
-    };
-  }, [
-    totalWidth,
-    totalHeight,
-    charWidth,
-    charHeight,
-    centeringWidth,
-    containerHeight,
-    settledMotion,
-    targetCols,
-  ]);
+    const idealX = (containerWidth - paneContentWidth) / 2;
+    const maxX = containerWidth - paneContentWidth;
+    return { x: Math.max(0, Math.min(idealX, maxX)), y: PANE_OUTLINE_PX };
+  }, [totalWidth, charWidth, containerWidth]);
 
   // Freeze the centering offset for the duration of a drag OR resize. Mid-drag
   // the dragged pane is pinned to its original slot while the optimistic swap

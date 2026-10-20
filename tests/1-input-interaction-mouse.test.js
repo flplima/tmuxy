@@ -442,7 +442,7 @@ describe('Scenario 7c: Mouse lands on the clicked cell', () => {
     // 2. The dock. Its terminal runs in the smaller sidebar font, and clicks
     //    there were converted with the pane grid's larger cell: they reached
     //    tmux cells up and to the left of the pointer.
-    await openSidebarKeyboard(ctx.page, 'right', { fixed: true });
+    await openSidebarKeyboard(ctx.page, 'right');
     await ctx.page.waitForSelector('[data-testid="right-sidebar-content"] .terminal-line', {
       timeout: 20000,
     });

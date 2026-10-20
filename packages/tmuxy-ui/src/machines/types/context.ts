@@ -85,16 +85,6 @@ export interface AppMachineContext {
    */
   leftSidebarOpen: boolean;
   /**
-   * Whether an open left column docks beside the grid and reflows it (fixed)
-   * or overlays the panes, which is where a column starts: one key to look,
-   * the same key twice to keep. `prefix s` while it is open flips it. A window
-   * too narrow to dock always overlays. Client-side, like the keys that set
-   * it.
-   */
-  leftSidebarFixed: boolean;
-  /** The same for the right column (`prefix S` while it is open). */
-  rightSidebarFixed: boolean;
-  /**
    * Whether the tree column holds keyboard focus. While true, keys drive the
    * tree widget (j/k/Enter/l/q) instead of reaching a tab's pane.
    */
@@ -135,18 +125,6 @@ export interface AppMachineContext {
   sidebarColsPreview: { side: 'left' | 'right'; cols: number | null } | null;
   /** Rows last written to the dock's @tmuxy-sidebar-rows, and for which window. */
   dockRowsSent: { windowId: WindowId; rows: number } | null;
-  /**
-   * A sidebar column is sliding open or closed. Set by either toggle, cleared
-   * by SIDEBAR_MOTION_SETTLED once the CSS transition has run. While set, the
-   * pane grid is sized for where the columns will END UP (sent once, at the
-   * toggle), and the sizes the container's ResizeObserver reports for every
-   * in-between frame are dropped — otherwise each frame would re-tile tmux.
-   */
-  sidebarMotion: boolean;
-  /** The tree column is closed but still rendered, sliding shut. */
-  leftSidebarClosing: boolean;
-  /** The dock column is closed but still rendered, sliding shut. */
-  rightSidebarClosing: boolean;
   /**
    * Width of the app body (both columns plus the pane grid), in pixels. The
    * docked/overlay decision is made from this, never from the pane container,

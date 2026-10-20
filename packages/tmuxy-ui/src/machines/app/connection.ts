@@ -129,7 +129,6 @@ export const connectionActions = {
 
   connection_setTargetSize: act(({ event, context, enqueue }) => {
     if (event.type !== 'SET_TARGET_SIZE') return;
-    if (context.sidebarMotion && !event.force && context.targetCols > 0) return;
     const cols = context.phoneLayout ? PHONE_COLS : event.cols;
     const rows = context.phoneLayout ? PHONE_ROWS : event.rows;
     enqueue(
