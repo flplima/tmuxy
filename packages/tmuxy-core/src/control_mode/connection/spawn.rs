@@ -258,6 +258,14 @@ impl ControlModeConnection {
         let program = &tmux_args[0];
         let mut cmd = pty_process::Command::new(program);
         cmd = cmd.args(&tmux_args[1..]);
+        // The GTK AppImage plugin exports Python paths for its bundled
+        // helpers. Carrying those into tmux makes user Python tools such as
+        // Kitty's `kitten` load the bundled interpreter paths instead of
+        // their own, which can fail before an image is sent.
+        #[cfg(target_os = "linux")]
+        if std::env::var_os("APPIMAGE").is_some() {
+            cmd = cmd.env_remove("PYTHONHOME").env_remove("PYTHONPATH");
+        }
         if std::env::var_os("TERM").is_none() {
             cmd = cmd.env("TERM", "xterm-256color");
         }
