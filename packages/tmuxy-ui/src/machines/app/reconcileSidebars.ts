@@ -132,9 +132,13 @@ export function reconcileFloatAndSidebarLifecycle(
 
   if (transformed.focusRequest && !context.readOnly) {
     const request = transformed.focusRequest;
-    if (request === 'left') enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
-    else if (request === 'right') enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
-    else if (request === 'panes') {
+    // A request moves the keyboard into a column that is open; it never opens
+    // one (a closed column keeps its window, so a script can still name it).
+    if (request === 'left' && context.leftSidebarOpen) {
+      enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+    } else if (request === 'right' && context.rightSidebarOpen) {
+      enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+    } else if (request === 'panes') {
       enqueue.raise({ type: 'BLUR_LEFT_SIDEBAR' });
       enqueue.raise({ type: 'BLUR_RIGHT_SIDEBAR' });
     }

@@ -95,7 +95,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await ctx.session.runCommand(`select-pane -t ${ctx.session.name} -T '${longTitle}'`);
 
     // Step 1: Open the sidebar via the real keybinding (prefix s).
-    await openSidebarKeyboard(ctx.page, 'left', { fixed: true });
+    await openSidebarKeyboard(ctx.page, 'left');
 
     // Step 2: The FIXED sidebar column appears docked at the left edge (it is
     // a flex sibling of the pane area, not an overlay — panes reflow beside it).
@@ -350,5 +350,18 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       document.querySelector('.sidebar-toggle-left')?.getAttribute('aria-pressed'),
     );
     expect(pressedAfterClose).toBe('false');
+
+    // Step 8: Ctrl+h at the grid's left edge has nowhere to go with the tree
+    // closed — the hidden column's window is still there, and it must not
+    // open it. The command typed after it lands in the pane, which is also
+    // what says the nav round trip has finished.
+    await ctx.page.keyboard.press('Control+h');
+    await runCommand(ctx.page, 'echo AFTER_NAV_LEFT', 'AFTER_NAV_LEFT');
+    const afterNav = await ctx.page.evaluate(() => ({
+      column: !!document.querySelector('.sidebar-column-left'),
+      open: window.app.getSnapshot().context.leftSidebarOpen,
+      focused: window.app.getSnapshot().context.leftSidebarFocused,
+    }));
+    expect(afterNav).toEqual({ column: false, open: false, focused: false });
   }, 180000);
 });

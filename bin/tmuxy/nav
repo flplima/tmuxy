@@ -94,10 +94,10 @@ EOF
   # Step 2: at the grid's edge already? tmux said so in the probe above.
   # (Comparing the active pane before/after a `select-pane -L/-R` does not
   # work: at the edge tmux WRAPS to the opposite side rather than doing
-  # nothing.) If a sidebar is docked on that edge, it is the next thing along;
+  # nothing.) If a sidebar is open on that edge, it is the next thing along;
   # otherwise stay put.
   if [ "$at_edge" = "1" ]; then
-    if [ -n "$(sidebar_window "$edge_dir")" ]; then
+    if [ -n "$(shown_sidebar_window "$edge_dir")" ]; then
       request_focus "$edge_dir"
     fi
     return

@@ -243,6 +243,13 @@ sidebar_window() {
     | awk -v t="sidebar-$1" '$2 == t { print $1; exit }'
 }
 
+# The same, only while the column is on screen: a closed column keeps its
+# window, hidden (`@tmuxy-sidebar-hidden`), and is nowhere to move to.
+shown_sidebar_window() {
+  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type} #{?@tmuxy-sidebar-hidden,hidden,shown}' 2>/dev/null \
+    | awk -v t="sidebar-$1" '$2 == t && $3 == "shown" { print $1; exit }'
+}
+
 # Ask the connected clients to move keyboard focus somewhere no tmux command
 # can: into a sidebar column, or back out to the panes. Focusing a sidebar is a
 # client-side concept — its pane lives in another window, so `select-pane` would
