@@ -163,9 +163,9 @@ Key pieces (all under `tmuxy-ui/src/infra/transport/drivers/v86/`):
 | `V86TmuxAdapter` | The v86 driver behind `V86TransportLive`: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally. |
 | shared engine | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s). |
 
-Used by the Storybook `Scenarios/Application` stories and intended for the public demo. Assets (kernel, BIOS, state snapshot, wasm bindings) are served statically; nothing leaves the browser.
+Used by the public demo site (`packages/tmuxy-demo`) and the Storybook `v86` stories. Assets (kernel, BIOS, state snapshot, wasm bindings) are served statically; nothing leaves the browser.
 
-This scenario is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (cached on the build-script hash), starts a Storybook dev server, and drives every `v86`-tagged story on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`). The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests.
+This scenario is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (cached on the build-script hash), starts a Storybook dev server, and drives the gate stories on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`); every `v86`-tagged story runs nightly in `nightly-v86.yml`. The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests.
 
 ## Additional API Endpoints
 

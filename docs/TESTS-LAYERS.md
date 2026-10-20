@@ -13,7 +13,8 @@ Every test layer, where a new test goes, and which tier runs it. Part of [TESTS.
                        |     -> tmux 3.7a)
                        |   Storybook v86 probe (real tmux in an       storybook-v86-probe
                        |     x86 emulator, in the browser)
-                       |   Storybook probe (DemoAdapter, Chromium)    storybook-probe
+                       |   Storybook probe (recorded tmux states,     storybook-probe
+                       |     Chromium)
                        |   CLI suite (mocked tmux)                    cli-tests
                        |   Vitest (jsdom)  |  cargo test              unit-tests | rust-tests
                        |   ESLint, tsc, Prettier, rustfmt, clippy     lint (+ pre-commit hook)
@@ -26,8 +27,8 @@ Every test layer, where a new test goes, and which tier runs it. Part of [TESTS.
 | Rust unit + integration | `cargo test` (proptest, fixtures) | `#[cfg(test)]` modules in every crate; `packages/tmuxy-core/tests/` | Parser, state aggregator, reflow, command routing, server/Tauri seams; five core integration tests drive a real `tmux -CC` | `cargo test --workspace` (needs `tmux` on PATH) | `rust-tests` | Yes |
 | UI unit | Vitest + Testing Library, jsdom | `packages/tmuxy-ui/src/**/__tests__/`, `src/test/` (setup: `src/test/setup.ts`, config: `vite.config.ts`) | Pure logic, machine state handlers, adapters, a few mocked component renders | `npm test -- --run` (plain `npm test` watches) | `unit-tests` | Yes |
 | CLI | Jest, mocked binaries | `tests/cli/` (`mocks/tmux`, `mocks/tmuxy-server`) | `bin/tmuxy-cli` dispatch and argv; asserts every tmux call carries the dedicated socket flag | `npm run test:cli` | `cli-tests` | Yes |
-| Storybook probe | Playwright + `storybook dev` | `packages/tmuxy-ui/src/**/*.stories.tsx`, `scripts/probe-stories.mjs` | Every non-`v86` story renders and its play function passes (render, glitch, immediacy budgets) | `npm run storybook -w tmuxy-ui`, then `npm run test-storybook -w tmuxy-ui` | `storybook-probe` (commit tier); nightly `deterministic` (all + axe) | Yes |
-| Storybook v86 probe | Playwright, v86 + `tmuxy-wasm` | `v86`-tagged stories (`src/stories/App.stories.tsx`), `scripts/probe-spikes.mjs` | Real tmux behind the real UI with no server: optimistic updates, reconcile, `%output` rendering | `npm run test-storybook:v86 -w tmuxy-ui` (needs the assets below) | `storybook-v86-probe` | Gate step (3 stories): yes. Full sweep: nightly, blocking there |
+| Storybook probe | Playwright + `storybook dev` | `packages/tmuxy-ui/src/**/*.stories.tsx`, `scripts/probe-stories.mjs`; recordings in `src/stories/fixtures/` | Every non-`v86` story renders over states recorded from real tmux and its play function passes (render, glitch, immediacy budgets) | `npm run storybook -w tmuxy-ui`, then `npm run test-storybook -w tmuxy-ui` | `storybook-probe` (commit tier); nightly `deterministic` (all + axe) | Yes |
+| Storybook v86 probe | Playwright, v86 + `tmuxy-wasm` | `v86`-tagged stories (`src/stories/App*.stories.tsx`), `scripts/probe-spikes.mjs` | Real tmux behind the real UI with no server: the stories whose subject is tmux's reply — optimistic updates reconciled, `%output` rendering, `%exit` — and the demo site's own guards | `npm run test-storybook:v86 -w tmuxy-ui` (needs the assets below) | `storybook-v86-probe` | Gate step (three id filters): yes. Full sweep: nightly, blocking there |
 | Web E2E | Jest + Playwright over CDP | `tests/1-…` to `tests/15-…`, `tests/helpers/` | Whole chain: keyboard/mouse in Chromium → server → tmux → SSE → DOM | `npm run test:e2e` (Chrome on 9222, see below) | `e2e` matrix, one runner per file (`2-layout` is split across two) | Yes |
 | Snapshot | Jest + Playwright | `tests/snapshots/snapshot.test.js` | Read-only UI ↔ tmux consistency checks (structure, then the tab strip); also the nightly tmux-matrix smoke | `npx jest tests/snapshots/` | `e2e (snapshots)` | Yes |
 | Interaction latency | Playwright | `packages/tmuxy-ui/scripts/measure-interactions.mjs`, `compare-interactions.mjs`, `perf/interaction-baseline.json` | Cost of key-echo, pane nav, zoom, split, tab switch, as a ratio to a keystroke | See [Interaction-Latency Tests](TESTS-E2E.md#interaction-latency-tests) | nightly `perf measurements` (`interaction-latency`, `-desktop`) | Nightly only. Ratio budgets fail that run; absolute ms warn |
@@ -79,7 +80,7 @@ Pick the cheapest layer that can still fail for the bug you care about. If the b
 | Rust parsing, aggregation, reflow or routing that can be fed recorded control-mode text | `cargo test` — a `#[cfg(test)]` module, or `packages/tmuxy-core/tests/` with a fixture |
 | Rust behavior that depends on how real tmux answers or orders replies | `packages/tmuxy-core/tests/` against a scratch socket, like `reply_channel.rs` |
 | What the `tmuxy` CLI sends to tmux | `tests/cli/` |
-| How a component looks or animates, render counts, flicker, optimistic paint timing with controlled latency or forced rejection | A Storybook story with a play function on `AppHarness`/`ProviderHarness` (`src/stories/StoryHarness.tsx`) |
+| How a component looks or animates, render counts, flicker, optimistic paint timing with controlled latency or forced rejection | A Storybook story with a play function on `FixtureApp`/`FixtureProvider` (`src/stories/FixtureHarness.tsx`), over a recording of real tmux ([Recorded fixtures](TESTS-STORYBOOK.md#recorded-fixtures)) |
 | "tmux did X and the UI showed it" without needing the Rust server or HTTP | A `v86`-tagged story on `V86AppHarness` |
 | A user-visible feature through the real server and transport: keyboard, mouse, touch, floats, groups, reconnect, OSC, widgets | Web E2E — extend the numbered file whose theme fits (below); a production bug with no better home goes in `tests/7-regression-bugs.test.js` |
 | Something that got slower but still works | An entry in `measure-interactions.mjs` plus a budget in `compare-interactions.mjs` |

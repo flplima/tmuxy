@@ -321,7 +321,7 @@ if (TIER === 'commit') {
   }
 }
 // Stride, not contiguous blocks: the index lists a file's stories together,
-// and a file's heavy stories (full AppHarness boots) would otherwise all land
+// and a file's heavy stories (whole-app boots) would otherwise all land
 // in the same slice.
 const shard = (process.env.PROBE_SHARD || '1/1').match(/^(\d+)\/(\d+)$/);
 if (!shard || Number(shard[1]) < 1 || Number(shard[1]) > Number(shard[2])) {

@@ -12,7 +12,7 @@ This document covers what's supported, how the pipeline works, and how to test e
 | **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
 | **APC \_G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfer (`m=1`/`m=0`) and formats `f=24`/`f=32`/`f=100` |
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving. Only a DCS whose bytes before `q` are digits and `;` is Sixel: other DCS strings holding a `q`, such as nvim's XTGETTCAP query (`ESC P + q`), are not pictures |
-| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` parser → `StateEmitter::write_clipboard` → SSE `clipboard` event (web) / `tmux-clipboard` (Tauri) | the transport's `Clipboard` event → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Storybook coverage: `App/Resilience > ClipboardOSC52`. |
+| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` parser → `StateEmitter::write_clipboard` → SSE `clipboard` event (web) / `tmux-clipboard` (Tauri) | the transport's `Clipboard` event → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Covered end to end by `tests/3-rendering-protocols.test.js` Scenario 14, which reads the clipboard write. |
 | **DEC Line Sizes — DECDHL / DECDWL** | `ESC # 3`, `ESC # 4`, `ESC # 5`, `ESC # 6` | `vendor/vt100` (`LineSize` per row) + `extract_cells_with_urls` (`CellStyle.size`) | `TerminalLine.tsx` & `terminalRendering.ts` → `.terminal-scaled` (`dwl`, `dhl-top`, `dhl-bottom`) | `ESC # 3`/`# 4` render top/bottom halves of 2×2 double-height lines; `ESC # 6` renders 2×1 double-width; `ESC # 5` resets to single width. Preserved across `capture-pane` refreshes while the row's text matches |
 | **OSC 66 — Kitty Text Sizing** | `ESC ] 66 ; s=<n>:w=<n> ; <text> ST` | `control_mode/osc.rs` (`emit_osc66`, `sized_cells`) | same | `s=2` emits `dhl-top` on row `r` and mirrors `dhl-bottom` onto row `r+1`; `w=2` (`s=1:w=2`) emits `dwl` |
 
@@ -164,7 +164,6 @@ Inside a real tmuxy session, each of these renders the image inline in the pane.
 ### Automated
 
 - **Rust unit tests** (`tmuxy-core/src/control_mode/images.rs`) cover the parsers and placement geometry — including chunked Kitty transfers, RGBA-to-PNG conversion, and Sixel decode.
-- **Storybook interaction tests** in `tmuxy-ui/src/components/ImageProtocols.stories.tsx` use the demo adapter's `tmuxy-image-attach` helper to inject placements and verify the rendered `<img>` element (one story per protocol plus a multi-protocol story and a split-pane story). The byte source is stubbed via `window.__tmuxyImageSrc`.
 - **E2E** runs a real tmux session, emits each protocol with a shell command, and asserts the `<img>` shows up in the page (see `tests/`).
 
 ## Other rich-rendering opportunities

@@ -6,7 +6,6 @@
 import { Effect, Layer } from 'effect';
 import { HttpAdapter } from './drivers/HttpAdapter';
 import { TauriAdapter } from './drivers/TauriAdapter';
-import { DemoAdapter } from './drivers/demo/DemoAdapter';
 import type { V86TmuxAdapter } from './drivers/v86/V86TmuxAdapter';
 import { isTauri } from '../../utils/platform';
 import { TmuxTransport, makeTransport } from './TmuxTransport';
@@ -24,21 +23,11 @@ export const TauriTransportLive = Layer.scoped(
   Effect.suspend(() => makeSequencedTransport(new TauriAdapter(), { latestPerFrame: false })),
 );
 
-/** The in-browser demo engine; a story passes its own to drive the demo's test hooks. */
-export const DemoTransportLive = (demo: DemoAdapter = new DemoAdapter()) =>
-  Layer.scoped(TmuxTransport, makeTransport(demo));
-
-/** Real tmux in a v86 guest (browser-only stories). */
+/** Real tmux in a v86 guest, in the browser: the demo site and the v86 stories. */
 export const V86TransportLive = (v86: V86TmuxAdapter) =>
   Layer.scoped(TmuxTransport, makeTransport(v86));
 
-function isDemoUrl(): boolean {
-  return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('demo');
-}
-
-/** The desktop app's IPC, the demo on `?demo`, the web server otherwise. */
+/** The desktop app's IPC, the web server otherwise. */
 export function transportForEnvironment(): Layer.Layer<TmuxTransport> {
-  if (isTauri()) return TauriTransportLive;
-  if (isDemoUrl()) return DemoTransportLive();
-  return HttpTransportLive;
+  return isTauri() ? TauriTransportLive : HttpTransportLive;
 }

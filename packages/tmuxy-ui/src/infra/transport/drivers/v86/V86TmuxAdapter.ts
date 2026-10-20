@@ -4,7 +4,7 @@
  * Real tmux 3.7a runs inside a v86 x86 emulator (restored from a pre-booted state
  * snapshot); its `tmux -CC` control-mode stream is parsed by the tmuxy-core Rust
  * engine compiled to WASM — the SAME code the native server runs. No lifo.sh, no
- * DemoTmux simulation, no client-side VT emulator.
+ * simulation, no client-side VT emulator.
  *
  *   TmuxyApp --invoke(run_tmux_command)--> serial0_send --> real tmux -CC
  *     --serial--> tmuxy-wasm (parse + aggregate) --> ServerState --> onStateChange

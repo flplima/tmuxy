@@ -1,95 +1,13 @@
 /**
- * Story harness — wires AppProvider with a DemoAdapter so component stories
- * can render against a live XState machine without booting the real backend.
- *
- * Components that read from useAppSelector / useAppSend need this wrapper.
- * Pure presentational components (Modal, ConnectionStatus) do
- * not.
+ * The v86 story harness: the whole app over real tmux in an in-browser x86
+ * emulator. The deterministic stories replay recordings instead
+ * (`FixtureHarness.tsx`).
  */
 
-import { useMemo, useEffect, type ReactNode } from 'react';
-import {
-  TmuxyProvider,
-  TmuxyApp,
-  V86TmuxAdapter,
-  V86TransportLive,
-  type AppConfig,
-  type RenderTabline,
-} from '../lib';
-import { DemoTransportLive } from '../infra/transport/layers';
-import { DemoAdapter } from '../infra/transport/drivers/demo/DemoAdapter';
-import { gridBox } from './gridBox';
+import { useMemo } from 'react';
+import { TmuxyProvider, TmuxyApp, V86TmuxAdapter, V86TransportLive } from '../lib';
+import { useGridBox } from './gridBox';
 import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../infra/transport/drivers/v86/V86Engine';
-
-export interface AppHarnessProps {
-  /** Tmux commands run after the initial state loads (splits, new-window, etc) */
-  initCommands?: string[];
-  /** Forwarded to TmuxyProvider's config */
-  config?: AppConfig;
-  /** Height of the surrounding container in CSS pixels (default 600) */
-  height?: number;
-  /** Width of the surrounding container in CSS pixels (defaults to full width) */
-  width?: number | string;
-  /** Optional tabline renderer (e.g. for traffic-light mocks) */
-  renderTabline?: RenderTabline;
-  /**
-   * Artificial delay (ms) applied to every run_tmux_command. Used to verify
-   * optimistic updates remain smooth while the backend is slow.
-   */
-  commandDelayMs?: number;
-  /**
-   * Callback consulted before each tmux command. Returning a string causes the
-   * adapter to reject the command with that error, simulating a real tmux
-   * stderr response. Used to verify optimistic-state rollback behaviour.
-   */
-  failCommand?: (command: string) => string | false | null | undefined;
-  /**
-   * Exposes the live DemoAdapter back to the test so it can call helpers like
-   * `emitClipboard` for OSC 52 verification without needing a real backend.
-   */
-  onAdapterReady?: (adapter: DemoAdapter) => void;
-}
-
-/**
- * Renders the full TmuxyApp against a DemoAdapter. Useful for the App-level
- * story and for any component story that wants to demonstrate behaviour
- * within the real layout.
- */
-export function AppHarness({
-  initCommands,
-  config,
-  height = 600,
-  width = '100%',
-  renderTabline,
-  commandDelayMs,
-  failCommand,
-  onAdapterReady,
-}: AppHarnessProps) {
-  const adapter = useMemo(
-    () => new DemoAdapter({ initCommands, commandDelayMs, failCommand }),
-    [initCommands, commandDelayMs, failCommand],
-  );
-  const transport = useMemo(() => DemoTransportLive(adapter), [adapter]);
-  useEffect(() => {
-    if (onAdapterReady) onAdapterReady(adapter);
-  }, [adapter, onAdapterReady]);
-  return (
-    <div
-      style={{
-        height,
-        width,
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'rgb(var(--window-bg-rgb))',
-      }}
-    >
-      <TmuxyProvider transport={transport} config={config}>
-        <TmuxyApp renderTabline={renderTabline} />
-      </TmuxyProvider>
-    </div>
-  );
-}
 
 /**
  * Renders the full TmuxyApp against REAL tmux — running inside a v86 x86
@@ -121,9 +39,8 @@ export function V86AppHarness({
     () => V86TransportLive(new V86TmuxAdapter({ initCommands, shared })),
     [initCommands, shared],
   );
-  // Measured once per mount: the font is loaded by then, and a story never
-  // changes size mid-play.
-  const box = useMemo(() => gridBox(cols, rows), [cols, rows]);
+  const box = useGridBox(cols, rows);
+  if (!box) return null;
   return (
     <div
       style={{
@@ -139,46 +56,6 @@ export function V86AppHarness({
     >
       <TmuxyProvider transport={transport}>
         <TmuxyApp />
-      </TmuxyProvider>
-    </div>
-  );
-}
-
-/**
- * Wraps arbitrary children inside an AppProvider backed by a DemoAdapter.
- * Use for stories that render a single component which depends on the
- * AppContext (e.g. WindowTabs in isolation).
- */
-export function ProviderHarness({
-  children,
-  initCommands,
-  config,
-  height = 200,
-  width = '100%',
-}: {
-  children: ReactNode;
-  initCommands?: string[];
-  config?: AppConfig;
-  height?: number | string;
-  width?: number | string;
-}) {
-  const transport = useMemo(
-    () => DemoTransportLive(new DemoAdapter({ initCommands })),
-    [initCommands],
-  );
-  return (
-    <div
-      style={{
-        height,
-        width,
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'rgb(var(--window-bg-rgb))',
-      }}
-    >
-      <TmuxyProvider transport={transport} config={config}>
-        {children}
       </TmuxyProvider>
     </div>
   );

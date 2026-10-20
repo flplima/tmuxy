@@ -35,7 +35,7 @@ export function AppProvider({
   config,
 }: {
   children: ReactNode;
-  /** The backend to run against; the environment's (web, desktop, `?demo`) when omitted. */
+  /** The backend to run against; the environment's (web, desktop) when omitted. */
   transport?: Layer.Layer<TmuxTransport>;
   config?: AppConfig;
 }) {
