@@ -63,7 +63,7 @@ export const TheAccentFollowsTheKeyboard: Story = {
     canvasElement.appendChild(probe);
     probe.style.color = style.getPropertyValue('--theme-accent').trim();
     const accentPainted = colourOf(probe);
-    probe.style.color = style.getPropertyValue('--text-primary').trim();
+    probe.style.color = style.getPropertyValue('--text-strong').trim();
     const whitePainted = colourOf(probe);
     probe.remove();
     expect(accentPainted).not.toBe(whitePainted);

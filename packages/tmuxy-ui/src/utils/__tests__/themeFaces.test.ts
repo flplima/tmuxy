@@ -173,6 +173,9 @@ describe('theme faces', () => {
         ['--text-dimmed', '--bg-medium'],
         ['--text-dimmed', '--term-background'],
         ['--pane-header-text-inactive', '--window-bg-rgb'],
+        ['--text-quiet', '--window-bg-rgb'],
+        ['--text-quiet', '--bg-medium'],
+        ['--text-strong', '--window-bg-rgb'],
         ['--theme-accent', '--bg-medium'],
         ['--text-primary', '--bg-highlight'],
         ['--theme-accent', '--bg-highlight'],
@@ -182,6 +185,12 @@ describe('theme faces', () => {
         const ratio = contrast(colorOf(face, fg), colorOf(face, bg));
         expect({ what, ok: ratio >= 4.5 }).toEqual({ what, ok: true });
       }
+      // The current tab stands apart from the others, not only from the ground.
+      const apart = contrast(colorOf(face, '--text-strong'), colorOf(face, '--text-quiet'));
+      expect({ what: 'the current tab against the others', ok: apart >= 1.5 }).toEqual({
+        what: 'the current tab against the others',
+        ok: true,
+      });
       // A pane's header: 30% of --border-medium over the pane (`.pane-header`).
       const border = colorOf(face, '--border-medium');
       const pane = colorOf(face, '--term-background');

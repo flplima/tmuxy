@@ -184,9 +184,9 @@
   flex: 0 0 auto;
   max-width: 32ch;
   min-width: 0;
-  /* An inactive tab is quiet by colour, not by opacity: --text-dimmed is the
-     tier that still reads at 4.5:1 on the chrome. */
-  color: var(--text-dimmed);
+  /* An inactive tab is quiet by colour, not by opacity: --text-quiet is the
+     quietest tier that still reads at 4.5:1 on the chrome. */
+  color: var(--text-quiet);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
   white-space: nowrap;
@@ -259,8 +259,10 @@
 /* Active tab: the theme's white on a dark face, its opposite on a light one,
    and no filled pill. It says which tab is current, not where you are typing:
    the accent is the active pane's outline, or a focused column's title. */
-.tab-name-active {
-  color: var(--text-primary);
+.tab-name-active,
+.tab-name-active:hover,
+.tab-name-active.is-previewing {
+  color: var(--text-strong);
 }
 
 /* A tab being dragged rides with the pointer above its neighbours, with no

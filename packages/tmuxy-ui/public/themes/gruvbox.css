@@ -35,6 +35,7 @@
   --text-secondary: #d5c4a1;
   --text-muted: #a89984;
   --text-dimmed: #a69682;
+  --text-quiet: #9d8e7c;
   --text-subtle: #665c54;
   /* Status-bar text: white on the dark-gray status background */
   --text-dark: #ebdbb2;
@@ -110,6 +111,7 @@
   --text-secondary: #504945;
   --text-muted: #665c54;
   --text-dimmed: #58504a;
+  --text-quiet: #6a6258;
   --text-subtle: #a89984;
 
   --border-medium: #d5c4a1;

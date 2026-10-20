@@ -97,7 +97,7 @@ function face(theme: Theme, mode: Mode): Story {
         () => {
           const accent = token('--theme-accent');
           // The current tab is the face's white (its opposite on a light face).
-          expect(paint(tab, 'color')).toEqual(token('--text-primary'));
+          expect(paint(tab, 'color')).toEqual(token('--text-strong'));
           expect(paint(activePane, 'outlineColor')).toEqual(accent);
           expect(paint(status, 'backgroundColor')).toEqual(token('--tmux-status-bg'));
           expect(paint(activePane, 'backgroundColor')).toEqual(token('--term-background'));

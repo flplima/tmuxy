@@ -57,6 +57,7 @@
   --text-secondary: #2ddd2d; /* 85% fg */
   --text-muted: var(--fallout-fg-dim);
   --text-dimmed: #23a823; /* 62% fg */
+  --text-quiet: #219e21;
   --text-subtle: var(--fallout-fg-faint);
   --text-dark: var(--fallout-bg);
 
@@ -146,6 +147,7 @@
   --text-secondary: #354423; /* 93% fg */
   --text-muted: var(--fallout-light-fg-dim);
   --text-dimmed: #354423; /* 93% fg */
+  --text-strong: #1c2611;
   --text-subtle: var(--fallout-light-fg-faint);
   --text-dark: var(--fallout-light-bg);
 
