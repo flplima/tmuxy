@@ -19,6 +19,7 @@
 //! a tmux session (verified empirically — see docs/RICH-RENDERING.md).
 
 mod kitty;
+mod kitty_placeholders;
 mod sixel_and_iterm;
 
 use serde::{Deserialize, Serialize};
@@ -117,8 +118,15 @@ pub struct ImageParser {
     kitty_chunk_order: std::collections::VecDeque<u32>,
     /// Kitty protocol image ids mapped to the ids used by the HTTP image store.
     kitty_image_ids: std::collections::HashMap<u32, u32>,
+    /// The order kitty ids were seen in, so `MAX_KITTY_IMAGE_IDS` evicts the oldest.
+    kitty_image_order: std::collections::VecDeque<u32>,
     /// Internal image ids whose screen placement comes from Unicode cells.
     kitty_virtual_images: std::collections::HashSet<u32>,
+    /// How many times the screen was walked for placeholder cells. The walk
+    /// is the one per-output cost that scales with the grid, so a test holds
+    /// it to the chunks that can change a placement.
+    #[cfg(test)]
+    pub(crate) placeholder_scans: usize,
     /// An image escape (iTerm2/kitty/sixel) split across `%output` chunks,
     /// carried into the next `process()` call so a large payload isn't torn —
     /// its header rendered as garbage text and the image dropped.
@@ -144,6 +152,11 @@ const MAX_CHUNKED_IMAGE: usize = MAX_PENDING_IMAGE;
 /// Upper bound on a ZLIB-compressed Kitty payload once inflated, so a small
 /// payload cannot expand into an unbounded buffer.
 const MAX_DECODED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+
+/// How many kitty image ids a pane remembers for placeholder lookup: the
+/// same bound as the pane's image store, since an id whose bytes are gone
+/// has nothing left to place.
+const MAX_KITTY_IMAGE_IDS: usize = 256;
 
 /// How many chunked transfers may be in flight at once.
 ///
@@ -195,6 +208,7 @@ impl ImageParser {
         self.kitty_chunks.clear();
         self.kitty_chunk_order.clear();
         self.kitty_image_ids.clear();
+        self.kitty_image_order.clear();
         self.kitty_virtual_images.clear();
         self.cursor_row = 0;
         self.cursor_col = 0;
@@ -422,5 +436,7 @@ impl ImageParser {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_placeholders;
 #[cfg(test)]
 mod tests_sixel;

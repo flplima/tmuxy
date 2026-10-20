@@ -302,7 +302,7 @@ impl PaneState {
         let (row, col) = screen.cursor_position();
         self.image_parser.update_cursor(row, col);
         // Kitty's tmux passthrough places images with Unicode cells.
-        self.image_parser.update_kitty_placeholders(screen);
+        self.image_parser.update_kitty_placeholders(screen, content);
     }
 
     /// Reset terminal and process capture-pane output.
