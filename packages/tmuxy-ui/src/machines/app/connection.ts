@@ -167,6 +167,11 @@ export const connectionActions = {
           args: { cols, rows },
         }),
       );
+    } else if (grid.cols > 0 && !context.enableAnimations && context.lastUpdateQuiet) {
+      // The grid is already the size this client measured, and quiet: the
+      // gate the next update would open (reconcileModelUpdate). With nothing
+      // to resize, an idle session may send no update to open it.
+      enqueue(assign({ enableAnimations: true }));
     }
   }),
 
