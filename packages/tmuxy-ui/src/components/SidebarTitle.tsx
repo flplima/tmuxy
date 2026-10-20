@@ -8,29 +8,21 @@
  * says which surface is focused — the divider between column and panes stays a
  * flat gray in every state.
  *
- * The left title is the session name and opens the session switcher, because
- * what the tree below it lists is that session's tabs. The right title is
+ * The left title is the session's name alone and opens the session switcher,
+ * because what the tree below it lists is that session's tabs. The right title is
  * whatever its pane is running, so a pinned `tail -f` says so.
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
-import {
-  useAppConfig,
-  useAppSend,
-  useAppSelector,
-  useAppSelectorShallow,
-} from '../machines/appHooks';
+import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { selectRightSidebarPane } from '../machines/selectors/panesAndSidebars';
-import { serverHostLabel, sidebarShellTitle } from './paneTabDisplay';
+import { sidebarShellTitle } from './paneTabDisplay';
 import { Tooltip } from './Tooltip';
 import { SessionMenu } from './SessionMenu';
 
 export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' | 'right' }) {
   const send = useAppSend();
-  const { isDemo } = useAppConfig();
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
-  const servers = useAppSelectorShallow((ctx) => ctx.servers);
-  const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
   const rightPane = useAppSelector(selectRightSidebarPane);
   const focused = useAppSelector((ctx) =>
     side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
@@ -50,8 +42,6 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
     [send, side],
   );
 
-  const host = serverHostLabel(servers, currentServerId, isDemo);
-
   return (
     <span
       className={`sidebar-title sidebar-title-${side}${focused ? ' is-focused' : ''}`}
@@ -60,10 +50,7 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
     >
       <span className="sidebar-title-text">
         {side === 'left' ? (
-          <>
-            <span className="sidebar-title-host">{host}</span>{' '}
-            <strong className="sidebar-title-session">[{sessionName}]</strong>
-          </>
+          <strong className="sidebar-title-session">{sessionName}</strong>
         ) : (
           sidebarShellTitle(rightPane)
         )}
