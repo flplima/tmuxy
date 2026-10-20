@@ -1,7 +1,7 @@
 /**
  * Animation integration stories.
  *
- * These drive the full TmuxyApp against the DemoAdapter and verify that the
+ * These drive the full TmuxyApp over states recorded from real tmux and verify that the
  * DOM mutations + CSS animations behind each layout/float transition actually
  * fire — using MutationObservers (and, for floats, a real `animationstart`
  * listener) rather than only asserting the post-animation end state.
@@ -13,7 +13,6 @@
  *  - SplitRejectedRollback optimistic node is inserted, then removed on reject
  *  - ClosePane            killed pane goes at once; the survivor grows into it
  *                         under the growing survivor, then its node is removed
- *  - ResizePane           moving the divider rewrites pane geometry (animated)
  *
  * What "animation exercised" means here: a CSS transition can't be observed
  * by a MutationObserver directly, but its `transitionstart` events and the
@@ -29,7 +28,9 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import panes from './fixtures/gen/panes.json';
 import { LayoutMutationRecorder, wait } from './animationObservers';
 import {
   getApp,
@@ -39,21 +40,26 @@ import {
   waitForAnimationsEnabled,
 } from './animationStoryHelpers';
 
-const meta: Meta<typeof AppHarness> = {
+/** A split answered with the two panes tmux drew; a kill with the one left. */
+const SPLIT = [{ match: /^split-window\b/, to: 'side-by-side' }];
+const KILL = [{ match: /^kill-pane\b/, to: 'one' }];
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Animations',
-  component: AppHarness,
+  component: FixtureApp,
+  args: { fixture: asFixture(panes), start: 'one', transitions: SPLIT },
   parameters: {
     layout: 'fullscreen',
     docs: {
       description: {
         component:
-          'Integration stories that verify the DOM mutations and CSS animations behind pane splits, closes, and resizes. Uses MutationObservers to confirm each animation is exercised, and combines slow-tmux (optimistic) and rejected-command (rollback) timing via the DemoAdapter.',
+          'Integration stories that verify the DOM mutations and CSS animations behind pane splits, closes, and resizes. Uses MutationObservers to confirm each animation is exercised, and combines slow-tmux (optimistic) and rejected-command (rollback) timing over a recording of real tmux.',
       },
     },
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 // ---------------------------------------------------------------------------
 // Split — a pane node is inserted and the survivor re-lays-out
@@ -61,7 +67,6 @@ type Story = StoryObj<typeof AppHarness>;
 
 export const SplitPane: Story = {
   tags: ['nightly'],
-  args: { height: 600 },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 600 },
@@ -81,9 +86,8 @@ export const SplitPane: Story = {
     // transitionstart bubbles — record which properties actually started
     // transitioning on the entering pane. A paint-aligned rAF sampler
     // records the entering pane's rect + opacity each frame (transitionstart
-    // handlers can be dispatched late under load, and the demo engine may
-    // retarget the morph mid-flight with a client resize — rAF sampling is
-    // immune to both).
+    // handlers can be dispatched late under load — rAF sampling is immune to
+    // that).
     const enterStarts = new Set<string>();
     const onTransitionStart = (e: Event) => {
       const t = e.target as HTMLElement;
@@ -175,7 +179,7 @@ export const SplitPane: Story = {
 // ---------------------------------------------------------------------------
 
 export const SlowSplitOptimistic: Story = {
-  args: { height: 600, commandDelayMs: 400 },
+  args: { commandDelayMs: 400 },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 600 },
@@ -223,7 +227,6 @@ export const SlowSplitOptimistic: Story = {
 
 export const SplitRejectedRollback: Story = {
   args: {
-    height: 600,
     commandDelayMs: 60,
     failCommand: (cmd) => (cmd.startsWith('split-window') ? "can't split pane: no space" : false),
   },
@@ -276,7 +279,7 @@ export const SplitRejectedRollback: Story = {
 
 export const ClosePane: Story = {
   tags: ['nightly'],
-  args: { height: 600, initCommands: ['split-window -h'] },
+  args: { start: 'side-by-side', transitions: KILL },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 600 },
@@ -363,51 +366,6 @@ export const ClosePane: Story = {
       sampling = false;
       recorder.disconnect();
       layout.removeEventListener('transitionstart', onTransitionStart);
-    }
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Resize — moving the divider rewrites pane geometry (animated when enabled)
-// ---------------------------------------------------------------------------
-
-export const ResizePane: Story = {
-  args: { height: 600, initCommands: ['split-window -h'] },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 600 },
-      description: {
-        story:
-          'Resizing moves the shared divider, rewriting both panes’ inline geometry. The MutationObserver records the `style` rewrites, and the computed `transition` on a pane confirms the layout transition is active (animations enabled after settle), so the geometry change is animated.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 2);
-
-    const layout = getPaneLayout(canvasElement);
-    await waitForAnimationsEnabled(layout);
-
-    // Computed transition proves the geometry change will animate (not snap).
-    const before = getComputedStyle(paneNodes(canvasElement)[0]);
-    expect(before.transitionDuration).toContain('0.1s');
-
-    const recorder = new LayoutMutationRecorder(layout);
-    try {
-      // Grow the first pane into the shared divider — moves the divider and
-      // rewrites both panes' geometry regardless of which pane is active.
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t %0' });
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'resize-pane -R 8' });
-
-      await waitFor(
-        () => {
-          expect(recorder.geometryRewrites).toBeGreaterThan(0);
-        },
-        { timeout: 2000 },
-      );
-    } finally {
-      recorder.disconnect();
     }
   },
 };

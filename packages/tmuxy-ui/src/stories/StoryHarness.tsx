@@ -18,14 +18,7 @@ import {
 } from '../lib';
 import { DemoTransportLive } from '../infra/transport/layers';
 import { DemoAdapter } from '../infra/transport/drivers/demo/DemoAdapter';
-import {
-  CHAR_HEIGHT,
-  CONTAINER_PADDING_BOTTOM,
-  CONTAINER_PADDING_X,
-  STATUS_BAR_HEIGHT,
-  TMUX_STATUS_BAR_HEIGHT,
-} from '../constants/layout';
-import { measureCellMetrics } from '../utils/cellMetrics';
+import { gridBox } from './gridBox';
 import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../infra/transport/drivers/v86/V86Engine';
 
 export interface AppHarnessProps {
@@ -96,30 +89,6 @@ export function AppHarness({
       </TmuxyProvider>
     </div>
   );
-}
-
-/**
- * Pixel box that makes the app settle on exactly `cols` x `rows`.
- *
- * The app does not take a terminal size — it MEASURES one, from the pane
- * container's content box (`calculateTargetSize`). So a story asks for a grid
- * by handing the harness a box that measures back to it:
- *
- *   cols = floor(containerContentWidth  / cellWidth)
- *   rows = floor(containerContentHeight / CHAR_HEIGHT)
- *
- * The width has to come from the MEASURED cell, not a constant: the terminal
- * font's advance is ~9px at one font size and ~9.6px at another, so a fixed
- * pixel width is 80 columns on one machine and 79 or 81 on the next. The
- * height is safe in constants — rows are always CHAR_HEIGHT tall.
- */
-function gridBox(cols: number, rows: number): { width: number; height: number } {
-  const { cellWidth } = measureCellMetrics();
-  return {
-    width: cols * cellWidth + CONTAINER_PADDING_X * 2,
-    height:
-      rows * CHAR_HEIGHT + CONTAINER_PADDING_BOTTOM + STATUS_BAR_HEIGHT + TMUX_STATUS_BAR_HEIGHT,
-  };
 }
 
 /**
