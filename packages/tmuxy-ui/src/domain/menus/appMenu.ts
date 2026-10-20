@@ -89,6 +89,8 @@ export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
 
 export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
   return tidy([
+    { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
+    separator,
     ...(env.readOnly
       ? []
       : LAYOUTS.map(
@@ -204,42 +206,6 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       label: 'Copy App State',
       icon: 'copy',
       action: local('debug-copy-state'),
-    },
-  ]);
-}
-
-export function helpMenuSpec(env: MenuEnv): MenuSpec {
-  return tidy([
-    env.isTauri && {
-      kind: 'item',
-      id: 'help-reveal-log-file',
-      label: 'Reveal Log File',
-      icon: 'folder',
-      action: local('help-reveal-log-file'),
-    },
-    env.isTauri && separator,
-    {
-      kind: 'item',
-      id: 'help-github',
-      label: 'Tmuxy on GitHub',
-      external: true,
-      action: action('help-github'),
-    },
-    {
-      kind: 'item',
-      id: 'help-report-bug',
-      label: 'Report a Bug',
-      icon: 'bug',
-      external: true,
-      action: action('help-report-bug'),
-    },
-    separator,
-    {
-      kind: 'item',
-      id: 'help-about',
-      label: 'About tmuxy',
-      icon: 'info',
-      action: local('about'),
     },
   ]);
 }
@@ -362,7 +328,6 @@ export function appMenuSpec(
       children: sessionMenuSpec(ctx, env),
     },
     options.windowMenu,
-    { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
     { kind: 'submenu', id: 'menu-view', label: 'View', children: viewMenuSpec(ctx, env) },
     !env.readOnly && {
       kind: 'submenu',
@@ -371,7 +336,6 @@ export function appMenuSpec(
       onOpen: event({ type: 'FETCH_TRACE_SETTINGS' }),
       children: debugMenuSpec(ctx, env),
     },
-    { kind: 'submenu', id: 'menu-help', label: 'Help', children: helpMenuSpec(env) },
     separator,
     ...appItemsSpec(env, 'hamburger'),
   ]);

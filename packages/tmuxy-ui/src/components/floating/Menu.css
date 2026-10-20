@@ -120,10 +120,3 @@
 .floating-menu-item:focus .menu-keybinding {
   color: var(--text-primary);
 }
-
-/* Leaves the app: the arrow says so before the click does. */
-.menu-external {
-  margin-left: 4px;
-  font-size: 10px;
-  color: inherit;
-}

@@ -379,7 +379,7 @@ describe('GUI windows', () => {
         'tab-stack-toggle',
         'window-close',
         'trace-enabled',
-        'help-about',
+        'menu-theme',
       ]),
     );
     // A context menu is about its thing: nothing of the app section in the

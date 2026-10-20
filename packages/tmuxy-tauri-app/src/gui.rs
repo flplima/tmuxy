@@ -10,7 +10,7 @@ use crate::titlebar;
 use crate::window_style::WindowStyles;
 use crate::windows;
 
-pub(crate) use window_setup::{apply_blur, build_window, configure_window, reveal_log_file};
+pub(crate) use window_setup::{apply_blur, build_window, configure_window};
 
 /// Start the Tauri GUI application.
 pub fn run() {
@@ -297,7 +297,6 @@ pub fn run() {
             commands::focus_window,
             commands::close_window,
             commands::quit_app,
-            commands::reveal_log_file,
             commands::list_gui_windows,
             commands::set_window_style,
             commands::get_window_style,

@@ -79,7 +79,6 @@ function renderNode(node: MenuNode, index: number, dispatch: MenuDispatch): Reac
           onClick={() => dispatch(node.action)}
         >
           {node.label}
-          {node.external && <span className="menu-external">{'↗'}</span>}
           {node.keyHint && <span className="menu-keybinding">{node.keyHint}</span>}
         </MenuItem>
       );

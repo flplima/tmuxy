@@ -8,9 +8,7 @@ import type { AppMachineContext } from '../../machines/types/context';
 import {
   appItemsSpec,
   debugMenuSpec,
-  helpMenuSpec,
   sessionMenuSpec,
-  themeMenuSpec,
   viewMenuSpec,
   type AppMenuOptions,
 } from './appMenu';
@@ -39,7 +37,6 @@ export function menuBarSpec(
       ),
     top('menu-tab', 'Tab', tabMenuSpec(ctx, env, { windowId: null })),
     !env.readOnly && top('menu-session', 'Session', sessionMenuSpec(ctx, env)),
-    top('menu-theme', 'Theme', themeMenuSpec(ctx)),
     top('menu-view', 'View', viewMenuSpec(ctx, env)),
     // No Select All: over a terminal grid it selects the whole document,
     // which means nothing.
@@ -49,6 +46,5 @@ export function menuBarSpec(
     ]),
     options.windowMenu,
     !env.readOnly && top('menu-debug', 'Debug', debugMenuSpec(ctx, env)),
-    top('menu-help', 'Help', helpMenuSpec(env)),
   ]);
 }

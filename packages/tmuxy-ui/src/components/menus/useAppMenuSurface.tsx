@@ -18,7 +18,6 @@ import {
   listGuiWindows,
   newGuiWindow,
   quitApp,
-  revealLogFile,
   setWindowStyle,
   type GuiWindowInfo,
   type WindowStyleSlug,
@@ -29,7 +28,6 @@ import type { MenuEnv, MenuNode } from '../../domain/menus/spec';
 import { useMenuDispatch, type MenuDispatch } from './SpecMenu';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
 import { activeCloseTarget } from './menuActions';
-import { APP_VERSION } from '../../version';
 import './AppMenu.css';
 
 export interface AppMenuSurface {
@@ -65,10 +63,8 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   }, []);
   useEffect(refreshWindows, [refreshWindows]);
 
-  // The two dialogs the menu opens: one asks before a destructive act, the
-  // other says which build this is.
+  // The dialog the menu opens: it asks before a destructive act.
   const [confirmKill, setConfirmKill] = useState(false);
-  const [aboutOpen, setAboutOpen] = useState(false);
 
   const report: ClipboardReport = {
     onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
@@ -79,10 +75,8 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     closeTarget: activeCloseTarget(activePaneId, focusedFloatPaneId),
     onLocal: (id) => {
       if (id === 'confirm-kill-session') setConfirmKill(true);
-      else if (id === 'about') setAboutOpen(true);
       else if (id === 'debug-copy-state') copyAppState(actor.getSnapshot().context, report);
       else if (id === 'trace-copy-path') copyTracePath(tracePath, report);
-      else if (id === 'help-reveal-log-file') revealLogFile();
       else if (id === 'window-refresh') refreshWindows();
       else if (id === 'window-new') newGuiWindow();
       else if (id === 'window-close') closeGuiWindow();
@@ -123,25 +117,6 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
                 }}
               >
                 Kill Session
-              </button>
-            </div>
-          </Modal>,
-          document.body,
-        )}
-      {aboutOpen &&
-        createPortal(
-          <Modal open title="About tmuxy" width={360} onClose={() => setAboutOpen(false)}>
-            <p className="app-menu-dialog-text">
-              <strong>tmuxy</strong> {APP_VERSION}
-              <br />
-              The missing tmux GUI. Session <strong>{sessionName}</strong>.
-            </p>
-            <div className="app-menu-dialog-actions">
-              <button type="button" onClick={() => dispatch({ kind: 'action', id: 'help-github' })}>
-                GitHub {'↗'}
-              </button>
-              <button type="button" onClick={() => setAboutOpen(false)}>
-                OK
               </button>
             </div>
           </Modal>,

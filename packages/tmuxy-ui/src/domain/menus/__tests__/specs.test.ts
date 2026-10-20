@@ -153,17 +153,18 @@ describe('appMenuSpec', () => {
     const submenus = web
       .filter((n) => n.kind === 'submenu')
       .map((n) => n.kind === 'submenu' && n.label);
-    expect(submenus).toEqual(['Pane', 'Tab', 'Session', 'Theme', 'View', 'Debug', 'Help']);
+    expect(submenus).toEqual(['Pane', 'Tab', 'Session', 'View', 'Debug']);
+    // The theme is View's first submenu.
+    const view = web.find((n) => n.kind === 'submenu' && n.id === 'menu-view');
+    const first = view?.kind === 'submenu' ? view.children[0] : null;
+    expect(first).toMatchObject({ kind: 'submenu', id: 'menu-theme', label: 'Theme' });
     const ids = itemIds(web);
     expect(ids).toContain('session-reload-config');
     expect(ids).not.toContain('restart-app');
     expect(ids).not.toContain('quit');
-    expect(ids).toContain('help-about');
-    expect(ids).not.toContain('help-reveal-log-file');
 
     const linux = itemIds(appMenuSpec(ctx(), LINUX));
     expect(linux.slice(-3)).toEqual(['session-reload-config', 'restart-app', 'quit']);
-    expect(linux).toContain('help-reveal-log-file');
 
     const mac = itemIds(appMenuSpec(ctx(), MAC));
     expect(mac).not.toContain('quit');
@@ -173,7 +174,7 @@ describe('appMenuSpec', () => {
     const viewer = appMenuSpec(ctx(), VIEWER);
     expect(
       viewer.filter((n) => n.kind === 'submenu').map((n) => n.kind === 'submenu' && n.label),
-    ).toEqual(['Tab', 'Theme', 'View', 'Help']);
+    ).toEqual(['Tab', 'View']);
     expect(itemIds(viewer)).not.toContain('session-reload-config');
     const demo = appMenuSpec(ctx(), { ...WEB, isDemo: true });
     expect(disabled(demo, 'session-kill')).toBe(true);

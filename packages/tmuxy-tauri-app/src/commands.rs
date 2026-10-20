@@ -347,14 +347,6 @@ pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0)
 }
 
-/// Reveal the app's log file (`tmuxy_core::paths::log_file`, the `tracing`
-/// lines stderr would have shown) in the platform file manager: selected in
-/// Finder on macOS, its directory opened elsewhere.
-#[tauri::command]
-pub fn reveal_log_file() {
-    crate::gui::reveal_log_file()
-}
-
 /// Every open GUI window, in Window-menu order, for the in-app menu to list —
 /// the native menu bar builds its own from the same registry.
 #[tauri::command]

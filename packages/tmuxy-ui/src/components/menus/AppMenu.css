@@ -28,7 +28,7 @@
   color: var(--text-primary);
 }
 
-/* The two dialogs the menu opens (Kill Session…, About tmuxy): a line of
+/* The dialog the menu opens (Kill Session…): a line of
    text and a row of buttons, the destructive one on the right in red. */
 .app-menu-dialog-text {
   margin: 0;

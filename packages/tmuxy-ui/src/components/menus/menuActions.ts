@@ -11,9 +11,6 @@ import type { AppMachineEvent } from '../../machines/types/events';
 import { type PaneId, isPlaceholderId } from '../../domain/ids';
 import { renameSessionPrompt, renameWindowPrompt, TmuxOp } from '../../domain/commands';
 
-const GITHUB_URL = 'https://github.com/flplima/tmuxy';
-const GITHUB_BUG_REPORT_URL = 'https://github.com/flplima/tmuxy/issues/new?template=bug.yml';
-
 type Send = (event: AppMachineEvent) => void;
 
 /**
@@ -148,14 +145,6 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       // connection as a flap and reattaches, dropping the user straight back
       // into the session they just left.
       send({ type: 'DETACH_CLIENT' });
-      break;
-
-    // Help actions
-    case 'help-github':
-      window.open(GITHUB_URL, '_blank');
-      break;
-    case 'help-report-bug':
-      window.open(GITHUB_BUG_REPORT_URL, '_blank');
       break;
   }
 }

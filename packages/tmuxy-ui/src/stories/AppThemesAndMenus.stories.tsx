@@ -115,6 +115,7 @@ export const ThemePickerViaMenu: Story = {
     );
     const doc = canvasElement.ownerDocument;
     const menu = await openAppMenu(canvasElement, user);
+    await user.click(await menu.item(/^View$/));
     await user.click(await menu.item(/^Theme$/));
     await user.click(await menu.item(/Dracula/));
     await waitFor(
@@ -123,6 +124,7 @@ export const ThemePickerViaMenu: Story = {
       { timeout: 10000, interval: 300 },
     );
     const menu2 = await openAppMenu(canvasElement, user);
+    await user.click(await menu2.item(/^View$/));
     await user.click(await menu2.item(/^Theme$/));
     await user.click(await menu2.item(/Light Mode/));
     await waitFor(() => expect(doc.documentElement.classList.contains('theme-light')).toBe(true), {
@@ -194,23 +196,6 @@ export const MenuPaneOps: Story = {
 };
 
 /**
- * Help menu: hamburger → Help lists the real help entry (Tmuxy on GitHub with
- * the external-link marker). We assert the item renders; clicking would
- * navigate away, so the assertion stops at the rendered affordance.
- */
-export const HelpMenu: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    const menu = await openAppMenu(canvasElement, user);
-    await user.click(await menu.item(/^Help$/));
-    const gh = await menu.item(/Tmuxy on GitHub/);
-    expect(gh.querySelector('.menu-external')).not.toBeNull();
-  },
-};
-
-/**
  * 3.7 — Status bar gestures are a browser no-op (drag/maximize are
  * Tauri-only): double-clicking the empty status bar must not error, emit tmux
  * commands, or disturb the layout. Pins the guard contract.
@@ -257,6 +242,7 @@ export const ThemeSwitchChurn: Story = {
 
     const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
     const menu = await openAppMenu(canvasElement, user);
+    await user.click(await menu.item(/^View$/));
     await user.click(await menu.item(/^Theme$/));
     await user.click(await menu.item(/Nord/));
     await waitFor(

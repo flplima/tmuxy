@@ -125,30 +125,6 @@ pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
     windows::watch_for_close(window);
 }
 
-/// Reveal the app's log file (`tmuxy_core::paths::log_file`, the `tracing`
-/// lines stderr would have shown) in the platform file manager: selected in
-/// Finder on macOS, its directory opened elsewhere.
-pub(crate) fn reveal_log_file() {
-    let path = tmuxy_core::paths::log_file();
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open")
-            .arg("-R")
-            .arg(&path)
-            .spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(parent) = path.parent() {
-            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
-        }
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let _ = path;
-    }
-}
-
 pub(super) fn handle_tmuxycss(
     request: tauri::http::Request<Vec<u8>>,
 ) -> tauri::http::Response<Vec<u8>> {

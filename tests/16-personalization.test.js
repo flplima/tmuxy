@@ -51,7 +51,7 @@ async function clickMenuItem(page, labels) {
 
 /** The theme submenu's items, with whether each one can be picked; closed again after. */
 async function themeMenuItems(page) {
-  await clickMenuItem(page, ['Theme']);
+  await clickMenuItem(page, ['View', 'Theme']);
   await page.locator('[role^="menuitem"]', { hasText: 'Dark Mode' }).waitFor({ timeout: 5000 });
   const items = await page.evaluate(() =>
     [...document.querySelectorAll('[role^="menuitem"]')].map((el) => ({
@@ -59,8 +59,8 @@ async function themeMenuItems(page) {
       disabled: el.getAttribute('aria-disabled') === 'true',
     })),
   );
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
+  // One Escape per level: Theme, View, the app menu.
+  for (let level = 0; level < 3; level++) await page.keyboard.press('Escape');
   await waitForCondition(page, () => noMenuOpen(page), 5000, 'the menu to close');
   return items;
 }
@@ -117,7 +117,7 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
     );
     const listed = await themeMenuItems(page);
     expect(listed.some((item) => item.text.includes('E2e Mine'))).toBe(true);
-    await clickMenuItem(page, ['Theme', 'E2e Mine']);
+    await clickMenuItem(page, ['View', 'Theme', 'E2e Mine']);
     await waitForCondition(
       page,
       async () => (await painted(page)).termBackground === '#123456',

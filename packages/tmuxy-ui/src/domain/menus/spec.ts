@@ -57,8 +57,6 @@ export type MenuNode =
   | (ItemBase & {
       kind: 'item';
       action: MenuAction;
-      /** Opens something outside the app; drawn with an ↗. */
-      external?: boolean;
       icon?: MenuIconName;
     })
   | (ItemBase & { kind: 'checkbox'; checked: boolean; action: MenuAction })

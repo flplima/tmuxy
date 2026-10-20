@@ -77,7 +77,7 @@ async function buildItem(
     case 'item': {
       const options = {
         id: node.id,
-        text: node.external ? `${node.label}…` : node.label,
+        text: node.label,
         enabled: !node.disabled,
         accelerator: node.accelerator,
         action: run(node.action),

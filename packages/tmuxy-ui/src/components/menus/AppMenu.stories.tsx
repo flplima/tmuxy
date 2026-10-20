@@ -25,7 +25,7 @@ export const OpenMenu: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
 
     // All top-level submenus render.
-    for (const label of ['Pane', 'Tab', 'Session', 'Theme', 'View', 'Debug', 'Help']) {
+    for (const label of ['Pane', 'Tab', 'Session', 'View', 'Debug']) {
       expect(menu.getByRole('menuitem', { name: label })).toBeInTheDocument();
     }
   },
@@ -33,7 +33,7 @@ export const OpenMenu: Story = {
 
 /**
  * Kill Session is one click from ending every pane: the item asks first, and
- * Cancel leaves the session alone. About names the running version.
+ * Cancel leaves the session alone.
  */
 export const KillSessionAsksFirst: Story = {
   render: () => (
@@ -54,20 +54,6 @@ export const KillSessionAsksFirst: Story = {
     await userEvent.click(page.getByRole('button', { name: /cancel/i }));
     await waitFor(() => {
       expect(page.queryByText(/kill session .*\?/i)).toBeNull();
-    });
-
-    await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-    await userEvent.click(page.getByRole('menuitem', { name: 'Help' }));
-    await userEvent.click(
-      await waitFor(() => page.getByRole('menuitem', { name: /about tmuxy/i })),
-    );
-    const about = await waitFor(() => page.getByText(/the missing tmux gui/i));
-    expect(about).toBeVisible();
-    // The version is the package's, defined at build time, never a blank.
-    expect(about.closest('.modal-container')?.textContent).toMatch(/\d+\.\d+\.\d+/);
-    await userEvent.click(page.getByRole('button', { name: /^ok$/i }));
-    await waitFor(() => {
-      expect(page.queryByText(/the missing tmux gui/i)).toBeNull();
     });
   },
 };
@@ -113,7 +99,8 @@ export const ThemeSubmenu: Story = {
     const canvas = within(canvasElement);
     const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-    await userEvent.click(menu.getByRole('menuitem', { name: 'Theme' }));
+    await userEvent.click(menu.getByRole('menuitem', { name: 'View' }));
+    await userEvent.click(await waitFor(() => menu.getByRole('menuitem', { name: 'Theme' })));
 
     // The modes are checkbox items: exactly one of them is checked, the one
     // the page is in.

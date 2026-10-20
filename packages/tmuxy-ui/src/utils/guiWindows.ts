@@ -80,11 +80,6 @@ export function quitApp(): void {
   void desktop('quit_app', undefined);
 }
 
-/** Reveal the app's log file in the platform file manager. */
-export function revealLogFile(): void {
-  void desktop('reveal_log_file', undefined);
-}
-
 /** Put this window into one of the window styles. */
 export function setWindowStyle(style: WindowStyleSlug): void {
   void desktop('set_window_style', undefined, { style });
