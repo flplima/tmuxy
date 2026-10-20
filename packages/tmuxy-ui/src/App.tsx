@@ -21,7 +21,7 @@ import { SidebarBackdrop } from './components/SidebarBackdrop';
 import { TabOverview } from './components/TabOverview';
 import { GestureStage } from './components/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
-import { TmuxySession } from './components/widgets/session/TmuxySession';
+import { SessionList } from './components/SessionList';
 import {
   useAppSelector,
   useAppSend,
@@ -187,9 +187,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           onRetry={retry}
           onReconnectNow={reconnectNow}
         >
-          {/* Detached: the way back in. The same widget the switcher float
-              runs, here over the blurred session the user stepped out of. */}
-          <TmuxySession />
+          {/* Detached: the way back in, the session switcher's list over the
+              blurred session the user stepped out of. */}
+          <SessionList />
         </ConnectionOverlay>
       )}
     </div>

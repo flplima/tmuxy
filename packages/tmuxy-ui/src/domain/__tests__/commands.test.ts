@@ -182,8 +182,13 @@ const cases: Array<[TmuxOp, string]> = [
 
   // Chrome windows
   [
-    TmuxOp.OpenFloat({ name: 'connect', run: 'tmuxy connect', index: 3, splitFrom: pid('%1') }),
-    "split-window -t %1 'tmuxy connect' \\; break-pane -d -n connect -t :3 \\; " +
+    TmuxOp.OpenFloat({
+      name: 'connect',
+      run: 'tmuxy session connect',
+      index: 3,
+      splitFrom: pid('%1'),
+    }),
+    "split-window -t %1 'tmuxy session connect' \\; break-pane -d -n connect -t :3 \\; " +
       'set-option -w -t :3 @tmuxy-window-type float',
   ],
   [

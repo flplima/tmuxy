@@ -145,13 +145,6 @@ cmd_widget() {
       exec "$SCRIPTS_DIR/tmuxy-widget-tree"
       ;;
 
-    session)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy widget session"; return ;;
-      esac
-      exec "$SCRIPTS_DIR/tmuxy-widget-session"
-      ;;
-
     preview)
       exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
       ;;
@@ -321,12 +314,9 @@ cmd_connect() {
   case "${1:-}" in
     --help|-h) usage_connect; return ;;
     "")
-      # No socket given → open the interactive "add a server" form, which the
-      # server binary carries. Replaces the current process so it owns the
-      # pane (the desktop app runs this in a float); the TUI persists to
-      # servers.json and exits.
-      find_server_cmd
-      exec "${SERVER_CMD[@]}" connect
+      # No socket given → the connect flow, `tmuxy session connect`: it asks
+      # for a destination, probes it, saves it to servers.json and attaches.
+      exec bash "$SCRIPTS_DIR/session-connect"
       ;;
   esac
 

@@ -51,7 +51,7 @@ pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
 /// Single-quote a value for interpolation into a tmux command string.
 ///
 /// Session and buffer names come from outside tmuxy (`servers.json`, the
-/// connect form, `set-buffer -b`), so they can contain whitespace (which would
+/// `tmuxy session connect`, `set-buffer -b`), so they can contain whitespace (which would
 /// silently truncate the target), a quote, or `;` (which would append extra
 /// commands to the list). Built for wasm too: the control-mode state machine
 /// writes commands of its own.

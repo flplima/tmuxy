@@ -48,21 +48,6 @@ export const connectionGlobalEvents = {
   CONNECT_SERVER: {
     actions: 'connection_connectServer',
   },
-  ADD_SERVER: {
-    actions: 'connection_addServer',
-  },
-  REMOVE_SERVER: {
-    actions: 'connection_removeServer',
-  },
-  PROBE_SERVER: {
-    actions: 'connection_probeServer',
-  },
-  PROBE_SERVER_RESULT: {
-    actions: 'connection_probeServerResult',
-  },
-  CANCEL_SERVER_PROBE: {
-    actions: 'connection_cancelServerProbe',
-  },
   RECONNECT_NOW: {
     actions: 'connection_reconnectNow',
   },
@@ -228,7 +213,6 @@ export const connectionActions = {
 
   connection_connectServer: act(({ event, enqueue }) => {
     if (event.type !== 'CONNECT_SERVER') return;
-    enqueue(assign({ serverProbe: null }));
     enqueue(
       sendTo('tmux', {
         type: 'INVOKE' as const,
@@ -237,131 +221,6 @@ export const connectionActions = {
       }),
     );
   }),
-
-  connection_addServer: act(({ event, enqueue }) => {
-    if (event.type !== 'ADD_SERVER') return;
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'add_server',
-        args: { dest: event.dest, socket: event.socket ?? null },
-      }),
-    );
-    enqueue(sendTo('servers', { type: 'REFRESH_SESSIONS' as const }));
-    if (event.probe) {
-      enqueue.raise({
-        type: 'PROBE_SERVER' as const,
-        dest: event.dest,
-        socket: event.socket,
-      });
-    }
-  }),
-
-  connection_removeServer: act(({ event, context, enqueue }) => {
-    if (event.type !== 'REMOVE_SERVER') return;
-    enqueue(
-      assign({
-        servers: context.servers.filter((s) => s.id !== event.serverId),
-      }),
-    );
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'remove_server',
-        args: { id: event.serverId },
-      }),
-    );
-    enqueue(sendTo('servers', { type: 'REFRESH_SESSIONS' as const }));
-  }),
-
-  connection_probeServer: act(({ event, context, enqueue }) => {
-    if (event.type !== 'PROBE_SERVER') return;
-    const sock = event.socket?.trim() || 'tmuxy';
-    const dest = event.dest?.trim() || '';
-    const existing = event.serverId
-      ? context.servers.find((s) => s.id === event.serverId)
-      : undefined;
-    const server = existing ?? {
-      id: event.serverId ?? (dest ? `ssh-${dest}-${sock}` : `local-${sock}`),
-      label: dest || sock,
-      kind: dest ? ('ssh' as const) : ('local' as const),
-      socket: sock,
-      ssh: dest ? { host: dest } : null,
-    };
-    const isSsh = server.kind === 'ssh' && server.ssh;
-    const sshDest =
-      isSsh && server.ssh
-        ? `${server.ssh.user ? `${server.ssh.user}@` : ''}${server.ssh.host}`
-        : dest;
-    enqueue(
-      assign({
-        serverProbe: {
-          server,
-          status: 'running',
-          stages: [
-            {
-              name: 'ssh',
-              label: isSsh ? `ssh ${sshDest}` : 'localhost',
-              status: 'running',
-            },
-            {
-              name: 'tmux',
-              label: `tmux on the socket ${server.socket}`,
-              status: 'pending',
-            },
-            {
-              name: 'sessions',
-              label: 'listing sessions',
-              status: 'pending',
-            },
-            {
-              name: 'attach',
-              label: 'attach',
-              status: 'pending',
-            },
-          ],
-          sessions: [],
-        },
-      }),
-    );
-    enqueue(
-      sendTo('tmux', {
-        type: 'PROBE_SERVER' as const,
-        id: event.serverId,
-        dest: event.dest,
-        socket: event.socket,
-      }),
-    );
-  }),
-
-  connection_probeServerResult: assignCtx(({ event, context }) => {
-    if (event.type !== 'PROBE_SERVER_RESULT') return {};
-    const probe = event.probe;
-    const reach = probe.status === 'done' ? ('online' as const) : ('offline' as const);
-    const updatedServers = context.servers.some((s) => s.id === probe.server.id)
-      ? context.servers.map((s) =>
-          s.id === probe.server.id
-            ? {
-                ...s,
-                ...probe.server,
-                reachable: reach,
-                session_count: probe.status === 'done' ? probe.sessions.length : s.session_count,
-              }
-            : s,
-        )
-      : [
-          ...context.servers,
-          { ...probe.server, reachable: reach, session_count: probe.sessions.length },
-        ];
-    return {
-      serverProbe: probe,
-      servers: updatedServers,
-    };
-  }),
-
-  connection_cancelServerProbe: assignCtx(() => ({
-    serverProbe: null,
-  })),
 
   connection_reconnectNow: act(({ enqueue }) => {
     enqueue(sendTo('tmux', { type: 'RECONNECT_NOW' as const }));

@@ -114,21 +114,6 @@ pub fn run_cli(args: Vec<String>) {
     }
 }
 
-/// Run the `tmuxy connect` add-a-server form (a ratatui TUI) in-process. The
-/// desktop app opens this in a float; running it from this binary — which links
-/// the form via `tmuxy-server` — avoids shipping a separate `tmuxy-connect`
-/// executable in the bundle. On success the new server's id is printed.
-pub fn run_connect_form() {
-    match tmuxy_server::connect::run_connect_tui() {
-        Ok(Some(id)) => println!("{id}"),
-        Ok(None) => {}
-        Err(e) => {
-            eprintln!("tmuxy connect: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
 /// Run the web server mode (delegates to tmuxy-server).
 pub fn run_server(args: Vec<String>) {
     // Match the standalone `tmuxy-server` binary: without a subscriber, every

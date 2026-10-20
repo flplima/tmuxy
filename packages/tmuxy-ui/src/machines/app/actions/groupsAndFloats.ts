@@ -39,7 +39,7 @@ export const groupsAndFloatsActions = {
         type: 'SEND_OP' as const,
         op: TmuxOp.OpenFloat({
           name: 'connect',
-          run: 'tmuxy connect',
+          run: 'tmuxy session connect',
           index: freeWindowIndex(context.windows),
           splitFrom: context.activePaneId,
         }),

@@ -15,9 +15,8 @@ use super::clients::{new_window_client_size, set_client_size};
 use super::emitter::{broadcast_theme_settings, refresh_keybindings, theme_settings_for};
 pub(super) use super::server_commands::wait_for_monitor;
 use super::server_commands::{
-    handle_add_server, handle_connect_server, handle_list_servers, handle_probe_server,
-    handle_remove_server, initial_state_for_size, query_via_control_mode, send_via_control_mode,
-    viewer_scrollback,
+    handle_connect_server, handle_list_servers, initial_state_for_size, query_via_control_mode,
+    send_via_control_mode, viewer_scrollback,
 };
 use super::SessionQuery;
 use crate::command::ClientCommand;
@@ -310,9 +309,6 @@ pub(super) async fn handle_command(
             Ok(serde_json::json!(transport::set_trace_level(&level)))
         }
         ClientCommand::ListServers => handle_list_servers(state, session).await,
-        ClientCommand::AddServer { dest, socket } => handle_add_server(dest, socket).await,
-        ClientCommand::RemoveServer { id } => handle_remove_server(state, session, id).await,
-        ClientCommand::ProbeServer { id } => handle_probe_server(state, session, id).await,
         ClientCommand::ConnectServer {
             id,
             session: session_override,

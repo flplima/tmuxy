@@ -34,44 +34,6 @@ fn my_tmux_is_not_offered_twice() {
 }
 
 #[test]
-fn a_bare_host_needs_nothing_else() {
-    // The whole point of the one-field form: everything not typed here —
-    // user, port, key, ProxyJump — comes from the user's ~/.ssh/config,
-    // because it is the system ssh binary that dials.
-    let server = Server::from_destination("box", None).expect("parsed");
-    assert_eq!(server.kind, ServerKind::Ssh);
-    let ssh = server.ssh.expect("ssh config");
-    assert_eq!(ssh.host, "box");
-    assert_eq!(ssh.user, None);
-    assert_eq!(ssh.port, None);
-    assert_eq!(server.socket, DEFAULT_TMUX_SOCKET);
-    assert!(server.last_used.is_some());
-    assert_eq!(server.reachable, Some(ServerReachability::Known));
-}
-
-#[test]
-fn user_host_and_port_are_split_out() {
-    let server = Server::from_destination("felipe@box:2222", None).expect("parsed");
-    let ssh = server.ssh.expect("ssh config");
-    assert_eq!(ssh.user.as_deref(), Some("felipe"));
-    assert_eq!(ssh.host, "box");
-    assert_eq!(ssh.port, Some(2222));
-    // The label is what the user typed, so the picker reads back the way
-    // they think of the host.
-    assert_eq!(server.label, "felipe@box:2222");
-}
-
-#[test]
-fn an_empty_destination_is_this_machine() {
-    let server = Server::from_destination("", None).expect("parsed");
-    assert_eq!(server.kind, ServerKind::Local);
-    assert!(server.ssh.is_none());
-    assert_eq!(server.id, LOCALHOST_ID);
-    // "This machine" means the socket we are on, not the default name.
-    assert_eq!(server.socket, crate::session::tmux_socket());
-}
-
-#[test]
 fn localhost_follows_the_live_socket() {
     // `localhost` means "the server this app is attached to". While it
     // meant "the socket named `tmuxy`", connecting to that row from an app
@@ -82,63 +44,6 @@ fn localhost_follows_the_live_socket() {
     let (socket, ssh) = server.connect_env();
     assert_eq!(socket, "tmuxy-deskdemo");
     assert_eq!(ssh, None);
-}
-
-#[test]
-fn a_local_server_on_the_default_socket_is_its_own_entry_when_attached_elsewhere() {
-    // Typing the default socket explicitly, from an app attached to a
-    // different one, names a server that is NOT this machine's current
-    // one — so it cannot collapse into the `localhost` row.
-    let live = crate::session::tmux_socket();
-    let other = if live == "work" { "other" } else { "work" };
-    let server = Server::from_destination("", Some(other)).expect("parsed");
-    assert_eq!(server.socket, other);
-    assert_ne!(server.id, LOCALHOST_ID);
-}
-
-#[test]
-fn a_local_server_on_another_socket_gets_its_own_id() {
-    // Same machine, different tmux server — the one thing ssh_config
-    // cannot express, which is why the socket is the second field.
-    let server = Server::from_destination("", Some("work")).expect("parsed");
-    assert_eq!(server.kind, ServerKind::Local);
-    assert_eq!(server.socket, "work");
-    assert_eq!(server.id, "local-work");
-}
-
-#[test]
-fn a_bracketed_ipv6_literal_keeps_its_port() {
-    let server = Server::from_destination("[::1]:2222", None).expect("parsed");
-    let ssh = server.ssh.expect("ssh config");
-    assert_eq!(ssh.host, "::1");
-    assert_eq!(ssh.port, Some(2222));
-}
-
-#[test]
-fn an_unbracketed_ipv6_literal_is_taken_whole() {
-    // `::1:22` cannot be split without guessing which colon is the port,
-    // so it is a host. Brackets are how a user says otherwise.
-    let server = Server::from_destination("::1", None).expect("parsed");
-    let ssh = server.ssh.expect("ssh config");
-    assert_eq!(ssh.host, "::1");
-    assert_eq!(ssh.port, None);
-}
-
-#[test]
-fn a_destination_that_cannot_be_read_is_rejected() {
-    assert!(Server::from_destination("box:not-a-port", None).is_err());
-    assert!(Server::from_destination("@box", None).is_err());
-    assert!(Server::from_destination("felipe@", None).is_err());
-}
-
-#[test]
-fn the_same_destination_always_mints_the_same_id() {
-    // Ids are the picker's key and the reconnect target, so adding the
-    // same host twice must not leave two entries behind.
-    let a = Server::from_destination("felipe@box", None).expect("parsed");
-    let b = Server::from_destination("felipe@box", None).expect("parsed");
-    assert_eq!(a.id, b.id);
-    assert!(a.id.starts_with("ssh-"));
 }
 
 #[test]
@@ -235,7 +140,23 @@ fn enrich_and_scan_sockets_discovers_live_local_sockets_and_skips_test_sockets()
 
     let base = vec![
         Server::localhost_on("tmuxy"),
-        Server::from_destination("user@prod", None).unwrap(),
+        Server {
+            id: "ssh-user-prod-tmuxy".to_string(),
+            label: "user@prod".to_string(),
+            kind: ServerKind::Ssh,
+            ssh: Some(SshConfig {
+                host: "prod".to_string(),
+                user: Some("user".to_string()),
+                port: None,
+                options: None,
+            }),
+            socket: "tmuxy".to_string(),
+            session: None,
+            last_used: None,
+            reachable: None,
+            session_count: None,
+            extra: serde_json::Map::new(),
+        },
     ];
     let enriched = enrich_and_scan_sockets(
         base,

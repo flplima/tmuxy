@@ -21,21 +21,29 @@ describe('CLI connect subcommand', () => {
     ]);
   });
 
-  test('--help documents both the form and the reconnect', () => {
+  test('--help documents both the connect flow and the reconnect', () => {
     const { stdout } = runCLI(['connect', '--help']);
     expect(stdout).toContain('reconnects the tmuxy DESKTOP APP');
-    expect(stdout).toContain('add a server');
+    expect(stdout).toContain('runs `tmuxy session connect`');
   });
 
-  test('no arguments launches the add-a-server form', () => {
-    // The real form is a TUI in the server binary; tests/cli/mocks/tmuxy-server
-    // stands in for it (found on PATH ahead of the real binary), proving the
-    // dispatch reached its `connect` subcommand.
-    const { exitCode, stdout, tmuxCalls } = runCLI(['connect']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain('mock-server-started connect');
-    // Opening the form is purely local (servers.json); it issues no tmux calls.
-    expect(tmuxCalls).toHaveLength(0);
+  test('no arguments runs the connect flow, asking for the server', () => {
+    // The destination is what the user types at the prompt.
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpCfg = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-connect-cfg-'));
+    try {
+      const { exitCode, stdout } = runCLI(['connect'], {
+        input: 'felipe@prod\n',
+        env: { XDG_CONFIG_HOME: tmpCfg, MOCK_SSH_SESSIONS: 'dev\n' },
+      });
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain('✓ ssh felipe@prod');
+      expect(stdout).toContain('✓ attach');
+    } finally {
+      fs.rmSync(tmpCfg, { recursive: true, force: true });
+    }
   });
 });
 

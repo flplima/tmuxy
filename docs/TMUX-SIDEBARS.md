@@ -9,7 +9,7 @@ Both sidebars are **chrome windows of exactly the same shape as a float**: a sin
 |  | left (`sidebar-left`) | right (`sidebar-right`) |
 | --- | --- | --- |
 | Pane runs | `tmuxy widget tree` | the default shell |
-| Title click | opens the session switcher — a dropdown (`SessionMenu.tsx`) listing the socket's sessions, with the connect form (`tmuxy connect`) behind one item on desktop | — |
+| Title click | opens the session switcher — a dropdown (`SessionMenu.tsx`) listing the socket's sessions, with the connect flow (`tmuxy session connect`, in a float) behind one item on desktop | — |
 | Started in | — | the current pane's directory (a bare `split-window`, like any fresh pane) |
 | Width | `sidebar_dock::LEFT_COLS` | `sidebar_dock::RIGHT_COLS` |
 | Dragged width | `@tmuxy-sidebar-cols` on its window | same |

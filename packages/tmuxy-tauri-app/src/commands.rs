@@ -301,36 +301,6 @@ pub async fn connect_server(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn remove_server(id: String) -> Result<Value, CommandError> {
-    helpers::remove_server_json(&id).await
-}
-
-#[tauri::command]
-pub async fn probe_server(window: tauri::WebviewWindow, id: String) -> Result<Value, CommandError> {
-    let state = windows::monitor_for(&window).ok();
-    helpers::probe_server_json(state, id).await
-}
-
-/// Save a server typed into the session switcher and return its id.
-///
-/// `dest` is the whole connection form: `[user@]host[:port]`, empty for this
-/// machine. Everything else about reaching the host — keys, ProxyJump, ports,
-/// 2FA — is the system `ssh` binary's job, read from the user's own
-/// `~/.ssh/config`, so there is nothing else to ask for.
-///
-/// Parsing lives in `tmuxy_core::servers` rather than in the frontend so the
-/// widget and the `tmuxy connect` TUI mint identical ids for the same host.
-#[tauri::command]
-pub async fn add_server(dest: String, socket: Option<String>) -> Result<String, CommandError> {
-    let server = tmuxy_core::servers::Server::from_destination(&dest, socket.as_deref())
-        .map_err(CommandError::invalid)?;
-    let id = server.id.clone();
-    tmuxy_core::servers::add_server(server)
-        .map_err(|e| CommandError::unavailable(format!("could not save server: {e}")))?;
-    Ok(id)
-}
-
 /// Detach this client, leaving the tmux server and every session running.
 ///
 /// Not a plain `detach-client`: the monitor has to be told this was deliberate

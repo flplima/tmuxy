@@ -106,7 +106,7 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
     docs: {
       description: {
         story:
-          'Reaching another machine retargets the backend at a new tmux socket, which is a Tauri command — a web client is served by a server pinned to one socket at launch, so the item is simply not there. On the desktop it is, and it opens the connect form in a pane: a form needs somewhere to type, which is the one thing a menu cannot offer.',
+          'Reaching another machine retargets the backend at a new tmux socket, which is a Tauri command — a web client is served by a server pinned to one socket at launch, so the item is simply not there. On the desktop it is, and it opens the connect flow in a pane: it asks where to connect, and a question needs somewhere to type, which is the one thing a menu cannot offer.',
       },
     },
   },

@@ -240,10 +240,6 @@ pub enum ServerAction {
     /// inside a tmux pane, not invoked directly by users.
     #[command(hide = true)]
     Tree,
-    /// Run the add-a-server form TUI (backs `tmuxy connect` with no args).
-    /// Hidden: meant to run inside a tmux float, not invoked directly.
-    #[command(hide = true)]
-    Connect,
     /// Inspect a local action-trace file: print a summary, or export a
     /// Chrome-trace/Perfetto timeline with `--export` (docs/TRACING.md).
     Trace(crate::trace_view::TraceViewArgs),
@@ -336,14 +332,6 @@ pub async fn run(args: ServerArgs) {
                 std::process::exit(1);
             }
         }
-        Some(ServerAction::Connect) => match crate::connect::run_connect_tui() {
-            Ok(Some(id)) => println!("{id}"),
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("tmuxy connect: {e}");
-                std::process::exit(1);
-            }
-        },
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
         Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),

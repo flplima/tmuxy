@@ -20,8 +20,8 @@ use crate::session::{config_dir, DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
 pub mod discovery;
 pub use discovery::{
     enrich_and_scan_sockets, is_ephemeral_test_socket, now_unix_secs, parse_session_list,
-    probe_server, query_local_socket_sessions, remove_server, tmux_socket_dirs, touch_server,
-    ProbeStage, ProbeStageStatus, RemoteSessionInfo, ServerProbeResult, ServerReachability,
+    query_local_socket_sessions, tmux_socket_dirs, touch_server, RemoteSessionInfo,
+    ServerReachability,
 };
 
 /// Where the local machine's server sits in the picker.
@@ -156,64 +156,6 @@ impl Server {
         }
     }
 
-    /// Build a server from a single typed destination.
-    ///
-    /// `dest` is what the user types: `[user@]host[:port]`, where `host` may be
-    /// any name their `~/.ssh/config` defines. That is deliberately the whole
-    /// form. tmuxy runs the system `ssh` binary rather than speaking the
-    /// protocol, so User, Port, IdentityFile, ProxyJump, agent forwarding and
-    /// 2FA all come from that file for free — re-asking for them here is how
-    /// other clients ended up with their own half-implementations of it.
-    ///
-    /// An empty `dest` means this machine. `socket` defaults to the dedicated
-    /// `tmuxy` socket.
-    pub fn from_destination(dest: &str, socket: Option<&str>) -> Result<Self, String> {
-        let dest = dest.trim();
-        // An unspecified socket means "the default" for a remote host, but
-        // "wherever this app is attached" for this machine — otherwise a blank
-        // form filled in on a non-default socket saves a server pointing
-        // somewhere the user never named.
-        let live_socket = crate::session::tmux_socket();
-        let socket = match socket.map(str::trim) {
-            Some(s) if !s.is_empty() => s.to_string(),
-            _ if dest.is_empty() => live_socket.clone(),
-            _ => default_socket(),
-        };
-
-        if dest.is_empty() {
-            let mut server = Server::localhost();
-            // Compared against the LIVE socket, not the default name: typing
-            // the default socket explicitly while attached elsewhere names a
-            // different server, so it must get its own id.
-            if socket != live_socket {
-                server.id = format!("local-{}", slug(&socket));
-                server.label = socket.clone();
-                server.socket = socket;
-            }
-            return Ok(server);
-        }
-
-        let (user, host, port) = parse_destination(dest)?;
-        let label = dest.to_string();
-        Ok(Server {
-            id: format!("ssh-{}-{}", slug(dest), slug(&socket)),
-            label,
-            kind: ServerKind::Ssh,
-            ssh: Some(SshConfig {
-                host,
-                user,
-                port,
-                options: None,
-            }),
-            socket,
-            session: None,
-            last_used: now_unix_secs(),
-            reachable: Some(ServerReachability::Known),
-            session_count: None,
-            extra: serde_json::Map::new(),
-        })
-    }
-
     /// The `(TMUX_SOCKET, TMUXY_SSH)` env pair for attaching to this server.
     /// `TMUXY_SSH` is `None` for a local server (and for an SSH server missing
     /// its `ssh` block, which we then treat as local rather than crash).
@@ -226,51 +168,8 @@ impl Server {
     }
 }
 
-/// Path to the servers file inside the user's config dir.
-/// Split `[user@]host[:port]` into its parts.
-///
-/// A bracketed IPv6 literal (`[::1]:22`) is handled explicitly; an unbracketed
-/// one is taken whole as the host, because `::1:22` cannot be split without
-/// guessing which colon is the port.
-fn parse_destination(dest: &str) -> Result<(Option<String>, String, Option<u16>), String> {
-    let (user, rest) = match dest.split_once('@') {
-        Some((u, r)) if !u.is_empty() => (Some(u.to_string()), r),
-        Some(_) => return Err("missing user before '@'".to_string()),
-        None => (None, dest),
-    };
-    if rest.is_empty() {
-        return Err("missing host".to_string());
-    }
-
-    let (host, port) = if let Some(rest) = rest.strip_prefix('[') {
-        let (host, tail) = rest
-            .split_once(']')
-            .ok_or_else(|| "unclosed '[' in address".to_string())?;
-        (host.to_string(), tail.strip_prefix(':').map(str::to_string))
-    } else {
-        match rest.split_once(':') {
-            // Only the LAST colon can be a port, and only when the rest parses
-            // as one; anything else is an unbracketed IPv6 address.
-            Some((h, p)) if !p.contains(':') => (h.to_string(), Some(p.to_string())),
-            _ => (rest.to_string(), None),
-        }
-    };
-
-    if host.is_empty() {
-        return Err("missing host".to_string());
-    }
-    let port = match port {
-        Some(p) => Some(
-            p.parse::<u16>()
-                .map_err(|_| format!("'{p}' is not a port number"))?,
-        ),
-        None => None,
-    };
-    Ok((user, host, port))
-}
-
-/// Filesystem-safe fragment of an id, mirroring `tmuxy connect`'s own ids so a
-/// server added from either surface lands on the same key.
+/// Filesystem-safe fragment of an id, mirroring the ids `session-connect`
+/// (bin/tmuxy) mints, so a server it saved and one listed here share a key.
 fn slug(value: &str) -> String {
     value
         .chars()
@@ -280,6 +179,7 @@ fn slug(value: &str) -> String {
         .to_lowercase()
 }
 
+/// Path to the servers file inside the user's config dir.
 pub fn servers_path() -> PathBuf {
     config_dir().join("servers.json")
 }
@@ -383,28 +283,6 @@ pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
     let body = serde_json::to_string_pretty(&persisted).map_err(std::io::Error::other)?;
     std::fs::write(&path, format!("{body}\n"))?;
     Ok(path)
-}
-
-/// Add (or replace, by `id`) a server and persist. Returns the updated list.
-///
-/// The synthetic `localhost` entry is deliberately NOT injected here: its
-/// socket follows the live `TMUX_SOCKET`, so writing it would freeze whichever
-/// socket this app happened to be on into the file and hand that stale value
-/// to every later read. It is re-guaranteed on read instead.
-pub fn add_server(mut server: Server) -> std::io::Result<Vec<Server>> {
-    // Refuse to overwrite a file that exists but can't be parsed — reading it
-    // leniently (empty fallback) and writing that back would wipe every saved
-    // server on one transient corruption.
-    if server.last_used.is_none() {
-        server.last_used = now_unix_secs();
-    }
-    let mut servers = read_servers_strict()?.unwrap_or_default();
-    match servers.iter_mut().find(|s| s.id == server.id) {
-        Some(existing) => *existing = server,
-        None => servers.push(server),
-    }
-    write_servers(&servers)?;
-    Ok(servers)
 }
 
 /// Look up a saved server by id.

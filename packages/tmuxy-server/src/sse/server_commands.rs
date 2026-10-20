@@ -167,53 +167,6 @@ pub(super) async fn handle_list_servers(
     }))
 }
 
-pub(super) async fn handle_add_server(
-    dest: String,
-    socket: Option<String>,
-) -> Result<serde_json::Value, CommandError> {
-    let server = tmuxy_core::servers::Server::from_destination(&dest, socket.as_deref())
-        .map_err(CommandError::invalid)?;
-    let id = server.id.clone();
-    tokio::task::spawn_blocking(move || tmuxy_core::servers::add_server(server))
-        .await
-        .map_err(|e| CommandError::unavailable(e.to_string()))?
-        .map_err(|e| CommandError::unavailable(format!("could not save server: {e}")))?;
-    Ok(serde_json::json!(id))
-}
-
-pub(super) async fn handle_remove_server(
-    state: &Arc<AppState>,
-    session: &str,
-    id: String,
-) -> Result<serde_json::Value, CommandError> {
-    tokio::task::spawn_blocking(move || tmuxy_core::servers::remove_server(&id))
-        .await
-        .map_err(|e| CommandError::unavailable(e.to_string()))?
-        .map_err(|e| CommandError::unavailable(format!("could not remove server: {e}")))?;
-    handle_list_servers(state, session).await
-}
-
-pub(super) async fn handle_probe_server(
-    state: &Arc<AppState>,
-    session: &str,
-    id: String,
-) -> Result<serde_json::Value, CommandError> {
-    let current = tmuxy_core::servers::current_server_id();
-    let live_sessions = if id == current {
-        current_live_sessions(state, session).await
-    } else {
-        None
-    };
-    let result = tokio::task::spawn_blocking(move || {
-        let server = tmuxy_core::servers::find_server(&id)
-            .ok_or_else(|| CommandError::invalid(format!("unknown server '{id}'")))?;
-        Ok::<_, CommandError>(tmuxy_core::servers::probe_server(&server, live_sessions))
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(e.to_string()))??;
-    serde_json::to_value(result).map_err(|e| CommandError::unavailable(e.to_string()))
-}
-
 pub(super) async fn handle_connect_server(
     id: String,
     session_override: Option<String>,

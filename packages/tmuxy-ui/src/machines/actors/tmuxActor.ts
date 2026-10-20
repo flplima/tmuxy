@@ -1,7 +1,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber, Stream } from 'effect';
 import { ScrollbackCells, ThemeSettings, type ServerState } from '../../domain/wire';
-import type { ServerProbeState, TraceLevel, TraceSettings } from '../types/domain';
+import type { TraceLevel, TraceSettings } from '../types/domain';
 import { formatAdapterError, type AdapterError } from '../../infra/transport/AdapterError';
 import { tracer } from '../../infra/tracer';
 import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../domain/readOnly';
@@ -25,7 +25,6 @@ export type TmuxActorEvent =
    */
   | { type: 'SEND_OP'; op: TmuxOp }
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
-  | { type: 'PROBE_SERVER'; id?: string; dest?: string; socket?: string }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
@@ -218,24 +217,6 @@ export function createTmuxActor(runtime: AppRuntime) {
         run(
           withTransport((t) => t.invoke(event.cmd, event.args || {})),
           { logPrefix: event.cmd },
-        );
-      } else if (event.type === 'PROBE_SERVER') {
-        logCommand(`probe_server ${event.id ?? event.dest ?? 'localhost'}`);
-        run(
-          withTransport((t) =>
-            t.invoke<ServerProbeState | null>('probe_server', {
-              id: event.id ?? null,
-              dest: event.dest ?? null,
-              socket: event.socket ?? null,
-            }),
-          ),
-          {
-            onSuccess: (probe) => {
-              if (probe) parent.send({ type: 'PROBE_SERVER_RESULT', probe });
-            },
-            logPrefix: 'probe_server',
-            silentFail: true,
-          },
         );
       } else if (event.type === 'RESTORE_SESSION') {
         logCommand(`restore_session ${event.sessionName}`);

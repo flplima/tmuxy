@@ -292,6 +292,11 @@ export class DemoAdapter implements TmuxAdapter {
       case 'ping':
         return null as T;
 
+      // The client leaves the session; tmux, here the demo engine, runs on.
+      case 'detach_client':
+        this.events.emit(TransportEvent.Detached({ reason: null }));
+        return null as T;
+
       case 'initialize_session':
         return null as T;
 
@@ -352,6 +357,12 @@ export class DemoAdapter implements TmuxAdapter {
       default:
         return null as T;
     }
+  }
+
+  /** Back into the demo's one session: the channel is up, its state follows. */
+  async switchSession(_sessionName: string): Promise<void> {
+    this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
+    this.emitState();
   }
 
   private emitState(): void {

@@ -1,14 +1,11 @@
-//! Local socket scanning, reachability enrichment, and staged server probing.
+//! Local socket scanning and reachability enrichment.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{
-    read_servers, read_servers_strict, slug, write_servers, Server, ServerKind, LOCALHOST_ID,
-    MY_TMUX_ID,
-};
+use super::{read_servers_strict, slug, write_servers, Server, ServerKind, MY_TMUX_ID};
 use crate::constants::STASH_SESSION;
 use crate::session::USERS_OWN_SOCKET;
 
@@ -24,45 +21,12 @@ pub enum ServerReachability {
     Offline,
 }
 
-/// Lifecycle state of one stage in the 4-step connect flow.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ProbeStageStatus {
-    Pending,
-    Running,
-    Done,
-    Failed,
-}
-
-/// One row in the Step 3 staged connecting view.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProbeStage {
-    pub id: String,
-    pub label: String,
-    pub status: ProbeStageStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub elapsed_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Summary of a tmux session discovered on a target server during Step 3.
+/// Summary of a tmux session on a server, as `list-sessions` reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteSessionInfo {
     pub name: String,
     pub windows: usize,
     pub attached: bool,
-}
-
-/// Complete result of probing a server across the connect stages.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerProbeResult {
-    pub server_id: String,
-    pub ok: bool,
-    pub stages: Vec<ProbeStage>,
-    pub sessions: Vec<RemoteSessionInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tmux_version: Option<String>,
 }
 
 /// Current UNIX timestamp in seconds.
@@ -71,14 +35,6 @@ pub fn now_unix_secs() -> Option<u64> {
         .duration_since(UNIX_EPOCH)
         .ok()
         .map(|d| d.as_secs())
-}
-
-/// Remove a saved server by `id` from `servers.json` and return the refreshed list.
-pub fn remove_server(id: &str) -> std::io::Result<Vec<Server>> {
-    let mut servers = read_servers_strict()?.unwrap_or_default();
-    servers.retain(|s| s.id != id);
-    write_servers(&servers)?;
-    Ok(read_servers())
 }
 
 /// Record a fresh `last_used` timestamp (and optional preferred session) for a
@@ -310,217 +266,6 @@ pub fn enrich_and_scan_sockets(
     }
 
     servers
-}
-
-fn build_tmux_args(socket: &str, tail: &[&str]) -> Vec<String> {
-    let flag = if socket.contains('/') { "-S" } else { "-L" };
-    let mut args = vec![flag.to_string(), socket.to_string()];
-    args.extend(tail.iter().map(|s| (*s).to_string()));
-    args
-}
-
-fn is_no_server_stderr(stderr: &str) -> bool {
-    let lower = stderr.to_ascii_lowercase();
-    lower.contains("no server running")
-        || lower.contains("no such file or directory")
-        || lower.contains("no sessions")
-        || lower.contains("connection refused")
-}
-
-fn pending_stage(id: &str, label: impl Into<String>) -> ProbeStage {
-    ProbeStage {
-        id: id.to_string(),
-        label: label.into(),
-        status: ProbeStageStatus::Pending,
-        elapsed_ms: None,
-        error: None,
-    }
-}
-
-fn fail_stage(stage: &mut ProbeStage, t0: Instant, err: String) {
-    stage.status = ProbeStageStatus::Failed;
-    stage.elapsed_ms = Some(t0.elapsed().as_millis() as u64);
-    stage.error = Some(err);
-}
-
-fn failed_probe(
-    server_id: &str,
-    stages: Vec<ProbeStage>,
-    tmux_version: Option<String>,
-) -> ServerProbeResult {
-    ServerProbeResult {
-        server_id: server_id.to_string(),
-        ok: false,
-        stages,
-        sessions: Vec::new(),
-        tmux_version,
-    }
-}
-
-/// Run the staged connect probe (`ssh` -> `tmux -V` -> `listing sessions` -> `attach`)
-/// against `server`.
-///
-/// When `live_sessions` is `Some`, the target server IS the currently attached
-/// control-mode server, so Stage 3 uses the in-memory session list instead of
-/// spawning an external `tmux` client against the live socket.
-pub fn probe_server(
-    server: &Server,
-    live_sessions: Option<Vec<RemoteSessionInfo>>,
-) -> ServerProbeResult {
-    let ssh_tail = match server.kind {
-        ServerKind::Ssh => server.ssh.as_ref().map(|s| s.argv_tail()),
-        ServerKind::Local => None,
-    };
-    let ssh_stage_label = match server.kind {
-        ServerKind::Ssh => format!("ssh {}", server.label),
-        ServerKind::Local => LOCALHOST_ID.to_string(),
-    };
-
-    let mut stages = vec![
-        pending_stage("ssh", ssh_stage_label),
-        pending_stage("tmux", format!("tmux on the socket {}", server.socket)),
-        pending_stage("sessions", "listing sessions"),
-        pending_stage("attach", "attach"),
-    ];
-
-    // Stage 1: SSH reachability (or immediate local check).
-    let t0 = Instant::now();
-    if let Some(ref tail) = ssh_tail {
-        let mut cmd = Command::new("ssh");
-        cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5"]);
-        cmd.args(tail);
-        cmd.arg("true");
-        match cmd.output() {
-            Ok(out) if out.status.success() => {
-                stages[0].status = ProbeStageStatus::Done;
-                stages[0].elapsed_ms = Some(t0.elapsed().as_millis() as u64);
-            }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                let msg = if err.is_empty() {
-                    format!("ssh exited with {}", out.status)
-                } else {
-                    err
-                };
-                fail_stage(&mut stages[0], t0, msg);
-                return failed_probe(&server.id, stages, None);
-            }
-            Err(e) => {
-                fail_stage(&mut stages[0], t0, e.to_string());
-                return failed_probe(&server.id, stages, None);
-            }
-        }
-    } else {
-        stages[0].status = ProbeStageStatus::Done;
-        stages[0].elapsed_ms = Some(0);
-    }
-
-    // Stage 2: tmux version on target machine.
-    let t1 = Instant::now();
-    let version_out = if let Some(ref tail) = ssh_tail {
-        let mut cmd = Command::new("ssh");
-        cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5"]);
-        cmd.args(tail);
-        cmd.args(["tmux", "-V"]);
-        cmd.output()
-    } else {
-        Command::new("tmux").arg("-V").output()
-    };
-
-    let tmux_version = match version_out {
-        Ok(out) if out.status.success() => {
-            let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let ver = raw
-                .strip_prefix("tmux ")
-                .unwrap_or(raw.as_str())
-                .trim()
-                .to_string();
-            stages[1].label = format!("tmux {ver} on the socket {}", server.socket);
-            stages[1].status = ProbeStageStatus::Done;
-            stages[1].elapsed_ms = Some(t1.elapsed().as_millis() as u64);
-            Some(ver)
-        }
-        Ok(out) => {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            let msg = if err.is_empty() {
-                format!("tmux -V exited with {}", out.status)
-            } else {
-                err
-            };
-            fail_stage(&mut stages[1], t1, msg);
-            return failed_probe(&server.id, stages, None);
-        }
-        Err(e) => {
-            fail_stage(&mut stages[1], t1, e.to_string());
-            return failed_probe(&server.id, stages, None);
-        }
-    };
-
-    // Stage 3: listing sessions on the target socket.
-    let t2 = Instant::now();
-    let sessions = if let Some(live) = live_sessions {
-        stages[2].status = ProbeStageStatus::Done;
-        stages[2].elapsed_ms = Some(0);
-        live
-    } else {
-        let tmux_args = build_tmux_args(
-            &server.socket,
-            &[
-                "list-sessions",
-                "-F",
-                "#{session_name}\t#{session_windows}\t#{session_attached}",
-            ],
-        );
-        let sess_out = if let Some(ref tail) = ssh_tail {
-            let mut cmd = Command::new("ssh");
-            cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5"]);
-            cmd.args(tail);
-            cmd.arg("tmux");
-            cmd.args(&tmux_args);
-            cmd.output()
-        } else {
-            Command::new("tmux").args(&tmux_args).output()
-        };
-
-        match sess_out {
-            Ok(out) if out.status.success() => {
-                stages[2].status = ProbeStageStatus::Done;
-                stages[2].elapsed_ms = Some(t2.elapsed().as_millis() as u64);
-                parse_session_list(&String::from_utf8_lossy(&out.stdout))
-            }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                if is_no_server_stderr(&err) {
-                    stages[2].status = ProbeStageStatus::Done;
-                    stages[2].elapsed_ms = Some(t2.elapsed().as_millis() as u64);
-                    Vec::new()
-                } else {
-                    let msg = if err.is_empty() {
-                        format!("tmux list-sessions exited with {}", out.status)
-                    } else {
-                        err
-                    };
-                    fail_stage(&mut stages[2], t2, msg);
-                    return failed_probe(&server.id, stages, tmux_version);
-                }
-            }
-            Err(e) => {
-                fail_stage(&mut stages[2], t2, e.to_string());
-                return failed_probe(&server.id, stages, tmux_version);
-            }
-        }
-    };
-
-    stages[3].status = ProbeStageStatus::Done;
-    stages[3].elapsed_ms = Some(0);
-
-    ServerProbeResult {
-        server_id: server.id.clone(),
-        ok: true,
-        stages,
-        sessions,
-        tmux_version,
-    }
 }
 
 pub fn parse_session_list(stdout: &str) -> Vec<RemoteSessionInfo> {

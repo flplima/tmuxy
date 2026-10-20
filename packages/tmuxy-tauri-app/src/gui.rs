@@ -289,9 +289,6 @@ pub fn run() {
             commands::list_snapshots,
             commands::restore_session,
             commands::connect_server,
-            commands::add_server,
-            commands::remove_server,
-            commands::probe_server,
             commands::detach_client,
             // Several GUI windows over one tmux session group, and the iTerm2
             // window styles — the in-app Window menu's side of `windows.rs`

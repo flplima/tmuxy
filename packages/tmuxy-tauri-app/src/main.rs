@@ -42,7 +42,6 @@ fn main() {
             Some(AppCommand::Gui) => gui::run(),
             Some(AppCommand::Server) => cli::run_server(args),
             Some(AppCommand::Trace) => cli::run_trace(args),
-            Some(AppCommand::ConnectForm) => cli::run_connect_form(),
             Some(AppCommand::Help) => cli::print_help(),
             Some(AppCommand::Version) => cli::print_version(),
             // Every other noun — and an unknown one, which it reports — is the
@@ -61,11 +60,6 @@ enum AppCommand {
     Server,
     /// Inspect/export a local action-trace file (docs/TRACING.md).
     Trace,
-    /// `connect` with no socket: the add-a-server form, run in-process because
-    /// this binary links it (via tmuxy-server), so the packaged app needs no
-    /// separate binary on PATH. With a socket, `connect` is the dispatcher's
-    /// live-reconnect request.
-    ConnectForm,
     Help,
     Version,
 }
@@ -75,7 +69,6 @@ fn app_command(args: &[String]) -> Option<AppCommand> {
         "gui" => AppCommand::Gui,
         "server" => AppCommand::Server,
         "trace" => AppCommand::Trace,
-        "connect" if args.len() == 1 => AppCommand::ConnectForm,
         "--help" | "-h" | "help" => AppCommand::Help,
         "--version" | "-V" | "version" => AppCommand::Version,
         _ => return None,
@@ -101,6 +94,7 @@ mod tests {
         ] {
             assert_eq!(app_command(&args(&[noun, "x"])), None, "{noun}");
         }
+        assert_eq!(app_command(&args(&["connect"])), None);
         assert_eq!(app_command(&args(&["connect", "other-socket"])), None);
         assert_eq!(app_command(&args(&["no-such-noun"])), None);
     }
@@ -113,10 +107,6 @@ mod tests {
             Some(AppCommand::Server)
         );
         assert_eq!(app_command(&args(&["trace"])), Some(AppCommand::Trace));
-        assert_eq!(
-            app_command(&args(&["connect"])),
-            Some(AppCommand::ConnectForm)
-        );
         assert_eq!(app_command(&args(&["help"])), Some(AppCommand::Help));
         assert_eq!(app_command(&args(&["-V"])), Some(AppCommand::Version));
     }

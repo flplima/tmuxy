@@ -94,46 +94,6 @@ pub(super) fn open_path(path: &std::path::Path) -> Result<(), CommandError> {
         .map_err(|e| CommandError::unavailable(format!("could not open {}: {e}", path.display())))
 }
 
-pub(super) async fn remove_server_json(id: &str) -> Result<serde_json::Value, CommandError> {
-    let servers = tmuxy_core::servers::remove_server(id)
-        .map_err(|e| CommandError::unavailable(format!("could not remove server: {e}")))?;
-    let current = tmuxy_core::servers::current_server_id();
-    Ok(serde_json::json!({
-        "servers": servers,
-        "currentId": current,
-    }))
-}
-
-pub(super) async fn probe_server_json(
-    state: Option<MonitorState>,
-    id: String,
-) -> Result<serde_json::Value, CommandError> {
-    let current = tmuxy_core::servers::current_server_id();
-    let live_sessions = if id == current {
-        if let Some(st) = state {
-            query_via_monitor(
-                &st,
-                "list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}'",
-            )
-            .await
-            .ok()
-            .map(|out| tmuxy_core::servers::parse_session_list(&out))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        let server = tmuxy_core::servers::find_server(&id)
-            .ok_or_else(|| CommandError::invalid(format!("unknown server '{id}'")))?;
-        Ok::<_, CommandError>(tmuxy_core::servers::probe_server(&server, live_sessions))
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(e.to_string()))??;
-    serde_json::to_value(result).map_err(|e| CommandError::unavailable(e.to_string()))
-}
-
 #[cfg(test)]
 mod open_url_tests {
     use super::super::open_url;

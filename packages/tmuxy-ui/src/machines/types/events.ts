@@ -12,7 +12,6 @@ import type {
   NotificationKind,
   ResizeHandle,
   RestorableSession,
-  ServerProbeState,
   SessionTreeNode,
   TmuxServer,
   TraceLevel,
@@ -265,11 +264,6 @@ export type AppMachineEvent =
       currentServerId: string | null;
     }
   | { type: 'CONNECT_SERVER'; serverId: string; session?: string }
-  | { type: 'ADD_SERVER'; dest: string; socket?: string; probe?: boolean }
-  | { type: 'REMOVE_SERVER'; serverId: string }
-  | { type: 'PROBE_SERVER'; serverId?: string; dest?: string; socket?: string }
-  | { type: 'PROBE_SERVER_RESULT'; probe: ServerProbeState }
-  | { type: 'CANCEL_SERVER_PROBE' }
   | { type: 'DETACH_CLIENT' }
   | { type: 'RECONNECT_NOW' }
   | { type: 'TMUX_DETACHED'; reason: string | null }

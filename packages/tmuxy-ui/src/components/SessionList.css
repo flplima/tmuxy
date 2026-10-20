@@ -1,0 +1,53 @@
+/* The detached overlay's way back in (SessionList): the switcher's sections,
+   each a column of full-width buttons in the menus' type and colours. */
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 24ch;
+  max-height: 50vh;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+}
+
+.session-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-list-header {
+  margin: 0 0 4px;
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-list-item {
+  display: block;
+  width: 100%;
+  padding: 4px 12px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-list-item:hover,
+.session-list-item:focus-visible {
+  background-color: var(--bg-highlight);
+  outline: none;
+}
+
+/* A session with a snapshot but nothing running: an offer, as in the menu. */
+.session-list-item.is-restorable {
+  color: var(--text-muted);
+  font-style: italic;
+}

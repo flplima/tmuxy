@@ -172,13 +172,13 @@ Forwarding one of these as a tmux key name is not rejected — tmux accepts `sen
 
 ## Servers, Sessions and the 4-Step Connect Flow
 
-A server is one tmux socket — local (`-L` / `-S` under `/tmp/tmux-$UID/`) or remote over SSH — and holds zero or more sessions. Saved entries live in `~/.config/tmuxy/servers.json` (`packages/tmuxy-core/src/servers.rs`), enriched on list with live local sockets from `packages/tmuxy-core/src/servers/discovery.rs`. Both the session widget (`packages/tmuxy-ui/src/components/widgets/session/TmuxySession.tsx`) and the CLI (`bin/tmuxy/session-connect`) drive the same 4-stage probe:
+A server is one tmux socket — local (`-L` / `-S` under `/tmp/tmux-$UID/`) or remote over SSH — and holds zero or more sessions. Saved entries live in `~/.config/tmuxy/servers.json` (`packages/tmuxy-core/src/servers.rs`), enriched on list with live local sockets from `packages/tmuxy-core/src/servers/discovery.rs`. Switching among them is the session switcher (`components/SessionMenu.tsx`, and `components/SessionList.tsx` on the detached overlay), both drawing `sessionSwitcherSpec`. Reaching a new one is one flow, `tmuxy session connect` (`bin/tmuxy/session-connect`), which `tmuxy connect` with no arguments and the switcher's "Connect over SSH…" float both run. It asks for the destination, then takes 4 stages:
 
 ```
 [1. ssh / localhost] ──► [2. tmux -V] ──► [3. listing sessions] ──► [4. attach]
 ```
 
-Each stage prints `✓` on success or `✗` with verbatim `ssh`/`tmux` stderr on failure, then lists the server's sessions (or starts on `+ new session…` when none exist).
+Each stage prints `✓` on success or `✗` with verbatim `ssh`/`tmux` stderr on failure. The server is saved to `servers.json`, and the attach is published as `TMUXY_CONNECT_*` for the desktop app to pick up (see [TMUX-CONFIG.md](TMUX-CONFIG.md)).
 
 ---
 

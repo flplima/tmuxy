@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn new_window_rewrite_quotes_the_session() {
-        // Session names come from servers.json / the connect form, so they can
+        // Session names come from servers.json / `tmuxy session connect`, so they can
         // contain whitespace (which truncated the target) or `;` (which
         // appended extra commands to the list).
         let out = new_window_rewrite("my session", None);

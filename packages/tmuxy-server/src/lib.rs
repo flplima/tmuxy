@@ -1,14 +1,12 @@
 //! The tmuxy web server, and the verbs `tmuxy server <verb>` runs.
 //!
 //! The public surface is what the desktop binary (`tmuxy-tauri-app`) links:
-//! `server` to run the CLI, `connect` for the add-a-server form, and the
-//! logging setup. Everything else is this crate's own, so that rustc's
+//! `server` to run the CLI, and the logging setup. Everything else is this crate's own, so that rustc's
 //! dead-code lint can see what nothing uses any more.
 
 mod agents;
 mod auth;
 mod command;
-pub mod connect;
 mod dev;
 mod request_guard;
 pub mod server;

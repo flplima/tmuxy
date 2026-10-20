@@ -78,7 +78,7 @@ Tauri IPC has lower latency than HTTP since communication is in-process.
 **How it works:**
 
 - There is no SSH library — tmuxy shells out to the system `ssh` client. The `TMUXY_SSH` env var holds a whitespace-separated ssh argv tail (options plus destination, e.g. `-p 2222 user@host`). When set, every tmux invocation is wrapped as `ssh … tmux …` by `tmux_argv`/`ssh_target` in `packages/tmuxy-core/src/session.rs` — with `-tt` (remote tty allocation) for the `-CC` control-mode attach, and without it for one-off reads.
-- Saved servers live in `~/.config/tmuxy/servers.json` (`packages/tmuxy-core/src/servers.rs`); each entry's optional `ssh` field maps to the same `TMUXY_SSH` value. The desktop sidebar's server picker and the `tmuxy connect` form select an entry and reconnect the monitor live.
+- Saved servers live in `~/.config/tmuxy/servers.json` (`packages/tmuxy-core/src/servers.rs`); each entry's optional `ssh` field maps to the same `TMUXY_SSH` value. The desktop sidebar's server picker selects an entry and `tmuxy session connect` adds one; both reconnect the monitor live.
 - The `TmuxMonitor` and `ControlModeConnection` are transport-agnostic — they read/write stdin/stdout of a child process, so the ssh hop is invisible to them.
 - The Tauri monitor's reconnect loop (backoff, park after repeated failures, revive on user reconnect — see Connection Lifecycle above) applies to SSH targets the same as local ones.
 - Latency is handled by the monitor's adaptive throttling; there is no local echo or input prediction (see [NON-GOALS.md](NON-GOALS.md)).

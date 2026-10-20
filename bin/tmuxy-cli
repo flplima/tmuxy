@@ -192,8 +192,6 @@ Usage: tmuxy widget <command> [args...]
 
 Commands:
   tree          Display the tabs+panes tree (the left sidebar's content)
-  session       Switch, rename, kill or detach the session; connect to
-                another tmux socket, locally or over SSH
   preview       Show a local .html or .md file, kept up to date as it
                 changes [--net] [--no-theme] [file] (also: tmuxy open)
 EOF
@@ -255,9 +253,10 @@ usage_connect() {
   cat <<'EOF'
 Usage: tmuxy connect [socket] [session]
 
-With no arguments, opens the "add a server" form (a small TUI) to save a tmux
-server — the local machine or a remote SSH host — to the desktop app's sidebar
-server picker (stored in ~/.config/tmuxy/servers.json).
+With no arguments, runs `tmuxy session connect`: it asks which machine to
+connect to — this one, or [user@]host over SSH — checks it can reach tmux
+there, saves the server to the desktop app's server list
+(~/.config/tmuxy/servers.json) and attaches to it.
 
 With a socket, reconnects the tmuxy DESKTOP APP to a different tmux server
 without relaunching. `socket` is a socket name (in tmux's default dir, e.g.
@@ -269,7 +268,7 @@ This sets a request the running desktop app picks up. It has no effect in the
 web UI (the web server's socket is fixed at launch).
 
 Examples:
-  tmuxy connect                      # open the add-a-server form
+  tmuxy connect                      # ask for a server, then attach to it
   tmuxy connect default              # attach to your everyday tmux server
   tmuxy connect default work         # ...to its "work" session specifically
   tmuxy connect /tmp/tmux-1000/foo   # attach to a socket by full path
