@@ -163,6 +163,14 @@ Check 3 is the one that catches a tap pinned to bytes that are not the bytes on 
 
 Exit 0 means a user running `brew update && brew upgrade --cask flplima/tap/tmuxy` (macOS) or `brew update && brew upgrade flplima/tap/tmuxy` (Linux) now gets the new build.
 
+### The official cask (Homebrew/homebrew-cask)
+
+The tap's cask is written to be the one Homebrew/homebrew-cask would take, byte for byte, so every release proves it. `verify-brew-cask` installs it on a clean runner, then holds it to that repo's checks — `brew style`, `brew audit --cask --new --strict --online`, `brew livecheck` — and uninstalls it with `--zap`, failing if any path the cask lists is left behind. A red step there is a regression in the cask: fix the generator in the `bump-cask` job of `build-app.yml`, never the tap by hand.
+
+It is not in homebrew-cask yet. A submission by the repository's owner has to clear Homebrew's self-submission bar (225 stars, 90 forks or 90 watchers — <https://docs.brew.sh/Package-Acceptance-Policy>); a user who is not a contributor may submit it at the ordinary one. Only the cask goes there: Linux stays on the tap's AppImage formula, since a homebrew-core formula named `tmuxy` would take the name from the cask and would have to build on macOS too.
+
+Once it is in homebrew-cask, the `livecheck` block is what lets Homebrew's autobump open each version's PR there; `brew bump-cask-pr --version <new-version> tmuxy` does it by hand if autobump is slow. The tap's `bump-cask` keeps running for tap users. After the bump merges, `brew info --cask tmuxy` shows the new version from Homebrew's own repo.
+
 ## Release-candidate soak policy
 
 22 tags in two months, and three of them were superseded by a bug fix within four hours (.59 → .60 in 1h35, .60 → .61 in 3h43, .43 → .44 in 1h34). Every one of those shipped to brew users first and was found broken second. The fix is not more gates before the tag — it is a tag that nobody is asked to install yet.

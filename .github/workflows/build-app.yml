@@ -849,10 +849,13 @@ jobs:
           mkdir -p Casks
 
           # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
-          # `brew install --cask flplima/tap/tmuxy`. Matches the official
-          # Homebrew/homebrew-cask format: `livecheck` (`:github_latest`) and the
-          # `binary` stanza linking `tmuxy.app/Contents/MacOS/tmuxy` into
-          # `$(brew --prefix)/bin/tmuxy` (no `postflight_steps`).
+          # `brew install --cask flplima/tap/tmuxy`. It is the cask that would
+          # go to Homebrew/homebrew-cask, byte for byte, so every release proves
+          # it: `verify-brew-cask` runs `brew style` and `brew audit --new` on
+          # it. The `binary` stanza links the app's executable, which is the
+          # full CLI, into `$(brew --prefix)/bin/tmuxy`. `zap` lists what the
+          # app writes: its config, the `~/.local/bin/tmuxy` launcher it
+          # refreshes on every start, and its Library folders.
           cat > Casks/tmuxy.rb <<'CASK'
           cask "tmuxy" do
             version "__VERSION__"
@@ -860,15 +863,14 @@ jobs:
 
             url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_universal.dmg"
             name "tmuxy"
-            desc "Web-based tmux interface"
-            homepage "https://github.com/flplima/tmuxy"
+            desc "Desktop UI for tmux"
+            homepage "https://tmuxy.sh/"
 
             livecheck do
               url :url
               strategy :github_latest
             end
 
-            auto_updates false
             depends_on formula: "tmux"
             depends_on :macos
 
@@ -880,8 +882,8 @@ jobs:
               "~/.local/bin/tmuxy",
               "~/Library/Application Support/com.tmuxy.app",
               "~/Library/Application Support/tmuxy",
-              "~/Library/Preferences/com.tmuxy.app.plist",
-              "~/Library/Saved Application State/com.tmuxy.app.savedState",
+              "~/Library/Caches/com.tmuxy.app",
+              "~/Library/WebKit/com.tmuxy.app",
             ]
           end
           CASK
@@ -1115,6 +1117,32 @@ jobs:
             cat "${RUNNER_TEMP}/brew-server.log"; exit 1; }
           tmuxy server --port "$PORT" status | grep -q 'Server is running'
           tmuxy server --port "$PORT" stop
+
+      # The tap's cask is the one Homebrew/homebrew-cask would take, so it is
+      # held to that repo's checks on every release: a release that drifts from
+      # them is found here, not in a review months later.
+      - name: The cask passes Homebrew's own checks
+        run: |
+          set -euo pipefail
+          brew style --cask flplima/tap/tmuxy
+          brew audit --cask --new --strict --online flplima/tap/tmuxy
+          brew livecheck --cask flplima/tap/tmuxy
+
+      - name: Uninstalling with --zap leaves nothing behind
+        run: |
+          set -euo pipefail
+          brew uninstall --zap --cask flplima/tap/tmuxy
+          for path in \
+            /Applications/tmuxy.app \
+            "$(brew --prefix)/bin/tmuxy" \
+            "$HOME/.config/tmuxy" \
+            "$HOME/.local/bin/tmuxy" \
+            "$HOME/Library/Application Support/com.tmuxy.app" \
+            "$HOME/Library/Application Support/tmuxy" \
+            "$HOME/Library/Caches/com.tmuxy.app" \
+            "$HOME/Library/WebKit/com.tmuxy.app"; do
+            if [ -e "$path" ]; then echo "left behind: $path"; exit 1; fi
+          done
 
       - name: Server logs (debug)
         if: failure()
