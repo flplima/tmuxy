@@ -5,7 +5,6 @@ members = [
     "packages/tmuxy-tauri-app",
     "packages/tmuxy-server",
     "packages/tmuxy-wasm",
-    "packages/tmuxy-tree",
     "packages/tmuxy-group",
 ]
 

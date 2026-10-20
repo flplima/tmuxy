@@ -3,7 +3,7 @@
  *
  * The left sidebar is now a native React tab/pane tree (`SidebarTree`) rendered
  * in a fixed-width, full-height column that flexes the pane area — no tmux
- * window/pane, no `tmuxy tree` TUI. The tree is derived from the demo's
+ * window/pane. The tree is derived from the demo's
  * `context.windows`/`context.panes`, so these stories exercise the real user
  * chain: TOGGLE_LEFT_SIDEBAR (button or `prefix s`) → column opens → tree lists every
  * tab and its panes → clicking / keyboard-navigating a node activates it through

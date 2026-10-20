@@ -102,7 +102,6 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 | `tmuxy-ui` | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, in-browser demo engine, and the v86 client-side adapter (real tmux in an in-browser x86 emulator). |
 | `tmuxy-wasm` | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script. |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
-| `tmuxy-tree` | Standalone TUI browser of the sessions→tabs→panes tree (`tmuxy tree`), for a plain terminal — packaged separately so the v86 guest can run it. `bin/tmuxy-cli` prefers this binary when present. It spans every session on the socket, which is what makes it useful with no app around it; the left sidebar's React tree (`tmuxy widget tree` — see [Widgets](ARCHITECTURE-WIDGETS.md)) is scoped to the attached session instead, since that is the one the app holds state for. |
 | `tmuxy-group` | The pane-group operations the `pane-group-*` scripts run (`tmuxy-server group <verb>`), over the rules in `tmuxy_core::groups` — also built as a `tmuxy-group` binary so the v86 guest, which has no server, can run them. |
 
 ## Related Documentation

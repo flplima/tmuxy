@@ -33,7 +33,7 @@ pub(super) fn is_list_panes_line(line: &str) -> bool {
 /// launcher that pins its version by directory, as Claude Code does
 /// (`~/.local/share/claude/versions/2.1.280`), therefore reports a bare version
 /// string, and every surface that names the process by its command (the sidebar
-/// tree, the pane tabs, `tmuxy-tree`, the CLI) shows `2.1.280` where the user
+/// tree, the pane tabs, the CLI) shows `2.1.280` where the user
 /// expects `claude`.
 ///
 /// Normalising here rather than per surface means the backend state is the one

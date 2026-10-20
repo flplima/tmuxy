@@ -96,7 +96,6 @@ Commands:
   nav         Navigate across groups, splits, and tabs
   widget      Display widgets (tree, session, preview)
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
-  tree        Browse tabs and panes as a tree in this terminal
   run         Run any tmux command safely
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
@@ -118,16 +117,6 @@ Note for AI/LLM agents:
 EOF
 }
 
-usage_tree() {
-  cat <<'EOF'
-Usage: tmuxy tree
-
-Open an interactive tree view of all tabs and their panes. Navigate with
-j/k or the arrow keys, Enter (or a mouse click) to activate a tab/pane.
-A standalone browser of tabs/panes, for a plain terminal. The left sidebar
-renders the same tree as a React widget — see `tmuxy widget tree`.
-EOF
-}
 
 usage_pane() {
   cat <<'EOF'
@@ -305,20 +294,6 @@ case "${1:-}" in
   open)
     shift
     cmd_widget preview "$@"
-    ;;
-  tree)
-    shift
-    case "${1:-}" in
-      --help|-h) usage_tree ;;
-      *)
-        # Standalone tree binary (v86 guest and other server-less installs)
-        if command -v tmuxy-tree &>/dev/null; then
-          exec tmuxy-tree "$@"
-        fi
-        find_server_cmd
-        exec "${SERVER_CMD[@]}" tree "$@"
-        ;;
-    esac
     ;;
   cleanup)
     shift

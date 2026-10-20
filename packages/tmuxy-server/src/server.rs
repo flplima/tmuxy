@@ -236,10 +236,6 @@ pub enum ServerAction {
     Stop,
     /// Show server status
     Status,
-    /// Run the sidebar tree TUI (backs `tmuxy tree`). Hidden: meant to run
-    /// inside a tmux pane, not invoked directly by users.
-    #[command(hide = true)]
-    Tree,
     /// Inspect a local action-trace file: print a summary, or export a
     /// Chrome-trace/Perfetto timeline with `--export` (docs/TRACING.md).
     Trace(crate::trace_view::TraceViewArgs),
@@ -326,12 +322,6 @@ pub async fn run(args: ServerArgs) {
         }
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
-        Some(ServerAction::Tree) => {
-            if let Err(e) = tmuxy_tree::run_tree_tui() {
-                eprintln!("tmuxy tree: {e}");
-                std::process::exit(1);
-            }
-        }
         Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
         Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),

@@ -293,8 +293,8 @@ jobs:
       - name: Make the server executable
         run: chmod +x target/release/tmuxy-server
 
-      # Put the `tmuxy` CLI on PATH so panes spawned by the server (e.g. the
-      # sidebar's `tmuxy tree` TUI) resolve it — mirrors brew/AppImage installs.
+      # Put the `tmuxy` CLI on PATH so panes spawned by the server (a widget,
+      # a float's command) resolve it — mirrors brew/AppImage installs.
       - name: Link tmuxy CLI onto PATH
         run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
@@ -436,7 +436,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-tree binary
+          # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-group binary
           # that build-v86-snapshot.mjs cross-compiles on a cache miss.
           targets: wasm32-unknown-unknown,i686-unknown-linux-musl
 

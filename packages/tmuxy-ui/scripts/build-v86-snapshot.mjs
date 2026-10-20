@@ -120,11 +120,10 @@ async function buildBundle({ fetchBinaries }) {
     }
   }
 
-  // The guest has no tmuxy-server, so the two things the scripts need from
-  // Rust are cross-compiled static for i686 on their own: the sidebar tree
-  // TUI (`tmuxy tree`) and the pane-group operations the pane-group-* scripts
-  // run (`tmuxy-group`).
-  const GUEST_BINARIES = ['tmuxy-tree', 'tmuxy-group'];
+  // The guest has no tmuxy-server, so what the scripts need from Rust is
+  // cross-compiled static for i686 on its own: the pane-group operations the
+  // pane-group-* scripts run (`tmuxy-group`).
+  const GUEST_BINARIES = ['tmuxy-group'];
   console.log(`… cross-compiling ${GUEST_BINARIES.join(', ')} (i686-musl)`);
   execFileSync(
     'cargo',
@@ -194,7 +193,6 @@ const GUEST_INSTALL = [
   'ln -sf /tmp/tb/bash /bin/bash',
   'ln -sf /tmp/tb/tmux /usr/bin/tmux',
   'ln -sf /tmp/tb/bin/tmuxy-cli /usr/bin/tmuxy',
-  'ln -sf /tmp/tb/tmuxy-tree /usr/bin/tmuxy-tree',
   'ln -sf /tmp/tb/tmuxy-group /usr/bin/tmuxy-group',
   'mkdir -p /root/.config/tmuxy/bin',
   'ln -sfn /tmp/tb/bin/tmuxy /root/.config/tmuxy/bin/tmuxy',

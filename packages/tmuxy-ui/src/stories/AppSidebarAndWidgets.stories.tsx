@@ -26,7 +26,7 @@ type Story = StoryObj<typeof V86AppHarness>;
 
 /**
  * Sidebar tree (real tmux via v86). The sidebar is a native React tab/pane tree
- * derived from the live session state — no `tmuxy tree` TUI, no sidebar window.
+ * derived from the live session state, with no sidebar window.
  * The drawer opens, lists every tab and its panes, clicking a pane activates it
  * (real `select-pane` round-trip), and toggling again hides the drawer.
  */

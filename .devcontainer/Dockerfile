@@ -69,7 +69,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     # wasm32 target + pinned wasm-bindgen for tmuxy-wasm (npm run build:wasm);
     # the CLI version must match the wasm-bindgen crate in Cargo.lock
     && rustup target add wasm32-unknown-unknown \
-    # i686-musl for the v86 guest's tmuxy-tree binary (scripts/build-v86-snapshot.mjs)
+    # i686-musl for the v86 guest's tmuxy-group binary (scripts/build-v86-snapshot.mjs)
     && rustup target add i686-unknown-linux-musl \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R user:user /usr/local/cargo /usr/local/rustup

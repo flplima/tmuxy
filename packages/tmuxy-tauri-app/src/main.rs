@@ -89,8 +89,8 @@ mod tests {
     #[test]
     fn every_dispatcher_noun_is_forwarded() {
         for noun in [
-            "pane", "tab", "session", "widget", "nav", "queue", "q", "run", "info", "skill",
-            "tree", "cleanup", "config", "--json", "-j",
+            "pane", "tab", "session", "widget", "nav", "run", "info", "skill", "cleanup", "config",
+            "--json", "-j",
         ] {
             assert_eq!(app_command(&args(&[noun, "x"])), None, "{noun}");
         }
