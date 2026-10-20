@@ -173,7 +173,7 @@ pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
         .cell(row, col)
         .map(|c| c.contents())
         .unwrap_or_default();
-    if raw.is_empty() {
+    if raw.is_empty() || raw.starts_with('\u{10eeee}') {
         " ".to_string()
     } else {
         raw.to_string()
