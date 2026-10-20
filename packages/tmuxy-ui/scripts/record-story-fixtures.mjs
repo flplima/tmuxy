@@ -206,12 +206,12 @@ class Recording {
       } catch {
         // the session is still coming up
       }
-      const text = state && JSON.stringify(stripSeq(state));
+      const text = state && JSON.stringify(asRecorded(state));
       if (text !== last) {
         last = text;
         since = Date.now();
       } else if (state && Date.now() - since >= QUIET_MS && this.keybindings && ready(state)) {
-        return stripSeq(state);
+        return asRecorded(state);
       }
       await sleep(100);
     }
@@ -231,10 +231,21 @@ class Recording {
   }
 }
 
-/** The stream position a state was taken at: meaningless to a replay. */
-function stripSeq(state) {
+/** `@3` / `%12` as the number it is. */
+const idNumber = (id) => Number(String(id).slice(1));
+
+/**
+ * A state as a replay keeps it: without the stream position it was taken at,
+ * and with windows and panes in id order — the server lists them in its map's
+ * order, which changes from run to run.
+ */
+function asRecorded(state) {
   const { seq: _seq, ...rest } = state;
-  return rest;
+  return {
+    ...rest,
+    windows: [...rest.windows].sort((a, b) => idNumber(a.id) - idNumber(b.id)),
+    panes: [...rest.panes].sort((a, b) => idNumber(a.tmux_id) - idNumber(b.tmux_id)),
+  };
 }
 
 /** Every line of every pane's screen, as text. */

@@ -40,6 +40,21 @@ describe('FixtureAdapter', () => {
     expect(adapter.commands).toEqual(['split-window -h', 'select-pane -t %0']);
   });
 
+  it('a transition with `from` answers only in that state, so a toggle goes both ways', async () => {
+    const adapter = new FixtureAdapter({
+      fixture,
+      start: 'one',
+      transitions: [
+        { match: /^toggle$/, from: 'one', to: 'side-by-side' },
+        { match: /^toggle$/, from: 'side-by-side', to: 'one' },
+      ],
+    });
+    const seen = emittedPanes(adapter);
+    await adapter.invoke('run_tmux_command', { command: 'toggle' });
+    await adapter.invoke('run_tmux_command', { command: 'toggle' });
+    expect(seen).toEqual([['%0', '%1'], ['%0']]);
+  });
+
   it('refuses a recorded state it does not have, naming the ones it does', () => {
     expect(() => new FixtureAdapter({ fixture, start: 'nope' })).toThrow(
       /one, side-by-side, three/,

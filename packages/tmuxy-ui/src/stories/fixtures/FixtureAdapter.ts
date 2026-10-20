@@ -40,9 +40,14 @@ export function asFixture(json: unknown): Fixture {
   return json as Fixture;
 }
 
-/** When the app sends a command matching `match`, tmux's answer is the state `to`. */
+/**
+ * When the app sends a command matching `match`, tmux's answer is the state
+ * `to`. With `from`, only while the session is in that state: a toggle
+ * (zoom, a swap) sends the same command both ways.
+ */
 export interface Transition {
   readonly match: RegExp;
+  readonly from?: string;
   readonly to: string;
 }
 
@@ -88,6 +93,8 @@ export class FixtureAdapter implements TmuxAdapter {
     path: '/home/demo/.local/state/tmuxy/trace.ndjson',
     locked: false,
   };
+  /** The last client size answered, `colsxrows`. */
+  private clientSize = '';
   /** Each pane's last staged page, revoked when the next replaces it. */
   private previewPages = new Map<string, string>();
 
@@ -158,10 +165,17 @@ export class FixtureAdapter implements TmuxAdapter {
       }
       case 'get_scrollback_cells':
         return this.scrollback(String(args?.paneId)) as T;
-      // The client is sized to the recording, so there is nothing to re-tile.
-      case 'set_client_size':
-        this.emitStateSnapshot();
+      // A recording cannot re-tile, so tmux's answer to a new size is the
+      // screen it already drew. Once per size: the same size asked again (a
+      // column narrows the client for good) changes nothing.
+      case 'set_client_size': {
+        const size = `${args?.cols}x${args?.rows}`;
+        if (size !== this.clientSize) {
+          this.clientSize = size;
+          this.emitStateSnapshot();
+        }
         return null as T;
+      }
       // The client leaves the session; tmux runs on.
       case 'detach_client':
         this.events.emit(TransportEvent.Detached({ reason: null }));
@@ -205,7 +219,9 @@ export class FixtureAdapter implements TmuxAdapter {
     if (typeof refusal === 'string') {
       throw { error: refusal, kind: 'tmux' } satisfies CommandFailure;
     }
-    const transition = this.transitions.find((t) => t.match.test(command));
+    const transition = this.transitions.find(
+      (t) => (t.from === undefined || t.from === this.current) && t.match.test(command),
+    );
     if (transition) this.goTo(transition.to);
   }
 

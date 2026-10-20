@@ -12,7 +12,7 @@ import { Layer } from 'effect';
 import { TmuxyProvider, TmuxyApp, type AppConfig, type RenderTabline } from '../lib';
 import { TmuxTransport, makeTransport } from '../infra/transport/TmuxTransport';
 import { FixtureAdapter, type FixtureAdapterOptions } from './fixtures/FixtureAdapter';
-import { gridBox } from './gridBox';
+import { useGridBox } from './gridBox';
 
 export interface FixtureAppProps extends FixtureAdapterOptions {
   config?: AppConfig;
@@ -47,11 +47,8 @@ const chrome = {
 
 export function FixtureApp({ config, renderTabline, onAdapterReady, ...options }: FixtureAppProps) {
   const transport = useFixtureTransport(options, onAdapterReady);
-  // Measured once per mount: the font is loaded by then.
-  const box = useMemo(
-    () => gridBox(options.fixture.cols, options.fixture.rows),
-    [options.fixture.cols, options.fixture.rows],
-  );
+  const box = useGridBox(options.fixture.cols, options.fixture.rows);
+  if (!box) return null;
   return (
     <div style={{ ...chrome, width: box.width, height: box.height }}>
       <TmuxyProvider transport={transport} config={config}>
