@@ -8,7 +8,11 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { Snackbar } from './Snackbar';
 import { useAppSend } from '../machines/appHooks';
-import { ProviderHarness } from '../stories/StoryHarness';
+import { FixtureProvider } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import panes from '../stories/fixtures/gen/panes.json';
+
+const PANES = asFixture(panes);
 
 const meta: Meta<typeof Snackbar> = {
   title: 'Components/Snackbar',
@@ -36,10 +40,10 @@ const ERRORS = ["can't find window: @999", 'pane too small', 'Copy failed: not a
 
 export const Stacked: Story = {
   render: () => (
-    <ProviderHarness height={320}>
+    <FixtureProvider height={320} fixture={PANES} start="one">
       <Triggers errors={ERRORS} />
       <Snackbar />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -86,13 +90,13 @@ const MESSAGE = 'build done';
  */
 export const TmuxMessage: Story = {
   render: () => (
-    <ProviderHarness height={320}>
+    <FixtureProvider height={320} fixture={PANES} start="one">
       <div style={{ display: 'flex', gap: 8, padding: 12 }}>
         <MessageTrigger text={MESSAGE} />
         <Triggers errors={[ERRORS[0]]} />
       </div>
       <Snackbar />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

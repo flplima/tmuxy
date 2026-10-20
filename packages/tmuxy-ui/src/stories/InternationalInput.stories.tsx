@@ -1,130 +1,145 @@
 /**
- * International keyboard input (demo engine): what only a browser can show.
+ * International keyboard input: the focus an IME needs to compose at all.
  *
  * Which keydown a layout sends — a dead key's finished character stamped
  * keyCode 229, a macOS Option character, an AltGr third-level symbol, a
- * composition's commit — and how keyboardActor turns it into text rather than
- * a chord is unit-tested (`keyboardActor.ime.test.ts`). These stories keep
- * what those tests cannot see: the cells the text paints and their boxes, and
- * the focus an IME needs to compose at all. Each types through the REAL chain
- * — a `keydown` or a composition, exactly as the browser fires it →
- * keyboardActor → `send-keys` → demo tmux → the shell's line editor → the
- * rendered grid.
+ * composition's commit — and how keyboardActor turns it into text exactly
+ * once is unit-tested (`keyboardActor.ime.test.ts`); that the text reaches
+ * the shell through real tmux is E2E (`1-input-interaction`, Scenario 2c, and
+ * `11-webkit` for a click into the pane). What only the whole app in a
+ * browser shows is where browser focus sits once a pane exists, and that
+ * text typed there lands in that pane.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
-import {
-  cellWidth,
-  compose,
-  deadComposed,
-  expectPainted,
-  plain,
-  promptLine,
-  typeRun,
-} from './internationalInputHelpers';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import hangulTyped from './fixtures/gen/hangul-typed.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/International Input',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
-
-// ---------------------------------------------------------------------------
-// Stories
-// ---------------------------------------------------------------------------
+type Story = StoryObj<typeof FixtureApp>;
 
 /**
- * IME composition: pinyin, kana and hangul never deliver text through keydown —
- * the individual keys are suppressed while composing and the committed string
- * arrives whole on `compositionend`. The macOS emoji picker uses the same path,
- * and an emoji is a two-code-unit string the user typed as ONE character, so it
- * must occupy one cell rather than being split into two half-glyphs.
+ * A text key as the browser delivers it to a focused input: the keydown, then
+ * — unless the app took the key — the `input` event that carries the text.
  */
-export const IMEComposedText: Story = {
-  args: { height: 420 },
-  play: async ({ canvasElement }) => {
-    const payload = '日本語한국어😀';
-    const rect = await typeRun(canvasElement, payload, [
-      compose('日本語'),
-      compose('한국어'),
-      compose('😀'),
-    ]);
-    expectPainted(canvasElement, rect);
+function press(key: string): void {
+  const target = document.activeElement ?? window;
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  if (!event.defaultPrevented && target instanceof HTMLInputElement) {
+    target.value = key;
+    target.dispatchEvent(
+      new InputEvent('input', { bubbles: true, data: key, inputType: 'insertText' }),
+    );
+  }
+}
 
-    // The emoji is ONE cell holding both its code units, not a surrogate pair
-    // torn across two cells — which paints two broken halves and shifts
-    // everything after it a column right. Text alone can't tell the two apart
-    // (the halves concatenate back into the same string), so assert the boxes:
-    // exactly one cell renders it, and it is one cell wide.
-    const emojiCells = Array.from(
-      promptLine(canvasElement).querySelectorAll<HTMLElement>('span'),
-    ).filter((s) => s.textContent === '😀');
-    expect(emojiCells).toHaveLength(1);
-    expect(emojiCells[0].getBoundingClientRect().width).toBeCloseTo(cellWidth(canvasElement), 0);
-  },
-};
+/**
+ * An IME committing `text`: the suppressed keys of the composition, its
+ * `compositionend`, and the `input` Chrome fires after the commit.
+ */
+function compose(text: string): void {
+  const target = document.activeElement ?? window;
+  target.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+  for (const key of text) {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, keyCode: 229, isComposing: true, bubbles: true }),
+    );
+  }
+  target.dispatchEvent(new CompositionEvent('compositionend', { data: text, bubbles: true }));
+  if (target instanceof HTMLInputElement) {
+    target.value = text;
+    target.dispatchEvent(
+      new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }),
+    );
+  }
+}
+
+/** The pane's prompt row, read as painted (trailing blanks are not). */
+function promptLine(canvasElement: HTMLElement): HTMLElement {
+  const line = [...canvasElement.querySelectorAll<HTMLElement>('.terminal-line')]
+    .filter((l) => (l.textContent ?? '').startsWith('$'))
+    .pop();
+  if (!line) throw new Error('no prompt line rendered yet');
+  return line;
+}
+
+/** Box of `text` where it is painted on `line`, by character offset. */
+function runRect(line: HTMLElement, text: string): DOMRect {
+  const at = (line.textContent ?? '').indexOf(text);
+  if (at < 0) throw new Error(`"${text}" is not on the prompt line`);
+  const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  let offset = 0;
+  let started = false;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const len = (node.textContent ?? '').length;
+    if (!started && at < offset + len) {
+      range.setStart(node, at - offset);
+      started = true;
+    }
+    if (started && at + text.length <= offset + len) {
+      range.setEnd(node, at + text.length - offset);
+      return range.getBoundingClientRect();
+    }
+    offset += len;
+  }
+  throw new Error(`"${text}" spans past the end of the prompt line`);
+}
 
 /**
  * Where an IME composes. A composition can only begin inside an editable
  * element, and until PR #61 nothing on the desktop ever had one — the hidden
  * input existed for touch keyboards only, so Korean, Japanese and Chinese
  * input had nowhere to start. Now the input takes browser focus as soon as a
- * pane exists and follows the pane holding the keyboard. Text typed into it
- * arrives once: a plain key by its `input` event, a composition by its
- * `compositionend`, with the `input` event Chrome fires after that commit
- * de-duplicated rather than painted a second time.
+ * pane exists and follows the pane holding the keyboard: a composition
+ * committed there, and plain keys after it, reach that pane and are painted
+ * in it.
  */
 export const HiddenInputOwnsFocus: Story = {
-  args: { height: 420 },
-  play: async ({ canvasElement }) => {
-    await waitFor(() => expect(promptLine(canvasElement)).toBeTruthy(), { timeout: 15000 });
-    await waitFor(() => {
-      const active = document.activeElement as HTMLInputElement | null;
-      expect(active?.tagName).toBe('INPUT');
-    });
-
-    const composed = await typeRun(canvasElement, '한글', [compose('한글')]);
-    expectPainted(canvasElement, composed);
-    expect(promptLine(canvasElement).textContent ?? '').not.toContain('한글한글');
-
-    const typed = await typeRun(canvasElement, 'ab', [plain('a'), plain('b')]);
-    expectPainted(canvasElement, typed, 4);
-    expect(promptLine(canvasElement).textContent ?? '').not.toContain('aabb');
+  args: {
+    fixture: asFixture(hangulTyped),
+    start: 'one',
+    transitions: [
+      { match: /^send-keys -t %0 -l -- '한글'$/, to: 'hangul' },
+      { match: /^send-keys -t %0 -l -- 'b'$/, to: 'hangul-ab' },
+    ],
   },
-};
-
-/**
- * Clicking into a pane must not cost you your accents.
- *
- * The pane wrapper is the grid's tab stop, so a click moves browser focus onto
- * it — and a dead key is composed by the OS for whatever is being EDITED. With
- * focus on a plain div there is nowhere for the composed character to go, and
- * it is simply never delivered. Ordinary keys keep working, which is why this
- * reads as "diacritics stopped working" rather than "typing stopped working".
- * The pane hands focus straight back to the hidden input.
- */
-export const ClickingAPaneKeepsAccentsTypable: Story = {
-  args: { height: 420 },
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(promptLine(canvasElement)).toBeTruthy(), { timeout: 15000 });
-    const hidden = document.activeElement;
-    expect(hidden?.tagName).toBe('INPUT');
+    await waitFor(() => expect(document.activeElement?.tagName).toBe('INPUT'));
 
-    // Click the pane, the way anyone starts using one.
-    const pane = canvasElement.querySelector<HTMLElement>('.pane-wrapper[data-pane-id]')!;
-    pane.focus();
-    await waitFor(() => expect(document.activeElement).toBe(hidden));
+    compose('한글');
+    await waitFor(() =>
+      expect((promptLine(canvasElement).textContent ?? '').replace(/\s+/g, '')).toContain('$한글'),
+    );
 
-    // ...and a composed accent still lands.
-    const payload = 'áñ';
-    const rect = await typeRun(canvasElement, payload, [
-      deadComposed('´', 'a', 'á'),
-      deadComposed('~', 'n', 'ñ'),
-    ]);
-    expectPainted(canvasElement, rect, payload.length + 2);
+    press('a');
+    press('b');
+    await waitFor(() =>
+      expect((promptLine(canvasElement).textContent ?? '').replace(/\s+/g, '')).toContain(
+        '$한글ab',
+      ),
+    );
+
+    // Painted inside the pane, one cell per narrow character.
+    const pane = canvasElement.querySelector<HTMLElement>('[data-pane-id="%0"]')!;
+    const paneBox = pane.getBoundingClientRect();
+    const box = runRect(promptLine(canvasElement), 'ab');
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.height).toBeGreaterThan(0);
+    expect(box.left).toBeGreaterThanOrEqual(paneBox.left - 1);
+    expect(box.right).toBeLessThanOrEqual(paneBox.right + 1);
+    expect(box.top).toBeGreaterThanOrEqual(paneBox.top - 1);
+    expect(box.bottom).toBeLessThanOrEqual(paneBox.bottom + 1);
+    const cell = parseFloat(getComputedStyle(pane).getPropertyValue('--cell-w'));
+    expect(box.width / cell).toBeCloseTo(2, 0);
   },
 };

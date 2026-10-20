@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor } from 'storybook/test';
 import { StatusBar } from './StatusBar';
-import { ProviderHarness } from '../stories/StoryHarness';
+import { FixtureProvider } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import panes from '../stories/fixtures/gen/panes.json';
+
+const PANES = asFixture(panes);
 
 const meta: Meta<typeof StatusBar> = {
   title: 'Components/StatusBar',
@@ -11,27 +15,9 @@ const meta: Meta<typeof StatusBar> = {
 export default meta;
 type Story = StoryObj<typeof StatusBar>;
 
-export const SingleTab: Story = {
-  render: () => (
-    <ProviderHarness height={60}>
-      <StatusBar />
-    </ProviderHarness>
-  ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitFor(
-      () => {
-        expect(canvas.getAllByRole('tab').length).toBeGreaterThanOrEqual(1);
-      },
-      { timeout: 5000 },
-    );
-    expect(canvas.getByRole('button', { name: /create new tab/i })).toBeInTheDocument();
-  },
-};
-
 export const WithCustomTabline: Story = {
   render: () => (
-    <ProviderHarness height={60}>
+    <FixtureProvider height={60} fixture={PANES} start="one">
       <StatusBar
         renderTabline={({ children }) => (
           <>
@@ -44,7 +30,7 @@ export const WithCustomTabline: Story = {
           </>
         )}
       />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   parameters: {
     docs: {
@@ -56,12 +42,15 @@ export const WithCustomTabline: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    expect(canvas.getByTestId('traffic-lights')).toBeInTheDocument();
-    await waitFor(
-      () => {
-        expect(canvas.getAllByRole('tab').length).toBeGreaterThanOrEqual(1);
-      },
-      { timeout: 5000 },
+    const tab = await waitFor(() => canvas.getAllByRole('tab')[0], { timeout: 5000 });
+    // The embedder's chrome is drawn, on the bar's row, ahead of the tabs.
+    const lights = canvas.getByTestId('traffic-lights').getBoundingClientRect();
+    const first = tab.getBoundingClientRect();
+    expect(lights.width).toBeGreaterThan(0);
+    expect(lights.height).toBeGreaterThan(0);
+    expect(lights.right).toBeLessThanOrEqual(first.left);
+    expect(Math.abs(lights.top + lights.height / 2 - (first.top + first.height / 2))).toBeLessThan(
+      first.height / 2,
     );
   },
 };

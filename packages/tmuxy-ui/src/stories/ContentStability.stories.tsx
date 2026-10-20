@@ -4,29 +4,36 @@
  *
  * These are the content-level counterpart of the Animations stories (which
  * assert pane *chrome* mutations) and the layout GlitchRecorder checks (which
- * ignore `.terminal-line`). Each story parks a distinctive marker line in one
- * or more panes, then drives a pane operation — navigate, split, resize, move
- * (swap), zoom, kill — while TWO watchers run: a rAF `ContentStabilityRecorder`
- * (marker text must never blank for a painted frame) and a MutationObserver
- * `ContentMutationRecorder` (no surviving pane's content container may be torn
- * down and remounted). Either firing is the user-visible "terminal blinked" bug.
+ * ignore `.terminal-line`). Each story starts from panes recorded from real
+ * tmux with a distinctive marker line printed in them, then drives a pane
+ * operation — navigate, split, resize, move (swap), zoom, kill — answered with
+ * the state tmux recorded for it, while TWO watchers run: a rAF
+ * `ContentStabilityRecorder` (marker text must never blank for a painted
+ * frame) and a MutationObserver `ContentMutationRecorder` (no surviving pane's
+ * content container may be torn down and remounted). Either firing is the
+ * user-visible "terminal blinked" bug.
  *
- * Deterministic `DemoAdapter` tier (no v86), so they gate merges in the
- * `storybook-probe` CI job.
+ * Deterministic tier (no v86), so they gate merges in the `storybook-probe`
+ * CI job.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import twoPanes from './fixtures/gen/content-two-panes.json';
+import threePanes from './fixtures/gen/content-three-panes.json';
 import { ContentStabilityRecorder } from './contentStability';
 import { ContentMutationRecorder } from './contentMutation';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Content Stability',
-  component: AppHarness,
+  component: FixtureApp,
+  args: { fixture: asFixture(twoPanes), start: 'two' },
   parameters: {
     layout: 'fullscreen',
     docs: {
+      story: { inline: false, iframeHeight: 600 },
       description: {
         component:
           'Verifies that rendered terminal content stays reliable across pane operations: a marker line parked in a pane must never blank out for a painted frame while navigating between panes, splitting, resizing, zooming, or killing a neighbour.',
@@ -35,7 +42,7 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -43,14 +50,11 @@ type Story = StoryObj<typeof AppHarness>;
 
 interface AppActor {
   send: (event: unknown) => void;
-  getSnapshot: () => {
-    context: { activePaneId: string | null; panes: Array<{ tmuxId: string }> };
-  };
 }
 
 function getApp(): AppActor {
   const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — AppHarness not mounted?');
+  if (!app) throw new Error('window.app actor is not available — FixtureApp not mounted?');
   return app;
 }
 
@@ -60,18 +64,6 @@ function getPaneLayout(canvasElement: HTMLElement): HTMLElement {
   const el = canvasElement.querySelector<HTMLElement>('.pane-layout');
   if (!el) throw new Error('.pane-layout not found');
   return el;
-}
-
-function paneIds(): string[] {
-  return getApp()
-    .getSnapshot()
-    .context.panes.map((p) => p.tmuxId);
-}
-
-function activeId(): string {
-  const id = getApp().getSnapshot().context.activePaneId;
-  if (!id) throw new Error('no active pane');
-  return id;
 }
 
 const cmd = (command: string) => getApp().send({ type: 'SEND_TMUX_COMMAND', command });
@@ -85,19 +77,21 @@ async function waitForPaneCount(canvas: Canvas, count: number, timeout = 8000): 
   );
 }
 
-/**
- * Print a distinctive marker line into a specific pane. The demo shell runs
- * the line on the Enter itself, so what is left to wait for is the paint.
- */
-async function parkMarker(
+/** The recorded panes are up, with every marker the story watches on screen. */
+async function waitForMarkers(
   canvasElement: HTMLElement,
-  paneId: string,
-  marker: string,
+  count: number,
+  markers: string[],
 ): Promise<void> {
-  cmd(`send-keys -t ${paneId} -l 'echo ${marker}'`);
-  cmd(`send-keys -t ${paneId} Enter`);
-  await waitFor(() => expect(getPaneLayout(canvasElement).textContent ?? '').toContain(marker));
+  await waitForPaneCount(within(canvasElement), count);
+  await waitFor(() => {
+    const text = getPaneLayout(canvasElement).textContent ?? '';
+    for (const marker of markers) expect(text).toContain(marker);
+  });
 }
+
+/** Frames the sampler must observe before its assertions mean anything. */
+const MIN_SAMPLED_FRAMES = 8;
 
 /**
  * Run `operation` under BOTH content watchers, then assert neither fired:
@@ -109,9 +103,6 @@ async function parkMarker(
  * The callback receives both so a story can mark a pane's teardown as intended
  * (e.g. the victim of a kill) before it happens.
  */
-/** Frames the sampler must observe before its assertions mean anything. */
-const MIN_SAMPLED_FRAMES = 8;
-
 async function recordStable(
   canvasElement: HTMLElement,
   markers: string[],
@@ -142,30 +133,24 @@ async function recordStable(
 // Navigate between panes — switching the active pane must not blank any content
 // ---------------------------------------------------------------------------
 
+const NAV_MARKERS = ['ZZ_NAV_A_ZZ', 'ZZ_NAV_B_ZZ', 'ZZ_NAV_C_ZZ'];
+
 export const NavigateBetweenPanes: Story = {
-  args: { height: 600 },
-  parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
+  args: {
+    fixture: asFixture(threePanes),
+    start: 'three',
+    transitions: [0, 1, 2].map((n) => ({
+      match: new RegExp(`^select-pane -t %${n}$`),
+      to: `at-${n}`,
+    })),
+  },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-
-    // Three panes, each parking a unique marker.
-    const first = activeId();
-    await parkMarker(canvasElement, first, 'ZZ_NAV_A_ZZ');
-    cmd('split-window -h');
-    await waitForPaneCount(canvas, 2);
-    await parkMarker(canvasElement, activeId(), 'ZZ_NAV_B_ZZ');
-    cmd('split-window -v');
-    await waitForPaneCount(canvas, 3);
-    await parkMarker(canvasElement, activeId(), 'ZZ_NAV_C_ZZ');
-
-    const ids = paneIds();
-    const markers = ['ZZ_NAV_A_ZZ', 'ZZ_NAV_B_ZZ', 'ZZ_NAV_C_ZZ'];
+    await waitForMarkers(canvasElement, 3, NAV_MARKERS);
 
     // Cycle focus across every pane twice; all three markers must stay visible.
-    await recordStable(canvasElement, markers, 'navigate between panes', async () => {
+    await recordStable(canvasElement, NAV_MARKERS, 'navigate between panes', async () => {
       for (let round = 0; round < 2; round++) {
-        for (const id of ids) {
+        for (const id of ['%0', '%1', '%2']) {
           cmd(`select-pane -t ${id}`);
           await sleep(120);
         }
@@ -179,14 +164,12 @@ export const NavigateBetweenPanes: Story = {
 // ---------------------------------------------------------------------------
 
 export const SplitPreservesContent: Story = {
-  args: { height: 600 },
-  parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
+  args: { start: 'one', transitions: [{ match: /^split-window -h$/, to: 'split' }] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-    await parkMarker(canvasElement, activeId(), 'ZZ_SPLIT_KEEP_ZZ');
+    await waitForMarkers(canvasElement, 1, ['ZZ_A_ZZ']);
 
-    await recordStable(canvasElement, ['ZZ_SPLIT_KEEP_ZZ'], 'split', async () => {
+    await recordStable(canvasElement, ['ZZ_A_ZZ'], 'split', async () => {
       cmd('split-window -h');
       await waitForPaneCount(canvas, 2);
       await sleep(500); // let the layout settle / animations run
@@ -195,29 +178,30 @@ export const SplitPreservesContent: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Resize — dragging a divider must not blank either pane's content
+// Resize — moving a divider must not blank either pane's content
 // ---------------------------------------------------------------------------
 
-export const ResizePreservesContent: Story = {
-  args: { height: 600 },
-  parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-    const left = activeId();
-    await parkMarker(canvasElement, left, 'ZZ_RSZ_L_ZZ');
-    cmd('split-window -h');
-    await waitForPaneCount(canvas, 2);
-    const right = activeId();
-    await parkMarker(canvasElement, right, 'ZZ_RSZ_R_ZZ');
+/** Each 5-column step of the divider, from the state tmux was in when it came. */
+const LEFT = ['two', 'left-5', 'left-10', 'left-15', 'left-20'];
+const BACK = ['left-20', 'back-15', 'back-10', 'back-5', 'back-0'];
 
-    await recordStable(canvasElement, ['ZZ_RSZ_L_ZZ', 'ZZ_RSZ_R_ZZ'], 'resize', async () => {
+export const ResizePreservesContent: Story = {
+  args: {
+    transitions: [
+      ...LEFT.slice(1).map((to, i) => ({ match: /^resize-pane -t %1 -L 5$/, from: LEFT[i], to })),
+      ...BACK.slice(1).map((to, i) => ({ match: /^resize-pane -t %1 -R 5$/, from: BACK[i], to })),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    await waitForMarkers(canvasElement, 2, ['ZZ_A_ZZ', 'ZZ_B_ZZ']);
+
+    await recordStable(canvasElement, ['ZZ_A_ZZ', 'ZZ_B_ZZ'], 'resize', async () => {
       for (let i = 0; i < 4; i++) {
-        cmd(`resize-pane -t ${right} -L 5`);
+        cmd('resize-pane -t %1 -L 5');
         await sleep(120);
       }
       for (let i = 0; i < 4; i++) {
-        cmd(`resize-pane -t ${right} -R 5`);
+        cmd('resize-pane -t %1 -R 5');
         await sleep(120);
       }
     });
@@ -229,27 +213,25 @@ export const ResizePreservesContent: Story = {
 // ---------------------------------------------------------------------------
 
 export const ZoomPreservesContent: Story = {
-  args: { height: 600 },
-  parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
+  args: {
+    transitions: [
+      { match: /^resize-pane -t %1 -Z$/, from: 'two', to: 'zoomed' },
+      { match: /^resize-pane -t %1 -Z$/, from: 'zoomed', to: 'unzoomed' },
+    ],
+  },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-    await parkMarker(canvasElement, activeId(), 'ZZ_ZOOM_A_ZZ');
-    cmd('split-window -h');
-    await waitForPaneCount(canvas, 2);
-    const zoomed = activeId();
-    await parkMarker(canvasElement, zoomed, 'ZZ_ZOOM_B_ZZ');
+    await waitForMarkers(canvasElement, 2, ['ZZ_A_ZZ', 'ZZ_B_ZZ']);
 
     // Zoom the active pane: its own marker must never blink while it maximises.
-    await recordStable(canvasElement, ['ZZ_ZOOM_B_ZZ'], 'zoom in', async () => {
-      cmd(`resize-pane -t ${zoomed} -Z`);
+    await recordStable(canvasElement, ['ZZ_B_ZZ'], 'zoom in', async () => {
+      cmd('resize-pane -t %1 -Z');
       await sleep(600);
     });
     // Unzoom: both panes return; neither marker should flicker as the grid restores.
-    await recordStable(canvasElement, ['ZZ_ZOOM_A_ZZ', 'ZZ_ZOOM_B_ZZ'], 'unzoom', async () => {
-      cmd(`resize-pane -t ${zoomed} -Z`);
+    await recordStable(canvasElement, ['ZZ_A_ZZ', 'ZZ_B_ZZ'], 'unzoom', async () => {
+      cmd('resize-pane -t %1 -Z');
       await waitFor(
-        () => expect(getPaneLayout(canvasElement).textContent ?? '').toContain('ZZ_ZOOM_A_ZZ'),
+        () => expect(getPaneLayout(canvasElement).textContent ?? '').toContain('ZZ_A_ZZ'),
         { timeout: 8000 },
       );
       await sleep(400);
@@ -262,22 +244,15 @@ export const ZoomPreservesContent: Story = {
 // ---------------------------------------------------------------------------
 
 export const KillPreservesSurvivorContent: Story = {
-  args: { height: 600 },
-  parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
+  args: { transitions: [{ match: /^kill-pane -t %1$/, to: 'killed' }] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-    const survivor = activeId();
-    await parkMarker(canvasElement, survivor, 'ZZ_KILL_KEEP_ZZ');
-    cmd('split-window -h');
-    await waitForPaneCount(canvas, 2);
-    const victim = activeId();
-    await parkMarker(canvasElement, victim, 'ZZ_KILL_GONE_ZZ');
+    await waitForMarkers(canvasElement, 2, ['ZZ_A_ZZ', 'ZZ_B_ZZ']);
 
     // Track only the survivor's marker — the victim's disappearance is intended.
-    await recordStable(canvasElement, ['ZZ_KILL_KEEP_ZZ'], 'kill neighbour', async (_text, dom) => {
-      dom.expectGone([victim]); // the victim's content teardown is expected
-      cmd(`kill-pane -t ${victim}`);
+    await recordStable(canvasElement, ['ZZ_A_ZZ'], 'kill neighbour', async (_text, dom) => {
+      dom.expectGone(['%1']); // the victim's content teardown is expected
+      cmd('kill-pane -t %1');
       await waitForPaneCount(canvas, 1);
       await sleep(500);
     });
@@ -291,23 +266,20 @@ export const KillPreservesSurvivorContent: Story = {
 // ---------------------------------------------------------------------------
 
 export const MovePreservesContent: Story = {
-  args: { height: 600 },
-  parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
+  args: {
+    transitions: [
+      { match: /^swap-pane -s %0 -t %1$/, from: 'two', to: 'swapped' },
+      { match: /^swap-pane -s %0 -t %1$/, from: 'swapped', to: 'swapped-back' },
+    ],
+  },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-    const a = activeId();
-    await parkMarker(canvasElement, a, 'ZZ_MOVE_A_ZZ');
-    cmd('split-window -h');
-    await waitForPaneCount(canvas, 2);
-    const b = activeId();
-    await parkMarker(canvasElement, b, 'ZZ_MOVE_B_ZZ');
+    await waitForMarkers(canvasElement, 2, ['ZZ_A_ZZ', 'ZZ_B_ZZ']);
 
     // Swap the two panes back and forth; both markers must stay put through it.
-    await recordStable(canvasElement, ['ZZ_MOVE_A_ZZ', 'ZZ_MOVE_B_ZZ'], 'move (swap)', async () => {
-      cmd(`swap-pane -s ${a} -t ${b}`);
+    await recordStable(canvasElement, ['ZZ_A_ZZ', 'ZZ_B_ZZ'], 'move (swap)', async () => {
+      cmd('swap-pane -s %0 -t %1');
       await sleep(300);
-      cmd(`swap-pane -s ${a} -t ${b}`);
+      cmd('swap-pane -s %0 -t %1');
       await sleep(300);
     });
   },

@@ -6,14 +6,6 @@ export interface Snap {
   };
 }
 
-export const THREE_TABS = [
-  'rename-window alpha',
-  'new-window',
-  'rename-window bravo',
-  'new-window',
-  'rename-window charlie',
-];
-
 export function tabButton(canvasElement: HTMLElement, name: string): HTMLElement {
   const el = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')].find(
     (t) => t.textContent?.includes(name),

@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor } from 'storybook/test';
 import { TmuxStatusBar } from './TmuxStatusBar';
-import { ProviderHarness } from '../stories/StoryHarness';
+import { FixtureProvider } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import panes from '../stories/fixtures/gen/panes.json';
+
+const PANES = asFixture(panes);
 
 const meta: Meta<typeof TmuxStatusBar> = {
   title: 'Components/TmuxStatusBar',
@@ -13,9 +17,9 @@ type Story = StoryObj<typeof TmuxStatusBar>;
 
 export const Default: Story = {
   render: () => (
-    <ProviderHarness height={60}>
+    <FixtureProvider height={60} fixture={PANES} start="one">
       <TmuxStatusBar />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -29,9 +33,9 @@ export const Default: Story = {
 
 export const Demo: Story = {
   render: () => (
-    <ProviderHarness height={60} config={{ isDemo: true }}>
+    <FixtureProvider height={60} fixture={PANES} start="one" config={{ isDemo: true }}>
       <TmuxStatusBar />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   parameters: {
     docs: {
@@ -69,9 +73,9 @@ const barBox = (canvasElement: HTMLElement) => {
  */
 export const SameHeightInEveryMode: Story = {
   render: () => (
-    <ProviderHarness height={60}>
+    <FixtureProvider height={60} fixture={PANES} start="one">
       <TmuxStatusBar />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

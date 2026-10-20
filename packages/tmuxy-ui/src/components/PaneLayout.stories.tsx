@@ -1,5 +1,5 @@
 /**
- * PaneLayout stories (demo engine).
+ * PaneLayout stories, over recordings of real tmux.
  *
  * The active tiled pane carries a 1px outline in the theme's focus colour —
  * the classic tmux green on the default and gruvbox themes. Green means "the
@@ -9,15 +9,18 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
-import { AppHarness } from '../stories/StoryHarness';
+import { FixtureApp } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import panes from '../stories/fixtures/gen/panes.json';
+import paneFocus from '../stories/fixtures/gen/pane-focus-tree.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Pane Layout',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 interface AppActor {
   send(event: { type: string; name?: string; mode?: string }): void;
@@ -31,7 +34,14 @@ const activeOutline = () => {
 };
 
 export const ActivePaneOutlineDefaultAndGruvbox: Story = {
-  args: { height: 500, initCommands: ['split-window -h'] },
+  args: {
+    fixture: asFixture(paneFocus),
+    start: 'right-active',
+    transitions: [
+      { match: /^select-pane -t %0$/, to: 'left-active' },
+      { match: /^split-window\b.*'tmuxy widget tree'/, to: 'tree-open' },
+    ],
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane %1/i }, { timeout: 8000 });
@@ -124,7 +134,7 @@ const headers = () => {
  */
 export const PaneHeaderGrayAndGruvboxAccent: Story = {
   tags: ['nightly'],
-  args: { height: 500, initCommands: ['split-window -h'] },
+  args: { fixture: asFixture(panes), start: 'side-by-side' },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane %1/i }, { timeout: 8000 });

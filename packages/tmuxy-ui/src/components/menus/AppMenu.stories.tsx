@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { AppMenu } from './AppMenu';
-import { ProviderHarness } from '../../stories/StoryHarness';
+import { FixtureProvider } from '../../stories/FixtureHarness';
+import { asFixture } from '../../stories/fixtures/FixtureAdapter';
+import panes from '../../stories/fixtures/gen/panes.json';
+
+const PANES = asFixture(panes);
 
 const meta: Meta<typeof AppMenu> = {
   title: 'Components/AppMenu',
@@ -11,35 +15,15 @@ const meta: Meta<typeof AppMenu> = {
 export default meta;
 type Story = StoryObj<typeof AppMenu>;
 
-export const OpenMenu: Story = {
-  render: () => (
-    <ProviderHarness height={400}>
-      <AppMenu />
-    </ProviderHarness>
-  ),
-  play: async ({ canvasElement }) => {
-    // The button is in the story; the menu is a floating surface portalled out
-    // of it (components/floating), so its items are queried on the document.
-    const canvas = within(canvasElement);
-    const menu = within(document.body);
-    await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
-
-    // All top-level submenus render.
-    for (const label of ['Pane', 'Tab', 'Session', 'View', 'Debug']) {
-      expect(menu.getByRole('menuitem', { name: label })).toBeInTheDocument();
-    }
-  },
-};
-
 /**
  * Kill Session is one click from ending every pane: the item asks first, and
  * Cancel leaves the session alone.
  */
 export const KillSessionAsksFirst: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <AppMenu />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -60,9 +44,9 @@ export const KillSessionAsksFirst: Story = {
 
 export const TabSubmenuKeybindings: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <AppMenu />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     // The button is in the story; the menu is a floating surface portalled out
@@ -70,10 +54,17 @@ export const TabSubmenuKeybindings: Story = {
     const canvas = within(canvasElement);
     const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
+
+    // Every top-level submenu is there.
+    for (const label of ['Pane', 'Tab', 'Session', 'View', 'Debug']) {
+      expect(menu.getByRole('menuitem', { name: label })).toBeInTheDocument();
+    }
     await userEvent.click(menu.getByRole('menuitem', { name: 'Tab' }));
 
-    // Keybinding labels come from the bindings the adapter pushes on connect
-    // (prefix C-a, `c` = new-window), not from hardcoded strings.
+    // Keybinding labels come from the bindings tmux reported on connect, not
+    // from hardcoded strings: the recorded config's `c` opens the new tab in
+    // the pane's directory (`new-window -c "#{pane_current_path}"`), and is
+    // still New Tab.
     const newTab = await waitFor(() => menu.getByRole('menuitem', { name: /new tab/i }));
     const keyLabel = newTab.querySelector('.menu-keybinding');
     expect(keyLabel).not.toBeNull();
@@ -89,9 +80,9 @@ export const TabSubmenuKeybindings: Story = {
 
 export const ThemeSubmenu: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <AppMenu />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     // The button is in the story; the menu is a floating surface portalled out
@@ -138,9 +129,9 @@ export const ThemeSubmenu: Story = {
  */
 export const DebugTraceControls: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <AppMenu />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     // The button is in the story; the menu is a floating surface portalled out

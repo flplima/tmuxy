@@ -1,5 +1,5 @@
 /**
- * Renaming a tab or a pane where it is (demo engine).
+ * Renaming a tab or a pane where it is, over states recorded from real tmux.
  *
  * Both used to hand you tmux's command prompt at the bottom of the window,
  * which asks you to type a new name a long way from the thing being named.
@@ -12,11 +12,14 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import renameTab from './fixtures/gen/rename-tab.json';
+import renamePane from './fixtures/gen/rename-pane.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Inline Rename',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -28,20 +31,7 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
-
-interface Snap {
-  context: {
-    windows: Array<{ id: string; name: string; windowType: string | null }>;
-    panes: Array<{ tmuxId: string; title: string }>;
-  };
-}
-
-function app(): Snap {
-  const a = (window as unknown as { app?: { getSnapshot(): Snap } }).app;
-  if (!a) throw new Error('window.app actor is not available — AppHarness not mounted?');
-  return a.getSnapshot();
-}
+type Story = StoryObj<typeof FixtureApp>;
 
 function field(): HTMLInputElement | null {
   return document.querySelector<HTMLInputElement>('[data-testid="inline-rename"]');
@@ -54,34 +44,50 @@ async function menuAction(el: HTMLElement, label: RegExp): Promise<void> {
   await userEvent.click(await body.findByRole('menuitem', { name: label }));
 }
 
+function tabLabels(canvasElement: HTMLElement): HTMLElement[] {
+  return [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')];
+}
+
+/** The names the tab strip shows, each in a label with a box the user can see. */
+function shownTabNames(canvasElement: HTMLElement): string[] {
+  return [...canvasElement.querySelectorAll<HTMLElement>('.tab-name-label')]
+    .filter((t) => {
+      const box = t.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    })
+    .map((t) => t.textContent?.trim() ?? '');
+}
+
 // ---------------------------------------------------------------------------
-// A tab, renamed in its own button
+// A tab, renamed in its own button — Enter commits, Escape leaves it alone
 // ---------------------------------------------------------------------------
 
 export const RenameATabInItsButton: Story = {
   args: {
-    height: 460,
-    initCommands: ['rename-window alpha', 'new-window', 'rename-window bravo'],
+    fixture: asFixture(renameTab),
+    start: 'alpha-bravo',
+    transitions: [
+      { match: /^rename-window -t @0 -- 'charlie'$/, to: 'charlie-bravo' },
+      // What tmux would show had Escape committed the edit, so a commit on
+      // Escape is on screen rather than lost on a replay.
+      { match: /^rename-window -t @1 -- 'nonsense'$/, to: 'charlie-nonsense' },
+    ],
   },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'Rename Tab in the tab’s own context menu turns that tab’s label into a field, sitting where the label was, with the current name selected. Enter commits it and the strip shows the new name; Escape leaves the old one alone.',
+          'Rename Tab in the tab’s own context menu turns that tab’s label into a field, sitting where the label was, with the current name selected. Enter commits it — `rename-window -t @0`, the tab that was clicked, not the active one — and the strip shows the new name. Escape abandons the next edit: the field goes and the tab keeps the name it had, whatever was typed into it.',
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
-    await waitFor(() =>
-      expect(canvasElement.querySelectorAll('.tab-name[data-window-id]').length).toBe(2),
-    );
+    await waitFor(() => expect(tabLabels(canvasElement).length).toBe(2));
 
-    const tab = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')].find(
-      (t) => t.textContent?.includes('alpha'),
-    )!;
+    const tab = tabLabels(canvasElement).find((t) => t.textContent?.includes('alpha'))!;
     const before = tab.getBoundingClientRect();
 
     await menuAction(tab, /rename tab/i);
@@ -102,51 +108,21 @@ export const RenameATabInItsButton: Story = {
 
     await userEvent.keyboard('charlie{Enter}');
     await waitFor(() => {
-      const names = app()
-        .context.windows.filter((w) => w.windowType === 'tab')
-        .map((w) => w.name);
+      const names = shownTabNames(canvasElement);
       expect(names).toContain('charlie');
       expect(names).not.toContain('alpha');
     });
     expect(field()).toBeNull();
-  },
-};
 
-// ---------------------------------------------------------------------------
-// Escape puts the old name back
-// ---------------------------------------------------------------------------
-
-export const EscapeLeavesTheNameAlone: Story = {
-  args: { height: 460, initCommands: ['rename-window alpha', 'new-window', 'rename-window bravo'] },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 460 },
-      description: {
-        story:
-          'Escape abandons the edit: the field goes and the tab keeps the name it had, whatever was typed into it.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
-    await waitFor(() =>
-      expect(canvasElement.querySelectorAll('.tab-name[data-window-id]').length).toBe(2),
-    );
-
-    const tab = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')].find(
-      (t) => t.textContent?.includes('bravo'),
-    )!;
-    await menuAction(tab, /rename tab/i);
+    // Escape: the field goes, and the name stays what it was.
+    const bravo = tabLabels(canvasElement).find((t) => t.textContent?.includes('bravo'))!;
+    await menuAction(bravo, /rename tab/i);
     await waitFor(() => expect(field()).not.toBeNull());
-
     await userEvent.keyboard('nonsense{Escape}');
     await waitFor(() => expect(field()).toBeNull());
-    expect(
-      app()
-        .context.windows.filter((w) => w.windowType === 'tab')
-        .map((w) => w.name),
-    ).toContain('bravo');
+    // Long enough for a committed rename to come back from tmux.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(shownTabNames(canvasElement)).toEqual(expect.arrayContaining(['charlie', 'bravo']));
   },
 };
 
@@ -155,10 +131,14 @@ export const EscapeLeavesTheNameAlone: Story = {
 // ---------------------------------------------------------------------------
 
 export const RenameAPaneOnItsTitle: Story = {
-  args: { height: 460, initCommands: ['split-window -h'] },
+  args: {
+    fixture: asFixture(renamePane),
+    start: 'two',
+    transitions: [{ match: /^select-pane -t %0 -T 'build watch'$/, to: 'titled' }],
+  },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'The pane context menu has Rename Pane, and it edits the title in the pane’s own header rather than anywhere else. Enter sends the new title to tmux, and the header shows it.',
@@ -171,8 +151,10 @@ export const RenameAPaneOnItsTitle: Story = {
       timeout: 8000,
     });
 
-    const tab = canvasElement.querySelector<HTMLElement>('.pane-tab')!;
-    await menuAction(tab, /rename pane/i);
+    const header = canvasElement.querySelector<HTMLElement>(
+      '.pane-layout-item[data-pane-id="%0"] .pane-tab',
+    )!;
+    await menuAction(header, /rename pane/i);
 
     const input = await waitFor(() => {
       const el = field();
@@ -180,15 +162,16 @@ export const RenameAPaneOnItsTitle: Story = {
       return el!;
     });
     // In the pane's own header, where the title is.
-    expect(tab.contains(input)).toBe(true);
+    expect(header.contains(input)).toBe(true);
     expect(input.value.length).toBeGreaterThan(0);
 
     await userEvent.keyboard('build watch{Enter}');
     await waitFor(() => {
-      expect(app().context.panes.some((p) => p.title === 'build watch')).toBe(true);
+      const title = canvasElement.querySelector<HTMLElement>(
+        '.pane-layout-item[data-pane-id="%0"] .pane-tab-title',
+      );
+      expect(title?.textContent).toContain('build watch');
+      expect(title!.getBoundingClientRect().width).toBeGreaterThan(0);
     });
-    await waitFor(() =>
-      expect(canvasElement.querySelector('.pane-tab-title')?.textContent).toContain('build watch'),
-    );
   },
 };

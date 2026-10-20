@@ -157,5 +157,3 @@ export const APPEARANCE = {
 export async function ready(canvasElement: HTMLElement) {
   await within(canvasElement).findAllByRole('group', { name: /Pane/i }, { timeout: 8000 });
 }
-
-export const TWO_TABS = ['rename-window main', 'new-window', 'rename-window logs'];

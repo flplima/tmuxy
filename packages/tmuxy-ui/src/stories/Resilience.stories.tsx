@@ -1,44 +1,51 @@
 /**
  * Resilience stories — verify the UI behaves well under hostile timing /
- * error conditions in the tmux actor:
+ * error conditions in the tmux actor, over states recorded from real tmux:
  *
- * - SlowSplit: backend takes 300ms to ack a `split-window`. The optimistic
- *   patch must show the new pane immediately and the count must stay stable
- *   throughout — i.e. no flicker back to one pane while we wait.
- * - SlowTabCreate: same shape for `new-window`. Verifies SELECT_TAB-class
- *   optimistic flows don't blink during slow ack.
- * - SplitRejected: backend rejects `split-window` with stderr. The optimistic
- *   patch must roll back and the pane count return to the pre-click value.
- * - TabCreateRejected: same shape for `new-window`. The optimistic tab must
+ * - SlowTabCreate: backend takes 250ms to ack a `new-window`. The optimistic
+ *   tab must appear at once and not blink while we wait.
+ * - TabCreateRejected: backend rejects `new-window`. The optimistic tab must
  *   disappear and the active tab fall back to a real one.
- * - SteadyStreamNoBlink: simulates a Gemini-CLI-style clear+redraw burst
- *   (sequential `write-widget` updates) and asserts no transient empty
- *   pane is rendered between updates.
- * - ClipboardOSC52: drives the DemoAdapter's `emitClipboard` helper and
- *   verifies the appMachine forwarded the payload via the test escape hatch.
+ * - SlowKillPane / KillPaneRejected: the same two shapes for `kill-pane`.
+ * - SlowAckKeepsPlaceholder: a split acked after the quick stale timeout
+ *   keeps its placeholder through a server snapshot, then morphs into the
+ *   real pane.
+ *
+ * The slow and rejected split are Scenarios/Animations › SlowSplitOptimistic
+ * and SplitRejectedRollback.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
-import type { DemoAdapter } from '../infra/transport/drivers/demo/DemoAdapter';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture, type FixtureAdapter } from './fixtures/FixtureAdapter';
+import panes from './fixtures/gen/panes.json';
+import oneTabThenTwo from './fixtures/gen/one-tab-then-two.json';
 import { PaneId } from '../domain/ids';
 
-const meta: Meta<typeof AppHarness> = {
+/** A new tab answered with the two tabs tmux drew, the new one current. */
+const NEW_TAB = [{ match: /^new-window\b/, to: 'two-tabs' }];
+/** A kill answered with the one pane left. */
+const KILL = [{ match: /^kill-pane\b/, to: 'one' }];
+/** A split answered with the two panes tmux drew. */
+const SPLIT = [{ match: /^split-window\b/, to: 'side-by-side' }];
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Resilience',
-  component: AppHarness,
+  component: FixtureApp,
+  args: { fixture: asFixture(oneTabThenTwo), start: 'one-tab', transitions: NEW_TAB },
   parameters: {
     layout: 'fullscreen',
     docs: {
       description: {
         component:
-          'Stories that stress the optimistic-update path: slow tmux responses (the optimistic patch must stay visible) and rejected commands (the patch must roll back). Also covers OSC 52 clipboard plumbing and the anti-blink coalescing for full-screen redraws.',
+          'Stories that stress the optimistic-update path over a recording of real tmux: slow tmux responses (the optimistic patch must stay visible) and rejected commands (the patch must roll back).',
       },
     },
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -46,60 +53,8 @@ const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 // Slow tmux responses — optimistic UI must remain stable while we wait
 // ---------------------------------------------------------------------------
 
-export const SlowSplit: Story = {
-  args: { height: 600, commandDelayMs: 300 },
-  parameters: {
-    docs: {
-      story: {
-        inline: false,
-        iframeHeight: 600,
-      },
-      description: {
-        story:
-          'split-window takes 300ms to ack. The optimistic patch must show the new pane immediately (via the TmuxStore predict() path) and the count must stay at 2 throughout, never blinking back to 1.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const win = window as unknown as { app?: { send: (e: unknown) => void } };
-
-    await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
-    const before = canvas.getAllByRole('group', { name: /^Pane /i }).length;
-    expect(before).toBe(1);
-
-    // SEND_TMUX_COMMAND routes through TmuxStore.dispatch (optimistic predict
-    // → command → reconcile), so the pane shows before the delayed ack.
-    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
-
-    // Optimistic patch should bring us to 2 panes within one rAF.
-    await waitFor(
-      () => {
-        const panes = canvas.getAllByRole('group', { name: /^Pane /i });
-        expect(panes.length).toBe(2);
-      },
-      { timeout: 200 },
-    );
-
-    // Sample the count repeatedly while the backend is still processing the
-    // 300ms-delayed command. If the optimistic patch ever flickers back, we
-    // catch it here.
-    for (let i = 0; i < 6; i++) {
-      const panes = canvas.getAllByRole('group', { name: /^Pane /i });
-      expect(panes.length).toBe(2);
-      await wait(40);
-    }
-
-    // After the backend acks, the count must still be 2 (now from the server
-    // snapshot, not the optimistic patch).
-    await wait(250);
-    const after = canvas.getAllByRole('group', { name: /^Pane /i }).length;
-    expect(after).toBe(2);
-  },
-};
-
 export const SlowTabCreate: Story = {
-  args: { height: 600, commandDelayMs: 250 },
+  args: { commandDelayMs: 250 },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 600 },
@@ -145,59 +100,10 @@ export const SlowTabCreate: Story = {
 // Error responses — optimistic UI must roll back cleanly
 // ---------------------------------------------------------------------------
 
-export const SplitRejected: Story = {
-  args: {
-    height: 600,
-    commandDelayMs: 60,
-    failCommand: (cmd) => (cmd.startsWith('split-window') ? "can't split pane: no space" : false),
-  },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 600 },
-      description: {
-        story:
-          'Backend rejects split-window with "no space". The optimistic patch flashes briefly then rolls back. After the ack, the pane count must return to its pre-click value.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const win = window as unknown as { app?: { send: (e: unknown) => void } };
-
-    await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
-    const before = canvas.getAllByRole('group', { name: /^Pane /i }).length;
-    expect(before).toBe(1);
-
-    // SEND_TMUX_COMMAND goes through the store so the optimistic patch lands
-    // synchronously and the rejection can later roll it back via reconcile.
-    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
-
-    // Optimistic patch is applied first.
-    await waitFor(
-      () => {
-        const panes = canvas.getAllByRole('group', { name: /^Pane /i });
-        expect(panes.length).toBe(2);
-      },
-      { timeout: 200 },
-    );
-
-    // Then rolled back after the rejection arrives.
-    await waitFor(
-      () => {
-        const panes = canvas.getAllByRole('group', { name: /^Pane /i });
-        expect(panes.length).toBe(1);
-      },
-      { timeout: 1000 },
-    );
-  },
-};
-
 export const TabCreateRejected: Story = {
   args: {
-    height: 600,
     commandDelayMs: 60,
-    failCommand: (cmd) =>
-      cmd.startsWith('new-window') || cmd.includes('splitw') ? 'session limit reached' : false,
+    failCommand: (cmd) => (cmd.startsWith('new-window') ? 'session limit reached' : false),
   },
   parameters: {
     docs: {
@@ -252,7 +158,12 @@ export const TabCreateRejected: Story = {
 // ---------------------------------------------------------------------------
 
 export const SlowKillPane: Story = {
-  args: { height: 600, commandDelayMs: 800, initCommands: ['split-window -h'] },
+  args: {
+    fixture: asFixture(panes),
+    start: 'side-by-side',
+    transitions: KILL,
+    commandDelayMs: 800,
+  },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 600 },
@@ -284,9 +195,10 @@ export const SlowKillPane: Story = {
 
 export const KillPaneRejected: Story = {
   args: {
-    height: 600,
+    fixture: asFixture(panes),
+    start: 'side-by-side',
+    transitions: KILL,
     commandDelayMs: 60,
-    initCommands: ['split-window -h'],
     failCommand: (cmd) => (cmd.startsWith('kill-pane') ? "can't kill pane: busy" : false),
   },
   parameters: {
@@ -333,9 +245,9 @@ export const KillPaneRejected: Story = {
 // blink away; the placeholder persists and morphs when the ack lands
 // ---------------------------------------------------------------------------
 
-export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?: number }> = {
+export const SlowAckKeepsPlaceholder: Story = {
   tags: ['nightly'],
-  args: { height: 600, commandDelayMs: 3000 },
+  args: { fixture: asFixture(panes), start: 'one', transitions: SPLIT, commandDelayMs: 3000 },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 600 },
@@ -346,10 +258,10 @@ export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?
     },
   },
   render: (args) => (
-    <AppHarness
+    <FixtureApp
       {...args}
       onAdapterReady={(adapter) => {
-        (window as unknown as { __staleAdapter?: DemoAdapter }).__staleAdapter = adapter;
+        (window as unknown as { __staleAdapter?: FixtureAdapter }).__staleAdapter = adapter;
       }}
     />
   ),
@@ -357,7 +269,7 @@ export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?
     const canvas = within(canvasElement);
     const win = window as unknown as {
       app?: { send: (e: unknown) => void; getSnapshot(): { context: { activePaneId: PaneId } } };
-      __staleAdapter?: DemoAdapter;
+      __staleAdapter?: FixtureAdapter;
     };
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
     expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(1);
@@ -389,8 +301,3 @@ export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?
     );
   },
 };
-
-interface ClipboardArgs {
-  height?: number;
-  initCommands?: string[];
-}

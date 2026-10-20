@@ -1,5 +1,6 @@
 /**
- * The picture of a tab that appears when you rest on its button (demo engine).
+ * The picture of a tab that appears when you rest on its button, over a
+ * recording of real tmux: three tabs, `alpha`, `bravo` and `charlie` (current).
  *
  * Chrome-style, and for the same reason: a strip of names does not tell you
  * which tab has the thing you are after, and switching to find out costs you
@@ -15,22 +16,30 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import threeTabs from './fixtures/gen/three-tabs.json';
 import {
   animationNames,
   preview,
   runningAnimation,
   type Snap,
   tabButton,
-  THREE_TABS,
   waitForCardLeaving,
   waitForPreview,
   waitForPreviewInserted,
 } from './tabPreviewHelpers';
 
-const meta: Meta<typeof AppHarness> = {
+/** Switching to `alpha`, and closing `bravo`, answered as tmux answered them. */
+const TRANSITIONS = [
+  { match: /^select-window -t @0$/, to: 'alpha-active' },
+  { match: /^kill-window -t @1$/, to: 'bravo-killed' },
+];
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Tab Preview',
-  component: AppHarness,
+  component: FixtureApp,
+  args: { fixture: asFixture(threeTabs), start: 'charlie-active', transitions: TRANSITIONS },
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -42,17 +51,16 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 // ---------------------------------------------------------------------------
 // Resting opens it; moving along the strip carries the same card
 // ---------------------------------------------------------------------------
 
 export const RestOpensItAndBrowsingCarriesIt: Story = {
-  args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'Resting on a tab opens a card under it with that tab’s panes drawn to scale. Moving to the next tab does not open a second card: the same node moves, its picture swaps to the new tab, and it does so at once rather than waiting the second again. Node identity is asserted directly, and the card is checked to be on screen and roughly under the button it belongs to.',
@@ -131,10 +139,9 @@ export const RestOpensItAndBrowsingCarriesIt: Story = {
 // ---------------------------------------------------------------------------
 
 export const LeavingTheStripEndsIt: Story = {
-  args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'The card follows the pointer only within the strip. Moving off it puts the card away, and pressing a tab puts it away too — an action on a tab should not be watched through a picture of it.',
@@ -171,10 +178,9 @@ export const LeavingTheStripEndsIt: Story = {
 // ---------------------------------------------------------------------------
 
 export const TheCardCanBeReachedAndClosesTheTab: Story = {
-  args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'Moving onto the card does not dismiss it — reaching for a control must not be what takes it away — and the ✕ in its corner closes the tab it is showing. The card sits below the strip, so the pointer has a gap to cross on the way; a short grace period covers the crossing.',
@@ -235,10 +241,9 @@ export const TheCardCanBeReachedAndClosesTheTab: Story = {
 
 export const ItFadesAndSlidesBothWays: Story = {
   tags: ['nightly'],
-  args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'The card fades in with a short slide down from the strip it belongs to, and leaves the same way rather than blinking out — the card is caught as it enters the DOM and as it starts to leave, and the animation it carries at each moment must be the declared one and must play through, so one that never runs would fail. With `@tmuxy-animations off` it simply appears and simply goes.',
@@ -284,10 +289,9 @@ export const ItFadesAndSlidesBothWays: Story = {
 // ---------------------------------------------------------------------------
 
 export const ClickingTheCardOpensThatTab: Story = {
-  args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'The card is the tab’s button drawn larger, so it does what that button does: clicking it switches to that tab and puts the card away. Anything else would make you aim back at a strip of small targets to act on the thing you are already looking at. Its ✕ is the one part that means something else.',
@@ -323,10 +327,9 @@ export const ClickingTheCardOpensThatTab: Story = {
 
 export const RightClickTurnsThePreviewIntoTheMenu: Story = {
   tags: ['nightly'],
-  args: { height: 460, initCommands: THREE_TABS },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 460 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'Right-clicking a tab you are already looking at turns its preview INTO its menu. The two are surfaces about the same tab, so only one may be up: drawn together, the menu covered the picture it was opened from and left a card underneath that nothing could reach. The card goes in the same commit the menu arrives in, and the menu opens from the box the card occupied — one object changing shape rather than a disappearance beside an appearance (components/floating).',

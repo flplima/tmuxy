@@ -1,27 +1,37 @@
 /**
- * SessionMenu stories (demo engine).
+ * SessionMenu stories, over a recording of real tmux: two panes, and the tree
+ * column tmux opened beside them when the toggle asked for it.
  *
  * The switcher is a dropdown hanging off the control that opened it, not a
  * float running a widget in a real tmux pane. These drive it the way a user
  * does — click the chevron beside the session name, read the list, pick one —
  * and assert the menu is really on screen rather than merely mounted.
  *
- * The demo engine serves one session, so what is asserted here is the shape of
- * the menu and the fact that it hangs off its button. Which sessions it lists
- * comes from the `serversActor` poll, whose parsing has its own unit tests.
+ * The recording is of one session, `demo`, so what is asserted here is the
+ * shape of the menu and the fact that it hangs off its button. Which sessions
+ * it lists comes from the `serversActor` poll, whose parsing has its own unit
+ * tests.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
-import { AppHarness } from '../stories/StoryHarness';
+import { FixtureApp } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import tree from '../stories/fixtures/gen/tree.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/SessionMenu',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
+  args: {
+    fixture: asFixture(tree),
+    start: 'closed',
+    // The toggle opens the column; tmux's answer is the tree beside the panes.
+    transitions: [{ match: /^split-window\b.*'tmuxy widget tree'/, to: 'open' }],
+  },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 /** The menu, once it is on screen with a real box (it portals to the body). */
 async function waitForMenu(): Promise<HTMLElement> {
@@ -38,7 +48,6 @@ async function waitForMenu(): Promise<HTMLElement> {
 }
 
 export const TheSwitcherIsADropdown: Story = {
-  args: {},
   parameters: {
     docs: {
       description: {
@@ -99,7 +108,6 @@ export const TheSwitcherIsADropdown: Story = {
 // ---------------------------------------------------------------------------
 
 export const ConnectingOverSshIsDesktopOnly: Story = {
-  args: {},
   parameters: {
     docs: {
       description: {
@@ -136,7 +144,7 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
     });
 
     // What `isTauri()` reads (utils/platform.ts). The harness builds its own
-    // demo adapter, so flipping this after mount changes only what the menu
+    // fixture adapter, so flipping this after mount changes only what the menu
     // decides to draw.
     const tauriWindow = window as unknown as Record<string, unknown>;
     tauriWindow.__TAURI_INTERNALS__ = {};

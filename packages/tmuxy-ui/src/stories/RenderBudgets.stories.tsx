@@ -17,7 +17,11 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import typingThreePanes from './fixtures/gen/typing-three-panes.json';
+import lsListing from './fixtures/gen/ls-listing.json';
+import oneTabThenTwo from './fixtures/gen/one-tab-then-two.json';
 import {
   enableRenderLog,
   renderLogMark,
@@ -25,9 +29,16 @@ import {
   renderCountsById,
 } from '../utils/renderLogStore';
 
-const meta: Meta<typeof AppHarness> = {
+/** Enter, answered with what the line typed before it printed. */
+const enterShows = (state: string) => [{ match: /^send-keys -t %0 Enter$/, to: state }];
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/RenderBudgets',
-  component: AppHarness,
+  component: FixtureApp,
+  render: (args) => {
+    enableRenderLog();
+    return <FixtureApp {...args} />;
+  },
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -39,11 +50,11 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** Wait for the demo boot + welcome banner to stop producing commits. */
+/** Wait for the boot to stop producing commits. */
 async function waitForQuiescence(idPrefix = 'Pane:'): Promise<void> {
   await waitFor(
     async () => {
@@ -62,10 +73,11 @@ async function waitForQuiescence(idPrefix = 'Pane:'): Promise<void> {
  */
 export const TypingIsolation: Story = {
   tags: ['nightly'],
-  args: { height: 600, initCommands: ['split-window -h', 'split-window -v'] },
-  render: (args) => {
-    enableRenderLog();
-    return <AppHarness {...args} />;
+  args: {
+    fixture: asFixture(typingThreePanes),
+    start: 'three-panes',
+    // Each keystroke answered with the line typed out on the prompt.
+    transitions: [{ match: /^send-keys -t %0 -l /, to: 'typed' }],
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -76,9 +88,9 @@ export const TypingIsolation: Story = {
     // The log must be LIVE (dev React) — boot always commits panes.
     expect(renderCountSince(0, 'Pane:')).toBeGreaterThan(0);
 
-    // Focus a specific pane and let the boot/banner traffic settle.
+    // Focus the pane the recording types into and let the boot traffic settle.
     const panes = canvas.getAllByRole('group', { name: /^Pane /i });
-    await user.click(panes[0]);
+    await user.click(panes.find((p) => p.getAttribute('data-pane-id') === '%0')!);
     const activeId = (
       window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
     ).app.getSnapshot().context.activePaneId;
@@ -113,11 +125,7 @@ export const TypingIsolation: Story = {
  */
 export const OutputBurstLineMemo: Story = {
   tags: ['nightly'],
-  args: { height: 600 },
-  render: (args) => {
-    enableRenderLog();
-    return <AppHarness {...args} />;
-  },
+  args: { fixture: asFixture(lsListing), start: 'prompt', transitions: enterShows('listed') },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -126,7 +134,7 @@ export const OutputBurstLineMemo: Story = {
     await user.click(canvas.getAllByRole('group', { name: /^Pane /i })[0]);
     await waitForQuiescence();
 
-    // `ls` prints a handful of lines in the demo shell.
+    // `ls` lists the home's handful of files.
     const mark = renderLogMark();
     await user.keyboard('ls{Enter}');
     await waitFor(() => expect(renderCountSince(mark, 'TerminalLine')).toBeGreaterThan(0), {
@@ -148,10 +156,13 @@ export const OutputBurstLineMemo: Story = {
  */
 export const TabSwitchCommitBudget: Story = {
   tags: ['nightly'],
-  args: { height: 600 },
-  render: (args) => {
-    enableRenderLog();
-    return <AppHarness {...args} />;
+  args: {
+    fixture: asFixture(oneTabThenTwo),
+    start: 'one-tab',
+    transitions: [
+      { match: /^new-window\b/, to: 'two-tabs' },
+      { match: /^select-window -t @0$/, to: 'first-active' },
+    ],
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -185,11 +196,8 @@ export const TabSwitchCommitBudget: Story = {
  */
 export const IdleRedrawBudget: Story = {
   tags: ['nightly'],
-  args: { height: 600 },
-  render: (args) => {
-    enableRenderLog();
-    return <AppHarness {...args} />;
-  },
+  // The listing on screen, as the symbols print under it.
+  args: { fixture: asFixture(lsListing), start: 'listed', transitions: enterShows('symbols') },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();

@@ -1,17 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, fireEvent } from 'storybook/test';
 import { ResizeDividers } from './ResizeDividers';
-import { ProviderHarness } from '../stories/StoryHarness';
+import { FixtureProvider } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import panes from '../stories/fixtures/gen/panes.json';
 import { useAppSelector } from '../machines/appHooks';
 import { selectActivePaneTree, selectVisiblePanes } from '../machines/selectors/panesAndSidebars';
 
 const CHAR_W = 8;
 const CHAR_H = 16;
+const PANES = asFixture(panes);
 
 /**
- * Feeds the live pane geometry from the demo engine into ResizeDividers, the
- * same way PaneLayout does in the app — so divider positions come from real
- * layout data instead of hand-built pane literals that drift from the type.
+ * Feeds the pane geometry tmux recorded into ResizeDividers, the same way
+ * PaneLayout does in the app — so divider positions come from real layout
+ * data instead of hand-built pane literals that drift from the type.
  */
 function LiveDividers() {
   const panes = useAppSelector(selectVisiblePanes);
@@ -39,9 +42,9 @@ type Story = StoryObj<typeof ResizeDividers>;
 
 export const VerticalDivider: Story = {
   render: () => (
-    <ProviderHarness height={420} initCommands={['split-window -h']}>
+    <FixtureProvider height={420} fixture={PANES} start="side-by-side">
       <LiveDividers />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const divider = await waitFor(
@@ -65,9 +68,9 @@ export const VerticalDivider: Story = {
 
 export const MixedOrientations: Story = {
   render: () => (
-    <ProviderHarness height={420} initCommands={['split-window -h', 'split-window -v']}>
+    <FixtureProvider height={420} fixture={PANES} start="three">
       <LiveDividers />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     // Three panes (left + right split into top/bottom) produce N-1 = 2
@@ -86,10 +89,9 @@ export const MixedOrientations: Story = {
 
 /**
  * A fully collapsed stack: every row down to the single line a collapsed pane
- * draws. The demo engine clamps its splits well above that, so the geometry is
- * derived from the live panes and squashed — the layout is a real one (it is
- * what stacked panes look like with the focus on another row), just not one
- * the demo can reach on its own.
+ * draws. The geometry is the recorded panes squashed — the layout is a real
+ * one (it is what stacked panes look like with the focus on another row),
+ * just not one the recording holds.
  */
 function CollapsedStackDividers() {
   const panes = useAppSelector(selectVisiblePanes);
@@ -109,9 +111,9 @@ function CollapsedStackDividers() {
 
 export const PinnedDividerRefusesTheDrag: Story = {
   render: () => (
-    <ProviderHarness height={420} initCommands={['split-window -v', 'split-window -v']}>
+    <FixtureProvider height={420} fixture={PANES} start="three">
       <CollapsedStackDividers />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   parameters: {
     docs: {

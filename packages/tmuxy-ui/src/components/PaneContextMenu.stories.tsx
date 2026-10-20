@@ -2,7 +2,9 @@ import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { PaneContextMenu } from './PaneContextMenu';
-import { ProviderHarness } from '../stories/StoryHarness';
+import { FixtureProvider } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import panes from '../stories/fixtures/gen/panes.json';
 import { PaneId } from '../domain/ids';
 
 /**
@@ -20,6 +22,8 @@ function ContextMenuHost({ paneId = PaneId.make('%0') }: { paneId?: PaneId }) {
   );
 }
 
+const PANES = asFixture(panes);
+
 const meta: Meta<typeof PaneContextMenu> = {
   title: 'Components/PaneContextMenu',
   component: PaneContextMenu,
@@ -30,9 +34,9 @@ type Story = StoryObj<typeof PaneContextMenu>;
 
 export const SinglePane: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <ContextMenuHost />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async () => {
     // The menu is portalled out of the story's tree (components/floating), so
@@ -40,9 +44,14 @@ export const SinglePane: Story = {
     const menu = within(document.body);
     const closeItem = await waitFor(() => menu.getByRole('menuitem', { name: /close pane/i }));
 
-    // Keybinding labels are derived from the adapter's bindings (prefix x).
+    // Keybinding labels are derived from the recorded config's bindings: its
+    // `x` asks first (`confirm-before … kill-pane`) and is still Close Pane.
     expect(closeItem.querySelector('.menu-keybinding')?.textContent).toBe('ctrl+a x');
-    expect(menu.getByRole('menuitem', { name: /split pane below/i })).toBeInTheDocument();
+    // Both `"` and `-` split below in the pane's directory; tmux lists `"` first.
+    expect(
+      menu.getByRole('menuitem', { name: /split pane below/i }).querySelector('.menu-keybinding')
+        ?.textContent,
+    ).toBe('ctrl+a "');
 
     // A context menu is about the pane it was opened on: navigation between
     // panes and the adjacent swaps are the app menu's, not this one's.
@@ -58,15 +67,15 @@ export const SinglePane: Story = {
 
 export const MultiPane: Story = {
   render: () => (
-    <ProviderHarness height={400} initCommands={['split-window -h']}>
+    <FixtureProvider height={400} fixture={PANES} start="side-by-side">
       <ContextMenuHost />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const menu = within(document.body);
 
-    // Once the split lands, the menu is up with the pane's own items.
+    // With a second pane beside it, the menu offers the pane's own items.
     await waitFor(() => {
       expect(menu.getByRole('menuitem', { name: /move to new tab/i })).not.toHaveAttribute(
         'aria-disabled',

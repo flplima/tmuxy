@@ -1,5 +1,6 @@
 /**
- * Dragging a divider only as far as tmux would actually go (demo engine).
+ * Dragging a divider only as far as tmux would actually go, over a recording
+ * of real tmux.
  *
  * tmux will not shrink a pane below one cell, so a drag that asks for more
  * than the panes across the line can give up is refused. Until it is, the
@@ -16,11 +17,17 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, fireEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import dividerAtMinimum from './fixtures/gen/divider-at-minimum.json';
 
-const meta: Meta<typeof AppHarness> = {
+/** A resize answered the way tmux answered one far past the edge: the right pane at one column. */
+const RESIZE = [{ match: /^resize-pane\b/, to: 'right-at-minimum' }];
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Resize Limits',
-  component: AppHarness,
+  component: FixtureApp,
+  args: { fixture: asFixture(dividerAtMinimum), start: 'side-by-side', transitions: RESIZE },
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -32,7 +39,7 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 interface Snap {
   context: {
@@ -45,7 +52,7 @@ interface Snap {
 
 function app(): Snap {
   const a = (window as unknown as { app?: { getSnapshot(): Snap } }).app;
-  if (!a) throw new Error('window.app actor is not available — AppHarness not mounted?');
+  if (!a) throw new Error('window.app actor is not available — FixtureApp not mounted?');
   return a.getSnapshot();
 }
 
@@ -103,10 +110,9 @@ async function waitForPanes(count: number, canvasElement: HTMLElement): Promise<
 // ---------------------------------------------------------------------------
 
 export const DragStopsAtTheMinimum: Story = {
-  args: { height: 500, initCommands: ['split-window -h'] },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 500 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'The pointer is dragged far past the right edge of the window. The divider follows only as far as the right pane can shrink; the panes stay side by side instead of the left one growing out over the right, and letting go corrects nothing, because the clamped delta is also what was sent.',

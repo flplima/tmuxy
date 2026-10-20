@@ -6,7 +6,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { Tooltip, TOOLTIP_DELAY_MS } from './Tooltip';
-import { ProviderHarness } from '../stories/StoryHarness';
 
 const meta: Meta<typeof Tooltip> = {
   title: 'Components/Tooltip',
@@ -22,7 +21,7 @@ const tip = () => tips()[0];
 
 export const HoverAndFocus: Story = {
   render: () => (
-    <ProviderHarness height={320}>
+    <div style={{ height: 320 }}>
       <div style={{ display: 'flex', gap: 24, padding: 40 }}>
         <Tooltip label="Close tab">
           <button type="button" data-testid="trigger">
@@ -35,7 +34,7 @@ export const HoverAndFocus: Story = {
           </button>
         </Tooltip>
       </div>
-    </ProviderHarness>
+    </div>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -85,7 +84,7 @@ export const HoverAndFocus: Story = {
 
 export const FlipsWhenThereIsNoRoomBelow: Story = {
   render: () => (
-    <ProviderHarness height={320}>
+    <div style={{ height: 320 }}>
       <div style={{ position: 'fixed', left: 20, bottom: 4 }}>
         <Tooltip label="Opens upwards at the bottom edge">
           <button type="button" data-testid="bottom-trigger">
@@ -93,7 +92,7 @@ export const FlipsWhenThereIsNoRoomBelow: Story = {
           </button>
         </Tooltip>
       </div>
-    </ProviderHarness>
+    </div>
   ),
   play: async ({ canvasElement }) => {
     const trigger = within(canvasElement).getByTestId('bottom-trigger');
@@ -113,7 +112,7 @@ export const FlipsWhenThereIsNoRoomBelow: Story = {
 
 export const IgnoresATouch: Story = {
   render: () => (
-    <ProviderHarness height={320}>
+    <div style={{ height: 320 }}>
       <div style={{ padding: 40 }}>
         <Tooltip label="Not for fingers">
           <button type="button" data-testid="tap-trigger">
@@ -121,7 +120,7 @@ export const IgnoresATouch: Story = {
           </button>
         </Tooltip>
       </div>
-    </ProviderHarness>
+    </div>
   ),
   play: async ({ canvasElement }) => {
     // A tap is not a hover: opening there would cover what the finger was

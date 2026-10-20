@@ -11,7 +11,11 @@ import { useRef, useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { FloatingMenu, MenuItem, MenuDivider, MenuHeader, MenuRadioGroup, SubMenu } from './Menu';
-import { ProviderHarness } from '../../stories/StoryHarness';
+import { FixtureProvider } from '../../stories/FixtureHarness';
+import { asFixture } from '../../stories/fixtures/FixtureAdapter';
+import panes from '../../stories/fixtures/gen/panes.json';
+
+const PANES = asFixture(panes);
 
 const meta: Meta = {
   title: 'Components/FloatingMenu',
@@ -132,9 +136,9 @@ async function openMenu(canvas: ReturnType<typeof within>, name = /open menu/i) 
  */
 export const RolesAndStates: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <MenuHarness />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -177,9 +181,9 @@ export const RolesAndStates: Story = {
  */
 export const KeyboardNavigation: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <MenuHarness />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -214,9 +218,9 @@ export const KeyboardNavigation: Story = {
 /** Escape is the way out that changes nothing. */
 export const EscapeCloses: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <MenuHarness />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -231,9 +235,9 @@ export const EscapeCloses: Story = {
  *  it, which toggles rather than closing and reopening in one gesture. */
 export const PressingOutsideCloses: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <MenuHarness />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -255,9 +259,9 @@ export const PressingOutsideCloses: Story = {
  */
 export const SubmenuOpensBesideItsItem: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <MenuHarness />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -305,12 +309,12 @@ export const SubmenuOpensBesideItsItem: Story = {
 /** Two menus, one layer: opening the second puts the first away by itself. */
 export const OnlyOneSurfaceAtATime: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <div style={{ display: 'flex', gap: 24 }}>
         <MenuHarness label="Left menu" />
         <MenuHarness label="Right menu" />
       </div>
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -335,9 +339,9 @@ export const OnlyOneSurfaceAtATime: Story = {
  */
 export const StaysInsideTheWindow: Story = {
   render: () => (
-    <ProviderHarness height={400}>
+    <FixtureProvider height={400} fixture={PANES} start="one">
       <CornerMenuHarness />
-    </ProviderHarness>
+    </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

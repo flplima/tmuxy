@@ -1,23 +1,27 @@
 /**
- * Tab Overview stories (demo engine).
+ * Tab Overview stories, over recordings of real tmux.
  *
  * ctrl+0 zooms the current tab out into a grid of every tab; a slot click
  * zooms that tab back in, the trailing "+" creates a tab and a slot's ✕
- * closes one. Everything runs through the app machine and the demo tmux, so
- * these stories exercise the same chain the web and desktop apps use.
+ * closes one. Opening, clicking, "+", ✕ and dragging a slot are
+ * tests/2-layout-navigation-overview.test.js, end to end; these are the
+ * layout of the grid and the motion out of a card.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
-import { AppHarness } from '../stories/StoryHarness';
+import { FixtureApp } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import tabsFixture from '../stories/fixtures/gen/tabs.json';
+import manyTabs from '../stories/fixtures/gen/many-tabs.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Tab Overview',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 interface AppSnap {
   context: {
@@ -44,79 +48,6 @@ async function waitForOverview(open: boolean): Promise<HTMLElement | null> {
     { timeout: 8000 },
   );
 }
-
-export const OpenClickSlotSwitchesTab: Story = {
-  tags: ['nightly'],
-  args: {
-    height: 500,
-    initCommands: ['rename-window main', 'new-window', 'rename-window logs', 'new-window'],
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
-    const user = userEvent.setup({ delay: 5 });
-
-    await user.keyboard('{Control>}0{/Control}');
-    const overview = (await waitForOverview(true)) as HTMLElement;
-
-    // One slot per tab, in strip order, plus the "+" slot; the current tab's
-    // slot carries the live grid.
-    const slots = [
-      ...overview.querySelectorAll<HTMLElement>('[data-testid^="tab-overview-slot-"]'),
-    ];
-    expect(slots.map((s) => s.dataset.testid)).toEqual(
-      tabs().map((w) => `tab-overview-slot-${w.id}`),
-    );
-    expect(overview.querySelector('[data-testid="tab-overview-new"]')).not.toBeNull();
-    expect(overview.textContent).toContain('1:main');
-    expect(overview.textContent).toContain('2:logs');
-    const active = overview.querySelector('.tab-overview-slot.is-active') as HTMLElement;
-    expect(active.dataset.testid).toBe(`tab-overview-slot-${app().context.activeWindowId}`);
-
-    // A tab that is NOT current shows its panes' screens, not a wireframe:
-    // the "main" slot's box holds a rendered terminal with that pane's text.
-    // (The still appears a render after the frame is measured.)
-    await waitFor(
-      () => {
-        const shot = slots[0].querySelector('.tab-overview-shot .terminal-line');
-        expect(shot).not.toBeNull();
-        expect(slots[0].querySelector('.tab-overview-shot')!.textContent).toMatch(/\S/);
-      },
-      { timeout: 8000 },
-    );
-    const frame = active.querySelector('.tab-overview-frame') as HTMLElement;
-    const layout = document.querySelector('.pane-layout') as HTMLElement;
-    // The zoom-out is a transition: wait for the grid to settle in the frame.
-    // Generously — on a loaded machine the transition alone can outlast
-    // waitFor's one-second default, which is a slow runner, not a bug.
-    await waitFor(
-      () => {
-        const f = frame.getBoundingClientRect();
-        const l = layout.getBoundingClientRect();
-        expect(l.left).toBeGreaterThanOrEqual(f.left - 1);
-        expect(l.right).toBeLessThanOrEqual(f.right + 1);
-      },
-      { timeout: 8000 },
-    );
-
-    // Click "logs": it becomes current and the overview closes.
-    const logs = tabs()[1];
-    await user.click(slots[1]);
-    await waitForOverview(false);
-    await waitFor(() => expect(app().context.activeWindowId).toBe(logs.id), { timeout: 8000 });
-    // The zoom-back-in is a transition too; same reasoning as above.
-    await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'), { timeout: 8000 });
-
-    // The header's grid button is the same toggle: open, pressed, close.
-    const toggle = canvas.getByTestId('tab-overview-toggle');
-    expect(toggle.getAttribute('aria-pressed')).toBe('false');
-    await user.click(toggle);
-    await waitForOverview(true);
-    expect(toggle.getAttribute('aria-pressed')).toBe('true');
-    await user.click(toggle);
-    await waitForOverview(false);
-  },
-};
 
 const APPEARANCE = {
   opacity: 0.7,
@@ -148,10 +79,7 @@ function onScreen(card: HTMLElement, grid: HTMLElement): boolean {
 
 export const ColumnsFromConfigAndScrolling: Story = {
   tags: ['nightly'],
-  args: {
-    height: 500,
-    initCommands: ['rename-window main', ...Array.from({ length: 11 }, () => 'new-window')],
-  },
+  args: { fixture: asFixture(manyTabs), start: 'last-active' },
   parameters: {
     docs: {
       description: {
@@ -170,10 +98,10 @@ export const ColumnsFromConfigAndScrolling: Story = {
     const overview = (await waitForOverview(true)) as HTMLElement;
     const grid = overview.querySelector('.tab-overview-grid') as HTMLElement;
 
-    // The demo has no tmuxy.conf, so this is the default.
+    // No appearance has been pushed yet, so this is the default.
     await waitFor(() => expect(firstRowCount(grid)).toBe(3));
 
-    // 13 cards (12 tabs and "+") in rows of three overflow the 500px view,
+    // 13 cards (12 tabs and "+") in rows of three overflow the view,
     // and the view opened on the current tab, which is the last one.
     expect(getComputedStyle(grid).overflowY).toBe('auto');
     expect(grid.scrollHeight).toBeGreaterThan(grid.clientHeight + 100);
@@ -229,7 +157,11 @@ export const ColumnsFromConfigAndScrolling: Story = {
 
 export const OpensOutOfTheSlotYouClicked: Story = {
   tags: ['nightly'],
-  args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
+  args: {
+    fixture: asFixture(tabsFixture),
+    start: 'logs-active',
+    transitions: [{ match: /^select-window -t @0$/, to: 'main-active' }],
+  },
   parameters: {
     docs: {
       description: {

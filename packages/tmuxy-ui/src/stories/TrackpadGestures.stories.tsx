@@ -1,5 +1,5 @@
 /**
- * Trackpad gesture stories (demo engine) — the desktop app's gestures, run
+ * Trackpad gesture stories — the desktop app's gestures, run
  * on the web build (docs/DESKTOP.md).
  *
  * The gesture actor is opted in with `config.desktopGestures`, and the
@@ -8,8 +8,8 @@
  * ctrl+wheel (WebKitGTK) or WebKit's gesturestart / gesturechange /
  * gestureend (the macOS WKWebView). They travel the real chain: gestureActor,
  * the app machine, GestureStage and PaneLayout drawing each step, and
- * SELECT_TAB / ZOOM_PANE / TOGGLE_TAB_OVERVIEW / TAB_OVERVIEW_ACTIVATE into
- * the demo tmux when the fingers lift.
+ * SELECT_TAB / ZOOM_PANE / TOGGLE_TAB_OVERVIEW / TAB_OVERVIEW_ACTIVATE out
+ * to tmux when the fingers lift, answered with the states real tmux recorded.
  *
  * Motion is sampled once a frame after the fingers lift, so a bounce, an
  * overshoot or a zoom that steps back before going on shows up as a sample
@@ -18,7 +18,11 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, userEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import tabsRecording from './fixtures/gen/tabs.json';
+import pinchZoomLeft from './fixtures/gen/pinch-zoom-left.json';
+import tabsSecondSplit from './fixtures/gen/tabs-second-split.json';
 import { SWIPE_COMMIT_SHARE, SWIPE_EDGE_LIMIT_SHARE } from '../utils/gestures';
 import {
   activePaneEl,
@@ -42,22 +46,38 @@ import {
   settled,
   tabs,
   translateX,
-  TWO_TABS,
   webkitGesture,
   zoomed,
 } from './trackpadGestureHelpers';
 
-const meta: Meta<typeof AppHarness> = {
+/** Tabs `main` (@0) and `logs` (@1, current); a switch either way answered as tmux answered it. */
+const TWO_TABS = {
+  fixture: asFixture(tabsRecording),
+  start: 'logs-active',
+  transitions: [
+    { match: /^select-window -t @0$/, to: 'main-active' },
+    { match: /^select-window -t @1$/, to: 'logs-active' },
+  ],
+};
+
+const ZOOM_LEFT = /^resize-pane -t %0 -Z$/;
+
+/** The same toggle zooms `%0` from the split and unzooms it from the zoom. */
+const PINCH_ZOOM = [
+  { match: ZOOM_LEFT, from: 'side-by-side', to: 'left-zoomed' },
+  { match: ZOOM_LEFT, from: 'left-zoomed', to: 'left-active' },
+];
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Trackpad Gestures',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
-  args: { config: { desktopGestures: true } },
+  args: { ...TWO_TABS, config: { desktopGestures: true } },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 export const SlideBetweenTabs: Story = {
-  args: { height: 500, initCommands: TWO_TABS },
   parameters: {
     docs: {
       description: {
@@ -156,7 +176,6 @@ export const SlideBetweenTabs: Story = {
 };
 
 export const FingersRestingMidSlide: Story = {
-  args: { height: 500, initCommands: TWO_TABS },
   parameters: {
     docs: {
       description: {
@@ -191,7 +210,7 @@ export const FingersRestingMidSlide: Story = {
 
 export const PinchZoomsThePaneUnderTheFingers: Story = {
   tags: ['nightly'],
-  args: { height: 500, initCommands: ['split-window -h'] },
+  args: { fixture: asFixture(pinchZoomLeft), start: 'side-by-side', transitions: PINCH_ZOOM },
   parameters: {
     docs: {
       description: {
@@ -241,7 +260,6 @@ export const PinchZoomsThePaneUnderTheFingers: Story = {
 };
 
 export const PinchInOpensAllTabs: Story = {
-  args: { height: 500, initCommands: ['rename-window main', 'new-window'] },
   parameters: {
     docs: {
       description: {
@@ -280,7 +298,6 @@ export const PinchInOpensAllTabs: Story = {
 
 export const PinchOutOfAllTabsEntersTheCurrentTab: Story = {
   tags: ['nightly'],
-  args: { height: 500, initCommands: TWO_TABS },
   parameters: {
     docs: {
       description: {
@@ -329,7 +346,7 @@ export const PinchOutOfAllTabsEntersTheCurrentTab: Story = {
 };
 
 export const TurnedOffInTheConfig: Story = {
-  args: { height: 500, initCommands: ['rename-window main', 'new-window', 'split-window -h'] },
+  args: { fixture: asFixture(tabsSecondSplit), start: 'second-split', transitions: [] },
   parameters: {
     docs: {
       description: {

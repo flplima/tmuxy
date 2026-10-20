@@ -1,5 +1,6 @@
 /**
- * The phone layout (demo engine), at a 390 × 844 phone's width.
+ * The phone layout, at a 390 × 844 phone's width, over a recording of real
+ * tmux at the 80 × 24 grid the layout asks for.
  *
  * The whole 80 × 25 terminal on top — 80 columns spanning the screen, tmux's
  * status line as the 25th row — then the key row, then the tab/pane tree. No
@@ -9,15 +10,29 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { TmuxyApp } from '../lib';
+import { FixtureApp, FixtureProvider } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Layout',
-  component: AppHarness,
+  component: FixtureApp,
+  args: {
+    fixture: asFixture(phoneTwoTabs),
+    start: 'main-active',
+    config: { phoneLayout: true },
+  },
+  // The phone's screen, not the grid's box: the layout fits the grid to it.
+  render: ({ fixture, start, config }) => (
+    <FixtureProvider fixture={fixture} start={start} config={config} width={390} height={844}>
+      <TmuxyApp />
+    </FixtureProvider>
+  ),
   parameters: { layout: 'fullscreen' },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 interface Snap {
   context: { targetCols: number; targetRows: number; charWidth: number; phoneLayout: boolean };
@@ -30,12 +45,6 @@ const box = (el: Element | null) => {
 };
 
 export const PhoneKeyboardDown: Story = {
-  args: {
-    width: 390,
-    height: 844,
-    config: { phoneLayout: true },
-    initCommands: ['rename-window main', 'new-window -n logs', 'select-window -t 0'],
-  },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 844 },
@@ -106,7 +115,6 @@ export const PhoneKeyboardDown: Story = {
 };
 
 export const AppMenuFromTheKeyRow: Story = {
-  args: { width: 390, height: 844, config: { phoneLayout: true } },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 844 },

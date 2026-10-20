@@ -1,75 +1,40 @@
 /**
- * AskOverlay stories (demo engine).
+ * AskOverlay stories, over a recording of real tmux.
  *
  * `tmuxy pane send -t %3 'npm test' Enter`, run from one pane, hangs a
  * question on ANOTHER pane instead of sending the keys: the target blurs its
- * content and asks. These stories drive that through the option the CLI actually writes
- * (`set-option -p -t %id @tmuxy-ask <base64>`) rather than through a prop, so
- * the whole chain — tmux option → list-panes → model → overlay → answer →
- * option cleared — is what is under test.
+ * content and asks. The recording (`fixtures/scenarios/ask-and-offer.ts`)
+ * hangs it the way the CLI does — `set-option -p -t %0 @tmuxy-ask <base64>`
+ * — and holds the pane before and after the app's answer took it down, so
+ * the chain under test is tmux option → model → overlay → answer → option
+ * cleared.
  *
- * The answer the waiting CLI reads (`@tmuxy-ask-answer`) has no reader here:
- * the demo runs no shell process. What these assert is the half the user sees.
+ * The round trip from a real `tmuxy pane send` — Cmd+Enter, a click, a long
+ * multi-line send — is tests/13-send-permission.test.js, end to end.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor } from 'storybook/test';
-import { AppHarness } from '../stories/StoryHarness';
+import { FixtureApp } from '../stories/FixtureHarness';
+import { asFixture, type FixtureAdapter } from '../stories/fixtures/FixtureAdapter';
+import ask from '../stories/fixtures/gen/ask-and-offer.json';
 
-const meta: Meta<typeof AppHarness> = {
+let adapter: FixtureAdapter | null = null;
+const keepAdapter = (a: FixtureAdapter) => {
+  adapter = a;
+};
+
+/** The app's answer (or dismissal) withdraws the option first. */
+const answered = (to: string) => [{ match: /^set-option -pu -t %0 @tmuxy-ask\b/, to }];
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/AskOverlay',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
+  args: { fixture: asFixture(ask), onAdapterReady: keepAdapter },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
-
-interface AppSnap {
-  context: {
-    activePaneId: string | null;
-    activeWindowId: string | null;
-    panes: Array<{ tmuxId: string; windowId: string; paneAsk?: string | null }>;
-    windows: Array<{ id: string; windowType: string | null }>;
-  };
-}
-const win = () =>
-  window as unknown as { app: { getSnapshot(): AppSnap; send(event: unknown): void } };
-const app = () => win().app.getSnapshot();
-
-/** The panes of the tab in front of the user, in layout order. */
-function tabPanes() {
-  const { activeWindowId, panes } = app().context;
-  return panes.filter((p) => p.windowId === activeWindowId);
-}
-
-/** Encode a question the way `bin/tmuxy/send` does. */
-function encodeAsk(token: string, keys: string[]): string {
-  const json = JSON.stringify({ token, caller: 'claude', keys });
-  return btoa(String.fromCharCode(...new TextEncoder().encode(json)));
-}
-
-/** What `tmuxy pane send -t` runs before it blocks waiting for an answer. */
-function askPane(paneId: string, token: string, keys: string[]): void {
-  win().app.send({
-    type: 'SEND_TMUX_COMMAND',
-    command: `set-option -p -t ${paneId} @tmuxy-ask ${encodeAsk(token, keys)}`,
-  });
-}
-
-/** A long multi-line send: a heredoc, a test run and a commit. */
-const LONG_SEND = [
-  "cat > notes.md <<'EOF'",
-  'Enter',
-  ...Array.from({ length: 14 }, (_, i) => [
-    // Twice the 70ch the text is capped at: a sideways scroll at any size.
-    `line ${i + 1} of the notes ${'-'.repeat(140)}`,
-    'Enter',
-  ]).flat(),
-  'EOF',
-  'Enter',
-  'npm test -- --run && git add notes.md && git commit -m "notes"',
-  'Enter',
-];
+type Story = StoryObj<typeof FixtureApp>;
 
 /** The overlay drawn over a pane, once it is really on screen. */
 async function waitForOverlay(paneId: string): Promise<HTMLElement> {
@@ -96,30 +61,34 @@ async function waitForNoOverlay(paneId: string): Promise<void> {
   );
 }
 
+const selected = () =>
+  document.querySelector('[data-pane-ask="%0"]')?.getAttribute('data-ask-selected');
+
+/** The answer the waiting `tmuxy pane send` reads back, from the last command sent. */
+const lastAnswer = () => {
+  const answers = adapter!.commands.filter((c) => c.includes('@tmuxy-ask-answer'));
+  return answers[answers.length - 1]?.match(/@tmuxy-ask-answer '([^']*)'/)?.[1];
+};
+
 // ---------------------------------------------------------------------------
-// A question asked of another pane, answered with the mouse
+// Answering from the keyboard, on the pane holding it
 // ---------------------------------------------------------------------------
 
-export const AskAnotherPaneAndClickYes: Story = {
-  args: { initCommands: ['split-window -h'] },
+export const KeyboardMovesBetweenYesAndNo: Story = {
+  args: { start: 'asked', transitions: answered('answered') },
   parameters: {
     docs: {
       description: {
         story:
-          'The whole round trip in one pass: a send is hung on the second pane, it blurs its content and asks who wants to send what, and clicking Yes takes the overlay down and clears the option — which is what the waiting `tmuxy pane send` reads before it sends the keys.',
+          'A pane showing a question is not a terminal to type into: the text sits on a blurred scrim with two stacked, numbered answers, Yes highlighted; ↓/↑ (or 2/1) move the highlight, Escape declines and Enter takes it, and none of those keys reach the shell underneath.',
       },
     },
   },
   play: async () => {
-    const [, target] = tabPanes().map((p) => p.tmuxId);
-    expect(target).toBeTruthy();
-
-    askPane(target, 'tok-1', ['npm test', 'Enter']);
-
-    const overlay = await waitForOverlay(target);
+    const overlay = await waitForOverlay('%0');
     const question = overlay.querySelector('.ask-overlay-question') as HTMLElement;
     // The Enter that runs the line is not shown; the command sits inline.
-    expect(question.textContent).toBe('claude wants to send npm test.Allow?');
+    expect(question.textContent).toBe('claude wants to send rm -rf dist.Allow?');
     expect(overlay.querySelector('.ask-overlay-command-block')).toBeNull();
     // Two answers, stacked and numbered.
     const answers = [...overlay.querySelectorAll('[data-ask-choice]')];
@@ -130,144 +99,37 @@ export const AskAnotherPaneAndClickYes: Story = {
     const text = overlay.querySelector('.ask-overlay-text') as HTMLElement;
     expect(getComputedStyle(text).borderTopWidth).toBe('0px');
     expect(getComputedStyle(text).backgroundColor).toBe('rgba(0, 0, 0, 0)');
-
     // The pane behind it is blurred rather than emptied: the text is still
     // there, under a scrim, which is what makes the question read as modal.
     const scrim = overlay.querySelector('.ask-overlay-scrim') as HTMLElement;
     expect(getComputedStyle(scrim).backdropFilter).toContain('blur');
-
     // Yes is highlighted before anything is touched — the same answer the
     // keyboard shortcut gives, so the two never disagree.
-    expect(overlay.getAttribute('data-ask-selected')).toBe('yes');
-
-    const user = userEvent.setup({ delay: 5 });
-    await user.click(overlay.querySelector('[data-ask-choice="yes"]') as HTMLElement);
-
-    await waitForNoOverlay(target);
-    // The option is gone from the model too, not just from the screen.
-    await waitFor(() => {
-      const pane = app().context.panes.find((p) => p.tmuxId === target);
-      expect(pane?.paneAsk ?? null).toBeNull();
-    });
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Answering from the keyboard, on the pane holding it. Cmd+Enter answering
-// the pane beside you is tests/13-ask-confirmation.test.js, end to end.
-// ---------------------------------------------------------------------------
-
-export const KeyboardMovesBetweenYesAndNo: Story = {
-  args: {},
-  parameters: {
-    docs: {
-      description: {
-        story:
-          'A pane showing a question is not a terminal to type into: while the overlay is up ↓/↑ (or 2/1) move the highlight and Enter takes it, and none of those keys reach the shell underneath.',
-      },
-    },
-  },
-  play: async () => {
-    const target = app().context.activePaneId!;
-    askPane(target, 'tok-3', ['rm -rf dist', 'Enter']);
-    const overlay = await waitForOverlay(target);
+    expect(selected()).toBe('yes');
 
     const user = userEvent.setup({ delay: 5 });
     await user.keyboard('{ArrowDown}');
-    await waitFor(() => {
-      expect(
-        document.querySelector(`[data-pane-ask="${target}"]`)?.getAttribute('data-ask-selected'),
-      ).toBe('no');
-    });
+    await waitFor(() => expect(selected()).toBe('no'));
     // The highlight is drawn, not just recorded.
     const no = document.querySelector(`[data-ask-choice="no"]`) as HTMLElement;
     expect(no.className).toContain('ask-overlay-choice-selected');
-
     await user.keyboard('1');
-    await waitFor(() => {
-      expect(
-        document.querySelector(`[data-pane-ask="${target}"]`)?.getAttribute('data-ask-selected'),
-      ).toBe('yes');
-    });
+    await waitFor(() => expect(selected()).toBe('yes'));
 
-    expect(overlay.isConnected).toBe(true);
+    // Escape is No, whatever is highlighted.
+    await user.keyboard('{Escape}');
+    await waitForNoOverlay('%0');
+    expect(lastAnswer()).toBe('tok-3:no');
+
+    // Asked again; Enter takes the highlight.
+    adapter!.goTo('asked');
+    await waitForOverlay('%0');
     await user.keyboard('{Enter}');
-    await waitForNoOverlay(target);
-  },
-};
+    await waitForNoOverlay('%0');
+    expect(lastAnswer()).toBe('tok-3:yes');
 
-// ---------------------------------------------------------------------------
-// Declining
-// ---------------------------------------------------------------------------
-
-export const EscapeDeclines: Story = {
-  args: {},
-  parameters: {
-    docs: {
-      description: {
-        story:
-          'Escape is No. The question comes down either way — what differs is what the waiting `tmuxy pane send` reads back, and on no it sends nothing and exits 1.',
-      },
-    },
-  },
-  play: async () => {
-    const target = app().context.activePaneId!;
-    askPane(target, 'tok-4', ['git push --force', 'Enter']);
-    await waitForOverlay(target);
-
-    const user = userEvent.setup({ delay: 5 });
-    await user.keyboard('{Escape}');
-    await waitForNoOverlay(target);
-  },
-};
-
-// ---------------------------------------------------------------------------
-// A long, multi-line send
-// ---------------------------------------------------------------------------
-
-export const LongSendScrollsBetweenTheQuestionAndTheAnswers: Story = {
-  args: {},
-  parameters: {
-    docs: {
-      description: {
-        story:
-          'A multi-line send gets a block of its own between "wants to send:" and "Allow?". It is shown whole, never cut: the block scrolls on both axes while the question and the answers stay put.',
-      },
-    },
-  },
-  play: async () => {
-    const target = app().context.activePaneId!;
-    askPane(target, 'tok-5', LONG_SEND);
-    const overlay = await waitForOverlay(target);
-
-    const block = overlay.querySelector('.ask-overlay-command-block') as HTMLElement;
-    expect(block).toBeTruthy();
-    // Whole: every line is in the block, the last one included.
-    expect(block.textContent).toContain('line 14 of the notes');
-    expect(block.textContent).toContain('git commit -m "notes"');
-    // It scrolls rather than pushing the answers off the pane.
-    expect(block.scrollHeight).toBeGreaterThan(block.clientHeight);
-    expect(block.scrollWidth).toBeGreaterThan(block.clientWidth);
-
-    const paneBox = overlay.getBoundingClientRect();
-    const answers = overlay.querySelector('.ask-overlay-choices') as HTMLElement;
-    const [first, last] = overlay.querySelectorAll('.ask-overlay-question');
-    expect(first.textContent).toBe('claude wants to send:');
-    expect(last.textContent).toBe('Allow?');
-    for (const el of [first, last, answers]) {
-      const box = el.getBoundingClientRect();
-      expect(box.top).toBeGreaterThanOrEqual(paneBox.top);
-      expect(box.bottom).toBeLessThanOrEqual(paneBox.bottom);
-    }
-
-    // Scrolling the block moves neither the question nor the answers.
-    const answersTop = answers.getBoundingClientRect().top;
-    block.scrollTop = block.scrollHeight;
-    expect(answers.getBoundingClientRect().top).toBe(answersTop);
-
-    const user = userEvent.setup({ delay: 5 });
-    await user.keyboard('{Escape}');
-    await waitForNoOverlay(target);
+    // Not one of those keys was typed into the shell.
+    expect(adapter!.commands.filter((c) => c.startsWith('send-keys'))).toEqual([]);
   },
 };
 
@@ -275,18 +137,10 @@ export const LongSendScrollsBetweenTheQuestionAndTheAnswers: Story = {
 // A restore's offer: a one-line banner, not a modal
 // ---------------------------------------------------------------------------
 
-/** What a session restore hangs on a pane it brought back (`offer_payload`). */
-function offerPane(paneId: string, command: string): void {
-  const json = JSON.stringify({ token: `restore-${paneId}`, kind: 'offer', command });
-  const payload = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
-  win().app.send({
-    type: 'SEND_TMUX_COMMAND',
-    command: `set-option -p -t ${paneId} @tmuxy-ask ${payload}`,
-  });
-}
+const banner = () => document.querySelector('[data-pane-offer="%0"]') as HTMLElement | null;
 
 export const RestoreOfferIsABannerAnyKeyDismisses: Story = {
-  args: {},
+  args: { start: 'offered', transitions: answered('offer-dismissed') },
   parameters: {
     docs: {
       description: {
@@ -296,42 +150,34 @@ export const RestoreOfferIsABannerAnyKeyDismisses: Story = {
     },
   },
   play: async () => {
-    const target = app().context.activePaneId!;
-    offerPane(target, 'claude --resume abc123');
-    const banner = await waitFor(
+    const shown = await waitFor(
       () => {
-        const el = document.querySelector(`[data-pane-offer="${target}"]`) as HTMLElement | null;
-        if (!el) throw new Error('no banner yet');
-        return el;
+        if (!banner()) throw new Error('no banner yet');
+        return banner()!;
       },
       { timeout: 8000, interval: 100 },
     );
-    expect(banner.textContent).toBe('↵ to run:claude --resume abc123· esc to dismiss');
+    expect(shown.textContent).toBe('↵ to run:claude --resume abc123· esc to dismiss');
     // One row, at the bottom of the pane, over nothing but that row.
-    const pane = document.querySelector(`[data-pane-id="${target}"]`)!.getBoundingClientRect();
-    const box = banner.getBoundingClientRect();
+    const pane = document.querySelector('[data-pane-id="%0"]')!.getBoundingClientRect();
+    const box = shown.getBoundingClientRect();
     expect(box.height).toBeLessThan(40);
     expect(Math.abs(box.bottom - pane.bottom)).toBeLessThan(6);
     // No question overlay: an offer blurs nothing.
-    expect(document.querySelector(`[data-pane-ask="${target}"]`)).toBeNull();
+    expect(document.querySelector('[data-pane-ask="%0"]')).toBeNull();
 
     const user = userEvent.setup({ delay: 5 });
     await user.keyboard('{Escape}');
-    await waitFor(
-      () => expect(document.querySelector(`[data-pane-offer="${target}"]`)).toBeNull(),
-      { timeout: 8000, interval: 100 },
-    );
+    await waitFor(() => expect(banner()).toBeNull(), { timeout: 8000, interval: 100 });
+    // Dismissed, not run.
+    expect(adapter!.commands.some((c) => c.includes('claude --resume'))).toBe(false);
 
-    // Typing something else drops it too.
-    offerPane(target, 'htop');
-    await waitFor(
-      () => expect(document.querySelector(`[data-pane-offer="${target}"]`)).not.toBeNull(),
-      { timeout: 8000, interval: 100 },
-    );
+    // A second offer; typing something else drops it too, and the key goes on.
+    adapter!.goTo('offered-htop');
+    await waitFor(() => expect(banner()).not.toBeNull(), { timeout: 8000, interval: 100 });
+    const sentBefore = adapter!.commands.length;
     await user.keyboard('l');
-    await waitFor(
-      () => expect(document.querySelector(`[data-pane-offer="${target}"]`)).toBeNull(),
-      { timeout: 8000, interval: 100 },
-    );
+    await waitFor(() => expect(banner()).toBeNull(), { timeout: 8000, interval: 100 });
+    expect(adapter!.commands.slice(sentBefore)).toContain("send-keys -t %0 -l -- 'l'");
   },
 };

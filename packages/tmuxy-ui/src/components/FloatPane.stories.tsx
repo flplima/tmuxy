@@ -1,323 +1,101 @@
 /**
- * FloatPane stories.
+ * FloatPane stories, over a recording of real tmux.
  *
- * Floats are spawned through DemoAdapter's `tmuxy-float-create` command,
- * which mirrors bin/tmuxy/float-create option parsing. The resulting
- * float window flows through the real XState helpers
- * (buildFloatPanesFromWindows) so FloatPane renders exactly like in
- * production.
+ * The floats are the ones `tmuxy pane float` opened in a pane
+ * (`fixtures/scenarios/float-variants.ts`): every drawer edge, every
+ * backdrop, a float with no header and one sized in columns. What tmux holds
+ * of each is its window's `@tmuxy-float-*` tags, and these stories assert
+ * what the app draws from them.
  *
  * A float's overlay is rendered inside the pane container, not portaled to the
  * body, so its backdrop dims the tab's content and leaves the sidebars, the tab
- * strip and the status line alone. Assertions still query the document: the
- * overlay is outside `canvasElement`'s subtree in some story layouts.
+ * strip and the status line alone.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fireEvent, waitFor, within } from 'storybook/test';
-import { AppHarness } from '../stories/StoryHarness';
+import { expect, waitFor } from 'storybook/test';
+import { FixtureApp } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import floats from '../stories/fixtures/gen/float-variants.json';
+import { charWidthPx } from '../stories/appStoryHelpers';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/FloatPane',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
+  args: { fixture: asFixture(floats), start: 'every-float' },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
-/** Wait until at least one float overlay is on screen. */
-async function waitForFloat(): Promise<HTMLElement> {
-  return waitFor(
-    () => {
-      const overlay = document.querySelector('.modal-overlay') as HTMLElement | null;
-      if (!overlay) throw new Error('no .modal-overlay yet');
-      return overlay;
-    },
-    { timeout: 8000 },
-  );
-}
+/** The overlay of each float, by the pane it holds, in the order they were opened. */
+const FLOAT_OVERLAYS: ReadonlyArray<[string, string]> = [
+  ['%1', '.modal-overlay.float-modal:has(.float-container[data-pane-id="%1"])'],
+  ['%2', '.modal-overlay.drawer-left'],
+  ['%3', '.modal-overlay.drawer-bottom'],
+  ['%4', '.modal-overlay.drawer-right'],
+  ['%5', '.modal-overlay.drawer-top'],
+  ['%6', '.modal-overlay.float-modal:has(.float-container[data-pane-id="%6"])'],
+  ['%7', '.modal-overlay.float-modal:has(.float-container[data-pane-id="%7"])'],
+];
 
-// ---------------------------------------------------------------------------
-// Centered float (default — dim backdrop, hidden header chrome)
-// ---------------------------------------------------------------------------
-
-export const Centered: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create'],
-  },
-  parameters: {
-    docs: {
-      description: {
-        story: 'Default float: centered, dim backdrop, no titlebar (PaneHeader inside).',
-      },
-    },
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    expect(overlay).toHaveClass('float-modal');
-    expect(overlay.querySelector('.modal-backdrop')).not.toBeNull();
-    // Default backdrop is dim — neither blur nor none modifier applies.
-    expect(overlay.querySelector('.modal-backdrop-blur')).toBeNull();
-    expect(overlay.querySelector('.modal-backdrop-none')).toBeNull();
-    // Float-container surfaces a data-pane-id for keyboard focus routing.
-    expect(overlay.querySelector('.float-container[data-pane-id]')).not.toBeNull();
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Drawer variants
-// ---------------------------------------------------------------------------
-
-export const LeftDrawer: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create --left --width 40'],
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    expect(overlay).toHaveClass('drawer');
-    expect(overlay).toHaveClass('drawer-left');
-    const container = overlay.querySelector('.modal-container') as HTMLElement | null;
-    expect(container).not.toBeNull();
-    // Drawer pins to the left edge.
-    expect(container!.style.left).toBe('0px');
-  },
-};
-
-export const RightDrawer: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create --right --width 40'],
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    expect(overlay).toHaveClass('drawer-right');
-    const container = overlay.querySelector('.modal-container') as HTMLElement | null;
-    expect(container!.style.right).toBe('0px');
-  },
-};
-
-export const TopDrawer: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create --top --height 12'],
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    expect(overlay).toHaveClass('drawer-top');
-    const container = overlay.querySelector('.modal-container') as HTMLElement | null;
-    expect(container!.style.top).toBe('0px');
-  },
-};
-
-export const BottomDrawer: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create --bottom --height 12'],
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    expect(overlay).toHaveClass('drawer-bottom');
-    const container = overlay.querySelector('.modal-container') as HTMLElement | null;
-    expect(container!.style.bottom).toBe('0px');
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Backdrop variants
-// ---------------------------------------------------------------------------
-
-export const BlurBackdrop: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create --bg blur'],
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    const backdrop = overlay.querySelector('.modal-backdrop') as HTMLElement | null;
-    expect(backdrop).not.toBeNull();
-    expect(backdrop).toHaveClass('modal-backdrop-blur');
-  },
-};
-
-export const NoBackdrop: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create --bg none'],
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    const backdrop = overlay.querySelector('.modal-backdrop') as HTMLElement | null;
-    expect(backdrop).not.toBeNull();
-    expect(backdrop).toHaveClass('modal-backdrop-none');
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Header hidden
-// ---------------------------------------------------------------------------
-
-export const HiddenHeader: Story = {
-  args: {
-    height: 500,
-    initCommands: ['tmuxy-float-create --left --width 40 --hide-header'],
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          "--hide-header drops Modal's title bar entirely. The pane content runs edge-to-edge inside the drawer.",
-      },
-    },
-  },
-  play: async () => {
-    const overlay = await waitForFloat();
-    expect(overlay).toHaveClass('drawer-left');
-    // Drawer uses Modal's own header — hideHeader removes .modal-header.
-    expect(overlay.querySelector('.modal-header')).toBeNull();
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Multiple stacked floats
-// ---------------------------------------------------------------------------
+const overlay = (pane: string) =>
+  document.querySelector<HTMLElement>(FLOAT_OVERLAYS.find(([id]) => id === pane)![1]);
+const box = (pane: string) =>
+  overlay(pane)!.querySelector('.modal-container')!.getBoundingClientRect();
+const backdrop = (pane: string) => overlay(pane)!.querySelector('.modal-backdrop')!;
 
 export const MultipleFloats: Story = {
-  args: {
-    height: 600,
-    initCommands: [
-      'tmuxy-float-create',
-      'tmuxy-float-create --left --width 30 --bg none',
-      'tmuxy-float-create --bottom --height 12 --bg blur',
-    ],
-  },
   parameters: {
     docs: {
       description: {
         story:
-          'Three floats stack: centered (default), left drawer (no backdrop), and bottom drawer (blur). FloatContainer assigns each a successively higher zIndex.',
+          'Seven floats over one tab: centred on the dim backdrop, a left drawer with none, a bottom drawer with blur, right and top drawers, a centred float with `--hide-header`, and one opened `--width 40`. Each drawer is flush with its own edge of the tab, the float opened later stacks over the one before it, `--hide-header` takes the header away, and a width in columns is drawn in columns.',
       },
     },
   },
   play: async () => {
-    // Wait until all three overlays have portaled in.
-    const overlays = await waitFor(
-      () => {
-        const list = document.querySelectorAll('.modal-overlay');
-        expect(list.length).toBe(3);
-        return Array.from(list) as HTMLElement[];
-      },
-      { timeout: 8000 },
-    );
-
-    // Each kind is represented.
-    const kinds = overlays.map((o) => {
-      if (o.classList.contains('drawer-left')) return 'left';
-      if (o.classList.contains('drawer-bottom')) return 'bottom';
-      if (o.classList.contains('float-modal')) return 'center';
-      return 'unknown';
-    });
-    expect(kinds).toContain('center');
-    expect(kinds).toContain('left');
-    expect(kinds).toContain('bottom');
-
-    // zIndex strictly increases in render order so the latest float sits on top.
-    const zIndexes = overlays.map((o) => Number(o.style.zIndex));
-    for (let i = 1; i < zIndexes.length; i++) {
-      expect(zIndexes[i]).toBeGreaterThan(zIndexes[i - 1]);
-    }
-
-    // The "no backdrop" left drawer keeps its modifier.
-    const leftDrawer = overlays.find((o) => o.classList.contains('drawer-left'))!;
-    expect(leftDrawer.querySelector('.modal-backdrop-none')).not.toBeNull();
-
-    // The bottom drawer has the blur modifier.
-    const bottomDrawer = overlays.find((o) => o.classList.contains('drawer-bottom'))!;
-    expect(bottomDrawer.querySelector('.modal-backdrop-blur')).not.toBeNull();
-  },
-};
-
-// ---------------------------------------------------------------------------
-// A float belongs to the tab it was opened over
-// ---------------------------------------------------------------------------
-
-export const StaysOnItsOwnTab: Story = {
-  args: {
-    height: 500,
-    initCommands: [
-      'new-window',
-      'select-window -t @0',
-      'tmuxy-float-create --width 40 --height 10',
-    ],
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          'A float is an overlay over the tab it was opened from (`@tmuxy-float-parent`), not over the session. Switching to the other tab takes it off screen and leaves that tab undimmed; switching back brings the same float pane up again.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const overlay = await waitForFloat();
-    const paneId = overlay
-      .querySelector('.float-container[data-pane-id]')
-      ?.getAttribute('data-pane-id');
-    expect(paneId).toBeTruthy();
-
-    const tabs = () => [
-      ...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]'),
-    ];
-    await waitFor(() => expect(tabs().length).toBe(2));
-    const home = tabs().find((t) => t.classList.contains('tab-name-active'))!;
-    const other = tabs().find((t) => t !== home)!;
-
-    fireEvent.click(other);
-
-    // Gone, and the tab it left behind is not dimmed by a leftover backdrop.
-    await waitFor(() => {
-      expect(document.querySelector('.modal-overlay')).toBeNull();
-      expect(document.querySelector('.modal-backdrop')).toBeNull();
-    });
-
-    fireEvent.click(home);
-
-    // Back, and it is the same pane rather than a second float.
-    const again = await waitForFloat();
-    expect(document.querySelectorAll('.modal-overlay').length).toBe(1);
-    expect(
-      again.querySelector('.float-container[data-pane-id]')?.getAttribute('data-pane-id'),
-    ).toBe(paneId);
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Float over splits: confirms layout below still renders underneath
-// ---------------------------------------------------------------------------
-
-export const FloatOverSplits: Story = {
-  args: {
-    height: 600,
-    initCommands: [
-      'rename-window editor',
-      'split-window -h',
-      'split-window -v',
-      'tmuxy-float-create --right --width 50',
-    ],
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    // Underlying tiled layout: 3 panes rendered in the main canvas.
     await waitFor(
       () => {
-        const panes = canvas.getAllByRole('group', { name: /^Pane %/i });
-        expect(panes.length).toBeGreaterThanOrEqual(3);
+        expect(document.querySelectorAll('.modal-overlay').length).toBe(FLOAT_OVERLAYS.length);
+        for (const [pane] of FLOAT_OVERLAYS) expect(overlay(pane), pane).not.toBeNull();
       },
       { timeout: 8000 },
     );
-    // And a float overlay sits on top.
-    const overlay = await waitForFloat();
-    expect(overlay).toHaveClass('drawer-right');
+
+    // Each drawer slides in onto its own edge of the tab.
+    const tab = document.querySelector('.pane-container')!.getBoundingClientRect();
+    const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+    await waitFor(
+      () => {
+        expect(near(box('%2').left, tab.left), 'left drawer on the left edge').toBe(true);
+        expect(near(box('%3').bottom, tab.bottom), 'bottom drawer on the bottom edge').toBe(true);
+        expect(near(box('%4').right, tab.right), 'right drawer on the right edge').toBe(true);
+        expect(near(box('%5').top, tab.top), 'top drawer on the top edge').toBe(true);
+      },
+      { timeout: 8000 },
+    );
+
+    // The float opened later stacks over the one opened before it.
+    const z = FLOAT_OVERLAYS.map(([pane]) => Number(overlay(pane)!.style.zIndex));
+    for (let i = 1; i < z.length; i++) {
+      expect(z[i], `${FLOAT_OVERLAYS[i][0]} over ${FLOAT_OVERLAYS[i - 1][0]}`).toBeGreaterThan(
+        z[i - 1],
+      );
+    }
+
+    // The backdrops: dim by default, none and blur where asked.
+    expect(backdrop('%1').className).toBe('modal-backdrop');
+    expect(backdrop('%2')).toHaveClass('modal-backdrop-none');
+    expect(backdrop('%3')).toHaveClass('modal-backdrop-blur');
+
+    // The header: on the default float, gone from the `--hide-header` one.
+    const header = overlay('%1')!.querySelector('.pane-header');
+    expect(header).not.toBeNull();
+    expect(header!.getBoundingClientRect().height).toBeGreaterThan(0);
+    expect(overlay('%6')!.querySelector('.pane-header, .modal-header')).toBeNull();
+
+    // `--width 40` is forty of the terminal's columns.
+    expect(Math.abs(box('%7').width - 40 * charWidthPx())).toBeLessThanOrEqual(2);
   },
 };

@@ -1,5 +1,6 @@
 /**
- * Which surface has the keyboard, said in colour (demo engine).
+ * Which surface has the keyboard, said in colour, over states recorded from
+ * real tmux.
  *
  * The theme's accent (`--tab-active-text` — yellow on gruvbox) marks where you
  * are typing, and only one surface can wear it at a time. With the keyboard in
@@ -10,11 +11,19 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import tree from './fixtures/gen/tree.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Focus Accent',
-  component: AppHarness,
+  component: FixtureApp,
+  // Two panes; `prefix s` opens the tree column beside them.
+  args: {
+    fixture: asFixture(tree),
+    start: 'closed',
+    transitions: [{ match: /^split-window\b.*@tmuxy-window-type sidebar-left$/, to: 'open' }],
+  },
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -25,12 +34,11 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 const colourOf = (el: Element) => getComputedStyle(el).color;
 
 export const TheAccentFollowsTheKeyboard: Story = {
-  args: { height: 500, initCommands: ['rename-window main'] },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 500 },
@@ -42,7 +50,7 @@ export const TheAccentFollowsTheKeyboard: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
+    await canvas.findAllByRole('group', { name: /^Pane /i }, { timeout: 8000 });
 
     const root = canvasElement.querySelector<HTMLElement>('.app-container')!;
     // Not every theme sets an accent apart from its white — gruvbox's is

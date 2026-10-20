@@ -1,6 +1,7 @@
 /**
- * The app shell on every theme face (demo engine): seven themes, dark and
- * light, fourteen stories.
+ * The app shell on every theme face: seven themes, dark and light, fourteen
+ * stories, all over one recording of real tmux — a tab named `main` split
+ * side by side, the new pane having printed a 256-colour cell.
  *
  * A theme is only a re-declaration of the token names, so each story loads
  * one face and checks the chrome paints those names where the design says:
@@ -12,13 +13,15 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
-import { cellColorToCss } from '../components/terminalShared';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import themeFaceSplit from './fixtures/gen/theme-face-split.json';
 import { channels } from './colorChannels';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Theme Faces',
-  component: AppHarness,
+  component: FixtureApp,
+  args: { fixture: asFixture(themeFaceSplit), start: 'split' },
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -30,7 +33,7 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 type Theme = 'default' | 'dracula' | 'fallout' | 'gruvbox' | 'nord' | 'solarized' | 'tokyonight';
 type Mode = 'dark' | 'light';
@@ -54,26 +57,34 @@ function paint(el: Element, property: 'color' | 'outlineColor' | 'backgroundColo
 
 function face(theme: Theme, mode: Mode): Story {
   return {
-    args: { height: 520, initCommands: ['rename-window main', 'split-window -h'] },
-    parameters: { docs: { story: { inline: false, iframeHeight: 520 } } },
+    parameters: { docs: { story: { inline: false, iframeHeight: 600 } } },
     play: async ({ canvasElement }) => {
       await waitFor(
         () => expect(canvasElement.querySelectorAll('.pane-layout-item').length).toBe(2),
         { timeout: 8000 },
       );
 
+      // A link keeps the old face's sheet in force until the new one has
+      // loaded, and every check below would pass against the colours being
+      // replaced: so the new sheet's `load` is what says the face is in.
+      const link = document.getElementById('tmuxy-theme') as HTMLLinkElement;
+      const loaded =
+        link.getAttribute('href') === `/themes/${theme}.css`
+          ? Promise.resolve()
+          : new Promise<void>((resolve) =>
+              link.addEventListener('load', () => resolve(), { once: true }),
+            );
       app().send({ type: 'SET_THEME', name: theme });
       app().send({ type: 'SET_THEME_MODE', mode });
+      await Promise.race([
+        loaded,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`/themes/${theme}.css never loaded`)), 8000),
+        ),
+      ]);
       const html = document.documentElement;
-      await waitFor(
-        () => {
-          const link = document.getElementById('tmuxy-theme') as HTMLLinkElement | null;
-          expect(link?.getAttribute('href')).toBe(`/themes/${theme}.css`);
-          expect(link?.sheet).toBeTruthy();
-          expect(html.classList.contains(`theme-${mode}`)).toBe(true);
-        },
-        { timeout: 8000, interval: 100 },
-      );
+      expect(link.getAttribute('href')).toBe(`/themes/${theme}.css`);
+      expect(html.classList.contains(`theme-${mode}`)).toBe(true);
 
       const tab = canvasElement.querySelector('.tab-name-active') as HTMLElement;
       const activePane = canvasElement.querySelector(
@@ -96,12 +107,13 @@ function face(theme: Theme, mode: Mode): Story {
       // A 256-colour cell (196, pure red) is the face's too: its own colour
       // for --term-extended-colors of it, the rest its lightness (21%)
       // between the pane's foreground and background — exactly red on most
-      // faces, and on a monochrome one a blend of its two colours. The demo
-      // shell cannot print an escape, so the cell is the colour a terminal
-      // line paints it in, on a span in the pane.
-      const cell = document.createElement('span');
-      cell.style.color = cellColorToCss(196);
-      activePane.appendChild(cell);
+      // faces, and on a monochrome one a blend of its two colours. The cell
+      // is the `RED196` the active pane printed in that colour.
+      const cell = [...activePane.querySelectorAll('span')].find(
+        (span) => span.textContent === 'RED196',
+      );
+      if (!cell) throw new Error('the active pane drew no RED196 cell');
+      expect(cell.getBoundingClientRect().width).toBeGreaterThan(0);
       const share =
         parseFloat(
           getComputedStyle(document.documentElement).getPropertyValue('--term-extended-colors'),
@@ -112,7 +124,6 @@ function face(theme: Theme, mode: Mode): Story {
         (c, i) => c * share + (bg[i] + (fg[i] - bg[i]) * 0.21) * (1 - share),
       );
       const painted = paint(cell, 'color');
-      cell.remove();
       painted.forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
 
       // The face has arrived only once nothing is still fading into it: the

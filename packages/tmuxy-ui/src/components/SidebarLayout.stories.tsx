@@ -1,234 +1,24 @@
 /**
- * Sidebar layout, resize, scroll, and keyboard tab-order stories (demo engine).
+ * Sidebar scroll and keyboard tab-order stories, over states recorded from
+ * real tmux. How the column re-tiles the grid is told by real tmux in
+ * `stories/AppSidebarLayout.stories.tsx`.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
-import { AppHarness } from '../stories/StoryHarness';
-import { app, tabPanes, waitForTree } from '../stories/sidebarStoryHelpers';
+import { FixtureApp } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import manyTabs from '../stories/fixtures/gen/sidebar-many-tabs.json';
+import twoTabs from '../stories/fixtures/gen/sidebar-two-tabs.json';
+import { waitForTree } from '../stories/sidebarStoryHelpers';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Sidebar Layout',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
-
-// ---------------------------------------------------------------------------
-// Fixed sidebar reflows the panes into the remaining width (not an overlay)
-// ---------------------------------------------------------------------------
-
-export const FixedSidebarReflowsPanes: Story = {
-  args: { height: 500, initCommands: ['split-window -h'] },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const paneRects = () =>
-      [...canvasElement.querySelectorAll('.pane-layout-item[data-pane-id]')].map((el) =>
-        el.getBoundingClientRect(),
-      );
-    await waitFor(() => expect(paneRects().length).toBeGreaterThanOrEqual(2), { timeout: 8000 });
-
-    // Before: panes fill the whole width, starting at the container's left edge.
-    const before = paneRects();
-    const beforeLeft = Math.min(...before.map((r) => r.left));
-    const beforeRight = Math.max(...before.map((r) => r.right));
-
-    const toggle = await canvas.findByRole(
-      'button',
-      { name: /toggle tree sidebar/i },
-      { timeout: 8000 },
-    );
-    await userEvent.click(toggle);
-    const sidebar = await waitFor(
-      () => {
-        const el = document.querySelector('.sidebar-column-left') as HTMLElement | null;
-        if (!el) throw new Error('no sidebar column');
-        return el;
-      },
-      { timeout: 8000 },
-    );
-    // After: the sidebar is a real column, and every pane sits to the RIGHT of
-    // it (no overlap) while still reaching the same right edge (fills the space
-    // that's left — the pane area recalculated).
-    await waitFor(
-      () => {
-        const s = sidebar.getBoundingClientRect();
-        expect(s.width).toBeGreaterThan(50);
-        const after = paneRects();
-        expect(after.length).toBeGreaterThanOrEqual(2);
-        const afterLeft = Math.min(...after.map((r) => r.left));
-        const afterRight = Math.max(...after.map((r) => r.right));
-        // Panes shifted right, clear of the sidebar column.
-        expect(afterLeft).toBeGreaterThanOrEqual(s.right - 1);
-        expect(afterLeft).toBeGreaterThan(beforeLeft + 50);
-        // Still filling to (about) the same right edge — no dead gap.
-        expect(Math.abs(afterRight - beforeRight)).toBeLessThan(12);
-      },
-      { timeout: 6000, interval: 200 },
-    );
-
-    // Sidebar column is full-height (matches the pane area height).
-    const paneArea = canvasElement.querySelector('.pane-container') as HTMLElement;
-    expect(sidebar.getBoundingClientRect().height).toBeGreaterThan(
-      paneArea.getBoundingClientRect().height - 4,
-    );
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Opening the RIGHT column leaves the panes' left edge exactly where it was
-// ---------------------------------------------------------------------------
-
-export const RightColumnDoesNotMoveTheLeftEdge: Story = {
-  tags: ['nightly'],
-  args: { height: 500, initCommands: ['split-window -h'] },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          'Toggling the dock resizes the pane area from its right edge, so its LEFT edge must not move — not at the end, and not for a frame in between, while the grid is re-tiled for the width the column leaves.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const leftEdge = () => {
-      const rects = [...canvasElement.querySelectorAll('.pane-layout-item[data-pane-id]')].map(
-        (el) => el.getBoundingClientRect(),
-      );
-      return rects.length ? Math.min(...rects.map((r) => r.left)) : null;
-    };
-    await waitFor(() => expect(leftEdge()).not.toBeNull(), { timeout: 8000 });
-
-    const before = leftEdge()!;
-    const samples: number[] = [];
-    let sampling = true;
-    const tick = () => {
-      const edge = leftEdge();
-      if (edge !== null) samples.push(edge);
-      if (sampling) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-
-    const toggle = await canvas.findByRole(
-      'button',
-      { name: /toggle terminal sidebar/i },
-      { timeout: 8000 },
-    );
-    await userEvent.click(toggle);
-
-    // Wait for the column to be there, and a few frames past it.
-    await waitFor(
-      () => {
-        const el = document.querySelector('.sidebar-column-right') as HTMLElement | null;
-        if (!el) throw new Error('no dock column');
-        expect(el.getBoundingClientRect().width).toBeGreaterThan(20);
-      },
-      { timeout: 8000 },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    sampling = false;
-
-    // The dock really took width out of the pane area...
-    const after = leftEdge()!;
-    const rects = [...canvasElement.querySelectorAll('.pane-layout-item[data-pane-id]')].map((el) =>
-      el.getBoundingClientRect(),
-    );
-    const dock = document.querySelector('.sidebar-column-right')!.getBoundingClientRect();
-    expect(Math.max(...rects.map((r) => r.right))).toBeLessThanOrEqual(dock.left + 1);
-
-    // ...and the left edge never moved, at any frame of it. The tolerance is
-    // the sub-cell remainder the grid is centred within.
-    expect(samples.length).toBeGreaterThan(5);
-    const drift = Math.max(...samples.map((x) => Math.abs(x - before)));
-    expect(drift).toBeLessThan(6);
-    expect(Math.abs(after - before)).toBeLessThan(6);
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Dragging a column's inner edge resizes both the column and its tmux pane
-// ---------------------------------------------------------------------------
-
-export const DragResizesTheColumn: Story = {
-  args: { height: 500 },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const toggle = await canvas.findByRole(
-      'button',
-      { name: /toggle tree sidebar/i },
-      { timeout: 8000 },
-    );
-    await userEvent.click(toggle);
-
-    const column = await waitFor(
-      () => {
-        const el = document.querySelector('.sidebar-column-left') as HTMLElement | null;
-        if (!el) throw new Error('no sidebar column');
-        return el;
-      },
-      { timeout: 8000 },
-    );
-    const handle = column.querySelector('.sidebar-resize-handle') as HTMLElement;
-    expect(handle).not.toBeNull();
-
-    const startWidth = column.getBoundingClientRect().width;
-    // The width the grid has left. A column that grew without the grid giving
-    // up the same space would be overlapping the panes, not docked beside them.
-    const gridCols = () => Math.max(...tabPanes().map((p) => p.width));
-    const startGridCols = gridCols();
-    expect(startGridCols).toBeGreaterThan(0);
-
-    // Drag the inner edge 90px to the right. Driven as pointer events on the
-    // handle, because the drag is what a user actually does — the column has no
-    // width control to call. The handle captures the pointer, so the move and
-    // the release go to the handle itself, as they would from a real mouse.
-    const box = handle.getBoundingClientRect();
-    const startX = Math.round(box.x + box.width / 2);
-    const y = Math.round(box.y + box.height / 2);
-    const pointer = (type: string, clientX: number) =>
-      new PointerEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY: y,
-        button: 0,
-        buttons: type === 'pointerup' ? 0 : 1,
-        pointerId: 1,
-        pointerType: 'mouse',
-        isPrimary: true,
-      });
-    handle.dispatchEvent(pointer('pointerdown', startX));
-    // The drag state lands on the next render; a real drag has human-scale
-    // delay here, so wait for it rather than moving synchronously.
-    await waitFor(() => expect(handle.className).toContain('is-dragging'), { timeout: 8000 });
-    handle.dispatchEvent(pointer('pointermove', startX + 90));
-    // A real mouse never releases in the same task as the move it finished on.
-    // The handler applies the move on the next frame, so releasing immediately
-    // let the release be handled first and the drag end where it started.
-    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
-    handle.dispatchEvent(pointer('pointerup', startX + 90));
-
-    // The column is drawn wider, and the pane grid gave space up for it — the
-    // resize re-tiles the panes rather than covering them. (How MUCH the grid
-    // loses is the container's business, not the drag's.)
-    await waitFor(
-      () => {
-        expect(column.getBoundingClientRect().width).toBeGreaterThan(startWidth + 40);
-        expect(gridCols()).toBeLessThan(startGridCols);
-      },
-      { timeout: 6000, interval: 200 },
-    );
-
-    // The width is committed on the column's own tmux window, which is what
-    // makes it outlive this client rather than being a local style.
-    const treeWindow = app().context.windows.find((w) => w.windowType === 'sidebar-left')!;
-    expect(treeWindow.sidebarCols).toBe(
-      Math.round(column.getBoundingClientRect().width / app().context.charWidth),
-    );
-  },
-};
+type Story = StoryObj<typeof FixtureApp>;
 
 // ---------------------------------------------------------------------------
 // A tree with more rows than the column is tall scrolls INSIDE the column
@@ -236,15 +26,18 @@ export const DragResizesTheColumn: Story = {
 
 export const TallTreeScrollsInsideTheColumn: Story = {
   tags: ['nightly'],
+  // Twelve one-pane tabs, the last active, twenty rows tall; the toggle opens
+  // the tree beside them.
   args: {
-    height: 400,
-    initCommands: ['rename-window main', ...Array.from({ length: 11 }, () => 'new-window')],
+    fixture: asFixture(manyTabs),
+    start: 'closed',
+    transitions: [{ match: /^split-window\b.*@tmuxy-window-type sidebar-left$/, to: 'open' }],
   },
   parameters: {
     docs: {
       description: {
         story:
-          'Twelve tabs and their panes are more rows than a 400px column can show. The tree has to scroll within the column: its box stays inside the column (rather than growing past the bottom edge and being clipped away with no way to reach the rest), and walking the keyboard cursor down to the last row brings that row into view.',
+          'Twelve tabs and their panes are more rows than a twenty-row column can show. The tree has to scroll within the column: its box stays inside the column (rather than growing past the bottom edge and being clipped away with no way to reach the rest), and walking the keyboard cursor down to the last row brings that row into view.',
       },
     },
   },
@@ -263,7 +56,7 @@ export const TallTreeScrollsInsideTheColumn: Story = {
 
     // Every tab and its pane got a row — far more rows than the column is tall.
     const rows = () => [...tree.querySelectorAll('[role="treeitem"]')] as HTMLElement[];
-    await waitFor(() => expect(rows().length).toBeGreaterThanOrEqual(20), { timeout: 8000 });
+    await waitFor(() => expect(rows()).toHaveLength(24), { timeout: 8000 });
 
     // The tree is bounded by its column: a box that grew past the bottom edge
     // would have its extra rows clipped by the column with nothing to scroll.
@@ -328,10 +121,8 @@ export const TallTreeScrollsInsideTheColumn: Story = {
  * order the controls are read in.
  */
 export const TabOrderNeverTrapsTheKeyboard: Story = {
-  args: {
-    height: 500,
-    initCommands: ['rename-window main', 'new-window', 'rename-window logs'],
-  },
+  // Tabs `one` and `two` beside the tree.
+  args: { fixture: asFixture(twoTabs), start: 'open' },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
@@ -339,7 +130,6 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
       { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
-    await userEvent.click(toggle);
     await waitForTree();
 
     const sidebar = document.querySelector('.sidebar-column-left') as HTMLElement;
@@ -349,10 +139,8 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
     // what Tab past the last control does in any browser: a walk that never
     // leaves is the trap. (Back into the page is the browser's own move, which
     // a page cannot press for; from nothing focused, Tab is the terminal's.)
-    // The toggle is focused the way a keyboard user arrives, not by the click
-    // above: a clicked button keeps the focus, and the Tab typed next is the
-    // shell's.
-    toggle.blur();
+    // The toggle is focused the way a keyboard user arrives, not by a click:
+    // a clicked button keeps the focus, and the Tab typed next is the shell's.
     toggle.focus();
     const walk = async (shift: boolean): Promise<HTMLElement[]> => {
       toggle.focus();

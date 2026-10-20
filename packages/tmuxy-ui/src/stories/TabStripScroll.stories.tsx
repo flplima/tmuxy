@@ -1,5 +1,5 @@
 /**
- * Paging an overflowing tab strip (demo engine).
+ * Paging an overflowing tab strip, over recordings of real tmux.
  *
  * The strip scrolls sideways with its scrollbar hidden, so past a certain
  * number of tabs the ones at the end are simply unreachable without a wheel.
@@ -13,11 +13,29 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import manyTabs from './fixtures/gen/many-tabs.json';
+import tabs from './fixtures/gen/tabs.json';
 
-const meta: Meta<typeof AppHarness> = {
+/**
+ * Twelve tabs with long names, more than the strip shows, the last current;
+ * switching to the first and back answered as tmux answered it.
+ */
+const MANY_TABS = {
+  fixture: asFixture(manyTabs),
+  start: 'last-active',
+  transitions: [
+    { match: /^select-window -t @0$/, to: 'first-active' },
+    { match: /^select-window -t @11$/, to: 'last-active' },
+  ],
+};
+/** Two tabs, `main` and `logs`, with room to spare. */
+const TWO_TABS = { fixture: asFixture(tabs), start: 'logs-active' };
+
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Tab Strip Scroll',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -29,16 +47,7 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
-
-/** Enough tabs, with long enough names, that the strip cannot show them all. */
-const MANY_TABS = [
-  'rename-window development',
-  ...Array.from({ length: 11 }, (_, i) => [
-    'new-window',
-    `rename-window long-tab-name-${i + 1}`,
-  ]).flat(),
-];
+type Story = StoryObj<typeof FixtureApp>;
 
 function strip(canvasElement: HTMLElement): HTMLElement {
   const el = canvasElement.querySelector<HTMLElement>('.tab-list');
@@ -77,10 +86,10 @@ async function pageUntilDone(button: HTMLElement, list: HTMLElement): Promise<vo
 
 export const PagesAScreenfulAtATime: Story = {
   tags: ['nightly'],
-  args: { height: 420, initCommands: MANY_TABS },
+  args: MANY_TABS,
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 420 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'Twelve tabs with long names overflow the strip. Both buttons appear; the left one starts disabled because there is nothing behind the first tab. Clicking ‹ › moves the strip by its own width, and the last page stops at the end instead of overshooting — at which point the right button is the disabled one.',
@@ -165,10 +174,10 @@ export const PagesAScreenfulAtATime: Story = {
 // ---------------------------------------------------------------------------
 
 export const NoButtonsWhenEverythingFits: Story = {
-  args: { height: 420, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
+  args: TWO_TABS,
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 420 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'Two tabs leave the strip with room to spare, so there is nothing to page to and neither button is rendered — the header keeps just the "+" and the grid toggle.',
@@ -194,10 +203,10 @@ export const NoButtonsWhenEverythingFits: Story = {
 // ---------------------------------------------------------------------------
 
 export const SwitchingScrollsTheTabIntoView: Story = {
-  args: { height: 420, initCommands: MANY_TABS },
+  args: MANY_TABS,
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 420 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'Switching by keyboard can land on a tab that is scrolled off the strip, which would leave the tab you are now looking at as the one you cannot see. The strip scrolls it back into view by the least amount that does it, so the tabs either side of it stay where they were.',
@@ -269,10 +278,10 @@ export const SwitchingScrollsTheTabIntoView: Story = {
 // ---------------------------------------------------------------------------
 
 export const TabsCarryNoCloseButton: Story = {
-  args: { height: 420, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
+  args: TWO_TABS,
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 420 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'A row of buttons each with a target you can hit by accident is a row you cannot click confidently, so no tab carries a ✕. Closing has three unhurried homes instead: the tab’s context menu, its card in the all-tabs view, and the hover preview.',

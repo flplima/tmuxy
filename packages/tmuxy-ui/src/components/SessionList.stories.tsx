@@ -1,5 +1,6 @@
 /**
- * SessionList stories (demo engine): the way back in once detached.
+ * SessionList stories, over a recording of real tmux: the way back in once
+ * detached.
  *
  * Driven the way a user gets there — Detach Session from the app menu — and
  * back: the overlay lists the sessions, on screen, and picking one attaches
@@ -8,16 +9,18 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
-import { AppHarness } from '../stories/StoryHarness';
+import { FixtureApp } from '../stories/FixtureHarness';
+import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import panes from '../stories/fixtures/gen/panes.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/SessionList',
-  component: AppHarness,
+  component: FixtureApp,
   parameters: { layout: 'fullscreen' },
-  args: { height: 420 },
+  args: { fixture: asFixture(panes), start: 'one' },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 export const DetachThenPickASession: Story = {
   play: async ({ canvasElement }) => {

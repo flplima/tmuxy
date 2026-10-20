@@ -1,5 +1,5 @@
 /**
- * Blinking cursor stories (demo engine).
+ * Blinking cursor stories, over a pane recorded from real tmux.
  *
  * What the user sees is the SmoothCursor overlay, not the pane's own cursor
  * element — that one is only the anchor the overlay glides to. So the blink
@@ -22,11 +22,14 @@
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
-import { AppHarness } from './StoryHarness';
+import { FixtureApp } from './FixtureHarness';
+import { asFixture } from './fixtures/FixtureAdapter';
+import panes from './fixtures/gen/panes.json';
 
-const meta: Meta<typeof AppHarness> = {
+const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Cursor Blink',
-  component: AppHarness,
+  component: FixtureApp,
+  args: { fixture: asFixture(panes), start: 'one' },
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -38,7 +41,7 @@ const meta: Meta<typeof AppHarness> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof AppHarness>;
+type Story = StoryObj<typeof FixtureApp>;
 
 const APPEARANCE = {
   opacity: 0.7,
@@ -56,7 +59,7 @@ interface AppActor {
 
 function getApp(): AppActor {
   const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — AppHarness not mounted?');
+  if (!app) throw new Error('window.app actor is not available — FixtureApp not mounted?');
   return app;
 }
 
@@ -95,15 +98,23 @@ async function sampleOpacity(el: HTMLElement, ms = 1300): Promise<number[]> {
   return seen;
 }
 
+/** The app's appearance as tmuxy.conf pushes it, with `@tmuxy-cursor-blink` set to `blink`. */
+const pushAppearance = (blink: boolean) =>
+  getApp().send({
+    type: 'THEME_SETTINGS_RECEIVED',
+    theme: 'default',
+    mode: 'dark',
+    appearance: { ...APPEARANCE, cursorBlink: blink },
+  });
+
 // ---------------------------------------------------------------------------
 // On by default — the cursor winks out and comes back
 // ---------------------------------------------------------------------------
 
 export const BlinksByDefault: Story = {
-  args: { height: 400 },
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 400 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
           'With no `@tmuxy-cursor-blink` in the config the default is on, so the app container carries `.app-cursor-blink` and a default-shape cursor (DECSCUSR 0) blinks. Sampling the blink layer over one period sees full opacity and full transparency, which is the hard on/off a terminal caret has rather than a fade.',
@@ -127,17 +138,16 @@ export const BlinksByDefault: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Config off — `@tmuxy-cursor-blink off` holds the cursor solid
+// The config and View > Blinking Cursor — both paths that flip it
 // ---------------------------------------------------------------------------
 
-export const ConfigBlinkOff: Story = {
-  args: { height: 400 },
+export const ViewMenuTogglesTheBlink: Story = {
   parameters: {
     docs: {
-      story: { inline: false, iframeHeight: 400 },
+      story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          '`set -g @tmuxy-cursor-blink off` reaches the client with the appearance (THEME_SETTINGS_RECEIVED). The gate class comes off the app container, the animation stops, and the cursor stays painted for a full period. Turning it back on (a `source-file` re-push) starts it winking again.',
+          '`set -g @tmuxy-cursor-blink off` reaches the client with the appearance (THEME_SETTINGS_RECEIVED): the gate class comes off the app container, the animation stops, and the cursor stays painted for a full period; turning it back on (a `source-file` re-push) starts it winking again. The View submenu carries the same switch as a checked "Blinking Cursor" item. Clicking it flips the gate class straight away and sends `set_cursor_blink` to the backend, which writes the choice back to the tmuxy config so it survives a restart. Re-opening the menu shows the box unchecked.',
       },
     },
   },
@@ -146,50 +156,19 @@ export const ConfigBlinkOff: Story = {
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
     const layer = await blinkLayer(canvasElement);
     const container = appContainer(canvasElement);
+    expect(container.classList.contains('app-cursor-blink')).toBe(true);
 
-    getApp().send({
-      type: 'THEME_SETTINGS_RECEIVED',
-      theme: 'default',
-      mode: 'dark',
-      appearance: { ...APPEARANCE, cursorBlink: false },
-    });
+    // The config turns it off: the cursor holds solid for a whole period.
+    pushAppearance(false);
     await waitFor(() => expect(container.classList.contains('app-cursor-blink')).toBe(false));
     expect(layer.getAnimations().length).toBe(0);
-
     const seen = await sampleOpacity(layer);
     expect(Math.min(...seen)).toBe(1);
 
-    getApp().send({
-      type: 'THEME_SETTINGS_RECEIVED',
-      theme: 'default',
-      mode: 'dark',
-      appearance: { ...APPEARANCE, cursorBlink: true },
-    });
+    // …and back on.
+    pushAppearance(true);
     await waitFor(() => expect(container.classList.contains('app-cursor-blink')).toBe(true));
     expect(layer.getAnimations().length).toBeGreaterThan(0);
-  },
-};
-
-// ---------------------------------------------------------------------------
-// View > Blinking Cursor — the user path that flips it and writes the config
-// ---------------------------------------------------------------------------
-
-export const ViewMenuTogglesTheBlink: Story = {
-  args: { height: 400 },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 400 },
-      description: {
-        story:
-          'The View submenu carries a checked "Blinking Cursor" item. Clicking it flips the gate class straight away and sends `set_cursor_blink` to the backend, which writes the choice back to the tmuxy config so it survives a restart. Re-opening the menu shows the box unchecked.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
-    const container = appContainer(canvasElement);
-    expect(container.classList.contains('app-cursor-blink')).toBe(true);
 
     // The menu portals to document.body, so query there once it is open. The
     // hamburger is the one in the status bar — each pane header has a menu
@@ -204,8 +183,7 @@ export const ViewMenuTogglesTheBlink: Story = {
 
     await userEvent.click(item);
     await waitFor(() => expect(container.classList.contains('app-cursor-blink')).toBe(false));
-    const layer = canvasElement.querySelector<HTMLElement>('.smooth-cursor-blink');
-    expect(layer!.getAnimations().length).toBe(0);
+    expect(layer.getAnimations().length).toBe(0);
 
     await userEvent.click(hamburger);
     await userEvent.click(await body.findByRole('menuitem', { name: 'View' }));
