@@ -438,3 +438,35 @@ fn is_list_panes_line_matches_only_real_pane_records() {
     assert!(!is_list_panes_line("x%0,1"));
     assert!(!is_list_panes_line(""));
 }
+
+#[test]
+fn kitty_tmux_passthrough_placeholders_render_as_an_image() {
+    let mut pane = PaneState::new(pid("%1"), 40, 10);
+    let b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        b"\x89PNG\r\n\x1a\n",
+    );
+    let apc = format!("\x1b_Ga=T,U=1,f=100,i=42,c=2,r=2;{b64}\x1b\\");
+    let passthrough = format!("\x1bPtmux;{}\x1b\\", apc.replace('\x1b', "\x1b\x1b"));
+    pane.process_output(passthrough.as_bytes());
+    pane.process_output(
+        "\x1b[38;2;0;0;42m\u{10eeee}\u{0305}\u{0305}\u{10eeee}\u{0305}\u{030d}\r\n\
+         \u{10eeee}\u{030d}\u{0305}\u{10eeee}\u{030d}\u{030d}\x1b[39m"
+            .as_bytes(),
+    );
+
+    let content = pane.get_content();
+    let text: String = content
+        .iter()
+        .flat_map(|row| row.iter().map(|cell| cell.char.clone()))
+        .collect();
+    assert!(
+        !text.contains('\u{10eeee}'),
+        "placeholders stay out of text"
+    );
+    assert_eq!(pane.image_parser.placements.len(), 1);
+    let placement = &pane.image_parser.placements[0];
+    assert_eq!((placement.row, placement.col), (0, 0));
+    assert_eq!((placement.width_cells, placement.height_cells), (2, 2));
+    assert!(pane.image_store.contains_key(&placement.id));
+}

@@ -5,7 +5,7 @@
 //!
 //! - **iTerm2 Inline Images** — `ESC ] 1337 ; File=<args> : <base64> BEL/ST`
 //! - **Kitty Graphics Protocol** — `ESC _ G<keys>;<base64-payload> ESC \`
-//!   (APC sequence, supports chunked transfer via `m=1`/`m=0`)
+//!   (APC sequence, supports chunked transfer where the final chunk may omit `m=0`)
 //! - **Sixel** — `ESC P <params> q <sixel data> ESC \` (DCS), decoded to PNG
 //!   via the `icy_sixel` pure-Rust decoder.
 //!
@@ -77,9 +77,9 @@ pub struct StoredImage {
 
 /// In-flight kitty chunked transfer (across multiple APC sequences).
 ///
-/// Kitty splits large payloads into chunks with `m=1` (more) and `m=0` (last).
-/// Subsequent chunks may omit metadata (other than `i=`/`m=`), so we cache the
-/// first chunk's transmission keys on the entry.
+/// Kitty splits large payloads into chunks with `m=1` (more); the final chunk
+/// may mark `m=0` or omit `m` entirely. Subsequent chunks may omit metadata
+/// (other than `i=`/`m=`), so we cache the first chunk's transmission keys.
 #[derive(Debug)]
 struct KittyChunked {
     /// When the transfer was opened; see `MAX_CHUNKED_AGE`.
@@ -88,6 +88,8 @@ struct KittyChunked {
     payload: String,
     /// Image format (`f=`) from the first chunk: 32 = RGBA, 24 = RGB, 100 = PNG.
     format: u32,
+    /// Payload compression (`o=`); `z` is ZLIB.
+    compression: Option<u8>,
     /// Source pixel width (`s=`).
     src_width: u32,
     /// Source pixel height (`v=`).
@@ -96,6 +98,8 @@ struct KittyChunked {
     rows: u32,
     /// Display columns (`c=`) — 0 if unset.
     cols: u32,
+    /// The transfer creates a virtual placement represented by Unicode cells.
+    unicode_placeholder: bool,
 }
 
 /// Per-pane image parser state.
@@ -111,6 +115,10 @@ pub struct ImageParser {
     kitty_chunks: std::collections::HashMap<u32, KittyChunked>,
     /// The order transfers were opened in, so the cap evicts the oldest.
     kitty_chunk_order: std::collections::VecDeque<u32>,
+    /// Kitty protocol image ids mapped to the ids used by the HTTP image store.
+    kitty_image_ids: std::collections::HashMap<u32, u32>,
+    /// Internal image ids whose screen placement comes from Unicode cells.
+    kitty_virtual_images: std::collections::HashSet<u32>,
     /// An image escape (iTerm2/kitty/sixel) split across `%output` chunks,
     /// carried into the next `process()` call so a large payload isn't torn —
     /// its header rendered as garbage text and the image dropped.
@@ -132,6 +140,10 @@ const MAX_PENDING_IMAGE: usize = 8 * 1024 * 1024;
 /// different thing: a chunked transfer (`m=1`) is assembled here, across many
 /// well-formed escapes, and nothing was watching that total.
 const MAX_CHUNKED_IMAGE: usize = MAX_PENDING_IMAGE;
+
+/// Upper bound on a ZLIB-compressed Kitty payload once inflated, so a small
+/// payload cannot expand into an unbounded buffer.
+const MAX_DECODED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 
 /// How many chunked transfers may be in flight at once.
 ///
@@ -182,6 +194,8 @@ impl ImageParser {
         self.main_screen_placements = None;
         self.kitty_chunks.clear();
         self.kitty_chunk_order.clear();
+        self.kitty_image_ids.clear();
+        self.kitty_virtual_images.clear();
         self.cursor_row = 0;
         self.cursor_col = 0;
         self.pending.clear();
