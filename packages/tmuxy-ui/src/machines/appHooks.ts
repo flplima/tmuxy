@@ -9,7 +9,7 @@
  * - useIsResizing() - check if resize is in progress
  */
 
-import { useContext } from 'react';
+import { useCallback, useContext } from 'react';
 import { useSelector } from '@xstate/react';
 import type { StateValueFrom } from 'xstate';
 import type { appMachine, AppMachineActor } from './app/appMachine';
@@ -26,7 +26,7 @@ import {
   selectPaneGroupPanes as selectPaneGroupPanesFn,
   getActivePaneInGroup,
 } from './selectors/panesAndSidebars';
-import { selectReadOnly } from './selectors/ui';
+import { selectBindingOwnsKey, selectReadOnly } from './selectors/ui';
 import type { PaneId } from '../domain/ids';
 import {
   AppActorContext,
@@ -70,6 +70,15 @@ function shallowArrayEqual<T extends unknown[]>(a: T, b: T): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+/**
+ * `selectBindingOwnsKey` against the live context, for a key listener that is
+ * installed once and asked on every key.
+ */
+export function useBindingOwnsKey(): (key: string) => boolean {
+  const actor = useAppActor();
+  return useCallback((key) => selectBindingOwnsKey(actor.getSnapshot().context, key), [actor]);
 }
 
 /** Get the send function for app machine events */

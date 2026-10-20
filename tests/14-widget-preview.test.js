@@ -18,6 +18,10 @@ const {
   waitForShellPrompt,
   waitForCondition,
   waitForTerminalText,
+  getPrefixKey,
+  waitForKeybindings,
+  waitForPrefixActive,
+  waitForPrefixConsumed,
 } = require('./helpers');
 
 const TMUXY_CLI = path.resolve(__dirname, '..', 'bin/tmuxy-cli');
@@ -62,6 +66,56 @@ function activePreview(page) {
 /** The frame the preview page runs in, found afresh: each reload is a new URL. */
 function previewFrame(page) {
   return page.frames().find((f) => f.url().includes('/api/preview/')) ?? null;
+}
+
+/**
+ * The prefix, then `key`, typed wherever the keyboard is: the preview itself,
+ * or the page in its frame. Not `sendPrefixCommand`, which clicks a terminal
+ * first and so would take the keyboard off the preview.
+ */
+async function pressPrefixed(page, key) {
+  await waitForKeybindings(page);
+  const prefix = await getPrefixKey(page);
+  await page.keyboard.press(`${prefix.modifier}+${prefix.key}`);
+  await waitForPrefixActive(page);
+  await page.keyboard.press(key);
+  await waitForPrefixConsumed(page);
+}
+
+/** The panes in the active tab. */
+function tabPaneCount(page) {
+  return page.evaluate(() => {
+    const c = window.app.getSnapshot().context;
+    return c.panes.filter((p) => p.windowId === c.activeWindowId).length;
+  });
+}
+
+/**
+ * tmux's bindings work over the preview: `prefix -` splits its pane. The new
+ * shell's `exit` closes it again and hands the keyboard back to the preview.
+ */
+async function splitFromPreview(ctx, previewPaneId) {
+  const before = await tabPaneCount(ctx.page);
+  await pressPrefixed(ctx.page, '-');
+  await waitForCondition(
+    ctx.page,
+    async () => (await tabPaneCount(ctx.page)) === before + 1,
+    10000,
+    '`prefix -` over the preview to split its pane',
+  );
+  await waitForShellPrompt(ctx.page);
+  await typeInTerminal(ctx.page, 'exit');
+  await pressEnter(ctx.page);
+  let shown = null;
+  await waitForCondition(
+    ctx.page,
+    async () => {
+      shown = await activePreview(ctx.page);
+      return (await tabPaneCount(ctx.page)) === before && shown.paneId === previewPaneId;
+    },
+    10000,
+    () => `the split to close, back on the preview (${JSON.stringify(shown)})`,
+  );
 }
 
 async function openPreview(ctx, file) {
@@ -133,6 +187,21 @@ describe('Scenario: tmuxy open previews a local file', () => {
       'the preview to follow the file',
     );
     expect(Math.abs(shown.scrollTop - readTo)).toBeLessThanOrEqual(2);
+
+    // A preview has no copy mode: `prefix [` leaves it as it is, still drawn
+    // and still scrolled where the reader left it.
+    await pressPrefixed(ctx.page, '[');
+    const afterCopyKey = await ctx.page.evaluate((paneId) => {
+      const c = window.app.getSnapshot().context;
+      return { copy: !!c.copyModeStates[paneId] };
+    }, shown.paneId);
+    expect(afterCopyKey.copy).toBe(false);
+    const stillShown = await activePreview(ctx.page);
+    expect(stillShown.heading).toBe('Doc Two');
+    expect(stillShown.headingBox.height).toBeGreaterThan(0);
+    expect(Math.abs(stillShown.scrollTop - readTo)).toBeLessThanOrEqual(2);
+
+    await splitFromPreview(ctx, shown.paneId);
 
     // Ctrl+C is the way out, and the pane's read goes with the preview.
     await ctx.page.keyboard.press('Control+c');
@@ -262,15 +331,20 @@ describe('Scenario: tmuxy open previews a local file', () => {
     );
     expect(Math.abs(page2.scrollY - readTo)).toBeLessThanOrEqual(2);
 
-    // The keyboard is the page's while the user is in it, and Ctrl+C still
-    // closes the preview.
-    await ctx.page.mouse.click(frameBox.x + frameBox.width / 2, frameBox.y + 40);
-    await waitForCondition(
-      ctx.page,
-      () => ctx.page.evaluate(() => document.activeElement?.tagName === 'IFRAME'),
-      5000,
-      'the page to have the keyboard',
-    );
+    // The keyboard is the page's while the user is in it, and tmux's
+    // bindings and Ctrl+C still reach the app from there.
+    const clickIntoPage = async () => {
+      await ctx.page.mouse.click(frameBox.x + frameBox.width / 2, frameBox.y + 40);
+      await waitForCondition(
+        ctx.page,
+        () => ctx.page.evaluate(() => document.activeElement?.tagName === 'IFRAME'),
+        5000,
+        'the page to have the keyboard',
+      );
+    };
+    await clickIntoPage();
+    await splitFromPreview(ctx, shown.paneId);
+    await clickIntoPage();
     await ctx.page.keyboard.press('Control+c');
     await waitForCondition(
       ctx.page,

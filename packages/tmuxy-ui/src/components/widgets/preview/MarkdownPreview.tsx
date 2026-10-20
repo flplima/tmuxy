@@ -16,6 +16,7 @@ import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidBlock } from './MermaidBlock';
 import { useKeyedRequest } from './useKeyedRequest';
+import { useBindingOwnsKey } from '../../../machines/appHooks';
 import type { PreviewSource } from './previewSource';
 import type { PreviewTheme } from './previewTheme';
 import { previewResourcePath, type PreviewDocument } from '../../../domain/preview';
@@ -85,15 +86,18 @@ const LINE = 24;
 /**
  * The pager keys, while the preview is the pane with the keyboard: what a
  * reader expects of `less`. Captured before the keyboard actor, which would
- * otherwise send them to the pane, where nothing reads them.
+ * otherwise send them to the pane, where nothing reads them — except a key
+ * that is a binding's, the `j` of `prefix j`, which goes on to the actor.
  */
 function usePagerKeys(scrollRef: React.RefObject<HTMLDivElement | null>, active: boolean) {
   const activeRef = useRef(active);
   activeRef.current = active;
+  const bindingOwnsKey = useBindingOwnsKey();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = scrollRef.current;
       if (!activeRef.current || !el || e.metaKey || e.altKey) return;
+      if (bindingOwnsKey(e.key)) return;
       const page = el.clientHeight;
       const step: Record<string, number> = {
         j: LINE,
@@ -119,7 +123,7 @@ function usePagerKeys(scrollRef: React.RefObject<HTMLDivElement | null>, active:
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [scrollRef]);
+  }, [scrollRef, bindingOwnsKey]);
 }
 
 export function MarkdownPreview({

@@ -52,6 +52,7 @@ import {
   useAppSend,
   useAppSelector,
   useAppSelectorShallow,
+  useBindingOwnsKey,
   useReadOnly,
 } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
@@ -86,9 +87,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
-  const prefixActive = useAppSelector((ctx) => ctx.prefixActive);
-  const keyTable = useAppSelector((ctx) => ctx.keyTable);
-  const prefixRepeatOnly = useAppSelector((ctx) => ctx.prefixRepeatOnly);
+  const bindingOwnsKey = useBindingOwnsKey();
 
   const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
   const { cwdByPane, branchOf } = useSidebarGitContext(sessions, sessionName, repositories);
@@ -197,10 +196,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // keyboard actor; stops keys from reaching the pane/tmux).
   const stateRef = useRef({ rows, selectedIndex, activate, send, toggleCollapse });
   stateRef.current = { rows, selectedIndex, activate, send, toggleCollapse };
-  // Read inside the capture listener, which is installed once per focus.
-  const bindingKeysRef = useRef<(key: string) => boolean>(() => false);
-  bindingKeysRef.current = (key) =>
-    keyTable !== null || (prefixActive && (!prefixRepeatOnly || prefixRepeatOnly.includes(key)));
   useEffect(() => {
     if (!focused) return;
     const handler = (e: KeyboardEvent) => {
@@ -208,7 +203,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       // binding's, not the tree's: `prefix p` then `j` moves panes even
       // with the column focused. In a repeat window (`prefix s` then `s`)
       // only the repeated key is; anything else is the tree's again.
-      if (bindingKeysRef.current(e.key)) return;
+      if (bindingOwnsKey(e.key)) return;
       const target = e.target as HTMLElement | null;
       const {
         rows: rs,
@@ -308,7 +303,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [focused]);
+  }, [focused, bindingOwnsKey]);
 
   // Drag state: which pane is being dragged, and which tab is a hover target.
   // The tab whose name is being edited in the tree, if any.

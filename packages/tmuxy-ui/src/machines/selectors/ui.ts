@@ -126,6 +126,19 @@ export function selectPrefixActive(context: AppMachineContext): boolean {
   return context.prefixActive;
 }
 
+/**
+ * A key typed now is a binding's, not the focused surface's own: after the
+ * prefix, or in a sticky table (PANE, TAB). In a repeat window (`prefix s`
+ * then `s`) only the repeated key is. A surface that reads plain keys itself
+ * (the tree, a preview) lets these through to the keyboard actor.
+ */
+export function selectBindingOwnsKey(context: AppMachineContext, key: string): boolean {
+  const { keyTable, prefixActive, prefixRepeatOnly } = context;
+  return (
+    keyTable !== null || (prefixActive && (!prefixRepeatOnly || prefixRepeatOnly.includes(key)))
+  );
+}
+
 /** The sticky key table in force (`pane`, `tab`), or null. */
 export function selectKeyTable(context: AppMachineContext): string | null {
   return context.keyTable;
