@@ -86,10 +86,10 @@
 }
 
 /* The column with the keyboard takes the theme's accent — the same colour the
-   active tab wears when the keyboard is in the panes. Only one surface can
-   have it at a time, which is what makes it mean "here". */
+   active pane's outline wears when the keyboard is in the panes. Only one
+   surface can have it at a time, which is what makes it mean "here". */
 .sidebar-title.is-focused {
-  color: var(--tab-active-text);
+  color: var(--theme-accent);
 }
 
 .sidebar-title-text {
@@ -256,23 +256,11 @@
   color: var(--text-primary);
 }
 
-/* Active tab: full brightness in the theme's accent, no filled pill. A pill
-   would compete with the active pane's own border for "where am I", and the
-   tab strip is the coarser of the two — so it states it more quietly. */
+/* Active tab: the theme's white on a dark face, its opposite on a light one,
+   and no filled pill. It says which tab is current, not where you are typing:
+   the accent is the active pane's outline, or a focused column's title. */
 .tab-name-active {
-  color: var(--tab-active-text);
-}
-
-/* ...unless the keyboard has gone to a sidebar. The accent follows the focus,
-   so the tab drops back to plain white and says only which tab is current,
-   not where you are typing. */
-.app-container.has-sidebar-focus .tab-name-active {
   color: var(--text-primary);
-}
-
-.tab-name-active:hover,
-.tab-name-active.is-previewing {
-  color: var(--tab-active-text);
 }
 
 /* A tab being dragged rides with the pointer above its neighbours, with no

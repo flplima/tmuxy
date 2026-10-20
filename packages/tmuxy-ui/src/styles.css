@@ -105,10 +105,9 @@
   --error-light: #f48771;
 
   /* The theme's accent, which every theme face declares (yellow on gruvbox,
-     the palette's green elsewhere). The active tab, the active pane's
-     outline and the column with the keyboard all wear it. */
+     the palette's green elsewhere). The active pane's outline and the
+     column with the keyboard wear it. */
   --theme-accent: var(--accent-green);
-  --tab-active-text: var(--theme-accent);
   --pane-focus-border: var(--theme-accent);
   /* A glow on terminal text: none, unless a theme is a CRT. */
   --terminal-text-glow: none;

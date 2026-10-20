@@ -123,10 +123,9 @@ describe('theme faces', () => {
   });
 
   it.each(FACES.map((f) => [f.name, f] as const))(
-    '%s: the active tab, the active pane outline and the accent are one colour',
+    '%s: the active pane outline and the accent are one colour',
     (_, face) => {
       const accent = colorOf(face, '--theme-accent');
-      expect(colorOf(face, '--tab-active-text')).toEqual(accent);
       expect(colorOf(face, '--pane-focus-border')).toEqual(accent);
     },
   );

@@ -92,11 +92,12 @@ function face(theme: Theme, mode: Mode): Story {
       ) as HTMLElement;
       const status = canvasElement.querySelector('.tmux-status-bar') as HTMLElement;
       // Retried: the old face stays applied for a beat after the new sheet
-      // loads, and the tab's colour transitions into the new accent.
+      // loads, and the chrome's colours transition into the new face's.
       await waitFor(
         () => {
           const accent = token('--theme-accent');
-          expect(paint(tab, 'color')).toEqual(accent);
+          // The current tab is the face's white (its opposite on a light face).
+          expect(paint(tab, 'color')).toEqual(token('--text-primary'));
           expect(paint(activePane, 'outlineColor')).toEqual(accent);
           expect(paint(status, 'backgroundColor')).toEqual(token('--tmux-status-bg'));
           expect(paint(activePane, 'backgroundColor')).toEqual(token('--term-background'));

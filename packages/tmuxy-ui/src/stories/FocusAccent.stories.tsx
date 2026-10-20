@@ -2,11 +2,11 @@
  * Which surface has the keyboard, said in colour, over states recorded from
  * real tmux.
  *
- * The theme's accent (`--tab-active-text` — yellow on gruvbox) marks where you
- * are typing, and only one surface can wear it at a time. With the keyboard in
- * the panes it is the current tab's name. Move it to a sidebar and the accent
- * goes with it: the column's title takes it, and the tab drops back to plain
- * white, where it says only which tab is current.
+ * The theme's accent (`--theme-accent` — yellow on gruvbox) marks where you
+ * are typing. With the keyboard in the panes it is the active pane's outline.
+ * Move it to a sidebar and the accent goes with it: the column's title takes
+ * it. The current tab never wears it — it is the theme's white, and says only
+ * which tab is current.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -44,7 +44,7 @@ export const TheAccentFollowsTheKeyboard: Story = {
       story: { inline: false, iframeHeight: 500 },
       description: {
         story:
-          'Opening the tree column and focusing it hands the accent to its title; the active tab turns white. Clicking back into a pane hands it back. Asserted on the painted colours, with the theme’s own tokens as the expected values — a rule that never applied would pass a class check.',
+          'With the keyboard in the panes the active pane’s outline wears the accent; opening the tree column and focusing it hands it to the column’s title, and leaving the column takes it back. The current tab stays the theme’s white throughout. Asserted on the painted colours, with the theme’s own tokens as the expected values — a rule that never applied would pass a class check.',
       },
     },
   },
@@ -57,21 +57,27 @@ export const TheAccentFollowsTheKeyboard: Story = {
     // yellow, the default's is the white itself — so the story gives itself a
     // distinguishable one. What is under test is which surface reads the
     // token, not what a particular theme puts in it.
-    document.documentElement.style.setProperty('--tab-active-text', 'rgb(215, 153, 33)');
+    document.documentElement.style.setProperty('--theme-accent', 'rgb(215, 153, 33)');
     const style = getComputedStyle(document.documentElement);
     const probe = document.createElement('span');
     canvasElement.appendChild(probe);
-    probe.style.color = style.getPropertyValue('--tab-active-text').trim();
+    probe.style.color = style.getPropertyValue('--theme-accent').trim();
     const accentPainted = colourOf(probe);
-    probe.style.color = style.getPropertyValue('--term-white').trim();
+    probe.style.color = style.getPropertyValue('--text-primary').trim();
     const whitePainted = colourOf(probe);
     probe.remove();
     expect(accentPainted).not.toBe(whitePainted);
 
     const activeTab = () => canvasElement.querySelector<HTMLElement>('.tab-name-active')!;
-    // Keyboard in the panes: the current tab wears the accent.
+    const activePane = () =>
+      canvasElement.querySelector<HTMLElement>('.pane-layout-item.pane-active')!;
+    // Keyboard in the panes: the active pane's outline wears the accent, the
+    // current tab the white.
     expect(root).not.toHaveClass('has-sidebar-focus');
-    await waitFor(() => expect(colourOf(activeTab())).toBe(accentPainted));
+    await waitFor(() => {
+      expect(getComputedStyle(activePane()).outlineColor).toBe(accentPainted);
+      expect(colourOf(activeTab())).toBe(whitePainted);
+    });
 
     // Open the tree column and focus it.
     await userEvent.keyboard('{Control>}a{/Control}s');
@@ -87,18 +93,20 @@ export const TheAccentFollowsTheKeyboard: Story = {
 
     await waitFor(() => {
       expect(root).toHaveClass('has-sidebar-focus');
-      // The column's title has it now...
+      // The column's title has it now; the tab is still the white.
       expect(colourOf(title)).toBe(accentPainted);
-      // ...and the tab has given it up.
       expect(colourOf(activeTab())).toBe(whitePainted);
     });
 
-    // Back to the panes the way the tree offers it — l / → leaves the column.
+    // Back to the panes the way the tree offers it — l / → leaves the column,
+    // and the title gives the accent back to the pane.
     await userEvent.keyboard('l');
     await waitFor(() => {
       expect(root).not.toHaveClass('has-sidebar-focus');
-      expect(colourOf(activeTab())).toBe(accentPainted);
+      expect(colourOf(title)).not.toBe(accentPainted);
+      expect(getComputedStyle(activePane()).outlineColor).toBe(accentPainted);
+      expect(colourOf(activeTab())).toBe(whitePainted);
     });
-    document.documentElement.style.removeProperty('--tab-active-text');
+    document.documentElement.style.removeProperty('--theme-accent');
   },
 };
