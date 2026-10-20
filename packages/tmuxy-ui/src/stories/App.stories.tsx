@@ -71,173 +71,62 @@ type Story = StoryObj<typeof V86AppHarness>;
  * including the **active-pane style** (`.pane-active`) and the **terminal
  * cursor** — both driven by the active window/pane the Rust WASM core
  * reconstructs from the initial list-panes/list-windows sync.
+ *
+ * The page throws nothing while it boots and runs a typed command: the
+ * `error` / `unhandledrejection` hooks go in before the first wait, so
+ * anything thrown during the cycle is caught.
  */
 export const Live: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await waitFor(
-      () => {
-        const panes = canvas.getAllByRole('group', { name: /^Pane %/i });
-        expect(panes.length).toBeGreaterThanOrEqual(2);
-        for (const pane of panes) {
-          const rect = pane.getBoundingClientRect();
-          expect(rect.width).toBeGreaterThan(0);
-          expect(rect.height).toBeGreaterThan(0);
-        }
-      },
-      { timeout: 45000, interval: 500 },
-    );
-    // Exactly one pane is styled active, and its cursor is rendered.
-    await waitFor(
-      () => {
-        expect(canvasElement.querySelectorAll('.pane-active').length).toBe(1);
-        expect(canvasElement.querySelectorAll('.terminal-cursor').length).toBeGreaterThanOrEqual(1);
-      },
-      { timeout: 15000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Mouse: clicking an inactive pane selects it — the active-pane style and cursor
- * move to the clicked pane (a `select-pane` round-trip through real tmux).
- */
-export const MouseSelectPane: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const getActive = () =>
-      (
-        window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
-      ).app.getSnapshot().context.activePaneId;
-    await waitFor(
-      () =>
-        expect(canvas.getAllByRole('group', { name: /^Pane %/i }).length).toBeGreaterThanOrEqual(2),
-      { timeout: 45000, interval: 500 },
-    );
-    await waitFor(() => expect(getActive()).toBeTruthy(), { timeout: 10000 });
-    const initial = getActive();
-    const panes = canvas.getAllByRole('group', { name: /^Pane %/i });
-    // Click the pane that isn't currently active.
-    const target =
-      panes.find((p: HTMLElement) => p.getAttribute('data-pane-id') !== initial) ?? panes[0];
-    await userEvent.click(target);
-    await waitFor(() => expect(getActive()).not.toBe(initial), { timeout: 10000, interval: 300 });
-  },
-};
-
-/**
- * Keyboard with the tmuxy default keybindings (C-a prefix): pressing the prefix
- * then `c` (new-window) runs the mapped command through real tmux and a new
- * window tab appears.
- */
-export const PrefixKeybinding: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    const prefixActive = () =>
-      (
-        window as unknown as { app: { getSnapshot(): { context: { prefixActive?: boolean } } } }
-      ).app.getSnapshot().context.prefixActive === true;
-    await waitFor(
-      () =>
-        expect(canvas.getAllByRole('group', { name: /^Pane %/i }).length).toBeGreaterThanOrEqual(2),
-      { timeout: 45000, interval: 500 },
-    );
-    await user.click(canvas.getAllByRole('group', { name: /^Pane %/i })[0]);
-    // C-a (the tmuxy prefix) must arm prefix mode…
-    await user.keyboard('{Control>}a{/Control}');
-    await waitFor(() => expect(prefixActive()).toBe(true), { timeout: 5000, interval: 200 });
-    // …and the next mapped key (c = new-window) consumes it.
-    await user.keyboard('c');
-    await waitFor(() => expect(prefixActive()).toBe(false), { timeout: 5000, interval: 200 });
-  },
-};
-
-/** Real `split-window` commands issued at startup produce real extra panes. */
-export const Splits: Story = {
-  args: { initCommands: ['split-window -v'] },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitFor(
-      () => {
-        const panes = canvas.getAllByRole('group', { name: /^Pane %/i });
-        expect(panes.length).toBeGreaterThanOrEqual(3);
-      },
-      { timeout: 45000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Keyboard split (regression): pressing the prefix then `-` runs the mapped
- * `split-window -v` through real tmux and a third pane appears. The keyboardActor
- * pins the command to the active pane with a `select-pane -t %N \; split-window`
- * compound; the adapter must translate the shell-escaped `\;` separator to the
- * bare `;` control-mode wants — otherwise the split silently errors and the
- * app's optimistic placeholder pane never reconciles, freezing the UI. This
- * asserts the split completes and the active pane is a real pane (not a stuck
- * `__placeholder_op_*`).
- */
-export const KeyboardSplit: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('-');
-    await waitFor(
-      () => {
-        expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(3);
-        expect(activePaneId()).toMatch(/^%\d+$/);
-      },
-      { timeout: 30000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Interactive: click a pane and TYPE a command on the keyboard — the keystrokes
- * flow keyboardActor → `send-keys` → real tmux in v86 → bash, and the output is
- * re-rendered from the live `%output` stream via the Rust WASM core. Proves the
- * tmuxy UI is genuinely interactive client-side (not a static render).
- */
-export const Interactive: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
-    pasteLine('echo STORY_INTERACT');
-    // The echoed output must appear in the active pane (rendered from live
-    // %output). Keystrokes route to whichever pane tmux has active, so accept a
-    // match in any pane.
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) => /STORY_INTERACT/.test(p.textContent ?? '')),
-        ).toBe(true),
-      { timeout: 25000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Runs real commands in real bash and drives the real **tmuxy CLI** inside the
- * guest — exactly like server-side mode, but fully client-side. We enter a
- * `tmuxy pane split` command into the focused pane's bash; the CLI runs in-guest
- * and routes the split through `tmux run-shell`, and the resulting new pane shows
- * up in the tmuxy UI (reconstructed by the Rust WASM core).
- */
-export const TmuxyCli: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
-    const before = paneGroups(canvas).length;
-    pasteLine('tmuxy pane split');
-    // The new pane created by the CLI must show up in the UI (reconstructed by
-    // the Rust WASM core from the live control-mode stream).
-    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThan(before), {
-      timeout: 30000,
-      interval: 500,
-    });
+    const errors: string[] = [];
+    // "ResizeObserver loop completed with undelivered notifications" is a benign
+    // browser back-pressure signal (fired as an error event, harmless, and
+    // whitelisted by every mainstream test harness) — not an app defect.
+    const BENIGN = /ResizeObserver loop (limit exceeded|completed with undelivered notifications)/;
+    const onError = (e: ErrorEvent) => {
+      if (!BENIGN.test(String(e.message))) errors.push(String(e.message));
+    };
+    const onRejection = (e: PromiseRejectionEvent) => errors.push(String(e.reason));
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    try {
+      await waitFor(
+        () => {
+          const panes = canvas.getAllByRole('group', { name: /^Pane %/i });
+          expect(panes.length).toBeGreaterThanOrEqual(2);
+          for (const pane of panes) {
+            const rect = pane.getBoundingClientRect();
+            expect(rect.width).toBeGreaterThan(0);
+            expect(rect.height).toBeGreaterThan(0);
+          }
+        },
+        { timeout: 45000, interval: 500 },
+      );
+      // Exactly one pane is styled active, and its cursor is rendered.
+      await waitFor(
+        () => {
+          expect(canvasElement.querySelectorAll('.pane-active').length).toBe(1);
+          expect(canvasElement.querySelectorAll('.terminal-cursor').length).toBeGreaterThanOrEqual(
+            1,
+          );
+        },
+        { timeout: 15000, interval: 500 },
+      );
+      await focusFirstPane(canvas, userEvent.setup());
+      pasteLine('echo NOERR_9');
+      await waitFor(
+        () =>
+          expect(
+            paneGroups(canvas).some((p: HTMLElement) => /NOERR_9/.test(p.textContent ?? '')),
+          ).toBe(true),
+        { timeout: 30000, interval: 500 },
+      );
+      expect(errors).toEqual([]);
+    } finally {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    }
   },
 };
 

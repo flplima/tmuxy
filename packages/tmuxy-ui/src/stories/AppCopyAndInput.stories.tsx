@@ -26,40 +26,6 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * Copy mode enter: with real scrollback, C-a `[` enters copy mode — the client
- * intercepts `copy-mode`, initializes its scrollback engine, and forwards the
- * command so tmux flips `in_mode`. Asserted via the tmux-reported `inMode` AND
- * the rendered `[COPY MODE]` header indicator.
- */
-export const CopyModeEnter: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    const id = activePaneId();
-    pasteLine('seq 1 200');
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) => /199200/.test(p.textContent ?? '')),
-        ).toBe(true),
-      { timeout: 30000, interval: 500 },
-    );
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('[[');
-    await waitFor(() => expect(paneMode(id)).toBe(true), { timeout: 15000, interval: 400 });
-    // The pane header shows the [COPY MODE] indicator the user sees.
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) => /\[COPY MODE\]/.test(p.textContent ?? '')),
-        ).toBe(true),
-      { timeout: 10000, interval: 400 },
-    );
-  },
-};
-
-/**
  * The scroll view: wheeling up in a shell opens the native-like scrollback view
  * — history fetched from tmux via `get_scrollback_cells` and rendered in a
  * natively-scrolling container — and wheeling back to the bottom closes it.
@@ -127,176 +93,45 @@ export const ScrollViewWheel: Story = {
 };
 
 /**
- * Copy mode exit: `q` leaves copy mode (tmux-reported), and the pane is a live
- * shell again — a typed command's output renders.
+ * Sync panes: `synchronize-panes` in real tmux — typed input then mirrors into
+ * every pane of the window. Set through the CLI (no key is bound to it), and
+ * by value rather than toggled: the command that turns it off is itself
+ * mirrored into every pane, and a toggle run twice would leave it on. We paste
+ * a sentinel with sync ON (must render in BOTH panes) and another after
+ * turning it OFF (must render in exactly one) — the negative half guards
+ * against a stuck setting.
  */
-export const CopyModeExit: Story = {
+export const SyncPanes: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
-    const id = activePaneId();
-    pasteLine('seq 1 100');
-    await waitFor(
-      () =>
-        expect(paneGroups(canvas).some((p: HTMLElement) => /99100/.test(p.textContent ?? ''))).toBe(
-          true,
-        ),
-      { timeout: 30000, interval: 500 },
-    );
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('[[');
-    await waitFor(() => expect(paneMode(id)).toBe(true), { timeout: 15000, interval: 400 });
-    await user.keyboard('q');
-    await waitFor(() => expect(paneMode(id)).toBe(false), { timeout: 15000, interval: 400 });
-    pasteLine('echo AFTER_COPY_EXIT_88');
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) =>
-            /AFTER_COPY_EXIT_88/.test(p.textContent ?? ''),
-          ),
-        ).toBe(true),
-      { timeout: 30000, interval: 500 },
-    );
-  },
-};
-
-// ───────────────────────── §7 Input edge cases ─────────────────────────
-
-/**
- * Multi-line paste: one paste of three lines reaches bash as one bracketed
- * paste, and the Enter after it runs all three commands, in order, exactly
- * once — no line runs early on a newline of its own.
- */
-export const PasteMultiline: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    pasteLine('echo ML_A4\necho ML_B4\necho ML_C4');
-    await waitFor(
-      () => {
-        const text = paneGroups(canvas)
-          .map((p: HTMLElement) => p.textContent ?? '')
-          .join('');
-        for (const m of ['ML_A4', 'ML_B4', 'ML_C4']) {
-          // Rendered once as the echoed command and once as output ⇒ ≥2 hits.
-          expect((text.match(new RegExp(m, 'g')) ?? []).length).toBeGreaterThanOrEqual(2);
-        }
-      },
-      { timeout: 30000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Long-line paste: a single line longer than PASTE_CHUNK_SIZE (500) is split
- * into multiple `send-keys -l` chunks that must reassemble verbatim — the tail
- * sentinel only prints if no middle chunk was dropped or reordered.
- */
-export const PasteLongLine: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    const filler = 'a'.repeat(560);
-    pasteLine(`echo ${filler}LONG_TAIL_63`);
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) =>
-            /a{20,}LONG_TAIL_63/.test(p.textContent ?? ''),
-          ),
-        ).toBe(true),
-      { timeout: 40000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Special characters survive the paste path verbatim: single quotes (tmux -l
- * escaping), `$` (no shell expansion en route), `#` (tmux 3.7a format expansion
- * — must be ##-escaped by the adapter), and `\;` inside a literal (must NOT be
- * rewritten as a command separator).
- */
-export const PasteQuotesAndSpecials: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    // #{session_name} is the HARD case: a valid tmux format that 3.7a
-    // send-keys would expand, and (unlike #{pane_id}/#{pane_width}/#{pane_height},
-    // which the appMachine substitutes client-side BY DESIGN — appMachine
-    // SEND_TMUX_COMMAND placeholder expansion) nothing pre-substitutes it, so
-    // the adapter must chunk the literal for it to survive verbatim.
-    pasteLine(`echo "it's \\$x #{session_name} ; done_QS9"`);
-    // bash prints: it's $x #{session_name} ; done_QS9
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) =>
-            /it's \$x #\{session_name\} ; done_QS9/.test(p.textContent ?? ''),
-          ),
-        ).toBe(true),
-      { timeout: 30000, interval: 500 },
-    );
-  },
-};
-
-/**
- * Shell history round-trip: run a command, press ArrowUp (must reach bash as a
- * cursor key, not a literal) and Enter — the same output prints a second time.
- */
-export const ArrowKeysHistory: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    const hits = () =>
-      paneGroups(canvas)
-        .map((p: HTMLElement) => p.textContent ?? '')
-        .join('')
-        .match(/HIST_R7/g)?.length ?? 0;
-    pasteLine('echo HIST_R7');
-    // echoed command + output = 2 occurrences.
-    await waitFor(() => expect(hits()).toBeGreaterThanOrEqual(2), {
-      timeout: 30000,
-      interval: 500,
-    });
-    const before = hits();
-    await user.keyboard('{ArrowUp}');
-    await new Promise((r) => setTimeout(r, 800));
-    await user.keyboard('{Enter}');
-    await waitFor(() => expect(hits()).toBeGreaterThan(before), { timeout: 30000, interval: 500 });
-  },
-};
-
-/**
- * Tab completion: `ec` + Tab must reach bash as a real Tab (completing to
- * `echo `), then the typed argument executes — the output can only render if
- * the completion worked.
- */
-export const TabCompletion: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    await user.keyboard('e');
-    await new Promise((r) => setTimeout(r, 300));
-    await user.keyboard('c');
-    await new Promise((r) => setTimeout(r, 500));
-    await user.keyboard('{Tab}');
-    await new Promise((r) => setTimeout(r, 1200));
-    pasteLine('TAB_OK_21');
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) =>
-            /(^|[^o])TAB_OK_21/.test(p.textContent ?? ''),
-          ),
-        ).toBe(true),
-      { timeout: 30000, interval: 500 },
-    );
+    const inPanes = (re: RegExp) =>
+      paneGroups(canvas).filter((p: HTMLElement) => re.test(p.textContent ?? '')).length;
+    // Set, then wait for the echo chained after it: it prints only once tmux
+    // has applied the setting, and the typed line carries the marker too, so
+    // the output is its second occurrence. A sentinel typed before the setting
+    // lands would reach one pane and read as sync not working.
+    const set = async (value: 'on' | 'off', marker: string) => {
+      pasteLine(`tmuxy run setw synchronize-panes ${value} && echo ${marker}`);
+      await waitFor(
+        () =>
+          expect(
+            paneGroups(canvas).some(
+              (p: HTMLElement) => (p.textContent ?? '').split(marker).length - 1 >= 2,
+            ),
+          ).toBe(true),
+        { timeout: 30000, interval: 500 },
+      );
+    };
+    await set('on', 'SYNC_SET_42');
+    pasteLine('echo SYNC_ON_42');
+    await waitFor(() => expect(inPanes(/SYNC_ON_42/)).toBe(2), { timeout: 30000, interval: 500 });
+    await set('off', 'SYNC_UNSET_42');
+    pasteLine('echo SYNC_OFF_42');
+    await waitFor(() => expect(inPanes(/SYNC_OFF_42/)).toBe(1), { timeout: 30000, interval: 500 });
+    // Give the mirror a beat, then confirm it STAYED in one pane (not just raced).
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(inPanes(/SYNC_OFF_42/)).toBe(1);
   },
 };

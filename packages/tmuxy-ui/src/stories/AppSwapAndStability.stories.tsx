@@ -6,6 +6,7 @@ import { armPaintProbe } from './immediacy';
 import { GlitchRecorder } from './glitchRecorder';
 import { SWAP_DWELL_MS } from '../machines/drag/dragMachine';
 import {
+  type Canvas,
   pasteLine,
   activePaneId,
   paneGroups,
@@ -27,12 +28,96 @@ const meta: Meta<typeof V86AppHarness> = {
 export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
+const findPane = (canvas: Canvas, id: string) =>
+  paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
+
+/** Click a pane, wait for it to be active, and print `seq from to` in it. */
+async function fillWithSeq(
+  canvas: Canvas,
+  user: ReturnType<typeof userEvent.setup>,
+  id: string,
+  from: number,
+  to: number,
+): Promise<void> {
+  await user.click(findPane(canvas, id));
+  await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
+  pasteLine(`seq ${from} ${to}`);
+  await waitFor(() => expect(findPane(canvas, id).textContent ?? '').toContain(String(to)), {
+    timeout: 30000,
+    interval: 400,
+  });
+}
+
+/**
+ * A pane's visible consecutive-number run: its rendered `.terminal-line`s
+ * inside the pane content box, top to bottom, as integers.
+ */
+function numbersOf(canvas: Canvas, id: string): number[] {
+  const g = paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id);
+  if (!g) return [];
+  const cRect = (g.querySelector('.pane-content') as HTMLElement)?.getBoundingClientRect();
+  return (Array.from(g.querySelectorAll('.terminal-line')) as HTMLElement[])
+    .map((l) => ({ top: l.getBoundingClientRect().top, t: (l.textContent ?? '').trim() }))
+    .filter((x) => cRect && x.top >= cRect.top - 1 && x.top <= cRect.bottom)
+    .sort((a, b) => a.top - b.top)
+    .map((x) => (/^\d+$/.test(x.t) ? Number(x.t) : NaN))
+    .filter((v) => !Number.isNaN(v));
+}
+
+/** How many places a run is not consecutive. */
+function breaks(ns: number[]): number {
+  let b = 0;
+  for (let i = 1; i < ns.length; i++) if (ns[i] !== ns[i - 1] + 1) b++;
+  return b;
+}
+
+/**
+ * Sample every painted frame for the worst out-of-order break across all
+ * panes; `stop()` ends the sampling and returns it.
+ */
+function sampleBreaks(canvas: Canvas): { stop: () => number } {
+  let worst = 0;
+  let sampling = true;
+  const tick = () => {
+    if (!sampling) return;
+    const frameBreaks = paneIds(canvas).reduce((sum, id) => sum + breaks(numbersOf(canvas, id)), 0);
+    if (frameBreaks > worst) worst = frameBreaks;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return {
+    stop: () => {
+      sampling = false;
+      return worst;
+    },
+  };
+}
+
+/**
+ * After a swap settles, each pane still shows a clean consecutive run ending
+ * at its own last value: the right content landed at the right rows.
+ */
+function expectRunsIntact(canvas: Canvas, maxes: number[]): void {
+  const runs = paneIds(canvas).map((id) => numbersOf(canvas, id));
+  for (const ns of runs) {
+    expect(ns.length).toBeGreaterThan(2);
+    expect(breaks(ns)).toBe(0);
+  }
+  expect(runs.map((ns) => ns[ns.length - 1]).sort((a, b) => a - b)).toEqual(maxes);
+}
+
 /**
  * 1.6 — Drag-to-swap reconciles without a visual step: after the drop, the
  * optimistic swap retargets both panes' inline geometry within a few frames,
  * and once the CSS transition settles, the real `%layout-change` from tmux
  * must land with ZERO further rect movement and no pane remounts — the user
  * sees exactly one continuous motion.
+ *
+ * The content rides along intact: each pane is first filled with a distinct
+ * run of consecutive numbers, a rAF sampler asserts no painted frame of the
+ * drag + drop + reconcile ever renders a run out of order, and after settling
+ * each run still ends at its own last value and neither layout item carries a
+ * leftover drag transform (which would push content into the wrong rows).
  */
 export const SwapDragReconcile: Story = {
   play: async ({ canvasElement }) => {
@@ -42,12 +127,11 @@ export const SwapDragReconcile: Story = {
     const [a, b] = paneIds(canvas);
     const src = paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
     const dst = src === a ? b : a;
-    const srcEl = paneGroups(canvas).find(
-      (p: HTMLElement) => p.getAttribute('data-pane-id') === src,
-    )!;
-    const dstEl = paneGroups(canvas).find(
-      (p: HTMLElement) => p.getAttribute('data-pane-id') === dst,
-    )!;
+    await fillWithSeq(canvas, user, src, 100, 200);
+    await fillWithSeq(canvas, user, dst, 500, 640);
+
+    const srcEl = findPane(canvas, src);
+    const dstEl = findPane(canvas, dst);
     const header = srcEl.querySelector('.pane-header') as HTMLElement;
     const hRect = header.getBoundingClientRect();
     const dstRect = paneRect(canvas, dst);
@@ -65,6 +149,7 @@ export const SwapDragReconcile: Story = {
     const srcSlotBefore = `${srcWrapper.style.left}|${srcWrapper.style.top}`;
     const dstSlotBefore = `${dstWrapper.style.left}|${dstWrapper.style.top}`;
 
+    const sampler = sampleBreaks(canvas);
     header.dispatchEvent(
       new MouseEvent('mousedown', { button: 0, clientX: startX, clientY: startY, bubbles: true }),
     );
@@ -134,6 +219,20 @@ export const SwapDragReconcile: Story = {
     // And the swap actually stuck (server-confirmed geometry).
     const leftNow = paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
     expect(leftNow).toBe(dst);
+
+    // Never rendered out of order during the whole drag, and settled intact.
+    expect(sampler.stop(), 'terminal content rendered in wrong lines during drag-swap').toBe(0);
+    expectRunsIntact(canvas, [200, 640]);
+    for (const id of paneIds(canvas)) {
+      const item = canvasElement.querySelector(
+        `.pane-layout-item[data-pane-id="${id}"]`,
+      ) as HTMLElement;
+      const t = getComputedStyle(item).transform;
+      // Identity / none — no residual translate that would offset the content.
+      const translated =
+        t !== 'none' && /matrix\([^)]*\)/.test(t) && !/matrix\(1, 0, 0, 1, 0, 0\)/.test(t);
+      expect(translated, `pane ${id} has a leftover drag transform: ${t}`).toBe(false);
+    }
   },
 };
 
@@ -157,8 +256,6 @@ export const SwapKeepsContentInCorrectLines: Story = {
         type: 'SEND_TMUX_COMMAND',
         command: c,
       });
-    const findPane = (id: string) =>
-      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
     const byTop = () =>
       paneIds(canvas)
         .map((id) => ({ id, top: paneRect(canvas, id).top }))
@@ -183,204 +280,21 @@ export const SwapKeepsContentInCorrectLines: Story = {
     await sleep(800);
     [top, bottom] = byTop();
 
-    const fill = async (id: string, from: number, to: number) => {
-      await user.click(findPane(id));
-      await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
-      pasteLine(`seq ${from} ${to}`);
-      await waitFor(() => expect(findPane(id).textContent ?? '').toContain(String(to)), {
-        timeout: 30000,
-        interval: 400,
-      });
-    };
-    await fill(top, 100, 200);
-    await fill(bottom, 500, 640);
-
-    // Visible consecutive-number run for a pane: its rendered `.terminal-line`s
-    // inside the pane content box, top-to-bottom, as an integer array.
-    const numbersOf = (id: string): number[] => {
-      const g = paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id);
-      if (!g) return [];
-      const cRect = (g.querySelector('.pane-content') as HTMLElement)?.getBoundingClientRect();
-      return (Array.from(g.querySelectorAll('.terminal-line')) as HTMLElement[])
-        .map((l) => ({ top: l.getBoundingClientRect().top, t: (l.textContent ?? '').trim() }))
-        .filter((x) => cRect && x.top >= cRect.top - 1 && x.top <= cRect.bottom)
-        .sort((a, b) => a.top - b.top)
-        .map((x) => (/^\d+$/.test(x.t) ? Number(x.t) : NaN))
-        .filter((v) => !Number.isNaN(v));
-    };
-    const breaks = (ns: number[]): number => {
-      let b = 0;
-      for (let i = 1; i < ns.length; i++) if (ns[i] !== ns[i - 1] + 1) b++;
-      return b;
-    };
+    await fillWithSeq(canvas, user, top, 100, 200);
+    await fillWithSeq(canvas, user, bottom, 500, 640);
 
     // Frame-sample the worst out-of-order break across both panes through the swap.
-    let worstBreaks = 0;
-    let sampling = true;
-    const tick = () => {
-      if (!sampling) return;
-      const frameBreaks = paneIds(canvas).reduce((sum, id) => sum + breaks(numbersOf(id)), 0);
-      if (frameBreaks > worstBreaks) worstBreaks = frameBreaks;
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    const sampler = sampleBreaks(canvas);
 
     // Swap the two (differently-sized) panes.
     cmd(`swap-pane -U -t ${bottom}`);
     await sleep(2200);
-    sampling = false;
 
     // Content must never have rendered out of order at any painted frame.
-    expect(worstBreaks, 'terminal content rendered in wrong lines during swap').toBe(0);
+    expect(sampler.stop(), 'terminal content rendered in wrong lines during swap').toBe(0);
 
-    // After settle: each value-run is still consecutive and ends at its own max,
-    // so the right content is at the right rows (100..200 and 500..640 swapped
-    // positions but kept their integrity).
-    const runs = paneIds(canvas).map((id) => numbersOf(id));
-    for (const ns of runs) {
-      expect(ns.length).toBeGreaterThan(2);
-      expect(breaks(ns)).toBe(0);
-    }
-    const maxes = runs.map((ns) => ns[ns.length - 1]).sort((a, b) => a - b);
-    expect(maxes).toEqual([200, 640]);
-  },
-};
-
-/**
- * Drag-swap keeps content in the correct lines: two equal-height stacked panes,
- * each filled with a distinct consecutive-number run, are swapped by dragging
- * the top pane's header down onto the bottom pane (the drag-machine path —
- * mousedown, cross the threshold, drop). A rAF sampler watches every painted
- * frame through the drag+drop asserting no pane ever renders its numbers out of
- * order, and after settling each pane still shows a clean consecutive run ending
- * at its own last value, is top-aligned in its content box, and its outer
- * layout item carries no leftover drag transform (which would push content into
- * the wrong absolute rows). Driven by real tmux via drag-and-drop.
- */
-export const DragSwapKeepsContentInCorrectLines: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await focusFirstPane(canvas, user);
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const cmd = (c: string) =>
-      (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
-        type: 'SEND_TMUX_COMMAND',
-        command: c,
-      });
-    const findPane = (id: string) =>
-      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
-    const byTop = () =>
-      paneIds(canvas)
-        .map((id) => ({ id, top: paneRect(canvas, id).top }))
-        .sort((a, b) => a.top - b.top)
-        .map((x) => x.id);
-
-    // Equal-height vertical stack.
-    const ids0 = paneIds(canvas);
-    cmd(`kill-pane -t ${ids0[1]}`);
-    await waitFor(() => expect(paneGroups(canvas).length).toBe(1), {
-      timeout: 20000,
-      interval: 300,
-    });
-    cmd('split-window -v');
-    await waitFor(() => expect(paneGroups(canvas).length).toBe(2), {
-      timeout: 20000,
-      interval: 300,
-    });
-    await sleep(500);
-    let [top, bottom] = byTop();
-
-    const fill = async (id: string, from: number, to: number) => {
-      await user.click(findPane(id));
-      await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
-      pasteLine(`seq ${from} ${to}`);
-      await waitFor(() => expect(findPane(id).textContent ?? '').toContain(String(to)), {
-        timeout: 30000,
-        interval: 400,
-      });
-    };
-    await fill(top, 100, 200);
-    await fill(bottom, 500, 640);
-    [top, bottom] = byTop();
-
-    const numbersOf = (id: string): number[] => {
-      const g = paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id);
-      if (!g) return [];
-      const cRect = (g.querySelector('.pane-content') as HTMLElement)?.getBoundingClientRect();
-      return (Array.from(g.querySelectorAll('.terminal-line')) as HTMLElement[])
-        .map((l) => ({ top: l.getBoundingClientRect().top, t: (l.textContent ?? '').trim() }))
-        .filter((x) => cRect && x.top >= cRect.top - 1 && x.top <= cRect.bottom)
-        .sort((a, b) => a.top - b.top)
-        .map((x) => (/^\d+$/.test(x.t) ? Number(x.t) : NaN))
-        .filter((v) => !Number.isNaN(v));
-    };
-    const breaks = (ns: number[]): number => {
-      let b = 0;
-      for (let i = 1; i < ns.length; i++) if (ns[i] !== ns[i - 1] + 1) b++;
-      return b;
-    };
-
-    // Frame-sample worst out-of-order breaks across both panes through the drag.
-    let worstBreaks = 0;
-    let sampling = true;
-    const tick = () => {
-      if (!sampling) return;
-      const frameBreaks = paneIds(canvas).reduce((sum, id) => sum + breaks(numbersOf(id)), 0);
-      if (frameBreaks > worstBreaks) worstBreaks = frameBreaks;
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-
-    // Drag the TOP pane's header down onto the BOTTOM pane.
-    const header = findPane(top).querySelector('.pane-header') as HTMLElement;
-    const hRect = header.getBoundingClientRect();
-    const dstRect = paneRect(canvas, bottom);
-    const sX = hRect.left + hRect.width / 2;
-    const sY = hRect.top + hRect.height / 2;
-    const eX = dstRect.left + dstRect.width / 2;
-    const eY = dstRect.top + dstRect.height / 2;
-    const dstEl = findPane(bottom);
-    header.dispatchEvent(
-      new MouseEvent('mousedown', { button: 0, clientX: sX, clientY: sY, bubbles: true }),
-    );
-    for (let i = 1; i <= 6; i++) {
-      (i <= 2 ? header : dstEl).dispatchEvent(
-        new MouseEvent('mousemove', {
-          clientX: sX + ((eX - sX) * i) / 6,
-          clientY: sY + ((eY - sY) * i) / 6,
-          bubbles: true,
-        }),
-      );
-      await sleep(120);
-    }
-    dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: eX, clientY: eY, bubbles: true }));
-
-    // The swap must land (positions exchanged), then content settles.
-    await waitFor(() => expect(byTop()[0]).toBe(bottom), { timeout: 30000, interval: 400 });
-    await sleep(1500);
-    sampling = false;
-
-    // Never rendered out of order during the whole drag.
-    expect(worstBreaks, 'terminal content rendered in wrong lines during drag-swap').toBe(0);
-
-    // After settle: each pane's run is consecutive, ends at its own max, is
-    // top-aligned, and its outer layout item has no leftover drag transform.
-    const runs = paneIds(canvas).map((id) => numbersOf(id));
-    for (const ns of runs) {
-      expect(ns.length).toBeGreaterThan(2);
-      expect(breaks(ns)).toBe(0);
-    }
-    expect(runs.map((ns) => ns[ns.length - 1]).sort((a, b) => a - b)).toEqual([200, 640]);
-    for (const id of paneIds(canvas)) {
-      const item = canvasElement.querySelector(
-        `.pane-layout-item[data-pane-id="${id}"]`,
-      ) as HTMLElement;
-      const t = getComputedStyle(item).transform;
-      // Identity / none — no residual translate that would offset the content.
-      const translated =
-        t !== 'none' && /matrix\([^)]*\)/.test(t) && !/matrix\(1, 0, 0, 1, 0, 0\)/.test(t);
-      expect(translated, `pane ${id} has a leftover drag transform: ${t}`).toBe(false);
-    }
+    // After settle: 100..200 and 500..640 swapped positions but kept their
+    // integrity.
+    expectRunsIntact(canvas, [200, 640]);
   },
 };

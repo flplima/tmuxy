@@ -44,7 +44,25 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
         'OSC-LINK',
       );
 
-      // Step 1: a plain click on the OSC 8 anchor opens it and the page stays.
+      // Step 1: the OSC 8 anchor is drawn over its own text. A link recorded
+      // against the wrong cells once carried the right href on the next
+      // line's text, which an href alone cannot tell apart.
+      const readAnchor = () =>
+        ctx.page.evaluate(() => {
+          const a = document.querySelector('.terminal-content a.terminal-hyperlink');
+          const r = a?.getBoundingClientRect();
+          return a && { text: a.textContent, href: a.getAttribute('href'), shown: r.width > 0 };
+        });
+      await waitForCondition(
+        ctx.page,
+        async () => (await readAnchor()) !== null,
+        5000,
+        'the OSC 8 anchor to be drawn',
+      );
+      const anchor = await readAnchor();
+      expect(anchor).toEqual({ text: 'OSC-LINK', href: 'https://example.com/osc', shown: true });
+
+      // A plain click on it opens it and the page stays.
       await ctx.page.click('.terminal-content a.terminal-hyperlink');
       await waitForCondition(
         ctx.page,

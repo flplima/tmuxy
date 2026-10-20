@@ -274,6 +274,31 @@ describe('Scenario 2b: Browser Paste', () => {
     await waitForTerminalText(ctx.page, `${TOKEN} with spaces`);
   }, 60000);
 
+  test('a paste longer than one chunk, and quotes, $, # and ; inside one, reach the shell verbatim', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await focusPage(ctx.page);
+
+    // 1200 characters, more than the 500 a paste is staged in at a time, in
+    // distinct four-digit blocks: the shell compares what it was given with
+    // the same blocks built locally, so a chunk dropped, repeated or out of
+    // order fails the comparison and prints nothing.
+    const blocks = Array.from({ length: 300 }, (_, i) => String(i).padStart(4, '0')).join('');
+    await pasteText(
+      ctx.page,
+      `x=${blocks}; [ "$x" = "$(seq -f %04g 0 299 | tr -d '\\n')" ] && echo LONG_OK_\${#x}`,
+    );
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'LONG_OK_1200');
+
+    // A quote ends tmux's own quoting, `$` must reach the shell unexpanded,
+    // `#{…}` is a format tmux would expand, and `;` / `\;` separate tmux
+    // commands: each has to arrive as the character it is.
+    await pasteText(ctx.page, `echo "it's \\$x #{session_name} ; a\\;b done_QS9"`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, "it's $x #{session_name} ; a\\;b done_QS9");
+  }, 60000);
+
   test('a multi-line paste reaches a bracketed-paste program as ONE paste, not a Return per line', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();

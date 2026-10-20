@@ -2,12 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
 import { withTmuxView } from './tmuxView';
-import { GlitchRecorder } from './glitchRecorder';
 import { ResizeGlitchRecorder } from './resizeGlitch';
 import {
   paneGroups,
   focusFirstPane,
-  paneCols,
   paneRect,
   paneIds,
   pickDivider,
@@ -29,44 +27,6 @@ const meta: Meta<typeof V86AppHarness> = {
 };
 export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
-
-/**
- * Resize: shrinking the client container fires the app's ResizeObserver, which
- * issues `refresh-client -C <cols>x<rows>` to real tmux. tmux re-lays out and
- * reports narrower panes over the control stream, and the WASM core reconstructs
- * the reduced column counts — a full client→tmux→client resize round-trip.
- */
-export const Resize: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(2), {
-      timeout: 45000,
-      interval: 500,
-    });
-    // Let the initial size settle: the widest pane reads the same twice in a
-    // row. Waiting for it to cross an absolute column count instead made the
-    // precondition depend on how wide the runner's layout happened to land —
-    // a run that settled at exactly 40 columns failed with "expected 40 to be
-    // greater than 40" without anything being wrong.
-    let settled = -1;
-    await waitFor(
-      () => {
-        const widest = Math.max(...paneCols());
-        const stable = widest > 0 && widest === settled;
-        settled = widest;
-        expect(stable).toBe(true);
-      },
-      { timeout: 15000, interval: 500 },
-    );
-    const before = settled;
-    const harness = canvasElement.firstElementChild as HTMLElement;
-    harness.style.width = '480px';
-    await waitFor(() => expect(Math.max(...paneCols())).toBeLessThan(before), {
-      timeout: 30000,
-      interval: 500,
-    });
-  },
-};
 
 /**
  * Vertical drag resize: mouse-drag the HORIZONTAL divider between two stacked
@@ -187,92 +147,39 @@ export const ResizePaneDragGrid: Story = {
  * would drop that pane's header and shift its terminal content up a row for a
  * frame — the same root cause as the resize row-jump, on a different operation.
  * The reconcile masks the dip (appMachine TMUX_MODEL_UPDATE). The recorder
- * watches every pane's box AND content top ([role=log]) through the split.
- */
-export const SplitPaneNoRowJump: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
-    await settleGeometry(canvas);
-    const before = paneGroups(canvas).length;
-
-    const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
-    sendTmux('split-window -v');
-    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThan(before), {
-      timeout: 30000,
-      interval: 500,
-    });
-    await settleGeometry(canvas);
-    await new Promise((res) => setTimeout(res, 800));
-    // No existing pane's content jumped a row while the new pane appeared.
-    rec.assertNoBounces();
-  },
-};
-
-/**
- * Same guard on a busier layout: split inside a 2x2 grid, a larger re-layout
- * burst (more panes momentarily dropping to y=0).
+ * watches every pane's box AND content top ([role=log]) through the split:
+ * first in the plain two-pane layout, then inside a tiled 2x2 grid, a larger
+ * re-layout burst (more panes momentarily dropping to y=0).
  */
 export const SplitPaneInGridNoRowJump: Story = {
-  args: {
-    initCommands: ['split-window -v', 'split-window -h', 'select-layout tiled'],
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
+
+    const splitWithoutRowJump = async (command: string) => {
+      await settleGeometry(canvas);
+      const before = paneGroups(canvas).length;
+      const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+      sendTmux(command);
+      await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThan(before), {
+        timeout: 30000,
+        interval: 500,
+      });
+      await settleGeometry(canvas);
+      await new Promise((res) => setTimeout(res, 800));
+      // No existing pane's content jumped a row while the new pane appeared.
+      rec.assertNoBounces();
+    };
+
+    await splitWithoutRowJump('split-window -v');
+
+    // Three panes become the tiled 2x2 grid.
+    sendTmux('split-window -h');
+    sendTmux('select-layout tiled');
     await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(4), {
       timeout: 30000,
       interval: 500,
     });
-    await settleGeometry(canvas);
-    const before = paneGroups(canvas).length;
-
-    const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
-    sendTmux('split-window -h');
-    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThan(before), {
-      timeout: 30000,
-      interval: 500,
-    });
-    await settleGeometry(canvas);
-    await new Promise((res) => setTimeout(res, 800));
-    rec.assertNoBounces();
-  },
-};
-
-/**
- * Layout cycle: with 3 panes, C-a Space (next-layout) rearranges them — the rect
- * signature (id→x,y,w) must actually change, and the geometry comes from tmux's
- * %layout-change, not a client-side shuffle.
- */
-export const LayoutCycle: Story = {
-  args: { initCommands: ['split-window -v'] },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const user = userEvent.setup();
-    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(3), {
-      timeout: 45000,
-      interval: 500,
-    });
-    await focusFirstPane(canvas, user);
-    const signature = () =>
-      paneGroups(canvas)
-        .map((p: HTMLElement) => {
-          const r = p.getBoundingClientRect();
-          return `${p.getAttribute('data-pane-id')}:${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}`;
-        })
-        .sort()
-        .join('|');
-    const before = signature();
-    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard(' ');
-    await waitFor(() => expect(signature()).not.toBe(before), { timeout: 30000, interval: 500 });
-    // All panes still visible after the re-layout.
-    for (const p of paneGroups(canvas)) {
-      const r = (p as HTMLElement).getBoundingClientRect();
-      expect(r.width).toBeGreaterThan(0);
-      expect(r.height).toBeGreaterThan(0);
-    }
-    glitches.assertNoGlitches('layoutCycle');
+    await splitWithoutRowJump('split-window -h');
   },
 };

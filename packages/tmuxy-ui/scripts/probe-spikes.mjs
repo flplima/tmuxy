@@ -8,7 +8,7 @@
  * fresh page per story, which re-boots the machine every time and excludes
  * these stories entirely — this runner navigates between stories in-page via
  * the Storybook preview channel so the shared engine actually gets exercised
- * (including the SharedIsolation / SharedReattachStability reset guards).
+ * (including the SharedIsolation reset guard).
  *
  * Usage: node scripts/probe-spikes.mjs [port] [storyIdSubstring...]
  *

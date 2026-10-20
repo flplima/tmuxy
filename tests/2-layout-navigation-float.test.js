@@ -33,7 +33,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('CLI float → visually visible → centred in the container, again after a resize → header structure → auto-focus → type command → output visible → input isolation → close button → background restored → Escape and backdrop close too', async () => {
+  test('CLI float → visually visible → centred in the container, again after a resize → header structure → auto-focus → type command → output visible → input isolation → close button → background restored → Escape, backdrop and exit close too', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -265,7 +265,27 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     await waitForNoModal(ctx.page);
     const BACKDROP_TOKEN = 'BACKDROP_CLOSE_' + Date.now();
     await runCommand(ctx.page, `echo ${BACKDROP_TOKEN}`, BACKDROP_TOKEN);
-  }, 240000);
+
+    // Step 11: and so does the float's own shell ending. Typed into after a
+    // click on it, `exit` reaches the float's shell, not the pane behind, and
+    // tmux drops the float window with it.
+    const exitFloatId = await openFloatFromCli(ctx);
+    await typeInTerminal(ctx.page, 'exit', { target: '.float-container [role="log"]' });
+    expect(await focusedFloatPaneId(ctx.page)).toBe(exitFloatId);
+    await pressEnter(ctx.page);
+    await waitForNoModal(ctx.page);
+    const windowTypes = () =>
+      ctx.session.query(`list-windows -F '#{window_id}:#{@tmuxy-window-type}'`);
+    await waitForCondition(
+      ctx.page,
+      async () => !/:float$/m.test(await windowTypes()),
+      15000,
+      'tmux to drop the float window once its shell exits',
+    );
+    expect(await ctx.session.getActivePaneId()).toBe(bgPaneId);
+    const EXIT_TOKEN = 'EXIT_CLOSE_' + Date.now();
+    await runCommand(ctx.page, `echo ${EXIT_TOKEN}`, EXIT_TOKEN);
+  }, 300000);
 });
 
 // ==================== Scenario 22: Float fzf Workflow ====================

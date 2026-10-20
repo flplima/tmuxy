@@ -160,15 +160,6 @@ export const paneGroupsState = (): Array<{ id: string; paneIds: string[] }> =>
   );
 
 /** A 1×1 PNG, base64 — small enough to inline in an iTerm2 image escape. */
-export const INLINE_PNG_B64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-
-/** Reconstructed pane widths (in columns) from the live state. */
-export const paneCols = (): number[] =>
-  (window as unknown as { app: { getSnapshot(): { context: { panes: { width: number }[] } } } }).app
-    .getSnapshot()
-    .context.panes.map((p) => p.width);
-
 export const sessionName = (): string =>
   (
     window as unknown as { app: { getSnapshot(): { context: { sessionName: string } } } }
@@ -325,21 +316,6 @@ export const paneCopyState = (id: string): PaneScrollbackState | undefined =>
     }
   ).app.getSnapshot().context.copyModeStates[id];
 
-/** Wait for the float overlay to render and return it. */
-export async function waitForFloat(doc: Document): Promise<HTMLElement> {
-  let overlay: HTMLElement | null = null;
-  await waitFor(
-    () => {
-      overlay = doc.querySelector('.float-container');
-      expect(overlay).not.toBeNull();
-      expect((overlay as HTMLElement).getBoundingClientRect().width).toBeGreaterThan(0);
-    },
-    { timeout: 30000, interval: 500 },
-  );
-  return overlay!;
-}
-
-/** Open the hamburger app menu and return a submenu-item clicker. */
 /** Every role a menu item can carry, so a checkbox or radio item is findable too. */
 export const MENU_ITEM_ROLES = '[role=menuitem], [role=menuitemcheckbox], [role=menuitemradio]';
 

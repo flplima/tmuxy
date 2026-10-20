@@ -9,7 +9,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { createTestContext, navigateToSession, waitForCondition } = require('./helpers');
+const {
+  createTestContext,
+  navigateToSession,
+  waitForCondition,
+  noMenuOpen,
+  clickMenuItem,
+} = require('./helpers');
 const {
   CONFIG_URL,
   CONFIG_DIR,
@@ -30,24 +36,6 @@ const painted = (page) =>
       themeHref: document.getElementById('tmuxy-theme')?.getAttribute('href') ?? null,
     };
   });
-
-const noMenuOpen = (page) =>
-  page.evaluate(() => document.querySelector('[role^="menuitem"]') === null);
-
-/**
- * Open the hamburger menu — once nothing of a previous one is left, since the
- * button toggles and a menu that is still leaving would take the click as a
- * close — and click the entry `label` names, going through a submenu first.
- */
-async function clickMenuItem(page, labels) {
-  await waitForCondition(page, () => noMenuOpen(page), 5000, 'the previous menu to close');
-  await page.click('.app-menu-button');
-  for (const label of labels) {
-    const item = page.locator('[role^="menuitem"]', { hasText: label }).first();
-    await item.waitFor({ state: 'visible', timeout: 5000 });
-    await item.click();
-  }
-}
 
 /** The theme submenu's items, with whether each one can be picked; closed again after. */
 async function themeMenuItems(page) {

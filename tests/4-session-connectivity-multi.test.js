@@ -13,6 +13,9 @@ const {
   waitForTerminalText,
   navigateToSession,
   waitForCondition,
+  waitForPaneCount,
+  splitPaneKeyboard,
+  clickMenuItem,
   DELAYS,
   TMUXY_URL,
   TMUXY_PORT,
@@ -300,4 +303,63 @@ describe('Scenario 24: Session Switcher (web)', () => {
       await delay(500);
     }
   }, 180000);
+
+  test("the app menu's New Session creates a session and moves the page to it; the first comes back with its panes [nightly]", async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const primaryName = ctx.session.name;
+    // Two panes, so the session the switch comes back to is recognisably this one.
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2, 15000);
+    const shownPanes = () =>
+      ctx.page.evaluate(() =>
+        [...document.querySelectorAll('.pane-layout-item[data-pane-id]')]
+          .filter((el) => el.getBoundingClientRect().width > 0)
+          .map((el) => el.dataset.paneId)
+          .sort()
+          .join(','),
+      );
+    const sessionName = () =>
+      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.sessionName);
+    const primaryPanes = await shownPanes();
+
+    let created = null;
+    try {
+      await clickMenuItem(ctx.page, ['Session', 'New Session']);
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const name = await sessionName();
+          if (name === primaryName || !/^tmuxy_\d+$/.test(name ?? '')) return false;
+          created = name;
+          return true;
+        },
+        20000,
+        'the page to move to the session New Session made',
+      );
+      // tmux holds it, and the page shows its own single pane, not the first's.
+      expect(tmuxExec(`list-sessions -F '#{session_name}'`).split('\n')).toContain(created);
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const panes = await shownPanes();
+          return panes !== '' && !panes.includes(',') && panes !== primaryPanes;
+        },
+        15000,
+        "the new session's pane to be drawn",
+      );
+
+      // Back to the first session (the switcher's pick is the test above),
+      // and it comes back with both its panes.
+      await navigateToSession(ctx.page, primaryName);
+      await waitForCondition(
+        ctx.page,
+        async () => (await sessionName()) === primaryName && (await shownPanes()) === primaryPanes,
+        20000,
+        'the first session and its two panes to come back',
+      );
+    } finally {
+      if (created) tmuxExec(`kill-session -t ${created}`);
+    }
+  }, 120000);
 });

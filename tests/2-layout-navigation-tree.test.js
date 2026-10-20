@@ -237,11 +237,9 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     // The tree's default selection is the active pane's row, but it falls back
     // to row 0 when that row isn't found — and row 0 sits ABOVE the target, so
     // pressing only `k` could never reach it.
-    // Wait for the attached session's LIVE subtree first. The tree renders a
-    // session's real tab/pane rows only while `sessionName` matches an entry in
-    // the sessions list; until the ~1.5s sessions poll catches up with a
-    // freshly-created session, every row is rendered as `foreign-*` — including
-    // the client's own session — and no live tab row exists to select at all.
+    // Wait for the first tab's row first: the tree draws the session's tabs
+    // from the windows the client holds, so it has none to select until the
+    // client has the state.
     await waitForCondition(
       ctx.page,
       async () =>

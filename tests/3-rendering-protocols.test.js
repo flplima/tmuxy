@@ -14,6 +14,7 @@ const {
   pressEnter,
   sendKeyCombo,
   waitForShellPrompt,
+  waitForCondition,
 } = require('./helpers');
 
 // ==================== Scenario 14: OSC Protocols ====================
@@ -25,7 +26,7 @@ describe('Scenario 14: OSC Protocols', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Hyperlink → multiple links → malformed → OSC 52 no crash', async () => {
+  test('Hyperlink → multiple links → malformed → OSC 52 writes the clipboard', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -84,21 +85,54 @@ describe('Scenario 14: OSC Protocols', () => {
     await pressEnter(ctx.page);
     await runCommand(ctx.page, 'echo "AFTER_MALFORMED"', 'AFTER_MALFORMED', 15000);
 
-    // Step 4: OSC 52 doesn't crash
-    // The shell runs these in the order typed, so the echo after them is the
-    // fence: its output only shows once the OSC 52 lines have gone through.
-    await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;SGVsbG8=\\e\\\\"');
-    await pressEnter(ctx.page);
-    await runCommand(ctx.page, 'echo "OSC52_OK"', 'OSC52_OK');
+    // Step 4: OSC 52 puts its payload on the system clipboard and says so on
+    // the status line, naming the pane. The clipboard's writeText is
+    // replaced with a recorder: a headless browser grants no clipboard.
+    await ctx.page.evaluate(() => {
+      window.__clipboardWrites = [];
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: (text) => (window.__clipboardWrites.push(text), Promise.resolve()),
+          readText: () => Promise.resolve(''),
+        },
+      });
+    });
+    const clipboardWrites = () => ctx.page.evaluate(() => window.__clipboardWrites);
+    const paneId = await ctx.session.getActivePaneId();
+    // An OSC 52 write of base64 `b64`, as a program in the pane prints one.
+    const osc52 = (b64) => `echo -ne "\\e]52;c;${b64}\\e\\\\"`;
+    await runCommand(ctx.page, `${osc52('SGVsbG8=')}; echo OSC52_OK`, 'OSC52_OK');
+    await waitForCondition(
+      ctx.page,
+      async () => (await clipboardWrites()).length > 0,
+      10000,
+      'the OSC 52 payload to reach the clipboard',
+    );
+    expect(await clipboardWrites()).toEqual(['Hello']);
+    const message = await ctx.page.evaluate(() => {
+      const el = document.querySelector('.tmux-status-message');
+      const r = el?.getBoundingClientRect();
+      return el && { text: el.textContent, shown: r.width > 0 && r.height > 0 };
+    });
+    expect(message).toEqual({ text: `Copied 5 chars from pane ${paneId}`, shown: true });
 
-    // Step 5: Multiple OSC 52 operations
-    await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;Zmlyc3Q=\\e\\\\"');
-    await pressEnter(ctx.page);
-    await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;c2Vjb25k\\e\\\\"');
-    await pressEnter(ctx.page);
-    await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;dGhpcmQ=\\e\\\\"');
-    await pressEnter(ctx.page);
-    await runCommand(ctx.page, 'echo "MULTI_OSC52_OK"', 'MULTI_OSC52_OK');
+    // Step 5: Writes one after another each land, in order.
+    for (const [b64, n] of [
+      ['Zmlyc3Q=', 1],
+      ['c2Vjb25k', 2],
+      ['dGhpcmQ=', 3],
+    ]) {
+      await runCommand(ctx.page, `${osc52(b64)}; echo OSC52_N${n}`, `OSC52_N${n}`);
+    }
+    await waitForCondition(
+      ctx.page,
+      async () => (await clipboardWrites()).length >= 4,
+      10000,
+      async () =>
+        `every OSC 52 payload to reach the clipboard (got ${JSON.stringify(await clipboardWrites())})`,
+    );
+    expect(await clipboardWrites()).toEqual(['Hello', 'first', 'second', 'third']);
   }, 180000);
 
   test('OSC 2 pane title shows in the header, falling back to the process name', async () => {

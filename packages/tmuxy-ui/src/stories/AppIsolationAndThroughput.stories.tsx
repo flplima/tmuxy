@@ -29,70 +29,15 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * Throughput: a burst of terminal output (`seq 1 200`) streams through the
- * byte-paced serial writer and the WASM core's %output handling without dropping
- * or corrupting bytes — the last line of the burst must render intact. Guards the
- * high-rate path the earlier per-byte serial fix addressed.
- */
-export const Throughput: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
-    pasteLine('seq 1 200');
-    // Terminal rows concatenate with no separator in textContent, so match
-    // the contiguous tail "198199200" (like ThroughputSustained) — the digit
-    // run doubles as the in-order-delivery check; a lone /\b200\b/ can never
-    // match ("199" always precedes it with no whitespace between rows).
-    await waitForBurstTail(canvas, (text) => /198199200(\D|$)/.test(text.replace(/\s+/g, '')));
-  },
-};
-
-/**
- * Asset weight: a regression guard on the client-side x86 boot payload. After the
- * machine boots, the Resource Timing API reports how many bytes each served asset
- * cost; we sum the v86 (kernel/BIOS/snapshot) and WASM bundles and assert they
- * stay within budget so the demo/story payload can't silently balloon.
- */
-export const AssetWeight: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(2), {
-      timeout: 45000,
-      interval: 500,
-    });
-    // Dedupe by URL so the measurement is order-independent: in the shared-
-    // engine batch run, dozens of stories precede this one on the same page,
-    // and the reset path legitimately fetches the .gz snapshot in addition to
-    // the boot's .zst. Each unique asset is counted once and the reset-only
-    // .gz gets its own budget instead of inflating the cold-boot budget.
-    const uniq = new Map<string, number>();
-    for (const r of performance.getEntriesByType('resource') as PerformanceResourceTiming[]) {
-      if (!uniq.has(r.name)) uniq.set(r.name, r.encodedBodySize || r.transferSize || 0);
-    }
-    const bytesFor = (re: RegExp, exclude?: RegExp) =>
-      [...uniq.entries()]
-        .filter(([name]) => re.test(name) && !(exclude && exclude.test(name)))
-        .reduce((sum, [, bytes]) => sum + bytes, 0);
-    const bootBytes = bytesFor(/\/v86(-img)?\//, /tmux-state\.bin\.gz/);
-    const resetGzBytes = bytesFor(/tmux-state\.bin\.gz/);
-    const wasmBytes = bytesFor(/\/wasm\//);
-    // Assets must be measurable and within budget. The snapshot ships zstd
-    // (~14 MB wire vs 34 MB raw) + ~5 MB kernel + BIOS; regressions past the
-    // budget fail loudly instead of silently bloating the demo payload.
-    expect(bootBytes).toBeGreaterThan(0);
-    expect(bootBytes).toBeLessThan(26 * 1024 * 1024);
-    if (resetGzBytes > 0) expect(resetGzBytes).toBeLessThan(20 * 1024 * 1024);
-    expect(wasmBytes).toBeLessThan(2 * 1024 * 1024);
-  },
-};
-
-// ───────────────────────── §10–11 Infra & perf guards ─────────────────────────
-
-/**
  * Shared-engine isolation canary: EVERY story in this file starts on the shared
  * engine after some other story mutated it — this one pins the reset contract
  * hard: exactly the snapshot's 2 panes and 1 tab window, no floats/groups, no
  * sentinel text from any other story's commands, default active state.
+ *
+ * Then the reattach the reset made must deliver each command exactly once:
+ * several round-trips in a row, each rendered exactly twice (the typed line
+ * and its output) — a third copy is a duplicated listener or a serial buffer
+ * leaked from the reuse path.
  */
 export const SharedIsolation: Story = {
   play: async ({ canvasElement }) => {
@@ -107,69 +52,21 @@ export const SharedIsolation: Story = {
       .map((p: HTMLElement) => p.textContent ?? '')
       .join('');
     // No residue from other stories' unique sentinels.
-    expect(text).not.toMatch(/STORY_INTERACT|SYNC_ON_42|ML_A4|HIST_R7|YANK_TARGET/);
-  },
-};
+    expect(text).not.toMatch(
+      /NOERR_9|BURST_Q\d+_END|STORY_LATENCY_6042|SHORT_AAA|SHORT_BBB|SYNC_ON_42|STREAM_DONE/,
+    );
 
-/**
- * Shared-engine reattach stability: after the boot/reset attach, drive several
- * command round-trips in a row — each must land exactly once (no duplicated
- * listeners, no leaked serial buffers from the reuse path).
- */
-export const SharedReattachStability: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
     for (const n of [1, 2, 3]) {
       pasteLine(`echo REATTACH_S${n}`);
       await waitFor(
         () => {
-          const text = paneGroups(canvas)
+          const now = paneGroups(canvas)
             .map((p: HTMLElement) => p.textContent ?? '')
             .join('');
-          // command echo + output = exactly 2 occurrences; 3+ would mean a
-          // duplicated send path.
-          expect((text.match(new RegExp(`REATTACH_S${n}`, 'g')) ?? []).length).toBe(2);
+          expect((now.match(new RegExp(`REATTACH_S${n}`, 'g')) ?? []).length).toBe(2);
         },
         { timeout: 30000, interval: 500 },
       );
-    }
-  },
-};
-
-/**
- * No stray page errors: the harness page must not throw uncaught exceptions
- * while a full boot + interact cycle runs. window.onerror hooks are installed
- * BEFORE interacting so anything thrown during the cycle is captured.
- */
-export const NoConsoleErrors: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const errors: string[] = [];
-    // "ResizeObserver loop completed with undelivered notifications" is a benign
-    // browser back-pressure signal (fired as an error event, harmless, and
-    // whitelisted by every mainstream test harness) — not an app defect.
-    const BENIGN = /ResizeObserver loop (limit exceeded|completed with undelivered notifications)/;
-    const onError = (e: ErrorEvent) => {
-      if (!BENIGN.test(String(e.message))) errors.push(String(e.message));
-    };
-    const onRejection = (e: PromiseRejectionEvent) => errors.push(String(e.reason));
-    window.addEventListener('error', onError);
-    window.addEventListener('unhandledrejection', onRejection);
-    try {
-      await focusFirstPane(canvas, userEvent.setup());
-      pasteLine('echo NOERR_9');
-      await waitFor(
-        () =>
-          expect(
-            paneGroups(canvas).some((p: HTMLElement) => /NOERR_9/.test(p.textContent ?? '')),
-          ).toBe(true),
-        { timeout: 30000, interval: 500 },
-      );
-      expect(errors).toEqual([]);
-    } finally {
-      window.removeEventListener('error', onError);
-      window.removeEventListener('unhandledrejection', onRejection);
     }
   },
 };
@@ -220,8 +117,6 @@ export const RapidCommandBurst: Story = {
     );
   },
 };
-
-// ─────────── §15 Flakiness budgets: steady streams, theme switches ───────────
 
 /**
  * 4.3 — Gemini-CLI-style clear+redraw burst against REAL tmux (the mock twin
