@@ -217,6 +217,10 @@ export const connectionActions = {
 
   connection_connectServer: act(({ event, enqueue }) => {
     if (event.type !== 'CONNECT_SERVER') return;
+    // The server list is only re-read when the sidebar or the session menu is
+    // open, so without this the host label keeps naming the old server until
+    // one of them next opens. A refresh that finds the connect failed corrects it.
+    enqueue(assign({ currentServerId: event.serverId }));
     enqueue(
       sendTo('tmux', {
         type: 'INVOKE' as const,
