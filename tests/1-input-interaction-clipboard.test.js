@@ -199,9 +199,16 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     // 4. Across rows, the selection is drawn as a terminal draws it: the
     //    first row from where it starts to the pane's edge, an empty row in
     //    the middle across its whole width, the last row up to where it ends.
-    await runCommand(ctx.page, "printf 'ROWS_%s\\n\\nROWS_%s\\n' ONE_A THREE_B", 'ROWS_THREE_B');
-    const one = await shownCellsOf(ctx.page, '.pane-layout-item', 'ROWS_ONE_A');
-    const three = await shownCellsOf(ctx.page, '.pane-layout-item', 'ROWS_THREE_B');
+    //    The markers are this run's own: the drag aims at the first match on
+    //    screen, so an earlier run's rows still showing must not match.
+    const rows = `ROWS${Date.now().toString(36)}`;
+    await runCommand(
+      ctx.page,
+      `printf '${rows}_%s\\n\\n${rows}_%s\\n' ONE_A THREE_B`,
+      `${rows}_THREE_B`,
+    );
+    const one = await shownCellsOf(ctx.page, '.pane-layout-item', `${rows}_ONE_A`);
+    const three = await shownCellsOf(ctx.page, '.pane-layout-item', `${rows}_THREE_B`);
     await ctx.page.mouse.move(one.first, one.y);
     await ctx.page.mouse.down();
     await ctx.page.mouse.move(three.first + 40, three.y, { steps: 10 });
@@ -210,12 +217,12 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     await waitForCondition(
       ctx.page,
       async () => {
-        fills = await ctx.page.evaluate(() => {
+        fills = await ctx.page.evaluate((rows) => {
           const lines = [...document.querySelectorAll('.pane-layout-item .terminal-line')];
           const last = (needle) =>
             lines.filter((l) => (l.textContent || '').startsWith(needle)).pop();
-          const first = last('ROWS_ONE_A');
-          const end = last('ROWS_THREE_B');
+          const first = last(`${rows}_ONE_A`);
+          const end = last(`${rows}_THREE_B`);
           const empty = lines[lines.indexOf(first) + 1];
           const fill = (row) => {
             const after = getComputedStyle(row, '::after');
@@ -227,7 +234,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
             };
           };
           return { first: fill(first), empty: fill(empty), end: fill(end) };
-        });
+        }, rows);
         return fills.empty.shown;
       },
       5000,
