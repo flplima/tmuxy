@@ -261,6 +261,14 @@ export const Terminal: React.FC<TerminalProps> = ({
               alt=""
               data-protocol={img.protocol}
               data-image-id={img.id}
+              onError={(event) => {
+                console.warn('tmuxy failed to load terminal image', {
+                  paneId,
+                  imageId: img.id,
+                  src: event.currentTarget.currentSrc || event.currentTarget.src,
+                  protocol: img.protocol,
+                });
+              }}
               // Same grid units the rows and the cursor use: `--cell-w` (the
               // snapped cell width the style-group spans are pinned to) and
               // --line-height-terminal (the row height).
