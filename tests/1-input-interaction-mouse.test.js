@@ -24,6 +24,9 @@ const {
   readMouseEvents,
   stopMouseCapture,
   ensureMouseCaptureStopped,
+  openMenuLabels,
+  menuItemHint,
+  closeMenu,
 } = require('./helpers');
 
 // ==================== Mouse Cell Helpers ====================
@@ -344,30 +347,6 @@ describe('Scenario 7b: Right-click with nothing selected', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  /** The labels of the menu that is open, waiting for one to be. */
-  const openMenuLabels = async (page) => {
-    await waitForCondition(
-      page,
-      () => page.evaluate(() => !!document.querySelector('[role="menu"] [role^="menuitem"]')),
-      5000,
-      'a menu to open',
-    );
-    return page.evaluate(() =>
-      [...document.querySelectorAll('[role="menu"] [role^="menuitem"]')].map((el) =>
-        el.textContent.trim(),
-      ),
-    );
-  };
-  const closeMenu = async (page) => {
-    await page.keyboard.press('Escape');
-    await waitForCondition(
-      page,
-      async () => (await page.$('[role="menu"]')) === null,
-      5000,
-      'the menu to close',
-    );
-  };
-
   test("opens the pane's own menu, the header's, and its Rename opens the header's field", async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
@@ -387,6 +366,15 @@ describe('Scenario 7b: Right-click with nothing selected', () => {
     expect(fromContent).toEqual(fromHeader);
     expect(fromContent).toContain('Rename Pane');
     expect(await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
+
+    // Its key hints are the config's own keys, though the config binds them
+    // with more than the item runs: a split that starts in the pane's
+    // directory, a kill that asks first.
+    const hint = (label) => menuItemHint(ctx.page, label);
+    // Either key the config binds a split to, whichever tmux lists first.
+    expect(await hint('Split Pane Below')).toMatch(/^ctrl\+\w [-"]$/);
+    expect(await hint('Split Pane Right')).toMatch(/^ctrl\+\w [|%\\]$/);
+    expect(await hint('Close Pane')).toMatch(/^ctrl\+\w x$/);
 
     // Rename from it opens the field in the pane's header.
     await ctx.page.locator('[role="menuitem"]', { hasText: 'Rename Pane' }).first().click();

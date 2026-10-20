@@ -26,4 +26,5 @@ module.exports = {
   ...require('./mouse-capture'),
   ...require('./own-browser'),
   ...require('./selection-drag'),
+  ...require('./menus'),
 };
