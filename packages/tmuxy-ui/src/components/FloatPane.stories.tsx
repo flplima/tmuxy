@@ -50,7 +50,7 @@ export const MultipleFloats: Story = {
     docs: {
       description: {
         story:
-          'Seven floats over one tab: centred on the dim backdrop, a left drawer with none, a bottom drawer with blur, right and top drawers, a centred float with `--hide-header`, and one opened `--width 40`. Each drawer is flush with its own edge of the tab, the float opened later stacks over the one before it, `--hide-header` takes the header away, and a width in columns is drawn in columns.',
+          'Seven floats over one tab: centred on the dim backdrop, a left drawer with none, a bottom drawer with blur, right and top drawers, a centred float with `--hide-header`, and one opened `--width 40`. Each drawer is flush with its own edge of the tab and runs its whole length, the float opened later stacks over the one before it, `--hide-header` takes the header away, and a width in columns is drawn in columns.',
       },
     },
   },
@@ -75,6 +75,11 @@ export const MultipleFloats: Story = {
       },
       { timeout: 8000 },
     );
+    // ...and runs the whole length of it, padding included.
+    expect(near(box('%2').height, tab.height), 'left drawer spans the tab').toBe(true);
+    expect(near(box('%3').width, tab.width), 'bottom drawer spans the tab').toBe(true);
+    expect(near(box('%4').height, tab.height), 'right drawer spans the tab').toBe(true);
+    expect(near(box('%5').width, tab.width), 'top drawer spans the tab').toBe(true);
 
     // The float opened later stacks over the one opened before it.
     const z = FLOAT_OVERLAYS.map(([pane]) => Number(overlay(pane)!.style.zIndex));

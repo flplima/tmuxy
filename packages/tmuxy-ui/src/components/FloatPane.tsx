@@ -23,7 +23,7 @@ import { selectCharSize, selectContainerSize } from '../machines/selectors/layou
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
 import { LogProfiler } from '../utils/renderLog';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
-import { CONTAINER_PADDING_X } from '../constants/layout';
+import { CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../constants/layout';
 import type { FloatPaneState } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
 
@@ -74,12 +74,16 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const { drawer, backdrop, hideHeader } = floatState;
   const headerHeight = hideHeader ? 0 : 28;
 
-  // Drawer mode: dock to edge with full span on the perpendicular axis
+  // Drawer mode: dock to edge with full span on the perpendicular axis. A
+  // drawer is placed in the overlay, which covers the pane container's padding
+  // too, so it spans that box — the measured container is its content box.
   if (drawer) {
     const isHorizontal = drawer === 'left' || drawer === 'right';
+    const spanWidth = containerWidth + CONTAINER_PADDING_X * 2;
+    const spanHeight = containerHeight + CONTAINER_PADDING_BOTTOM;
 
-    const floatWidth = isHorizontal ? floatState.width : containerWidth;
-    const floatHeight = isHorizontal ? containerHeight : floatState.height + headerHeight;
+    const floatWidth = isHorizontal ? floatState.width : spanWidth;
+    const floatHeight = isHorizontal ? spanHeight : floatState.height + headerHeight;
     const terminalHeight = floatHeight - headerHeight;
     const terminalRows = Math.floor(terminalHeight / charHeight);
 
