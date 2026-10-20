@@ -163,10 +163,10 @@
 }
 
 /* ...and the pane stops being dimmed while the pointer is on it. An inactive
-   pane sits at --inactive-text-opacity so the active one reads as the one
-   with the keyboard; under the pointer it is the one being looked at, so it
-   comes up to full and its header is legible without clicking into it. */
-.pane-layout-item:not(.pane-dragging):hover > * {
+   pane's terminal sits at --inactive-text-opacity so the active one reads as
+   the one with the keyboard; under the pointer it is the one being looked at,
+   so it comes up to full without clicking into it. */
+.pane-layout-item:not(.pane-dragging):hover .pane-content {
   opacity: var(--active-text-opacity);
 }
 

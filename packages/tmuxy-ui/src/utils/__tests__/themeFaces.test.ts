@@ -200,6 +200,19 @@ describe('theme faces', () => {
         const ratio = contrast(colorOf(face, fg), header);
         expect({ what, ok: ratio >= 4.5 }).toEqual({ what, ok: true });
       }
+      // An inactive pane's header: the same 30% over a pane that is itself the
+      // pane colour at the shipped --inactive-pane-opacity (0.7) over the window.
+      const window = colorOf(face, '--window-bg-rgb');
+      // Rounded at each step, as a browser composites one layer onto the next.
+      const inactivePane = pane.map((c, i) => Math.round(c * 0.7 + window[i] * 0.3));
+      const inactiveHeader = border.map((c, i) => Math.round(c * 0.3 + inactivePane[i] * 0.7)) as [
+        number,
+        number,
+        number,
+      ];
+      const what = '--pane-header-text-inactive on an inactive pane header';
+      const ratio = contrast(colorOf(face, '--pane-header-text-inactive'), inactiveHeader);
+      expect({ what, ok: ratio >= 4.5 }).toEqual({ what, ok: true });
     },
   );
 

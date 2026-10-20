@@ -13,7 +13,7 @@ export interface AppActor {
 
 export function getApp(): AppActor {
   const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — AppHarness not mounted?');
+  if (!app) throw new Error('window.app actor is not available — is the app mounted?');
   return app;
 }
 
@@ -161,10 +161,11 @@ export function sampleFocusCueOnElement(target: HTMLElement): {
 } {
   const samples: { text: number; surface: number }[] = [];
   let sampling = true;
-  const wrapper = target.firstElementChild as HTMLElement;
+  // The text dim lives on the pane's terminal, not its header.
+  const content = target.querySelector<HTMLElement>('.pane-content')!;
   const sampleFrame = () => {
     samples.push({
-      text: parseFloat(getComputedStyle(wrapper).opacity),
+      text: parseFloat(getComputedStyle(content).opacity),
       surface: alphaOf(getComputedStyle(target).backgroundColor),
     });
     if (sampling) requestAnimationFrame(sampleFrame);

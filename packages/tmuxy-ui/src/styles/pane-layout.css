@@ -74,16 +74,18 @@
   padding-right: 0;
 }
 
-/* Pane content (header + terminal) carries the focus cue as text opacity,
-   separate from the surface alpha: inactive panes dim to
-   --inactive-text-opacity, the active one sits at --active-text-opacity. A
+/* A pane's terminal carries the focus cue as text opacity, separate from the
+   surface alpha: inactive panes dim to --inactive-text-opacity, the active one
+   sits at --active-text-opacity. The header is left out: its text is chrome,
+   quiet by its colour tier (--pane-header-text-inactive), which is chosen to
+   read at 4.5:1 — dimmed on top of that, an inactive pane's title did not. A
    pane being dragged keeps full content so its ghost reads clearly. */
-.pane-layout-item:not(.pane-dragging) > * {
+.pane-layout-item:not(.pane-dragging) .pane-content {
   opacity: var(--inactive-text-opacity);
   transition: opacity var(--transition-active);
 }
 
-.pane-layout-item.pane-active > * {
+.pane-layout-item.pane-active .pane-content {
   opacity: var(--active-text-opacity);
 }
 
@@ -260,7 +262,7 @@
 
 /* The three gates below suppress a pane's LAYOUT transition — geometry only.
    Each still carries the active/inactive focus cue, and must: the text dim
-   lives on `.pane-layout-item > *`, a selector no gate covers, so a gate that
+   lives on the pane's `.pane-content`, a selector no gate covers, so a gate that
    drops `background-color` leaves the surface alpha hard-flipping in one frame
    while the text fades over --transition-active. That mismatch is the
    focus-change blink (the pane pops opaque, then its text catches up), and it
