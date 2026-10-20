@@ -5,7 +5,10 @@
  */
 
 import type { AppMachineContext } from '../../machines/types/context';
-import { selectMarkedPaneId } from '../../machines/selectors/panesAndSidebars';
+import {
+  selectMarkedPaneId,
+  selectPaneTakesCopyMode,
+} from '../../machines/selectors/panesAndSidebars';
 import type { WidgetMenuItem } from '../../components/widgets/registry';
 import { MENU_OPS } from '../../components/menus/menuActions';
 import { TmuxOp } from '../commands';
@@ -110,7 +113,12 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       action: action('pane-add-to-group'),
     },
     separator,
-    op('pane-copy-mode', 'Copy Mode', 'copy-mode'),
+    op(
+      'pane-copy-mode',
+      'Copy Mode',
+      'copy-mode',
+      !paneId || !selectPaneTakesCopyMode(ctx, paneId),
+    ),
     op('pane-paste', 'Paste', 'paste'),
     {
       kind: 'item',

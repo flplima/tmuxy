@@ -86,6 +86,30 @@ describe('copyMode state', () => {
     expect(ctx.copyModeStates[pid('%1')].lines.size).toBeGreaterThan(0);
   });
 
+  it('ENTER_COPY_MODE on a pane running a widget does nothing, and tells tmux nothing', () => {
+    const pane = { ...makePane(pid('%1'), [makeLine('line a')]), paneWidget: 'preview' };
+    const sent: string[] = [];
+    const actor = mountState(
+      copyModeState,
+      copyModeActions,
+      copyModeGuards,
+      { panes: [pane] },
+      {
+        extraActors: {
+          tmux: fromCallback<{ type: string; op?: TmuxOp }>(({ receive }) => {
+            receive((e) => {
+              if (e.type === 'SEND_OP' && e.op) sent.push(toTmuxCommand(e.op));
+            });
+            return () => {};
+          }),
+        },
+      },
+    );
+    const ctx = sendAndGetContext(actor, { type: 'ENTER_COPY_MODE', paneId: pid('%1') });
+    expect(ctx.copyModeStates[pid('%1')]).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
   it('EXIT_COPY_MODE removes the pane from copyModeStates and stamps exit time', () => {
     const before = Date.now();
     const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {

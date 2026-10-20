@@ -9,7 +9,7 @@ import { act, assignCtx } from '../actionTypes';
 import type { CopyModeState } from '../../../domain/copyMode';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import { getNeededChunk, isWrappedRow, extractSelectedText } from '../../../utils/copyMode';
-import { selectRightSidebarPane } from '../../selectors/panesAndSidebars';
+import { selectPaneTakesCopyMode, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
 import { writeClipboard } from '../../../utils/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import {
@@ -32,7 +32,7 @@ export const copyModeActions = {
     if (event.type !== 'ENTER_COPY_MODE') return;
     const mode = context.readOnly ? 'scroll' : 'copy';
     const pane = context.panes.find((p) => p.tmuxId === event.paneId);
-    if (!pane) return;
+    if (!pane || !selectPaneTakesCopyMode(context, event.paneId)) return;
     const record = buildScrollbackState(pane, mode, event);
 
     enqueue(

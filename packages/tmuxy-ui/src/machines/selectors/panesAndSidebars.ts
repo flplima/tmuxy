@@ -286,6 +286,16 @@ export function selectIsPaneInActiveWindow(context: AppMachineContext, paneId: P
   return pane?.windowId === context.activeWindowId;
 }
 
+/**
+ * Whether copy mode means anything on the pane. A pane running a widget (a
+ * preview, the tree) draws its own view, and under it the pane's text is only
+ * the widget's marker: there is nothing there to scroll back through or copy.
+ */
+export function selectPaneTakesCopyMode(context: AppMachineContext, paneId: PaneId): boolean {
+  const pane = context.panes.find((p) => p.tmuxId === paneId);
+  return !!pane && !pane.paneWidget;
+}
+
 export function selectIsSinglePane(context: AppMachineContext): boolean {
   return selectVisiblePanes(context).length === 1;
 }

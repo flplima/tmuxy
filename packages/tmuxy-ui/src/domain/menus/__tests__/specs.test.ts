@@ -105,6 +105,18 @@ describe('paneMenuSpec', () => {
     expect(disabled(two, 'pane-next')).toBe(false);
   });
 
+  it('Copy Mode is offered on a terminal and greyed out on a pane running a widget', () => {
+    const preview = { ...pane('%2', '@1'), paneWidget: 'preview' };
+    const withPreview = ctx({ panes: [pane('%1', '@1'), preview] });
+    expect(disabled(paneMenuSpec(withPreview, { paneId: pid('%1') }), 'pane-copy-mode')).toBe(
+      false,
+    );
+    expect(disabled(paneMenuSpec(withPreview, { paneId: pid('%2') }), 'pane-copy-mode')).toBe(true);
+    // The app menu acts on the active pane.
+    const active = ctx({ panes: [pane('%1', '@1'), preview], activePaneId: pid('%2') });
+    expect(disabled(paneMenuSpec(active, { paneId: null }), 'pane-copy-mode')).toBe(true);
+  });
+
   it("a widget's items come first, with the attribute tests click by", () => {
     const spec = paneMenuSpec(ctx(), {
       paneId: pid('%1'),
