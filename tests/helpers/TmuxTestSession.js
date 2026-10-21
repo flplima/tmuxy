@@ -20,17 +20,17 @@ const { delay, waitForCondition } = require('./browser');
 const { reapPids } = require('./reap');
 
 /**
- * Get the path to the tmuxy config file
- * Checks ~/.tmuxy.conf first, then falls back to .devcontainer/.tmuxy.conf
+ * Get the path to the tmuxy config file: ~/.tmuxy.conf first, then the
+ * shipped template the app itself writes for a first launch.
  */
 function getTmuxConfigPath() {
   const homeConfig = path.join(os.homedir(), '.tmuxy.conf');
   if (fs.existsSync(homeConfig)) {
     return homeConfig;
   }
-  const dockerConfig = path.join(WORKSPACE_ROOT, '.devcontainer', '.tmuxy.conf');
-  if (fs.existsSync(dockerConfig)) {
-    return dockerConfig;
+  const shipped = path.join(WORKSPACE_ROOT, 'packages', 'tmuxy-core', 'assets', 'tmuxy.conf');
+  if (fs.existsSync(shipped)) {
+    return shipped;
   }
   return null;
 }

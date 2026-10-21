@@ -22,7 +22,7 @@ import type { TmuxAdapter } from '../../driver';
 import { EventHub } from '../../../eventHub';
 import { TransportEvent } from '../../events';
 import { isPaneId } from '../../../../domain/ids';
-import type { CommandFailure, KeyBindings } from '../../../../domain/wire';
+import type { CommandFailure } from '../../../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
 import {
   saveThemeToStorage,
@@ -31,7 +31,7 @@ import {
 } from '../../../../utils/themeManager';
 import { unescapeLiteralText } from '../../keyBatching';
 import { quote } from '../../../../domain/commands';
-import { STICKY_TABLE_ENTRIES, STICKY_TABLES } from '../stickyTables';
+import { DEFAULT_KEYBINDINGS } from './defaultKeybindings';
 import {
   V86Engine,
   getSharedEngine,
@@ -39,72 +39,6 @@ import {
   V86_DEFAULT_ROWS,
   type EngineSink,
 } from './V86Engine';
-
-// The default tmuxy keybindings (C-a prefix), intercepted client-side by the
-// keyboardActor and dispatched as run_tmux_command — same as the real app.
-const DEFAULT_KEYBINDINGS: KeyBindings = {
-  prefix_key: 'C-a',
-  prefix_bindings: [
-    { key: '-', command: 'split-window -v', description: 'Split horizontally' },
-    { key: '|', command: 'split-window -h', description: 'Split vertically' },
-    { key: '\\', command: 'split-window -h', description: 'Split vertically' },
-    { key: '"', command: 'split-window -v', description: 'Split horizontally' },
-    { key: '%', command: 'split-window -h', description: 'Split vertically' },
-    { key: 'c', command: 'new-window', description: 'New window' },
-    { key: 'n', command: 'next-window', description: 'Next window' },
-    ...STICKY_TABLE_ENTRIES,
-    { key: 'x', command: 'kill-pane', description: 'Kill pane' },
-    { key: '&', command: 'kill-window', description: 'Kill window' },
-    { key: 'o', command: 'select-pane -t :.+', description: 'Next pane' },
-    { key: 'z', command: 'resize-pane -Z', description: 'Zoom pane' },
-    { key: 'Up', command: 'select-pane -U', description: 'Pane above' },
-    { key: 'Down', command: 'select-pane -D', description: 'Pane below' },
-    { key: 'Left', command: 'select-pane -L', description: 'Pane left' },
-    { key: 'Right', command: 'select-pane -R', description: 'Pane right' },
-    { key: 'H', command: 'resize-pane -L 5', description: 'Resize left', repeat: true },
-    { key: 'J', command: 'resize-pane -D 5', description: 'Resize down', repeat: true },
-    { key: 'K', command: 'resize-pane -U 5', description: 'Resize up', repeat: true },
-    { key: 'L', command: 'resize-pane -R 5', description: 'Resize right', repeat: true },
-    { key: '=', command: 'tmuxy-pane-group-add', description: 'Add pane to group' },
-    { key: '[', command: 'copy-mode', description: 'Enter copy mode' },
-    { key: 'Space', command: 'next-layout', description: 'Next layout' },
-    { key: '>', command: 'swap-pane -D', description: 'Swap pane down' },
-    { key: '<', command: 'swap-pane -U', description: 'Swap pane up' },
-    { key: '0', command: 'select-window -t :=0', description: 'Window 0' },
-    { key: '1', command: 'select-window -t :=1', description: 'Window 1' },
-    { key: '2', command: 'select-window -t :=2', description: 'Window 2' },
-  ],
-  root_bindings: [
-    // Ctrl+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
-    // `tmuxy-nav-*` command-aliases (defined at attach by the engine's
-    // GUEST_SETUP — the snapshot itself lacks them). Intercepted client-side so
-    // the key isn't sent to the pane as literal text. Same bindings as the real
-    // app config (.devcontainer/.tmuxy.defaults.conf) — keep the two in step.
-    { key: 'C-h', command: 'tmuxy-nav-left', description: 'Navigate left' },
-    { key: 'C-j', command: 'tmuxy-nav-down', description: 'Navigate down' },
-    { key: 'C-k', command: 'tmuxy-nav-up', description: 'Navigate up' },
-    { key: 'C-l', command: 'tmuxy-nav-right', description: 'Navigate right' },
-    { key: 'C-Left', command: 'tmuxy-nav-left', description: 'Navigate left' },
-    { key: 'C-Right', command: 'tmuxy-nav-right', description: 'Navigate right' },
-    { key: 'C-Up', command: 'tmuxy-nav-up', description: 'Navigate up' },
-    { key: 'C-Down', command: 'tmuxy-nav-down', description: 'Navigate down' },
-    { key: 'C-Tab', command: 'next-window', description: 'Next window' },
-    { key: 'C-S-Tab', command: 'previous-window', description: 'Previous window' },
-    { key: 'S-Left', command: 'previous-window', description: 'Previous window' },
-    { key: 'S-Right', command: 'next-window', description: 'Next window' },
-    { key: 'C-0', command: 'select-window -t 0', description: 'Window 0' },
-    { key: 'C-1', command: 'select-window -t 1', description: 'Window 1' },
-    { key: 'C-2', command: 'select-window -t 2', description: 'Window 2' },
-    { key: 'C-3', command: 'select-window -t 3', description: 'Window 3' },
-    { key: 'C-4', command: 'select-window -t 4', description: 'Window 4' },
-    { key: 'C-5', command: 'select-window -t 5', description: 'Window 5' },
-    { key: 'C-6', command: 'select-window -t 6', description: 'Window 6' },
-    { key: 'C-7', command: 'select-window -t 7', description: 'Window 7' },
-    { key: 'C-8', command: 'select-window -t 8', description: 'Window 8' },
-    { key: 'C-9', command: 'select-window -t 9', description: 'Window 9' },
-  ],
-  tables: STICKY_TABLES,
-};
 
 /** Theme names bundled with tmuxy (mirrors the server's `get_themes_list`). */
 const BUNDLED_THEMES: { name: string; displayName: string }[] = [

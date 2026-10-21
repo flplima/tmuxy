@@ -39,7 +39,7 @@ const TOOLING = [
 export const SKIPPABLE = {
   // The Tauri app links tmuxy-core and tmuxy-server and bundles the UI, the
   // CLI (bin/tmuxy-cli, bin/tmuxy/*) and the shipped tmux confs
-  // (.devcontainer/*.conf, include_str!'d by tmuxy-core). Its suites are
+  // (packages/tmuxy-core/assets, include_str!'d by tmuxy-core). Its suites are
   // tests/tauri and tests/smoke, on tests/helpers.
   desktop: [
     ...PROSE,

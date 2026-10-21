@@ -1,8 +1,9 @@
 /**
- * The sticky PANE and TAB tables for the transports that carry their own key
- * bindings (the demo and v86): the same keys .devcontainer/.tmuxy.defaults.conf
- * binds, limited to commands both can run. Each binding re-enters its table,
- * which is what keeps a tmux table sticky (domain/keyTables.ts).
+ * The sticky PANE and TAB tables for the transport that carries its own key
+ * bindings (v86): the same keys the shipped tmuxy.defaults.conf
+ * (packages/tmuxy-core/assets) binds, limited to commands it can run. Each
+ * binding re-enters its table, which is what keeps a tmux table sticky
+ * (domain/keyTables.ts). A test holds the two to each other.
  */
 
 import type { KeyBindings } from '../../../domain/wire';
@@ -23,10 +24,10 @@ export const STICKY_TABLE_ENTRIES: Binding[] = [
 
 export const STICKY_TABLES: KeyBindings['tables'] = {
   pane: [
-    sticky('pane', 'h', 'select-pane -L', 'Focus left'),
-    sticky('pane', 'j', 'select-pane -D', 'Focus down'),
-    sticky('pane', 'k', 'select-pane -U', 'Focus up'),
-    sticky('pane', 'l', 'select-pane -R', 'Focus right'),
+    sticky('pane', 'h', 'tmuxy-nav-left', 'Focus left'),
+    sticky('pane', 'j', 'tmuxy-nav-down', 'Focus down'),
+    sticky('pane', 'k', 'tmuxy-nav-up', 'Focus up'),
+    sticky('pane', 'l', 'tmuxy-nav-right', 'Focus right'),
     sticky('pane', 'H', 'resize-pane -L 5', 'Resize left'),
     sticky('pane', 'J', 'resize-pane -D 5', 'Resize down'),
     sticky('pane', 'K', 'resize-pane -U 5', 'Resize up'),

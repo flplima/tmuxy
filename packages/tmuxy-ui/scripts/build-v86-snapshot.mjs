@@ -154,9 +154,12 @@ async function buildBundle({ fetchBinaries }) {
   }
   await chmod(join(WORK, 'bin', 'tmuxy-cli'), 0o755);
 
-  // Fresh config: the same defaults the devcontainer uses (command-aliases,
-  // Ctrl+hjkl nav bindings, prefix bindings) + a minimal user conf sourcing it.
-  await cp(join(REPO, '.devcontainer', '.tmuxy.defaults.conf'), join(WORK, 'tmuxy.defaults.conf'));
+  // Fresh config: the defaults the app ships (command-aliases, Ctrl+hjkl nav
+  // bindings, prefix bindings) + a minimal user conf sourcing it.
+  await cp(
+    join(REPO, 'packages', 'tmuxy-core', 'assets', 'tmuxy.defaults.conf'),
+    join(WORK, 'tmuxy.defaults.conf'),
+  );
   await writeFile(
     join(WORK, 'tmuxy.conf'),
     [

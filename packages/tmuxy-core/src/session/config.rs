@@ -7,7 +7,7 @@ use crate::constants::tmux_options;
 /// defaults (new bindings, new options) without merge work. Users never
 /// edit this file; their overrides live in `tmuxy.conf` which sources
 /// this one first.
-const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../../../.devcontainer/.tmuxy.defaults.conf");
+const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../assets/tmuxy.defaults.conf");
 
 /// The settings tmuxy cannot work without — command-aliases plus the handful of
 /// tmux options the renderer, the scrollback and the session lifetime depend on.
@@ -17,13 +17,12 @@ const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../../../.devcontainer/.tmu
 /// a user's own `~/.tmux.conf` when they have opted into it. The second pass is
 /// what lets tmuxy adopt somebody's prefix, status line and plugins without
 /// their config being able to take the app apart.
-const DEFAULT_ESSENTIALS_CONF: &str =
-    include_str!("../../../../.devcontainer/.tmuxy.essentials.conf");
+const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../assets/tmuxy.essentials.conf");
 
 /// User-editable config template — written ONLY when `tmuxy.conf` does not
 /// already exist. Sources `tmuxy.defaults.conf` first, then leaves space
 /// for the user's customizations.
-pub(super) const DEFAULT_USER_CONF: &str = include_str!("../../../../.devcontainer/.tmuxy.conf");
+pub(super) const DEFAULT_USER_CONF: &str = include_str!("../../assets/tmuxy.conf");
 
 /// The guide to personalizing tmuxy, written to the config dir as
 /// `README.md` so a user — or an agent working in a pane — finds every

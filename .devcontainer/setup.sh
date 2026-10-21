@@ -21,9 +21,10 @@ mkdir -p "$HOME/.config/tmuxy" "$HOME/.local/bin"
 # Symlink both conf files into the XDG path so edits in the repo take effect
 # immediately. The Rust ensure_config skips overwriting when the target is a
 # symlink, so it leaves these alone.
-ln -sf "$ROOT_DIR/.devcontainer/.tmuxy.conf" "$HOME/.tmuxy.conf"
-ln -sf "$ROOT_DIR/.devcontainer/.tmuxy.conf" "$HOME/.config/tmuxy/tmuxy.conf"
-ln -sf "$ROOT_DIR/.devcontainer/.tmuxy.defaults.conf" "$HOME/.config/tmuxy/tmuxy.defaults.conf"
+CONF_DIR="$ROOT_DIR/packages/tmuxy-core/assets"
+ln -sf "$CONF_DIR/tmuxy.conf" "$HOME/.tmuxy.conf"
+ln -sf "$CONF_DIR/tmuxy.conf" "$HOME/.config/tmuxy/tmuxy.conf"
+ln -sf "$CONF_DIR/tmuxy.defaults.conf" "$HOME/.config/tmuxy/tmuxy.defaults.conf"
 ln -sf "$ROOT_DIR/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
 
 # Codespaces manages git credentials, identity and the remote itself; the local
