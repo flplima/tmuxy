@@ -1,144 +1,43 @@
 use super::*;
+use crate::constants::tmux_formats::{unescape_commas, PaneColumn};
 use crate::{GroupId, PaneId, WindowId, WindowType};
 
 impl StateAggregator {
-    /// Parse a line from list-panes output.
-    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,scroll_position,window_id,border_title,alternate_on,mouse_any_flag,selection_present,selection_start_x,selection_start_y,history_size`
+    /// Parse a line from list-panes output: one field per [`PaneColumn`], in
+    /// that order, free-text fields comma-escaped by the format itself.
     /// Returns (pane_id, needs_capture) if successfully parsed.
     /// needs_capture is true if pane is new OR was resized.
     pub(super) fn parse_list_panes_line(&mut self, line: &str) -> Option<(PaneId, bool)> {
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 11 {
+        if parts.len() != PaneColumn::COUNT {
+            debug!(
+                fields = parts.len(),
+                expected = PaneColumn::COUNT,
+                row = line,
+                "a list-panes row with the wrong number of fields is dropped"
+            );
             return None;
         }
-
-        let pane_id = PaneId::parse(parts[0].trim()).ok()?;
-
-        let pane_index: u32 = parts[1].parse().unwrap_or(0);
-        let x: u32 = parts[2].parse().unwrap_or(0);
-        let y: u32 = parts[3].parse().unwrap_or(0);
-        let width: u32 = parts[4].parse().unwrap_or(80);
-        let height: u32 = parts[5].parse().unwrap_or(24);
-        let cursor_x: u32 = parts[6].parse().unwrap_or(0);
-        let cursor_y: u32 = parts[7].parse().unwrap_or(0);
-        let active = parts[8] == "1";
-        let command = normalize_pane_command(parts[9]);
-
-        // The two free-text fields — pane_title (index 10) and border_title
-        // (just after window_id) — can contain commas, which shift the
-        // comma-split field positions. The structured fields around them are
-        // not free-text, so locate the `window_id` anchor (`@<digits>`)
-        // dynamically: it is immediately preceded by in_mode, copy_cursor_x,
-        // copy_cursor_y, scroll_position. Everything between command and those
-        // four fields is pane_title; everything between window_id and the fixed
-        // 6-field tail is border_title.
-        let num_tail_fields = 13;
-
-        // Tail fields (fixed, never free-text): alternate_on, mouse_any_flag,
-        // pane_marked, selection_present, selection_start_x, selection_start_y,
-        // history_size, group_id (`@tmuxy-group-id`, `g<digits>` or empty),
-        // group_pos (`@tmuxy-group-pos`, a number or empty),
-        // pane_state (`@tmuxy-pane-state`, a bare word or empty), pane_ask
-        // (`@tmuxy-ask`, base64 or empty), pane_widget (`@tmuxy-pane-widget`,
-        // a widget name or empty) and pane_restore (`@tmuxy-pane-restore`, a
-        // shell line or empty, its commas sent as `%2C` so it stays one
-        // field). The free-text title/border fields in the middle can still
-        // hold commas: everything here is counted from the end.
-        let (
-            alternate_on,
-            mouse_any_flag,
-            marked,
-            selection_present,
-            selection_start_x,
-            selection_start_y,
-            history_size,
-            group_id,
-            group_pos,
-            pane_state,
-            pane_ask,
-            pane_widget,
-            pane_restore,
-        ) = if parts.len() >= 24 {
-            let last = parts.len() - 1;
-            let restore = parts[last].trim().replace("%2C", ",");
-            let widget = parts[last - 1].trim();
-            let ask = parts[last - 2].trim();
-            let state = parts[last - 3].trim();
-            let pos = parts[last - 4].trim();
-            let gid = parts[last - 5].trim();
-            (
-                parts[last - 12] == "1",
-                parts[last - 11] == "1",
-                parts[last - 10] == "1",
-                parts[last - 9] == "1",
-                parts[last - 8].parse::<u32>().unwrap_or(0),
-                parts[last - 7].parse::<u64>().unwrap_or(0),
-                parts[last - 6].parse::<u64>().unwrap_or(0),
-                GroupId::parse(gid).ok(),
-                pos.parse::<u32>().ok(),
-                (!state.is_empty()).then(|| state.to_string()),
-                (!ask.is_empty()).then(|| ask.to_string()),
-                (!widget.is_empty()).then(|| widget.to_string()),
-                (!restore.is_empty()).then_some(restore),
-            )
-        } else {
-            (
-                false, false, false, false, 0u32, 0u64, 0u64, None, None, None, None, None, None,
-            )
+        let field = |column: PaneColumn| parts[column.index()].trim();
+        let number = |column: PaneColumn| field(column).parse::<u32>().unwrap_or(0);
+        let flag = |column: PaneColumn| field(column) == "1";
+        let option = |column: PaneColumn| {
+            let value = field(column);
+            (!value.is_empty()).then(|| value.to_string())
         };
+        // The two titles keep their spacing: a border format that expands to
+        // a space is a space, as it was drawn.
+        let text = |column: PaneColumn| unescape_commas(parts[column.index()]);
 
-        let mut title = String::new();
-        let mut in_mode = false;
-        let mut copy_cursor_x: u32 = 0;
-        let mut copy_cursor_y: u32 = 0;
-        let mut scroll_position: u32 = 0;
-        let mut window_id = None;
-        let mut border_title = String::new();
-        let mut found_boundary = false;
-
-        if parts.len() > num_tail_fields {
-            let is_intlike = |s: &str| s.is_empty() || s.parse::<u32>().is_ok();
-            // window_id sits at index >= 15 (command=9, title>=1 field at 10,
-            // then 4 structured fields, then window_id). Scan the middle region.
-            for i in 15..(parts.len() - num_tail_fields) {
-                let val = parts[i];
-                let Ok(anchor) = WindowId::parse(val) else {
-                    continue;
-                };
-                if (parts[i - 4] == "0" || parts[i - 4] == "1")
-                    && is_intlike(parts[i - 3])
-                    && is_intlike(parts[i - 2])
-                    && is_intlike(parts[i - 1])
-                {
-                    title = parts[10..i - 4].join(",");
-                    in_mode = parts[i - 4] == "1";
-                    copy_cursor_x = parts[i - 3].parse().unwrap_or(0);
-                    copy_cursor_y = parts[i - 2].parse().unwrap_or(0);
-                    scroll_position = parts[i - 1].parse().unwrap_or(0);
-                    window_id = Some(anchor);
-                    border_title = parts[i + 1..parts.len() - num_tail_fields].join(",");
-                    found_boundary = true;
-                    break;
-                }
-            }
-        }
-
-        // Fallback to fixed-offset parsing when the anchor wasn't found (e.g. a
-        // truncated line or a future format change). border_title is still
-        // recovered from the region before the fixed tail.
-        if !found_boundary {
-            title = parts.get(10).map(|s| s.to_string()).unwrap_or_default();
-            in_mode = parts.get(11).map(|s| *s == "1").unwrap_or(false);
-            copy_cursor_x = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
-            copy_cursor_y = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
-            scroll_position = parts.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
-            window_id = parts.get(15).and_then(|s| WindowId::parse(s).ok());
-            border_title = if parts.len() > 16 + num_tail_fields {
-                parts[16..parts.len() - num_tail_fields].join(",")
-            } else {
-                parts.get(16).map(|s| s.to_string()).unwrap_or_default()
-            };
-        }
+        let pane_id = PaneId::parse(field(PaneColumn::PaneId)).ok()?;
+        let width = field(PaneColumn::Width).parse().unwrap_or(80);
+        let height = field(PaneColumn::Height).parse().unwrap_or(24);
+        let active = flag(PaneColumn::Active);
+        let command = normalize_pane_command(&unescape_commas(field(PaneColumn::Command)));
+        let title = text(PaneColumn::Title);
+        let in_mode = flag(PaneColumn::CopyMode);
+        let window_id = WindowId::parse(field(PaneColumn::WindowId)).ok();
+        let restore = unescape_commas(field(PaneColumn::Restore));
 
         // Check if this is a new pane
         let is_new_pane = !self.panes.contains_key(&pane_id);
@@ -161,9 +60,9 @@ impl StateAggregator {
             );
         }
 
-        pane.index = pane_index;
-        pane.x = x;
-        pane.y = y;
+        pane.index = number(PaneColumn::PaneIndex);
+        pane.x = number(PaneColumn::Left);
+        pane.y = number(PaneColumn::Top);
         let was_resized = pane.resize(width, height);
         if was_resized && !is_new_pane {
             debug!(pane = %pane_id, cols = width, rows = height, "pane resized");
@@ -175,15 +74,15 @@ impl StateAggregator {
         } else {
             title
         };
-        pane.border_title = border_title;
+        pane.border_title = text(PaneColumn::BorderTitle);
         let was_in_mode = pane.in_mode;
         pane.in_mode = in_mode;
         if was_in_mode && !in_mode {
             pane.copy_mode_content = None;
         }
-        pane.copy_cursor_x = copy_cursor_x;
-        pane.copy_cursor_y = copy_cursor_y;
-        pane.scroll_position = scroll_position;
+        pane.copy_cursor_x = number(PaneColumn::CopyCursorX);
+        pane.copy_cursor_y = number(PaneColumn::CopyCursorY);
+        pane.scroll_position = number(PaneColumn::ScrollPosition);
         pane.window_id = window_id;
         // `#{pane_active}` is per window: it names each window's own active
         // pane, which %window-pane-changed only reports for later changes.
@@ -196,23 +95,23 @@ impl StateAggregator {
                 w.active_pane_id = Some(pane.id.clone());
             }
         }
-        pane.alternate_on = alternate_on;
-        pane.mouse_any_flag = mouse_any_flag;
-        pane.marked = marked;
-        pane.selection_present = selection_present;
-        pane.selection_start_x = selection_start_x;
-        pane.selection_start_y = selection_start_y;
-        pane.history_size = history_size;
-        pane.group_id = group_id;
-        pane.group_pos = group_pos;
-        pane.pane_state = pane_state;
-        pane.pane_ask = pane_ask;
-        pane.pane_widget = pane_widget;
-        pane.pane_restore = pane_restore;
+        pane.alternate_on = flag(PaneColumn::AlternateOn);
+        pane.mouse_any_flag = flag(PaneColumn::MouseAnyFlag);
+        pane.marked = flag(PaneColumn::Marked);
+        pane.selection_present = flag(PaneColumn::SelectionPresent);
+        pane.selection_start_x = number(PaneColumn::SelectionStartX);
+        pane.selection_start_y = field(PaneColumn::SelectionStartY).parse().unwrap_or(0);
+        pane.history_size = field(PaneColumn::HistorySize).parse().unwrap_or(0);
+        pane.group_id = GroupId::parse(field(PaneColumn::GroupId)).ok();
+        pane.group_pos = field(PaneColumn::GroupPos).parse().ok();
+        pane.pane_state = option(PaneColumn::PaneState);
+        pane.pane_ask = option(PaneColumn::Ask);
+        pane.pane_widget = option(PaneColumn::Widget);
+        pane.pane_restore = (!restore.is_empty()).then_some(restore);
 
         // Store tmux's authoritative cursor position
-        pane.tmux_cursor_x = cursor_x;
-        pane.tmux_cursor_y = cursor_y;
+        pane.tmux_cursor_x = number(PaneColumn::CursorX);
+        pane.tmux_cursor_y = number(PaneColumn::CursorY);
 
         // Need to capture if pane is new, was resized, or just exited copy mode
         // (exiting copy mode requires re-syncing the vt100 terminal with tmux's actual content,

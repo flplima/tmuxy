@@ -4,14 +4,38 @@ use crate::ids::test_ids::{pid, wid};
 use crate::WindowType;
 
 /// Build a LIST_PANES_CMD line with the given title and border_title, in the
-/// exact field order of `constants::tmux_formats::LIST_PANES_CMD`.
+/// exact field order of `constants::tmux_formats::PaneColumn`, with the
+/// commas in the two titles escaped the way the format has tmux send them.
 pub(super) fn list_panes_line(title: &str, window_id: &str, border_title: &str) -> String {
     // group_id, pane_state, ask and widget (the last four tail fields) are
     // left empty here; each has its own test below.
+    let title = title.replace(',', "%2C");
+    let border_title = border_title.replace(',', "%2C");
     format!(
         // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
         "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,,"
     )
+}
+
+#[test]
+fn a_row_with_the_wrong_number_of_fields_is_dropped() {
+    // The format escapes every free-text column, so a row has exactly one
+    // field per column; anything else is not a pane row and must not become
+    // a pane with its fields shifted.
+    let mut agg = StateAggregator::new();
+    assert_eq!(
+        agg.parse_list_panes_line(
+            "%3,0,0,0,80,24,0,0,1,zsh,a, b,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,"
+        ),
+        None,
+        "an unescaped comma makes one field too many"
+    );
+    assert_eq!(
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4,,0,0,0,0,0,0,100,,"),
+        None,
+        "a short row"
+    );
+    assert!(agg.panes.is_empty());
 }
 
 #[test]
@@ -67,16 +91,15 @@ fn a_real_title_that_starts_with_g_is_kept() {
 
 #[test]
 fn list_panes_parses_rows_captured_from_a_real_tmux() {
-    // Verbatim `list-panes -s -F LIST_PANES_CMD` output from tmux 3.7c: one
-    // pane whose app set no title (empty title field) and one that set a
-    // comma-laden one over OSC 2. Unlike `list_panes_line`, this carries
-    // tmux's real habit of leaving the copy-mode/selection numerics EMPTY
-    // rather than zero — the anchor scan has to tolerate both around a
-    // blank title.
+    // `list-panes -s -F LIST_PANES_CMD` output as a real tmux (3.7c) sends
+    // it: one pane whose app set no title (empty title field) and one that
+    // set a comma-laden one over OSC 2, its commas escaped by the format.
+    // Unlike `list_panes_line`, this carries tmux's real habit of leaving the
+    // copy-mode/selection numerics EMPTY rather than zero.
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,");
     agg.parse_list_panes_line(
-        "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,,,,,,",
+        "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests%2C docs%2C and CI,0,,,,@0, ,0,0,0,,,,0,,,,,,",
     );
 
     let untitled = agg.panes.get("%0").expect("untitled pane parsed");
@@ -92,8 +115,8 @@ fn list_panes_parses_rows_captured_from_a_real_tmux() {
 #[test]
 fn list_panes_empty_title_keeps_fields_aligned() {
     // LIST_PANES_CMD asks tmux for the APP-SET title only, so a pane whose
-    // app never set one arrives with an EMPTY title field. The anchor scan
-    // must still find window_id rather than treating the blank as a shift.
+    // app never set one arrives with an EMPTY title field, which is a field
+    // like any other.
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(&list_panes_line("", "@4", ""));
     let pane = agg.panes.get("%3").expect("pane parsed");
@@ -105,8 +128,6 @@ fn list_panes_empty_title_keeps_fields_aligned() {
 
 #[test]
 fn list_panes_reads_the_pane_state_tail() {
-    // The new tail field is counted from the END, like group_id, so the
-    // free-text title and border in the middle can still carry commas.
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(
         "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,needs-input,,,",
@@ -222,7 +243,8 @@ fn pane_delta_carries_a_changed_title() {
 #[test]
 fn list_panes_title_with_commas_keeps_window_id() {
     // Regression: a pane title containing commas used to shift the
-    // comma-split fields, parsing window_id as "" and blanking the tab.
+    // comma-split fields, parsing window_id as "" and blanking the tab. The
+    // format now escapes them, and the parser puts them back.
     let title = "✳ Add Storybook, tests, PWA support and deploy Backstage";
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(&list_panes_line(title, "@4", ""));

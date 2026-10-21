@@ -120,6 +120,10 @@ Downstream, an empty title unambiguously means "no app title", so every consumer
 
 Titles change without any control-mode event, so they ride the regular `list-panes` refresh and the pane delta must carry the `title` field for a change to reach a connected client.
 
+### Pane rows
+
+The `list-panes` format the monitor polls with is built from one column table (`PaneColumn` in `tmuxy-core/src/constants/tmux_formats.rs`): each column's name is the index the parser reads its field at, and the command string is assembled from the same list, so the two cannot drift. Every free-text column — the app title, the border title, the process name, the restore line — is comma-escaped by tmux itself (`s/,/%2C/`), so a row always has exactly one field per column and a comma in a title cannot shift the fields after it; the parser drops a row with any other field count rather than guess. Only `list-panes -F` output is read this way: `display-message -p` strips the `%` from the escape.
+
 See [TMUX-TAGS.md](TMUX-TAGS.md) for this section: Window Tags (`@tmuxy-*`).
 
 ## Related

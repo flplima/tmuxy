@@ -268,7 +268,7 @@ fn window_extent_is_one_past_the_furthest_pane_edge() {
     // id,idx,x,y,w,h,... — two panes split side by side in @1, and one
     // pane of another window that must not count towards it.
     let row = |id: &str, x: u32, y: u32, w: u32, h: u32, win: &str| {
-        format!("{id},0,{x},{y},{w},{h},0,0,1,zsh,t,0,0,0,0,{win},,0,0,0,0,0,0,100,,,")
+        format!("{id},0,{x},{y},{w},{h},0,0,1,zsh,t,0,0,0,0,{win},,0,0,0,0,0,0,100,,,,,,")
     };
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(&row("%1", 0, 1, 80, 49, "@1"));

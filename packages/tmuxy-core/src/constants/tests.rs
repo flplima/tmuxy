@@ -29,6 +29,55 @@ fn list_windows_cmd_embeds_every_window_option() {
     }
 }
 
+/// The pane row has exactly one field per column: the command is built from
+/// the same table the parser indexes with, and no column's format may put a
+/// top-level comma of its own into the row.
+#[test]
+fn the_pane_row_has_one_field_per_column() {
+    let format = tmux_formats::LIST_PANES_CMD
+        .strip_prefix("list-panes -s -F '")
+        .and_then(|rest| rest.strip_suffix('\''))
+        .expect("the command wraps the format in quotes");
+    let mut depth = 0usize;
+    let mut separators = 0usize;
+    for ch in format.chars() {
+        match ch {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            ',' if depth == 0 => separators += 1,
+            _ => {}
+        }
+    }
+    assert_eq!(separators + 1, tmux_formats::PaneColumn::COUNT);
+    for column in tmux_formats::PANE_COLUMNS {
+        assert!(
+            column.starts_with("#{") && column.ends_with('}'),
+            "every column is one tmux format: {column}"
+        );
+    }
+}
+
+/// A column whose value is free text is comma-escaped by the format, so a
+/// title, a border, a process name or a shell line full of commas is still
+/// one field.
+#[test]
+fn free_text_pane_columns_are_comma_escaped() {
+    use tmux_formats::{PaneColumn, PANE_COLUMNS};
+    for column in [
+        PaneColumn::Command,
+        PaneColumn::Title,
+        PaneColumn::BorderTitle,
+        PaneColumn::Restore,
+    ] {
+        let format = PANE_COLUMNS[column.index()];
+        assert!(
+            format.starts_with(&format!("#{{s/,/{}/:", tmux_formats::COMMA_ESCAPE)),
+            "{column:?} is free text and must be escaped: {format}"
+        );
+    }
+    assert_eq!(tmux_formats::unescape_commas("a%2C b%2C c"), "a, b, c");
+}
+
 /// The pane rows must ask whether the pane is in COPY mode, never the
 /// broader `#{pane_in_mode}`. The client turns this field into its own
 /// copy mode, which hides the live terminal — so a pane in any other tmux

@@ -295,20 +295,21 @@ fn clear_from_home_erases_the_screen() {
     );
 }
 
-/// `#{pane_marked}` rides in the fixed tail of list-panes, between
-/// mouse_any_flag and selection_present, and must survive the free-text
-/// title/border fields around it.
+/// `#{pane_marked}` rides in the tail of list-panes, between mouse_any_flag
+/// and selection_present, after an escaped comma in the title.
 #[test]
 fn list_panes_carries_the_marked_flag() {
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,,,,,,",
+        "%3,0,0,0,80,24,0,0,1,zsh,a%2C title,0,0,0,0,@4,,0,0,1,0,0,0,100,,,,,,",
     );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert!(pane.marked);
     assert_eq!(pane.title, "a, title");
     assert_eq!(pane.history_size, 100);
 
-    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,0,0,0,0,100,,");
+    agg.parse_list_panes_line(
+        "%3,0,0,0,80,24,0,0,1,zsh,a%2C title,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,",
+    );
     assert!(!agg.panes.get("%3").expect("pane parsed").marked);
 }

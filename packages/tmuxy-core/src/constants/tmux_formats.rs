@@ -66,32 +66,157 @@ macro_rules! copy_mode_flag {
 /// See [`copy_mode_flag!`].
 pub const COPY_MODE_FLAG: &str = copy_mode_flag!();
 
-/// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is
-/// included so the monitor never accidentally drops to window scope.
-/// `#{@tmuxy-group-id}` rides in the fixed tail (non-free-text: `g<digits>`
-/// or empty) so it can't collide with the two free-text fields. The same
-/// goes for `#{@tmuxy-ask}`, which is base64 precisely so a question full
-/// of commas cannot shift the fields around it.
-pub const LIST_PANES_CMD: &str = concat!(
-    "list-panes -s -F '",
-    "#{pane_id},#{pane_index},",
-    "#{pane_left},#{pane_top},",
-    "#{pane_width},#{pane_height},",
-    "#{cursor_x},#{cursor_y},",
-    "#{pane_active},#{pane_current_command},",
-    app_pane_title!(),
-    ",",
-    copy_mode_flag!(),
-    ",#{copy_cursor_x},#{copy_cursor_y},",
-    "#{scroll_position},",
-    "#{window_id},#{T:pane-border-format},",
-    "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
-    "#{selection_present},",
-    "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id},",
-    "#{@tmuxy-group-pos},#{@tmuxy-pane-state},#{@tmuxy-ask},#{@tmuxy-pane-widget},",
-    // A shell line may hold commas; escaped, it stays one field.
-    "#{s/,/%2C/:@tmuxy-pane-restore}'",
-);
+/// What a comma inside a field is sent as, so a row always has exactly one
+/// field per column. tmux's `s/,/%2C/` modifier applies it on the way out and
+/// [`unescape_commas`] undoes it on the way in. Only `list-panes -F` output
+/// is parsed this way; `display-message -p` strips the `%`.
+pub const COMMA_ESCAPE: &str = "%2C";
+
+/// A field back from [`COMMA_ESCAPE`].
+pub fn unescape_commas(field: &str) -> String {
+    field.replace(COMMA_ESCAPE, ",")
+}
+
+/// A tmux variable whose value is free text, comma-escaped.
+macro_rules! escaped_var {
+    ($name:literal) => {
+        concat!("#{s/,/%2C/:", $name, "}")
+    };
+}
+
+/// A nested tmux format whose expansion is free text, comma-escaped.
+macro_rules! escaped_format {
+    ($fmt:expr) => {
+        concat!("#{s/,/%2C/:", $fmt, "}")
+    };
+}
+
+/// The columns of a pane row, once: each name is the index the parser reads a
+/// field at, each format is what tmux expands into that field, and
+/// [`LIST_PANES_CMD`] is built from the same list — so the command and the
+/// parser cannot disagree about which column is which. A column whose value
+/// is free text (a title, a border, a process name, a shell line) is
+/// comma-escaped, so a row always has [`PaneColumn::COUNT`] fields and a
+/// comma in a title cannot shift the fields after it.
+macro_rules! pane_columns {
+    ($($name:ident => $fmt:expr,)+) => {
+        /// A column of a `list-panes` row, in the order tmux prints them.
+        /// `column as usize` is its index in the split row.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum PaneColumn { $($name,)+ }
+
+        impl PaneColumn {
+            /// How many fields a row has.
+            pub const COUNT: usize = [$(stringify!($name),)+].len();
+
+            /// Where this column's field sits in the comma-split row.
+            pub const fn index(self) -> usize {
+                self as usize
+            }
+        }
+
+        /// Each column's tmux format, in [`PaneColumn`] order.
+        pub const PANE_COLUMNS: [&str; PaneColumn::COUNT] = [$($fmt,)+];
+    };
+}
+
+pane_columns! {
+    PaneId => "#{pane_id}",
+    PaneIndex => "#{pane_index}",
+    Left => "#{pane_left}",
+    Top => "#{pane_top}",
+    Width => "#{pane_width}",
+    Height => "#{pane_height}",
+    CursorX => "#{cursor_x}",
+    CursorY => "#{cursor_y}",
+    Active => "#{pane_active}",
+    Command => escaped_var!("pane_current_command"),
+    Title => escaped_format!(app_pane_title!()),
+    CopyMode => copy_mode_flag!(),
+    CopyCursorX => "#{copy_cursor_x}",
+    CopyCursorY => "#{copy_cursor_y}",
+    ScrollPosition => "#{scroll_position}",
+    WindowId => "#{window_id}",
+    BorderTitle => escaped_format!("#{T:pane-border-format}"),
+    AlternateOn => "#{alternate_on}",
+    MouseAnyFlag => "#{mouse_any_flag}",
+    Marked => "#{pane_marked}",
+    SelectionPresent => "#{selection_present}",
+    SelectionStartX => "#{selection_start_x}",
+    SelectionStartY => "#{selection_start_y}",
+    HistorySize => "#{history_size}",
+    // The `@tmuxy-*` options are tmuxy's own and never free text: a group id
+    // is `g<digits>`, a question is base64 precisely so its commas cannot
+    // shift the fields around it.
+    GroupId => "#{@tmuxy-group-id}",
+    GroupPos => "#{@tmuxy-group-pos}",
+    PaneState => "#{@tmuxy-pane-state}",
+    Ask => "#{@tmuxy-ask}",
+    Widget => "#{@tmuxy-pane-widget}",
+    Restore => escaped_var!("@tmuxy-pane-restore"),
+}
+
+const LIST_PANES_PREFIX: &str = "list-panes -s -F '";
+const LIST_PANES_SUFFIX: &str = "'";
+
+/// The length of [`LIST_PANES_CMD`]: the prefix and suffix, every column, and
+/// a comma between each pair of columns.
+const fn list_panes_cmd_len() -> usize {
+    let mut len = LIST_PANES_PREFIX.len() + LIST_PANES_SUFFIX.len() + PANE_COLUMNS.len() - 1;
+    let mut column = 0;
+    while column < PANE_COLUMNS.len() {
+        len += PANE_COLUMNS[column].len();
+        column += 1;
+    }
+    len
+}
+
+/// [`LIST_PANES_CMD`] as bytes, assembled at compile time: `concat!` takes
+/// literals only, and the columns are a table.
+const fn list_panes_cmd_bytes<const N: usize>() -> [u8; N] {
+    let mut out = [0u8; N];
+    let mut at = 0;
+    let mut part = LIST_PANES_PREFIX.as_bytes();
+    let mut i = 0;
+    while i < part.len() {
+        out[at] = part[i];
+        at += 1;
+        i += 1;
+    }
+    let mut column = 0;
+    while column < PANE_COLUMNS.len() {
+        if column > 0 {
+            out[at] = b',';
+            at += 1;
+        }
+        part = PANE_COLUMNS[column].as_bytes();
+        i = 0;
+        while i < part.len() {
+            out[at] = part[i];
+            at += 1;
+            i += 1;
+        }
+        column += 1;
+    }
+    part = LIST_PANES_SUFFIX.as_bytes();
+    i = 0;
+    while i < part.len() {
+        out[at] = part[i];
+        at += 1;
+        i += 1;
+    }
+    out
+}
+
+const LIST_PANES_CMD_BYTES: [u8; list_panes_cmd_len()] = list_panes_cmd_bytes();
+
+/// `list-panes -s -F '<every PaneColumn, comma-separated>'`. The session-scope
+/// flag (`-s`) is included so the monitor never accidentally drops to window
+/// scope.
+pub const LIST_PANES_CMD: &str = match std::str::from_utf8(&LIST_PANES_CMD_BYTES) {
+    Ok(cmd) => cmd,
+    Err(_) => panic!("the pane column formats are ASCII"),
+};
 
 // A macro as well as the const below so the subscription command can
 // splice the name in with `concat!`, which only accepts literals.
