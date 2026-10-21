@@ -1,0 +1,94 @@
+/* The session switcher's body (SessionPicker): a filter box over a list that
+   scrolls inside a capped box, in the menus' type and colours. The same body
+   hangs off the status line (SessionMenu) and sits on the detached overlay
+   (SessionList). */
+
+/* The dropdown's frame: the menus' card. Border-box, because SessionMenu
+   pins its minimum size to the box it measured: with the border outside the
+   size, each pin made it 2px larger, which fired the observer again. */
+.session-switcher {
+  box-sizing: border-box;
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+}
+
+.session-picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 28ch;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+.session-picker-filter {
+  margin: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: 0;
+  background-color: var(--bg-black);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.session-picker-filter:focus {
+  border-color: var(--theme-accent);
+}
+
+.session-picker-filter::placeholder {
+  color: var(--text-muted);
+}
+
+/* Capped well inside the window, so a dozen sessions — or a hundred — scroll
+   here instead of running past the edge of the screen. */
+.session-picker-list {
+  max-height: min(24rem, 50vh);
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.session-picker-header {
+  padding: 4px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-picker-divider {
+  height: 1px;
+  margin: 4px 0;
+  background-color: var(--border-medium);
+}
+
+.session-picker-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+/* The row Enter would pick. Hover moves it, so there is one highlight, as in
+   the menus. */
+.session-picker-item.is-active {
+  background-color: var(--bg-highlight);
+}
+
+.session-picker-item.is-active .menu-item-lead {
+  color: inherit;
+}
+
+/* A session that is not running but could be brought back from a snapshot:
+   drawn muted, since it is an offer rather than a thing that exists. */
+.session-picker-item.is-restorable {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.session-picker-empty {
+  padding: 4px 12px;
+  color: var(--text-muted);
+}

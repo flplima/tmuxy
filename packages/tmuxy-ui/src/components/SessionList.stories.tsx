@@ -35,11 +35,13 @@ export const DetachThenPickASession: Story = {
     await user.click(page.getByRole('menuitem', { name: 'Session' }));
     await user.click(await page.findByRole('menuitem', { name: /Detach Session/ }));
 
-    // The overlay says so, and lists the session to step back into, on screen.
+    // The overlay says so, and lists the session to step back into, on screen,
+    // under the switcher's filter box.
     await waitFor(() => expect(canvas.getByText('Detached')).toBeInTheDocument());
-    const list = canvasElement.querySelector('.session-list') as HTMLElement;
+    const list = canvasElement.querySelector('.session-picker') as HTMLElement;
     expect(list).not.toBeNull();
-    const session = within(list).getByRole('button', { name: /demo/ });
+    expect(within(list).getByRole('combobox', { name: /filter sessions/i })).toBeVisible();
+    const session = within(list).getByRole('option', { name: /demo/ });
     const box = session.getBoundingClientRect();
     expect(box.width).toBeGreaterThan(0);
     expect(box.height).toBeGreaterThan(0);

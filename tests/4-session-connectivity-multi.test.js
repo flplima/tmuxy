@@ -304,6 +304,107 @@ describe('Scenario 24: Session Switcher (web)', () => {
     }
   }, 180000);
 
+  // A dozen and more sessions — the setup of the user who asked for a
+  // switcher (issue #60). The list ran off the screen at about twelve.
+  test('twenty sessions: the switcher stays on screen and scrolls, typing filters it, Enter switches', async () => {
+    if (ctx.skipIfNotReady()) return;
+
+    // Setup, as above: vanilla sessions created before the page attaches.
+    const stamp = Date.now();
+    const target = `tmuxy_pick_${stamp}`;
+    const others = Array.from({ length: 19 }, (_, i) => `tmuxy_many_${stamp}_${i}`);
+    for (const name of [...others, target]) tmuxExec(`new-session -d -s ${name} -x 200 -y 50`);
+
+    const geometry = () =>
+      ctx.page.evaluate((name) => {
+        const box = (el) => {
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, h: r.height };
+        };
+        const list = document.querySelector('[data-testid="session-switcher"] [role="listbox"]');
+        const rows = [
+          ...document.querySelectorAll('[data-testid="session-switcher"] [data-session-name]'),
+        ];
+        const listBottom = list?.getBoundingClientRect().bottom ?? 0;
+        return {
+          viewport: { w: window.innerWidth, h: window.innerHeight },
+          switcher: box(document.querySelector('[data-testid="session-switcher"]')),
+          list: box(list),
+          scrollable: list ? list.scrollHeight > list.clientHeight : false,
+          rows: rows.length,
+          belowList: rows.filter((row) => row.getBoundingClientRect().top >= listBottom - 1).length,
+          target: box(document.querySelector(`[data-session-name="${name}"]`)),
+          filter: document.activeElement?.getAttribute('aria-label') ?? null,
+        };
+      }, target);
+
+    try {
+      await ctx.setupPage();
+      const total = others.length + 2; // and the session the page attached to
+
+      // Open it from the status line; the poll fills it, so reopen until it
+      // lists every session.
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const g = await geometry();
+          if (g.rows >= total) return true;
+          if (!g.switcher) await ctx.page.click('.statusline-session');
+          return false;
+        },
+        20000,
+        async () => `every session in the switcher\n${JSON.stringify(await geometry())}`,
+      );
+
+      // On screen, whole, with the list scrolling inside it: the last
+      // sessions are below the list's edge, not below the window's.
+      let g = await geometry();
+      expect(g.switcher.top).toBeGreaterThanOrEqual(0);
+      expect(g.switcher.bottom).toBeLessThanOrEqual(g.viewport.h);
+      expect(g.switcher.right).toBeLessThanOrEqual(g.viewport.w);
+      expect(g.scrollable).toBe(true);
+      expect(g.belowList).toBeGreaterThan(0);
+
+      // The keyboard is in the filter box: typing narrows the list to the one
+      // session, now in view.
+      expect(g.filter).toBe('Filter sessions');
+      await ctx.page.keyboard.type('PICK_');
+      await waitForCondition(
+        ctx.page,
+        async () => (await geometry()).rows === 1,
+        10000,
+        async () => `the filter to leave one session\n${JSON.stringify(await geometry())}`,
+      );
+      g = await geometry();
+      expect(g.target.h).toBeGreaterThan(8);
+      expect(g.target.top).toBeGreaterThanOrEqual(g.list.top);
+      expect(g.target.bottom).toBeLessThanOrEqual(g.list.bottom + 1);
+
+      // Enter picks it, and the client switches.
+      await ctx.page.keyboard.press('Enter');
+      await waitForCondition(
+        ctx.page,
+        async () =>
+          ctx.page.evaluate(
+            (name) => window.app?.getSnapshot()?.context?.sessionName === name,
+            target,
+          ),
+        15000,
+        'web client to switch to the filtered session',
+      );
+      expect(await ctx.page.locator('[data-testid="session-switcher"]').count()).toBe(0);
+    } finally {
+      for (const name of [...others, target]) {
+        try {
+          tmuxExec(`kill-session -t ${name}`);
+        } catch {
+          // Already gone — fine.
+        }
+      }
+    }
+  }, 180000);
+
   test("the app menu's New Session creates a session and moves the page to it; the first comes back with its panes [nightly]", async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();

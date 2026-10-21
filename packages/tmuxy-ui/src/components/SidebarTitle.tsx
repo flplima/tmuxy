@@ -29,7 +29,7 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
   );
 
   // The switcher is a dropdown hanging off this button — see SessionMenu for
-  // why it is a menu and not a float.
+  // why it is a dropdown and not a float.
   const switcherRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -61,7 +61,7 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
             type="button"
             className="sidebar-title-switcher"
             aria-label="Switch session"
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             ref={switcherRef}
             aria-expanded={menuOpen}
             onClick={(e) => {

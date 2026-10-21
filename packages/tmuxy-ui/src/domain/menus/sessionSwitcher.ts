@@ -2,28 +2,40 @@
  * The session switcher: the attached socket's sessions, the ones a snapshot
  * could bring back, and on the desktop the known servers and the way to a
  * new one.
+ *
+ * `query` narrows it to the sessions and servers whose names contain it,
+ * ignoring case — what the filter box above the list has typed. A section
+ * with nothing left in it loses its header too; the connect item is not a
+ * name, so it is always offered.
  */
 
 import type { AppMachineContext } from '../../machines/types/context';
 import { event, separator, tidy, type MenuEnv, type MenuNode, type MenuSpec } from './spec';
 
-export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
+export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query = ''): MenuSpec {
   const { sessionName, sessions, servers, currentServerId, restorableSessions } = ctx;
+  const needle = query.trim().toLowerCase();
+  const matches = (name: string) => name.toLowerCase().includes(needle);
   // Before the poll has answered — and on a sandbox that enumerates nothing —
   // the attached session is still the one we know for certain.
-  const names = sessions.length > 0 ? sessions.map((s) => s.sessionName) : [sessionName];
+  const running = sessions.length > 0 ? sessions.map((s) => s.sessionName) : [sessionName];
+  const names = running.filter(matches);
   // A session that is not running but has a snapshot is offered beside the
   // ones that are: choosing it rebuilds the session and then switches to it.
   // A viewer gets no such item — a rebuild is a write.
   const exited = env.readOnly
     ? []
-    : restorableSessions.filter((r) => !names.includes(r.name)).map((r) => r.name);
+    : restorableSessions
+        .filter((r) => !running.includes(r.name) && matches(r.name))
+        .map((r) => r.name);
   // A desktop list always holds at least localhost, so "more than one" is
   // what makes the section worth drawing; a web client's list is empty.
-  const showServers = env.isTauri && servers.length > 1;
+  const shownServers =
+    env.isTauri && servers.length > 1 ? servers.filter((s) => matches(s.label)) : [];
+  const showServers = shownServers.length > 0;
 
   return tidy([
-    { kind: 'header', label: 'Sessions' },
+    (names.length > 0 || exited.length > 0) && { kind: 'header', label: 'Sessions' },
     ...names.map((name): MenuNode => {
       const current = name === sessionName;
       return {
@@ -51,7 +63,7 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv): MenuS
     showServers && separator,
     showServers && { kind: 'header', label: 'Servers' },
     ...(showServers
-      ? servers.map(
+      ? shownServers.map(
           (server): MenuNode => ({
             kind: 'item',
             id: `server:${server.id}`,

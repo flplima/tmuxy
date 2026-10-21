@@ -48,7 +48,8 @@ export function useMenuDispatch(options: MenuDispatchOptions = {}): MenuDispatch
   );
 }
 
-function dataAttributes(data?: Record<string, string>): Record<string, string> {
+/** A spec item's `data` as the `data-*` attributes its element carries. */
+export function dataAttributes(data?: Record<string, string>): Record<string, string> {
   if (!data) return {};
   return Object.fromEntries(Object.entries(data).map(([k, v]) => [`data-${k}`, v]));
 }

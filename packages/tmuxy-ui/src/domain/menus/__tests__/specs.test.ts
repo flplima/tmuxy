@@ -283,6 +283,36 @@ describe('selection, session switcher and window menus', () => {
     ]);
   });
 
+  it('a filter keeps the sessions and servers whose names contain it, ignoring case, and the connect item', () => {
+    const c = ctx({
+      sessionName: 'main',
+      sessions: ['main', 'Work-API', 'work-web', 'notes'].map((sessionName) => ({
+        sessionName,
+      })) as AppMachineContext['sessions'],
+      restorableSessions: [
+        { name: 'old-work' },
+        { name: 'scratch' },
+      ] as AppMachineContext['restorableSessions'],
+      servers: [
+        { id: 'localhost', label: 'localhost' },
+        { id: 'box', label: 'workbox' },
+      ] as AppMachineContext['servers'],
+      currentServerId: 'localhost',
+    });
+    expect(itemIds(sessionSwitcherSpec(c, MAC, ' WORK '))).toEqual([
+      'session:Work-API',
+      'session:work-web',
+      'restore:old-work',
+      'server:box',
+      'session-connect',
+    ]);
+    // A section with nothing left in it loses its header with its rows.
+    const none = sessionSwitcherSpec(c, MAC, 'zzz');
+    expect(itemIds(none)).toEqual(['session-connect']);
+    expect(none.filter((node) => node.kind === 'header')).toEqual([]);
+    expect(itemIds(sessionSwitcherSpec(c, WEB, ''))).toEqual(itemIds(sessionSwitcherSpec(c, WEB)));
+  });
+
   it('the Window submenu lists the styles with the current one checked and the open windows', () => {
     const node = windowMenuSpec(MAC, {
       style: 'no-title-bar',

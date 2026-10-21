@@ -3,7 +3,7 @@
    ============================================
 
    One stylesheet for every menu in the app: the hamburger, the tab and pane
-   context menus, the selection menu and the session switcher. They used to be
+   context menus and the selection menu. They used to be
    a third-party menu's classes with a sheet of overrides on top, which is why
    "the menus" had a look that no file described.
 */
@@ -47,13 +47,6 @@
 .floating-menu-item.is-open {
   background-color: var(--bg-highlight);
   color: var(--text-primary);
-}
-
-/* A session that is not running but could be brought back from a snapshot:
-   drawn muted, since it is an offer rather than a thing that exists. */
-.floating-menu-item.is-restorable {
-  color: var(--text-muted);
-  font-style: italic;
 }
 
 .floating-menu-item.is-disabled {
