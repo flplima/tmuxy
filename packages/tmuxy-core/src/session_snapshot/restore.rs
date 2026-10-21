@@ -229,19 +229,36 @@ pub fn offered_by(ask: &str) -> Option<String> {
 ///   * A pane with saved scrollback starts as `cat` of that text and then the
 ///     shell, so what was on screen is on screen again above a fresh prompt.
 pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
-    let s = &snapshot.session;
     let mut steps = Vec::new();
-    let Some(first) = snapshot.windows.first() else {
+    if snapshot.windows.is_empty() {
         return steps;
-    };
-    let first_pane_cwd = first
-        .panes
+    }
+    session_steps(snapshot, options, &mut steps);
+    window_steps(snapshot, options, &mut steps);
+    pane_steps(snapshot, options, &mut steps);
+    hidden_member_steps(snapshot, options, &mut steps);
+    float_parent_steps(snapshot, &mut steps);
+    content_steps(snapshot, options, &mut steps);
+    focus_steps(snapshot, &mut steps);
+    steps
+}
+
+/// The first window's first pane's directory, or the fallback.
+fn first_cwd(w: &WindowSnapshot, options: &RestoreOptions) -> String {
+    w.panes
         .first()
         .map(|p| cwd_or_fallback(&p.cwd, options))
-        .unwrap_or_else(|| options.fallback_cwd.clone());
+        .unwrap_or_else(|| options.fallback_cwd.clone())
+}
 
-    // The session, with its first window — or the window `new-session -A`
-    // already made, renamed and moved to the first window's index.
+/// The session, with its first window — or the window `new-session -A`
+/// already made, renamed and moved to the first window's index.
+fn session_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Step>) {
+    let s = &snapshot.session;
+    let Some(first) = snapshot.windows.first() else {
+        return;
+    };
+    let first_pane_cwd = first_cwd(first, options);
     if options.onto_existing_window {
         let placeholder = options.existing_window_index.unwrap_or(0);
         steps.push(Step::Run(argv(&[
@@ -271,16 +288,18 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             &first_pane_cwd,
         ])));
     }
+}
 
-    // Every other window: split off the first window, break out at its index.
-    // `-P -F` prints the new pane's id, and that id is what gets broken out —
-    // never "the current pane", which is whatever the user is looking at.
+/// Every other window: split off the first window, break out at its index.
+/// `-P -F` prints the new pane's id, and that id is what gets broken out —
+/// never "the current pane", which is whatever the user is looking at.
+fn window_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Step>) {
+    let s = &snapshot.session;
+    let Some(first) = snapshot.windows.first() else {
+        return;
+    };
     for w in snapshot.windows.iter().skip(1) {
-        let cwd = w
-            .panes
-            .first()
-            .map(|p| cwd_or_fallback(&p.cwd, options))
-            .unwrap_or_else(|| options.fallback_cwd.clone());
+        let cwd = first_cwd(w, options);
         let key = format!("PANE_W{}", w.index);
         steps.push(Step::Ask {
             key: key.clone(),
@@ -307,8 +326,11 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             &w.name,
         ])));
     }
+}
 
-    // Each window's panes and layout, and its options.
+/// Each window's panes and layout, and its options.
+fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Step>) {
+    let s = &snapshot.session;
     for w in &snapshot.windows {
         for p in w.panes.iter().skip(1) {
             steps.push(Step::Run(argv(&[
@@ -361,13 +383,16 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             }
         }
     }
+}
 
-    // Hidden group members, now that every visible member carries its tag:
-    // each is split off its group's visible member and parked in the stash
-    // (`pane-group-park`, the half of `pane group add` that hides a pane),
-    // which prints the new pane's id for what follows. The split and the break
-    // leave the anchor's window as it was, but a layout is re-applied to be
-    // sure, since the select-layout above ran before the split.
+/// Hidden group members, now that every visible member carries its tag:
+/// each is split off its group's visible member and parked in the stash
+/// (`pane-group-park`, the half of `pane group add` that hides a pane),
+/// which prints the new pane's id for what follows. The split and the break
+/// leave the anchor's window as it was, but a layout is re-applied to be
+/// sure, since the select-layout of `pane_steps` ran before the split.
+fn hidden_member_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Step>) {
+    let s = &snapshot.session;
     let mut parked_windows = std::collections::BTreeSet::new();
     for (n, member) in snapshot.hidden.iter().enumerate() {
         let anchor = snapshot.windows.iter().find_map(|w| {
@@ -425,8 +450,11 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             ])));
         }
     }
+}
 
-    // Float parents, now that every window has an id.
+/// Float parents, now that every window has an id.
+fn float_parent_steps(snapshot: &Snapshot, steps: &mut Vec<Step>) {
+    let s = &snapshot.session;
     for w in &snapshot.windows {
         if let Some(parent) = w.float_parent_index {
             let key = format!("WIN{parent}");
@@ -450,8 +478,11 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             ])));
         }
     }
+}
 
-    // What each pane was doing.
+/// What each pane was doing: its scrollback printed back, its program offered.
+fn content_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Step>) {
+    let s = &snapshot.session;
     for w in &snapshot.windows {
         for p in &w.panes {
             let pane = pane_target(s, w.index, p.index);
@@ -486,8 +517,11 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             }
         }
     }
+}
 
-    // Focus, last: the active pane of every window, then the active window.
+/// Focus, last: the active pane of every window, then the active window.
+fn focus_steps(snapshot: &Snapshot, steps: &mut Vec<Step>) {
+    let s = &snapshot.session;
     for w in &snapshot.windows {
         if let Some(p) = w.panes.iter().find(|p| p.active) {
             steps.push(Step::Run(argv(&[
@@ -504,5 +538,4 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
             &target(s, w.index),
         ])));
     }
-    steps
 }

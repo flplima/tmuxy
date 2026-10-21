@@ -17,6 +17,23 @@ pub(super) fn list_panes_line(title: &str, window_id: &str, border_title: &str) 
     )
 }
 
+/// The cursor shape is whatever the program last asked for with DECSCUSR,
+/// read off the terminal parser; a request outside 0–6 is not one, and a
+/// resize does not forget the last one.
+#[test]
+fn the_cursor_shape_is_the_last_decscusr_the_output_asked_for() {
+    let mut pane = PaneState::new(pid("%1"), 80, 24);
+    pane.process_output(b"hello \x1b[5 q world");
+    assert_eq!(pane.cursor_shape, 5);
+    pane.process_output(b"\x1b[9 q");
+    assert_eq!(pane.cursor_shape, 5, "9 is not a cursor style");
+    pane.resize(100, 30);
+    pane.process_output(b"more");
+    assert_eq!(pane.cursor_shape, 5, "a resize keeps the shape");
+    pane.process_output(b"\x1b[0 q");
+    assert_eq!(pane.cursor_shape, 0);
+}
+
 #[test]
 fn a_row_with_the_wrong_number_of_fields_is_dropped() {
     // The format escapes every free-text column, so a row has exactly one

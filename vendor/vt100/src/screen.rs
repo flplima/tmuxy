@@ -61,6 +61,7 @@ pub struct Screen {
     modes: u8,
     mouse_protocol_mode: MouseProtocolMode,
     mouse_protocol_encoding: MouseProtocolEncoding,
+    cursor_shape: Option<u8>,
 }
 
 impl Screen {
@@ -77,6 +78,23 @@ impl Screen {
             modes: 0,
             mouse_protocol_mode: MouseProtocolMode::default(),
             mouse_protocol_encoding: MouseProtocolEncoding::default(),
+            cursor_shape: None,
+        }
+    }
+
+    /// The cursor style the application last asked for with DECSCUSR
+    /// (`CSI Ps SP q`, `Ps` 0–6: default, blinking/steady block, underline
+    /// and bar), or `None` when it never has on this screen.
+    #[must_use]
+    pub fn cursor_shape(&self) -> Option<u8> {
+        self.cursor_shape
+    }
+
+    pub(crate) fn set_cursor_shape(&mut self, shape: u16) {
+        if let Ok(shape) = u8::try_from(shape) {
+            if shape <= 6 {
+                self.cursor_shape = Some(shape);
+            }
         }
     }
 

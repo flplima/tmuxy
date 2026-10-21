@@ -16,7 +16,7 @@ tauri-build = { version = "2.0", features = [] }
 [dependencies]
 tracing.workspace = true
 tauri = { version = "2.0", features = ["macos-private-api"] }
-clap = { version = "4", features = ["derive"] }
+clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -34,7 +34,7 @@ webdriver = ["tauri-plugin-webdriver"]
 workspace = true
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", features = ["process"] }
+nix.workspace = true
 
 # A native error dialog before any window exists (no tmux, or one too old).
 # Linux shows it with GTK directly (src/startup_error.rs): rfd's Linux

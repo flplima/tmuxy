@@ -390,8 +390,9 @@ impl Parser {
     }
 
     fn parse_layout_change(&self, line: &str) -> Option<ControlModeEvent> {
+        use crate::constants::control_events as ev;
         // %layout-change @window layout visible-layout flags
-        let rest = &line["%layout-change ".len()..];
+        let rest = line.strip_prefix(ev::LAYOUT_CHANGE)?;
         let parts: Vec<&str> = rest.split_whitespace().collect();
 
         if parts.len() >= 3 {
@@ -407,8 +408,9 @@ impl Parser {
     }
 
     fn parse_window_renamed(&self, line: &str) -> Option<ControlModeEvent> {
+        use crate::constants::control_events as ev;
         // %window-renamed @window name
-        let rest = &line["%window-renamed ".len()..];
+        let rest = line.strip_prefix(ev::WINDOW_RENAMED)?;
         let (window_id, name) = rest.split_once(' ')?;
         Some(ControlModeEvent::WindowRenamed {
             window_id: WindowId::parse(window_id).ok()?,
@@ -417,8 +419,9 @@ impl Parser {
     }
 
     fn parse_window_pane_changed(&self, line: &str) -> Option<ControlModeEvent> {
+        use crate::constants::control_events as ev;
         // %window-pane-changed @window %pane
-        let rest = &line["%window-pane-changed ".len()..];
+        let rest = line.strip_prefix(ev::WINDOW_PANE_CHANGED)?;
         let parts: Vec<&str> = rest.split_whitespace().collect();
 
         if parts.len() >= 2 {
@@ -432,18 +435,20 @@ impl Parser {
     }
 
     fn parse_session_changed(&self, line: &str) -> Option<ControlModeEvent> {
+        use crate::constants::control_events as ev;
         // %session-changed $session name
-        let rest = &line["%session-changed ".len()..];
-        rest.find(' ')
-            .map(|space_idx| ControlModeEvent::SessionChanged {
-                session_id: rest[..space_idx].to_string(),
-                session_name: rest[space_idx + 1..].to_string(),
-            })
+        let rest = line.strip_prefix(ev::SESSION_CHANGED)?;
+        let (session_id, session_name) = rest.split_once(' ')?;
+        Some(ControlModeEvent::SessionChanged {
+            session_id: session_id.to_string(),
+            session_name: session_name.to_string(),
+        })
     }
 
     fn parse_session_window_changed(&self, line: &str) -> Option<ControlModeEvent> {
+        use crate::constants::control_events as ev;
         // %session-window-changed $session @window
-        let rest = &line["%session-window-changed ".len()..];
+        let rest = line.strip_prefix(ev::SESSION_WINDOW_CHANGED)?;
         let parts: Vec<&str> = rest.split_whitespace().collect();
 
         if parts.len() >= 2 {

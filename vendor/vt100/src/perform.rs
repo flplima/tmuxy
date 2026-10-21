@@ -205,6 +205,10 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                     );
                 }
             },
+            // DECSCUSR -- set cursor style.
+            Some(b' ') if c == 'q' => self
+                .screen
+                .set_cursor_shape(canonicalize_params_1(params, 0)),
             Some(i) => {
                 self.callbacks.unhandled_csi(
                     &mut self.screen,

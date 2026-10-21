@@ -22,14 +22,14 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 tokio = { workspace = true, features = ["process"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
-thiserror = "2"
+thiserror.workspace = true
 tokio-util = { version = "0.7", features = ["rt"] }
 axum = { version = "0.8" }
 # HTTP Basic auth: decode the `Authorization: Basic <base64>` header.
-base64 = "0.22"
-clap = { version = "4", features = ["derive"] }
+base64.workspace = true
+clap.workspace = true
 rust-embed = "8"
-dirs = "6.0"
+dirs.workspace = true
 futures-util = "0.3"
 # The `--dev` proxy to Vite.
 reqwest = { version = "0.12", default-features = false }
@@ -38,6 +38,6 @@ async-stream = "0.3"
 tmuxy-group = { path = "../tmuxy-group" }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", features = ["signal", "process"] }
+nix = { workspace = true, features = ["signal"] }
 libc = "0.2"
 

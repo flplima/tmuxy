@@ -13,40 +13,6 @@ fn utf8_chunks(data: &[u8]) -> impl Iterator<Item = &[u8]> {
     (0..starts.len().saturating_sub(1)).map(move |i| &data[starts[i]..starts[i + 1]])
 }
 
-/// Extract DECSCUSR (Set Cursor Style) from raw terminal output.
-/// Format: ESC [ Ps SP q  where Ps is 0-6.
-/// Updates `shape` with the last DECSCUSR value found in the data.
-fn extract_cursor_shape(data: &[u8], shape: &mut u8) {
-    // Scan for pattern: 0x1b '[' <digits> ' ' 'q'
-    let len = data.len();
-    let mut i = 0;
-    while i < len {
-        if data[i] == 0x1b && i + 1 < len && data[i + 1] == b'[' {
-            // Start of CSI sequence
-            let mut j = i + 2;
-            // Parse digits
-            let digit_start = j;
-            while j < len && data[j].is_ascii_digit() {
-                j += 1;
-            }
-            // Check for SP q suffix
-            if j + 1 < len && data[j] == b' ' && data[j + 1] == b'q' && j > digit_start {
-                if let Ok(ps) = std::str::from_utf8(&data[digit_start..j])
-                    .unwrap_or("")
-                    .parse::<u8>()
-                {
-                    if ps <= 6 {
-                        *shape = ps;
-                    }
-                }
-                i = j + 2;
-                continue;
-            }
-        }
-        i += 1;
-    }
-}
-
 impl PaneState {
     /// Feed vt100 the OSC-stripped bytes, recording which cells a hyperlink
     /// covers as they are written.
@@ -219,11 +185,6 @@ impl PaneState {
     pub fn process_output(&mut self, content: &[u8]) {
         self.content_dirty = true;
 
-        // Extract DECSCUSR (Set Cursor Style) before other processing.
-        // Format: CSI Ps SP q  (e.g., \x1b[5 q for blinking bar)
-        // We scan for the last occurrence since only the final state matters.
-        extract_cursor_shape(content, &mut self.cursor_shape);
-
         // Ensure image parser starts with the current vt100 cursor position.
         let (init_row, init_col) = self.terminal.screen().cursor_position();
         self.image_parser.update_cursor(init_row, init_col);
@@ -244,6 +205,13 @@ impl PaneState {
             parser.update_cursor(row, col);
         });
         self.image_parser = image_parser;
+
+        // The cursor style the output asked for (DECSCUSR), read off the
+        // parser that saw it. A screen that never saw one says nothing, so a
+        // pane keeps its shape across a resize that rebuilds the parser.
+        if let Some(shape) = self.terminal.screen().cursor_shape() {
+            self.cursor_shape = shape;
+        }
 
         for (id, stored) in new_images {
             self.image_store.insert(id, stored);

@@ -48,6 +48,10 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   default-background hole beside it.
 - **Width clamp**: a character is never wider than the grid, and a zero-column
   grid draws nothing instead of indexing a cell that does not exist.
+- **DECSCUSR** (`CSI Ps SP q`, dispatched in `perform.rs`): the cursor style
+  the application last asked for, `Screen::cursor_shape`. tmuxy draws the
+  cursor itself and used to scan the raw bytes for the sequence beside the
+  parser; the parser is where every other escape is read.
 
 ## Removed: the serializers
 
