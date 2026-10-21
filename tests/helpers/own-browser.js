@@ -25,11 +25,10 @@ const {
   verifyRoundTrip,
   focusPage,
   waitForSessionReady,
-  delay,
 } = require('./browser');
 const TmuxTestSession = require('./TmuxTestSession');
-const { TMUXY_URL, DELAYS } = require('./config');
-const { tmuxExec } = require('./tmux-socket');
+const { TMUXY_URL } = require('./config');
+const { waitForMonitorGone } = require('./monitor');
 
 /**
  * @param {Object} options
@@ -117,29 +116,6 @@ function createOwnBrowserContext({
     ctx.session = null;
     await waitForMonitorGone(name);
   };
-
-  /**
-   * Wait until the server's control-mode monitor has let go of tmux, so the
-   * next test does not connect while the previous session is still attached.
-   * tmux itself is the signal: the session is gone and no client is left.
-   */
-  async function waitForMonitorGone(session, timeout = 10000) {
-    // No session was ever created, so no monitor attached to let go of.
-    if (!session) return;
-    const start = Date.now();
-    while (Date.now() - start < timeout) {
-      let clients = '';
-      try {
-        // A throw means "no such session", which is the state being waited for.
-        tmuxExec(`has-session -t ${session}`, { timeout: 2000 });
-        clients = tmuxExec(`list-clients -t ${session} -F '#{client_name}'`, { timeout: 2000 });
-      } catch {
-        clients = '';
-      }
-      if (clients.trim() === '') return await delay(DELAYS.LONG);
-      await delay(100);
-    }
-  }
 
   ctx.isReady = () => Boolean(ctx.serverAvailable && ctx.browser && ctx.page);
 

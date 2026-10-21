@@ -24,6 +24,13 @@ import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import moves from './fixtures/gen/side-by-side-moves.json';
 import stack from './fixtures/gen/stack-rows.json';
+import {
+  getApp,
+  getPaneLayout,
+  paneNodes,
+  waitForAnimationsEnabled,
+  waitForPaneCount,
+} from './animationStoryHelpers';
 
 /** Two panes side by side, `%1` active: focusing `%0`, and growing it, answered as tmux did. */
 const SIDE_BY_SIDE = {
@@ -62,45 +69,10 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-interface AppActor {
-  send: (event: unknown) => void;
-  getSnapshot: () => { context: { activePaneId: string | null } };
-}
-
-function getApp(): AppActor {
-  const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — FixtureApp not mounted?');
-  return app;
-}
-
 const run = (command: string) => getApp().send({ type: 'SEND_TMUX_COMMAND', command });
 
-function paneNodes(canvasElement: HTMLElement): HTMLElement[] {
-  return [...canvasElement.querySelectorAll<HTMLElement>('.pane-layout-item[data-pane-id]')];
-}
-
-function getPaneLayout(canvasElement: HTMLElement): HTMLElement {
-  const el = canvasElement.querySelector<HTMLElement>('.pane-layout');
-  if (!el) throw new Error('.pane-layout not found');
-  return el;
-}
-
-/** Resolve once the app has settled and re-enabled layout animations. */
-async function waitForAnimationsEnabled(layout: HTMLElement): Promise<void> {
-  await waitFor(() => expect(layout.classList.contains('pane-layout-no-animations')).toBe(false), {
-    timeout: 8000,
-  });
-}
-
-async function waitForPanes(count: number, canvasElement: HTMLElement): Promise<void> {
-  const canvas = within(canvasElement);
-  await waitFor(
-    () => expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(count),
-    {
-      timeout: 8000,
-    },
-  );
-}
+const waitForPanes = (count: number, canvasElement: HTMLElement) =>
+  waitForPaneCount(within(canvasElement), count);
 
 /**
  * Which geometry properties actually started transitioning after `act` ran.

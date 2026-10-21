@@ -13,12 +13,11 @@ const {
   waitForSessionReady,
   waitForPaneCount,
   waitForCondition,
-  delay,
 } = require('./browser');
 const TmuxTestSession = require('./TmuxTestSession');
-const { TMUXY_URL, DELAYS } = require('./config');
+const { TMUXY_URL } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
-const { tmuxExec } = require('./tmux-socket');
+const { waitForMonitorGone } = require('./monitor');
 const { assertStateMatches } = require('./consistency');
 const { splitPaneKeyboard, navigatePaneKeyboard } = require('./pane-ops');
 
@@ -180,40 +179,6 @@ function createTestContext({ snapshot = false } = {}) {
     // Re-throw after cleanup so the test still fails
     if (assertionError) throw assertionError;
   };
-
-  /**
-   * Wait until the server's monitor for `session` has let go of tmux.
-   *
-   * The monitor attaches to tmux as a control-mode client, so tmux itself
-   * says when it is gone: the session disappears (the test killed it) and no
-   * client remains for it. This replaced a flat `delay(4000)` in every
-   * teardown — ~6.5 minutes of pure sleep across the suite, and a coupling
-   * that let one test's slow shutdown fail the next one.
-   */
-  async function waitForMonitorGone(session, timeout = 10000) {
-    // No session was ever created, so no monitor attached to let go of.
-    if (!session) return;
-    const start = Date.now();
-    while (Date.now() - start < timeout) {
-      let clients = '';
-      try {
-        // Errors mean "no such session", which is the state we are waiting for.
-        tmuxExec(`has-session -t ${session} 2>/dev/null`, { timeout: 2000 });
-        clients = tmuxExec(`list-clients -t ${session} -F '#{client_name}' 2>/dev/null`, {
-          timeout: 2000,
-        });
-      } catch {
-        clients = '';
-      }
-      if (clients.trim() === '') {
-        // The server drops the monitor a beat after its last client leaves;
-        // give that its grace period before the next test connects.
-        await delay(DELAYS.LONG);
-        return;
-      }
-      await delay(100);
-    }
-  }
 
   /**
    * Check if test prerequisites are available

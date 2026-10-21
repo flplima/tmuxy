@@ -180,10 +180,13 @@ describe('HttpAdapter connect() lifecycle', () => {
       'The server refused this page: request Host is not this server (see --allowed-host)',
     );
 
-    // Whatever attempt was already scheduled fails too, and nothing follows it.
+    // Whatever attempt was already scheduled fails too, and nothing follows
+    // it: the retry predicate reads `fatal` and the channel's fiber ends,
+    // which is what the adapter records by letting go of it.
     const opened = MockEventSource.instances.length;
     MockEventSource.instances[opened - 1].onerror?.(new Event('error'));
-    await new Promise((r) => setTimeout(r, 50));
+    const channel = adapter as unknown as { channelFiber: unknown };
+    await vi.waitFor(() => expect(channel.channelFiber).toBeNull());
     expect(MockEventSource.instances.length).toBeLessThanOrEqual(opened + 1);
     expect(fatals).toHaveLength(1);
     adapter.disconnect();

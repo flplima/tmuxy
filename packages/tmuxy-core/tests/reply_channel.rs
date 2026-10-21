@@ -139,7 +139,10 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
     // Sequence a state emission behind the query, then look at what the
     // monitor believes this session has.
     let _ = ask(&tx, "display-message -p SYNC").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    common::wait_until("a full snapshot", Duration::from_secs(10), || async {
+        panes_in_last_full(&recorder).is_some()
+    })
+    .await;
     assert_eq!(
         panes_in_last_full(&recorder),
         Some(1),
@@ -165,7 +168,14 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
     .await
     .unwrap();
     let _ = ask(&tx, "display-message -p SYNC").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The keystroke went first, so its error — had there been one — would be
+    // in the list ahead of the window's by the time that one has arrived.
+    common::wait_until(
+        "the rejected mutation to be reported",
+        Duration::from_secs(10),
+        || async { !recorder.errors.lock().unwrap().is_empty() },
+    )
+    .await;
     assert_eq!(
         *recorder.errors.lock().unwrap(),
         vec!["can't find window: @999".to_string()],

@@ -109,8 +109,8 @@ describe('tmuxActor — cancellable scrollback', () => {
       start: 0,
       end: 10,
     });
-    // tiny tick so the first fiber actually starts
-    await new Promise((r) => setTimeout(r, 5));
+    // The first fiber has started: it is in the adapter, waiting on the server.
+    await waitFor(() => calls.length === 1);
     actor.getSnapshot().children.tmux!.send({
       type: 'FETCH_SCROLLBACK_CELLS',
       paneId: '%1',
@@ -172,25 +172,29 @@ describe('tmuxActor — cancellable scrollback', () => {
   });
 
   it('fetch failure is silent (no TMUX_ERROR tunneled to parent)', async () => {
-    const invoke = vi.fn(async (cmd: string) => {
-      if (cmd === 'get_scrollback_cells') {
-        throw { error: 'pane gone', kind: 'tmux' };
-      }
-      return undefined;
+    // `%1` is gone; `%2` answers. The failure is sent first, and what it did
+    // or did not send the parent is read once the second fetch — which it
+    // does not interrupt, being another pane's — has landed behind it.
+    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd !== 'get_scrollback_cells') return undefined;
+      const a = args as { paneId: string; start: number; end: number };
+      if (a.paneId === '%1') throw { error: 'pane gone', kind: 'tmux' };
+      return { cells: [], historySize: 100, start: a.start, end: a.end, width: 80 };
     });
     const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
     const { actor, events } = spawnTmuxActor(runtime);
     actor
       .getSnapshot()
       .children.tmux!.send({ type: 'FETCH_SCROLLBACK_CELLS', paneId: '%1', start: 0, end: 10 });
-
-    // Give time for the fetch to fail
-    await new Promise((r) => setTimeout(r, 30));
+    actor
+      .getSnapshot()
+      .children.tmux!.send({ type: 'FETCH_SCROLLBACK_CELLS', paneId: '%2', start: 0, end: 10 });
+    await waitFor(() => events.some((e) => e.type === 'COPY_MODE_CHUNK_LOADED'));
 
     const tmuxErrors = events.filter((e) => e.type === 'TMUX_ERROR');
     const chunks = events.filter((e) => e.type === 'COPY_MODE_CHUNK_LOADED');
     expect(tmuxErrors).toHaveLength(0);
-    expect(chunks).toHaveLength(0);
+    expect(chunks.map((e) => e.paneId)).toEqual(['%2']);
     actor.stop();
   });
 });

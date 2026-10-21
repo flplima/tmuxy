@@ -101,13 +101,24 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
     tx.send(MonitorCommand::RunCommand { command: pinned })
         .await
         .unwrap();
+    // A position INSIDE the stalled list's one-second window, by design: the
+    // other client has to act between the pin and the split, and nothing
+    // observable marks that moment but the clock.
     tokio::time::sleep(Duration::from_millis(300)).await;
     // Another client — the way tmuxy's own monitor, or a user switching tabs,
     // does all the time — moves the session's current window.
     common::tmux(&["select-window", "-t", first_window]).unwrap();
 
-    // Let the stalled list finish.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    // The stalled list finishes and the split lands somewhere.
+    let tx_ref = &tx;
+    common::wait_until(
+        "the stalled split to land",
+        Duration::from_secs(10),
+        move || async move {
+            panes_in(tx_ref, second_window).await + panes_in(tx_ref, first_window).await == 3
+        },
+    )
+    .await;
 
     assert_eq!(
         panes_in(&tx, second_window).await,

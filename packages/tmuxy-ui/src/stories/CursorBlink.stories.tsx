@@ -25,6 +25,7 @@ import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
+import { getApp } from './animationStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Cursor Blink',
@@ -52,16 +53,6 @@ const APPEARANCE = {
   blur: false,
   animations: true,
 };
-
-interface AppActor {
-  send: (event: unknown) => void;
-}
-
-function getApp(): AppActor {
-  const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — FixtureApp not mounted?');
-  return app;
-}
 
 function appContainer(canvasElement: HTMLElement): HTMLElement {
   const el = canvasElement.querySelector<HTMLElement>('.app-container');

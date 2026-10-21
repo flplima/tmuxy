@@ -20,6 +20,7 @@ import { expect, within, waitFor, fireEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import dividerAtMinimum from './fixtures/gen/divider-at-minimum.json';
+import { waitForPaneCount } from './animationStoryHelpers';
 
 /** A resize answered the way tmux answered one far past the edge: the right pane at one column. */
 const RESIZE = [{ match: /^resize-pane\b/, to: 'right-at-minimum' }];
@@ -95,15 +96,8 @@ async function dragDivider(divider: HTMLElement, x: number, y: number): Promise<
   }
 }
 
-async function waitForPanes(count: number, canvasElement: HTMLElement): Promise<void> {
-  const canvas = within(canvasElement);
-  await waitFor(
-    () => expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(count),
-    {
-      timeout: 8000,
-    },
-  );
-}
+const waitForPanes = (count: number, canvasElement: HTMLElement) =>
+  waitForPaneCount(within(canvasElement), count);
 
 // ---------------------------------------------------------------------------
 // Hauled past the end — the divider stops, nothing overlaps

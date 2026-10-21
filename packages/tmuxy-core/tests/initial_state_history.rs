@@ -51,8 +51,17 @@ async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
     ])
     .unwrap();
 
-    // Let the loop finish writing before the monitor reads list-panes.
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // The loop has finished writing — its last line is in the history — before
+    // the monitor reads list-panes.
+    common::wait_until(
+        "the pane to print its 400 lines",
+        Duration::from_secs(10),
+        || async {
+            common::tmux(&["capture-pane", "-p", "-t", "app", "-S", "-"])
+                .is_ok_and(|history| history.contains("HISTMARK_400"))
+        },
+    )
+    .await;
 
     let config = MonitorConfig {
         session: "app".to_string(),

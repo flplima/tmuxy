@@ -25,6 +25,7 @@ import twoPanes from './fixtures/gen/content-two-panes.json';
 import threePanes from './fixtures/gen/content-three-panes.json';
 import { ContentStabilityRecorder } from './contentStability';
 import { ContentMutationRecorder } from './contentMutation';
+import { getApp, getPaneLayout, waitForPaneCount } from './animationStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Content Stability',
@@ -48,34 +49,9 @@ type Story = StoryObj<typeof FixtureApp>;
 // Helpers
 // ---------------------------------------------------------------------------
 
-interface AppActor {
-  send: (event: unknown) => void;
-}
-
-function getApp(): AppActor {
-  const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — FixtureApp not mounted?');
-  return app;
-}
-
-type Canvas = ReturnType<typeof within>;
-
-function getPaneLayout(canvasElement: HTMLElement): HTMLElement {
-  const el = canvasElement.querySelector<HTMLElement>('.pane-layout');
-  if (!el) throw new Error('.pane-layout not found');
-  return el;
-}
-
 const cmd = (command: string) => getApp().send({ type: 'SEND_TMUX_COMMAND', command });
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-async function waitForPaneCount(canvas: Canvas, count: number, timeout = 8000): Promise<void> {
-  await waitFor(
-    () => expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(count),
-    { timeout },
-  );
-}
 
 /** The recorded panes are up, with every marker the story watches on screen. */
 async function waitForMarkers(
