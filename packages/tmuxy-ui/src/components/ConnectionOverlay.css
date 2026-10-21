@@ -4,7 +4,7 @@
 .connection-overlay {
   position: absolute;
   inset: 0;
-  z-index: 1300;
+  z-index: var(--z-connection-overlay);
   display: flex;
   align-items: center;
   justify-content: center;

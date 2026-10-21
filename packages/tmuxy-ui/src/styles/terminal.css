@@ -60,7 +60,7 @@
   background: var(--theme-accent);
   opacity: 0.08;
   pointer-events: none;
-  z-index: 30;
+  z-index: var(--z-pane-wash);
 }
 
 .sidebar-tree-mark {

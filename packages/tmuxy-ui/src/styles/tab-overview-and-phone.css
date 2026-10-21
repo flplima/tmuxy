@@ -4,9 +4,9 @@
 .tab-overview {
   position: absolute;
   inset: 0;
-  /* Above floats (1001+) and the zoomed pane; the live grid is lifted over it
-     only while the overview is open (see .tab-overview-open .pane-layout). */
-  z-index: 1200;
+  /* Above floats and the zoomed pane; the live grid is lifted over it only
+     while the overview is open (see .tab-overview-open .pane-layout). */
+  z-index: var(--z-tab-overview);
   background: color-mix(in srgb, var(--term-background) 78%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -202,7 +202,7 @@
      goes to the slot underneath it, never to a pane. */
   transform: translate(var(--tab-overview-x, 0px), var(--tab-overview-y, 0px))
     scale(var(--tab-overview-sx, 1), var(--tab-overview-sy, 1));
-  z-index: 1201;
+  z-index: var(--z-tab-overview-grid);
   /* Display only while the overview is open: a click on the shrinking grid
      goes to the slot underneath it, never to a pane. */
   pointer-events: none;

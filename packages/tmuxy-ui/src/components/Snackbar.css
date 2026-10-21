@@ -7,7 +7,7 @@
   position: fixed;
   top: calc(var(--statusbar-height) + 6px);
   right: 12px;
-  z-index: 1400; /* over the connection overlay (1300) and the tab overview */
+  z-index: var(--z-snackbar);
   display: flex;
   flex-direction: column;
   align-items: flex-end;

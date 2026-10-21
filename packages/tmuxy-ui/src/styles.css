@@ -205,13 +205,35 @@
   --active-text-opacity: 1;
   --inactive-text-opacity: 0.7;
 
-  /* Z-index */
+  /* Z-index: the panes among themselves… */
   --z-base: 1;
   --z-active: 2;
   --z-dragging: 3;
   --z-pane-anim: 4;
   /* A zoomed pane covers the whole layout — above every other pane state. */
   --z-zoomed: 5;
+  /* …and the ladder of everything laid over the grid, lowest first. A surface
+     is placed by naming its rung, never by a number of its own, so the order
+     can be read here in one place. */
+  /* A pane's own washes: the copy-mode tint, the offer banner, the question. */
+  --z-pane-wash: 30;
+  --z-offer: 39;
+  --z-ask: 40;
+  /* The header's buttons and the resize dividers, over the pane bodies. */
+  --z-pane-chrome: 60;
+  /* Floats and modal widgets, over every pane. */
+  --z-float: 1000;
+  /* The keys view, over floats. */
+  --z-keys-view: 1150;
+  /* The Tab Overview, and the live grid lifted over it while it is open. */
+  --z-tab-overview: 1200;
+  --z-tab-overview-grid: 1201;
+  /* The one cursor and the copy blink: on whatever surface holds the keyboard. */
+  --z-cursor: 1250;
+  --z-copy-flash: 1260;
+  /* The connection overlay covers the whole app; the snackbar speaks over it. */
+  --z-connection-overlay: 1300;
+  --z-snackbar: 1400;
   /* Above the menus (10000): a tooltip can describe a menu item. */
   --z-tooltip: 10001;
 }

@@ -4,7 +4,7 @@
 .keys-view {
   position: absolute;
   inset: 0;
-  z-index: 1150; /* over floats (1001+), under the connection overlay (1300) */
+  z-index: var(--z-keys-view);
   display: flex;
   justify-content: center;
   font-family: var(--font-mono);

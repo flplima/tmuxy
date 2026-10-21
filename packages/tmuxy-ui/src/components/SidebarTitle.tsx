@@ -19,6 +19,7 @@ import { selectRightSidebarPane } from '../machines/selectors/panesAndSidebars';
 import { sidebarShellTitle } from './paneTabDisplay';
 import { Tooltip } from './Tooltip';
 import { SessionMenu } from './SessionMenu';
+import './SidebarTitle.css';
 
 export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' | 'right' }) {
   const send = useAppSend();

@@ -57,6 +57,7 @@ import { isModelWindowId, type WindowId } from '../domain/ids';
 import type { PaneStateName } from '../utils/paneState';
 import { selectTabStates, useShowActiveTab } from './windowTabState';
 import { WindowTabItem } from './WindowTabItem';
+import './WindowTabs.css';
 
 /**
  * How long the hover card survives the pointer leaving the strip. Just enough

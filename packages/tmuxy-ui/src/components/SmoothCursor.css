@@ -9,11 +9,10 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
-  /* Above floats (1001+), the Tab Overview (1200) and the pane grid lifted
-     over it (1201) — the cursor belongs to whatever surface holds the
-     keyboard, and every one of those can — but under the connection overlay
-     (1300), which covers the whole app. */
-  z-index: 1250;
+  /* Above floats, the Tab Overview and the pane grid lifted over it — the
+     cursor belongs to whatever surface holds the keyboard, and every one of
+     those can — but under the connection overlay, which covers the whole app. */
+  z-index: var(--z-cursor);
   opacity: 0;
 }
 

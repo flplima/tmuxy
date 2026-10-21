@@ -6,7 +6,7 @@
 .modal-overlay {
   position: absolute;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-float);
 }
 
 /* Semi-transparent backdrop (default: dim) */

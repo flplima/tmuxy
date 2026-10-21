@@ -213,7 +213,7 @@
 .resize-divider {
   position: absolute;
   background: transparent;
-  z-index: 60;
+  z-index: var(--z-pane-chrome);
   transition:
     left var(--transition-layout),
     top var(--transition-layout),
@@ -299,7 +299,7 @@
 
 .copy-flash {
   position: fixed;
-  z-index: 1260;
+  z-index: var(--z-copy-flash);
   pointer-events: none;
   border-radius: var(--radius-sm);
 }

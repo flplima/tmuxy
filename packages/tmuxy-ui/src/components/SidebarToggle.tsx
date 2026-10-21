@@ -14,6 +14,7 @@
 import { useAppSend, useAppSelector, useReadOnly } from '../machines/appHooks';
 import { SidebarGlyph } from './SidebarColumn';
 import { Tooltip } from './Tooltip';
+import './SidebarToggle.css';
 
 interface SidebarToggleProps {
   side: 'left' | 'right';

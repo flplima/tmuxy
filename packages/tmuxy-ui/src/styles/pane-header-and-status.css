@@ -238,7 +238,7 @@
     opacity var(--transition-fast),
     background-color var(--transition-fast);
   flex-shrink: 0;
-  z-index: 60;
+  z-index: var(--z-pane-chrome);
   cursor: pointer;
 }
 
@@ -271,7 +271,7 @@
   letter-spacing: 0.04em;
   line-height: 1.4;
   white-space: nowrap;
-  z-index: 60; /* Above resize dividers, like the buttons beside it. */
+  z-index: var(--z-pane-chrome); /* With the resize dividers and the buttons beside it. */
 }
 
 :root.theme-light .pane-header-mark {
@@ -299,7 +299,7 @@
     opacity var(--transition-fast),
     background-color var(--transition-fast);
   flex-shrink: 0;
-  z-index: 60; /* Above resize dividers */
+  z-index: var(--z-pane-chrome);
 }
 
 .pane-header-close:hover {

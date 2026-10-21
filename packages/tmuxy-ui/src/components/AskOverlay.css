@@ -5,7 +5,7 @@
 .ask-overlay {
   position: absolute;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-ask);
   display: flex;
   align-items: center;
   justify-content: center;

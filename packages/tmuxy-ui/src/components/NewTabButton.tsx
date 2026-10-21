@@ -9,6 +9,7 @@
 
 import { useAppSend, useReadOnly } from '../machines/appHooks';
 import { Tooltip } from './Tooltip';
+import './NewTabButton.css';
 
 export function NewTabButton() {
   const send = useAppSend();
