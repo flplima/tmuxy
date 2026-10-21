@@ -94,16 +94,10 @@ export const WindowTabs = memo(function WindowTabs() {
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const listRef = useRef<HTMLDivElement>(null);
   const suppressClickRef = useRef(false);
-  // The tab being renamed, if any: the field takes the label's place.
-  const [renamingId, setRenamingId] = useState<WindowId | null>(null);
-  // Rename Tab from the app menu or the native menu bar asks the strip for
-  // the field, the same way the tab's own context menu opens it.
-  const tabRenameRequest = useAppSelector((c) => c.tabRenameRequest);
-  useEffect(() => {
-    if (!tabRenameRequest) return;
-    setRenamingId(tabRenameRequest);
-    send({ type: 'TAB_RENAME_REQUEST_TAKEN' });
-  }, [tabRenameRequest, send]);
+  // The tab being renamed, if any: the field takes the label's place. Opened
+  // by the tab's context menu, or by Rename Tab in the app menu and the
+  // native menu bar, which name the active tab.
+  const renamingId = useAppSelector((c) => c.renamingTabId);
   // The tab whose picture is showing, and the timer waiting to show the first.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);
@@ -310,7 +304,6 @@ export const WindowTabs = memo(function WindowTabs() {
             visibleWindowsLength={visibleWindows.length}
             previewId={previewId}
             renamingId={renamingId}
-            setRenamingId={setRenamingId}
             tabStates={tabStates}
             tabDrop={tabDrop}
             reorder={reorder}
@@ -361,7 +354,7 @@ export const WindowTabs = memo(function WindowTabs() {
             onClose={closeContextMenu}
             onRename={() => {
               dismissPreview();
-              setRenamingId(menuWindowId);
+              send({ type: 'RENAME_TAB', windowId: menuWindowId });
             }}
           />
         )}

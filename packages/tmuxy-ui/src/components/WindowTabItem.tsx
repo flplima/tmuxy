@@ -35,7 +35,6 @@ interface WindowTabItemProps {
   visibleWindowsLength: number;
   previewId: string | null;
   renamingId: WindowId | null;
-  setRenamingId: (id: WindowId | null) => void;
   tabStates: Map<string, PaneStateName>;
   tabDrop: ReturnType<typeof selectTabDrop>;
   reorder: ReturnType<typeof useReorderDrag>;
@@ -53,7 +52,6 @@ export function WindowTabItem({
   visibleWindowsLength,
   previewId,
   renamingId,
-  setRenamingId,
   tabStates,
   tabDrop,
   reorder,
@@ -112,13 +110,13 @@ export function WindowTabItem({
           value={window.name}
           ariaLabel={`Rename tab ${visualIndex}`}
           onCommit={(name) => {
-            setRenamingId(null);
+            send({ type: 'TAB_RENAME_END' });
             send({
               type: 'DISPATCH_OP',
               op: TmuxOp.RenameWindow({ target: window.id, name }),
             });
           }}
-          onCancel={() => setRenamingId(null)}
+          onCancel={() => send({ type: 'TAB_RENAME_END' })}
         />
       ) : (
         (() => {

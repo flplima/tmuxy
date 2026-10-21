@@ -182,6 +182,16 @@ export const dragMachine = setup({
           actions: enqueueActions(({ context, event, enqueue }) => {
             if (!context.drag) return;
 
+            // The pointer has come to rest over something that is not a pane
+            // to swap with: a tab, a group's header, the pane a parked member
+            // would leave to. No swap is pending or dwelling behind it.
+            const restOver = (drag: DragState) => {
+              enqueue(assign({ drag }));
+              enqueue(cancel(SWAP_DWELL_ID));
+              enqueue(assign({ pendingSwap: null }));
+              enqueue('notifyStateUpdate');
+            };
+
             // Compute centering offset (must match PaneLayout's centering).
             // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so positions are
             // relative to the content-box. No padding-box arithmetic needed.
@@ -209,22 +219,15 @@ export const dragMachine = setup({
               const tabDrop = sameTabDrop(found, context.drag.tabDrop)
                 ? context.drag.tabDrop
                 : found;
-              enqueue(
-                assign({
-                  drag: {
-                    ...context.drag,
-                    targetPaneId: null,
-                    tabDrop,
-                    groupDrop: null,
-                    leaveSide: null,
-                    currentX: event.clientX,
-                    currentY: event.clientY,
-                  },
-                }),
-              );
-              enqueue(cancel(SWAP_DWELL_ID));
-              enqueue(assign({ pendingSwap: null }));
-              enqueue('notifyStateUpdate');
+              restOver({
+                ...context.drag,
+                targetPaneId: null,
+                tabDrop,
+                groupDrop: null,
+                leaveSide: null,
+                currentX: event.clientX,
+                currentY: event.clientY,
+              });
               return;
             }
 
@@ -251,22 +254,15 @@ export const dragMachine = setup({
               const groupDrop = sameGroupDrop(foundGroupDrop, context.drag.groupDrop)
                 ? context.drag.groupDrop
                 : foundGroupDrop;
-              enqueue(
-                assign({
-                  drag: {
-                    ...context.drag,
-                    targetPaneId: null,
-                    tabDrop: null,
-                    groupDrop,
-                    leaveSide: null,
-                    currentX: event.clientX,
-                    currentY: event.clientY,
-                  },
-                }),
-              );
-              enqueue(cancel(SWAP_DWELL_ID));
-              enqueue(assign({ pendingSwap: null }));
-              enqueue('notifyStateUpdate');
+              restOver({
+                ...context.drag,
+                targetPaneId: null,
+                tabDrop: null,
+                groupDrop,
+                leaveSide: null,
+                currentX: event.clientX,
+                currentY: event.clientY,
+              });
               return;
             }
 
@@ -297,26 +293,19 @@ export const dragMachine = setup({
                     cursorContainerY,
                   )
                 : null;
-              enqueue(
-                assign({
-                  drag: {
-                    ...context.drag,
-                    targetPaneId: pane ? pane.tmuxId : null,
-                    tabDrop: null,
-                    groupDrop: null,
-                    leaveSide,
-                    currentX: event.clientX,
-                    currentY: event.clientY,
-                    ghostX: pane?.x ?? context.drag.ghostX,
-                    ghostY: pane?.y ?? context.drag.ghostY,
-                    ghostWidth: pane?.width ?? context.drag.ghostWidth,
-                    ghostHeight: pane?.height ?? context.drag.ghostHeight,
-                  },
-                }),
-              );
-              enqueue(cancel(SWAP_DWELL_ID));
-              enqueue(assign({ pendingSwap: null }));
-              enqueue('notifyStateUpdate');
+              restOver({
+                ...context.drag,
+                targetPaneId: pane ? pane.tmuxId : null,
+                tabDrop: null,
+                groupDrop: null,
+                leaveSide,
+                currentX: event.clientX,
+                currentY: event.clientY,
+                ghostX: pane?.x ?? context.drag.ghostX,
+                ghostY: pane?.y ?? context.drag.ghostY,
+                ghostWidth: pane?.width ?? context.drag.ghostWidth,
+                ghostHeight: pane?.height ?? context.drag.ghostHeight,
+              });
               return;
             }
 

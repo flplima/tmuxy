@@ -112,19 +112,23 @@ export const tabOverviewActions = {
   }),
 
   /**
-   * Rename Tab from the app menu or the native menu bar: the strip opens its
-   * field on the active tab, the same one its context menu opens, instead of
+   * Open the strip's rename field on a tab: the one a context menu named, or,
+   * from the app menu and the native menu bar, the active one — instead of
    * the tmux prompt at the bottom of the window asking for a name a long way
    * from the thing being named.
    */
-  tabOverview_requestRename: assignCtx(({ context }) => ({
-    tabRenameRequest:
-      context.activeWindowId && !isPlaceholderId(context.activeWindowId)
-        ? context.activeWindowId
-        : null,
-  })),
+  tabOverview_rename: assignCtx(({ context, event }) => {
+    if (event.type === 'RENAME_TAB') return { renamingTabId: event.windowId };
+    return {
+      renamingTabId:
+        context.activeWindowId && !isPlaceholderId(context.activeWindowId)
+          ? context.activeWindowId
+          : null,
+    };
+  }),
 
-  tabOverview_renameRequestTaken: assignCtx(() => ({ tabRenameRequest: null })),
+  /** The field closed, committed or not. */
+  tabOverview_renameEnd: assignCtx(() => ({ renamingTabId: null })),
 
   /** Stacked panes on the active tab: a window option the backend reads (docs/TMUX.md). */
   tabOverview_toggleStacked: act(({ context, enqueue }) => {

@@ -1,5 +1,5 @@
 import type { TmuxSnapshot, Patch, ReconcileVerdict } from './types';
-import { FOCUS_CONFIRM_LINGER_MS, FOCUS_SUPERSEDE_GRACE_MS } from './types';
+import { FOCUS_CONFIRM_LINGER_MS, FOCUS_SUPERSEDE_GRACE_MS, lingerVerdict } from './types';
 import type { TmuxPane } from '../client';
 import type { TmuxOpOf } from '../commands';
 import {
@@ -211,23 +211,7 @@ export function reconcileFocus(
     // The target pane is gone — nothing left to pin.
     return { _tag: 'matched' };
   }
-  if (serverActivePaneId === target) {
-    // Confirmed — but linger: snapshots computed BEFORE the focus change can
-    // still arrive after the confirmation and would flap the highlight the
-    // moment this op's pin is gone. See FOCUS_CONFIRM_LINGER_MS.
-    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
-  }
-  if (serverActivePaneId === previous && ageMs < FOCUS_CONFIRM_LINGER_MS) {
-    // A stale echo of the pre-op focus — hold the pin.
-    return { _tag: 'pending' };
-  }
-  if (ageMs < FOCUS_SUPERSEDE_GRACE_MS) {
-    // Very young: the server may simply not have processed us yet.
-    return { _tag: 'pending' };
-  }
-  // Focus moved somewhere else after we were processed — the server wins;
-  // holding the pin would freeze the UI on a focus tmux no longer has.
-  return { _tag: 'matched' };
+  return lingerVerdict(target, previous, serverActivePaneId, ageMs);
 }
 
 /**

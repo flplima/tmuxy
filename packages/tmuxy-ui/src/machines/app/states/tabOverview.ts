@@ -1,7 +1,7 @@
 /**
  * tabOverview state — the "all tabs" view over the pane area.
  *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected.
+ * Owns context fields: tabOverviewOpen, tabOverviewSelected, renamingTabId.
  *
  * Every event here is spread into the machine root: opening the overview,
  * moving its cursor and picking a slot are pure client-side dispatches, and
@@ -20,7 +20,8 @@ export const tabOverviewGlobalEvents = {
   REORDER_TAB: { guard: notReadOnly, actions: 'tabOverview_reorder' },
   MOVE_ACTIVE_TAB: { guard: notReadOnly, actions: 'tabOverview_moveActive' },
   CLOSE_TAB: { guard: notReadOnly, actions: 'tabOverview_closeTab' },
-  RENAME_ACTIVE_TAB: { guard: notReadOnly, actions: 'tabOverview_requestRename' },
-  TAB_RENAME_REQUEST_TAKEN: { actions: 'tabOverview_renameRequestTaken' },
+  RENAME_ACTIVE_TAB: { guard: notReadOnly, actions: 'tabOverview_rename' },
+  RENAME_TAB: { guard: notReadOnly, actions: 'tabOverview_rename' },
+  TAB_RENAME_END: { actions: 'tabOverview_renameEnd' },
   TOGGLE_STACKED_PANES: { guard: notReadOnly, actions: 'tabOverview_toggleStacked' },
 } as const;

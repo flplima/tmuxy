@@ -2,7 +2,7 @@
  * commandUi state — a root-level `on` slice for command mode and status messages.
  *
  * Owns context fields: commandMode, statusMessage, prefixActive, keyTable,
- * keysViewOpen, paneRenameRequest.
+ * keysViewOpen, renamingPaneId.
  * Action implementations live in ../actions/commandUi.ts.
  */
 
@@ -10,8 +10,8 @@ import { notReadOnly } from '../readOnlyGuard';
 
 export const commandUiState = {
   on: {
-    RENAME_PANE: { guard: notReadOnly, actions: 'commandUi_requestPaneRename' },
-    PANE_RENAME_REQUEST_TAKEN: { actions: 'commandUi_paneRenameRequestTaken' },
+    RENAME_PANE: { guard: notReadOnly, actions: 'commandUi_renamePane' },
+    PANE_RENAME_END: { actions: 'commandUi_paneRenameEnd' },
     PREFIX_MODE_CHANGE: { actions: 'commandUi_setPrefixActive' },
     KEY_TABLE_CHANGE: { actions: 'commandUi_setKeyTable' },
     TOGGLE_KEYS_VIEW: { actions: 'commandUi_toggleKeysView' },

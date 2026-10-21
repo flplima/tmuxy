@@ -62,19 +62,9 @@ export function PaneHeader({
   const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  // The pane whose title is being edited in its own header, if any.
-  const [renamingPaneId, setRenamingPaneId] = useState<PaneId | null>(null);
-  // Rename from the pane content's own menu asks the header for the field,
-  // the same one the header's menu opens — when the pane is one of its own.
-  const paneRenameRequest = useAppSelector((c) => c.paneRenameRequest);
-  const ownsRenameRequest =
-    paneRenameRequest !== null &&
-    (paneRenameRequest === paneId || groupPanes.some((p) => p.tmuxId === paneRenameRequest));
-  useEffect(() => {
-    if (!ownsRenameRequest || !paneRenameRequest) return;
-    setRenamingPaneId(paneRenameRequest);
-    send({ type: 'PANE_RENAME_REQUEST_TAKEN' });
-  }, [ownsRenameRequest, paneRenameRequest, send]);
+  // The pane whose title field is open — opened from this header's menu or
+  // from the pane content's own; whichever header draws that pane shows it.
+  const renamingPaneId = useAppSelector((c) => c.renamingPaneId);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -138,6 +128,11 @@ export function PaneHeader({
   const { tmuxId, active: isActive, inMode } = pane;
 
   const tabPanes = groupPanes && groupPanes.length > 0 ? groupPanes : [pane];
+  // A GROUP's header is shared: each member gets an equal share of the width,
+  // with its own ⋮ and ✕ at the right of that share. One pane keeps the old
+  // shape — its title runs the full width and the buttons sit at the header's
+  // own right edge, where there is nothing to share them with.
+  const isGroup = tabPanes.length > 1;
   const activeTabId = activePaneId ?? tmuxId;
   // The pane whose content is under this header — a group shows one member at
   // a time, and "marked" belongs to that one, not to the strip.
@@ -324,12 +319,6 @@ export function PaneHeader({
 
   const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
 
-  // A GROUP's header is shared: each member gets an equal share of the width,
-  // with its own ⋮ and ✕ at the right of that share. One pane keeps the old
-  // shape — its title runs the full width and the buttons sit at the header's
-  // own right edge, where there is nothing to share them with.
-  const isGroup = tabPanes.length > 1;
-
   /** One member's buttons, or the header's own when there is no group. */
   // A member's ⋮ and ✕ sit inside its tab, which may hold no control of its
   // own: they are pointer targets, hidden from assistive technology. The tab's
@@ -399,7 +388,7 @@ export function PaneHeader({
               disabled={readOnly && !isSelectedTab}
               renaming={renamingPaneId === tabPane.tmuxId}
               onRenameEnd={(name) => {
-                setRenamingPaneId(null);
+                send({ type: 'PANE_RENAME_END' });
                 if (name) {
                   send({
                     type: 'DISPATCH_OP',
@@ -464,7 +453,7 @@ export function PaneHeader({
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={closeContextMenu}
-          onRename={() => setRenamingPaneId(menuPaneId)}
+          onRename={() => send({ type: 'RENAME_PANE', paneId: menuPaneId })}
         />
       )}
     </div>

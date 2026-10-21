@@ -162,9 +162,10 @@ export type AppMachineEvent =
   | { type: 'MOVE_ACTIVE_TAB'; by: -1 | 1 }
   | { type: 'CLOSE_TAB'; windowId: WindowId }
   | { type: 'RENAME_ACTIVE_TAB' }
-  | { type: 'TAB_RENAME_REQUEST_TAKEN' }
+  | { type: 'RENAME_TAB'; windowId: WindowId }
+  | { type: 'TAB_RENAME_END' }
   | { type: 'RENAME_PANE'; paneId: PaneId }
-  | { type: 'PANE_RENAME_REQUEST_TAKEN' }
+  | { type: 'PANE_RENAME_END' }
   | { type: 'TOGGLE_STACKED_PANES' }
   | { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string }
   | { type: 'SELECT_TAB'; windowId: WindowId }

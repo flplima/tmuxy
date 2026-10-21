@@ -13,6 +13,33 @@ import type { CellLine } from '../domain/wire';
  * the full width therefore wrapped onto the next row with no logical line
  * break — the same notion tmux tracks with its per-line wrapped flag.
  */
+/**
+ * The scrollback row a pointer event names. A row inside the viewport is
+ * counted from the top of the screen and lands at `scrollTop + row`; one at
+ * or past the viewport's height — a row the caller already resolved, a
+ * selection carried over from before the history loaded — is absolute as it
+ * is. `relative` forces the first reading.
+ */
+export function toAbsoluteRow(state: CopyModeState, row: number, relative?: boolean): number {
+  return relative || row < state.height ? state.scrollTop + row : row;
+}
+
+/**
+ * `col` held inside the text on `row`, its trailing blanks not counted: the
+ * cursor never sits past the last character, and sits at 0 on an empty or
+ * unloaded row.
+ */
+export function clampColToLine(state: CopyModeState, row: number, col: number): number {
+  const line = state.lines.get(row);
+  const text = line
+    ? line
+        .map((c) => c.c)
+        .join('')
+        .trimEnd()
+    : '';
+  return text.length > 0 ? Math.min(col, text.length - 1) : 0;
+}
+
 export function isWrappedRow(line: CellLine | undefined, width: number): boolean {
   return !!line && line.length >= width;
 }

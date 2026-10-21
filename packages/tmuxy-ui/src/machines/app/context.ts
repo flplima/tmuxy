@@ -122,7 +122,7 @@ export const FIELD_OWNERS = {
   // ---- tabOverview ----
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
-  tabRenameRequest: 'tabOverview',
+  renamingTabId: 'tabOverview',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -131,7 +131,7 @@ export const FIELD_OWNERS = {
   prefixRepeatOnly: 'commandUi',
   keyTable: 'commandUi',
   keysViewOpen: 'commandUi',
-  paneRenameRequest: 'commandUi',
+  renamingPaneId: 'commandUi',
 
   // ---- notifications ----
   notifications: 'notifications',
@@ -209,7 +209,7 @@ export function createInitialContext(): AppMachineContext {
     collapsedTabIds: [],
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
-    tabRenameRequest: null,
+    renamingTabId: null,
     enableAnimations: false,
     animationsAllowed: true,
     cursorBlink: true,
@@ -241,7 +241,7 @@ export function createInitialContext(): AppMachineContext {
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
-    paneRenameRequest: null,
+    renamingPaneId: null,
     baseFontSize: loadFontSizeFromStorage(),
   };
 }

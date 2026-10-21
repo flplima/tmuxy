@@ -246,3 +246,30 @@ export const FOCUS_CONFIRM_LINGER_MS = 4000;
  * server must win — holding longer would freeze the UI on a stale focus.
  */
 export const FOCUS_SUPERSEDE_GRACE_MS = 800;
+
+/**
+ * The verdict for an op that pins a focus — a pane's, a window's, a group's
+ * shown member — on `target`, `previous` being where the focus was when the
+ * op was predicted and `server` where the server now says it is.
+ *
+ * Confirmed, the pin lingers: snapshots computed BEFORE the change can still
+ * arrive after the confirmation and would flap the focus the moment the pin
+ * is gone (FOCUS_CONFIRM_LINGER_MS). A stale echo of `previous` inside that
+ * time holds it too. A very young op may simply not have been processed yet
+ * (FOCUS_SUPERSEDE_GRACE_MS). Past that, a focus somewhere else is the
+ * server's to keep: holding the pin would freeze the UI on a focus tmux no
+ * longer has, masking every later change for the rest of the linger.
+ */
+export function lingerVerdict<Id>(
+  target: Id,
+  previous: Id | null | undefined,
+  server: Id | null,
+  ageMs: number,
+): ReconcileVerdict {
+  if (server === target) {
+    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+  }
+  if (server === previous && ageMs < FOCUS_CONFIRM_LINGER_MS) return { _tag: 'pending' };
+  if (ageMs < FOCUS_SUPERSEDE_GRACE_MS) return { _tag: 'pending' };
+  return { _tag: 'matched' };
+}

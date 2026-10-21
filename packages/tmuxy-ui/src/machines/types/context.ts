@@ -144,8 +144,8 @@ export interface AppMachineContext {
    */
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
-  /** A tab the strip has been asked to open its rename field for; null once it has. */
-  tabRenameRequest: WindowId | null;
+  /** The tab whose rename field is open in the strip, if any. */
+  renamingTabId: WindowId | null;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /**
@@ -240,8 +240,8 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
-  /** A pane whose header has been asked to open its rename field; null once it has. */
-  paneRenameRequest: PaneId | null;
+  /** The pane whose rename field is open in its header, if any. */
+  renamingPaneId: PaneId | null;
   /** Base font size for terminal text in pixels */
   baseFontSize: number;
   /** Timestamp of last layout command (for debouncing rapid layout changes) */

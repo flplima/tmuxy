@@ -11,7 +11,47 @@ import type { CellLine } from '../../domain/wire';
 import type { PaneId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
 import { COPY_FLASH_MS } from '../../utils/copyFlash';
-import { firstUnloadedGap, shiftScrollbackRows, mergeScrollbackChunk } from '../../utils/copyMode';
+import {
+  firstUnloadedGap,
+  getNeededChunk,
+  shiftScrollbackRows,
+  mergeScrollbackChunk,
+} from '../../utils/copyMode';
+
+/**
+ * Ask for the rows the view at `updated.scrollTop` is missing, when any are
+ * and no chunk is already on its way: the record is marked loading and the
+ * tmux actor is sent for them. A chunk's arrival (`applyScrollbackChunk`)
+ * clears the mark and asks for the next gap itself.
+ */
+export function fetchNeededChunk(
+  enqueue: Enqueue,
+  context: Ctx,
+  paneId: PaneId,
+  updated: CopyModeState,
+): void {
+  const needed = getNeededChunk(
+    updated.scrollTop,
+    updated.height,
+    updated.loadedRanges,
+    updated.historySize,
+    updated.totalLines,
+  );
+  if (!needed || updated.loading) return;
+  enqueue(
+    assign({
+      copyModeStates: { ...context.copyModeStates, [paneId]: { ...updated, loading: true } },
+    }),
+  );
+  enqueue(
+    sendTo('tmux', {
+      type: 'FETCH_SCROLLBACK_CELLS' as const,
+      paneId,
+      start: needed.start,
+      end: needed.end,
+    }),
+  );
+}
 
 /**
  * Every row of a pane's scrollback selected: a line selection from the first row

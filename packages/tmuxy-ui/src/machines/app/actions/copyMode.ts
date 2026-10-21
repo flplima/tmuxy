@@ -8,7 +8,12 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import type { CopyModeState } from '../../../domain/copyMode';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
-import { getNeededChunk, isWrappedRow, extractSelectedText } from '../../../utils/copyMode';
+import {
+  clampColToLine,
+  isWrappedRow,
+  extractSelectedText,
+  toAbsoluteRow,
+} from '../../../utils/copyMode';
 import { selectPaneTakesCopyMode, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
 import { writeClipboard } from '../../../utils/clipboard';
 import { TmuxOp } from '../../../domain/commands';
@@ -17,6 +22,7 @@ import {
   buildScrollbackState,
   copyModeExitTimes,
   fetchHistory,
+  fetchNeededChunk,
   leaveAfterCopy,
   selectEveryRow,
 } from '../scrollback';
@@ -167,8 +173,7 @@ export const copyModeActions = {
     const existing = context.copyModeStates[event.paneId];
     if (!existing) return {};
 
-    const isRelative = event.relative === true ? true : event.row < existing.height;
-    const rawRow = isRelative ? existing.scrollTop + event.row : event.row;
+    const rawRow = toAbsoluteRow(existing, event.row, event.relative === true);
     const absoluteRow = Math.max(0, Math.min(rawRow, existing.totalLines - 1));
 
     let scrollTop = existing.scrollTop;
@@ -179,19 +184,10 @@ export const copyModeActions = {
     }
     scrollTop = Math.max(0, Math.min(scrollTop, existing.totalLines - existing.height));
 
-    const line = existing.lines.get(absoluteRow);
-    const lineText = line
-      ? line
-          .map((c) => c.c)
-          .join('')
-          .trimEnd()
-      : '';
-    const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
-
     const updated: CopyModeState = {
       ...existing,
       cursorRow: absoluteRow,
-      cursorCol: clampedCol,
+      cursorCol: clampColToLine(existing, absoluteRow, event.col),
       scrollTop,
     };
 
@@ -215,16 +211,8 @@ export const copyModeActions = {
       };
     }
 
-    const absoluteRow = event.row < existing.height ? existing.scrollTop + event.row : event.row;
-
-    const line = existing.lines.get(absoluteRow);
-    const lineText = line
-      ? line
-          .map((c) => c.c)
-          .join('')
-          .trimEnd()
-      : '';
-    const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
+    const absoluteRow = toAbsoluteRow(existing, event.row);
+    const clampedCol = clampColToLine(existing, absoluteRow, event.col);
 
     const updated: CopyModeState = {
       ...existing,
@@ -256,7 +244,7 @@ export const copyModeActions = {
     const existing = context.copyModeStates[event.paneId];
     if (!existing) return {};
 
-    const absoluteRow = event.row < existing.height ? existing.scrollTop + event.row : event.row;
+    const absoluteRow = toAbsoluteRow(existing, event.row);
 
     const line = existing.lines.get(absoluteRow);
     if (!line) return {};
@@ -292,7 +280,7 @@ export const copyModeActions = {
     const existing = context.copyModeStates[event.paneId];
     if (!existing) return {};
 
-    const absoluteRow = event.row < existing.height ? existing.scrollTop + event.row : event.row;
+    const absoluteRow = toAbsoluteRow(existing, event.row);
 
     let startRow = absoluteRow;
     while (startRow > 0 && isWrappedRow(existing.lines.get(startRow - 1), existing.width)) {
@@ -353,32 +341,7 @@ export const copyModeActions = {
         copyModeStates: { ...context.copyModeStates, [event.paneId]: updated },
       }),
     );
-
-    const needed = getNeededChunk(
-      scrollTop,
-      existing.height,
-      existing.loadedRanges,
-      existing.historySize,
-      existing.totalLines,
-    );
-    if (needed) {
-      enqueue(
-        assign({
-          copyModeStates: {
-            ...context.copyModeStates,
-            [event.paneId]: { ...updated, loading: true },
-          },
-        }),
-      );
-      enqueue(
-        sendTo('tmux', {
-          type: 'FETCH_SCROLLBACK_CELLS' as const,
-          paneId: event.paneId,
-          start: needed.start,
-          end: needed.end,
-        }),
-      );
-    }
+    fetchNeededChunk(enqueue, context, event.paneId, updated);
   }),
 
   copyMode_yank: act(({ event, context, enqueue }) => {
@@ -441,32 +404,7 @@ export const copyModeActions = {
           copyModeStates: { ...context.copyModeStates, [paneId]: updated },
         }),
       );
-
-      const needed = getNeededChunk(
-        updated.scrollTop,
-        updated.height,
-        updated.loadedRanges,
-        updated.historySize,
-        updated.totalLines,
-      );
-      if (needed && !updated.loading) {
-        enqueue(
-          assign({
-            copyModeStates: {
-              ...context.copyModeStates,
-              [paneId]: { ...updated, loading: true },
-            },
-          }),
-        );
-        enqueue(
-          sendTo('tmux', {
-            type: 'FETCH_SCROLLBACK_CELLS' as const,
-            paneId,
-            start: needed.start,
-            end: needed.end,
-          }),
-        );
-      }
+      fetchNeededChunk(enqueue, context, paneId, updated);
     }
   }),
 };
