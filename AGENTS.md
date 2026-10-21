@@ -128,12 +128,9 @@ A bug on a seam between layers — the aggregator's effect order, the server str
 - A new id means the claim was never written down: add the row with the fix, and the test that now holds it.
 - A row's `Enforced by` cell names a test by file and title. Rename the test, update the cell. A `—` cell is an honest statement that nothing checks the claim; never fill it with a test that does not assert it.
 
-Before wrapping up a task, run local checks that mirror CI lint gates:
+Before wrapping up a task, run the local check that mirrors CI's lint job and the unit tests:
 
-- `npm run check:fast`
-- `(cd packages/tmuxy-ui && npx prettier --check src)`
-- `npx prettier --check 'tests/**/*.js'`
-- `npm run lint && npm run lint:tests && (cd packages/tmuxy-ui && npx tsc --noEmit)`
+- `npm run check:fast` — `bin/lint-gate check` (the one list of what is formatted, linted, type-checked and clippy'd; the pre-push hook and CI's `lint` job run the same) followed by `npm test -- --run`
 
 The rest of the map, for when a change reaches further:
 

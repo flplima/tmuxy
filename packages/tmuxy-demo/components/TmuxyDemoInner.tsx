@@ -27,9 +27,7 @@ function DemoTabline({ children }: { children: React.ReactNode }) {
   );
 }
 
-const renderTabline: RenderTabline = ({ children }) => (
-  <DemoTabline>{children}</DemoTabline>
-);
+const renderTabline: RenderTabline = ({ children }) => <DemoTabline>{children}</DemoTabline>;
 
 // The two texts the features tab's pane group shows, written into the guest's
 // home before the panes `cat` them.
@@ -127,7 +125,10 @@ export default function TmuxyDemoInner() {
         }
       }}
     >
-      <TmuxyProvider transport={transport} config={{ forwardScrollToParent: true, requireFocus: true, isDemo: true }}>
+      <TmuxyProvider
+        transport={transport}
+        config={{ forwardScrollToParent: true, requireFocus: true, isDemo: true }}
+      >
         <TmuxyApp renderTabline={renderTabline} />
       </TmuxyProvider>
     </div>

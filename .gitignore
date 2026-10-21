@@ -36,6 +36,8 @@ __snapshots__/
 # Next.js
 .next/
 out/
+# What `tsc -p packages/tmuxy-demo` leaves behind (its tsconfig is incremental)
+*.tsbuildinfo
 
 # Storybook
 storybook-static/

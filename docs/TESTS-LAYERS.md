@@ -42,7 +42,7 @@ The criterion benchmark `packages/tmuxy-core/benches/core_pipeline.rs` (see [PER
 
 | Workflow | Trigger | Jobs | Runner |
 | --- | --- | --- | --- |
-| `.github/workflows/lint-and-tests.yml` | push to `main`, PRs to `main` | `build-frontend` + `build-server` (the dist and a `ci`-profile server, shared by the jobs below), `lint`, `unit-tests`, `macos-tests` (the CLI suite; the Rust suite only when macOS-specific code changed, and on tags), `rust-tests`, `cli-tests`, `demo-build`, `e2e` (matrix), `desktop` (debug Tauri build, smoke test + Tauri E2E), `storybook-probe`, `storybook-v86-probe`, `audit` | `ubuntu-latest`, plus `macos-latest` for `macos-tests` |
+| `.github/workflows/lint-and-tests.yml` | push to `main`, PRs to `main` | `build-frontend` + `build-server` (the dist and a `ci`-profile server, shared by the jobs below), `changes` (what the push touched: `bin/ci-changes.mjs`), `lint` (`bin/lint-gate check`), `unit-tests`, `macos-tests` (the CLI suite; the Rust suite only when macOS-specific code changed, and on tags), `rust-tests`, `cli-tests`, `demo-build`, `e2e` (matrix), `desktop` (debug Tauri build, smoke test + Tauri E2E; skipped when nothing it covers changed), `storybook-probe`, `storybook-v86-probe` (skipped likewise), `audit` (only when a lockfile moved) | `ubuntu-latest`, plus `macos-latest` for `macos-tests` |
 | `.github/workflows/nightly-v86.yml` | nightly cron, manual | the full v86 story sweep; a failure opens an issue | `ubuntu-latest` |
 | `.github/workflows/nightly-tmux-matrix.yml` | nightly cron, manual | the tmux-facing suites against each supported tmux version; released versions gate, `HEAD` reports only | `ubuntu-latest` |
 | `.github/workflows/build-app.yml` | `v*` tags, daily cron, manual | `build` (Tauri build + smoke tests) + `upgrade-path`, then on tags `release`, `bump-cask`, `bump-formula` | `ubuntu-22.04` (amd64), `ubuntu-22.04-arm`, `macos-latest` |
@@ -61,7 +61,7 @@ The rules for a red `main` — fix or quarantine within 24 hours, no features on
 
 ### Local Gates
 
-`.github/pre-commit` (enabled by `npm install` through the `prepare` script) runs Prettier and `eslint --fix` on `packages/tmuxy-ui/src`, `eslint tests/`, a check that `eslint.config.mjs` still bans `tmuxExec`, `tmuxRun`, `tmuxCmd` and `execSync`, `vitest related --run` for staged UI sources, `cargo fmt -p tmuxy-core -p tmuxy-server` and `cargo clippy -p tmuxy-core -p tmuxy-server`. Formatter rewrites are re-staged only for fully staged files.
+One list, `bin/lint-gate`, says what is formatted, linted, type-checked and clippy'd — the UI sources, the E2E suites, the scripts under `bin/`, `perf/` and the UI package, the demo site, every crate — and the hooks and CI's `lint` job all run it, so they cannot disagree about what a clean tree is. `.github/pre-commit` (enabled by `npm install` through the `prepare` script) runs `bin/lint-gate format` (Prettier, `eslint --fix`, `cargo fmt`), re-staging rewrites only for fully staged files, then a check that `eslint.config.mjs` still bans `tmuxExec`, `tmuxRun`, `tmuxCmd` and `execSync`, `vitest related --run` for staged UI sources, and the repo policy checks. `.github/pre-push` runs `bin/lint-gate check`, the read-only gate CI's `lint` job runs step by step: type checks and clippy with `-D warnings` once per push rather than once per commit.
 
 ESLint rules that exist to protect test quality (`eslint.config.mjs`):
 

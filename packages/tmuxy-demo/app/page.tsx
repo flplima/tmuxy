@@ -14,9 +14,7 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center px-4 py-6 sm:py-12">
-      <div
-        className={`mb-8 w-full max-w-3xl ${fontsReady ? 'landing-fade-in' : 'landing-hidden'}`}
-      >
+      <div className={`mb-8 w-full max-w-3xl ${fontsReady ? 'landing-fade-in' : 'landing-hidden'}`}>
         {/* Desktop: centered column layout */}
         <div className="hidden sm:flex flex-col items-center gap-3 text-center">
           <h1
@@ -36,7 +34,8 @@ export default function Home() {
             style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
             onClick={() => trackEvent({ name: 'github_click' })}
           >
-            <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
+            <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span>{' '}
+            {'\uF08E'}
           </a>
         </div>
         {/* Mobile: centered group — tmuxy | slogan/link */}
@@ -59,7 +58,8 @@ export default function Home() {
               style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
               onClick={() => trackEvent({ name: 'github_click' })}
             >
-              <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
+              <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span>{' '}
+              {'\uF08E'}
             </a>
           </div>
         </div>
@@ -70,29 +70,27 @@ export default function Home() {
         </MacWindow>
       </div>
 
-      <div className="w-full max-w-3xl py-16" style={{ color: 'var(--text-secondary)', textAlign: 'justify', fontSize: '0.95rem' }}>
-        <h2
-          className="text-2xl font-bold mb-4"
-          style={{ color: 'var(--accent-green)' }}
-        >
+      <div
+        className="w-full max-w-3xl py-16"
+        style={{ color: 'var(--text-secondary)', textAlign: 'justify', fontSize: '0.95rem' }}
+      >
+        <h2 className="text-2xl font-bold mb-4" style={{ color: 'var(--accent-green)' }}>
           wait, is this another terminal emulator?
         </h2>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
           No. The best terminal emulator already exists: <b>It&apos;s tmux.</b>
         </p>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          tmux already solved terminal emulation, multiplexing and persistent sessions more than a decade ago.
-          It plays nicely with AI agents and it's the perfect glue connecting terminal apps in this TUI renaissance we&apos;re living through.
+          tmux already solved terminal emulation, multiplexing and persistent sessions more than a
+          decade ago. It plays nicely with AI agents and it's the perfect glue connecting terminal
+          apps in this TUI renaissance we&apos;re living through.
         </p>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
           So... what is missing? Well... If you&apos;ve tried to use tmux without memorizing all the
           keybindings and commands, you already know the answer.
         </p>
 
-        <h2
-          className="text-2xl font-bold mb-4 mt-8"
-          style={{ color: 'var(--accent-green)' }}
-        >
+        <h2 className="text-2xl font-bold mb-4 mt-8" style={{ color: 'var(--accent-green)' }}>
           so, what is tmuxy?
         </h2>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
@@ -117,26 +115,23 @@ export default function Home() {
             style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
           >
             <span style={{ textDecoration: 'underline' }}>control mode</span> {'\uF08E'}
-          </a>
-          {' '}and streams state updates to a React frontend via SSE (or Tauri IPC, on the desktop
-          app version). Being web-based allows it to support all kinds of fancy stuff like image
-          rendering, pane groups and floating panes, while under the
-          hood <strong>it&apos;s still tmux</strong>.
+          </a>{' '}
+          and streams state updates to a React frontend via SSE (or Tauri IPC, on the desktop app
+          version). Being web-based allows it to support all kinds of fancy stuff like image
+          rendering, pane groups and floating panes, while under the hood{' '}
+          <strong>it&apos;s still tmux</strong>.
         </p>
 
-        <h2
-          className="text-2xl font-bold mb-4 mt-8"
-          style={{ color: 'var(--accent-green)' }}
-        >
+        <h2 className="text-2xl font-bold mb-4 mt-8" style={{ color: 'var(--accent-green)' }}>
           ok, I got you. where&apos;s the download button?
         </h2>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          There isn&apos;t one yet. tmuxy is fully vibe coded on spare time. I haven&apos;t
-          reviewed a single line of code Claude has generated. It&apos;s not ready for a stable release.
+          There isn&apos;t one yet. tmuxy is fully vibe coded on spare time. I haven&apos;t reviewed
+          a single line of code Claude has generated. It&apos;s not ready for a stable release.
         </p>
         <p style={{ lineHeight: '1.7' }}>
-          But if you&apos;ve read this far about a tmux GUI, you probably want to help build it.
-          The code is on{' '}
+          But if you&apos;ve read this far about a tmux GUI, you probably want to help build it. The
+          code is on{' '}
           <a
             href="https://github.com/flplima/tmuxy"
             target="_blank"
@@ -146,8 +141,8 @@ export default function Home() {
             onClick={() => trackEvent({ name: 'github_click' })}
           >
             <span style={{ textDecoration: 'underline' }}>{'\uF09B'} GitHub</span> {'\uF08E'}
-          </a>
-          {' '}and there&apos;s a full architecture walkthrough on{' '}
+          </a>{' '}
+          and there&apos;s a full architecture walkthrough on{' '}
           <a
             href="https://deepwiki.com/flplima/tmuxy"
             target="_blank"
@@ -157,8 +152,8 @@ export default function Home() {
             onClick={() => trackEvent({ name: 'deepwiki_click' })}
           >
             <span style={{ textDecoration: 'underline' }}>DeepWiki</span> {'\uF08E'}
-          </a>
-          {' '}if you want to understand how things work before jumping in. Or you can just{' '}
+          </a>{' '}
+          if you want to understand how things work before jumping in. Or you can just{' '}
           <a
             href="https://x.com/intent/tweet?url=https%3A%2F%2Ftmuxy.sh%2F"
             target="_blank"
@@ -168,7 +163,8 @@ export default function Home() {
             onClick={() => trackEvent({ name: 'share_click' })}
           >
             <span style={{ textDecoration: 'underline' }}>share it on X</span> {'\uF08E'}
-          </a>.
+          </a>
+          .
         </p>
       </div>
     </main>

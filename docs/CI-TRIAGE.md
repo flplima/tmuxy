@@ -16,15 +16,16 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 
 | Workflow job | Local command | Primary failure surface |
 | --- | --- | --- |
-| `lint` | `(cd packages/tmuxy-ui && npx prettier --check src)`<br>`npx prettier --check 'tests/**/*.js'`<br>`cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-group -p tmuxy-wasm`<br>`npm run lint -w tmuxy-ui && npm run lint:tests`<br>`mkdir -p packages/tmuxy-ui/dist`<br>`cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-group -- -D warnings`<br>`cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown --no-default-features -- -D warnings`<br>`(cd packages/tmuxy-ui && npx tsc --noEmit)` | JS/TS + Rust lint/type/format |
+| `lint` | `bin/lint-gate check` — the job's steps are its steps, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `perf/` and the UI package |
+| `changes` | `node bin/ci-changes.mjs <base-sha>` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip; the rules and their tests are `bin/ci-changes.mjs` and `packages/tmuxy-ui/scripts/ci-changes.test.mjs`. A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
 | `node-checks / unit-tests` | `npm test -- --run` | UI unit tests |
 | `node-checks / cli-tests` | `npm run test:cli` | CLI dispatcher behavior |
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
 | `e2e (...)` | `npm run test:e2e` | Browser + tmux integration |
-| `desktop` | `npm run test:tauri` (the debug build) + `node tests/smoke/smoke-test.js target/debug/tmuxy` | Desktop IPC, Tauri runtime, the launch path |
-| `storybook-probe` / `storybook-v86-probe` | `PROBE_TIER=commit PROBE_A11Y=0 npm run test-storybook -w tmuxy-ui` / `npm run test-storybook:v86 -w tmuxy-ui` | Story play-function regressions |
+| `desktop` | `npm run test:tauri` (the debug build) + `node tests/smoke/smoke-test.js target/debug/tmuxy`; skipped when the push touched nothing the app is built from or tested by (`changes`) | Desktop IPC, Tauri runtime, the launch path |
+| `storybook-probe` / `storybook-v86-probe` | `PROBE_TIER=commit PROBE_A11Y=0 npm run test-storybook -w tmuxy-ui` / `npm run test-storybook:v86 -w tmuxy-ui`; the v86 probe is skipped when the push touched nothing it loads (`changes`) | Story play-function regressions |
 | nightly `v86 / deterministic` | `npm run test-storybook -w tmuxy-ui` (every story, the axe pass on) | The `nightly`-tagged stories and accessibility |
-| `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit` | Dependency security alerts |
+| `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit`; runs only when a lockfile or `.cargo/audit.toml` changed (`changes`), the Sunday sweep covers the days between | Dependency security alerts |
 | `build-frontend` / `build-server` | `npm run build -w tmuxy-ui` / `cargo build --profile ci -p tmuxy-server` | The frontend bundle and the `ci`-profile server every later job downloads; a failure here fails everything after it |
 | `node-checks / demo-build` | `npm run build --ignore-scripts -w tmuxy-demo` | The demo site compiles (without staging its v86 assets; a full `npm run build -w tmuxy-demo` needs `npm run build:wasm`, `fetch:v86-image` and `build:v86-snapshot` first) |
 | `macos-tests` | `npm run test:cli` every push; `cargo test --workspace` (on a Mac, with Homebrew tmux) when the push touches `packages/tmuxy-tauri-app/`, `control_mode/connection.rs`, `bin/` or the Cargo manifests, and on every tag — `build-app.yml` also runs it on a Mac daily and on tags | macOS-only shell, path and tmux behaviour |

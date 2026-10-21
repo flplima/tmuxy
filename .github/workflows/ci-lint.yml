@@ -1,5 +1,9 @@
 name: ci lint
 
+# The lint gate, step by step. WHAT is checked lives in bin/lint-gate — the
+# same list the pre-commit and pre-push hooks run — so this job cannot drift
+# from them; it is split into steps here only so a red run names the step.
+
 on:
   workflow_call:
 
@@ -23,37 +27,22 @@ jobs:
           profile: lint
 
       - name: Repo policy checks
-        run: npm run check:policy
+        run: bin/lint-gate check policy
 
-      - name: Prettier check
-        run: npx prettier --check src
-        working-directory: packages/tmuxy-ui
+      - name: Prettier
+        run: bin/lint-gate check prettier
 
-      - name: Prettier check (tests)
-        run: npx prettier --check 'tests/**/*.js'
-
-      - name: Rust format check
-        run: |
-          cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-            -p tmuxy-group -p tmuxy-wasm
+      - name: Rust format
+        run: bin/lint-gate check rustfmt
 
       - name: ESLint
-        run: npm run lint -w tmuxy-ui
+        run: bin/lint-gate check eslint
 
-      - name: ESLint (E2E tests)
-        run: npm run lint:tests
+      - name: Type checks (tmuxy-ui, tmuxy-demo)
+        run: bin/lint-gate check types
 
       - name: Clippy
-        run: |
-          mkdir -p packages/tmuxy-ui/dist
-          cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-            -p tmuxy-group -- -D warnings
+        run: bin/lint-gate check clippy
 
       - name: Clippy (tmuxy-wasm)
-        run: |
-          cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown \
-            --no-default-features -- -D warnings
-
-      - name: TypeScript type check
-        run: npx tsc --noEmit
-        working-directory: packages/tmuxy-ui
+        run: bin/lint-gate check clippy-wasm

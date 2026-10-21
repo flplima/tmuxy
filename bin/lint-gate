@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+#
+# The lint gate: ONE list of what is formatted, linted, type-checked and
+# clippy'd, run by the pre-commit hook (`format`), the pre-push hook and CI's
+# `lint` job (`check`).
+#
+# The hooks and the job each used to keep their own list, and the lists
+# drifted: pre-commit formatted three crates while CI checked five, clippy ran
+# in both hooks but never for the wasm target, the demo site was type-checked
+# by nothing but its CI build, and ~4,000 lines of scripts under bin/, perf/
+# and the UI package were formatted and linted by nothing at all. A push was
+# then red for a reason no hook had looked at. Now a green `check` here IS a
+# green lint job, because they are the same commands over the same files.
+#
+# Usage:
+#   bin/lint-gate format             # rewrite: prettier, eslint --fix, cargo fmt
+#   bin/lint-gate check [<step>...]  # read-only; every step, or only the named
+#                                    # ones: policy prettier rustfmt eslint
+#                                    # types clippy clippy-wasm
+#
+# Unit tests are not here: they are the `unit-tests` job, and `npm run
+# check:fast` is this gate followed by them.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# Every crate `cargo fmt` keeps in shape. Clippy runs over the host crates;
+# tmuxy-wasm is clippy'd for its own target below, since the host build of it
+# is not the one that ships.
+FMT_CRATES=(tmuxy-core tmuxy-server tmuxy-tauri-app tmuxy-group tmuxy-wasm)
+CLIPPY_CRATES=(tmuxy-core tmuxy-server tmuxy-tauri-app tmuxy-group)
+
+# What Prettier owns. A file outside these globs is formatted by nothing, so a
+# new directory of scripts is added here, not formatted by hand.
+PRETTIER_SCOPE=(
+  packages/tmuxy-ui/src
+  'tests/**/*.js'
+  'bin/*.mjs'
+  'perf/*.mjs'
+  'packages/tmuxy-ui/scripts/**/*.mjs'
+  'packages/tmuxy-ui/.storybook/*.ts'
+  'packages/tmuxy-ui/eslint-rules/*.mjs'
+  eslint.config.mjs
+  'packages/tmuxy-demo/{app,components,lib,scripts}/**/*.{ts,tsx,mjs,css}'
+  'packages/tmuxy-demo/*.{ts,mjs}'
+)
+
+# What the root ESLint config (eslint.config.mjs) lints: the E2E suites, the
+# scripts under bin/ and perf/, the demo's. ESLint resolves the config from
+# each file's own directory, so the UI package's scripts and lint rules are
+# its own config's, run through `npm run lint -w tmuxy-ui`.
+ESLINT_ROOT_SCOPE=(
+  tests
+  bin
+  perf
+  eslint.config.mjs
+  packages/tmuxy-demo/scripts
+  packages/tmuxy-demo/postcss.config.mjs
+)
+
+step() { printf '\n== %s ==\n' "$1"; }
+
+# `-p a -p b …` for cargo, from a list of crate names.
+pkgs() {
+  for crate in "$@"; do printf -- '-p %s ' "$crate"; done
+}
+
+do_format() {
+  step 'prettier --write'
+  npx prettier --write "${PRETTIER_SCOPE[@]}"
+  step 'eslint --fix'
+  npx eslint --fix "${ESLINT_ROOT_SCOPE[@]}"
+  npm run lint:fix -w tmuxy-ui
+  step 'cargo fmt'
+  # shellcheck disable=SC2046
+  cargo fmt $(pkgs "${FMT_CRATES[@]}")
+}
+
+check_policy() {
+  step policy
+  npm run check:policy
+}
+
+check_prettier() {
+  step prettier
+  npx prettier --check "${PRETTIER_SCOPE[@]}"
+}
+
+check_rustfmt() {
+  step rustfmt
+  # shellcheck disable=SC2046
+  cargo fmt --check $(pkgs "${FMT_CRATES[@]}")
+}
+
+check_eslint() {
+  step eslint
+  npx eslint "${ESLINT_ROOT_SCOPE[@]}"
+  npm run lint -w tmuxy-ui
+}
+
+check_types() {
+  step types
+  (cd packages/tmuxy-ui && npx tsc --noEmit)
+  # The demo imports the UI package, so a renamed export or a changed prop
+  # breaks its build; before this it was type-checked only by CI building it.
+  npx tsc --noEmit -p packages/tmuxy-demo
+}
+
+check_clippy() {
+  step clippy
+  # The tauri crate's build script wants a frontend dist to exist.
+  mkdir -p packages/tmuxy-ui/dist
+  # shellcheck disable=SC2046
+  cargo clippy $(pkgs "${CLIPPY_CRATES[@]}") -- -D warnings
+}
+
+check_clippy_wasm() {
+  step clippy-wasm
+  if ! cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown --no-default-features -- -D warnings; then
+    echo >&2
+    echo "clippy for the wasm target failed. If the error above is a missing target:" >&2
+    echo "  rustup target add wasm32-unknown-unknown   (bin/bootstrap does this)" >&2
+    exit 1
+  fi
+}
+
+ALL_STEPS=(policy prettier rustfmt eslint types clippy clippy-wasm)
+
+case "${1:-}" in
+  format)
+    do_format
+    ;;
+  check)
+    shift
+    steps=("$@")
+    [ ${#steps[@]} -gt 0 ] || steps=("${ALL_STEPS[@]}")
+    for s in "${steps[@]}"; do
+      case "$s" in
+        policy) check_policy ;;
+        prettier) check_prettier ;;
+        rustfmt) check_rustfmt ;;
+        eslint) check_eslint ;;
+        types) check_types ;;
+        clippy) check_clippy ;;
+        clippy-wasm) check_clippy_wasm ;;
+        *)
+          echo "unknown step: $s (one of: ${ALL_STEPS[*]})" >&2
+          exit 2
+          ;;
+      esac
+    done
+    printf '\nlint-gate: OK (%s)\n' "${steps[*]}"
+    ;;
+  *)
+    echo "usage: bin/lint-gate format | check [<step>...]" >&2
+    echo "steps: ${ALL_STEPS[*]}" >&2
+    exit 2
+    ;;
+esac

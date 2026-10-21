@@ -1,16 +1,15 @@
 #!/bin/sh
 set -e
 
-# Pre-push: the two gates that fail in CI but not in pre-commit.
+# Pre-push: the lint gate, read-only — the same list CI's `lint` job runs
+# (bin/lint-gate), so a green hook is a green job.
 #
-# pre-commit deliberately stays fast — it formats, lints and runs only the unit
-# tests related to what is staged. It does NOT type-check, and until recently it
-# ran clippy without -D warnings. Those two gaps account for every avoidable red
-# run we have had (clippy 6x, tsc 2x): the work was already pushed before
-# anything told the author.
-#
-# Push is the right place for them. It runs once per push rather than once per
-# commit, and it is the last moment a failure is still cheap.
+# pre-commit deliberately stays fast — it formats and runs only the unit tests
+# related to what is staged. Type checks and clippy with -D warnings are here:
+# once per push rather than once per commit, and the last moment a failure is
+# still cheap. Those two accounted for every avoidable red run before the hook
+# existed (clippy 6x, tsc 2x): the work was already pushed before anything
+# told the author.
 #
 # TMUXY_SKIP_PREPUSH=1 git push  — escape hatch for a genuine emergency.
 
@@ -19,14 +18,6 @@ if [ -n "$TMUXY_SKIP_PREPUSH" ]; then
   exit 0
 fi
 
-echo "Type checking (tsc --noEmit)..."
-(cd packages/tmuxy-ui && npx tsc --noEmit)
-
-# Same crates and the same -D warnings CI uses, so a green hook means a green
-# lint job. The tauri crate's build script wants a frontend dist to exist.
-echo "Checking Rust (cargo clippy -D warnings)..."
-mkdir -p packages/tmuxy-ui/dist
-cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app \
-  -p tmuxy-group -- -D warnings
+bin/lint-gate check
 
 echo "pre-push: OK"

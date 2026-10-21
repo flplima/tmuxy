@@ -1,6 +1,10 @@
 #!/bin/sh
 set -e
 
+# Pre-commit: format what is staged, and the fast checks. Type checks and
+# clippy are the pre-push hook's (once per push, not once per commit), and
+# both hooks and CI's lint job run the same list — bin/lint-gate.
+
 # Snapshot what is staged BEFORE any formatter runs.
 #
 # `restage` below puts a formatter's rewrites back into the index, but only for
@@ -42,18 +46,14 @@ restage() {
   done < "$HOOK_TMP/staged"
 }
 
-# --- JS/TS ---
-echo "Formatting (Prettier)..."
-npm run format -w tmuxy-ui
+# Prettier, eslint --fix and cargo fmt over everything the gate owns.
+bin/lint-gate format
 
-echo "Linting (ESLint --fix)..."
-npm run lint:fix -w tmuxy-ui
-
-# Re-stage any staged files auto-fixed by lint/format
-restage packages/tmuxy-ui/src
-
-echo "Linting tests (no skipped tests)..."
-npx eslint tests/
+# Re-stage any staged files the formatters rewrote: the gate's whole scope.
+restage packages/tmuxy-ui/src packages/tmuxy-ui/scripts packages/tmuxy-ui/.storybook \
+  packages/tmuxy-ui/eslint-rules tests bin perf eslint.config.mjs packages/tmuxy-demo \
+  packages/tmuxy-core packages/tmuxy-server packages/tmuxy-tauri-app packages/tmuxy-group \
+  packages/tmuxy-wasm
 
 echo "Checking ESLint config integrity..."
 # Prevent weakening ESLint rules: no-restricted-syntax must ban tmuxExec/tmuxRun
@@ -83,20 +83,5 @@ else
   echo "No staged tmuxy-ui source/test changes — skipping unit tests."
 fi
 
-# --- Rust ---
-# tmuxy-tauri-app is formatted here too: CI checks all three, so leaving it out
-# made the tauri crate the one reliable source of fmt drift turning main red.
-echo "Formatting Rust (cargo fmt)..."
-cargo fmt -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app
-
-# Re-stage any staged files formatted by cargo fmt
-restage packages/tmuxy-core packages/tmuxy-server packages/tmuxy-tauri-app
-
-echo "Checking repo policy (including the 5,000-token file cap)..."
-npm run check:policy
-
-# -D warnings matches CI exactly. Without it a clippy warning passed here and
-# failed there — the single largest source of avoidable CI reds.
-echo "Checking Rust (cargo clippy)..."
-mkdir -p packages/tmuxy-ui/dist
-cargo clippy -p tmuxy-core -p tmuxy-server -- -D warnings
+# The 5,000-token file cap and the other repo policies, on what is staged.
+bin/lint-gate check policy

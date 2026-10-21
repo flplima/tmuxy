@@ -12,7 +12,9 @@ body {
   background: var(--page-bg, #111111);
   color: var(--text-primary, #e5e5e5);
   font-family: var(--font-mono, 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace);
-  transition: background-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s;
 }
 
 /* Spacing around pane container inside the MacWindow */

@@ -4,6 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import prettier from 'eslint-config-prettier';
 import vitest from '@vitest/eslint-plugin';
+import globals from 'globals';
 import stateFieldOwnership from './eslint-rules/state-field-ownership.mjs';
 import noBarrelFiles from './eslint-rules/no-barrel-files.mjs';
 
@@ -39,11 +40,23 @@ export default tseslint.config(
       'tmuxy/no-barrel-files': 'error',
     },
   },
+  // The scripts under scripts/ and the lint rules under eslint-rules/ run in
+  // Node (`npm run lint` covers them, with src); the probe and perf scripts
+  // also evaluate code inside the page, hence the browser globals too.
+  {
+    files: ['scripts/**/*.mjs', 'eslint-rules/*.mjs', '.storybook/*.ts'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
   // `jest/no-disabled-tests` (eslint.config.mjs) covers tests/ only, so a
   // skipped Vitest test under src/ was blocked by nothing but review. Same
   // rule, same severity, for the Vitest half of the suite.
   {
-    files: ['src/**/__tests__/**/*.{ts,tsx}', 'src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    files: [
+      'src/**/__tests__/**/*.{ts,tsx}',
+      'src/**/*.test.{ts,tsx}',
+      'src/test/**/*.{ts,tsx}',
+      'scripts/**/*.test.mjs',
+    ],
     plugins: { vitest },
     rules: {
       'vitest/no-disabled-tests': 'error',

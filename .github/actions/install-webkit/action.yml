@@ -1,0 +1,23 @@
+name: Install WebKit
+# Playwright's WebKit, with its browser download cached the way
+# install-chromium caches Chromium's. Its system libraries are not in the
+# runner image, so `install-deps` runs on every job; what the cache saves is
+# the download, which `--with-deps` repeated on every push.
+runs:
+  using: composite
+  steps:
+    - name: Cache WebKit
+      id: webkit-cache
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright/webkit*
+        key: ${{ runner.os }}-playwright-webkit-${{ hashFiles('package-lock.json') }}
+
+    - name: Install WebKit's system libraries
+      shell: bash
+      run: npx playwright install-deps webkit
+
+    - name: Install WebKit (cache miss)
+      if: steps.webkit-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: npx playwright install webkit

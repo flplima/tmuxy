@@ -1,6 +1,27 @@
+import js from '@eslint/js';
+import globals from 'globals';
 import jest from 'eslint-plugin-jest';
 
 export default [
+  // The scripts CI and the hooks run — bin/, perf/, the demo's — under the
+  // recommended rules with Node's globals. No lint read them before, so a
+  // typo in one was a red job rather than a lint error. The UI package's
+  // scripts are its own config's (ESLint resolves the config from each
+  // file's directory): packages/tmuxy-ui/eslint.config.js.
+  {
+    files: ['bin/**/*.mjs', 'perf/**/*.mjs', 'eslint.config.mjs', 'packages/tmuxy-demo/**/*.mjs'],
+    ...js.configs.recommended,
+    languageOptions: { globals: globals.node },
+    rules: {
+      ...js.configs.recommended.rules,
+      // An underscore names a parameter a signature needs but a body does not,
+      // the convention the UI package's TypeScript rule follows.
+      'no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+    },
+  },
   {
     files: ['tests/**/*.js'],
     plugins: { jest },
@@ -15,14 +36,17 @@ export default [
   {
     files: ['tests/helpers/pane-ops.js', 'tests/helpers/keyboard.js'],
     rules: {
-      'no-restricted-syntax': ['error',
+      'no-restricted-syntax': [
+        'error',
         {
           selector: "CallExpression[callee.name='tmuxExec']",
-          message: 'tmuxExec bypasses the rendering pipeline. Tests must verify via DOM, not tmux capture-pane.',
+          message:
+            'tmuxExec bypasses the rendering pipeline. Tests must verify via DOM, not tmux capture-pane.',
         },
         {
           selector: "CallExpression[callee.name='tmuxRun']",
-          message: 'tmuxRun bypasses browser input. Tests must send input via browser keyboard events.',
+          message:
+            'tmuxRun bypasses browser input. Tests must send input via browser keyboard events.',
         },
         {
           selector: "MemberExpression[object.name='require'][property.name='call']",
@@ -39,7 +63,8 @@ export default [
     files: ['tests/**/*.test.js'],
     ignores: ['tests/tauri/**'],
     rules: {
-      'no-restricted-syntax': ['error',
+      'no-restricted-syntax': [
+        'error',
         {
           selector: "CallExpression[callee.name='tmuxCmd']",
           message:

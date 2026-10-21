@@ -41,6 +41,26 @@ jobs:
   lint:
     uses: ./.github/workflows/ci-lint.yml
 
+  # What this push touched, for the jobs below that need not run on every
+  # push: the desktop build, the v86 probe, the Mac cargo test and the
+  # dependency audit each skip a push that changed nothing they cover. The
+  # rules are bin/ci-changes.mjs (tested from the UI package); a base this
+  # checkout cannot reach — a force-push, a tag build — runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.changes.outputs.desktop }}
+      v86: ${{ steps.changes.outputs.v86 }}
+      macos-rust: ${{ steps.changes.outputs.macos-rust }}
+      audit: ${{ steps.changes.outputs.audit }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node bin/ci-changes.mjs "$BASE" >> "$GITHUB_OUTPUT"
+
   # The frontend bundle and the test server, each built ONCE and handed to
   # every job that needs them. They used to be rebuilt inside each of the e2e
   # matrix entries — the same two builds a dozen times over, for the largest
@@ -134,12 +154,10 @@ jobs:
   macos-tests:
     runs-on: macos-latest
     timeout-minutes: 30
+    needs: changes
 
     steps:
       - uses: actions/checkout@v7
-        with:
-          # The whole history, so the diff below can reach the push's base.
-          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
@@ -164,31 +182,15 @@ jobs:
       - name: CLI suite
         run: npm run test:cli
 
-      # A base it cannot reach (a force-push, a first push of a branch) runs
-      # the suite rather than skipping it: the filter only ever saves time.
-      - name: Does this push touch macOS-specific code?
-        id: changes
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          rust=true
-          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            if git diff --name-only "$BASE" HEAD | grep -qE '^(packages/tmuxy-tauri-app/|packages/tmuxy-core/src/control_mode/connection\.rs|bin/|Cargo\.(toml|lock)|\.github/workflows/lint-and-tests\.yml)'; then
-              rust=true
-            else
-              rust=false
-            fi
-          fi
-          echo "rust=$rust" >> "$GITHUB_OUTPUT"
-          echo "cargo test on macOS: $rust (base ${BASE:-none})"
-
       # The tauri crate's build script expects a frontend dist to exist.
       - name: Frontend dist placeholder
-        if: steps.changes.outputs.rust == 'true' || startsWith(github.ref, 'refs/tags/')
+        if: needs.changes.outputs.macos-rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: mkdir -p packages/tmuxy-ui/dist
 
+      # Only when the push touched the code with a macOS branch (the `changes`
+      # job's list), and always on a tag build.
       - name: Cargo test
-        if: steps.changes.outputs.rust == 'true' || startsWith(github.ref, 'refs/tags/')
+        if: needs.changes.outputs.macos-rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: cargo test --workspace
 
   rust-tests:
@@ -273,9 +275,8 @@ jobs:
 
       # Only the WebKit suite; every other entry would pay the download for a
       # browser it never launches.
-      - name: Install WebKit
+      - uses: ./.github/actions/install-webkit
         if: matrix.suite.webkit
-        run: npx playwright install webkit --with-deps
 
       - name: Download frontend dist
         uses: actions/download-artifact@v8
@@ -419,6 +420,10 @@ jobs:
   storybook-v86-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Skipped for a push that touched nothing the probe loads (the `changes`
+    # job): the E2E suites, the server, the desktop crate, prose.
+    needs: changes
+    if: needs.changes.outputs.v86 == 'true'
     # Only the blocking GATE (three optimistic-UX stories the pane-stability
     # review promoted once the correlation fixes proved stable) runs per
     # commit. The full ~110-story sweep used to run here too, behind a
@@ -507,10 +512,6 @@ jobs:
         if: failure()
         run: tail -200 /tmp/storybook.log
 
-  # Dependency audits, scoped to what ships: production npm dependencies
-  # (dev tooling — Storybook, Puppeteer, wdio — is audited by Dependabot but
-  # would keep this job permanently red) and the Rust workspace, with the
-  # policy and its reasons in .cargo/audit.toml.
   # The packaged desktop app: built ONCE, then both desktop suites run against
   # that one binary.
   #
@@ -525,7 +526,10 @@ jobs:
   desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: build-frontend
+    # Skipped for a push that touched nothing the app is built from or tested
+    # by (the `changes` job): the web E2E suites, the demo, stories, prose.
+    needs: [changes, build-frontend]
+    if: needs.changes.outputs.desktop == 'true'
 
     steps:
       - uses: actions/checkout@v7
@@ -620,9 +624,18 @@ jobs:
         if: always()
         run: kill "$XVFB_PID" 2>/dev/null || true
 
+  # Dependency audits, scoped to what ships: production npm dependencies
+  # (dev tooling — Storybook, Puppeteer, wdio — is audited by Dependabot but
+  # would keep this job permanently red) and the Rust workspace, with the
+  # policy and its reasons in .cargo/audit.toml.
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Only when a lockfile moved (the `changes` job): an advisory published
+    # against a dependency no push touched made this job red for commits that
+    # had nothing to do with it. The Sunday sweep hands those to the agent.
+    needs: changes
+    if: needs.changes.outputs.audit == 'true'
 
     steps:
       - uses: actions/checkout@v7
