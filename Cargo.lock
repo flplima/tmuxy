@@ -5085,7 +5085,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tmuxy-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "criterion",
@@ -5107,7 +5107,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-group"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "tmuxy-core",
@@ -5115,7 +5115,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-stream",
  "axum",
@@ -5141,7 +5141,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-tauri-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2",
  "clap",
@@ -5170,7 +5170,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "serde",
