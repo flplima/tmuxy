@@ -17,6 +17,10 @@ const {
   enterCopyModeAndWait,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
+const { runRect, shownRunRect, dragSelect, selectedText } = require('./helpers/selection-drag');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 // ==================== Scenario 7d: Selecting and copying with the mouse ====================
 
@@ -27,61 +31,6 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  /** Screen centres of the first and last cell of `text` in a rendered line. */
-  const cellsOf = (page, rootSelector, text) =>
-    page.evaluate(
-      ({ sel, needle }) => {
-        const lines = [...document.querySelectorAll(`${sel} .terminal-line`)].filter(
-          (l) => l.getBoundingClientRect().height > 0 && l.textContent.startsWith(needle),
-        );
-        const line = lines[lines.length - 1];
-        if (!line) return null;
-        const r = line.getBoundingClientRect();
-        const cellW = parseFloat(getComputedStyle(line).getPropertyValue('--cell-w'));
-        // Just inside the outer edges of the first and last cell: a browser
-        // selection starts and ends at the nearest character boundary, so a
-        // press on the middle of the first letter would leave it out.
-        return {
-          y: r.top + r.height / 2,
-          first: r.left + 1,
-          last: r.left + needle.length * cellW - 1,
-          box: {
-            left: r.left,
-            right: r.left + needle.length * cellW,
-            top: r.top,
-            bottom: r.bottom,
-          },
-        };
-      },
-      { sel: rootSelector, needle: text },
-    );
-
-  /**
-   * `cellsOf` once a line starting with `text` is on screen. runCommand's text
-   * wait is met by the typed command line, which merely CONTAINS the marker;
-   * the output line that starts with it can still be on its way.
-   */
-  const shownCellsOf = async (page, rootSelector, text) => {
-    let found = null;
-    await waitForCondition(
-      page,
-      async () => (found = await cellsOf(page, rootSelector, text)) !== null,
-      10000,
-      `a line starting with ${text}`,
-    );
-    return found;
-  };
-
-  /** Press, sweep and release, pausing on the end so a throttled move lands there. */
-  const drag = async (page, from, to, y) => {
-    await page.mouse.move(from, y);
-    await page.mouse.down();
-    await page.mouse.move(to, y, { steps: 10 });
-    await delay(120);
-    await page.mouse.move(to + 0.5, y);
-    await page.mouse.up();
-  };
-
   test('a drag selects text on the live screen, and Cmd+C blinks what it copied', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
@@ -90,17 +39,25 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     //    the press, which collapses the page's selection, so it selected nothing.
     //    Output that arrives while the text is selected must not slide other
     //    text under the highlight: a job prints after the drag, in the shell
-    //    itself, with nothing typed.
+    //    itself, with nothing typed. It prints on a signal — a flag file the
+    //    test drops once the selection is in place — not on a clock: a `sleep`
+    //    raced the drag on a slow runner, and the output was on screen before
+    //    there was a selection for it to slide under.
     //    (printf, so the typed command line does not itself contain the marker.)
-    await runCommand(ctx.page, "( sleep 2; seq 1 5; printf 'LATE_%s\\n' OUTPUT ) &", '[1]');
+    const flag = path.join(os.tmpdir(), `tmuxy-late-output-${process.pid}-${Date.now()}`);
+    await runCommand(
+      ctx.page,
+      `( while [ ! -e ${flag} ]; do sleep 0.1; done; seq 1 5; printf 'LATE_%s\\n' OUTPUT ) &`,
+      '[1]',
+    );
     await runCommand(ctx.page, 'echo "DRAG_SELECT_ME and more"', 'DRAG_SELECT_ME');
-    const at = await shownCellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
-    await drag(ctx.page, at.first, at.last, at.y);
-    const selected = await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '');
-    expect(selected).toBe('DRAG_SELECT_ME');
+    const at = await shownRunRect(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
+    await dragSelect(ctx.page, at);
+    expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
 
     // The job has printed in tmux; the pane on screen holds still, the
     // selection still reads the same text, and it still sits on the same row.
+    fs.writeFileSync(flag, '');
     const paneId = await ctx.session.getActivePaneId();
     await waitForCondition(
       ctx.page,
@@ -110,10 +67,8 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     );
     await delay(DELAYS.SHORT);
     expect(await getTerminalText(ctx.page)).not.toContain('LATE_OUTPUT');
-    expect(await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe(
-      'DRAG_SELECT_ME',
-    );
-    const still = await cellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
+    expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
+    const still = await runRect(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
     expect(Math.abs(still.box.top - at.box.top)).toBeLessThanOrEqual(1);
 
     // The selection wears the theme's two colours reversed: its foreground as
@@ -171,19 +126,18 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
       'the copy blink to finish',
     );
     // The selection is still there; copying did not take it away.
-    expect(await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe(
-      'DRAG_SELECT_ME',
-    );
+    expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
     expect(await ctx.page.evaluate(() => window.__copied)).toBe('DRAG_SELECT_ME');
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
     // With the selection gone the pane catches up with the job's output.
     await waitForTerminalText(ctx.page, 'LATE_OUTPUT');
+    fs.rmSync(flag, { force: true });
 
     // 3. A row of differently-coloured runs copies as one line. Each run is its
     //    own box, and the browser's own copy broke the line at every one.
     await runCommand(ctx.page, 'printf "\\033[31mRED_RUN\\033[0m PLAIN_RUN\\n"', 'PLAIN_RUN');
-    const mixed = await shownCellsOf(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
-    await drag(ctx.page, mixed.first, mixed.last, mixed.y);
+    const mixed = await shownRunRect(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
+    await dragSelect(ctx.page, mixed);
     await ctx.page.keyboard.press('Meta+c');
     await waitForCondition(
       ctx.page,
@@ -207,12 +161,9 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
       `printf '${rows}_%s\\n\\n${rows}_%s\\n' ONE_A THREE_B`,
       `${rows}_THREE_B`,
     );
-    const one = await shownCellsOf(ctx.page, '.pane-layout-item', `${rows}_ONE_A`);
-    const three = await shownCellsOf(ctx.page, '.pane-layout-item', `${rows}_THREE_B`);
-    await ctx.page.mouse.move(one.first, one.y);
-    await ctx.page.mouse.down();
-    await ctx.page.mouse.move(three.first + 40, three.y, { steps: 10 });
-    await ctx.page.mouse.up();
+    const one = await shownRunRect(ctx.page, '.pane-layout-item', `${rows}_ONE_A`);
+    const three = await shownRunRect(ctx.page, '.pane-layout-item', `${rows}_THREE_B`);
+    await dragSelect(ctx.page, one, { last: three.first + 40, y: three.y });
     let fills = null;
     await waitForCondition(
       ctx.page,
@@ -233,7 +184,12 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
               bg: after.backgroundColor,
             };
           };
-          return { first: fill(first), empty: fill(empty), end: fill(end) };
+          return {
+            first: fill(first),
+            empty: fill(empty),
+            end: fill(end),
+            selection: window.getSelection()?.toString() ?? '',
+          };
         }, rows);
         return fills.empty.shown;
       },
@@ -259,7 +215,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
       delete window.__tmuxyLastClipboard;
     });
 
-    const at = await cellsOf(ctx.page, '[data-copy-mode="true"]', 'COPY_DRAG_ME');
+    const at = await runRect(ctx.page, '[data-copy-mode="true"]', 'COPY_DRAG_ME');
     expect(at).not.toBeNull();
 
     // Watch for the blink before releasing: it is on screen for under half a second.

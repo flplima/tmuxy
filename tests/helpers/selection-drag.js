@@ -7,16 +7,15 @@
  * middle of the first letter leaves that letter out. `runRect` returns the
  * outer edges of a rendered run, and `dragSelect` sweeps between them.
  *
- * Shared by the suites that drive a browser of their own (own-browser.js);
- * the same geometry is computed inline in tests/1-input-interaction.test.js
- * for the Chromium run.
+ * Shared by the suites that drive a browser of their own (own-browser.js) and
+ * by the Chromium selection suite (1-input-interaction-clipboard.test.js).
  */
 
-const { delay } = require('./browser');
+const { delay, waitForCondition } = require('./browser');
 
 /**
- * Where the last line containing `text` is on screen, and the two x positions
- * a drag over exactly that text starts and ends at.
+ * Where the last line SHOWN containing `text` is on screen, and the two x
+ * positions a drag over exactly that text starts and ends at.
  *
  * `box` is the run's own rectangle — what a copy blink or a selection
  * highlight has to line up with.
@@ -28,8 +27,8 @@ async function runRect(page, rootSelector, text) {
         (el.textContent || '').includes(needle),
       );
       if (!root) return null;
-      const lines = [...root.querySelectorAll('.terminal-line')].filter((l) =>
-        (l.textContent || '').includes(needle),
+      const lines = [...root.querySelectorAll('.terminal-line')].filter(
+        (l) => l.getBoundingClientRect().height > 0 && (l.textContent || '').includes(needle),
       );
       const line = lines[lines.length - 1];
       if (!line) return null;
@@ -49,13 +48,49 @@ async function runRect(page, rootSelector, text) {
   );
 }
 
-/** Press, sweep and release, pausing on the end so a throttled move lands there. */
-async function dragSelect(page, at) {
-  await page.mouse.move(at.first, at.y);
+/**
+ * `runRect` once a line containing `text` is on screen WITH the shell's
+ * prompt drawn below it. runCommand's text wait is met by the typed command
+ * line, which merely CONTAINS the marker; the output line can still be on its
+ * way — and so can the prompt after it, whose rows scroll everything measured
+ * before they arrived. A drag aimed at a row measured then pressed two rows
+ * too low and selected the wrong line.
+ */
+async function shownRunRect(page, rootSelector, text) {
+  let found = null;
+  await waitForCondition(
+    page,
+    async () => {
+      const prompted = await page.evaluate(
+        ({ sel, needle }) => {
+          const lines = [...document.querySelectorAll(`${sel} .terminal-line`)].filter(
+            (l) => l.getBoundingClientRect().height > 0,
+          );
+          const at = lines.findIndex((l) => (l.textContent || '').includes(needle));
+          return at >= 0 && lines.slice(at + 1).some((l) => /[$#%>❯]/.test(l.textContent));
+        },
+        { sel: rootSelector, needle: text },
+      );
+      if (!prompted) return false;
+      return (found = await runRect(page, rootSelector, text)) !== null;
+    },
+    10000,
+    `a line with ${text}, with the prompt back below it`,
+  );
+  return found;
+}
+
+/**
+ * Press on `from`'s first cell, sweep to `to`'s last cell (the same run when
+ * `to` is omitted) and release, pausing on the end so a throttled move lands
+ * there.
+ */
+async function dragSelect(page, from, to = from) {
+  await page.mouse.move(from.first, from.y);
   await page.mouse.down();
-  await page.mouse.move(at.last, at.y, { steps: 10 });
+  await page.mouse.move(to.last, to.y, { steps: 10 });
   await delay(120);
-  await page.mouse.move(at.last + 0.5, at.y);
+  await page.mouse.move(to.last + 0.5, to.y);
   await page.mouse.up();
 }
 
@@ -85,4 +120,4 @@ async function selectionRect(page) {
   });
 }
 
-module.exports = { runRect, dragSelect, selectedText, selectionRect };
+module.exports = { runRect, shownRunRect, dragSelect, selectedText, selectionRect };
