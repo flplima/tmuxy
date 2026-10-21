@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# The wasm-bindgen version Cargo.lock pins, for installing the matching CLI.
+#
+# The CLI and the crate must agree EXACTLY on the bindgen schema, so the
+# version is read from the lockfile rather than written anywhere: a hand-kept
+# pin drifts the moment anything runs `cargo update`, and the failure is a
+# schema-mismatch error a long way from the change that caused it. The three
+# workflows that install the CLI and bin/install-dev-tools all read it here.
+set -euo pipefail
+
+lock="$(cd "$(dirname "$0")/.." && pwd)/Cargo.lock"
+version=$(awk '/^name = "wasm-bindgen"$/{f=1; next} f && /^version = /{gsub(/["]/,""); sub(/version = /,""); print; exit}' "$lock")
+if [ -z "$version" ]; then
+  echo "no wasm-bindgen in $lock" >&2
+  exit 1
+fi
+printf '%s\n' "$version"

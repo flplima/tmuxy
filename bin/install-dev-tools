@@ -77,7 +77,7 @@ if [ "$FULL" -eq 1 ]; then
     install_crate tauri-driver
     # `npm run build:wasm` — the CLI version must match the wasm-bindgen crate
     # pinned in Cargo.lock, so it is read from there, as CI reads it.
-    wasm_bindgen=$(awk '/^name = "wasm-bindgen"$/{f=1; next} f && /^version = /{gsub(/["]/,""); sub(/version = /,""); print; exit}' "$(dirname "$0")/../Cargo.lock")
+    wasm_bindgen=$("$(dirname "$0")/wasm-bindgen-version")
     install_crate wasm-bindgen-cli --version "$wasm_bindgen" --locked
 fi
 

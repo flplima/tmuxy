@@ -1,12 +1,28 @@
 #!/usr/bin/env bash
 #
 # Kill any process listening on a given TCP port.
-# Works in minimal containers without lsof/fuser/ss.
+#
+# `lsof` where there is one (macOS, most Linux); the /proc scan below is for a
+# minimal container without lsof, fuser or ss. The scan is Linux-only, and on
+# a Mac it used to find nothing and say nothing — so the `predev` hooks that
+# call this started a second dev server on a port the last one still held.
 #
 # Usage: kill-port <port>
 #
 
 PORT="${1:?Usage: kill-port <port>}"
+
+if command -v lsof >/dev/null 2>&1; then
+  PIDS=$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+  for pid in $PIDS; do
+    echo "[kill-port] Killing PID $pid on port $PORT"
+    kill "$pid" 2>/dev/null || true
+  done
+  # Wait briefly for processes to exit
+  [ -n "$PIDS" ] && sleep 1
+  exit 0
+fi
+
 HEX=$(printf '%04X' "$PORT")
 
 # Collect socket inodes listening (state 0A = LISTEN) on this port

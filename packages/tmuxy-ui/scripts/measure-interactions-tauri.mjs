@@ -134,7 +134,8 @@ function displayIsLive() {
 }
 
 function prepareSession(socket, session) {
-  const tmux = `tmux -L ${socket}`;
+  // A socket with a slash is a path (-S), as the server and the CLI read it.
+  const tmux = `tmux ${socket.includes('/') ? '-S' : '-L'} ${socket}`;
   try {
     execSync(`${tmux} kill-session -t ${session}`, { stdio: 'ignore' });
   } catch {

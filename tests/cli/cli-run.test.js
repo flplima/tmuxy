@@ -42,13 +42,13 @@ describe('CLI run escape hatch', () => {
       const { stderr, exitCode, tmuxCalls } = runCLI(['run', 'new-window']);
       expect(exitCode).toBe(0);
       expect(stderr).toContain('new-window intercepted for safety');
-      // Routes through run-shell as a single atomic splitw+breakp command
-      // list (mirrors `tmuxy tab create`) — never a direct external tmux
-      // invocation, which would crash tmux 3.5a with control mode attached.
+      // It IS `tmuxy tab create`: one run-shell with the atomic splitw+breakp
+      // command list — never a direct external tmux invocation, which would
+      // crash tmux 3.5a with control mode attached.
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:'",
+        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:' -P -F '##{window_id}'",
       ]);
     });
 
@@ -59,7 +59,7 @@ describe('CLI run escape hatch', () => {
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:'",
+        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:' -P -F '##{window_id}'",
       ]);
     });
 
@@ -69,7 +69,7 @@ describe('CLI run escape hatch', () => {
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:' -n 'my-win'",
+        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:' -n 'my-win' -P -F '##{window_id}'",
       ]);
     });
   });

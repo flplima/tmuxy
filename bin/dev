@@ -23,22 +23,17 @@ set -e
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 PORT="${DEV_PORT:-9000}"
-# Match the server's socket resolution: TMUX_SOCKET override (slash → full
-# socket path via -S, else name via -L), else `tmuxy-dev`. The bare `tmuxy`
-# socket belongs to the release bundle (tmuxy-core DEFAULT_TMUX_SOCKET); the
-# dev server keeps off it so the two can run side by side, and the E2E suite
-# owns `tmuxy-test` for the same reason.
-SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
-# The server resolves its own socket from the env, so hand it the same value
-# rather than letting it fall back to the release default.
-export TMUX_SOCKET="$SOCKET"
-case "$SOCKET" in
-  */*) SOCKET_FLAG="-S" ;;
-  *) SOCKET_FLAG="-L" ;;
-esac
+# The dev server's own socket, `tmuxy-dev` unless TMUX_SOCKET says otherwise.
+# The bare `tmuxy` socket belongs to the release bundle (tmuxy-core
+# DEFAULT_TMUX_SOCKET); the dev server keeps off it so the two can run side by
+# side, and the E2E suite owns `tmuxy-test` for the same reason. The server
+# resolves its own socket from the env, so it is exported before bin/tmuxy/_lib
+# resolves the -L/-S flag for it the way every tmuxy script does.
+export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
+source bin/tmuxy/_lib
 
 echo "[dev] Starting development server with hot reload..."
-echo "[dev] Port: $PORT, Socket: $SOCKET"
+echo "[dev] Port: $PORT, Socket: $TMUX_SOCKET"
 echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
 echo ""
 
@@ -51,8 +46,8 @@ fi
 echo ""
 
 # Ensure the tmux server has a session so it stays alive between test cycles.
-tmux "$SOCKET_FLAG" "$SOCKET" has-session -t tmuxy 2>/dev/null \
-    || tmux "$SOCKET_FLAG" "$SOCKET" new-session -d -s tmuxy -x 200 -y 50
+_tmux has-session -t tmuxy 2>/dev/null \
+    || _tmux new-session -d -s tmuxy -x 200 -y 50
 
 # Where to listen. In a CONTAINER the published port reaches the server on the
 # container's own interface rather than its loopback, so it has to bind

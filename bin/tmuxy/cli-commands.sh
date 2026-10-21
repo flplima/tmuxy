@@ -278,10 +278,8 @@ cmd_run() {
   case "$tmux_cmd" in
     new-window|neww)
       # Intercept: new-window crashes tmux 3.5a with control mode attached.
-      # Route splitw+breakp+tag through run-shell as a single atomic tmux
-      # command list — the previous implementation ran split-window/break-pane
-      # as direct external subprocesses, the exact thing that crashes CC.
-      # Mirrors `tmuxy tab create` (cmd_tab).
+      # `tmuxy tab create` is the one place that knows the safe shape (splitw
+      # + breakp, one run-shell); this keeps only the flag it takes.
       echo "Note: new-window intercepted for safety. Using split-window + break-pane." >&2
       local name_arg=""
       while [ $# -gt 0 ]; do
@@ -290,11 +288,7 @@ cmd_run() {
           *) shift ;;
         esac
       done
-      if [ -n "$name_arg" ]; then
-        _run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name_arg")"
-      else
-        _run_safe "splitw \\; breakp -t '#{session_id}:'"
-      fi
+      cmd_tab create ${name_arg:+"$name_arg"}
       ;;
 
     resize-window|resizew)

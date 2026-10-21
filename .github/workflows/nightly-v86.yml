@@ -48,13 +48,10 @@ jobs:
       - uses: swatinem/rust-cache@v2
 
       # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
-      # version is read from the lockfile rather than written here.
+      # version is read from the lockfile (bin/wasm-bindgen-version).
       - name: Read the wasm-bindgen version from Cargo.lock
         id: wasm-bindgen
-        run: |
-          version=$(awk '/^name = "wasm-bindgen"$/{f=1; next} f && /^version = /{gsub(/["]/,""); sub(/version = /,""); print; exit}' Cargo.lock)
-          test -n "$version" || { echo "no wasm-bindgen in Cargo.lock"; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(bin/wasm-bindgen-version)" >> "$GITHUB_OUTPUT"
 
       - name: Install wasm-bindgen CLI
         uses: taiki-e/install-action@v2
