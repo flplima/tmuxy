@@ -4,7 +4,8 @@
     "`filter` is a jest name regex (no leading ^) that splits one oversized file across runners;",
     "the second half is a negative lookahead on the first, so a new scenario always lands somewhere.",
     "`tier: nightly` marks a file whose every test is tagged [nightly]: it leaves the per-commit",
-    "matrix rather than spend a runner on a suite that would skip everything. docs/TESTS-LAYERS.md § Tiers."
+    "matrix rather than spend a runner on a suite that would skip everything. docs/TESTS-LAYERS.md § Tiers.",
+    "`tmux` runs the entry on that tmux instead of the 3.7a every other entry builds against."
   ],
   "suites": [
     { "name": "snapshots", "path": "tests/snapshots/" },
@@ -34,6 +35,11 @@
     { "name": "6-nvim", "path": "tests/6-nvim-performance.test.js", "tier": "nightly" },
     { "name": "7-regression", "path": "tests/7-regression-bugs" },
     { "name": "8-tui", "path": "tests/8-tui-alternate-screen.test.js" },
+    {
+      "name": "tmux-3.4",
+      "path": "tests/(snapshots/|8-tui-alternate-screen)",
+      "tmux": "3.4"
+    },
     { "name": "10-read-only", "path": "tests/10-read-only.test.js" },
     { "name": "11-webkit", "path": "tests/11-webkit.test.js", "webkit": true },
     { "name": "12-touch", "path": "tests/12-touch.test.js" },

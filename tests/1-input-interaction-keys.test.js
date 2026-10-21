@@ -57,6 +57,34 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepD
   await cdp.detach();
 }
 
+// ==================== Scenario 8a: typed text reaches the shell verbatim ====================
+
+describe('Scenario 8a: typed text reaches the shell verbatim', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // Typed text travels as a `send-keys -l` literal. A tmux that format-expanded
+  // it would hand the shell `%0` for `#{pane_id}`; the v86 guest's console did
+  // that once, and this holds the native path to the letter on every tmux CI
+  // runs (docs/TMUX-VERSION-BUGS.md).
+  test('a #{format} typed at the prompt is not expanded by tmux', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await runCommand(ctx.page, "printf '%s\\n' 'LIT#{pane_id}END'", 'LIT#{pane_id}END');
+    // The typed line and its output, both verbatim.
+    await waitForCondition(
+      ctx.page,
+      async () => (await getTerminalText(ctx.page)).split('LIT#{pane_id}END').length >= 3,
+      5000,
+      'the printed line to come back as typed',
+    );
+    expect(await getTerminalText(ctx.page)).not.toMatch(/LIT%\d+END/);
+  });
+});
+
 // ==================== Scenario 8: Resize from the prompt & SGR ====================
 
 describe('Scenario 8: Resize from the prompt & SGR', () => {

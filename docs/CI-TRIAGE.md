@@ -21,7 +21,7 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | `node-checks / unit-tests` | `npm test -- --run` | UI unit tests |
 | `node-checks / cli-tests` | `npm run test:cli` | CLI dispatcher behavior |
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
-| `e2e (...)` | `npm run test:e2e` | Browser + tmux integration |
+| `e2e (...)` | `npm run test:e2e` | Browser + tmux integration; `e2e (tmux-3.4)` is the snapshot and alternate-screen suites against tmux 3.4 (`tests/e2e-suites.json`, the `tmux` field) |
 | `desktop` | `npm run test:tauri` (the debug build) + `node tests/smoke/smoke-test.js target/debug/tmuxy`; skipped when the push touched nothing the app is built from or tested by (`changes`) | Desktop IPC, Tauri runtime, the launch path |
 | `storybook-probe` / `storybook-v86-probe` | `PROBE_TIER=commit npm run test-storybook -w tmuxy-ui` (the axe pass included) / `npm run test-storybook:v86 -w tmuxy-ui`; the v86 probe is skipped when the push touched nothing it loads (`changes`) | Story play-function and accessibility regressions |
 | nightly `v86 / deterministic` | `npm run test-storybook -w tmuxy-ui` (every story, the axe pass on) | The `nightly`-tagged stories and accessibility |

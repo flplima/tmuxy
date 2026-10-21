@@ -68,16 +68,11 @@ impl<C: ControlLink> TmuxMonitor<C> {
         }
         trace!(cmd = %unescaped, "sent command via control mode");
 
-        // tmux emits no control-mode notification when a user option
-        // changes, so a `@tmuxy-*` write (a dragged sidebar width, a
-        // hidden column, a focus request) would otherwise only reach
-        // the clients on the next window event or the idle heartbeat
-        // — seconds later. Re-list the windows right behind it.
-        // The same goes for a reorder: `move-window` / `swap-window`
-        // renumber every window past the moved one, and tmux tells
-        // us about none of them — the tab strip would show two
-        // tabs at one index until the heartbeat.
-        if writes_tmuxy_option(&unescaped) || reorders_windows(&unescaped) {
+        // What tmux leaves unannounced (`tmux_compat::SILENT_COMMANDS`) would
+        // otherwise reach the clients on the next event or the idle heartbeat
+        // — seconds later. Re-list it right behind the command.
+        let relists = crate::tmux_compat::relists_after(&unescaped);
+        if relists.windows {
             if let Err(e) = self
                 .connection
                 .send_command(tmux_formats::LIST_WINDOWS_CMD)
@@ -86,18 +81,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 emitter.emit_error(format!("Failed to refresh windows: {}", e));
             }
         }
-        // Likewise the marked pane: `select-pane -m/-M` changes
-        // `#{pane_marked}` without any notification, so re-list the
-        // panes right behind it or the flag waits for the heartbeat.
-        // A PANE-scoped `@tmuxy-*` write needs the same treatment for
-        // the same reason: answering a `tmuxy pane send -t` clears `@tmuxy-ask`,
-        // and without this the question would stay on screen until the
-        // next event moved it. And a pane swap, which tmux 3.2 does not
-        // announce at all.
-        if toggles_pane_mark(&unescaped)
-            || writes_pane_scoped_tmuxy_option(&unescaped)
-            || swaps_panes(&unescaped)
-        {
+        if relists.panes {
             if let Err(e) = self
                 .connection
                 .send_command(tmux_formats::LIST_PANES_CMD)
@@ -215,81 +199,6 @@ impl<C: ControlLink> TmuxMonitor<C> {
             }
         }
     }
-}
-
-/// Whether a client command writes a `@tmuxy-*` user option. Those carry
-/// sidebar/focus state the clients read off `list-windows`, and tmux sends no
-/// notification for them — the caller re-lists windows right after.
-/// Whether a client command marks or unmarks a pane (`select-pane -m` / `-M`,
-/// also `selectp`). tmux emits no notification for the mark, so the caller
-/// re-lists panes right after.
-pub(super) fn toggles_pane_mark(command: &str) -> bool {
-    (command.contains("select-pane") || command.contains("selectp"))
-        && command.split_whitespace().any(|w| w == "-m" || w == "-M")
-}
-
-/// Whether a client command changes window indices (`move-window`,
-/// `swap-window`, `renumber-windows`, and their short forms). tmux emits no
-/// notification for an index change, so the caller re-lists windows right after.
-pub(super) fn reorders_windows(command: &str) -> bool {
-    runs_any(
-        command,
-        &[
-            "move-window",
-            "movew",
-            "swap-window",
-            "swapw",
-            "renumber-windows",
-        ],
-    )
-}
-
-/// Whether a client command swaps panes (`swap-pane` / `swapp`). tmux 3.2
-/// emits no `%layout-change` for a swap, so the caller re-lists panes right
-/// after; on later versions the re-list only repeats what the notification
-/// already brought.
-pub(super) fn swaps_panes(command: &str) -> bool {
-    runs_any(command, &["swap-pane", "swapp"])
-}
-
-/// Whether any command of a client's command list is one of `verbs`. Only the
-/// verb heading a command counts; anywhere else it is an argument (a key sent
-/// to a shell, say). The list separator may still be the client's `\;` or
-/// already unescaped.
-pub(super) fn runs_any(command: &str, verbs: &[&str]) -> bool {
-    crate::executor::split_compound(command)
-        .iter()
-        .flat_map(|part| part.split(" ; "))
-        .any(|part| verbs.contains(&crate::executor::command_verb(part)))
-}
-
-pub(super) fn writes_tmuxy_option(command: &str) -> bool {
-    ((command.contains("set-option") || command.contains("set -")) && command.contains("@tmuxy-"))
-        // The stack script sets / unsets `@tmuxy-collapsible` itself, where
-        // the write is invisible here; the re-list is what turns the flag into
-        // a relayout (`collapsible_layout_commands`). Bindings arrive with the
-        // alias already expanded to its `run-shell "bash …/tmuxy/stack …"`.
-        || command.contains("tmuxy-stack")
-        || command.contains("tmuxy/stack")
-}
-
-/// Whether a client command writes a PANE-scoped `@tmuxy-*` option
-/// (`set-option -p` / `setp`, set or unset). Those change `list-panes` output
-/// and nothing else, so the panes — not the windows — are what has to be
-/// re-listed behind them.
-pub(super) fn writes_pane_scoped_tmuxy_option(command: &str) -> bool {
-    crate::executor::split_compound(command)
-        .iter()
-        .flat_map(|part| part.split(" ; "))
-        .any(|part| {
-            matches!(
-                crate::executor::command_verb(part),
-                "set-option" | "set" | "setp"
-            ) && part.contains("@tmuxy-")
-                && part
-                    .split_whitespace()
-                    .any(|tok| tok.starts_with('-') && !tok.starts_with("--") && tok.contains('p'))
-        })
 }
 
 /// Whether a fire-and-forget command is marker-wrapped so its `%error`

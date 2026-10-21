@@ -45,6 +45,17 @@ describe('the E2E plan', () => {
     for (const suite of plan(suites, 'full')) expect(suite).not.toHaveProperty('tier');
   });
 
+  // The one entry on another tmux: the smoke pair the nightly matrix runs on
+  // every version, here on the tmux Ubuntu ships, every push.
+  it('the tmux 3.4 entry runs the snapshot and alternate-screen suites on that tmux', () => {
+    const onOtherTmux = plan(suites, 'commit').filter((s) => s.tmux);
+    expect(onOtherTmux.map((s) => s.tmux)).toEqual(['3.4']);
+    const path = new RegExp(onOtherTmux[0].path);
+    expect(path.test('tests/snapshots/snapshot.test.js')).toBe(true);
+    expect(path.test('tests/8-tui-alternate-screen.test.js')).toBe(true);
+    expect(path.test('tests/1-input-interaction.test.js')).toBe(false);
+  });
+
   // The shard filters are regexes someone wrote by hand against the scenario
   // numbers of the day. A new "Scenario 6n" has to land in exactly one of the
   // two halves of its file, or it runs twice — or, the worse case, never.

@@ -8,9 +8,9 @@ Tmuxy targets **tmux 3.7a** (devcontainer, CI, and the in-browser v86 guest all 
 
 The minimum is **tmux 3.2**. The desktop app and `tmuxy server` run `tmux -V` at startup and refuse an older or missing tmux with a message saying how to install or update it — a dialog on the desktop, stderr for the server (`tmuxy-core/src/tmux_check.rs`). A build that reports no version number (`tmux master`) is accepted. The Homebrew cask and the `.deb`/`.rpm` packages declare tmux as a dependency.
 
-3.2 is the floor because control-mode flow control (`pause-after`) and format subscriptions (`refresh-client -B`) arrived in it, and because it is what Ubuntu 22.04 LTS ships — the oldest system the AppImage catalog tests on. The nightly matrix runs 3.2a alongside 3.4, 3.5a, 3.7a and 3.8 (what Homebrew ships), the full E2E suite on each, so the floor and the newest release are both versions something exercises.
+3.2 is the floor because control-mode flow control (`pause-after`) and format subscriptions (`refresh-client -B`) arrived in it, and because it is what Ubuntu 22.04 LTS ships — the oldest system the AppImage catalog tests on. The nightly matrix runs 3.2a alongside 3.4, 3.5a, 3.7a and 3.8 (what Homebrew ships), the full E2E suite on each, so the floor and the newest release are both versions something exercises. Every push also runs the snapshot and alternate-screen suites on 3.4 — the tmux Ubuntu ships, and the version two product bugs were specific to — as the `tmux-3.4` entry of the E2E matrix (`tests/e2e-suites.json`).
 
-What differs between the supported versions, and how tmuxy copes:
+What differs between the supported versions, and how tmuxy copes (the commands tmux does not announce, which the monitor re-lists behind, are one table: `tmuxy-core/src/tmux_compat.rs`):
 
 | tmux | Difference | tmuxy |
 | --- | --- | --- |
@@ -88,9 +88,9 @@ The `tmux` a run-shell'd command runs is a client of its own, and run-shell does
 
 `bin/tmuxy-cli` therefore resolves the pane it acts on once per invocation when the caller has no `$TMUX_PANE` (a read-only `list-panes -a -f …`, preferring an attached real session, never the stash), exports it, and `run_safe` passes it to the inner client as `TMUX_PANE=%N tmux …` — tmux reads an unattached client's `TMUX_PANE` the way it reads a pane's own. Every `breakp` the CLI issues also names its destination session, `-t '#{session_id}:'`, expanded by run-shell for that pane. Inside a pane none of this changes anything: the caller's pane is the one resolved.
 
-### `send-keys` expands its arguments — and `##` does NOT protect valid variables
+### `send-keys` expands its arguments in the v86 guest — and `##` does NOT protect valid variables
 
-On 3.7a, `send-keys -l 'text'` format-expands the literal. Empirically:
+Through the v86 guest's console (tmux 3.7a on a serial line), `send-keys -l 'text'` format-expands the literal. Empirically:
 
 | Payload sent | Pane receives |
 | --- | --- |
@@ -99,7 +99,9 @@ On 3.7a, `send-keys -l 'text'` format-expands the literal. Empirically:
 | `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
 | `#(date)` | `#(date)` (command formats not run) |
 
-Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/infra/transport/drivers/v86/V86TmuxAdapter.ts`); the native server will need the same treatment when it upgrades. On 3.6b, `send-keys -l` does not expand at all.
+Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/infra/transport/drivers/v86/V86TmuxAdapter.ts`).
+
+The native control-mode path does not need it: a `#{pane_id}` typed at the prompt reaches the shell verbatim on 3.8 and on every tmux the per-commit and nightly suites run, which `tests/1-input-interaction-keys.test.js` ("typed text reaches the shell verbatim") checks on each of them. Should a tmux ever expand it there, that test is where it shows.
 
 ### Mouse-tracking panes eat pasted SGR sequences — inject with `send-keys -H`
 

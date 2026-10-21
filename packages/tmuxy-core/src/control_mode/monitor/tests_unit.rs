@@ -123,65 +123,6 @@ fn a_window_with_no_panes_yet_is_still_asked() {
 }
 
 #[test]
-fn reorder_commands_re_list_the_windows() {
-    assert!(reorders_windows("move-window -b -s @3 -t @1"));
-    assert!(reorders_windows(
-        "select-window -t @0 \\; swapw -s @3 -t @1"
-    ));
-    // The monitor asks after unescaping the client's `\;`.
-    assert!(reorders_windows("select-window -t @0 ; swapw -s @3 -t @1"));
-    assert!(reorders_windows("renumber-windows"));
-    assert!(!reorders_windows("select-window -t @3"));
-    assert!(!reorders_windows("send-keys -t %1 move-window Enter"));
-}
-
-/// tmux 3.2 sends no `%layout-change` for a swap, so the panes are
-/// re-listed behind every one — pinned by the keyboard actor or not.
-#[test]
-fn pane_swaps_re_list_the_panes() {
-    assert!(swaps_panes("swap-pane -D"));
-    assert!(swaps_panes(
-        "select-window -t @8 ; select-pane -t %32 ; swap-pane -D"
-    ));
-    assert!(swaps_panes("select-pane -t %3 \\; swapp -s %1 -t %2"));
-    assert!(!swaps_panes("select-pane -t %3"));
-    assert!(!swaps_panes("send-keys -t %1 swap-pane Enter"));
-}
-
-#[test]
-fn stack_commands_count_as_option_writes() {
-    assert!(super::writes_tmuxy_option(
-        "select-window -t @0 \\; select-pane -t %2 \\; run-shell \"bash /x/tmuxy/stack off #{window_id}\""
-    ));
-    assert!(super::writes_tmuxy_option("tmuxy-stack-off"));
-    assert!(super::writes_tmuxy_option(
-        "set-option -w -t @1 @tmuxy-collapsible 1"
-    ));
-    assert!(!super::writes_tmuxy_option("split-window -h"));
-}
-
-/// Answering a `tmuxy pane send -t` is a pane-scoped option write, and the question
-/// stays on screen until the panes are re-listed behind it.
-#[test]
-fn pane_scoped_option_writes_re_list_the_panes() {
-    assert!(super::writes_pane_scoped_tmuxy_option(
-        "set-option -pu -t %3 @tmuxy-ask"
-    ));
-    assert!(super::writes_pane_scoped_tmuxy_option(
-        "set-option -pu -t %3 @tmuxy-ask \\; set-option -p -t %3 @tmuxy-ask-answer 'a1:yes'"
-    ));
-    // Window- and session-scoped writes go the other way (list-windows).
-    assert!(!super::writes_pane_scoped_tmuxy_option(
-        "set-option -w -t @1 @tmuxy-collapsible 1"
-    ));
-    assert!(!super::writes_pane_scoped_tmuxy_option("split-window -h"));
-    // A pane option that isn't ours changes nothing tmuxy reads.
-    assert!(!super::writes_pane_scoped_tmuxy_option(
-        "set-option -p -t %3 remain-on-exit on"
-    ));
-}
-
-#[test]
 fn test_is_multi_step_run_shell_matches_pane_group_scripts() {
     // Real-world commands the frontend sends through SEND_TMUX_COMMAND.
     assert!(is_multi_step_run_shell(

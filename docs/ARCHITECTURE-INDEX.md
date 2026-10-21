@@ -5,6 +5,7 @@ Feature-to-files retrieval map for agents.
 | Feature | Key files |
 | --- | --- |
 | tmux control-mode command routing | `packages/tmuxy-core/src/command_router.rs`<br>`packages/tmuxy-ui/src/infra/transport/drivers/TauriAdapter.ts` |
+| What tmux leaves unannounced (the re-lists behind a command), and the map of version workarounds | `packages/tmuxy-core/src/tmux_compat.rs` |
 | Pane groups: membership, order and every group operation | `packages/tmuxy-core/src/groups.rs` (the rules)<br>`packages/tmuxy-group/src/lib.rs` (`tmuxy-server group`, `tmuxy-group`)<br>`bin/tmuxy/pane-group-*` (wrappers) |
 | Typed ids (pane, window, group) | `packages/tmuxy-core/src/ids.rs`<br>`packages/tmuxy-ui/src/domain/ids.ts` |
 | Wire shapes and the client model derived from them | `packages/tmuxy-ui/src/domain/wire.ts`<br>`packages/tmuxy-ui/src/domain/client.ts` |

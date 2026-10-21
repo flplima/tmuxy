@@ -49,13 +49,14 @@ RUN cargo build --release -p tmuxy-server \
     && strip target/release/tmuxy-server
 
 # --- Stage 3: build tmux ------------------------------------------------------
-# Built from source rather than taking bookworm's 3.3a: the demo runs a
-# version the per-commit CI exercises.
+# Built from source rather than taking bookworm's 3.3a: the demo runs the
+# version the per-commit CI exercises (3.7a, the install-tmux action's
+# default), not one that only the nightly matrix sees.
 # In its own stage: purging the build deps out of the runtime image took
 # libevent's RUNTIME library with them, and tmux then would not start at all.
 FROM debian:bookworm-slim AS tmux
 
-ARG TMUX_VERSION=3.5a
+ARG TMUX_VERSION=3.7a
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl build-essential libevent-dev libncurses-dev bison pkg-config \

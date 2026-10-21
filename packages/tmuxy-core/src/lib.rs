@@ -28,6 +28,8 @@ pub mod session_snapshot;
 pub mod theme;
 #[cfg(feature = "native")]
 pub mod tmux_check;
+#[cfg(feature = "cli")]
+pub mod tmux_compat;
 #[cfg(feature = "native")]
 pub mod trace;
 #[cfg(feature = "native")]

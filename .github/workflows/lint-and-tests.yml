@@ -271,7 +271,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends fzf neovim \
             || { sudo apt-get update && sudo apt-get install -y --no-install-recommends fzf neovim; }
 
+      # 3.7a, except for the entry that runs the smoke suites on the tmux
+      # Ubuntu ships (3.4): two product bugs were 3.4-only and the nightly
+      # matrix was the first to see them.
       - uses: ./.github/actions/install-tmux
+        with:
+          version: ${{ matrix.suite.tmux || '3.7a' }}
 
       - uses: ./.github/actions/install-node-modules
 
