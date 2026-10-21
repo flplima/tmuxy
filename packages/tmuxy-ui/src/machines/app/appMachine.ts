@@ -267,5 +267,4 @@ export const appMachine = setup({
   },
 });
 
-export type AppMachine = typeof appMachine;
 export type AppMachineActor = ActorRefFrom<typeof appMachine>;

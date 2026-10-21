@@ -455,5 +455,3 @@ export const dragMachine = setup({
     },
   },
 });
-
-export type DragMachine = typeof dragMachine;

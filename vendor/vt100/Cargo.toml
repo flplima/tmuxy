@@ -19,7 +19,6 @@ name = "vt100"
 path = "src/lib.rs"
 
 [dependencies]
-itoa = "1.0.15"
 unicode-width = "0.2.1"
 vte = "0.15.0"
 

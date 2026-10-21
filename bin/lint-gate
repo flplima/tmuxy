@@ -16,7 +16,7 @@
 #   bin/lint-gate format             # rewrite: prettier, eslint --fix, cargo fmt
 #   bin/lint-gate check [<step>...]  # read-only; every step, or only the named
 #                                    # ones: policy prettier rustfmt eslint
-#                                    # types clippy clippy-wasm
+#                                    # types knip clippy clippy-wasm
 #
 # Unit tests are not here: they are the `unit-tests` job, and `npm run
 # check:fast` is this gate followed by them.
@@ -68,7 +68,9 @@ pkgs() {
 
 do_format() {
   step 'prettier --write'
-  npx prettier --write "${PRETTIER_SCOPE[@]}"
+  # Only the files it rewrote: the full list is every file in the repo, on
+  # every commit.
+  npx prettier --write --log-level warn "${PRETTIER_SCOPE[@]}"
   step 'eslint --fix'
   npx eslint --fix "${ESLINT_ROOT_SCOPE[@]}"
   npm run lint:fix -w tmuxy-ui
@@ -115,6 +117,14 @@ check_clippy() {
   cargo clippy $(pkgs "${CLIPPY_CRATES[@]}") -- -D warnings
 }
 
+check_knip() {
+  step knip
+  # Exports nothing imports, files nothing reaches, dependencies nothing
+  # uses — over the scopes knip.json names. An export only its own file
+  # uses is not reported: it is a constant with a name, not dead code.
+  npx knip --no-progress
+}
+
 check_clippy_wasm() {
   step clippy-wasm
   if ! cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown --no-default-features -- -D warnings; then
@@ -125,7 +135,7 @@ check_clippy_wasm() {
   fi
 }
 
-ALL_STEPS=(policy prettier rustfmt eslint types clippy clippy-wasm)
+ALL_STEPS=(policy prettier rustfmt eslint types knip clippy clippy-wasm)
 
 case "${1:-}" in
   format)
@@ -142,6 +152,7 @@ case "${1:-}" in
         rustfmt) check_rustfmt ;;
         eslint) check_eslint ;;
         types) check_types ;;
+        knip) check_knip ;;
         clippy) check_clippy ;;
         clippy-wasm) check_clippy_wasm ;;
         *)

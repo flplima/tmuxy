@@ -316,7 +316,7 @@ impl PaneState {
         let mut temp_terminal = vt100::Parser::new(h, w, 0);
 
         let normalized = normalize_capture_bytes(content);
-        safe_process(&mut temp_terminal, &normalized);
+        temp_terminal.process(&normalized);
         self.copy_mode_content = Some(std::sync::Arc::new(extract_cells_from_screen(
             temp_terminal.screen(),
         )));

@@ -18,29 +18,6 @@ export interface ThemeInfo {
   modes?: readonly string[];
 }
 
-/**
- * Bumped whenever the colours the document resolves may have changed: the
- * theme stylesheet finished loading, or the mode class flipped. Anything that
- * reads theme colours out of the DOM (not through CSS) subscribes to this,
- * because a theme switch swaps the stylesheet asynchronously — reading at the
- * moment of the switch would read the previous theme.
- */
-let themeVersion = 0;
-const themeListeners = new Set<() => void>();
-
-function bumpThemeVersion(): void {
-  themeVersion += 1;
-  for (const listener of themeListeners) listener();
-}
-
-export function subscribeTheme(listener: () => void): () => void {
-  themeListeners.add(listener);
-  return () => themeListeners.delete(listener);
-}
-
-export function getThemeVersion(): number {
-  return themeVersion;
-}
 const LS_THEME_KEY = 'tmuxy-theme-name';
 const LS_MODE_KEY = 'tmuxy-theme-mode';
 
@@ -72,8 +49,6 @@ function ensureLink(id: string, href: string, before: Element | null): void {
   link.id = id;
   link.rel = 'stylesheet';
   link.href = href;
-  // `load` fires again each time the href changes and the new sheet lands.
-  link.addEventListener('load', bumpThemeVersion);
   if (before) document.head.insertBefore(link, before);
   else document.head.appendChild(link);
 }
@@ -131,7 +106,6 @@ function setModeClass(mode: ResolvedThemeMode): void {
   const html = document.documentElement;
   html.classList.remove('theme-dark', 'theme-light');
   html.classList.add(`theme-${mode}`);
-  bumpThemeVersion();
 }
 
 /** Set theme-dark or theme-light class on <html>; `auto` follows the OS from here on. */
@@ -164,7 +138,6 @@ export function applyCssVars(vars: Readonly<Record<string, string>>): void {
   ensureVarsStyle().textContent = declarations
     ? `:root.theme-dark, :root.theme-light {\n${declarations}\n}\n`
     : '';
-  bumpThemeVersion();
 }
 
 /** Save theme name and mode to localStorage. */

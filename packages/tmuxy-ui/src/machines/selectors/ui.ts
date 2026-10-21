@@ -1,8 +1,7 @@
 import type { AppMachineContext } from '../types/context';
-import type { GitRepository, LogEntry, SessionTreeNode, TraceSettings } from '../types/domain';
+import type { GitRepository, LogEntry, SessionTreeNode } from '../types/domain';
 import type { KeyBindings } from '../../domain/wire';
 import type { WindowId } from '../../domain/ids';
-import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
 import { selectVisibleWindows } from './panesAndSidebars';
 
 // ============================================
@@ -163,25 +162,4 @@ export function selectActivePaneCopyMode(context: AppMachineContext): boolean {
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
   if (pane?.inMode) return true;
   return context.copyModeStates[context.activePaneId]?.mode === 'copy';
-}
-
-// ============================================
-// Theme & Trace Selectors
-// ============================================
-
-export function selectThemeName(context: AppMachineContext): string {
-  return context.themeName;
-}
-
-export function selectThemeMode(context: AppMachineContext): ThemeMode {
-  return context.themeMode;
-}
-
-export function selectAvailableThemes(context: AppMachineContext): ThemeInfo[] {
-  return context.availableThemes;
-}
-
-/** Local action tracing as the backend reports it, or null before it is read. */
-export function selectTraceSettings(context: AppMachineContext): TraceSettings | null {
-  return context.traceSettings;
 }

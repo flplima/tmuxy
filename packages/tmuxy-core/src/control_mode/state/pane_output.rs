@@ -1,8 +1,6 @@
 use super::*;
 use crate::PaneId;
 
-/// Safe wrapper around vt100::Parser::process that catches panics from
-/// internal vt100 bugs (e.g., subtract overflow in grid.rs col_wrap).
 /// Split bytes into whole UTF-8 characters, so a hyperlinked run can be fed to
 /// vt100 one character at a time without tearing a multi-byte sequence. Any
 /// byte that is not a continuation byte (`10xxxxxx`) starts a new chunk, which
@@ -13,20 +11,6 @@ fn utf8_chunks(data: &[u8]) -> impl Iterator<Item = &[u8]> {
         .collect();
     starts.push(data.len());
     (0..starts.len().saturating_sub(1)).map(move |i| &data[starts[i]..starts[i + 1]])
-}
-
-pub(super) fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
-    let terminal_ptr = terminal as *mut vt100::Parser;
-    // SAFETY: We have exclusive access to the parser (&mut self in callers).
-    // catch_unwind requires FnOnce: UnwindSafe, which &mut vt100::Parser isn't.
-    // We use AssertUnwindSafe because after a panic the parser state may be
-    // inconsistent, but the caller will recreate it on next capture-pane refresh.
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        unsafe { &mut *terminal_ptr }.process(data);
-    }));
-    if result.is_err() {
-        warn!("vt100 caught panic during process(), terminal state may be stale");
-    }
 }
 
 /// Extract DECSCUSR (Set Cursor Style) from raw terminal output.
@@ -76,7 +60,7 @@ impl PaneState {
     /// blind to CSI cursor movement and drifted the map onto unrelated text.
     fn feed_terminal(&mut self, osc: super::osc::OscOutput) {
         if osc.links.is_empty() && osc.sized.is_empty() {
-            safe_process(&mut self.terminal, &osc.bytes);
+            self.terminal.process(&osc.bytes);
             self.sync_url_scroll();
             return;
         }
@@ -85,14 +69,14 @@ impl PaneState {
             let mut at = 0usize;
             for (start, end, url) in &osc.links {
                 if *start > at {
-                    safe_process(&mut self.terminal, &osc.bytes[at..*start]);
+                    self.terminal.process(&osc.bytes[at..*start]);
                     self.sync_url_scroll();
                 }
                 self.feed_linked(&osc.bytes[*start..*end], url);
                 at = *end;
             }
             if at < osc.bytes.len() {
-                safe_process(&mut self.terminal, &osc.bytes[at..]);
+                self.terminal.process(&osc.bytes[at..]);
                 self.sync_url_scroll();
             }
             return;
@@ -101,7 +85,7 @@ impl PaneState {
         let mut at = 0usize;
         for (start, end, size, mirror_bottom) in &osc.sized {
             if *start > at {
-                safe_process(&mut self.terminal, &osc.bytes[at..*start]);
+                self.terminal.process(&osc.bytes[at..*start]);
                 self.sync_url_scroll();
             }
             let active_url = osc
@@ -128,14 +112,14 @@ impl PaneState {
             at = *end;
         }
         if at < osc.bytes.len() {
-            safe_process(&mut self.terminal, &osc.bytes[at..]);
+            self.terminal.process(&osc.bytes[at..]);
             self.sync_url_scroll();
         }
     }
 
     fn write_and_collect_marks(&mut self, chunk: &[u8]) -> (u16, Vec<(u16, String)>) {
         let (row, col) = self.terminal.screen().cursor_position();
-        safe_process(&mut self.terminal, chunk);
+        self.terminal.process(chunk);
         let scrolled = self.sync_url_scroll();
         let (row2, col2) = self.terminal.screen().cursor_position();
         let row_before = i64::from(row) - scrolled;
@@ -342,7 +326,7 @@ impl PaneState {
         self.osc_parser.reset_for_capture();
 
         let normalized = normalize_capture_bytes(content);
-        safe_process(&mut self.terminal, &normalized);
+        self.terminal.process(&normalized);
         for (r, ls, prev_text) in saved_line_sizes {
             let screen = self.terminal.screen();
             let (_, cols) = screen.size();

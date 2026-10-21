@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": ["v86"],
+  "ignoreBinaries": ["wasm-bindgen", "bin/lint-gate"],
+  "workspaces": {
+    ".": {
+      "entry": ["bin/*.mjs", "perf/*.mjs", "eslint.config.mjs", "tests/**/*.js"],
+      "project": ["bin/**/*.mjs", "perf/**/*.mjs", "tests/**/*.js"]
+    },
+    "packages/tmuxy-ui": {
+      "entry": [
+        "src/main.tsx",
+        "src/lib.ts",
+        "src/**/*.stories.tsx",
+        "src/**/*.test.{ts,tsx}",
+        "src/**/__tests__/**/*.{ts,tsx}",
+        "src/stories/fixtures/scenarios/*.ts",
+        "scripts/*.mjs",
+        "eslint-rules/*.mjs",
+        ".storybook/*.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs", "eslint-rules/*.mjs", ".storybook/*.ts"],
+      "ignore": ["public/**"]
+    },
+    "packages/tmuxy-demo": {
+      "entry": ["app/**/*.tsx", "next.config.ts", "postcss.config.mjs", "scripts/*.mjs"],
+      "project": ["app/**", "components/**", "lib/**", "scripts/**", "*.{ts,mjs}"],
+      "ignore": ["public/**", "out/**"]
+    }
+  }
+}

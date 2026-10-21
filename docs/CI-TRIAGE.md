@@ -16,7 +16,7 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 
 | Workflow job | Local command | Primary failure surface |
 | --- | --- | --- |
-| `lint` | `bin/lint-gate check` — the job's steps are its steps, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `perf/` and the UI package |
+| `lint` | `bin/lint-gate check` — the job's steps are its steps, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `perf/` and the UI package, and exports, files and dependencies nothing uses (`knip.json`) |
 | `changes` | `node bin/ci-changes.mjs <base-sha>` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip; the rules and their tests are `bin/ci-changes.mjs` and `packages/tmuxy-ui/scripts/ci-changes.test.mjs`. A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
 | `node-checks / unit-tests` | `npm test -- --run` | UI unit tests |
 | `node-checks / cli-tests` | `npm run test:cli` | CLI dispatcher behavior |

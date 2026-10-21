@@ -49,6 +49,16 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
 - **Width clamp**: a character is never wider than the grid, and a zero-column
   grid draws nothing instead of indexing a cell that does not exist.
 
+## Removed: the serializers
+
+tmuxy reads the screen cell by cell and never turns one back into a byte
+stream, so upstream's `Screen::{state,contents,rows,input_mode,attributes,
+cursor_state}_formatted`, `Screen::{state,contents,rows,input_mode}_diff`,
+the `Grid`, `Row` and `Attrs` writers behind them, and the whole `term`
+module (the escape-code builders, with the `itoa` dependency) are gone —
+about 1,300 lines no caller reached. `Screen::contents`, `rows`,
+`cursor_position` and the cell accessors stay.
+
 ## `cell.rs`
 
 - `Cell::can_append` makes the fixed content buffer's capacity check exact (the

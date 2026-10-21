@@ -231,5 +231,3 @@ export const resizeMachine = setup({
     },
   },
 });
-
-export type ResizeMachine = typeof resizeMachine;

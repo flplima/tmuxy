@@ -14,24 +14,19 @@
 //! ```
 //! let mut parser = vt100::Parser::new(24, 80, 0);
 //!
-//! let screen = parser.screen().clone();
 //! parser.process(b"this text is \x1b[31mRED\x1b[m");
 //! assert_eq!(
 //!     parser.screen().cell(0, 13).unwrap().fgcolor(),
 //!     vt100::Color::Idx(1),
 //! );
 //!
-//! let screen = parser.screen().clone();
 //! parser.process(b"\x1b[3D\x1b[32mGREEN");
-//! assert_eq!(
-//!     parser.screen().contents_formatted(),
-//!     &b"\x1b[?25h\x1b[m\x1b[H\x1b[Jthis text is \x1b[32mGREEN"[..],
-//! );
-//! assert_eq!(
-//!     parser.screen().contents_diff(&screen),
-//!     &b"\x1b[1;14H\x1b[32mGREEN"[..],
-//! );
+//! assert_eq!(parser.screen().contents(), "this text is GREEN");
 //! ```
+//!
+//! This is tmuxy's fork (see PATCHES.md): it reads cells and never turns a
+//! screen back into escape codes, so upstream's `*_formatted` and `*_diff`
+//! serializers and the `term` module behind them are not here.
 
 #![warn(missing_docs)]
 #![warn(clippy::cargo)]
@@ -55,7 +50,6 @@ mod parser;
 mod perform;
 mod row;
 mod screen;
-mod term;
 
 pub use attrs::Color;
 pub use callbacks::Callbacks;

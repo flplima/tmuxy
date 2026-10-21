@@ -241,7 +241,7 @@ impl StateAggregator {
                         pane.tmux_cursor_y + 1,
                         pane.tmux_cursor_x + 1
                     );
-                    safe_process(&mut pane.terminal, cursor_seq.as_bytes());
+                    pane.terminal.process(cursor_seq.as_bytes());
                 }
                 // Capture arrived — clear window-move suppression
                 self.panes_moved_window.remove(&pane_id);

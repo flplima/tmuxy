@@ -5679,7 +5679,6 @@ dependencies = [
 name = "vt100"
 version = "0.16.2"
 dependencies = [
- "itoa",
  "unicode-width",
  "vte",
 ]

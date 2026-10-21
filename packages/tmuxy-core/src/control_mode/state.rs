@@ -371,7 +371,6 @@ pub use command_response::{
 };
 #[cfg(test)]
 pub use command_response::{CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER};
-use pane_output::safe_process;
 pub use pane_state::PaneState;
 pub use stash_and_helpers::{
     accepted_clipboard_write, normalize_capture_bytes, MAX_CLIPBOARD_BYTES,

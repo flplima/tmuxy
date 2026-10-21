@@ -41,6 +41,9 @@ jobs:
       - name: Type checks (tmuxy-ui, tmuxy-demo)
         run: bin/lint-gate check types
 
+      - name: Unused exports, files and dependencies (knip)
+        run: bin/lint-gate check knip
+
       - name: Clippy
         run: bin/lint-gate check clippy
 
