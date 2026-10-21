@@ -65,6 +65,7 @@ import { TabContextMenu } from './TabContextMenu';
 import type { PaneId, WindowId } from '../domain/ids';
 import { useReorderDrag } from '../hooks/useReorderDrag';
 import { tabWalksChrome } from '../utils/chromeTab';
+import { isRealFormControl } from '../machines/actors/keyboard/keyFormatting';
 import {
   isPlaceholderPane,
   rowDomId,
@@ -204,6 +205,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       // with the column focused. In a repeat window (`prefix s` then `s`)
       // only the repeated key is; anything else is the tree's again.
       if (bindingOwnsKey(e.key)) return;
+      // A key typed into a text box is the box's — a tab being renamed, the
+      // session switcher's filter opened from the column's own title — even
+      // while the column holds the keyboard. Claimed here, `q` closed the
+      // column and `j` moved the selection instead of reaching the field.
+      if (isRealFormControl(e.target)) return;
       const target = e.target as HTMLElement | null;
       const {
         rows: rs,
