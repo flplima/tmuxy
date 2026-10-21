@@ -367,9 +367,10 @@ describe('Scenario 24: Session Switcher (web)', () => {
       expect(g.belowList).toBeGreaterThan(0);
 
       // The keyboard is in the filter box: typing narrows the list to the one
-      // session, now in view.
+      // session, now in view. This run's own stamp, not just "pick": a
+      // session left on the socket by an earlier run would match that too.
       expect(g.filter).toBe('Filter sessions');
-      await ctx.page.keyboard.type('PICK_');
+      await ctx.page.keyboard.type(`PICK_${stamp}`);
       await waitForCondition(
         ctx.page,
         async () => (await geometry()).rows === 1,
