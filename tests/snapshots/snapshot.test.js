@@ -11,8 +11,8 @@
  * its own. Layout geometry is 1-input Scenario 23's, at three viewports.
  */
 
-const { getBrowser, waitForServer, delay } = require('../helpers/browser');
-const { TMUXY_URL, DELAYS } = require('../helpers/config');
+const { getBrowser, waitForServer, waitForSettled, delay } = require('../helpers/browser');
+const { TMUXY_URL } = require('../helpers/config');
 const {
   extractUIState,
   extractTmuxState,
@@ -124,10 +124,10 @@ beforeAll(async () => {
     }
   }
 
-  // Let state settle (longer for new pages in CI to ensure content arrives).
+  // Let the state settle — the app says when it has caught up with the stream.
   // Also verify the shell prompt is visible in the DOM — a prompt character
   // confirms the full content pipeline (capture → vt100 → SSE → XState → React).
-  await delay(ownedPage ? DELAYS.SYNC * 2 : DELAYS.SYNC);
+  await waitForSettled(page, 20000);
   if (ownedPage) {
     try {
       await page.waitForFunction(
@@ -144,7 +144,7 @@ beforeAll(async () => {
     } catch {
       // If prompt never appears, proceed anyway — the test will fail with a useful diff
     }
-    await delay(DELAYS.SYNC);
+    await waitForSettled(page);
   }
 });
 

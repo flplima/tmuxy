@@ -6,7 +6,6 @@
 
 const {
   createTestContext,
-  delay,
   getTerminalText,
   waitForTerminalText,
   runCommand,
@@ -150,16 +149,17 @@ describe('Scenario 14: OSC Protocols', () => {
         return { text: (el.textContent || '').trim(), width: r.width, height: r.height };
       });
 
-    const waitForHeaderTitle = async (expected, timeout = 15000) => {
-      const deadline = Date.now() + timeout;
+    const waitForHeaderTitle = (expected, timeout = 15000) => {
       let seen = null;
-      while (Date.now() < deadline) {
-        seen = await readHeaderTitle();
-        if (seen && seen.text === expected) return seen;
-        await delay(250);
-      }
-      throw new Error(
-        `Header title never became ${JSON.stringify(expected)} (last: ${JSON.stringify(seen)})`,
+      return waitForCondition(
+        ctx.page,
+        async () => {
+          seen = await readHeaderTitle();
+          return seen && seen.text === expected ? seen : null;
+        },
+        timeout,
+        () =>
+          `the header title to become ${JSON.stringify(expected)} (last: ${JSON.stringify(seen)})`,
       );
     };
 

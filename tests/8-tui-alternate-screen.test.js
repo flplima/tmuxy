@@ -83,11 +83,12 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
         requireMarkers: ['TUI BENCH', 'STATUS:', 'tmuxy-test', 'RED-ON-BLUE', 'TUI_READY'],
       });
     } finally {
-      // Cleanup: Ctrl+C tells the script's trap to drop alt-screen and exit.
+      // Cleanup: Ctrl+C tells the script's trap to drop alt-screen and exit,
+      // and the shell's prompt is what says it has.
       await ctx.page.keyboard.down('Control');
       await ctx.page.keyboard.press('c');
       await ctx.page.keyboard.up('Control');
-      await delay(DELAYS.SYNC);
+      await waitForShellPrompt(ctx.page);
     }
   }, 120000);
 });
@@ -170,6 +171,6 @@ describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before
     await page.keyboard.down('Control');
     await page.keyboard.press('c');
     await page.keyboard.up('Control');
-    await delay(DELAYS.SYNC);
+    await waitForShellPrompt(page);
   }, 120000);
 });

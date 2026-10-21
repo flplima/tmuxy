@@ -1,7 +1,7 @@
 import type { SequencedAdapter } from '../driver';
 import { EventHub } from '../../eventHub';
 import { TransportEvent, type DriverEvent } from '../events';
-import { StateSequencer } from '../stateSequencer';
+import { StateSequencer, type StreamPosition } from '../stateSequencer';
 import { KeyBatcher } from '../keyBatching';
 import { latencyTracker } from '../../latencyTracker';
 import { tracer } from '../../tracer';
@@ -80,6 +80,8 @@ export class HttpAdapter implements SequencedAdapter {
   // offer a task Effect; one consumer fiber (started in the constructor) drains
   // them FIFO, one at a time. Unbounded: the producers are user keystrokes.
   private readonly commandQueue = Effect.runSync(Queue.unbounded<Effect.Effect<void>>());
+  /** Tasks offered to the queue and not yet finished, the running one included. */
+  private inFlight = 0;
 
   /**
    * @param opts.reconnectSchedule override the backoff policy — tests inject a
@@ -366,11 +368,24 @@ export class HttpAdapter implements SequencedAdapter {
     });
     // The task settles the outer promise itself, so its Effect never fails —
     // one task's error can't stall the queue for the next command.
+    this.inFlight++;
     const task = Effect.promise(() =>
-      this.invokeInternal<T>(cmd, args, actionId).then(resolveOuter, rejectOuter),
+      this.invokeInternal<T>(cmd, args, actionId)
+        .then(resolveOuter, rejectOuter)
+        .finally(() => {
+          this.inFlight--;
+        }),
     );
     this.commandQueue.unsafeOffer(task);
     return outer;
+  }
+
+  pendingCommands(): number {
+    return this.inFlight + (this.keyBatcher.hasPending() ? 1 : 0);
+  }
+
+  streamPosition(): StreamPosition {
+    return this.sequencer.position();
   }
 
   /**
@@ -390,6 +405,7 @@ export class HttpAdapter implements SequencedAdapter {
     tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
 
     // Offer onto the serial queue so requests go one at a time.
+    this.inFlight++;
     this.commandQueue.unsafeOffer(
       postCommandFireAndForgetEffect(
         this.getEffectiveSession(),
@@ -397,6 +413,12 @@ export class HttpAdapter implements SequencedAdapter {
         cmd,
         args,
         actionId,
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            this.inFlight--;
+          }),
+        ),
       ),
     );
   }

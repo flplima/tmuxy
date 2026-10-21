@@ -33,6 +33,12 @@ export type SequenceStep =
 const RESYNC: SequenceStep = { _tag: 'Resync' };
 const IGNORE: SequenceStep = { _tag: 'Ignore' };
 
+/** Where a sequenced stream stands (see `StateSequencer.position`). */
+export interface StreamPosition {
+  readonly seq: number | null;
+  readonly diverged: boolean;
+}
+
 export class StateSequencer {
   private state: ServerState | null = null;
   /**
@@ -94,8 +100,29 @@ export class StateSequencer {
     }
     const next = handleStateUpdate(update, this.state);
     if (!next) return IGNORE;
-    this.state = next;
-    return { _tag: 'State', state: next, seq };
+    this.state = this.stamp(next);
+    return { _tag: 'State', state: this.state, seq };
+  }
+
+  /**
+   * Where the stream stands: the number of the last delta applied (or of the
+   * sync point, or null before the stream numbered anything), and whether
+   * the sequence was lost. With the store holding the state at that number,
+   * the client has nothing of the stream's left to apply — half of what
+   * `AppProvider` means by settled.
+   */
+  position(): StreamPosition {
+    return { seq: this.lastDeltaSeq, diverged: this.diverged };
+  }
+
+  /**
+   * The state carrying the number it is at. A merged state spreads the one
+   * before it, so without this a delta's result would still say the sync
+   * point's number, and nothing downstream could tell whether it had applied
+   * the stream's latest.
+   */
+  private stamp(state: ServerState): ServerState {
+    return this.lastDeltaSeq === null ? state : { ...state, seq: this.lastDeltaSeq };
   }
 
   /**
@@ -117,8 +144,8 @@ export class StateSequencer {
       this.lastDeltaSeq = answer.seq ?? null;
       state = this.applyHeld(state);
     }
-    this.state = state;
-    return state;
+    this.state = this.stamp(state);
+    return this.state;
   }
 
   /**

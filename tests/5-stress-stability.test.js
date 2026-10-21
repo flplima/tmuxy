@@ -20,6 +20,8 @@ const {
   killPaneKeyboard,
   resizePaneKeyboard,
   assertLayoutInvariants,
+  waitForSettled,
+  waitForLayoutSettled,
   DELAYS,
 } = require('./helpers');
 
@@ -187,7 +189,10 @@ describe('Scenario 20: Glitch Detection', () => {
     });
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 2);
-    await delay(DELAYS.SYNC);
+    // The split confirmed and the panes done moving, which is when a glitch
+    // would have shown.
+    await waitForSettled(ctx.page);
+    await waitForLayoutSettled(ctx.page);
     let result = await ctx.assertNoGlitches({ operation: 'split' });
 
     // Step 2: Vertical split with glitch detection
@@ -198,7 +203,8 @@ describe('Scenario 20: Glitch Detection', () => {
     });
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 3);
-    await delay(DELAYS.SYNC);
+    await waitForSettled(ctx.page);
+    await waitForLayoutSettled(ctx.page);
     result = await ctx.assertNoGlitches({ operation: 'split' });
 
     // Kill to get back to 2 panes for resize test
@@ -217,7 +223,8 @@ describe('Scenario 20: Glitch Detection', () => {
       ],
     });
     await resizePaneKeyboard(ctx.page, 'D', 5);
-    await delay(DELAYS.SYNC);
+    await waitForSettled(ctx.page);
+    await waitForLayoutSettled(ctx.page);
     const resizeResult = await ctx.assertNoGlitches({ operation: 'resize', sizeJumps: 20 });
     expect(await ctx.session.getPaneCount()).toBe(2);
 
@@ -232,7 +239,8 @@ describe('Scenario 20: Glitch Detection', () => {
     });
     if (paneInfo.length >= 2) {
       await ctx.page.mouse.click(paneInfo[1].x, paneInfo[1].y);
-      await delay(DELAYS.SYNC);
+      await waitForSettled(ctx.page);
+      await waitForLayoutSettled(ctx.page);
     }
     // Click focus triggers CSS layout transitions, causing size jumps
     const clickResult = await ctx.assertNoGlitches({ operation: 'split', sizeJumps: 30 });

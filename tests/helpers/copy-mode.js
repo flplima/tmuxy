@@ -5,7 +5,7 @@
  * — tmux's copy mode and the native-like scroll view both live in it.
  */
 
-const { delay, waitForCondition } = require('./browser');
+const { waitForCondition } = require('./browser');
 const { enterCopyModeKeyboard } = require('./copy-mode-ui');
 
 /**
@@ -49,14 +49,16 @@ async function getCopyModeState(page) {
  * @returns {Promise<Object|null>} Copy mode state if waiting for active, null if waiting for inactive
  */
 async function waitForCopyMode(page, active, timeout = 15000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const cs = await getCopyModeState(page);
-    if (active && cs?.active) return cs;
-    if (!active && !cs?.active) return null;
-    await delay(100);
-  }
-  throw new Error(`Copy mode did not become ${active ? 'active' : 'inactive'} within ${timeout}ms`);
+  const state = await waitForCondition(
+    page,
+    async () => {
+      const cs = await getCopyModeState(page);
+      return active ? (cs?.active ? cs : null) : !cs?.active;
+    },
+    timeout,
+    `copy mode to become ${active ? 'active' : 'inactive'}`,
+  );
+  return active ? state : null;
 }
 
 /**

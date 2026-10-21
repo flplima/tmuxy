@@ -17,6 +17,7 @@ const {
   waitForShellPrompt,
   waitForLayoutSettled,
   waitForCondition,
+  waitForSettled,
 } = require('./helpers/layout-helpers');
 
 // ==================== Scenario 4e: Tab Overview and ctrl+N by position ====================
@@ -397,7 +398,8 @@ describe('Scenario 24: Tab Switch No Blink', () => {
       8000,
       'the second tab to become current',
     );
-    await delay(1500);
+    // Any late state the switch could still bring has landed once settled.
+    await waitForSettled(page);
     const seq = await page.evaluate(() => {
       window.__paneSub?.unsubscribe();
       return window.__paneSeq;

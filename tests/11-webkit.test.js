@@ -190,14 +190,12 @@ describe('WebKit: accented characters survive a click into the pane', () => {
     // Echoed by the shell, so this is what the PROGRAM received through real
     // tmux: twice — the command line, then echo's output.
     const expected = `${marker}${payload}`;
-    const deadline = Date.now() + 20000;
-    let occurrences = 0;
-    while (Date.now() < deadline) {
-      const text = (await getTerminalText(ctx.page)).replace(/\s+/g, '');
-      occurrences = text.split(expected).length - 1;
-      if (occurrences >= 2) break;
-      await delay(DELAYS.SHORT);
-    }
-    expect(occurrences).toBeGreaterThanOrEqual(2);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await getTerminalText(ctx.page)).replace(/\s+/g, '').split(expected).length - 1 >= 2,
+      20000,
+      'the composed text to be on screen twice: typed, then echoed',
+    );
   }, 180000);
 });

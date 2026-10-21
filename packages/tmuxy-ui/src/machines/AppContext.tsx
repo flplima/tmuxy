@@ -8,7 +8,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useActorRef } from '@xstate/react';
 import { appMachine } from './app/appMachine';
 import type { Layer } from 'effect';
-import type { TmuxTransport } from '../infra/transport/TmuxTransport';
+import { TmuxTransport } from '../infra/transport/TmuxTransport';
 import { transportForEnvironment } from '../infra/transport/layers';
 import { makeAppRuntime } from '../infra/runtime';
 import { tracer } from '../infra/tracer';
@@ -45,11 +45,12 @@ export function AppProvider({
   // effects on it. The TmuxStore is the client model — owns optimistic patches
   // and reconciliation; the tmuxStoreActor bridges it into XState so the
   // appMachine context stays a passive mirror of the store's derived snapshot.
-  const [{ runtime, actors }] = useState(() => {
+  const [{ runtime, store, actors }] = useState(() => {
     const runtime = makeAppRuntime(transport ?? transportForEnvironment());
     const store = makeTmuxStore();
     return {
       runtime,
+      store,
       actors: {
         tmuxActor: createTmuxActor(runtime),
         tmuxStoreActor: createTmuxStoreActor(store, runtime),
@@ -86,8 +87,23 @@ export function AppProvider({
       else if (type) tracer.event({ layer: 'xstate', name: type });
       return originalSend(event as Parameters<typeof originalSend>[0]);
     };
-    (window as unknown as { app: typeof actorRef }).app = actorRef;
-  }, [actorRef]);
+    // "Has the app caught up?" — the E2E suite's `waitForSettled` asks this
+    // instead of sleeping a round trip's worth: nothing queued, batched or in
+    // flight to the backend, no optimistic op awaiting tmux's verdict, and
+    // the store holding the state at the stream's last sequence number. On a
+    // sandbox with no sequenced stream, the first two are the whole answer.
+    const settled = (): boolean => {
+      const transport = runtime.runSync(TmuxTransport);
+      if (transport.pendingCommands() > 0) return false;
+      if (store.getModel().ops.length > 0) return false;
+      const position = transport.streamPosition();
+      if (position === null) return true;
+      if (position.diverged) return false;
+      return position.seq === null || store.getAppliedSeq() === position.seq;
+    };
+    (window as unknown as { app: typeof actorRef & { settled: () => boolean } }).app =
+      Object.assign(actorRef, { settled });
+  }, [actorRef, runtime, store]);
 
   return (
     <AppConfigContext.Provider value={config ?? {}}>

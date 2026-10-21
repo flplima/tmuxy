@@ -111,6 +111,8 @@ jobs:
       # And the suite's own port, for the same reason — matches DEFAULT_PORT in
       # tests/helpers/config.js, which is where the tests look for the server.
       TMUXY_PORT: 9100
+      # A runner gets twice each wait budget, as in lint-and-tests.yml.
+      TMUXY_WAIT_SCALE: '2'
 
     steps:
       - uses: actions/checkout@v7

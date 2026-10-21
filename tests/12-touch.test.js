@@ -145,7 +145,7 @@ describe('Phone width (390px) with a touchscreen', () => {
     // 200 columns — `targetCols: 41, totalWidth: 200` in the failure. So it
     // waits for the grid to BE the one asked for, which is the thing the
     // geometry below is about, and waits as long as the rest of the suite does.
-    let layout = await measureLayout();
+    let layout = null;
     let previous = null;
     const fits = (l) =>
       l &&
@@ -158,12 +158,16 @@ describe('Phone width (390px) with a touchscreen', () => {
       l.grid.targetCols === 80 &&
       l.pane.right <= PHONE.width + 1 &&
       l.docScrollWidth <= PHONE.width + 1;
-    const layoutDeadline = Date.now() + 20000;
-    while (Date.now() < layoutDeadline && !fits(layout)) {
-      await delay(100);
-      previous = layout;
-      layout = await measureLayout();
-    }
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        previous = layout;
+        layout = await measureLayout();
+        return fits(layout);
+      },
+      20000,
+      () => `the 80-column grid to fit the phone's width (last: ${JSON.stringify(layout)})`,
+    );
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);
     expectOnScreen(layout.pane, 'the terminal', PHONE.width, { grid: layout.grid });
     // The phone layout: no tab strip; 80 columns span the screen, less the

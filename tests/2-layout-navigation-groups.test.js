@@ -26,6 +26,7 @@ const {
   getThemeAccent,
   assertLayoutInvariants,
   waitForCondition,
+  waitForSettled,
   DELAYS,
 } = require('./helpers/layout-helpers');
 
@@ -204,8 +205,8 @@ describe('Scenario 5: Pane Groups', () => {
     const betaIdx = tabs.findIndex((t) => t.active); // currently on ALPHA's tab
     const otherIdx = betaIdx === 0 ? 1 : 0;
     await clickGroupTab(ctx.page, otherIdx);
-    // Settled by a fixed wait, deliberately — see the note at `activePane`.
-    await delay(DELAYS.SYNC);
+    // The switch is an op tmux confirms; settled means it has.
+    await waitForSettled(ctx.page);
 
     const afterSwitch2Id = await activePane();
     expect(afterSwitch2Id).toBe(betaPaneId);
@@ -222,7 +223,7 @@ describe('Scenario 5: Pane Groups', () => {
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
     // Step 9a: Record GAMMA pane ID (the newly added 3rd tab, which is now active)
-    await delay(DELAYS.SYNC);
+    await waitForSettled(ctx.page);
     const gammaPaneId = await activePane();
     expect(gammaPaneId).not.toBeNull();
     expect(gammaPaneId).not.toBe(alphaPaneId);
@@ -234,7 +235,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const firstInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, firstInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForSettled(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -242,7 +243,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const secondInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, secondInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForSettled(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
@@ -250,7 +251,7 @@ describe('Scenario 5: Pane Groups', () => {
     tabs = await getGroupTabInfo(ctx.page);
     const thirdInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, thirdInactiveIdx);
-    await delay(DELAYS.SYNC);
+    await waitForSettled(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 

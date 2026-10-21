@@ -21,7 +21,6 @@ const { GlitchDetector } = require('./glitch-detector');
 const { tmuxExec } = require('./tmux-socket');
 const { assertStateMatches } = require('./consistency');
 const { splitPaneKeyboard, navigatePaneKeyboard } = require('./pane-ops');
-const { tmuxRun } = require('./cli');
 
 /**
  * Create test context with beforeAll/afterAll/beforeEach/afterEach
@@ -331,39 +330,26 @@ function createTestContext({ snapshot = false } = {}) {
   ctx.setupTwoPanes = async (direction = 'horizontal') => {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    // Try keyboard split first
     await splitPaneKeyboard(ctx.page, direction);
-    // Wait for XState to reflect 2 panes (not just DOM)
-    const start = Date.now();
-    while (Date.now() - start < 5000) {
-      const count = await ctx.session.getPaneCount();
-      if (count === 2) return;
-      await delay(100);
-    }
-    // Keyboard split may have failed — fall back to CLI command
-    const cmd =
-      direction === 'horizontal'
-        ? `split-window -t ${ctx.session.name}`
-        : `split-window -h -t ${ctx.session.name}`;
-    tmuxRun(cmd);
-    const start2 = Date.now();
-    while (Date.now() - start2 < 5000) {
-      const count = await ctx.session.getPaneCount();
-      if (count === 2) return;
-      await delay(100);
-    }
-    // Debug: log what we see in XState
-    const debugState = await ctx.page.evaluate(() => {
-      const snap = window.app?.getSnapshot();
-      if (!snap) return { error: 'no snapshot' };
-      return {
-        panes: snap.context.panes?.map((p) => `${p.tmuxId}:win=${p.windowId}`),
-        activeWindowId: snap.context.activeWindowId,
-        windows: snap.context.windows?.map((w) => `${w.id}:${w.name}:a=${w.active}`),
-      };
-    });
-    throw new Error(
-      `setupTwoPanes: pane count did not reach 2 within 10s\nXState: ${JSON.stringify(debugState)}`,
+    // The app has to show the two panes (not just the DOM). This used to fall
+    // back to splitting through tmux when the keyboard split had not shown
+    // within 5s — a test on the keyboard path then passed on the fallback.
+    await waitForCondition(
+      ctx.page,
+      async () => (await ctx.session.getPaneCount()) === 2,
+      10000,
+      async () => {
+        const debugState = await ctx.page.evaluate(() => {
+          const snap = window.app?.getSnapshot();
+          if (!snap) return { error: 'no snapshot' };
+          return {
+            panes: snap.context.panes?.map((p) => `${p.tmuxId}:win=${p.windowId}`),
+            activeWindowId: snap.context.activeWindowId,
+            windows: snap.context.windows?.map((w) => `${w.id}:${w.name}:a=${w.active}`),
+          };
+        });
+        return `setupTwoPanes: the app to show 2 panes\nXState: ${JSON.stringify(debugState)}`;
+      },
     );
   };
 
@@ -375,15 +361,13 @@ function createTestContext({ snapshot = false } = {}) {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
     // Helper to wait for XState pane count
-    const waitForPanes = async (n) => {
-      const start = Date.now();
-      while (Date.now() - start < 10000) {
-        const count = await ctx.session.getPaneCount();
-        if (count === n) return;
-        await delay(100);
-      }
-      throw new Error(`setupFourPanes: pane count did not reach ${n}`);
-    };
+    const waitForPanes = (n) =>
+      waitForCondition(
+        ctx.page,
+        async () => (await ctx.session.getPaneCount()) === n,
+        10000,
+        `setupFourPanes: the app to show ${n} panes`,
+      );
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPanes(2);
     await splitPaneKeyboard(ctx.page, 'vertical');

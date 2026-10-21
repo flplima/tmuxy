@@ -10,10 +10,12 @@ const { tmuxExec } = require('./tmux-socket');
 const { tmuxSideOfSession } = require('./tmux-side');
 
 /**
- * Helper to wait for a given time
+ * Sleep. The number is restated for this machine the way every wait budget
+ * is (`waitBudget`): a beat measured on one laptop is the same beat on a slow
+ * runner, scaled with the budgets around it rather than fixed while they grow.
  */
 function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, waitBudget(ms)));
 }
 
 /**
@@ -466,9 +468,11 @@ async function afterFrames(page, frames = 2) {
 }
 
 /**
- * Poll a condition until it returns true or timeout.
+ * Poll `fn` until it returns something truthy, and return that; throw past
+ * the budget, with `description` (a string, or a function for one computed
+ * at the time of failure).
  * @param {Page} page - Playwright page (for context; not always used by fn)
- * @param {Function} fn - Async function returning boolean
+ * @param {Function} fn - Async function returning a boolean or the value waited for
  * @param {number} timeout - Max wait in ms
  * @param {string|Function} description - Description for error message
  */
@@ -478,15 +482,44 @@ async function waitForCondition(page, fn, timeout = 10000, description = 'condit
   const budget = waitBudget(timeout);
   const start = Date.now();
   while (Date.now() - start < budget) {
-    if (await fn()) return;
-    await delay(100);
+    const value = await fn();
+    if (value) return value;
+    // The gap between looks is not scaled: a slow machine gets more of the
+    // budget, not a condition noticed later than it held.
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const desc = typeof description === 'function' ? await description() : description;
   const scaled = budget === timeout ? '' : `, ${timeout}ms x${WAIT_SCALE}`;
   throw new Error(`Timed out waiting for ${desc} (${budget}ms${scaled})`);
 }
 
+/**
+ * Wait until the app has nothing outstanding, then two painted frames.
+ *
+ * `window.app.settled()` is the app's own answer (AppProvider): no command
+ * queued or in flight to the backend, no keystroke batched and unsent, no
+ * optimistic op awaiting tmux's verdict — the idle re-reconcile that drops a
+ * mispredicted one included — and the store holding the state at the
+ * stream's last sequence number. It is the question `delay(DELAYS.SYNC)` was
+ * guessing at: this returns the moment the round trip is over rather than
+ * 1500 ms after it began, and a round trip that takes longer than that on a
+ * loaded runner is waited for instead of assumed done.
+ *
+ * It says nothing about a PROGRAM in a pane, whose output arrives whenever it
+ * does; that is `waitForTerminalText`'s question.
+ */
+async function waitForSettled(page, timeout = 10000) {
+  await waitForCondition(
+    page,
+    () => page.evaluate(() => window.app?.settled?.() === true),
+    timeout,
+    'the app to settle (a command in flight, a pending op or an unapplied state kept it busy)',
+  );
+  await afterFrames(page, 2);
+}
+
 module.exports = {
+  waitForSettled,
   afterFrames,
   disconnectBrowser,
   delay,

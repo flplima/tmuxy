@@ -8,7 +8,6 @@
 const fs = require('fs');
 const {
   createTestContext,
-  delay,
   getTerminalText,
   waitForTerminalText,
   waitForCondition,
@@ -32,26 +31,28 @@ afterEach(ctx.afterEach, ctx.hookTimeout);
  * @param {number} timeout
  */
 async function waitForCursorClass(page, expectedClass, timeout = 10000) {
-  const start = Date.now();
-  // First ensure the cursor element exists at all
+  // Whether the cursor element was ever there at all, for the message.
   let cursorFound = false;
-  while (Date.now() - start < timeout) {
-    const result = await page.evaluate((cls) => {
-      const cursor = document.querySelector('.terminal-cursor');
-      if (!cursor) return { exists: false, hasClass: false };
-      return { exists: true, hasClass: cursor.classList.contains(cls) };
-    }, expectedClass);
-    if (result.exists) cursorFound = true;
-    if (result.hasClass) return true;
-    await delay(100);
-  }
-  const actual = await page.evaluate(() => {
-    const cursor = document.querySelector('.terminal-cursor');
-    return cursor ? cursor.className : 'no cursor element';
-  });
-  const hint = cursorFound ? '' : ' (cursor element never appeared in DOM)';
-  throw new Error(
-    `Timeout waiting for cursor class "${expectedClass}" (${timeout}ms). Actual: "${actual}"${hint}`,
+  await waitForCondition(
+    page,
+    async () => {
+      const result = await page.evaluate((cls) => {
+        const cursor = document.querySelector('.terminal-cursor');
+        if (!cursor) return { exists: false, hasClass: false };
+        return { exists: true, hasClass: cursor.classList.contains(cls) };
+      }, expectedClass);
+      if (result.exists) cursorFound = true;
+      return result.hasClass;
+    },
+    timeout,
+    async () => {
+      const actual = await page.evaluate(() => {
+        const cursor = document.querySelector('.terminal-cursor');
+        return cursor ? cursor.className : 'no cursor element';
+      });
+      const hint = cursorFound ? '' : ' (cursor element never appeared in DOM)';
+      return `the cursor class "${expectedClass}" (actual: "${actual}")${hint}`;
+    },
   );
 }
 

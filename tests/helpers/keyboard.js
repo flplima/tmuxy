@@ -79,16 +79,16 @@ async function getPrefixKey(page) {
  * to not notice. Wait for prefix_bindings.length > 0 before pressing.
  */
 async function waitForKeybindings(page, timeout = 5000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const ready = await page.evaluate(() => {
-      const kb = window.app?.getSnapshot()?.context?.keybindings;
-      return Boolean(kb?.prefix_bindings?.length);
-    });
-    if (ready) return;
-    await delay(50);
-  }
-  throw new Error(`Keybindings (prefix_bindings) not loaded within ${timeout}ms`);
+  await waitForCondition(
+    page,
+    () =>
+      page.evaluate(() => {
+        const kb = window.app?.getSnapshot()?.context?.keybindings;
+        return Boolean(kb?.prefix_bindings?.length);
+      }),
+    timeout,
+    'the prefix bindings to be loaded from the server',
+  );
 }
 
 /**

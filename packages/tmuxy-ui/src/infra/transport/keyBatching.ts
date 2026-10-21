@@ -148,6 +148,13 @@ export class KeyBatcher {
     return false;
   }
 
+  /** Keys taken in and not yet sent: a window is open with something in it. */
+  hasPending(): boolean {
+    for (const keys of this.pendingKeys.values()) if (keys.length > 0) return true;
+    for (const text of this.pendingLiteralText.values()) if (text.length > 0) return true;
+    return false;
+  }
+
   /**
    * Flush all pending batches. Call before sending non-batched commands.
    */

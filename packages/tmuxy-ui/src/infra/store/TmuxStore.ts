@@ -62,6 +62,14 @@ export interface TmuxStore {
   readonly getModel: () => TmuxClientModel;
 
   /**
+   * The sequence number of the server state last reconciled (`seq` on the
+   * wire's state, stamped by the stream's sequencer), or null before one
+   * arrived or when the stream numbers nothing. Against the sequencer's own
+   * position it says whether the store has caught up with the stream.
+   */
+  readonly getAppliedSeq: () => number | null;
+
+  /**
    * Push a typed op through the optimistic dispatch pipeline. Returns the
    * Effect so the caller can fork, race, or compose. The predicted patch
    * applies synchronously when the Effect starts (listeners fire before the
@@ -221,8 +229,11 @@ export function makeTmuxStore(): TmuxStore {
     commit(setViewFocus(model, { windowId, paneId: target.activePaneId }));
   };
 
+  let appliedSeq: number | null = null;
+
   return {
     getModel: () => model,
+    getAppliedSeq: () => appliedSeq,
 
     /**
      * A read-only session (asked at each dispatch: the transport only learns
@@ -247,11 +258,15 @@ export function makeTmuxStore(): TmuxStore {
       // re-renders every pane (see preserveSnapshotIdentity).
       const snapshot = preserveSnapshotIdentity(model.committed, transformServerState(state));
       const result = applyServerSnapshot(model, snapshot, Date.now());
+      appliedSeq = state.seq ?? null;
       commit(result.model);
       return result.rolledBack;
     },
 
-    clear: () => commit(EMPTY_MODEL),
+    clear: () => {
+      appliedSeq = null;
+      commit(EMPTY_MODEL);
+    },
 
     subscribe: (listener) => {
       listeners.add(listener);

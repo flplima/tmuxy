@@ -7,7 +7,6 @@
 
 const {
   createTestContext,
-  delay,
   getTerminalText,
   waitForTerminalText,
   runCommand,
@@ -44,14 +43,16 @@ describe('Scenario 23: Terminal Image Protocols', () => {
   /**
    * Helper: wait for image placements to appear in state
    */
-  async function waitForImages(page, minCount = 1, timeout = 15000) {
-    const start = Date.now();
-    while (Date.now() - start < timeout) {
-      const images = await getImagePlacements(page);
-      if (images.length >= minCount) return images;
-      await delay(200);
-    }
-    throw new Error(`Expected at least ${minCount} image placement(s) within ${timeout}ms`);
+  function waitForImages(page, minCount = 1, timeout = 15000) {
+    return waitForCondition(
+      page,
+      async () => {
+        const images = await getImagePlacements(page);
+        return images.length >= minCount ? images : null;
+      },
+      timeout,
+      `at least ${minCount} image placement(s)`,
+    );
   }
 
   test('iTerm2 inline image: sequence stripped, placement created, img rendered and served', async () => {

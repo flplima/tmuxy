@@ -1,6 +1,6 @@
 import type { EventHub } from '../eventHub';
 import type { DriverEvent, TransportEvent } from './events';
-import type { StateSequencer } from './stateSequencer';
+import type { StateSequencer, StreamPosition } from './stateSequencer';
 
 /**
  * A transport driver: the Promise-shaped machinery one backend needs (an SSE
@@ -28,6 +28,20 @@ export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
    * be pointless churn. Gates the `serversActor` poll.
    */
   readonly enumeratesSessions?: boolean;
+  /**
+   * How much this client has sent that is not yet done: commands queued or
+   * in flight to the backend, and keystrokes batched but not yet sent. Zero
+   * is one half of "settled" — the question the E2E suite asks through
+   * `window.app.settled()` instead of sleeping (`AppProvider`). Absent on a
+   * sandbox, where nothing is ever outstanding.
+   */
+  pendingCommands?(): number;
+  /**
+   * Where the state stream stands (`StateSequencer.position`): the other
+   * half of settled, once the store holds the state at that number. Absent
+   * where no stream is sequenced (the sandboxes).
+   */
+  streamPosition?(): StreamPosition;
   /**
    * The backend serves this client as a viewer (`tmuxy server --read-only`):
    * it answers reads and refuses everything else. Known once connected.

@@ -14,7 +14,6 @@
 const path = require('path');
 const {
   createTestContext,
-  delay,
   typeInTerminal,
   pressEnter,
   waitForTerminalText,
@@ -58,38 +57,40 @@ async function screenOf(page, paneId) {
  * not enough — an overlay clipped to nothing is an unanswerable question.
  */
 async function waitForAskOverlay(page, paneId, sendingPaneId, timeout = 20000) {
-  const start = Date.now();
   let why = 'it never appeared';
-  while (Date.now() - start < timeout) {
-    const seen = await page.evaluate((id) => {
-      const el = document.querySelector(`[data-pane-ask="${id}"]`);
-      if (!el) return null;
-      const box = (sel) => {
-        const r = el.querySelector(sel)?.getBoundingClientRect();
-        return r ? { top: r.top, bottom: r.bottom, width: r.width, height: r.height } : null;
-      };
-      const pane = el.getBoundingClientRect();
-      return {
-        selected: el.getAttribute('data-ask-selected'),
-        questions: [...el.querySelectorAll('.ask-overlay-question')].map((q) => q.textContent),
-        caller: el.querySelector('.ask-overlay-caller')?.textContent ?? '',
-        pane: { top: pane.top, bottom: pane.bottom },
-        text: box('.ask-overlay-text'),
-        answers: box('.ask-overlay-choices'),
-        block: box('.ask-overlay-command-block'),
-      };
-    }, paneId);
-    if (seen?.text && seen.text.width >= 40 && seen.text.height >= 20) return seen;
-    if (seen) why = `its text is ${seen.text?.width}x${seen.text?.height} — not readable`;
-    await delay(100);
-  }
-  // The sending pane's own screen is the only place that says WHY: a CLI that
-  // refused the arguments, a shell that never found it, a question still
-  // waiting on a sync. Without it the failure is just "nothing appeared".
-  const sending = await screenOf(page, sendingPaneId);
-  throw new Error(
-    `the ask overlay on ${paneId} never became visible (${why}). ` +
-      `The sending pane (${sendingPaneId}) shows: ${JSON.stringify(sending.slice(-600))}`,
+  return waitForCondition(
+    page,
+    async () => {
+      const seen = await page.evaluate((id) => {
+        const el = document.querySelector(`[data-pane-ask="${id}"]`);
+        if (!el) return null;
+        const box = (sel) => {
+          const r = el.querySelector(sel)?.getBoundingClientRect();
+          return r ? { top: r.top, bottom: r.bottom, width: r.width, height: r.height } : null;
+        };
+        const pane = el.getBoundingClientRect();
+        return {
+          selected: el.getAttribute('data-ask-selected'),
+          questions: [...el.querySelectorAll('.ask-overlay-question')].map((q) => q.textContent),
+          caller: el.querySelector('.ask-overlay-caller')?.textContent ?? '',
+          pane: { top: pane.top, bottom: pane.bottom },
+          text: box('.ask-overlay-text'),
+          answers: box('.ask-overlay-choices'),
+          block: box('.ask-overlay-command-block'),
+        };
+      }, paneId);
+      if (seen?.text && seen.text.width >= 40 && seen.text.height >= 20) return seen;
+      if (seen) why = `its text is ${seen.text?.width}x${seen.text?.height} — not readable`;
+      return null;
+    },
+    timeout,
+    // The sending pane's own screen is the only place that says WHY: a CLI
+    // that refused the arguments, a shell that never found it, a question
+    // still waiting on a sync. Without it the failure is just "nothing
+    // appeared".
+    async () =>
+      `the ask overlay on ${paneId} to be visible (${why}). ` +
+      `The sending pane (${sendingPaneId}) shows: ${JSON.stringify((await screenOf(page, sendingPaneId)).slice(-600))}`,
   );
 }
 

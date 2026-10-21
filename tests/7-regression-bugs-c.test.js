@@ -12,6 +12,7 @@ const {
   typeInTerminal,
   pressEnter,
   waitForCondition,
+  waitForSettled,
   tmuxCommandKeyboard,
   DELAYS,
 } = require('./helpers');
@@ -94,7 +95,7 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
     // A locator, not a handle: the strip re-renders as the new tab's name
     // settles, and a handle taken a moment earlier can point at a replaced node.
     await page.locator('.tab-list .tab-name').last().click();
-    await delay(DELAYS.SYNC);
+    await waitForSettled(page);
     const target = await visibleTab();
     expect(target).toMatch(/^@\d+$/);
 

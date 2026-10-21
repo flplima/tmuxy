@@ -16,6 +16,7 @@ const {
   getGroupTabInfo,
   waitForGroupTabs,
   waitForCondition,
+  waitForSettled,
   runCommand,
   DELAYS,
 } = require('./helpers');
@@ -345,13 +346,15 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
     // The terminal is idle (no command output), so nothing but the fix's timer
     // can reconcile a mispredicted switch. Switch through every tab, then rapid
     // first<->last — the patterns that surfaced the divergence in the wild.
+    // `waitForSettled` holds while a switch is still a pending op, so it
+    // returns only once that timer has given its verdict on every one.
     const n = await tabCount();
     for (let round = 0; round < 2; round++) {
       for (let i = 0; i < n; i++) {
         await clickTab(i);
         await delay(150);
       }
-      await delay(DELAYS.SYNC);
+      await waitForSettled(ctx.page);
       await assertConverged(`round ${round} switch-all`)();
 
       for (let k = 0; k < 3; k++) {
@@ -360,7 +363,7 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
         await clickTab(n - 1);
         await delay(80);
       }
-      await delay(DELAYS.SYNC);
+      await waitForSettled(ctx.page);
       await assertConverged(`round ${round} rapid-switch`)();
     }
   }, 240000);

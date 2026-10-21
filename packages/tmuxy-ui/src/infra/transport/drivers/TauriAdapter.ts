@@ -12,7 +12,7 @@ import {
 } from '../../../domain/wire';
 import { Schema } from 'effect';
 import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
-import { StateSequencer } from '../stateSequencer';
+import { StateSequencer, type StreamPosition } from '../stateSequencer';
 import { decodeEvent } from '../wireDecode';
 import { KeyBatcher } from '../keyBatching';
 import { latencyTracker } from '../../latencyTracker';
@@ -61,11 +61,14 @@ export class TauriAdapter implements SequencedAdapter {
         latencyTracker.markInput();
         const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
         tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
+        this.inFlight++;
         this.sendQueue = this.sendQueue.then(async () => {
           try {
             await invoke(cmd, args);
           } catch {
             // Ignore errors for fire-and-forget batched commands
+          } finally {
+            this.inFlight--;
           }
         });
       });
@@ -218,6 +221,8 @@ export class TauriAdapter implements SequencedAdapter {
   // their way to the monitor. A `split-window -h` racing past a
   // `select-window -t @B` would split the previous tab.
   private sendQueue: Promise<void> = Promise.resolve();
+  /** Commands chained onto the queue and not yet answered, the running one included. */
+  private inFlight = 0;
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     const { invoke } = await import('@tauri-apps/api/core');
@@ -243,18 +248,29 @@ export class TauriAdapter implements SequencedAdapter {
         resolveOuter = res;
         rejectOuter = rej;
       });
+      this.inFlight++;
       this.sendQueue = this.sendQueue.then(async () => {
         try {
           const result = await invoke<T>(cmd, args);
           resolveOuter(result);
         } catch (err) {
           rejectOuter(err);
+        } finally {
+          this.inFlight--;
         }
       });
       return outer;
     }
 
     return invoke(cmd, args);
+  }
+
+  pendingCommands(): number {
+    return this.inFlight + (this.keyBatcher?.hasPending() ? 1 : 0);
+  }
+
+  streamPosition(): StreamPosition {
+    return this.sequencer.position();
   }
 
   /**

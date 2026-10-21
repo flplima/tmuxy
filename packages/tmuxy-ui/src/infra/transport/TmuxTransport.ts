@@ -16,6 +16,7 @@ import { Context, Effect, PubSub, Schema, type Scope, Stream } from 'effect';
 import type { TmuxAdapter } from './driver';
 import { type AdapterError, TransportError, classifyAdapterError } from './AdapterError';
 import type { DriverEvent, TransportEvent } from './events';
+import type { StreamPosition } from './stateSequencer';
 import { decodeWire } from './wireDecode';
 
 export interface TmuxTransportService {
@@ -49,6 +50,10 @@ export interface TmuxTransportService {
   readonly isReadOnly: () => boolean;
   /** Attached to a real tmux server whose sessions can be listed (web, desktop). */
   readonly enumeratesSessions: () => boolean;
+  /** Commands queued or in flight, and keystrokes batched but unsent (`TmuxAdapter.pendingCommands`). */
+  readonly pendingCommands: () => number;
+  /** Where the state stream stands (`TmuxAdapter.streamPosition`); null where none is sequenced. */
+  readonly streamPosition: () => StreamPosition | null;
   /**
    * Subscribe now, consume later: the subscription is taken when this runs,
    * so a caller that connects afterwards misses nothing the connection says.
@@ -117,6 +122,8 @@ export function serviceOver(
     reconnectNow: Effect.sync(() => driver.reconnectNow?.()),
     isReadOnly: () => driver.readOnly === true,
     enumeratesSessions: () => driver.enumeratesSessions === true,
+    pendingCommands: () => driver.pendingCommands?.() ?? 0,
+    streamPosition: () => driver.streamPosition?.() ?? null,
     subscribe: Stream.fromPubSub(pubsub, { scoped: true }),
   };
 }

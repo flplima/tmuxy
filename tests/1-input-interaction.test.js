@@ -4,7 +4,6 @@
 
 const {
   createTestContext,
-  delay,
   focusPage,
   focusTerminal,
   getTerminalText,
@@ -19,7 +18,6 @@ const {
   sendKeyCombo,
   waitForPaneCount,
   splitPaneKeyboard,
-  DELAYS,
   assertContentMatch,
   assertLayoutInvariants,
   waitForCondition,
@@ -355,14 +353,12 @@ describe('Scenario 2c: International Input', () => {
     // beside them, so the row reads "日 本 語"; compare with whitespace stripped.
     const squash = (s) => s.replace(/\s+/g, '');
     const expected = squash(`${marker}${payload}`);
-    const deadline = Date.now() + 20000;
-    let occurrences = 0;
-    while (Date.now() < deadline) {
-      occurrences = squash(await getTerminalText(ctx.page)).split(expected).length - 1;
-      if (occurrences >= 2) break;
-      await delay(DELAYS.SHORT);
-    }
-    expect(occurrences).toBeGreaterThanOrEqual(2);
+    await waitForCondition(
+      ctx.page,
+      async () => squash(await getTerminalText(ctx.page)).split(expected).length - 1 >= 2,
+      20000,
+      'the composed text to be on screen twice: typed, then echoed',
+    );
   }, 90000);
 });
 

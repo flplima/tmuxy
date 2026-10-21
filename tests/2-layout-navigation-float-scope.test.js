@@ -159,24 +159,29 @@ describe('Scenario 6f: Float Tab Scope', () => {
     // The float opening reflows the grid, so the backdrop and the container
     // reach their final boxes a frame or two apart. Wait for them to agree
     // rather than measuring into the middle of that.
-    let scope = await ctx.page.evaluate(measureScope);
+    let scope = null;
     const aligned = (s) => s && s.dTop <= 1 && s.dBottom <= 1 && s.dLeft <= 1 && s.dRight <= 1;
-    const scopeDeadline = Date.now() + 5000;
-    while (Date.now() < scopeDeadline && !aligned(scope)) {
-      await delay(100);
-      scope = await ctx.page.evaluate(measureScope);
-    }
-    expect(scope).not.toBeNull();
-    // One check carrying the boxes: four separate `expect`s reported only the
-    // first delta and stopped, and "dTop 24" cannot tell a backdrop resolving
-    // against the wrong ancestor from a container that moved under it.
-    const misaligned = ['dTop', 'dBottom', 'dLeft', 'dRight'].filter((k) => scope[k] > 1);
-    if (misaligned.length > 0) {
-      throw new Error(
-        `the float backdrop does not cover the tab content: ${misaligned.join(', ')} off by more than 1px\n` +
-          JSON.stringify(scope, null, 2),
-      );
-    }
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        scope = await ctx.page.evaluate(measureScope);
+        return aligned(scope);
+      },
+      5000,
+      // One message carrying the boxes: four separate `expect`s reported only
+      // the first delta and stopped, and "dTop 24" cannot tell a backdrop
+      // resolving against the wrong ancestor from a container that moved
+      // under it.
+      () => {
+        const misaligned = ['dTop', 'dBottom', 'dLeft', 'dRight'].filter(
+          (k) => scope && scope[k] > 1,
+        );
+        return (
+          `the float backdrop to cover the tab content: ${misaligned.join(', ')} off by more than 1px\n` +
+          JSON.stringify(scope, null, 2)
+        );
+      },
+    );
     expect(scope.stripAbove).toBe(true);
     expect(scope.parent).toBe(homeWindowId);
 

@@ -235,6 +235,10 @@ jobs:
       # And the suite's own port, for the same reason — matches DEFAULT_PORT in
       # tests/helpers/config.js, which is where the tests look for the server.
       TMUXY_PORT: 9100
+      # Every wait budget in the suite is a number measured on a laptop; a
+      # runner is slower and shared, so it gets twice as long for each. This
+      # cannot turn a failing test green, only stop a slow one failing.
+      TMUXY_WAIT_SCALE: '2'
       # The shared server neither saves nor rebuilds sessions (see tmuxEnv in
       # tests/helpers/tmux-socket.js): a session re-made under a name a test
       # used before must come up empty. The snapshot suite starts a server of

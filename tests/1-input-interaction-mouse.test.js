@@ -5,7 +5,6 @@
 const {
   afterFrames,
   createTestContext,
-  delay,
   focusPage,
   waitForTerminalText,
   waitForShellPrompt,
@@ -13,7 +12,6 @@ const {
   typeInTerminal,
   pressEnter,
   openSidebarKeyboard,
-  DELAYS,
   assertContentMatch,
   getCopyModeState,
   wheelIntoScrollView,
@@ -62,14 +60,15 @@ async function gridOf(page, rootSelector) {
 async function clickCell(page, grid, col, row, frac = 0.5) {
   const before = (await readMouseEvents(0, 200)).filter((e) => e.type === 'press').length;
   await page.mouse.click(grid.x + (col + frac) * grid.cellW, grid.y + (row + 0.5) * grid.cellH);
-  const start = Date.now();
-  let presses = [];
-  while (Date.now() - start < 5000) {
-    presses = (await readMouseEvents(0, 200)).filter((e) => e.type === 'press');
-    if (presses.length > before) break;
-    await delay(DELAYS.SHORT);
-  }
-  expect(presses.length).toBeGreaterThan(before);
+  const presses = await waitForCondition(
+    page,
+    async () => {
+      const seen = (await readMouseEvents(0, 200)).filter((e) => e.type === 'press');
+      return seen.length > before ? seen : null;
+    },
+    5000,
+    'tmux to deliver the press to the program',
+  );
   return presses[presses.length - 1];
 }
 
