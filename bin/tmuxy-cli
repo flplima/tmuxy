@@ -94,7 +94,7 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
-  widget      Display widgets (tree, session, preview)
+  widget      Display widgets (tree, preview)
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
   run         Run any tmux command safely
   cleanup     Reap shells left hanging by a pane that died while starting up

@@ -10,29 +10,36 @@
  * Each entry comes out of tests/e2e-suites.json with a `pattern` added: the
  * tier's lookahead followed by the suite's own shard filter, anchored once.
  * Composing the two here keeps the workflow to one `--testNamePattern`.
+ *
+ * `plan` is exported for its test (packages/tmuxy-ui/scripts/e2e-plan.test.mjs),
+ * which also holds the shard filters to the real suites: every describe block
+ * of a split file lands in exactly one shard.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const TIERS = {
+export const TIERS = {
   commit: '(?!.*\\[nightly\\])',
   full: '',
 };
 
-const tier = process.argv[2] ?? 'commit';
-if (!(tier in TIERS)) {
-  console.error(`unknown tier ${JSON.stringify(tier)}; one of: ${Object.keys(TIERS).join(', ')}`);
-  process.exit(2);
+/** The matrix entries for `tier`, each with its jest name `pattern`. */
+export function plan(suites, tier) {
+  return suites
+    .filter((suite) => tier === 'full' || suite.tier !== 'nightly')
+    .map(({ tier: _tier, filter, ...suite }) => {
+      const body = `${TIERS[tier]}${filter ?? ''}`;
+      return { ...suite, pattern: body ? `^${body}` : '' };
+    });
 }
 
-const file = resolve(import.meta.dirname, '../tests/e2e-suites.json');
-const { suites } = JSON.parse(readFileSync(file, 'utf8'));
-
-const plan = suites
-  .filter((suite) => tier === 'full' || suite.tier !== 'nightly')
-  .map(({ tier: _tier, filter, ...suite }) => {
-    const body = `${TIERS[tier]}${filter ?? ''}`;
-    return { ...suite, pattern: body ? `^${body}` : '' };
-  });
-
-process.stdout.write(JSON.stringify(plan));
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file://').href) {
+  const tier = process.argv[2] ?? 'commit';
+  if (!(tier in TIERS)) {
+    console.error(`unknown tier ${JSON.stringify(tier)}; one of: ${Object.keys(TIERS).join(', ')}`);
+    process.exit(2);
+  }
+  const file = resolve(import.meta.dirname, '../tests/e2e-suites.json');
+  const { suites } = JSON.parse(readFileSync(file, 'utf8'));
+  process.stdout.write(JSON.stringify(plan(suites, tier)));
+}

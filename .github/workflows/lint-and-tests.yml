@@ -392,14 +392,13 @@ jobs:
 
       # The per-commit tier: stories tagged `nightly` (frame-sampled
       # animations, render-count budgets, language sweeps) run in the nightly
-      # v86 workflow's deterministic job instead, which also runs the axe
-      # accessibility pass over every story. Skipped here because it was a
-      # third of the job's time and, with every blocking rule quarantined,
-      # gated nothing a commit could fail on.
+      # v86 workflow's deterministic job instead. The axe accessibility pass
+      # runs here too: it used to be nightly-only while every blocking rule
+      # was quarantined, and five of the next thirteen probe misses were
+      # accessibility regressions nobody saw until the morning.
       - name: Probe deterministic stories
         env:
           PROBE_TIER: commit
-          PROBE_A11Y: '0'
           PROBE_SHARD: ${{ matrix.shard }}
         run: |
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"

@@ -23,7 +23,7 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
 | `e2e (...)` | `npm run test:e2e` | Browser + tmux integration |
 | `desktop` | `npm run test:tauri` (the debug build) + `node tests/smoke/smoke-test.js target/debug/tmuxy`; skipped when the push touched nothing the app is built from or tested by (`changes`) | Desktop IPC, Tauri runtime, the launch path |
-| `storybook-probe` / `storybook-v86-probe` | `PROBE_TIER=commit PROBE_A11Y=0 npm run test-storybook -w tmuxy-ui` / `npm run test-storybook:v86 -w tmuxy-ui`; the v86 probe is skipped when the push touched nothing it loads (`changes`) | Story play-function regressions |
+| `storybook-probe` / `storybook-v86-probe` | `PROBE_TIER=commit npm run test-storybook -w tmuxy-ui` (the axe pass included) / `npm run test-storybook:v86 -w tmuxy-ui`; the v86 probe is skipped when the push touched nothing it loads (`changes`) | Story play-function and accessibility regressions |
 | nightly `v86 / deterministic` | `npm run test-storybook -w tmuxy-ui` (every story, the axe pass on) | The `nightly`-tagged stories and accessibility |
 | `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit`; runs only when a lockfile or `.cargo/audit.toml` changed (`changes`), the Sunday sweep covers the days between | Dependency security alerts |
 | `build-frontend` / `build-server` | `npm run build -w tmuxy-ui` / `cargo build --profile ci -p tmuxy-server` | The frontend bundle and the `ci`-profile server every later job downloads; a failure here fails everything after it |

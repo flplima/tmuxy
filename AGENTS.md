@@ -8,7 +8,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview 
 See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
 See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
 See [docs/DESKTOP.md](docs/DESKTOP.md) for what only the desktop app has (trackpad gestures, GUI windows, window chrome) and why.
-See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, workarounds, and the `@tmuxy-*` window/pane tag schema.
+See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs and workarounds, and [docs/TMUX-TAGS.md](docs/TMUX-TAGS.md) for the `@tmuxy-*` window/pane tag schema.
 See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback rendering and native browser scrolling in copy mode.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
@@ -116,7 +116,8 @@ A broken build on `main` stops everyone. If CI turns red on `main`:
 Tag every bug-fix commit (`🐛`) with the test layer that should have caught the bug:
 
 - Format: `🐛 <description> [missed-by: <layer>]`
-- Example layers: `[missed-by: unit-tests]`, `[missed-by: e2e]`, `[missed-by: storybook-probe]`, `[missed-by: rust-tests]`, `[missed-by: cli]`, `[missed-by: WebKit]`, or `[missed-by: none]`.
+- Example layers: `[missed-by: unit-tests]`, `[missed-by: e2e]`, `[missed-by: storybook-probe]`, `[missed-by: rust-tests]`, `[missed-by: cli]`, `[missed-by: WebKit]`, `[missed-by: harness]`, or `[missed-by: none]`.
+- `[missed-by: harness]` is for a bug in the test machinery itself — a helper, a wait, a CI job — where a test existed but could not have failed for it.
 - An answer of `[missed-by: none]` means a gap exists in the testing architecture (e.g. process lifecycle, system fonts) and highlights where a new test tier or harness belongs.
 
 ### Bug-Fix Commit Tagging: Invariant
