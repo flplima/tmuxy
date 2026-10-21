@@ -120,13 +120,13 @@ async fn apply_feeds_an_answer_into_the_next_step() {
 async fn apply_stops_at_the_first_failure() {
     let result = apply(&fixture(), &RestoreOptions::default(), |argv| {
         std::future::ready(if argv[0] == "new-session" {
-            Err("no".into())
+            Err(crate::TmuxError::other("no"))
         } else {
             Ok(String::new())
         })
     })
     .await;
-    assert_eq!(result, Err("no".to_string()));
+    assert_eq!(result.unwrap_err().to_string(), "tmux error: no");
 }
 
 #[test]

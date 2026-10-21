@@ -203,18 +203,20 @@ pub fn tmux_command() -> Command {
 /// `tmux run-shell`, where tmux runs them in its own context rather than as a
 /// second client racing the control-mode one (docs/TMUX.md). The CLI wraps
 /// every mutating verb that way.
-pub fn tmux_output(argv: &[String]) -> std::result::Result<String, String> {
+pub fn tmux_output(argv: &[String]) -> Result<String> {
+    let failed = |message: String| TmuxError::Command {
+        command: argv.join(" "),
+        message,
+    };
     let output = tmux_command()
         .args(argv)
         .output()
-        .map_err(|e| format!("tmux {}: {e}", argv.join(" ")))?;
+        .map_err(|e| failed(e.to_string()))?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
-        Err(format!(
-            "tmux {}: {}",
-            argv.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
+        Err(failed(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ))
     }
 }
@@ -253,8 +255,7 @@ pub fn is_safe_session_name(name: &str) -> bool {
 pub fn session_exists(session_name: &str) -> Result<bool> {
     let output = tmux_command()
         .args(["has-session", "-t", session_name])
-        .output()
-        .map_err(|e| format!("Failed to check session: {}", e))?;
+        .output()?;
     tracing::debug!(session = session_name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())
 }

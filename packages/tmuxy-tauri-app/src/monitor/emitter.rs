@@ -93,7 +93,7 @@ impl LogSink for TauriEmitter {
 
         let payload = serde_json::json!({ "kind": kind, "message": message });
         if let Err(e) = self.app.emit_to(self.label.as_str(), "tmux-log", &payload) {
-            eprintln!("Failed to emit log: {}", e);
+            tracing::warn!(error = %e, "could not emit log to the window");
         }
     }
 }
@@ -109,14 +109,14 @@ impl StateEmitter for TauriEmitter {
             .app
             .emit_to(self.label.as_str(), "tmux-state-update", &update)
         {
-            eprintln!("Failed to emit state: {}", e);
+            tracing::warn!(error = %e, "could not emit state to the window");
         }
     }
 
     fn emit_error(&self, error: String) {
         tracing::error!(target: "tmuxy_tauri_app::monitor", "{error}");
         if let Err(e) = self.app.emit_to(self.label.as_str(), "tmux-error", &error) {
-            eprintln!("Failed to emit error: {}", e);
+            tracing::warn!(error = %e, "could not emit error to the window");
         }
     }
 
@@ -129,7 +129,7 @@ impl StateEmitter for TauriEmitter {
             .app
             .emit_to(self.label.as_str(), "tmux-detached", &payload)
         {
-            eprintln!("Failed to emit detached: {}", e);
+            tracing::warn!(error = %e, "could not emit detached to the window");
         }
     }
 
@@ -165,7 +165,7 @@ impl StateEmitter for TauriEmitter {
             .app
             .emit_to(self.label.as_str(), "tmux-clipboard", &payload)
         {
-            eprintln!("Failed to emit clipboard: {}", e);
+            tracing::warn!(error = %e, "could not emit clipboard to the window");
         }
     }
 
@@ -177,7 +177,7 @@ impl StateEmitter for TauriEmitter {
             .app
             .emit_to(self.label.as_str(), "tmux-message", &payload)
         {
-            eprintln!("Failed to emit message: {}", e);
+            tracing::warn!(error = %e, "could not emit message to the window");
         }
     }
 
@@ -263,7 +263,7 @@ async fn take_global_env(tx: &MonitorCommandSender, name: &str) -> Option<String
 pub(super) fn emit_fatal(app: &AppHandle, label: &str, message: &str) {
     let payload = serde_json::json!({ "message": message });
     if let Err(e) = app.emit_to(label, "tmux-fatal", &payload) {
-        eprintln!("Failed to emit fatal: {}", e);
+        tracing::warn!(error = %e, "could not emit fatal to the window");
     }
 }
 
@@ -278,7 +278,7 @@ pub(super) fn emit_fatal(app: &AppHandle, label: &str, message: &str) {
 pub(super) fn emit_detached(app: &AppHandle, label: &str) {
     let payload = serde_json::json!({ "reason": "detached" });
     if let Err(e) = app.emit_to(label, "tmux-detached", &payload) {
-        eprintln!("Failed to emit detached: {}", e);
+        tracing::warn!(error = %e, "could not emit detached to the window");
     }
 }
 
@@ -352,7 +352,7 @@ async fn emit_keybindings(app: &AppHandle, tx: &MonitorCommandSender) {
         }
     }
     if let Err(e) = app.emit("tmux-keybindings", &bindings) {
-        eprintln!("Failed to emit keybindings: {}", e);
+        tracing::warn!(error = %e, "could not emit keybindings to the window");
     }
 }
 

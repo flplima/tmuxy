@@ -3,6 +3,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use crate::control_mode::MonitorCommandSender;
+use crate::error::TmuxError;
 
 use super::*;
 
@@ -63,10 +64,10 @@ pub struct Taken {
 /// Take a snapshot of `session` through `run`, which runs one tmux command
 /// (as argv, without `tmux`) and returns its output — see `run_steps` for
 /// what `run` may be.
-pub async fn take<F, Fut>(session: &str, mut run: F) -> Result<Taken, String>
+pub async fn take<F, Fut>(session: &str, mut run: F) -> Result<Taken, TmuxError>
 where
     F: FnMut(Vec<String>) -> Fut,
-    Fut: Future<Output = Result<String, String>>,
+    Fut: Future<Output = Result<String, TmuxError>>,
 {
     let (qw, qp) = queries_for(session);
     let windows_out = run(split_query(&qw)).await?;
@@ -82,7 +83,7 @@ where
     // `ps` is a subprocess; off the async runtime like the other reads.
     let found = tokio::task::spawn_blocking(move || discover_commands(&all))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| TmuxError::other(e.to_string()))?;
     let mut snapshot = assemble(session, now(), windows, panes, &found.commands);
     snapshot.hidden = hidden_members(&snapshot, &stash, &found.commands);
     Ok(Taken {
@@ -107,7 +108,7 @@ pub(super) fn split_query(query: &str) -> Vec<String> {
 pub async fn attach_scrollback<F, Fut>(snapshot: &mut Snapshot, lines: u32, mut run: F)
 where
     F: FnMut(Vec<String>) -> Fut,
-    Fut: Future<Output = Result<String, String>>,
+    Fut: Future<Output = Result<String, TmuxError>>,
 {
     let s = snapshot.session.clone();
     for w in &mut snapshot.windows {
@@ -197,7 +198,7 @@ pub fn is_structural(delta: &crate::TmuxDelta) -> bool {
 
 /// Run one tmux command through a monitor's control-mode connection: the
 /// hosts' `run` for `take`, `run_steps` and `attach_scrollback`.
-async fn via_monitor(tx: &MonitorCommandSender, argv: Vec<String>) -> Result<String, String> {
+async fn via_monitor(tx: &MonitorCommandSender, argv: Vec<String>) -> Result<String, TmuxError> {
     let command = argv
         .iter()
         .map(|a| tmux_word(a))
@@ -205,7 +206,7 @@ async fn via_monitor(tx: &MonitorCommandSender, argv: Vec<String>) -> Result<Str
         .join(" ");
     crate::transport::query(tx, &command)
         .await
-        .map_err(|e| e.error)
+        .map_err(|e| TmuxError::other(e.error))
 }
 
 /// One argv word as tmux's own command parser reads it: double-quoted, with
@@ -248,7 +249,7 @@ pub async fn restore_via_monitor(
     snapshot: &Snapshot,
     options: &RestoreOptions,
     tx: &MonitorCommandSender,
-) -> Result<(), String> {
+) -> Result<(), TmuxError> {
     let mut options = options.clone();
     if options.onto_existing_window && options.existing_window_index.is_none() {
         // `^` is tmux's "first window" target; its index is whatever

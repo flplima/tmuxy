@@ -8,7 +8,7 @@ use std::time::Duration;
 /// before the monitor attaches, and tearing the server down after it has
 /// detached — never something the crate itself does while a control-mode
 /// client is attached.
-pub fn tmux(args: &[&str]) -> Result<String, String> {
+pub fn tmux(args: &[&str]) -> Result<String, tmuxy_core::TmuxError> {
     let argv: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     tmuxy_core::session::tmux_output(&argv)
 }

@@ -24,6 +24,7 @@ import type { AppMachineContext } from '../types/context';
 import type { GestureFlags } from '../types/domain';
 import { isModelPaneId, type PaneId } from '../../domain/ids';
 import { isTauri } from '../../utils/platform';
+import { failing } from '../../utils/logFailure';
 
 export type GestureActorEvent = { type: 'NOOP' };
 
@@ -215,9 +216,7 @@ export function createGestureActor() {
       if (claims === shellClaims) return;
       shellClaims = claims;
       if (!isTauri()) return;
-      invoke('set_swipe_tabs', { enabled: claims }).catch((e: unknown) =>
-        console.error('set_swipe_tabs failed:', e),
-      );
+      invoke('set_swipe_tabs', { enabled: claims }).catch(failing('set_swipe_tabs'));
     };
     const subscription = input.parent.subscribe(tellShell);
     tellShell();

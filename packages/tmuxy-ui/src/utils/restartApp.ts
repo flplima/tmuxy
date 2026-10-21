@@ -5,11 +5,12 @@
  */
 
 import { isTauri } from './platform';
+import { failing } from './logFailure';
 
 export function restartApp(): void {
   if (isTauri()) {
     void import('@tauri-apps/api/core').then(({ invoke }) =>
-      invoke('restart_app').catch((e: unknown) => console.error('restart_app failed:', e)),
+      invoke('restart_app').catch(failing('restart_app')),
     );
     return;
   }

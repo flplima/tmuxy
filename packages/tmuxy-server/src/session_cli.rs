@@ -11,9 +11,10 @@
 use std::path::PathBuf;
 
 use tmuxy_core::session_snapshot::{self as snap, RestoreOptions};
+use tmuxy_core::TmuxError;
 
 /// The CLI's `run` for the snapshot module: one tmux subprocess per command.
-fn tmux(argv: Vec<String>) -> std::future::Ready<Result<String, String>> {
+fn tmux(argv: Vec<String>) -> std::future::Ready<Result<String, TmuxError>> {
     std::future::ready(tmuxy_core::session::tmux_output(&argv))
 }
 
@@ -76,7 +77,7 @@ pub async fn run(args: SessionArgs) {
             }
             let mut snapshot = snap::take(&name, tmux)
                 .await
-                .unwrap_or_else(|e| fail(&e))
+                .unwrap_or_else(|e| fail(&e.to_string()))
                 .snapshot;
             if let Some(lines) = scrollback {
                 snap::attach_scrollback(&mut snapshot, lines, tmux).await;
@@ -107,7 +108,7 @@ pub async fn run(args: SessionArgs) {
             };
             snap::apply(&snapshot, &options, tmux)
                 .await
-                .unwrap_or_else(|e| fail(&e));
+                .unwrap_or_else(|e| fail(&e.to_string()));
             println!("{name}");
         }
         SessionVerb::Snapshots => {
@@ -136,7 +137,7 @@ pub async fn run(args: SessionArgs) {
                     name.clone(),
                 ])
                 .await
-                .unwrap_or_else(|e| fail(&e));
+                .unwrap_or_else(|e| fail(&e.to_string()));
             }
             let removed = snap::forget(&dir(), &name);
             if removed == 0 {

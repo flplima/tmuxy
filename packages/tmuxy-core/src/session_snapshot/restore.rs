@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
 
+use crate::error::TmuxError;
+
 use super::*;
 
 // =============================================================================
@@ -113,10 +115,10 @@ pub fn fill(argv: &[String], answers: &BTreeMap<String, String>) -> TmuxArgv {
 /// what lets a plan be tested by reading it back and the executor be tested
 /// without tmux. It takes one tmux command as argv (without `tmux`) and
 /// returns what the command printed.
-pub async fn run_steps<F, Fut>(steps: &[Step], mut run: F) -> Result<(), String>
+pub async fn run_steps<F, Fut>(steps: &[Step], mut run: F) -> Result<(), TmuxError>
 where
     F: FnMut(Vec<String>) -> Fut,
-    Fut: Future<Output = Result<String, String>>,
+    Fut: Future<Output = Result<String, TmuxError>>,
 {
     let mut answers = BTreeMap::new();
     for step in steps {
@@ -138,10 +140,10 @@ pub async fn apply<F, Fut>(
     snapshot: &Snapshot,
     options: &RestoreOptions,
     run: F,
-) -> Result<(), String>
+) -> Result<(), TmuxError>
 where
     F: FnMut(Vec<String>) -> Fut,
-    Fut: Future<Output = Result<String, String>>,
+    Fut: Future<Output = Result<String, TmuxError>>,
 {
     run_steps(&plan(snapshot, options), run).await
 }

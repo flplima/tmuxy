@@ -16,6 +16,7 @@ import { useAppSelector } from '../../machines/appHooks';
 import { menuBarSpec } from '../../domain/menus/menuBar';
 import { itemIds, type MenuSpec } from '../../domain/menus/spec';
 import { setNativeAppMenu } from '../../infra/menus/nativeMenu';
+import { failing } from '../../utils/logFailure';
 import { useMenuEnv } from './menuEnv';
 import { useMenuHost } from './menuHost';
 import { useAppMenuSurface } from './useAppMenuSurface';
@@ -41,9 +42,7 @@ export function NativeMenuBar() {
     if (host !== 'native-bar') return;
     const timer = window.setTimeout(() => {
       const { spec, dispatch } = latest.current;
-      void setNativeAppMenu(spec, dispatch).catch((e: unknown) =>
-        console.error('native menu bar not set:', e),
-      );
+      void setNativeAppMenu(spec, dispatch).catch(failing('native menu bar'));
     }, REBUILD_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [host, shape]);

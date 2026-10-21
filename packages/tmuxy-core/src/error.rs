@@ -14,8 +14,16 @@
 //!   - `SessionNotFound { name }` — the named session does not exist.
 //!   - `Io(std::io::Error)` — anything from the OS (PTY allocation, file
 //!     reads). `#[from]` makes `?` propagation natural.
+//!   - `Command { command, message }` — a one-off `tmux` subprocess that
+//!     failed, with what it said.
 //!   - `ControlMode(String)` — tmux-reported error text that fits no more
 //!     specific variant.
+//!
+//! There is deliberately no `From<String>` and no `Into<String>`: a `?` that
+//! turned a message into the fallback variant erased what the error was, and
+//! one that turned a typed error back into text lost it again at the next
+//! boundary. A boundary that speaks strings (a CLI's exit message, a JSON
+//! error body) spells `.to_string()` where it crosses.
 
 use thiserror::Error;
 
@@ -45,6 +53,11 @@ pub enum TmuxError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// A one-off `tmux <command>` run as a subprocess failed: it could not be
+    /// started, or it exited non-zero with `message` on stderr.
+    #[error("tmux {command}: {message}")]
+    Command { command: String, message: String },
+
     /// Fallback for tmux-reported errors that don't fit a more specific
     /// variant yet. Add a real variant when a recurring pattern emerges
     /// rather than growing this bucket indefinitely.
@@ -58,22 +71,5 @@ impl TmuxError {
     /// `TmuxError::ControlMode("…".to_string())`.
     pub fn other(msg: impl Into<String>) -> Self {
         TmuxError::ControlMode(msg.into())
-    }
-}
-
-/// Lets `?` lift a `String` error into the `ControlMode` variant, erasing any
-/// more specific meaning — so prefer a real variant where one fits.
-impl From<String> for TmuxError {
-    fn from(s: String) -> Self {
-        TmuxError::ControlMode(s)
-    }
-}
-
-/// Lets `?` stringify a `TmuxError` where a caller speaks `Result<_, String>`
-/// — notably the server's command handlers, whose JSON error shape is a
-/// plain message string.
-impl From<TmuxError> for String {
-    fn from(e: TmuxError) -> Self {
-        e.to_string()
     }
 }

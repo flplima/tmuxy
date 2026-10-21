@@ -16,7 +16,7 @@ use crate::command_router::{route_command, Route};
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, MonitorConfig};
 use crate::executor::tmux_quote;
 use crate::session_snapshot::{self as snapshot, RestoreOptions, Snapshot, SnapshotKeeper};
-use crate::{CommandError, PaneId, StateUpdate, TmuxState};
+use crate::{CommandError, PaneId, StateUpdate, TmuxError, TmuxState};
 
 mod bindings;
 pub use bindings::*;
@@ -82,7 +82,7 @@ pub fn restore_after_attach(
     snapshot: Snapshot,
     keeper: Arc<SnapshotKeeper>,
     tx: MonitorCommandSender,
-) -> impl Future<Output = Result<(), String>> + Send {
+) -> impl Future<Output = Result<(), TmuxError>> + Send {
     keeper.restore_started();
     async move {
         let options = RestoreOptions {
@@ -338,7 +338,7 @@ pub async fn restore_named(name: &str, tx: &MonitorCommandSender) -> Result<(), 
     };
     snapshot::restore_via_monitor(&saved, &options, tx)
         .await
-        .map_err(CommandError::tmux)
+        .map_err(|e| CommandError::tmux(e.to_string()))
 }
 
 /// Whether a session of exactly this name exists, asked over control mode.

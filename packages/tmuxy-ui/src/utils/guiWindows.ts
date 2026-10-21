@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { isTauri } from './platform';
+import { logFailure } from './logFailure';
 
 /** One row of the Window menu. */
 export interface GuiWindowInfo {
@@ -50,7 +51,7 @@ async function desktop<T>(cmd: string, fallback: T, args?: Record<string, unknow
     const { invoke } = await import('@tauri-apps/api/core');
     return await invoke<T>(cmd, args);
   } catch (e: unknown) {
-    console.error(`${cmd} failed:`, e);
+    logFailure(cmd, e);
     return fallback;
   }
 }

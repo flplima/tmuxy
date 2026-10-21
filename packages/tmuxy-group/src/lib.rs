@@ -113,9 +113,9 @@ enum Outcome {
     Exit(i32),
 }
 
-impl From<String> for Outcome {
-    fn from(message: String) -> Self {
-        Self::Fail(message)
+impl From<tmuxy_core::TmuxError> for Outcome {
+    fn from(e: tmuxy_core::TmuxError) -> Self {
+        Self::Fail(e.to_string())
     }
 }
 
@@ -304,7 +304,7 @@ fn split(plan: &groups::SplitPlan) -> Result<PaneId, Outcome> {
 fn run_all(plan: &[Invocation]) -> Result<(), Outcome> {
     for invocation in plan {
         match tmux(&invocation.argv()) {
-            Err(e) if !invocation.tolerant => return Err(Outcome::Fail(e)),
+            Err(e) if !invocation.tolerant => return Err(e.into()),
             _ => {}
         }
     }

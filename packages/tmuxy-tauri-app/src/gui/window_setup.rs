@@ -15,7 +15,7 @@ pub(crate) fn apply_blur(window: &tauri::WebviewWindow, blur: bool) {
         // tauri's `set_effects(None)` clears nothing on macOS, so drop the
         // previous view first — that is also what turns blur off.
         if let Err(e) = window_vibrancy::clear_vibrancy(&target) {
-            eprintln!("Failed to clear window blur: {}", e);
+            tracing::warn!(error = %e, "could not clear the window blur");
         }
         if !blur {
             return;
@@ -29,7 +29,7 @@ pub(crate) fn apply_blur(window: &tauri::WebviewWindow, blur: bool) {
             .state(tauri::window::EffectState::Active)
             .build();
         if let Err(e) = target.set_effects(effects) {
-            eprintln!("Failed to apply window blur: {}", e);
+            tracing::warn!(error = %e, "could not apply the window blur");
         }
     });
 }

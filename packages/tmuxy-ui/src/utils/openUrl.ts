@@ -10,6 +10,7 @@
  */
 
 import { isTauri } from './platform';
+import { failing } from './logFailure';
 
 const OPENABLE = /^(https?:\/\/|mailto:)/i;
 
@@ -35,7 +36,7 @@ export function openExternalUrl(url: string): void {
   if (!isOpenableUrl(url)) return;
   if (isTauri()) {
     void import('@tauri-apps/api/core').then(({ invoke }) =>
-      invoke('open_url', { url }).catch((e: unknown) => console.error('open_url failed:', e)),
+      invoke('open_url', { url }).catch(failing('open_url')),
     );
     return;
   }
