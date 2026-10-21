@@ -157,6 +157,7 @@ fn copy_icons(source_theme: &Path, data_home: &Path) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

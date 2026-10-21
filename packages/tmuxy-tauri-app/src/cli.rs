@@ -90,10 +90,18 @@ pub fn run_cli(args: Vec<String>) {
         use std::ffi::CString;
         use std::os::unix::ffi::OsStrExt;
 
-        let script_c = CString::new(script.as_os_str().as_bytes()).unwrap();
-        let mut argv: Vec<CString> = vec![CString::new("tmuxy").unwrap()];
+        // A NUL byte cannot reach exec; an argument carrying one is refused
+        // here rather than taken down with a panic.
+        let c_string = |bytes: &[u8]| {
+            CString::new(bytes).unwrap_or_else(|_| {
+                eprintln!("Error: an argument contains a NUL byte");
+                std::process::exit(1);
+            })
+        };
+        let script_c = c_string(script.as_os_str().as_bytes());
+        let mut argv: Vec<CString> = vec![c_string(b"tmuxy")];
         for arg in &args {
-            argv.push(CString::new(arg.as_str()).unwrap());
+            argv.push(c_string(arg.as_bytes()));
         }
         // exec replaces the process — only returns on error
         let Err(e) = nix::unistd::execvp(&script_c, &argv);
@@ -138,7 +146,10 @@ fn run_server_argv(args: impl IntoIterator<Item = String>) {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .unwrap_or_else(|e| {
+            eprintln!("Error: cannot start the server runtime: {e}");
+            std::process::exit(1);
+        })
         .block_on(tmuxy_server::server::run_argv(argv));
 }
 

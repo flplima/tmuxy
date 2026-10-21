@@ -95,6 +95,7 @@ pub(super) fn open_path(path: &std::path::Path) -> Result<(), CommandError> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod open_url_tests {
     use super::super::open_url;
     use super::is_openable_url;

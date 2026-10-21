@@ -1,5 +1,5 @@
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use crate::error::TmuxError;
 
@@ -69,11 +69,52 @@ pub fn tmux_path() -> &'static str {
 /// a dev server or a test run never disturbs an installed tmuxy.
 pub const DEFAULT_TMUX_SOCKET: &str = "tmuxy";
 
-/// Resolve the tmux socket: `TMUX_SOCKET` when set and non-empty, otherwise
-/// the dedicated [`DEFAULT_TMUX_SOCKET`]. The value is a socket *name*
-/// (tmux `-L`) unless it contains a `/`, in which case it's a full socket
-/// *path* (tmux `-S`) — see [`tmux_socket_args`].
+/// The tmux server and session every tmux invocation targets: a socket (a
+/// name, or a path when it contains a `/`), a session, and the ssh argv tail
+/// of the host the server runs on — `None` for this machine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConnectTarget {
+    pub socket: String,
+    pub session: String,
+    pub ssh: Option<String>,
+}
+
+/// The target set at runtime, when one has been.
+///
+/// A process normally serves one target for its whole life, read from the
+/// environment (`TMUX_SOCKET`, `TMUXY_SESSION`, `TMUXY_SSH`) at launch — the
+/// web server and the CLI never change it. The desktop app does: `tmuxy
+/// connect` points a running app at another server, and that switch has to
+/// be seen whole by every tmux invocation on every thread. Writing the three
+/// environment variables one by one was neither — a command issued mid-switch
+/// could pair the old socket with the new session, and `setenv` beside a
+/// `getenv` on another thread is undefined behaviour — so the switch lands
+/// here, in one write, and the resolvers below read it before the environment.
+static CONNECT_TARGET: RwLock<Option<ConnectTarget>> = RwLock::new(None);
+
+/// Point every later tmux invocation at `target`.
+pub fn set_connect_target(target: ConnectTarget) {
+    *CONNECT_TARGET
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(target);
+}
+
+/// The target [`set_connect_target`] installed, if any.
+pub fn connect_target() -> Option<ConnectTarget> {
+    CONNECT_TARGET
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+/// Resolve the tmux socket: the [`connect_target`], else `TMUX_SOCKET` when
+/// set and non-empty, otherwise the dedicated [`DEFAULT_TMUX_SOCKET`]. The
+/// value is a socket *name* (tmux `-L`) unless it contains a `/`, in which
+/// case it's a full socket *path* (tmux `-S`) — see [`tmux_socket_args`].
 pub fn tmux_socket() -> String {
+    if let Some(target) = connect_target() {
+        return target.socket;
+    }
     match std::env::var("TMUX_SOCKET") {
         Ok(socket) if !socket.is_empty() => socket,
         _ => DEFAULT_TMUX_SOCKET.to_string(),
@@ -91,17 +132,25 @@ pub fn tmux_socket_args() -> [String; 2] {
     [flag.to_string(), socket]
 }
 
-/// The SSH tunnel tmuxy runs tmux through, read from `TMUXY_SSH`. When set and
-/// non-empty, every tmux invocation is wrapped as `ssh <tail> tmux …` so the
-/// desktop app can attach its control-mode monitor to a tmux server on a remote
-/// host. The value is a whitespace-separated ssh argv *tail* — options plus the
-/// destination, e.g. `-p 2222 user@host` or just `user@host`. Empty/unset means
-/// local (the normal case, and always the case for the web server).
+/// The SSH tunnel tmuxy runs tmux through: the [`connect_target`]'s, else
+/// `TMUXY_SSH`. When set and non-empty, every tmux invocation is wrapped as
+/// `ssh <tail> tmux …` so the desktop app can attach its control-mode monitor
+/// to a tmux server on a remote host. The value is a whitespace-separated ssh
+/// argv *tail* — options plus the destination, e.g. `-p 2222 user@host` or
+/// just `user@host`. Empty/unset means local (the normal case, and always the
+/// case for the web server).
 pub fn ssh_target() -> Option<Vec<String>> {
-    match std::env::var("TMUXY_SSH") {
-        Ok(s) if !s.trim().is_empty() => Some(s.split_whitespace().map(String::from).collect()),
-        _ => None,
-    }
+    let raw = match connect_target() {
+        Some(target) => target.ssh,
+        None => std::env::var("TMUXY_SSH").ok(),
+    };
+    ssh_argv(raw.as_deref())
+}
+
+/// An ssh argv tail split into arguments; `None` when there is nothing in it.
+fn ssh_argv(raw: Option<&str>) -> Option<Vec<String>> {
+    let tail = raw?.trim();
+    (!tail.is_empty()).then(|| tail.split_whitespace().map(String::from).collect())
 }
 
 /// Build the argv to invoke tmux, honoring an optional SSH tunnel
@@ -177,9 +226,13 @@ pub fn tmux_bin() -> String {
     tmux_argv(false).join(" ")
 }
 
-/// The session tmuxy targets: `TMUXY_SESSION` env or the default.
+/// The session tmuxy targets: the [`connect_target`]'s, else `TMUXY_SESSION`,
+/// else the default.
 pub fn session_name() -> String {
-    std::env::var("TMUXY_SESSION").unwrap_or_else(|_| crate::DEFAULT_SESSION_NAME.to_string())
+    connect_target()
+        .map(|target| target.session)
+        .or_else(|| std::env::var("TMUXY_SESSION").ok())
+        .unwrap_or_else(|| crate::DEFAULT_SESSION_NAME.to_string())
 }
 
 /// Whether `name` is a session name the server will write into a command line.

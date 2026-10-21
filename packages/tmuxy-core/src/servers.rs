@@ -7,9 +7,10 @@
 //! web server always uses whatever socket/host it was launched against.
 //!
 //! Attaching to a server means pointing the monitor at its socket and, for a
-//! remote, its SSH tunnel. Both are surfaced as the `TMUX_SOCKET` / `TMUXY_SSH`
-//! env vars that [`crate::session::tmux_argv`] already resolves — so a saved
-//! server maps cleanly onto the existing invocation path with no special-casing
+//! remote, its SSH tunnel. Both go into the [`crate::session::ConnectTarget`]
+//! that [`crate::session::tmux_argv`] resolves — the same values the
+//! `TMUX_SOCKET` / `TMUXY_SSH` env vars hold at launch — so a saved server maps
+//! cleanly onto the existing invocation path with no special-casing
 //! downstream. See [`Server::connect_env`].
 
 use serde::{Deserialize, Serialize};
@@ -156,9 +157,10 @@ impl Server {
         }
     }
 
-    /// The `(TMUX_SOCKET, TMUXY_SSH)` env pair for attaching to this server.
-    /// `TMUXY_SSH` is `None` for a local server (and for an SSH server missing
-    /// its `ssh` block, which we then treat as local rather than crash).
+    /// The `(socket, ssh)` pair of a connect target for this server — the
+    /// values `TMUX_SOCKET` / `TMUXY_SSH` hold at launch. `ssh` is `None` for
+    /// a local server (and for an SSH server missing its `ssh` block, which we
+    /// then treat as local rather than crash).
     pub fn connect_env(&self) -> (String, Option<String>) {
         let ssh = match self.kind {
             ServerKind::Ssh => self.ssh.as_ref().map(|s| s.argv_tail().join(" ")),
@@ -290,8 +292,8 @@ pub fn find_server(id: &str) -> Option<Server> {
     read_servers().into_iter().find(|s| s.id == id)
 }
 
-/// The id of the saved server matching the live `TMUX_SOCKET`/`TMUXY_SSH` env,
-/// or [`LOCALHOST_ID`] when none matches. Lets the sidebar picker mark which
+/// The id of the saved server matching the live socket and ssh host, or
+/// [`LOCALHOST_ID`] when none matches. Lets the sidebar picker mark which
 /// server the app is currently attached to.
 pub fn current_server_id() -> String {
     let socket = crate::session::tmux_socket();

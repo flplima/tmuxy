@@ -76,7 +76,9 @@ pub fn set_height(window: &WebviewWindow, height: f64, action_id: Option<&str>) 
     use tauri::Manager;
 
     if let Some(state) = window.try_state::<TitlebarState>() {
-        *state.height.lock().unwrap() = height;
+        if let Ok(mut recorded) = state.height.lock() {
+            *recorded = height;
+        }
     }
     apply(window, action_id);
 }
@@ -170,7 +172,7 @@ fn apply(window: &WebviewWindow, action_id: Option<&str>) {
 
     let height = window
         .try_state::<TitlebarState>()
-        .map(|state| *state.height.lock().unwrap())
+        .and_then(|state| state.height.lock().ok().map(|recorded| *recorded))
         .unwrap_or(DEFAULT_HEIGHT);
     let target = window.clone();
     // Only the action-driven applies are traced; the re-applies AppKit's

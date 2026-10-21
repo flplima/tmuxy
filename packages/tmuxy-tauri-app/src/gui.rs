@@ -37,7 +37,7 @@ pub fn run() {
         builder = builder.manage(titlebar::TitlebarState::default());
     }
 
-    builder
+    let run = builder
         // Single instance: when user clicks the app icon while already running,
         // bring the existing window to front instead of launching a broken second instance.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -313,6 +313,10 @@ pub fn run() {
             // Read-only git context for the sidebar tree.
             commands::list_git_worktrees,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+    if let Err(e) = run {
+        tracing::error!(error = %e, "the tauri application failed to run");
+        eprintln!("error while running tauri application: {e}");
+        std::process::exit(1);
+    }
 }

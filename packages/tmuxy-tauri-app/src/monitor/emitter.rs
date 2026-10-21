@@ -357,6 +357,7 @@ async fn emit_keybindings(app: &AppHandle, tx: &MonitorCommandSender) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::super::*;
     use tmuxy_core::control_mode::StoredImage;

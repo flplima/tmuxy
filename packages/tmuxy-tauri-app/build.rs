@@ -1,3 +1,7 @@
+// A build script has nothing to recover to: a panic here IS its error report,
+// so the workspace's ban on unwrap/expect does not apply.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::path::PathBuf;
 

@@ -9,28 +9,17 @@ use tmuxy_core::control_mode::{
 use tmuxy_core::transport;
 
 use tmuxy_core::session::session_name as get_session;
+/// Where `tmuxy connect` points the app: a tmux socket, a session (created if
+/// missing) and the ssh host, if any. Installed through
+/// `tmuxy_core::session::set_connect_target`, which every tmux invocation —
+/// the control-mode connection and the one-off reads — resolves from.
+pub use tmuxy_core::session::ConnectTarget;
 
 pub use emitter::{
     apply_config_change, emit_config_settings, lookup_image, poll_connect_requests, ImageStore,
     KeyBindingsState, TauriEmitter,
 };
 use emitter::{emit_detached, emit_fatal};
-
-/// A target for the monitor to (re)connect to: a tmux socket + session.
-/// Drives `tmuxy connect` — live-switching the desktop app to a different
-/// tmux server without relaunching.
-#[derive(Clone, Debug)]
-pub struct ConnectTarget {
-    /// Socket name or full path, in the same form the `TMUX_SOCKET` env var
-    /// accepts (a value with a `/` is a path → `-S`, else a name → `-L`).
-    pub socket: String,
-    /// Session to attach to (created if missing) on the target socket.
-    pub session: String,
-    /// SSH tunnel argv tail (the `TMUXY_SSH` value, e.g. `-p 2222 user@host`),
-    /// or `None` for a local server. When set, the monitor and every executor
-    /// read run tmux over `ssh` on the remote host.
-    pub ssh: Option<String>,
-}
 
 /// Live handle to the running control-mode monitor.
 ///
@@ -226,34 +215,19 @@ pub async fn start_monitoring_window(
             tracing::info!("reviving parked monitor for a user reconnect");
         }
 
-        // Apply a pending `tmuxy connect` reconnect before connecting. Because
-        // every tmux call (the control-mode connection AND the one-off
-        // executor commands) resolves its socket/session from the env, setting
-        // these two vars is enough to point the whole app at the new server.
-        // Reset the failure counters: a deliberate switch is not a crash.
-        //
-        // KNOWN RACE (tracked, not yet fixed): these three vars are mutated
-        // here while #[tauri::command] handlers on other runtime threads read
-        // them (get_session(), executor socket resolution). They are not set
-        // atomically, so a command issued mid-switch can target the old server
-        // with the new session (or vice versa); `set_var` alongside libc
-        // `getenv` on another thread is also UB. The real fix is to hold an
-        // explicit ConnectTarget in MonitorState that executor calls read,
-        // replacing env-var-as-app-state.
+        // Apply a pending `tmuxy connect` reconnect before connecting. Every
+        // tmux call (the control-mode connection AND the one-off executor
+        // commands) resolves its socket, session and ssh host from the
+        // connect target, so installing it — one write, seen whole by every
+        // thread — points the whole app at the new server. Reset the failure
+        // counters: a deliberate switch is not a crash.
         let pending = monitor_state
             .pending_reconnect
             .write()
             .ok()
             .and_then(|mut g| g.take());
         if let Some(target) = pending {
-            std::env::set_var("TMUX_SOCKET", &target.socket);
-            std::env::set_var("TMUXY_SESSION", &target.session);
-            // TMUXY_SSH drives the ssh-wrapped invocation in tmuxy_core; unset
-            // it for a local server so we don't keep tunneling to a stale host.
-            match &target.ssh {
-                Some(ssh) => std::env::set_var("TMUXY_SSH", ssh),
-                None => std::env::remove_var("TMUXY_SSH"),
-            }
+            tmuxy_core::session::set_connect_target(target.clone());
             config.session = target.session.clone();
             backoff = Duration::from_millis(100);
             consecutive_failures = 0;

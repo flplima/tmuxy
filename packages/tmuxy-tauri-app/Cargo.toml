@@ -30,6 +30,9 @@ tauri-plugin-window-state = "2"
 [features]
 webdriver = ["tauri-plugin-webdriver"]
 
+[lints]
+workspace = true
+
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["process"] }
 

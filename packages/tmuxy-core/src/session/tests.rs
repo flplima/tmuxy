@@ -44,6 +44,16 @@ fn the_server_command_is_published_quoted_with_its_subcommand() {
 }
 
 #[test]
+fn an_ssh_tail_is_split_into_arguments_and_a_blank_one_means_local() {
+    assert_eq!(
+        ssh_argv(Some(" -p 2222  user@host ")),
+        Some(vec!["-p".to_string(), "2222".into(), "user@host".into()])
+    );
+    assert_eq!(ssh_argv(Some("   ")), None);
+    assert_eq!(ssh_argv(None), None);
+}
+
+#[test]
 fn session_names_are_held_to_the_alphabet() {
     for ok in ["tmuxy", "tmuxy_test_1727", "a-b", "me@host", "c++", "x"] {
         assert!(is_safe_session_name(ok), "{ok:?} should be accepted");
