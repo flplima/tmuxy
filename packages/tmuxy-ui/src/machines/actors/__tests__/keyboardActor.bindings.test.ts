@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { pid, wid } from '../../../test/wire';
+import { placeholderPaneId, placeholderWindowId } from '../../../domain/ids';
 import { createActor, createMachine, assign, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
 import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
@@ -239,6 +240,30 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: '%', shiftKey: true });
     expect(lastSendCommand(events)).toBe('select-window -t @2 \\; split-window -h');
+  });
+
+  it('leaves a placeholder window and pane unpinned: tmux is already on the window they stand for', () => {
+    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
+    child.send({
+      type: 'UPDATE_KEYBINDINGS',
+      keybindings: {
+        prefix_key: 'C-a',
+        tables: {},
+        prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
+        root_bindings: [],
+      },
+    });
+    // Right after a predicted new tab: the client's active window and pane
+    // are ids tmux has never heard of. A pin naming either is an error in
+    // tmux, and tmux stops the list there — the binding never runs.
+    actor.send({ type: 'SET_PARENT_WINDOW', windowId: placeholderWindowId('op1') });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: placeholderPaneId('pane_op1') });
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: '%', shiftKey: true });
+
+    expect(lastSendCommand(events)).toBe('split-window -h');
+    actor.stop();
   });
 
   it('derives the window from the pinned pane when the machine has none yet', () => {

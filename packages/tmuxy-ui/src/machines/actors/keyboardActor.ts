@@ -9,7 +9,7 @@ import { getMobileInput } from '../../utils/mobileKeyboard';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { splitTableSwitch } from '../../domain/keyTables';
 import { tabWalksChrome } from '../../utils/chromeTab';
-import type { PaneId } from '../../domain/ids';
+import { isPlaceholderId, type PaneId } from '../../domain/ids';
 import {
   bindingKeyOf,
   CLIENT_KEYS,
@@ -178,10 +178,15 @@ export function createKeyboardActor() {
       const bindingPin = (): string => {
         if (overlayPaneId()) return pinPrefix(null, realPaneId(overlayPaneId()));
         let pane = realPaneId(snap.liveActivePaneId);
+        // A placeholder window is one tmux has not named yet, so it cannot be
+        // a target; left unpinned, the binding runs in tmux's current window,
+        // which a just-created window is.
+        const liveWindow =
+          snap.liveActiveWindowId && !isPlaceholderId(snap.liveActiveWindowId)
+            ? snap.liveActiveWindowId
+            : null;
         const windowId =
-          snap.liveActiveWindowId ??
-          snap.livePanes.find((p) => p.tmuxId === pane)?.windowId ??
-          null;
+          liveWindow ?? snap.livePanes.find((p) => p.tmuxId === pane)?.windowId ?? null;
         if (windowId) {
           const inWindow = (id: PaneId | null) =>
             id !== null && snap.livePanes.some((p) => p.tmuxId === id && p.windowId === windowId);

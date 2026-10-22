@@ -25,7 +25,7 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
-import type { PaneId } from '../../../domain/ids';
+import { isPlaceholderId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { scrollViewsIn } from '../helpers';
 
@@ -144,13 +144,17 @@ export const layoutActions = {
     // Through the STORE: the SelectWindow op's patch + confirm-linger hold
     // the optimistic tab selection over stale snapshots for seconds (the
     // 200ms machine grace alone cannot cover a slow confirm — the tab strip
-    // visibly flapped on the v86 transport).
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.SelectWindow({ target: event.windowId }),
-      }),
-    );
+    // visibly flapped on the v86 transport). A placeholder tab is a window
+    // tmux has not named yet: nothing to send, and tmux's current window is
+    // already the one it stands for (a new window is selected as it is made).
+    if (!isPlaceholderId(event.windowId)) {
+      enqueue(
+        sendTo('tmuxStore', {
+          type: 'DISPATCH_OP' as const,
+          op: TmuxOp.SelectWindow({ target: event.windowId }),
+        }),
+      );
+    }
 
     if (targetPaneId !== context.activePaneId) {
       enqueue(
