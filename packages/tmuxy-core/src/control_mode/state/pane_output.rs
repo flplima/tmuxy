@@ -284,8 +284,15 @@ impl PaneState {
             })
             .collect();
 
-        // Create fresh terminal to clear all state
+        // A fresh terminal clears every mode and attribute the capture cannot
+        // carry; the history is kept across it. A capture is the screen as it
+        // is now, and the rows that scrolled off it before are still the rows
+        // that scrolled off it — for an observer, which answers a viewer's
+        // scroll from this grid alone, they are all the history there is, and
+        // a resize's capture used to take it away.
+        let history = self.terminal.screen_mut().take_scrollback();
         self.terminal = self.fresh_terminal();
+        self.terminal.screen_mut().restore_scrollback(history);
         // Keep image placements: the capture text can't recreate them (tmux
         // strips image escapes from captured history).
         self.image_parser.reset_for_capture();

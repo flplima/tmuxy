@@ -56,4 +56,4 @@ pub use callbacks::Callbacks;
 pub use cell::Cell;
 pub use parser::Parser;
 pub use row::LineSize;
-pub use screen::{MouseProtocolEncoding, MouseProtocolMode, Screen};
+pub use screen::{MouseProtocolEncoding, MouseProtocolMode, Screen, Scrollback};

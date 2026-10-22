@@ -60,6 +60,27 @@ impl Grid {
         crate::row::Row::new(self.size.cols)
     }
 
+    /// Take the scrollback out of this grid, leaving it with none.
+    pub fn take_scrollback(&mut self) -> std::collections::VecDeque<crate::row::Row> {
+        self.scrollback_offset = 0;
+        std::mem::take(&mut self.scrollback)
+    }
+
+    /// Put a scrollback taken from a grid back into this one, fitted to this
+    /// grid's width and capacity. The rows above the screen are history the
+    /// terminal has already shown; a screen rebuilt from a capture of what
+    /// is on it now has no reason to forget them.
+    pub fn restore_scrollback(&mut self, mut rows: std::collections::VecDeque<crate::row::Row>) {
+        for row in &mut rows {
+            row.resize(self.size.cols, crate::Cell::new());
+        }
+        while rows.len() > self.scrollback_len {
+            rows.pop_front();
+        }
+        self.scrollback = rows;
+        self.scrollback_offset = 0;
+    }
+
     pub fn clear(&mut self) {
         self.pos = Pos::default();
         self.saved_pos = Pos::default();

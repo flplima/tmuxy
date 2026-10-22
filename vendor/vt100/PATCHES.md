@@ -48,6 +48,10 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   default-background hole beside it.
 - **Width clamp**: a character is never wider than the grid, and a zero-column
   grid draws nothing instead of indexing a cell that does not exist.
+- **`Screen::take_scrollback` / `restore_scrollback`** (`Grid` has the same
+  pair): the rows above the screen moved from one screen to another, so
+  tmuxy can rebuild a pane's screen from a `capture-pane` without forgetting
+  the history that scrolled off it — which is all the history an observer has.
 - **DECSCUSR** (`CSI Ps SP q`, dispatched in `perform.rs`): the cursor style
   the application last asked for, `Screen::cursor_shape`. tmuxy draws the
   cursor itself and used to scan the raw bytes for the sequence beside the

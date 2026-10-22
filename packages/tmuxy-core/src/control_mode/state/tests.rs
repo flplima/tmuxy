@@ -125,6 +125,39 @@ fn an_observers_pane_answers_scrollback_from_its_own_history() {
     );
 }
 
+/// A capture rebuilds the screen from what tmux shows now; the rows that
+/// scrolled off before are kept. For an observer they are the whole history
+/// a viewer can scroll to, and a resize's capture used to erase them — the
+/// viewer's scroll view then opened over nothing.
+#[test]
+fn a_capture_keeps_the_history_that_scrolled_off_before_it() {
+    let mut pane = PaneState::new(pid("%1"), 40, 10)
+        .with_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
+    for n in 0..80 {
+        pane.process_output(format!("line {n}\r\n").as_bytes());
+    }
+    let (_, before) = pane.scrollback_cells(-1, -1);
+    assert!(
+        before >= 70,
+        "80 lines on a 10-row screen leave history: {before}"
+    );
+
+    pane.reset_and_process_capture(
+        b"line 71\nline 72\nline 73\nline 74\nline 75\nline 76\nline 77\nline 78\nline 79\n",
+    );
+
+    let (rows, after) = pane.scrollback_cells(-3, -1);
+    assert_eq!(
+        after, before,
+        "the capture replaced the screen, not the history"
+    );
+    let text: String = rows[0].iter().map(|c| c.char.clone()).collect();
+    assert!(
+        text.starts_with("line "),
+        "the rows above the screen are still the lines that scrolled off: {text:?}"
+    );
+}
+
 /// The membership check a viewer's request relies on: an aggregator holds
 /// only the session it monitors, so a pane it does not know is a pane the
 /// viewer was never shown.

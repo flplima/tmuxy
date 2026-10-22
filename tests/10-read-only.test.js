@@ -340,6 +340,19 @@ describe('Scenario 30: Read-only viewer', () => {
       (await viewer.evaluate(visibleTerminals)).terminals.map((t) => t.text),
     );
     expect(liveLowest).toBeGreaterThan(0);
+    // The scroll view is built from the history size the viewer's pane
+    // reports, which its monitor learns from its own list-panes — not from
+    // the output that just scrolled past. Seeing line-79 says the output
+    // arrived; this says the size did, or the view opens over no history.
+    await waitForCondition(
+      viewer,
+      () =>
+        viewer.evaluate(() =>
+          (window.app?.getSnapshot()?.context?.panes ?? []).some((p) => (p.historySize ?? 0) > 0),
+        ),
+      15000,
+      "the viewer's pane to report the history it has",
+    );
     const pane = await viewer.evaluate(() => {
       const r = document.querySelector('[data-pane-id] [role="log"]').getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };

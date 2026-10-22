@@ -49,6 +49,11 @@ pub enum MouseProtocolEncoding {
     // Urxvt,
 }
 
+/// The rows that scrolled off the top of a screen, taken out of it with
+/// [`Screen::take_scrollback`] to be put into another.
+#[derive(Debug)]
+pub struct Scrollback(std::collections::VecDeque<crate::row::Row>);
+
 /// Represents the overall terminal state.
 #[derive(Clone, Debug)]
 pub struct Screen {
@@ -80,6 +85,20 @@ impl Screen {
             mouse_protocol_encoding: MouseProtocolEncoding::default(),
             cursor_shape: None,
         }
+    }
+
+    /// Take the main screen's scrollback, to put into another screen with
+    /// [`Screen::restore_scrollback`] — what lets a screen be rebuilt from a
+    /// capture of its current contents without forgetting what scrolled off
+    /// it before.
+    pub fn take_scrollback(&mut self) -> Scrollback {
+        Scrollback(self.grid.take_scrollback())
+    }
+
+    /// Put a scrollback taken from a screen above this one's main grid,
+    /// fitted to its width and capacity.
+    pub fn restore_scrollback(&mut self, scrollback: Scrollback) {
+        self.grid.restore_scrollback(scrollback.0);
     }
 
     /// The cursor style the application last asked for with DECSCUSR
