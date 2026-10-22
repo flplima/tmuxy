@@ -92,7 +92,10 @@ export const sidebarsActions = {
           }),
         );
         enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' as const });
-      } else {
+      } else if (!context.leftSidebarStarting) {
+        // One window per column: a toggle that lands while the first open's
+        // window is still being made used to ask for a second, and every
+        // extra one lived on in tmux, hidden, for good.
         enqueue(
           sendTo('tmux', {
             type: 'SEND_OP' as const,
@@ -156,7 +159,7 @@ export const sidebarsActions = {
           }),
         );
         enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' as const });
-      } else {
+      } else if (!context.rightSidebarStarting) {
         enqueue(
           sendTo('tmux', {
             type: 'SEND_OP' as const,

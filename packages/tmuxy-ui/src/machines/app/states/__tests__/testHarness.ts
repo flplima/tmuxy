@@ -61,12 +61,18 @@ export function mountState<TActions extends Record<string, unknown>>(
   }).createMachine({
     context: { ...createInitialContext(), ...overrideContext },
     initial: 'active',
+    // Every default stub and every extra actor is invoked under its own id,
+    // so a slice that sends to an actor the defaults do not name (the
+    // servers actor, say) can be given one instead of crashing the machine.
     invoke: [
-      { id: 'tmux', src: 'tmux' },
-      { id: 'tmuxStore', src: 'tmuxStore' },
-      { id: 'keyboard', src: 'keyboard' },
-      { id: 'size', src: 'size' },
-    ],
+      ...new Set([
+        'tmux',
+        'tmuxStore',
+        'keyboard',
+        'size',
+        ...Object.keys(options.extraActors ?? {}),
+      ]),
+    ].map((id) => ({ id, src: id as never })),
     states: {
       active: {
         on: stateConfig.on as Record<string, { actions: string }>,

@@ -77,10 +77,26 @@ export function reconcileFloatAndSidebarLifecycle(
   const nextTreeHidden = sidebarHidden(nextSidebarCtx, 'left');
   if (!prevTreePane && nextTreePane) {
     const requestedByThisClient = context.leftSidebarOpen;
-    enqueue(assign({ leftSidebarOpen: !nextTreeHidden, leftSidebarStartFailed: false }));
-    if (requestedByThisClient && !nextTreeHidden) {
-      enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
-      enqueue(assign({ enableAnimations: false }));
+    enqueue(assign({ leftSidebarStarting: false, leftSidebarStartFailed: false }));
+    if (context.leftSidebarStarting && !requestedByThisClient && !nextTreeHidden) {
+      // This client asked for the column, then closed it before it landed:
+      // it arrives hidden, as the close would have left it.
+      enqueue(
+        sendTo('tmux', {
+          type: 'SEND_OP' as const,
+          op: TmuxOp.SetWindowTag({
+            windowId: nextTreePane.windowId,
+            tag: 'sidebar-hidden',
+            value: '1',
+          }),
+        }),
+      );
+    } else {
+      enqueue(assign({ leftSidebarOpen: !nextTreeHidden }));
+      if (requestedByThisClient && !nextTreeHidden) {
+        enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+        enqueue(assign({ enableAnimations: false }));
+      }
     }
   } else if (prevTreePane && !nextTreePane) {
     const failedStart = context.leftSidebarStarting;
@@ -102,10 +118,24 @@ export function reconcileFloatAndSidebarLifecycle(
   const nextDockHidden = sidebarHidden(nextSidebarCtx, 'right');
   if (!prevDockPane && nextDockPane) {
     const requestedByThisClient = context.rightSidebarOpen;
-    enqueue(assign({ rightSidebarOpen: !nextDockHidden, rightSidebarStartFailed: false }));
-    if (requestedByThisClient && !nextDockHidden) {
-      enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
-      enqueue(assign({ enableAnimations: false }));
+    enqueue(assign({ rightSidebarStarting: false, rightSidebarStartFailed: false }));
+    if (context.rightSidebarStarting && !requestedByThisClient && !nextDockHidden) {
+      enqueue(
+        sendTo('tmux', {
+          type: 'SEND_OP' as const,
+          op: TmuxOp.SetWindowTag({
+            windowId: nextDockPane.windowId,
+            tag: 'sidebar-hidden',
+            value: '1',
+          }),
+        }),
+      );
+    } else {
+      enqueue(assign({ rightSidebarOpen: !nextDockHidden }));
+      if (requestedByThisClient && !nextDockHidden) {
+        enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+        enqueue(assign({ enableAnimations: false }));
+      }
     }
   } else if (prevDockPane && !nextDockPane) {
     const failedStart = context.rightSidebarStarting;
