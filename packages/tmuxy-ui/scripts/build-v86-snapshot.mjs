@@ -174,8 +174,15 @@ async function buildBundle({ fetchBinaries }) {
     ].join('\n'),
   );
 
-  // Standard interactive prompt (the buildroot busybox default was `root%`).
-  await writeFile(join(WORK, 'bashrc'), "export PS1='\\u@\\h:\\w\\$ '\n");
+  // Standard interactive prompt (the buildroot busybox default was `root%`),
+  // and a UTF-8 locale: without one, readline takes the high bytes of an
+  // emoji or a CJK character for Meta key sequences (a typed 🔥 reached tmux
+  // as `__`) and miscounts widths on redisplay, clobbering the prompt after
+  // a pasted multibyte line.
+  await writeFile(
+    join(WORK, 'bashrc'),
+    "export LANG=C.UTF-8 LC_ALL=C.UTF-8\nexport PS1='\\u@\\h:\\w\\$ '\n",
+  );
 
   await rm(BUNDLE_TAR, { force: true });
   execFileSync('tar', ['-cf', BUNDLE_TAR, '-C', WORK, '.']);
@@ -206,7 +213,8 @@ const GUEST_INSTALL = [
   'cp /tmp/tb/tmuxy.conf /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf /root/.config/tmuxy/',
   'cp /tmp/tb/bashrc /root/.bashrc',
   'hostname tmuxy',
-  'export HOME=/root SHELL=/bin/bash TERM=xterm-256color TERMINFO=/tmp/tb/terminfo',
+  // LANG reaches every pane's shell through the tmux server's environment.
+  'export HOME=/root SHELL=/bin/bash TERM=xterm-256color TERMINFO=/tmp/tb/terminfo LANG=C.UTF-8 LC_ALL=C.UTF-8',
   'cd /root',
   '/usr/bin/tmux -f /root/.config/tmuxy/tmuxy.conf new-session -d -s m -x 80 -y 24',
   '/usr/bin/tmux rename-window -t m: root',
