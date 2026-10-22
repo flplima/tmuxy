@@ -2,7 +2,6 @@ mod helpers;
 
 use serde_json::Value;
 use tauri::{Manager, State};
-use tmuxy_core::control_mode::MonitorCommand;
 use tmuxy_core::transport::{self, to_json};
 use tmuxy_core::CommandError;
 
@@ -11,9 +10,7 @@ use crate::titlebar;
 use crate::windows;
 
 pub(crate) use helpers::is_openable_url;
-use helpers::{
-    open_path, query_via_monitor, resize_via_monitor, route, send_via_monitor, wait_for_monitor,
-};
+use helpers::{open_path, query_via_monitor, resize_via_monitor, route, wait_for_monitor};
 
 use tmuxy_core::session::session_name as get_session;
 
@@ -40,10 +37,14 @@ pub async fn get_initial_state(
     }
 
     // The monitor's own picture of the session — the same state its `Full`
-    // broadcast carries. The monitor starts with the app, before the webview
-    // can listen, so that broadcast is gone by the time the frontend asks.
+    // broadcast carries, at the size just asked for. The monitor starts with
+    // the app, before the webview can listen, so that broadcast is gone by
+    // the time the frontend asks.
     let tx = wait_for_monitor(&state).await?;
-    to_json(transport::initial_state(&tx).await?, "state")
+    to_json(
+        transport::initial_state_for_size(&tx, cols.zip(rows)).await?,
+        "state",
+    )
 }
 
 #[tauri::command]
@@ -72,19 +73,14 @@ pub async fn run_tmux_command(
     let entry = windows::entry_for(&window)?;
     let session = entry.session();
     let state = entry.monitor;
-    // `source-file` may change the prefix, the bindings, the theme or the
-    // appearance options: push fresh copies once tmux has applied it, as the
-    // web server re-broadcasts them.
-    let is_source_file = transport::is_source_file(&command);
-    let Some(routed) = route(&state, &session, &command) else {
-        return Ok(());
-    };
-    send_via_monitor(&state, MonitorCommand::RunCommand { command: routed }).await?;
-    if is_source_file {
-        tokio::time::sleep(transport::SOURCE_FILE_SETTLE).await;
-        crate::monitor::emit_config_settings(&app, &state).await;
-    }
-    Ok(())
+    // Routed, written and — after a `source-file` — followed by fresh copies
+    // of the settings it may have changed, as the web server does it.
+    let tx = state.connected_tx()?;
+    let size = state.last_client_size.read().ok().and_then(|g| *g);
+    transport::run_client_command(&tx, &command, &session, size, || {
+        crate::monitor::emit_config_settings(&app, &state)
+    })
+    .await
 }
 
 /// Run a tmux command and return what it printed — the one way the frontend

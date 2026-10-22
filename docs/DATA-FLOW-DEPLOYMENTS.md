@@ -18,7 +18,7 @@ Tauri IPC has lower latency than HTTP since communication is in-process.
 
 1. App starts, reads `TMUXY_SESSION` env var (defaults to "tmuxy")
 2. `monitor::start_monitoring()` spawns a background task that connects to tmux control mode
-3. On connection failure: exponential backoff (100ms to 10s max); after 5 consecutive failures the monitor **parks** — the loop stays alive but stops retrying until a user-requested reconnect (`tmuxy connect` or the sidebar server picker) revives it (see `packages/tmuxy-tauri-app/src/monitor.rs`)
+3. On connection failure: exponential backoff (100ms to 10s max); after 5 consecutive failures the monitor **parks** — the loop stays alive but stops retrying until a user-requested reconnect (`tmuxy connect` or the sidebar server picker) revives it. The loop is `transport::supervise` in tmuxy-core, shared with the web server; parking, the server switch and the detach are the desktop's `Host` (`packages/tmuxy-tauri-app/src/monitor.rs`), where the web server's stops instead
 4. Once connected: emits keybindings, then enters the monitor event loop
 5. Frontend's `TauriAdapter.connect()` sets up event listeners for `tmux-state-update`, `tmux-keybindings`, `tmux-theme-settings`, `tmux-css-changed`, and `tmux-error`
 6. No explicit disconnect — the monitor runs for the app's lifetime

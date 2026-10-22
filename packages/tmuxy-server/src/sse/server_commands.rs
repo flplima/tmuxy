@@ -1,22 +1,10 @@
 use std::sync::Arc;
-use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommand, MonitorCommandSender};
 use tmuxy_core::servers::RemoteSessionInfo;
 use tmuxy_core::transport;
 use tmuxy_core::CommandError;
-use tracing::debug;
 
 use crate::state::AppState;
-
-/// Send a tmux command through control mode.
-pub(super) async fn send_via_control_mode(
-    state: &Arc<AppState>,
-    session: &str,
-    command: &str,
-) -> Result<(), CommandError> {
-    let tx = state.monitor_tx(session).await?;
-    transport::run(&tx, command).await
-}
 
 /// The session's monitor command channel, waiting for the monitor to finish
 /// connecting if the request got here first.
@@ -27,50 +15,18 @@ pub(super) async fn wait_for_monitor(
     transport::wait_for_monitor(|| async { state.monitor_tx(session).await.ok() }).await
 }
 
-/// A client's initial state, from a monitor that may still be connecting.
-pub(super) async fn initial_state_via_control_mode(
-    state: &Arc<AppState>,
-    session: &str,
-) -> Result<tmuxy_core::TmuxState, CommandError> {
-    let tx = wait_for_monitor(state, session).await?;
-    transport::initial_state(&tx).await
-}
-
-/// How long a client's first state waits for the resize it just asked for.
-///
-/// tmux answers in milliseconds over a local socket. The bound is what stops a
-/// size tmux will not take (`resize_given_up` in the monitor) from holding up
-/// the first paint: past it the client is given the freshest state there is.
-const INITIAL_STATE_RESIZE_WAIT: Duration = Duration::from_millis(750);
-
-/// The initial state, agreeing with the size the session has been told to be.
+/// A client's initial state, from a monitor that may still be connecting,
+/// agreeing with the size the session has been told to be (`last_resize`).
 pub(super) async fn initial_state_for_size(
     state: &Arc<AppState>,
     session: &str,
 ) -> Result<tmuxy_core::TmuxState, CommandError> {
-    let mut snapshot = initial_state_via_control_mode(state, session).await?;
+    let tx = wait_for_monitor(state, session).await?;
     let asked = {
         let sessions = state.sessions.read().await;
         sessions.get(session).and_then(|conns| conns.last_resize)
     };
-    let Some((cols, rows)) = asked else {
-        return Ok(snapshot);
-    };
-    let deadline = tokio::time::Instant::now() + INITIAL_STATE_RESIZE_WAIT;
-    while snapshot.total_width != cols || snapshot.total_height != rows {
-        if tokio::time::Instant::now() >= deadline {
-            debug!(
-                %session,
-                asked = ?(cols, rows),
-                got = ?(snapshot.total_width, snapshot.total_height),
-                "first state still disagrees with the size asked for; sending it anyway"
-            );
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        snapshot = initial_state_via_control_mode(state, session).await?;
-    }
-    Ok(snapshot)
+    transport::initial_state_for_size(&tx, asked).await
 }
 
 /// Run a command through the session's control-mode connection and wait for

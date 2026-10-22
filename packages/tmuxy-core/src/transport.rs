@@ -19,7 +19,9 @@ use crate::session_snapshot::{self as snapshot, RestoreOptions, Snapshot, Snapsh
 use crate::{CommandError, PaneId, StateUpdate, TmuxError, TmuxState};
 
 mod bindings;
+mod supervise;
 pub use bindings::*;
+pub use supervise::*;
 
 // ============================================
 // The monitor loop
@@ -145,6 +147,41 @@ pub async fn initial_state(tx: &MonitorCommandSender) -> Result<TmuxState, Comma
         .map_err(|_| CommandError::unavailable("monitor went away before answering"))
 }
 
+/// How long a client's first state waits for the resize it just asked for.
+///
+/// tmux answers in milliseconds over a local socket. The bound is what stops a
+/// size tmux will not take (`resize_given_up` in the monitor) from holding up
+/// the first paint: past it the client is given the freshest state there is.
+pub const INITIAL_STATE_RESIZE_WAIT: Duration = Duration::from_millis(750);
+
+/// The initial state, agreeing with the size the session was asked to be
+/// (`asked`, the client's viewport) when there is one — so the first paint
+/// is at the client's size, not the control-mode PTY's.
+pub async fn initial_state_for_size(
+    tx: &MonitorCommandSender,
+    asked: Option<(u32, u32)>,
+) -> Result<TmuxState, CommandError> {
+    let mut state = initial_state(tx).await?;
+    let Some((cols, rows)) = asked else {
+        return Ok(state);
+    };
+    let deadline = tokio::time::Instant::now() + INITIAL_STATE_RESIZE_WAIT;
+    while state.total_width != cols || state.total_height != rows {
+        if tokio::time::Instant::now() >= deadline {
+            tracing::debug!(
+                target: "tmuxy_core::transport",
+                asked = ?(cols, rows),
+                got = ?(state.total_width, state.total_height),
+                "first state still disagrees with the size asked for; sending it anyway"
+            );
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        state = initial_state(tx).await?;
+    }
+    Ok(state)
+}
+
 /// A command's answer as JSON; failing to make it is this side's fault.
 pub fn to_json(
     value: impl serde::Serialize,
@@ -240,6 +277,38 @@ pub async fn run(tx: &MonitorCommandSender, command: &str) -> Result<(), Command
     })
     .await
     .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))
+}
+
+/// A client's mutation, the way both hosts run one: routed by the shared
+/// policy (a blocked command is logged and dropped — both answer it with
+/// nothing), written to the monitor, and, when it was a `source-file`,
+/// followed by `after_source_file` once tmux has had [`SOURCE_FILE_SETTLE`]
+/// to apply it: the prefix, the bindings, the theme and the appearance may
+/// all have changed, and the host pushes fresh copies.
+pub async fn run_client_command<F>(
+    tx: &MonitorCommandSender,
+    command: &str,
+    session: &str,
+    size: Option<(u32, u32)>,
+    after_source_file: impl FnOnce() -> F,
+) -> Result<(), CommandError>
+where
+    F: Future<Output = ()>,
+{
+    let routed = match route(command, session, size) {
+        Route::Blocked(reason) => {
+            tracing::warn!(target: "tmuxy_core::transport", command, reason, "blocked command");
+            return Ok(());
+        }
+        Route::ControlMode(cmd) => cmd,
+    };
+    let sourced = is_source_file(&routed);
+    run(tx, &routed).await?;
+    if sourced {
+        tokio::time::sleep(SOURCE_FILE_SETTLE).await;
+        after_source_file().await;
+    }
+    Ok(())
 }
 
 // ============================================

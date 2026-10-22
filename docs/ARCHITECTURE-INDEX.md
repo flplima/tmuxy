@@ -6,6 +6,7 @@ Feature-to-files retrieval map for agents.
 | --- | --- |
 | tmux control-mode command routing | `packages/tmuxy-core/src/command_router.rs`<br>`packages/tmuxy-ui/src/infra/transport/drivers/TauriAdapter.ts` |
 | What tmux leaves unannounced (the re-lists behind a command), and the map of version workarounds | `packages/tmuxy-core/src/tmux_compat.rs` |
+| The monitor loop (connect, back off, give up, restore before create, autosave) and what each host does around it | `packages/tmuxy-core/src/transport/supervise.rs`<br>`packages/tmuxy-server/src/sse/monitor.rs`<br>`packages/tmuxy-tauri-app/src/monitor.rs` |
 | The tmux config tmuxy ships (the defaults, the essentials, the user template) and the code that writes it | `packages/tmuxy-core/assets/*.conf`<br>`packages/tmuxy-core/src/session/config.rs` |
 | Pane groups: membership, order and every group operation | `packages/tmuxy-core/src/groups.rs` (the rules)<br>`packages/tmuxy-group/src/lib.rs` (`tmuxy-server group`, `tmuxy-group`)<br>`bin/tmuxy/pane-group-*` (wrappers) |
 | Typed ids (pane, window, group) | `packages/tmuxy-core/src/ids.rs`<br>`packages/tmuxy-ui/src/domain/ids.ts` |

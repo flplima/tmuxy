@@ -53,25 +53,6 @@ pub(super) fn route(state: &MonitorState, session: &str, command: &str) -> Optio
     }
 }
 
-/// Write to the monitor's command channel. Once connected, the desktop
-/// reaches tmux only over this channel — here, and through
-/// `tmuxy_core::transport` for its reads: an external `tmux` while the
-/// control-mode client is attached can crash tmux 3.5a, and a client-less
-/// command has no current session to act on, which is how a pinned split used
-/// to land on the wrong tab. Before the monitor connects there is nothing to
-/// write to; the frontend only sends once connected, so reaching this without
-/// a channel is a bug worth surfacing.
-pub(super) async fn send_via_monitor(
-    state: &MonitorState,
-    cmd: MonitorCommand,
-) -> Result<(), CommandError> {
-    state
-        .connected_tx()?
-        .send(cmd)
-        .await
-        .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))
-}
-
 /// Whether a link a pane printed may be handed to the browser.
 pub(crate) fn is_openable_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();

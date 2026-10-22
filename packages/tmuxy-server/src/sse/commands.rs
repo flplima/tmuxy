@@ -9,14 +9,14 @@ use std::sync::Arc;
 use tmuxy_core::command_router::Route;
 use tmuxy_core::transport::{self, to_json};
 use tmuxy_core::CommandError;
-use tracing::{trace, warn};
+use tracing::trace;
 
 use super::clients::{new_window_client_size, set_client_size};
 use super::emitter::{broadcast_theme_settings, refresh_keybindings, theme_settings_for};
 pub(super) use super::server_commands::wait_for_monitor;
 use super::server_commands::{
     handle_connect_server, handle_list_servers, initial_state_for_size, query_via_control_mode,
-    send_via_control_mode, viewer_scrollback,
+    viewer_scrollback,
 };
 use super::SessionQuery;
 use crate::command::ClientCommand;
@@ -206,33 +206,22 @@ pub(super) async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::RunTmuxCommand { command } => {
-            // Policy lives in tmuxy-core (`transport::route`) and is shared
-            // with the desktop app; only the channel write is ours.
-            let routed = match transport::route(
+            // Policy and sequence live in tmuxy-core (`run_client_command`)
+            // and are shared with the desktop app; only the channel and the
+            // re-broadcast after a `source-file` are ours.
+            let tx = state.monitor_tx(session).await?;
+            transport::run_client_command(
+                &tx,
                 &command,
                 session,
                 new_window_client_size(state, session).await,
-            ) {
-                Route::Blocked(reason) => {
-                    warn!(?conn_id, %command, reason, "blocked command");
-                    return Ok(serde_json::json!(null));
-                }
-                Route::ControlMode(cmd) => cmd,
-            };
-
-            let is_source_file = transport::is_source_file(&routed);
-
-            send_via_control_mode(state, session, &routed).await?;
-            trace!(?conn_id, command = %routed, "client sent command via control mode");
-
-            // After source-file, re-broadcast keybindings (prefix key may have
-            // changed) and theme settings (theme/appearance options may have).
-            if is_source_file {
-                tokio::time::sleep(transport::SOURCE_FILE_SETTLE).await;
-                refresh_keybindings(state, session).await;
-                broadcast_theme_settings(state, session).await;
-            }
-
+                || async {
+                    refresh_keybindings(state, session).await;
+                    broadcast_theme_settings(state, session).await;
+                },
+            )
+            .await?;
+            trace!(?conn_id, %command, "client sent command via control mode");
             Ok(serde_json::json!(null))
         }
         ClientCommand::QueryTmux { command } => {
