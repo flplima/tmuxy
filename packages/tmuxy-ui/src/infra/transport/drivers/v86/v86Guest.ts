@@ -197,18 +197,20 @@ export class CaptureBook {
         }
       }, 15000);
       this.captures.set(id, { lines: [], resolve, timer });
-      send(
-        `display-message -p '${startMark}' ; ` +
-          `capture-pane -t ${paneId} -p -e -S ${start} -E ${end} ; ` +
-          `display-message -p '${endMark}'`,
-      );
+      // Three lines, as `reply_wrapped_lines` sends them (invariant A6): a
+      // capture of a pane that is gone fails, tmux stops a `;` list at its
+      // first error, and an END marker on the same line would never run.
+      send(`display-message -p '${startMark}'`);
+      send(`capture-pane -t ${paneId} -p -e -S ${start} -E ${end}`);
+      send(`display-message -p '${endMark}'`);
     });
   }
 
   /**
    * Scan a raw control-mode chunk for scrollback-capture markers and collect
    * the lines between them. Skips control-mode framing (`%begin`/`%end`/…) so
-   * only real captured content is kept.
+   * only real captured content is kept; a capture that fails (`%error`) is
+   * history nobody has, so tmux's message is dropped rather than shown as it.
    */
   scanChunk(chunk: string): void {
     this.lineBuf += chunk;
@@ -234,7 +236,11 @@ export class CaptureBook {
         if (this.activeId === id) this.activeId = null;
         continue;
       }
-      if (this.activeId !== null && !/^%(begin|end|error)\b/.test(line)) {
+      if (this.activeId === null) continue;
+      if (line.startsWith('%error')) {
+        this.captures.get(this.activeId)?.lines.splice(0);
+        this.activeId = null;
+      } else if (!/^%(begin|end)\b/.test(line)) {
         this.captures.get(this.activeId)?.lines.push(line);
       }
     }
@@ -261,6 +267,13 @@ export class CaptureBook {
  * and desyncs whenever a command argument contains a quoted ` ; ` (the
  * count overshoots and the tracker steals unrelated responses, shifting
  * every later correlation — the misattributed-outcome bug).
+ *
+ * The markers are their own LINES, as the native monitor sends them
+ * (`reply_wrapped_lines`, invariant A6), never one `;` list with the
+ * command: tmux stops a list at its first error, so an END marker sharing a
+ * refused split's line never ran — the tracker then waited out its timeout,
+ * swallowing every reply behind it, and reported "did not respond" for a
+ * split tmux had answered "no space for a new pane" at once.
  */
 export class TrackedCommandBook {
   /** How long a tracked command may go unanswered before it is reported as
@@ -329,9 +342,9 @@ export class TrackedCommandBook {
           resolve(r);
         },
       });
-      send(
-        `display-message -p 'TMUXY_RC_${id}' ; ${cmd} ; display-message -p 'TMUXY_RC_END_${id}'`,
-      );
+      send(`display-message -p 'TMUXY_RC_${id}'`);
+      send(cmd);
+      send(`display-message -p 'TMUXY_RC_END_${id}'`);
     });
   }
 

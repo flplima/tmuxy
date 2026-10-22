@@ -229,6 +229,56 @@ export const ConcurrentSplitsClaimIds: Story = {
 };
 
 /**
+ * A split tmux refuses ("no space for a new pane") rolls back AT ONCE with
+ * tmux's own reason. The v86 tracker used to put its END marker on the
+ * command's own `;` line; tmux stops a list at its first error, so the marker
+ * never ran, the tracker waited out its 8 s timeout — swallowing every reply
+ * queued behind it — and reported "tmux did not respond" for all of them.
+ * Invariant A6: the markers are their own lines.
+ */
+export const RefusedSplitReportsTmuxsReason: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const refusal = /no space for a new pane/;
+    const snackbarTexts = () =>
+      Array.from(document.querySelectorAll('[data-testid="snackbar"] .snackbar-text')).map(
+        (el) => el.textContent ?? '',
+      );
+    const placeholders = () =>
+      paneIds(canvas).filter((id) => id.startsWith('__placeholder_')).length;
+
+    // Halve the pane until tmux has no room left; each split settles —
+    // confirmed by a real pane or refused — before the next goes out.
+    let refusedAfterMs = 0;
+    for (let attempt = 0; attempt < 8 && refusedAfterMs === 0; attempt++) {
+      const before = realPaneIdsSorted(canvas).length;
+      const pressedAt = performance.now();
+      await user.keyboard('{Control>}a{/Control}');
+      await user.keyboard('-');
+      await waitFor(
+        () => {
+          const refused = snackbarTexts().some((t) => refusal.test(t));
+          const confirmed = realPaneIdsSorted(canvas).length === before + 1;
+          expect(placeholders()).toBe(0);
+          expect(refused || confirmed).toBe(true);
+        },
+        { timeout: 20000, interval: 100 },
+      );
+      if (snackbarTexts().some((t) => refusal.test(t))) {
+        refusedAfterMs = performance.now() - pressedAt;
+      }
+    }
+    expect(refusedAfterMs).toBeGreaterThan(0);
+    // A refusal answered in-band arrives in well under the 8 s a hung
+    // tracker takes to give up.
+    expect(refusedAfterMs).toBeLessThan(4000);
+    expect(snackbarTexts().some((t) => /did not respond/.test(t))).toBe(false);
+  },
+};
+
+/**
  * 1.9 — Typing round-trip latency canary (NOT local echo — that's an explicit
  * non-goal): pasting a command must render its real `%output` within a budget
  * that catches serial-pacing / aggregator-debounce regressions. Generous for

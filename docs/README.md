@@ -57,6 +57,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [TESTS-E2E.md](TESTS-E2E.md) | The browser + tmux suites, what their helpers guarantee, the latency gate and the Tauri suite | Writing or fixing an E2E test |
 | [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md) | The deterministic and v86 Storybook probes, quarantine, accessibility | Writing or fixing a story |
 | [INVARIANTS.md](INVARIANTS.md) | The ledger of cross-layer promises — effect ordering, stream sequencing, predictions, read-only gating — each with the test that holds it | Fixing a bug on a seam; adding a test for ordering or a race |
+| [INVARIANTS-UI-RO-LIFECYCLE.md](INVARIANTS-UI-RO-LIFECYCLE.md) | The ledger's `U`, `R` and `L` rows: UI-mode records, read-only clients, session lifecycle | Fixing a bug in copy mode, resize preview, a viewer, or restore |
 | [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each | Benchmarking, profiling, or investigating latency |
 | [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) | The numbers measured so far, long-session retention, and snapshot costs | Judging whether a measurement regressed |
 | [TRACING.md](TRACING.md) | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: reading it, the redaction boundary | Debugging complex cross-layer issues; reporting a bug with a trace |
