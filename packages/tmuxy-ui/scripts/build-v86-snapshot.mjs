@@ -154,12 +154,14 @@ async function buildBundle({ fetchBinaries }) {
   }
   await chmod(join(WORK, 'bin', 'tmuxy-cli'), 0o755);
 
-  // Fresh config: the defaults the app ships (command-aliases, Ctrl+hjkl nav
-  // bindings, prefix bindings) + a minimal user conf sourcing it.
-  await cp(
-    join(REPO, 'packages', 'tmuxy-core', 'assets', 'tmuxy.defaults.conf'),
-    join(WORK, 'tmuxy.defaults.conf'),
-  );
+  // Fresh config: the defaults the app ships (Ctrl+hjkl nav bindings, prefix
+  // bindings) and the essentials they source — the `tmuxy-*` command-aliases
+  // live there, and without the file the guest's tmux has no `tmuxy-nav-*`,
+  // so every Ctrl+h/j/k/l was "unknown command" — plus a minimal user conf
+  // sourcing the defaults.
+  for (const conf of ['tmuxy.defaults.conf', 'tmuxy.essentials.conf']) {
+    await cp(join(REPO, 'packages', 'tmuxy-core', 'assets', conf), join(WORK, conf));
+  }
   await writeFile(
     join(WORK, 'tmuxy.conf'),
     [
@@ -198,8 +200,10 @@ const GUEST_INSTALL = [
   'ln -sf /tmp/tb/bin/tmuxy-cli /usr/bin/tmuxy',
   'ln -sf /tmp/tb/tmuxy-group /usr/bin/tmuxy-group',
   'mkdir -p /root/.config/tmuxy/bin',
-  'ln -sfn /tmp/tb/bin/tmuxy /root/.config/tmuxy/bin/tmuxy',
-  'cp /tmp/tb/tmuxy.conf /tmp/tb/tmuxy.defaults.conf /root/.config/tmuxy/',
+  // busybox's ln has no -n; with it the link was never made, and the
+  // essentials' `$HOME/.config/tmuxy/bin/tmuxy/...` scripts did not exist.
+  'ln -sf /tmp/tb/bin/tmuxy /root/.config/tmuxy/bin/tmuxy',
+  'cp /tmp/tb/tmuxy.conf /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf /root/.config/tmuxy/',
   'cp /tmp/tb/bashrc /root/.bashrc',
   'hostname tmuxy',
   'export HOME=/root SHELL=/bin/bash TERM=xterm-256color TERMINFO=/tmp/tb/terminfo',
