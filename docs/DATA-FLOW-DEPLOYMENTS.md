@@ -150,7 +150,7 @@ No server at all. Real tmux 3.7a runs inside a v86 x86 emulator (a small buildro
 
 ```
 TmuxyApp ──invoke(run_tmux_command)──> V86TmuxAdapter ──> V86Engine
-   ▲                                                          │ byte-paced writes
+   ▲                                                          │ paced writes
    │                                                          ▼
 onStateChange <── tmuxy-wasm (parse + aggregate) <──serial── tmux -CC in v86 guest
 ```
@@ -159,7 +159,7 @@ Key pieces (all under `tmuxy-ui/src/infra/transport/drivers/v86/`):
 
 | Piece | Responsibility |
 | --- | --- |
-| `V86Engine` | Owns the emulator: byte-paced UART writer (whole-command writes overrun the guest 16550 FIFO and corrupt commands), serial coalescing, tick/sync timers, `%exit`→fatal detection, and a guest bootstrap re-applied on every attach (snapshot restores rewind the filesystem). |
+| `V86Engine` | Owns the emulator: a UART writer paced under the rate the guest drains its input (v86's UART queue is unbounded; the guest reads ~45 KB/s, and a slower pace turns the queue into the bottleneck behind every keystroke), serial coalescing, tick/sync timers, `%exit`→fatal detection, and a guest bootstrap re-applied on every attach (snapshot restores rewind the filesystem). Marker-bracketed commands (tracked mutations, scrollback captures) send their markers as separate lines, as the native monitor does — invariant A6 in INVARIANTS.md. |
 | `V86TmuxAdapter` | The v86 driver behind `V86TransportLive`: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally. |
 | shared engine | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s). |
 

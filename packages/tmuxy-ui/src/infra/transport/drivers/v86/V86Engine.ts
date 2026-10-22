@@ -3,7 +3,7 @@
  * facade so it can be either owned by a single adapter (isolated, default) or
  * shared as a process-wide singleton across many stories (opt-in).
  *
- * It owns exactly one v86 emulator, one persistent serial pump, one byte-paced
+ * It owns exactly one v86 emulator, one persistent serial pump, one paced
  * writer, and the periodic tick/sync timers. The tmuxy-wasm core is swappable:
  * on `reset()` the engine restores the pinned snapshot and installs a FRESH core,
  * so a reused instance starts each story from an identical clean state (no bleed
@@ -367,9 +367,10 @@ export class V86Engine {
   /**
    * Send a command (or ` ; `-separated command list) and resolve with its real
    * outcome — success, or the first %error line. The command is bracketed
-   * between two display-message markers so its replies can be picked out of
-   * the FIFO exactly, regardless of what the core sends around it or how many
-   * response blocks the command produces. A timeout is a FAILURE: reporting
+   * between two display-message markers, each its own line, so its replies
+   * can be picked out of the FIFO exactly, regardless of what the core sends
+   * around it, how many response blocks the command produces, or whether it
+   * fails partway (see `TrackedCommandBook`). A timeout is a FAILURE: reporting
    * success for a command that may never have executed commits optimistic
    * state the server doesn't have (silent divergence, the worst outcome);
    * failing rolls the op back visibly and a resync converges the rest.
@@ -386,17 +387,24 @@ export class V86Engine {
     );
   }
 
-  /** Queue a control-mode command; streamed to the guest byte-paced. */
+  /** Queue a control-mode command; streamed to the guest at the paced rate. */
   send(cmd: string): void {
     this.byteBuf += encodeUtf8SerialBytes(cmd);
     this.drainQueue();
   }
 
-  // Stream pending bytes to the guest UART a small chunk at a time so its RX FIFO
-  // never overruns (which would drop bytes mid-command). 8 bytes/4ms stays well
-  // under a 16-byte 16550 FIFO while sending ~2KB/s — ample for control commands
-  // and fast typing.
-  private static readonly CHUNK_BYTES = 8;
+  // Stream pending bytes to the guest UART in chunks, paced under the rate the
+  // guest drains them. v86's UART holds received bytes in an unbounded queue
+  // and keeps the interrupt raised until the guest has read them all, so no
+  // chunk size overruns it; what bounds the rate is the guest itself, which
+  // reads ~45 KB/s (1,500 marker commands — 46 KB — all answered in order, at
+  // every pacing up to 128 KB/s). Staying under that keeps the kernel's tty
+  // buffer from filling behind a burst. The pace used to be 8 bytes/4 ms,
+  // 2 KB/s, out of a worry about a 16-byte FIFO that this UART does not have:
+  // a burst of splits — each a ~600-byte list-panes plus captures — queued
+  // seconds of backlog, keystrokes waited behind it, and tracked commands
+  // timed out before their bytes had been written.
+  private static readonly CHUNK_BYTES = 128;
   private static readonly CHUNK_INTERVAL_MS = 4;
   private drainQueue(): void {
     if (this.writing || !this.emu || this.byteBuf.length === 0) return;

@@ -12,6 +12,7 @@ import {
   paneGroupsState,
   paneIds,
   tabWindows,
+  realTabWindows,
   settleGeometry,
 } from './appStoryHelpers';
 
@@ -115,6 +116,45 @@ export const RapidCommandBurst: Story = {
       },
       { timeout: 60000, interval: 700 },
     );
+  },
+};
+
+/**
+ * A burst of layout work must not leave typing waiting behind it. Five new
+ * tabs from the `+` with no pause between clicks each cost tmux a window and
+ * the core a list-panes and a capture — kilobytes of commands on the serial
+ * line. Every tab must resolve to a real window, and a command typed right
+ * after must echo within a typing round trip, not after the queue drains:
+ * the writer used to pace at 2 KB/s, so a burst like this put seconds between
+ * a keystroke and the guest, and tracked commands timed out unwritten.
+ */
+export const LayoutBurstThenTypingStaysPrompt: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const before = realTabWindows().length;
+    const plus = canvas.getByLabelText('Create new tab');
+    for (let i = 0; i < 5; i++) plus.click();
+    await waitFor(
+      () => {
+        expect(windows().some((w) => w.id.startsWith('__placeholder_'))).toBe(false);
+        expect(realTabWindows().length).toBe(before + 5);
+      },
+      { timeout: 15000, interval: 200 },
+    );
+    const typedAt = performance.now();
+    await user.keyboard('echo BURST_DONE_MARK{Enter}');
+    await waitFor(
+      () => {
+        const text = paneGroups(canvas)
+          .map((p: HTMLElement) => p.textContent ?? '')
+          .join('');
+        expect((text.match(/BURST_DONE_MARK/g) ?? []).length).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 6000, interval: 100 },
+    );
+    expect(performance.now() - typedAt).toBeLessThan(4000);
   },
 };
 
