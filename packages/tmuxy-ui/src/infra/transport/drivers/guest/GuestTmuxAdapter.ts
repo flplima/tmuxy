@@ -30,6 +30,7 @@ import {
 import { unescapeLiteralText } from '../../keyBatching';
 import { quote } from '../../../../domain/commands';
 import { DEFAULT_KEYBINDINGS } from './defaultKeybindings';
+import { readGuestPreview } from './guestPreview';
 import {
   GUEST_DEFAULT_COLS,
   GUEST_DEFAULT_ROWS,
@@ -225,6 +226,12 @@ export class GuestTmuxAdapter implements TmuxAdapter {
         const cells = this.engine.parseScrollback(text, width);
         return { cells, historySize, start, end, width } as T;
       }
+      case 'read_preview':
+        return (await readGuestPreview(
+          (command) => this.engine.query(command),
+          String(args?.paneId ?? ''),
+          args?.path as string | undefined,
+        )) as T;
       case 'get_theme_settings':
         return (loadThemeFromStorage() || { theme: 'default', mode: 'dark' }) as T;
       case 'get_themes_list':
