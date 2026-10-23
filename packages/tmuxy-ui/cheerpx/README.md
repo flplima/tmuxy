@@ -46,7 +46,9 @@ tmux (pane fd) ── socket pair ── tmuxy-pty ── two pipes ── bash,
 Ctrl+C reaches every process in the pane through the pids the preload
 records, since CheerpX can neither signal a process group nor report parent
 pids. The pane's bash runs with `--noediting -i`, so line editing is the
-helper's.
+helper's: the cursor keys, history, Tab completion (of files from the
+directory the prompt reports with OSC 7, and of commands) and Ctrl+L, much as
+readline does them at a prompt.
 
 ## What CheerpX does differently
 
@@ -68,7 +70,10 @@ helper's.
 
 ## Limits
 
-A pane is not a terminal to the programs in it: `tty` says so, `ls` prints
-one name per line, and full-screen programs (vim, less) do not work. Panes do
-not learn their size. Ctrl+Z does nothing. A job ended by any signal is
-reported as `Killed`.
+A pane is not a terminal to the programs in it: `tty` says so, and `ls`
+prints one name per line. Full-screen programs cannot run there, so `vi` and
+`top` say so and exit (`rootfs/usr/local/bin/tmuxy-no-tui`), and the pagers
+`less` and `more` print what they are given. Panes do not learn their size,
+and a line edited past the pane's right edge is edited on its last row only.
+Ctrl+Z does nothing. A job ended by a signal other than Ctrl+C's is reported
+as `Killed`.
