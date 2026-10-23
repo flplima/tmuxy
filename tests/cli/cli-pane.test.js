@@ -341,8 +341,26 @@ describe('CLI pane subcommands', () => {
           ' \\; set-option -w -t main:2 @tmuxy-float-height 12' +
           ' \\; resize-pane -t main:2 -x 50' +
           ' \\; resize-pane -t main:2 -y 12' +
-          ' \\; select-pane -t %5',
+          ' \\; select-pane -t %5' +
+          " \\; display-message -p -t main:2 '##{pane_id} ##{window_id}'",
       );
+    });
+
+    test('a float running a command closes its own window, never the caller tab', () => {
+      // The command's float can close before the script asks tmux about it,
+      // and display-message answers for a target that is gone with the
+      // caller's pane: the float's ids come from the list that makes it, and
+      // only its window id is closed. Here the caller's window is @3 (what
+      // `#{window_id}` answers for the caller) and the float's is @98.
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'float', 'echo', 'hi'], {
+        env: { ...floatEnv, MOCK_TMUX_FLOAT_WINDOW_ID: '@98', MOCK_TMUX_LIST_PANES: '4242' },
+      });
+      expect(exitCode).toBe(0);
+      const kills = tmuxCalls.filter(
+        (c) => c.args[0] === 'run-shell' && c.args[1].includes('kill-window'),
+      );
+      expect(kills).toHaveLength(1);
+      expect(kills[0].args[1]).toContain('kill-window -t @98');
     });
 
     test('a bare float is 60x15 cells, and never taller than the tab', () => {

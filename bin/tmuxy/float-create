@@ -190,15 +190,25 @@ build_float_command() {
   # its own choosing. Hand the caller's pane back so opening a float never moves
   # the user's cursor to a different pane of the tab they left.
   if [ -n "${TMUX_PANE:-}" ]; then printf ' \; select-pane -t %s' "$TMUX_PANE"; fi
+  # The float's pane and window ids, read in the same list, while the float
+  # certainly exists: a command that exits at once closes it before the next
+  # tmux call, and display-message answers for a target that is gone with the
+  # CALLER's pane - which the close below then killed, tab and all. The `#`s
+  # are doubled to survive run-shell's own format expansion.
+  printf " \\; display-message -p -t %s '##{pane_id} ##{window_id}'" "$target"
   printf '\n'
 }
 
-# The one pane of the float window at $1 (session:index), or empty. A window
-# target resolves to that window's active pane, which in a float window is its
-# only pane. Read directly rather than through `list-panes | head`: under
-# `pipefail` a truncated pipe would fail the whole assignment silently.
-float_pane_id() {
-  _tmux display-message -p -t "$1" '#{pane_id}' 2>/dev/null || true
+# Create the float (build_float_command's arguments) and set NEW_PANE_ID and
+# NEW_WIN_ID to its pane and window, or fail.
+create_float() {
+  local ids
+  ids=$(_run_safe "$(build_float_command "$@")" | tail -n 1)
+  read -r NEW_PANE_ID NEW_WIN_ID <<<"$ids"
+  if [ -z "${NEW_PANE_ID:-}" ] || [ -z "${NEW_WIN_ID:-}" ]; then
+    echo "Error: failed to create float pane" >&2
+    exit 1
+  fi
 }
 
 if [ "$CURRENT_TYPE" = "float" ]; then
@@ -220,14 +230,7 @@ if [ $# -eq 0 ]; then
   #
   # Route the command list through run-shell to avoid hangs on tmux 3.5a:
   # direct subprocess calls can deadlock with control mode.
-  _run_safe "$(build_float_command "$TARGET")"
-  NEW_PANE_ID=$(float_pane_id "$TARGET")
-
-  if [ -z "$NEW_PANE_ID" ]; then
-    echo "Error: failed to create float pane" >&2
-    exit 1
-  fi
-
+  create_float "$TARGET"
   echo "$NEW_PANE_ID"
 else
   # Command mode: run the command in the float, capture its stdout, auto-close.
@@ -248,13 +251,7 @@ tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET wait-for -S ${WAIT_CHAN}
 SCRIPT
   chmod +x "$WRAPPER"
 
-  _run_safe "$(build_float_command "$TARGET" "bash $WRAPPER")"
-  NEW_PANE_ID=$(float_pane_id "$TARGET")
-
-  if [ -z "$NEW_PANE_ID" ]; then
-    echo "Error: failed to create float pane" >&2
-    exit 1
-  fi
+  create_float "$TARGET" "bash $WRAPPER"
 
   # Wait for the command to finish
   _tmux wait-for "$WAIT_CHAN"
@@ -265,11 +262,11 @@ SCRIPT
   # after the SIGHUP, and a shell still inside its own start-up never returns
   # from opening its controlling terminal — it sleeps in the kernel holding a
   # PTY slave (see `reap-orphan-shells`). A float whose command exits
-  # immediately is exactly that race.
-  WIN_ID=$(_tmux display-message -t "$NEW_PANE_ID" -p '#{window_id}' 2>/dev/null || true)
-  if [ -n "$WIN_ID" ]; then
-    FLOAT_PANE_PIDS=$(_tmux list-panes -t "$WIN_ID" -F '#{pane_pid}' 2>/dev/null || true)
-    _run_safe "kill-window -t $WIN_ID"
+  # immediately is exactly that race. A window id never resolves to another
+  # window: when the float has closed on its own, both calls just fail.
+  FLOAT_PANE_PIDS=$(_tmux list-panes -t "$NEW_WIN_ID" -F '#{pane_pid}' 2>/dev/null || true)
+  if [ -n "$FLOAT_PANE_PIDS" ]; then
+    _run_safe "kill-window -t $NEW_WIN_ID" || true
     reap_pids "$FLOAT_PANE_PIDS"
   fi
 

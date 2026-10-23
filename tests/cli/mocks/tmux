@@ -122,6 +122,10 @@ case "${1:-}" in
     case "$*" in
       *splitw*'-P'*) response="${MOCK_TMUX_SPLIT_PANE_ID:-%99}" ;;
       *breakp*'-P'*) response="${MOCK_TMUX_BREAK_WINDOW_ID:-@99}" ;;
+      # A float's command list ends by naming the float's pane and window.
+      *"'##{pane_id} ##{window_id}'"*)
+        response="${MOCK_TMUX_PANE_ID:-%99} ${MOCK_TMUX_FLOAT_WINDOW_ID:-@98}"
+        ;;
       *) response="" ;;
     esac
     # `_run_shell` has the command write its output and exit status to files
