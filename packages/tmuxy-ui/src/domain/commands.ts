@@ -282,7 +282,9 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'SetPaneTitle':
       return `select-pane -t ${op.paneId} -T ${quote(op.title)}`;
     case 'ClearPane':
-      return list(['send-keys -R', 'clear-history']);
+      // `send-keys -R` resets the pane inside tmux, which no client sees as
+      // output; C-l has the shell clear the screen and redraw, which it does.
+      return list(['send-keys -R', 'send-keys C-l', 'clear-history']);
     case 'PasteBuffer':
       return 'paste-buffer -p';
     case 'SendKeys':

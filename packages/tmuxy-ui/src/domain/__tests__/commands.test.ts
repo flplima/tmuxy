@@ -66,7 +66,7 @@ const cases: Array<[TmuxOp, string]> = [
     'resize-pane -t %1 -R 3 \\; resize-pane -t %2 -U 1',
   ],
   [TmuxOp.SetPaneTitle({ paneId: pid('%4'), title: "Bob's" }), "select-pane -t %4 -T 'Bob'\\''s'"],
-  [TmuxOp.ClearPane(), 'send-keys -R \\; clear-history'],
+  [TmuxOp.ClearPane(), 'send-keys -R \\; send-keys C-l \\; clear-history'],
   [TmuxOp.PasteBuffer(), 'paste-buffer -p'],
   [TmuxOp.SendKeys({ target: pid('%3'), keys: 'C-c' }), 'send-keys -t %3 C-c'],
   [

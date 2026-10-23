@@ -25,6 +25,18 @@ const PANE: i32 = 0;
 const PANE_OUT: i32 = 1;
 /// What Ctrl+D puts on the program's input (see `preload.c`).
 const EOT: u8 = 0x04;
+/// Home the cursor and erase the screen.
+const CLEAR: &[u8] = b"\x1b[H\x1b[2J";
+/// How long the shell's output must pause before a cleared screen shows the
+/// line being typed again: its new prompt can arrive in several writes.
+const REDRAW_QUIET: Duration = Duration::from_millis(50);
+
+/// The line Ctrl+L owes the screen, and when to show it.
+#[derive(Default)]
+struct Redraw {
+    line: Option<Vec<u8>>,
+    due: Option<Instant>,
+}
 
 fn main() {
     let args: Vec<CString> = std::env::args_os()
@@ -131,11 +143,18 @@ impl Pane {
         let mut ld = LineDiscipline::new();
         let mut buf = [0u8; 4096];
         let mut output_open = true;
+        let mut redraw = Redraw::default();
         loop {
             if let Some(code) = self.exited() {
                 self.drain(&mut buf);
                 self.signal_all(libc::SIGHUP);
                 return code;
+            }
+            if redraw.due.is_some_and(|due| Instant::now() >= due) {
+                if let Some(line) = redraw.line.take() {
+                    write_all(PANE_OUT, &line);
+                }
+                redraw.due = None;
             }
             let mut fds = [
                 libc::pollfd {
@@ -149,8 +168,9 @@ impl Pane {
                     revents: 0,
                 },
             ];
+            let timeout = if redraw.due.is_some() { 20 } else { 200 };
             // SAFETY: poll reads and writes the two pollfds it is given.
-            if unsafe { libc::poll(fds.as_mut_ptr(), 2, 200) } <= 0 {
+            if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } <= 0 {
                 continue;
             }
             if fds[0].revents != 0 {
@@ -159,7 +179,11 @@ impl Pane {
                     return 0;
                 };
                 for action in ld.input(&buf[..n]) {
-                    if !self.apply(action) {
+                    let ok = match action {
+                        Action::ClearScreen => self.clear_screen(ld.line(), &mut redraw),
+                        other => self.apply(other),
+                    };
+                    if !ok {
                         self.signal_all(libc::SIGHUP);
                         return 0;
                     }
@@ -171,6 +195,9 @@ impl Pane {
                         if !write_all(PANE_OUT, &translate_output(&buf[..n])) {
                             self.signal_all(libc::SIGHUP);
                             return 0;
+                        }
+                        if redraw.line.is_some() {
+                            redraw.due = Some(Instant::now() + REDRAW_QUIET);
                         }
                     }
                     None => output_open = false,
@@ -191,8 +218,40 @@ impl Pane {
             Action::EndOfInput => {
                 write_all(self.input, &[EOT]);
             }
+            Action::ClearScreen => {}
         }
         true
+    }
+
+    /// Ctrl+L, as readline does it at a prompt: clear the screen, have the
+    /// shell print its prompt again (an empty line does that), and show the
+    /// line being typed after it once the shell has gone quiet. While a
+    /// command runs the empty line would be its input, so then nothing
+    /// happens. False once the pane is gone.
+    fn clear_screen(&self, line: &[u8], redraw: &mut Redraw) -> bool {
+        if !self.shell_idle() {
+            return true;
+        }
+        redraw.line = Some(line.to_vec());
+        redraw.due = None;
+        let shown = write_all(PANE_OUT, CLEAR);
+        write_all(self.input, b"\n");
+        shown
+    }
+
+    /// Whether the shell is alone in the pane: no other recorded process lives.
+    fn shell_idle(&self) -> bool {
+        let Ok(entries) = std::fs::read_dir(&self.pids) else {
+            return true;
+        };
+        !entries.flatten().any(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .and_then(|s| s.parse::<i32>().ok())
+                // SAFETY: kill with signal 0 only checks that the pid exists.
+                .is_some_and(|pid| pid != self.child && unsafe { libc::kill(pid, 0) } == 0)
+        })
     }
 
     /// The program's exit code once it has exited (128 + signal if killed).

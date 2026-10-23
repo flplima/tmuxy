@@ -17,6 +17,8 @@ pub enum Action {
     Quit,
     /// Ctrl+D on an empty line: the end of the program's input.
     EndOfInput,
+    /// Ctrl+L: clear the screen, as readline does at a shell prompt.
+    ClearScreen,
 }
 
 const HISTORY_LIMIT: usize = 500;
@@ -49,6 +51,11 @@ pub struct LineDiscipline {
 impl LineDiscipline {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// What has been typed of the line so far, not yet sent.
+    pub fn line(&self) -> &[u8] {
+        &self.line
     }
 
     /// Feed bytes typed into the pane.
@@ -116,6 +123,7 @@ impl LineDiscipline {
                     actions.push(Action::Send(std::mem::take(&mut self.line)));
                 }
             }
+            0x0c => actions.push(Action::ClearScreen),
             0x1b => self.escape = Escape::Esc,
             b'\t' => self.insert(byte, actions),
             0x00..=0x1f => {}
@@ -262,6 +270,16 @@ mod tests {
     fn ctrl_d_ends_input_only_on_an_empty_line() {
         assert_eq!(typed(b"\x04").1, vec![Action::EndOfInput]);
         assert_eq!(typed(b"ab\x04").1, vec![Action::Send(b"ab".to_vec())]);
+    }
+
+    #[test]
+    fn ctrl_l_asks_for_a_clear_screen_and_keeps_the_line() {
+        let mut ld = LineDiscipline::new();
+        assert_eq!(
+            ld.input(b"ls\x0c"),
+            vec![Action::Echo(b"ls".to_vec()), Action::ClearScreen]
+        );
+        assert_eq!(ld.line(), b"ls");
     }
 
     #[test]

@@ -118,3 +118,20 @@ fn closing_the_pane_hangs_up_the_program() {
         .expect("close the pane");
     assert_eq!(pane.exit_code(), Some(0));
 }
+
+/// Ctrl+L at a prompt clears the screen, has the program start a new line
+/// (a shell then prints its prompt again), and shows the line being typed
+/// after what the program printed.
+#[test]
+fn ctrl_l_clears_and_redraws_the_line_being_typed() {
+    let mut pane = Pane::run(&[
+        "/bin/sh",
+        "sh",
+        "-c",
+        "echo ready; read l; printf 'prompt[%s]> ' \"$l\"; sleep 1",
+    ]);
+    pane.shows("ready");
+    pane.type_keys(b"ab\x0c");
+    let shown = pane.shows("prompt[]> ab");
+    assert!(shown.contains("\x1b[H\x1b[2J"), "{shown:?}");
+}
