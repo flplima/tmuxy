@@ -1,0 +1,22 @@
+#!/bin/sh
+# What the guest's full-screen programs are (the Dockerfile links them here).
+# A pane runs under tmuxy-pty, not on a terminal (see
+# packages/tmuxy-ui/cheerpx/README.md), so a program that takes the screen
+# over can neither read its keys one at a time nor learn the pane's size.
+# A pager has nothing to page there and prints what it was given; the rest
+# say they do not run.
+name=$(basename "$0")
+case $name in
+less | more)
+	for arg; do
+		shift
+		case $arg in
+		-*) ;;
+		*) set -- "$@" "$arg" ;;
+		esac
+	done
+	exec cat "$@"
+	;;
+esac
+echo "$name: full-screen programs do not run in this in-browser demo" >&2
+exit 1

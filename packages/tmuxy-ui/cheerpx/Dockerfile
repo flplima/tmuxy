@@ -29,8 +29,9 @@ RUN set -e \
  && apk del .build-deps
 
 COPY guest/ /
+# A pane is not a terminal: full-screen programs are tmuxy-no-tui instead.
+RUN for app in vi less more top; do ln -sf /usr/local/bin/tmuxy-no-tui "$(command -v $app)"; done
 # The essentials' command-aliases run scripts under $HOME/.config/tmuxy/bin.
 RUN ln -sf /opt/tmuxy/bin/tmuxy-cli /usr/bin/tmuxy \
  && mkdir -p /root/.config/tmuxy/bin \
- && ln -sfn /opt/tmuxy/bin/tmuxy /root/.config/tmuxy/bin/tmuxy \
- && echo tmuxy > /etc/hostname
+ && ln -sfn /opt/tmuxy/bin/tmuxy /root/.config/tmuxy/bin/tmuxy
