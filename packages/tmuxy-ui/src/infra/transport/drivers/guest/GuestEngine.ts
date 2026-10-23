@@ -38,6 +38,10 @@ import {
 export const GUEST_DEFAULT_COLS = 80;
 export const GUEST_DEFAULT_ROWS = 30;
 
+/** How long after output the metadata re-sync runs (the native monitor's
+ *  METADATA_SYNC_DELAY). */
+const OUTPUT_SYNC_DELAY_MS = 500;
+
 /** Where the engine forwards reconstructed state + clipboard writes. */
 export interface EngineSink {
   onState(state: ServerStateEncoded): void;
@@ -74,6 +78,8 @@ export abstract class GuestEngine {
   private lastState: ServerStateEncoded = EMPTY_STATE;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
+  /** The re-sync due after output (see `receive`). */
+  private outputSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private resolveFirstState: (() => void) | null = null;
 
   /** The sink for the CURRENTLY-attached adapter (null between stories). */
@@ -201,6 +207,16 @@ export abstract class GuestEngine {
     if (!chunk || !this.attached || !this.core) return;
     if (this.captureBook.hasPending()) this.captureBook.scanChunk(chunk);
     this.emit(this.core.feed(chunk));
+    // Output changes what no event announces — a pane's history size (which
+    // decides whether the wheel scrolls it or the page), its title, its
+    // command — so a re-sync follows it, as the native monitor's metadata
+    // re-sync does, rather than waiting for the periodic one.
+    if (!this.outputSyncTimer && chunk.includes('%output')) {
+      this.outputSyncTimer = setTimeout(() => {
+        this.outputSyncTimer = null;
+        if (this.attached) this.resync();
+      }, OUTPUT_SYNC_DELAY_MS);
+    }
     // `%exit` ends the control-mode conversation (server died / kill-server /
     // last session closed). Surface it as a fatal so the app can show its
     // non-recoverable status screen — mirroring the native monitor, which
@@ -333,8 +349,10 @@ export abstract class GuestEngine {
     this.failInFlight('engine destroyed');
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.syncTimer) clearInterval(this.syncTimer);
+    if (this.outputSyncTimer) clearTimeout(this.outputSyncTimer);
     this.tickTimer = null;
     this.syncTimer = null;
+    this.outputSyncTimer = null;
     this.sink = null;
     this.booted = false;
     this.attached = false;
