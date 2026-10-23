@@ -105,8 +105,10 @@ impl LineDiscipline {
                     echo(actions, ERASE);
                 }
             }
-            0x03 => self.abandon(b"^C\r\n", Action::Interrupt, actions),
-            0x1c => self.abandon(b"^\\\r\n", Action::Quit, actions),
+            // Echoed as a terminal does it, with no newline: the shell starts a new
+            // line itself once its command is gone.
+            0x03 => self.abandon(b"^C", Action::Interrupt, actions),
+            0x1c => self.abandon(b"^\\", Action::Quit, actions),
             0x04 => {
                 if self.line.is_empty() {
                     actions.push(Action::EndOfInput);
@@ -252,7 +254,7 @@ mod tests {
     #[test]
     fn ctrl_c_drops_the_line_and_interrupts() {
         let (shown, rest) = typed(b"sleep 9\x03");
-        assert!(shown.ends_with(b"^C\r\n"));
+        assert!(shown.ends_with(b"^C"));
         assert_eq!(rest, vec![Action::Interrupt]);
     }
 

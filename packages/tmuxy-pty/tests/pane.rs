@@ -87,17 +87,25 @@ fn ctrl_c_interrupts_the_program() {
     pane.shows("ready");
     let started = Instant::now();
     pane.type_keys(b"\x03");
-    pane.shows("^C\r\n");
+    pane.shows("^C");
     assert_eq!(pane.exit_code(), Some(128 + 2));
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
+/// Ctrl+D is an EOT byte on the program's input, which stays open: the
+/// preload, LD_PRELOAD'ed in the guest only, turns the byte into one end of
+/// file for whoever reads it.
 #[test]
-fn ctrl_d_ends_the_program_input() {
-    let mut pane = Pane::run(&["/bin/sh", "sh", "-c", "cat; echo eof-seen"]);
-    pane.type_keys(b"abc\r\x04");
-    let shown = pane.shows("eof-seen");
-    assert!(shown.contains("abc\r\nabc\r\n"), "{shown:?}");
+fn ctrl_d_puts_an_eot_on_the_program_input() {
+    let mut pane = Pane::run(&[
+        "/bin/sh",
+        "sh",
+        "-c",
+        "head -c 4 | od -An -tx1 | tr -d ' \\n'; echo; echo done",
+    ]);
+    pane.type_keys(b"ab\r\x04");
+    let shown = pane.shows("done");
+    assert!(shown.contains("61620a04"), "{shown:?}");
     assert_eq!(pane.exit_code(), Some(0));
 }
 

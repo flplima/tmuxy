@@ -2,14 +2,16 @@
 //! pane's program. tmux (patched, see packages/tmuxy-ui/cheerpx/patches)
 //! starts this with stdin and stdout on the pane's socket; the program gets a
 //! pipe to read and one to write (CheerpX's `shutdown(SHUT_WR)` breaks a
-//! socket pair, and Ctrl+D needs to end the program's input), and everything
-//! between the two goes through the line discipline in the library.
+//! socket pair), and everything between the two goes through the line
+//! discipline in the library.
 //!
-//! Ctrl+C needs every process in the pane, and CheerpX has neither process
-//! groups nor parent pids in /proc, so the program runs with `preload.c`
-//! LD_PRELOAD'ed: each process records its pid in a directory of this pane's.
+//! The program runs with `preload.c` LD_PRELOAD'ed. Ctrl+C needs every
+//! process in the pane, and CheerpX has neither process groups nor parent
+//! pids in /proc, so each process records its pid in a directory of this
+//! pane's. Ctrl+D is an EOT byte on the input pipe, which the preload turns
+//! into one end of file for whoever reads it: the pipe itself stays open,
+//! since every program the shell runs reads it after the one that got EOF.
 
-use std::cell::Cell;
 use std::ffi::{CString, OsString};
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
@@ -21,6 +23,8 @@ const PRELOAD: &str = "/usr/lib/tmuxy-pty.so";
 const PID_ROOT: &str = "/tmp/tmuxy-pty";
 const PANE: i32 = 0;
 const PANE_OUT: i32 = 1;
+/// What Ctrl+D puts on the program's input (see `preload.c`).
+const EOT: u8 = 0x04;
 
 fn main() {
     let args: Vec<CString> = std::env::args_os()
@@ -68,6 +72,13 @@ fn pipe() -> std::io::Result<[i32; 2]> {
 fn spawn(file: &CString, argv: &[CString], pids: PathBuf) -> std::io::Result<Pane> {
     let [stdin_read, stdin_write] = pipe()?;
     let [output_read, output_write] = pipe()?;
+    // The preload reads an EOT as end of file only on this pipe, not on a
+    // file or another pipe a program reads as its stdin.
+    // SAFETY: fstat fills a stat struct for an fd this process owns.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(stdin_read, &mut st) } == 0 {
+        std::env::set_var("TMUXY_PTY_INPUT", st.st_ino.to_string());
+    }
     let mut ptrs: Vec<*const libc::c_char> = argv.iter().map(|a| a.as_ptr()).collect();
     ptrs.push(std::ptr::null());
     // SAFETY: the child only calls async-signal-safe functions before exec.
@@ -94,7 +105,7 @@ fn spawn(file: &CString, argv: &[CString], pids: PathBuf) -> std::io::Result<Pan
             }
             Ok(Pane {
                 child,
-                input: Cell::new(stdin_write),
+                input: stdin_write,
                 output: output_read,
                 pids,
             })
@@ -104,8 +115,8 @@ fn spawn(file: &CString, argv: &[CString], pids: PathBuf) -> std::io::Result<Pan
 
 struct Pane {
     child: i32,
-    /// What the program reads; -1 once Ctrl+D has ended it.
-    input: Cell<i32>,
+    /// What the program reads.
+    input: i32,
     /// What the program writes, stdout and stderr both.
     output: i32,
     pids: PathBuf,
@@ -173,13 +184,12 @@ impl Pane {
         match action {
             Action::Echo(bytes) => return write_all(PANE_OUT, &bytes),
             Action::Send(bytes) => {
-                write_all(self.input.get(), &bytes);
+                write_all(self.input, &bytes);
             }
             Action::Interrupt => self.signal_all(libc::SIGINT),
             Action::Quit => self.signal_all(libc::SIGQUIT),
             Action::EndOfInput => {
-                // SAFETY: closing the program's input, which nothing else uses.
-                unsafe { libc::close(self.input.replace(-1)) };
+                write_all(self.input, &[EOT]);
             }
         }
         true
