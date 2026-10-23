@@ -24,7 +24,6 @@ pub enum Action {
 }
 
 const HISTORY_LIMIT: usize = 500;
-const ERASE: &[u8] = b"\x08 \x08";
 
 #[derive(Default, PartialEq, Eq)]
 enum Escape {
@@ -37,17 +36,25 @@ enum Escape {
     Ss3,
 }
 
-/// A canonical-mode line discipline with echo: input is held and edited until
-/// Enter, as a pty does it for a program that has not asked for raw mode.
+/// A canonical-mode line discipline with echo, and the line editing readline
+/// would give a shell (the cursor keys, history): input is held and edited
+/// until Enter, as a pty does it for a program that has not asked for raw
+/// mode. A line that wraps past the pane's edge is edited on its last row only.
 #[derive(Default)]
 pub struct LineDiscipline {
     line: Vec<u8>,
+    /// Where in `line` the cursor is: a byte offset, on a character boundary.
+    cursor: usize,
+    /// The bytes typed so far of a UTF-8 character, until it is whole.
+    partial: Vec<u8>,
     history: Vec<Vec<u8>>,
     /// The history entry the arrows are on; `history.len()` is the line
     /// being typed, kept in `draft` while browsing.
     browse: usize,
     draft: Vec<u8>,
     escape: Escape,
+    /// The parameter bytes of the `ESC [` sequence being read.
+    params: Vec<u8>,
 }
 
 impl LineDiscipline {
@@ -72,6 +79,7 @@ impl LineDiscipline {
     fn byte(&mut self, byte: u8, actions: &mut Vec<Action>) {
         match self.escape {
             Escape::Esc => {
+                self.params.clear();
                 self.escape = match byte {
                     b'[' => Escape::Csi,
                     b'O' => Escape::Ss3,
@@ -82,20 +90,33 @@ impl LineDiscipline {
             Escape::Csi | Escape::Ss3 => {
                 if (0x40..=0x7e).contains(&byte) {
                     self.escape = Escape::None;
-                    match byte {
-                        b'A' => self.recall(-1, actions),
-                        b'B' => self.recall(1, actions),
-                        _ => {}
-                    }
+                    let params = std::mem::take(&mut self.params);
+                    self.key(byte, &params, actions);
+                } else {
+                    self.params.push(byte);
                 }
                 return;
             }
             Escape::None => {}
         }
+        if byte >= 0x80 {
+            self.partial.push(byte);
+            match std::str::from_utf8(&self.partial) {
+                Ok(_) => {
+                    let text = std::mem::take(&mut self.partial);
+                    self.insert(&text, actions);
+                }
+                // Not a character, and no byte more would make it one.
+                Err(e) if e.error_len().is_some() => self.partial.clear(),
+                Err(_) => {}
+            }
+            return;
+        }
         match byte {
             b'\r' | b'\n' => {
                 echo(actions, b"\r\n");
                 let mut line = std::mem::take(&mut self.line);
+                self.cursor = 0;
                 self.remember(&line);
                 line.push(b'\n');
                 actions.push(Action::Send(line));
@@ -103,10 +124,10 @@ impl LineDiscipline {
             0x7f | 0x08 => self.erase_char(actions),
             0x15 => self.erase_line(actions),
             0x17 => {
-                while self.line.last() == Some(&b' ') {
+                while self.cursor > 0 && self.line[self.cursor - 1] == b' ' {
                     self.erase_char(actions);
                 }
-                while self.line.last().is_some_and(|&b| b != b' ') {
+                while self.cursor > 0 && self.line[self.cursor - 1] != b' ' {
                     self.erase_char(actions);
                 }
             }
@@ -118,50 +139,146 @@ impl LineDiscipline {
                 if self.line.is_empty() {
                     actions.push(Action::EndOfInput);
                 } else {
+                    self.cursor = 0;
                     actions.push(Action::Send(std::mem::take(&mut self.line)));
                 }
             }
-            0x0c => actions.push(Action::ClearScreen),
+            // The screen is drawn again with the line, the cursor at its end.
+            0x0c => {
+                self.cursor = self.line.len();
+                actions.push(Action::ClearScreen);
+            }
+            0x01 => self.home(actions),
+            0x05 => self.end(actions),
+            0x02 => self.left(actions),
+            0x06 => self.right(actions),
             0x1b => self.escape = Escape::Esc,
-            b'\t' => self.insert(byte, actions),
+            b'\t' => self.insert(&[byte], actions),
             0x00..=0x1f => {}
-            _ => self.insert(byte, actions),
+            _ => self.insert(&[byte], actions),
         }
     }
 
-    fn insert(&mut self, byte: u8, actions: &mut Vec<Action>) {
-        self.line.push(byte);
-        echo(actions, &[byte]);
+    /// A cursor key, `ESC [` (or `ESC O`) `params` `final_byte`.
+    fn key(&mut self, final_byte: u8, params: &[u8], actions: &mut Vec<Action>) {
+        // A modified key (`1;5C` is Ctrl+Right) is not one of these.
+        if params.contains(&b';') {
+            return;
+        }
+        match (final_byte, params) {
+            (b'A', _) => self.recall(-1, actions),
+            (b'B', _) => self.recall(1, actions),
+            (b'C', _) => self.right(actions),
+            (b'D', _) => self.left(actions),
+            (b'H', _) | (b'~', b"1") | (b'~', b"7") => self.home(actions),
+            (b'F', _) | (b'~', b"4") | (b'~', b"8") => self.end(actions),
+            (b'~', b"3") => self.delete(actions),
+            _ => {}
+        }
     }
 
-    /// Drop the last character (all of a UTF-8 sequence) and wipe it from the
-    /// screen: one column back for each it took, so a CJK character or an
-    /// emoji goes back two. Nothing on an empty line.
+    /// Where the character before the cursor starts.
+    fn previous(&self) -> Option<usize> {
+        let mut at = self.cursor.checked_sub(1)?;
+        while at > 0 && self.line[at] & 0xc0 == 0x80 {
+            at -= 1;
+        }
+        Some(at)
+    }
+
+    /// Where the character after the cursor ends.
+    fn next(&self) -> Option<usize> {
+        if self.cursor >= self.line.len() {
+            return None;
+        }
+        let mut at = self.cursor + 1;
+        while at < self.line.len() && self.line[at] & 0xc0 == 0x80 {
+            at += 1;
+        }
+        Some(at)
+    }
+
+    /// Put `text` (whole characters) in at the cursor.
+    fn insert(&mut self, text: &[u8], actions: &mut Vec<Action>) {
+        self.line
+            .splice(self.cursor..self.cursor, text.iter().copied());
+        self.cursor += text.len();
+        echo(actions, text);
+        self.redraw_tail(0, actions);
+    }
+
+    /// Show the line from the cursor on, and `cleared` columns blanked after
+    /// it (what a removal left), then come back to the cursor.
+    fn redraw_tail(&self, cleared: usize, actions: &mut Vec<Action>) {
+        let tail = &self.line[self.cursor..];
+        if tail.is_empty() && cleared == 0 {
+            return;
+        }
+        echo(actions, tail);
+        echo(actions, &b" ".repeat(cleared));
+        back(actions, columns(tail) + cleared);
+    }
+
+    fn left(&mut self, actions: &mut Vec<Action>) {
+        if let Some(at) = self.previous() {
+            back(actions, columns(&self.line[at..self.cursor]));
+            self.cursor = at;
+        }
+    }
+
+    fn right(&mut self, actions: &mut Vec<Action>) {
+        if let Some(at) = self.next() {
+            echo(actions, &self.line[self.cursor..at]);
+            self.cursor = at;
+        }
+    }
+
+    fn home(&mut self, actions: &mut Vec<Action>) {
+        back(actions, columns(&self.line[..self.cursor]));
+        self.cursor = 0;
+    }
+
+    fn end(&mut self, actions: &mut Vec<Action>) {
+        echo(actions, &self.line[self.cursor..]);
+        self.cursor = self.line.len();
+    }
+
+    /// Backspace: drop the character before the cursor (all of a UTF-8
+    /// sequence), going back as many columns as it took — two for a CJK
+    /// character or an emoji. Nothing at the start of the line.
     fn erase_char(&mut self, actions: &mut Vec<Action>) {
-        let Some(mut start) = self.line.len().checked_sub(1) else {
+        let Some(at) = self.previous() else {
             return;
         };
-        while start > 0 && self.line[start] & 0xc0 == 0x80 {
-            start -= 1;
-        }
-        let removed = self.line.split_off(start);
-        let columns = std::str::from_utf8(&removed)
-            .ok()
-            .and_then(|s| s.chars().next())
-            .map_or(1, |c| c.width().unwrap_or(1));
-        for _ in 0..columns {
-            echo(actions, ERASE);
+        let width = columns(&self.line[at..self.cursor]);
+        self.line.drain(at..self.cursor);
+        self.cursor = at;
+        back(actions, width);
+        self.redraw_tail(width, actions);
+    }
+
+    /// Delete: drop the character under the cursor.
+    fn delete(&mut self, actions: &mut Vec<Action>) {
+        if let Some(at) = self.next() {
+            let width = columns(&self.line[self.cursor..at]);
+            self.line.drain(self.cursor..at);
+            self.redraw_tail(width, actions);
         }
     }
 
+    /// Ctrl+U: the whole line, wherever the cursor is.
     fn erase_line(&mut self, actions: &mut Vec<Action>) {
-        while !self.line.is_empty() {
-            self.erase_char(actions);
-        }
+        let width = columns(&self.line);
+        back(actions, columns(&self.line[..self.cursor]));
+        echo(actions, &b" ".repeat(width));
+        back(actions, width);
+        self.line.clear();
+        self.cursor = 0;
     }
 
     fn abandon(&mut self, shown: &[u8], action: Action, actions: &mut Vec<Action>) {
         self.line.clear();
+        self.cursor = 0;
         self.browse = self.history.len();
         echo(actions, shown);
         actions.push(action);
@@ -191,12 +308,28 @@ impl LineDiscipline {
         self.browse = target;
         let next = self.history.get(target).unwrap_or(&self.draft).clone();
         self.erase_line(actions);
-        echo(actions, &next);
-        self.line = next;
+        self.insert(&next, actions);
+    }
+}
+
+/// The columns `bytes` take on screen.
+fn columns(bytes: &[u8]) -> usize {
+    String::from_utf8_lossy(bytes)
+        .chars()
+        .map(|c| c.width().unwrap_or(1))
+        .sum()
+}
+
+fn back(actions: &mut Vec<Action>, columns: usize) {
+    if columns > 0 {
+        echo(actions, &b"\x08".repeat(columns));
     }
 }
 
 fn echo(actions: &mut Vec<Action>, bytes: &[u8]) {
+    if bytes.is_empty() {
+        return;
+    }
     if let Some(Action::Echo(shown)) = actions.last_mut() {
         shown.extend_from_slice(bytes);
     } else {
@@ -234,6 +367,31 @@ mod tests {
         (shown, rest)
     }
 
+    /// What a one-row terminal shows after `shown`: printable bytes written
+    /// at the cursor, backspace one column left. Wide characters take two.
+    fn screen(shown: &[u8]) -> (String, usize) {
+        let mut cells: Vec<String> = Vec::new();
+        let mut col: usize = 0;
+        for c in String::from_utf8_lossy(shown).chars() {
+            match c {
+                '\x08' => col = col.saturating_sub(1),
+                '\r' | '\n' => {}
+                _ => {
+                    let width = c.width().unwrap_or(1).max(1);
+                    while cells.len() < col + width {
+                        cells.push(" ".to_string());
+                    }
+                    cells[col] = c.to_string();
+                    for cell in cells.iter_mut().skip(col + 1).take(width - 1) {
+                        cell.clear();
+                    }
+                    col += width;
+                }
+            }
+        }
+        (cells.concat().trim_end().to_string(), col)
+    }
+
     #[test]
     fn a_line_is_echoed_and_sent_on_enter() {
         let (shown, rest) = typed(b"ls -l\r");
@@ -250,17 +408,14 @@ mod tests {
     fn backspace_erases_a_whole_utf8_character() {
         let (shown, rest) = typed("ação\x7f\x7fx\r".as_bytes());
         assert_eq!(rest, vec![Action::Send("açx\n".as_bytes().to_vec())]);
-        assert!(shown.ends_with(b"\x08 \x08\x08 \x08x\r\n"));
+        assert_eq!(screen(&shown), ("açx".to_string(), 3));
     }
 
     #[test]
     fn backspace_takes_a_wide_character_back_two_columns() {
-        let (shown, rest) = typed("a日🔥\x7f\x7f\r".as_bytes());
-        assert_eq!(rest, vec![Action::Send(b"a\n".to_vec())]);
-        // Two columns back for the emoji, two for the CJK character.
-        let mut want = ERASE.repeat(4);
-        want.extend_from_slice(b"\r\n");
-        assert!(shown.ends_with(&want), "{shown:?}");
+        let (shown, rest) = typed("a日🔥\x7f\x7f".as_bytes());
+        assert_eq!(rest, vec![]);
+        assert_eq!(screen(&shown), ("a".to_string(), 1));
     }
 
     #[test]
@@ -275,6 +430,29 @@ mod tests {
             typed(b"git commit  \x17push\r").1,
             vec![Action::Send(b"git push\n".to_vec())]
         );
+    }
+
+    #[test]
+    fn the_arrows_move_the_cursor_and_typing_goes_in_there() {
+        // A typo fixed two characters back: `ehco` → `echo`.
+        let (shown, rest) = typed(b"ehco hi\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D\x7f\x1b[Ch\r");
+        assert_eq!(rest, vec![Action::Send(b"echo hi\n".to_vec())]);
+        assert_eq!(screen(&shown).0, "echo hi");
+    }
+
+    #[test]
+    fn home_end_and_delete_edit_anywhere_in_the_line() {
+        let (shown, rest) = typed(b"xcho x\x1b[H\x1b[3~e\x1b[F!\r");
+        assert_eq!(rest, vec![Action::Send(b"echo x!\n".to_vec())]);
+        assert_eq!(screen(&shown).0, "echo x!");
+        let (_, rest) = typed(b"bc\x01a\x05d\r");
+        assert_eq!(rest, vec![Action::Send(b"abcd\n".to_vec())]);
+    }
+
+    #[test]
+    fn a_wide_character_moves_the_cursor_two_columns() {
+        let (shown, _) = typed("日本\x1b[D".as_bytes());
+        assert_eq!(screen(&shown), ("日本".to_string(), 2));
     }
 
     #[test]
@@ -315,7 +493,7 @@ mod tests {
 
     #[test]
     fn other_escape_sequences_and_control_keys_are_dropped() {
-        let (shown, rest) = typed(b"a\x1b[1;5C\x1b[3~\x01\x1bxb\r");
+        let (shown, rest) = typed(b"a\x1b[1;5C\x1b[15~\x07\x1bxb\r");
         assert_eq!(shown, b"ab\r\n");
         assert_eq!(rest, vec![Action::Send(b"ab\n".to_vec())]);
     }
