@@ -43,8 +43,10 @@ _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget $(shquote
 # otherwise kill the trap halfway, leaving the marker on the screen and the
 # authorisation on the pane over a shell. The default is back before the
 # shell starts, since an ignored signal survives `exec` — and a shell started
-# with Ctrl+C ignored passes that on to everything it runs.
-trap 'trap "" INT; printf "\033]2;\007"; _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget"; clear; trap - INT; exec "${SHELL:-bash}" </dev/tty' EXIT
+# with Ctrl+C ignored passes that on to everything it runs. A pane with no
+# terminal to open (the CheerpX demo's) gets no new shell: the one that ran
+# the widget is back at its prompt.
+trap 'trap "" INT; printf "\033]2;\007"; _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget"; clear; trap - INT; if { : </dev/tty; } 2>/dev/null; then exec "${SHELL:-bash}" </dev/tty; fi' EXIT
 
 printf '\033]2;%s\007' "$TITLE"
 echo "__TMUXY_WIDGET__:${COMPONENT}"
