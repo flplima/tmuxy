@@ -1,11 +1,13 @@
 /**
- * The cursor on a page that scrolls, over a pane recorded from real tmux.
+ * The cursor on a page that moves under the app, over a pane recorded from
+ * real tmux.
  *
  * What the user sees is the SmoothCursor overlay, fixed to the viewport and
- * drawn at the pane's own cursor element (its anchor). Scrolling the page the
- * app is embedded in — the demo site — moves the anchor without a render, so
- * the overlay has to follow the scroll itself: it once stayed put while the
- * terminal scrolled away under it.
+ * drawn at the pane's own cursor element (its anchor). The page the app is
+ * embedded in — the demo site — moves the anchor without a render when it
+ * scrolls, or when a resized window lays it out again, so the overlay has to
+ * follow the page itself: it once stayed put while the terminal moved away
+ * under it.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -15,13 +17,13 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
 
 const meta: Meta<typeof FixtureApp> = {
-  title: 'Mocked App/Cursor Scroll',
+  title: 'Mocked App/Cursor On A Moving Page',
   component: FixtureApp,
   args: { fixture: asFixture(panes), start: 'one' },
   parameters: { layout: 'fullscreen' },
   decorators: [
     (Story) => (
-      <div>
+      <div className="moving-page">
         <Story />
         {/* Page below the app, so the page itself scrolls. */}
         <div style={{ height: 2000 }} />
@@ -51,13 +53,17 @@ function onACursorCell(canvasElement: HTMLElement): boolean {
   });
 }
 
+/** The overlay on its cell, then idle: past its re-measuring after the last
+ *  render, so only the page moving can move it. */
+async function settled(canvasElement: HTMLElement): Promise<{ x: number; y: number }> {
+  await waitFor(() => expect(onACursorCell(canvasElement)).toBe(true), { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 1000));
+  return overlayCorner(canvasElement);
+}
+
 export const FollowsThePageScroll: Story = {
   play: async ({ canvasElement }) => {
-    await waitFor(() => expect(onACursorCell(canvasElement)).toBe(true), { timeout: 8000 });
-    // Past the overlay's re-measuring after the last render, so only the
-    // scroll can move it.
-    await new Promise((r) => setTimeout(r, 1000));
-    const before = overlayCorner(canvasElement);
+    const before = await settled(canvasElement);
 
     window.scrollBy(0, 120);
 
@@ -69,5 +75,27 @@ export const FollowsThePageScroll: Story = {
       { timeout: 2000 },
     );
     window.scrollTo(0, 0);
+  },
+};
+
+export const FollowsAResizedWindowsLayout: Story = {
+  play: async ({ canvasElement }) => {
+    const before = await settled(canvasElement);
+
+    // What a narrower window does to the demo: the page re-centres the app,
+    // whose grid keeps its size.
+    const page = canvasElement.querySelector<HTMLElement>('.moving-page');
+    if (!page) throw new Error('no .moving-page');
+    page.style.marginLeft = '90px';
+    window.dispatchEvent(new Event('resize'));
+
+    await waitFor(
+      () => {
+        expect(overlayCorner(canvasElement).x).toBeCloseTo(before.x + 90, 0);
+        expect(onACursorCell(canvasElement)).toBe(true);
+      },
+      { timeout: 2000 },
+    );
+    page.style.marginLeft = '';
   },
 };

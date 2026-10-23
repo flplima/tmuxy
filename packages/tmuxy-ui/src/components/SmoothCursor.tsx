@@ -43,8 +43,8 @@ const FOLLOW_MS = 450;
 const SCENE_SNAP_MS = 1500;
 /** A cursor that reappears within this long flies in from where the last one was. */
 const FLY_FROM_MEMORY_MS = 800;
-/** How long after a scroll event the overlay keeps re-measuring, in place. */
-const SCROLL_FOLLOW_MS = 150;
+/** How long after the page scrolls or resizes the overlay keeps re-measuring, in place. */
+const PAGE_FOLLOW_MS = 150;
 /** The block's glyph is painted once every corner is this close. */
 const GLYPH_AT_PX = 1.5;
 
@@ -213,19 +213,25 @@ export function SmoothCursor() {
     return () => cancelAnimationFrame(m.raf);
   }, []);
 
-  // Scrolling — the page the app is embedded in, or any scroller inside it —
-  // moves the anchor under this fixed overlay without a render: follow it, in
-  // place, since a glide would trail the text the cursor sits on.
+  // The page the app is embedded in moves the anchor under this fixed overlay
+  // without a render — scrolled (it, or any scroller inside it), or laid out
+  // again for a resized window, which re-centres an app whose grid kept its
+  // size. Follow it, in place, since a glide would trail the text the cursor
+  // sits on.
   useLayoutEffect(() => {
-    const onScroll = () => {
+    const onPageMove = () => {
       const m = motion.current;
-      const until = performance.now() + SCROLL_FOLLOW_MS;
+      const until = performance.now() + PAGE_FOLLOW_MS;
       m.snapUntil = Math.max(m.snapUntil, until);
       m.followUntil = Math.max(m.followUntil, until);
       wake.current?.();
     };
-    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
-    return () => window.removeEventListener('scroll', onScroll, { capture: true });
+    window.addEventListener('scroll', onPageMove, { capture: true, passive: true });
+    window.addEventListener('resize', onPageMove, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onPageMove, { capture: true });
+      window.removeEventListener('resize', onPageMove);
+    };
   }, []);
 
   // The anchor was (re)attached or detached: measure now and keep following
