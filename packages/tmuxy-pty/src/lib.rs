@@ -4,6 +4,8 @@
 //! pty the program relies on: the line discipline here (echo, line editing,
 //! history, Ctrl+C, Ctrl+D) and output newline translation.
 
+use unicode_width::UnicodeWidthChar;
+
 /// What the pane's keystrokes ask for, in the order they asked.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -98,18 +100,14 @@ impl LineDiscipline {
                 line.push(b'\n');
                 actions.push(Action::Send(line));
             }
-            0x7f | 0x08 => {
-                if self.pop_char() {
-                    echo(actions, ERASE);
-                }
-            }
+            0x7f | 0x08 => self.erase_char(actions),
             0x15 => self.erase_line(actions),
             0x17 => {
-                while self.line.last() == Some(&b' ') && self.pop_char() {
-                    echo(actions, ERASE);
+                while self.line.last() == Some(&b' ') {
+                    self.erase_char(actions);
                 }
-                while self.line.last().is_some_and(|&b| b != b' ') && self.pop_char() {
-                    echo(actions, ERASE);
+                while self.line.last().is_some_and(|&b| b != b' ') {
+                    self.erase_char(actions);
                 }
             }
             // Echoed as a terminal does it, with no newline: the shell starts a new
@@ -136,19 +134,29 @@ impl LineDiscipline {
         echo(actions, &[byte]);
     }
 
-    /// Drop the last character (all of a UTF-8 sequence); false when empty.
-    fn pop_char(&mut self) -> bool {
-        while let Some(byte) = self.line.pop() {
-            if byte & 0xc0 != 0x80 {
-                return true;
-            }
+    /// Drop the last character (all of a UTF-8 sequence) and wipe it from the
+    /// screen: one column back for each it took, so a CJK character or an
+    /// emoji goes back two. Nothing on an empty line.
+    fn erase_char(&mut self, actions: &mut Vec<Action>) {
+        let Some(mut start) = self.line.len().checked_sub(1) else {
+            return;
+        };
+        while start > 0 && self.line[start] & 0xc0 == 0x80 {
+            start -= 1;
         }
-        false
+        let removed = self.line.split_off(start);
+        let columns = std::str::from_utf8(&removed)
+            .ok()
+            .and_then(|s| s.chars().next())
+            .map_or(1, |c| c.width().unwrap_or(1));
+        for _ in 0..columns {
+            echo(actions, ERASE);
+        }
     }
 
     fn erase_line(&mut self, actions: &mut Vec<Action>) {
-        while self.pop_char() {
-            echo(actions, ERASE);
+        while !self.line.is_empty() {
+            self.erase_char(actions);
         }
     }
 
@@ -243,6 +251,16 @@ mod tests {
         let (shown, rest) = typed("ação\x7f\x7fx\r".as_bytes());
         assert_eq!(rest, vec![Action::Send("açx\n".as_bytes().to_vec())]);
         assert!(shown.ends_with(b"\x08 \x08\x08 \x08x\r\n"));
+    }
+
+    #[test]
+    fn backspace_takes_a_wide_character_back_two_columns() {
+        let (shown, rest) = typed("a日🔥\x7f\x7f\r".as_bytes());
+        assert_eq!(rest, vec![Action::Send(b"a\n".to_vec())]);
+        // Two columns back for the emoji, two for the CJK character.
+        let mut want = ERASE.repeat(4);
+        want.extend_from_slice(b"\r\n");
+        assert!(shown.ends_with(&want), "{shown:?}");
     }
 
     #[test]

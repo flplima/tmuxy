@@ -5118,6 +5118,7 @@ name = "tmuxy-pty"
 version = "0.1.1"
 dependencies = [
  "libc",
+ "unicode-width",
 ]
 
 [[package]]
