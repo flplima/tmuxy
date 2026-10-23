@@ -43,6 +43,8 @@ const FOLLOW_MS = 450;
 const SCENE_SNAP_MS = 1500;
 /** A cursor that reappears within this long flies in from where the last one was. */
 const FLY_FROM_MEMORY_MS = 800;
+/** How long after a scroll event the overlay keeps re-measuring, in place. */
+const SCROLL_FOLLOW_MS = 150;
 /** The block's glyph is painted once every corner is this close. */
 const GLYPH_AT_PX = 1.5;
 
@@ -203,9 +205,27 @@ export function SmoothCursor() {
     lostAt: 0,
   });
 
+  /** Runs the frame loop unless it is running; set by the effect below. */
+  const wake = useRef<(() => void) | null>(null);
+
   useLayoutEffect(() => {
     const m = motion.current;
     return () => cancelAnimationFrame(m.raf);
+  }, []);
+
+  // Scrolling — the page the app is embedded in, or any scroller inside it —
+  // moves the anchor under this fixed overlay without a render: follow it, in
+  // place, since a glide would trail the text the cursor sits on.
+  useLayoutEffect(() => {
+    const onScroll = () => {
+      const m = motion.current;
+      const until = performance.now() + SCROLL_FOLLOW_MS;
+      m.snapUntil = Math.max(m.snapUntil, until);
+      m.followUntil = Math.max(m.followUntil, until);
+      wake.current?.();
+    };
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => window.removeEventListener('scroll', onScroll, { capture: true });
   }, []);
 
   // The anchor was (re)attached or detached: measure now and keep following
@@ -218,9 +238,12 @@ export function SmoothCursor() {
     const next = parseScene(scene);
     if (isSceneChange(m.scene, next)) m.snapUntil = performance.now() + SCENE_SNAP_MS;
     m.scene = next;
-    if (m.raf || typeof requestAnimationFrame !== 'function') return;
-    m.lastFrame = performance.now();
-    m.raf = requestAnimationFrame(frame);
+    wake.current = () => {
+      if (m.raf || typeof requestAnimationFrame !== 'function') return;
+      m.lastFrame = performance.now();
+      m.raf = requestAnimationFrame(frame);
+    };
+    wake.current();
 
     function frame(now: number) {
       m.raf = 0;
