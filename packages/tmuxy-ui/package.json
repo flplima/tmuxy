@@ -23,7 +23,9 @@
     "lint": "eslint src scripts eslint-rules .storybook",
     "lint:fix": "eslint src scripts eslint-rules .storybook --fix",
     "format": "prettier --write src scripts eslint-rules .storybook",
-    "build:v86-snapshot": "node scripts/build-v86-snapshot.mjs"
+    "build:v86-snapshot": "node scripts/build-v86-snapshot.mjs",
+    "build:cheerpx-image": "node scripts/build-cheerpx-image.mjs",
+    "smoke:cheerpx": "node scripts/serve-cheerpx-smoke.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

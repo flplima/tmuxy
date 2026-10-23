@@ -33,7 +33,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 **tmuxy-server** — Axum HTTP server providing SSE streaming (with `Last-Event-Id` resync), HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and structured shutdown. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
-**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes an in-browser engine, `V86TmuxAdapter` — real tmux and bash in an x86 emulator, its control-mode stream parsed by tmuxy-core compiled to wasm — which the demo site and the v86 stories run. The rest of Storybook replays states recorded from real tmux (`src/stories/fixtures/`). See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
+**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes in-browser engines, `V86TmuxAdapter` and `CheerpXTmuxAdapter` — real tmux and bash in an x86 emulator or under CheerpX's x86-to-wasm JIT, the control-mode stream parsed by tmuxy-core compiled to wasm — which the demo site and the v86 stories run. The rest of Storybook replays states recorded from real tmux (`src/stories/fixtures/`). See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
 **tmuxy-tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Each OS window is its own client with its own monitor, in a tmux session group (see "One monitor per GUI window" in [DATA-FLOW.md](DATA-FLOW.md), which also covers the Tauri data flow).
 
@@ -103,6 +103,7 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 | `tmuxy-wasm` | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script. |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
 | `tmuxy-group` | The pane-group operations the `pane-group-*` scripts run (`tmuxy-server group <verb>`), over the rules in `tmuxy_core::groups` — also built as a `tmuxy-group` binary so the v86 guest, which has no server, can run them. |
+| `tmuxy-pty` | The terminal each pane of the CheerpX guest runs on: CheerpX gives every process one pty, so the guest's patched tmux runs a pane on a socket pair under this helper, which does the line discipline, and its LD_PRELOAD (`preload.c`) supplies the process-group behaviour CheerpX lacks. See `packages/tmuxy-ui/cheerpx/README.md`. |
 
 ## Related Documentation
 

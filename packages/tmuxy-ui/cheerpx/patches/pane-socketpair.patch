@@ -1,0 +1,183 @@
+--- a/spawn.c
++++ b/spawn.c
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include <sys/types.h>
++#include <sys/socket.h>
+ 
+ #include <errno.h>
+ #include <signal.h>
+@@ -26,6 +27,60 @@
+ 
+ #include "tmux.h"
+ 
++
++/*
++ * CheerpX gives every process the same pseudo-terminal, so a pane runs on a
++ * socket pair instead, under tmuxy-pty, which plays the terminal for it: echo,
++ * line editing, Ctrl+C and newline translation.
++ */
++#define SPAWN_PANE_HELPER "/usr/bin/tmuxy-pty"
++
++/* Fork a child whose stdin, stdout and stderr are one end of a socket pair;
++ * the parent gets the other end in fd. */
++static pid_t
++spawn_fork_socketpair(int *fd)
++{
++	int	sv[2];
++	pid_t	pid;
++
++	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0)
++		return (-1);
++	switch (pid = fork()) {
++	case -1:
++		close(sv[0]);
++		close(sv[1]);
++		return (-1);
++	case 0:
++		close(sv[0]);
++		setsid();
++		dup2(sv[1], STDIN_FILENO);
++		dup2(sv[1], STDOUT_FILENO);
++		dup2(sv[1], STDERR_FILENO);
++		if (sv[1] > STDERR_FILENO)
++			close(sv[1]);
++		return (0);
++	}
++	close(sv[1]);
++	*fd = sv[0];
++	return (pid);
++}
++
++/* Run file with argv under the helper, as execvp(file, argv) would. */
++static __dead void
++spawn_exec(const char *file, char **argv)
++{
++	char	**hargv;
++	int	  n;
++
++	for (n = 0; argv[n] != NULL; n++)
++		continue;
++	hargv = xcalloc(n + 3, sizeof *hargv);
++	hargv[0] = xstrdup(SPAWN_PANE_HELPER);
++	hargv[1] = xstrdup(file);
++	memcpy(hargv + 2, argv, (n + 1) * sizeof *hargv);
++	execv(SPAWN_PANE_HELPER, hargv);
++	_exit(1);
++}
+ /*
+  * Set up the environment and create a new window and pane or a new pane.
+  *
+@@ -214,11 +269,8 @@
+ 	const char		 *actual_cwd = NULL;
+ 	int			  argc;
+ 	u_int			  idx;
+-	struct termios		  now;
+ 	u_int			  hlimit;
+-	struct winsize		  ws;
+ 	sigset_t		  set, oldset;
+-	key_code		  key;
+ 
+ 	spawn_log(__func__, sc);
+ 
+@@ -358,13 +410,6 @@
+ 	cmd_log_argv(new_wp->argc, new_wp->argv, "%s", __func__);
+ 	environ_log(child, "%s: environment ", __func__);
+ 
+-	/* Initialize the window size. */
+-	memset(&ws, 0, sizeof ws);
+-	ws.ws_col = screen_size_x(&new_wp->base);
+-	ws.ws_row = screen_size_y(&new_wp->base);
+-	ws.ws_xpixel = w->xpixel * ws.ws_col;
+-	ws.ws_ypixel = w->ypixel * ws.ws_row;
+-
+ 	/* Block signals until fork has completed. */
+ 	sigfillset(&set);
+ 	sigprocmask(SIG_BLOCK, &set, &oldset);
+@@ -388,7 +433,7 @@
+ 	}
+ 
+ 	/* Fork the new process. */
+-	new_wp->pid = fdforkpty(ptm_fd, &new_wp->fd, new_wp->tty, NULL, &ws);
++	new_wp->pid = spawn_fork_socketpair(&new_wp->fd);
+ 	if (new_wp->pid == -1) {
+ 		xasprintf(cause, "fork failed: %s", strerror(errno));
+ 		new_wp->fd = -1;
+@@ -430,25 +475,6 @@
+ 	if (actual_cwd != NULL)
+ 		environ_set(child, "PWD", 0, "%s", actual_cwd);
+ 
+-	/*
+-	 * Update terminal escape characters from the session if available and
+-	 * force VERASE to tmux's backspace.
+-	 */
+-	if (tcgetattr(STDIN_FILENO, &now) != 0)
+-		_exit(1);
+-	if (s->tio != NULL)
+-		memcpy(now.c_cc, s->tio->c_cc, sizeof now.c_cc);
+-	key = options_get_number(global_options, "backspace");
+-	if (key >= 0x7f)
+-		now.c_cc[VERASE] = '\177';
+-	else
+-		now.c_cc[VERASE] = key;
+-#ifdef IUTF8
+-	now.c_iflag |= IUTF8;
+-#endif
+-	if (tcsetattr(STDIN_FILENO, TCSANOW, &now) != 0)
+-		_exit(1);
+-
+ 	/* Clean up file descriptors and signals and update the environment. */
+ 	proc_clear_signals(server_proc, 1);
+ 	closefrom(STDERR_FILENO + 1);
+@@ -462,8 +488,7 @@
+ 	 */
+ 	if (new_wp->argc != 0 && new_wp->argc != 1) {
+ 		argvp = cmd_copy_argv(new_wp->argc, new_wp->argv);
+-		execvp(argvp[0], argvp);
+-		_exit(1);
++		spawn_exec(argvp[0], argvp);
+ 	}
+ 
+ 	/*
+@@ -477,15 +502,14 @@
+ 			xasprintf(&argv0, "%s", cp + 1);
+ 		else
+ 			xasprintf(&argv0, "%s", new_wp->shell);
+-		execl(new_wp->shell, argv0, "-c", tmp, (char *)NULL);
+-		_exit(1);
++		spawn_exec(new_wp->shell,
++		    (char *[]){ argv0, "-c", (char *)tmp, NULL });
+ 	}
+ 	if (cp != NULL && cp[1] != '\0')
+ 		xasprintf(&argv0, "-%s", cp + 1);
+ 	else
+ 		xasprintf(&argv0, "-%s", new_wp->shell);
+-	execl(new_wp->shell, argv0, (char *)NULL);
+-	_exit(1);
++	spawn_exec(new_wp->shell, (char *[]){ argv0, NULL });
+ 
+ complete:
+ #ifdef HAVE_UTEMPTER
+--- a/window.c
++++ b/window.c
+@@ -450,17 +450,9 @@
+ 	ws.ws_row = sy;
+ 	ws.ws_xpixel = w->xpixel * ws.ws_col;
+ 	ws.ws_ypixel = w->ypixel * ws.ws_row;
++	/* A pane on a socket pair has no terminal to tell. */
+ 	if (ioctl(wp->fd, TIOCSWINSZ, &ws) == -1)
+-#ifdef __sun
+-		/*
+-		 * Some versions of Solaris apparently can return an error when
+-		 * resizing; don't know why this happens, can't reproduce on
+-		 * other platforms and ignoring it doesn't seem to cause any
+-		 * issues.
+-		 */
+-		if (errno != EINVAL && errno != ENXIO)
+-#endif
+-		fatal("ioctl failed");
++		log_debug("%s: %%%u has no terminal", __func__, wp->id);
+ }
+ 
+ int

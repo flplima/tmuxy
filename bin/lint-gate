@@ -28,8 +28,8 @@ cd "$ROOT"
 # Every crate `cargo fmt` keeps in shape. Clippy runs over the host crates;
 # tmuxy-wasm is clippy'd for its own target below, since the host build of it
 # is not the one that ships.
-FMT_CRATES=(tmuxy-core tmuxy-server tmuxy-tauri-app tmuxy-group tmuxy-wasm)
-CLIPPY_CRATES=(tmuxy-core tmuxy-server tmuxy-tauri-app tmuxy-group)
+FMT_CRATES=(tmuxy-core tmuxy-server tmuxy-tauri-app tmuxy-group tmuxy-pty tmuxy-wasm)
+CLIPPY_CRATES=(tmuxy-core tmuxy-server tmuxy-tauri-app tmuxy-group tmuxy-pty)
 
 # What Prettier owns. A file outside these globs is formatted by nothing, so a
 # new directory of scripts is added here, not formatted by hand.

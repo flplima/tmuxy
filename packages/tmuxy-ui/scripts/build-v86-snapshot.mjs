@@ -20,15 +20,22 @@
  * runtime GUEST_SETUP in V86Engine stays empty — snapshot restores rewind the
  * filesystem, so anything NOT baked would have to be re-sent on every reset.
  */
-import { mkdir, writeFile, readFile, cp, rm, chmod, readdir, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, cp, rm, stat } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import {
+  crossCompileGuestBinaries,
+  GUEST_CONF_ASSETS,
+  GUEST_CONF_ASSETS_DIR,
+  guestBashrc,
+  guestTmuxyConf,
+  stageTmuxyScripts,
+} from './lib/guest.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UI = join(HERE, '..');
-const REPO = join(UI, '..', '..');
 const ASSETS = join(UI, 'v86-assets');
 const BUNDLE_TAR = join(ASSETS, 'tmux-bundle.tar');
 const STATE_BIN = join(ASSETS, 'tmux-state.bin');
@@ -120,69 +127,18 @@ async function buildBundle({ fetchBinaries }) {
     }
   }
 
-  // The guest has no tmuxy-server, so what the scripts need from Rust is
-  // cross-compiled static for i686 on its own: the pane-group operations the
-  // pane-group-* scripts run (`tmuxy-group`).
-  const GUEST_BINARIES = ['tmuxy-group'];
-  console.log(`… cross-compiling ${GUEST_BINARIES.join(', ')} (i686-musl)`);
-  execFileSync(
-    'cargo',
-    [
-      'build',
-      ...GUEST_BINARIES.flatMap((name) => ['-p', name, '--bin', name]),
-      '--target',
-      'i686-unknown-linux-musl',
-      '--release',
-    ],
-    {
-      cwd: REPO,
-      env: { ...process.env, RUSTFLAGS: '-C linker=rust-lld -C target-feature=+crt-static' },
-      stdio: 'pipe',
-    },
-  );
-  for (const name of GUEST_BINARIES) {
-    await cp(join(REPO, 'target', 'i686-unknown-linux-musl', 'release', name), join(WORK, name));
-    await chmod(join(WORK, name), 0o755);
+  // The pane-group operations the pane-group-* scripts run (`tmuxy-group`),
+  // the CLI dispatcher with its helper scripts, and the config the app ships
+  // (the essentials hold the `tmuxy-*` command-aliases; without them every
+  // Ctrl+h/j/k/l was "unknown command") — all flat in the bundle, placed by
+  // GUEST_INSTALL.
+  await crossCompileGuestBinaries(['tmuxy-group'], WORK);
+  await stageTmuxyScripts(join(WORK, 'bin'));
+  for (const conf of GUEST_CONF_ASSETS) {
+    await cp(join(GUEST_CONF_ASSETS_DIR, conf), join(WORK, conf));
   }
-
-  // Fresh repo scripts: the CLI dispatcher + helper scripts.
-  await mkdir(join(WORK, 'bin', 'tmuxy'), { recursive: true });
-  await cp(join(REPO, 'bin', 'tmuxy-cli'), join(WORK, 'bin', 'tmuxy-cli'));
-  for (const f of await readdir(join(REPO, 'bin', 'tmuxy'))) {
-    await cp(join(REPO, 'bin', 'tmuxy', f), join(WORK, 'bin', 'tmuxy', f));
-    await chmod(join(WORK, 'bin', 'tmuxy', f), 0o755);
-  }
-  await chmod(join(WORK, 'bin', 'tmuxy-cli'), 0o755);
-
-  // Fresh config: the defaults the app ships (Ctrl+hjkl nav bindings, prefix
-  // bindings) and the essentials they source — the `tmuxy-*` command-aliases
-  // live there, and without the file the guest's tmux has no `tmuxy-nav-*`,
-  // so every Ctrl+h/j/k/l was "unknown command" — plus a minimal user conf
-  // sourcing the defaults.
-  for (const conf of ['tmuxy.defaults.conf', 'tmuxy.essentials.conf']) {
-    await cp(join(REPO, 'packages', 'tmuxy-core', 'assets', conf), join(WORK, conf));
-  }
-  await writeFile(
-    join(WORK, 'tmuxy.conf'),
-    [
-      '# Guest user config — defaults shipped by tmuxy, edit freely.',
-      'source-file ~/.config/tmuxy/tmuxy.defaults.conf',
-      '# Non-login interactive bash: skips the buildroot /etc/profile boot',
-      '# banner + its PS1 override, and reads ~/.bashrc (standard prompt).',
-      'set -g default-command /bin/bash',
-      '',
-    ].join('\n'),
-  );
-
-  // Standard interactive prompt (the buildroot busybox default was `root%`),
-  // and a UTF-8 locale: without one, readline takes the high bytes of an
-  // emoji or a CJK character for Meta key sequences (a typed 🔥 reached tmux
-  // as `__`) and miscounts widths on redisplay, clobbering the prompt after
-  // a pasted multibyte line.
-  await writeFile(
-    join(WORK, 'bashrc'),
-    "export LANG=C.UTF-8 LC_ALL=C.UTF-8\nexport PS1='\\u@\\h:\\w\\$ '\n",
-  );
+  await writeFile(join(WORK, 'tmuxy.conf'), guestTmuxyConf());
+  await writeFile(join(WORK, 'bashrc'), guestBashrc());
 
   await rm(BUNDLE_TAR, { force: true });
   execFileSync('tar', ['-cf', BUNDLE_TAR, '-C', WORK, '.']);

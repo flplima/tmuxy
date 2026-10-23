@@ -1,0 +1,20 @@
+[package]
+name = "tmuxy-pty"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "The terminal a CheerpX guest pane runs on: tmux execs each pane's program under it, over a socket pair, because CheerpX gives every process the same pty"
+
+[lib]
+name = "tmuxy_pty"
+
+[[bin]]
+name = "tmuxy-pty"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

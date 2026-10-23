@@ -1,0 +1,37 @@
+--- a/client.c
++++ b/client.c
+@@ -445,6 +445,21 @@
+ 	return (client_exitval);
+ }
+ 
++/*
++ * The stdin/stdout to hand the server. It reads or writes them only for an
++ * attached or control client, and a non-tty cannot attach; so a plain command
++ * client passes /dev/null for a pipe. CheerpX never releases a pipe end that
++ * crossed a socket, and with the real one `$(tmux display -p …)` waits for
++ * an EOF that never comes.
++ */
++static int
++client_identify_fd(int fd)
++{
++	if ((client_flags & CLIENT_CONTROL) || isatty(fd))
++		return (dup(fd));
++	return (open("/dev/null", O_RDWR));
++}
++
+ /* Send identify messages to server. */
+ static void
+ client_send_identify(const char *ttynam, const char *termname, char **caps,
+@@ -474,10 +489,10 @@
+ 		    caps[i], strlen(caps[i]) + 1);
+ 	}
+ 
+-	if ((fd = dup(STDIN_FILENO)) == -1)
++	if ((fd = client_identify_fd(STDIN_FILENO)) == -1)
+ 		fatal("dup failed");
+ 	proc_send(client_peer, MSG_IDENTIFY_STDIN, fd, NULL, 0);
+-	if ((fd = dup(STDOUT_FILENO)) == -1)
++	if ((fd = client_identify_fd(STDOUT_FILENO)) == -1)
+ 		fatal("dup failed");
+ 	proc_send(client_peer, MSG_IDENTIFY_STDOUT, fd, NULL, 0);
+ 

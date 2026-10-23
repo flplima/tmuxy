@@ -1,0 +1,51 @@
+--- a/server-client.c
++++ b/server-client.c
+@@ -2427,6 +2427,39 @@
+ 	return (0);
+ }
+ 
++/*
++ * Open a control client's input and output by path. Where descriptors cannot
++ * cross the socket (CheerpX delivers every passed fd as -1), a control client
++ * names two fifos in its environment instead: the server reads commands from
++ * TMUX_CONTROL_IN and writes the stream to TMUX_CONTROL_OUT. Each is opened
++ * one way only, since such a platform cannot open a fifo read-write, and the
++ * opens wait for the other end, so its relay must be ready before attaching.
++ */
++static void
++server_client_open_control_fifos(struct client *c)
++{
++	struct environ_entry	*in, *out;
++
++	in = environ_find(c->environ, "TMUX_CONTROL_IN");
++	out = environ_find(c->environ, "TMUX_CONTROL_OUT");
++	if (in == NULL || in->value == NULL || out == NULL || out->value == NULL)
++		return;
++
++	if ((c->fd = open(in->value, O_RDONLY|O_NOCTTY)) == -1) {
++		log_debug("client %p open %s: %s", c, in->value, strerror(errno));
++		return;
++	}
++	if (c->out_fd != -1)
++		close(c->out_fd);
++	if ((c->out_fd = open(out->value, O_WRONLY|O_NOCTTY)) == -1) {
++		log_debug("client %p open %s: %s", c, out->value, strerror(errno));
++		close(c->fd);
++		c->fd = -1;
++		return;
++	}
++	log_debug("client %p control fifos %s %s", c, in->value, out->value);
++}
++
+ /* Handle identify message. */
+ static int
+ server_client_dispatch_identify(struct client *c, struct imsg *imsg)
+@@ -2548,6 +2581,8 @@
+ 	c->out_fd = dup(c->fd);
+ #endif
+ 
++	if ((c->flags & CLIENT_CONTROL) && c->fd == -1)
++		server_client_open_control_fifos(c);
+ 	if (c->flags & CLIENT_CONTROL)
+ 		control_start(c);
+ 	else if (c->fd != -1) {

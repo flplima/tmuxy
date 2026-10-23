@@ -1,0 +1,45 @@
+#!/bin/sh
+# The console end of tmuxy under CheerpX: the page runs this as the program on
+# its console, writes control-mode commands to it and reads the control-mode
+# stream back. The tmux server cannot receive descriptors here, so the console
+# is relayed through two fifos the server opens by path
+# (patches/control-fifos.patch).
+#
+#   tmuxy-console [session]        # default session: m
+set -e
+session=${1:-m}
+dir=/tmp/tmuxy-control
+sock=/tmp/tmux-$(id -u)/default
+
+# Bytes pass unchanged: no echo, no line editing, no CR/LF translation.
+stty raw -echo 2>/dev/null || true
+
+# A server forked by its first client never answers that client here, so it
+# runs in the foreground of a background job instead.
+if [ ! -S "$sock" ]; then
+	tmux -D -f "$HOME/.config/tmuxy/tmuxy.conf" >/dev/null 2>&1 &
+	until [ -S "$sock" ]; do sleep 0.1; done
+fi
+# A new session takes the shape the v86 snapshot starts with (window `root`,
+# two panes side by side), so the demo lays out the same tabs on either guest.
+if ! tmux has-session -t "$session" 2>/dev/null; then
+	tmux new-session -d -s "$session" -x 80 -y 24
+	tmux rename-window -t "$session:" root
+	tmux split-window -h -t "$session:"
+fi
+
+mkdir -p "$dir"
+rm -f "$dir/in" "$dir/out"
+mkfifo "$dir/in" "$dir/out"
+# Each open below waits for its other end; the attach completes them.
+cat "$dir/out" &
+TMUX_CONTROL_IN="$dir/in" TMUX_CONTROL_OUT="$dir/out" \
+	tmux -C attach -t "$session" </dev/null >/dev/null 2>&1 &
+# Opening a fifo to write does not wait for its reader under CheerpX, so a
+# write before the server has opened `in` fails (EPIPE) and would end the
+# relay. Input waits until the control client is attached: by then the server
+# has opened both fifos.
+until tmux list-clients -F '#{client_control_mode}' 2>/dev/null | grep -q 1; do
+	sleep 0.05
+done
+exec cat >"$dir/in"

@@ -23,7 +23,7 @@ Every test layer, where a new test goes, and which tier runs it. Part of [TESTS.
 
 | Layer | Tool | Location | What it is for | Run locally | CI job | Fails the run? |
 | --- | --- | --- | --- | --- | --- | --- |
-| Lint / types / format | ESLint, `tsc`, Prettier, rustfmt, clippy | `eslint.config.mjs` (tests), `packages/tmuxy-ui/eslint.config.js` (+ `eslint-rules/`), `Cargo.toml` `[workspace.lints.clippy]` | Static gates; bans skipped tests and tmux shortcuts in E2E code | `npm run lint`, `npx tsc --noEmit` (in `packages/tmuxy-ui`), `cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-group -- -D warnings` | `lint` | Yes |
+| Lint / types / format | ESLint, `tsc`, Prettier, rustfmt, clippy | `eslint.config.mjs` (tests), `packages/tmuxy-ui/eslint.config.js` (+ `eslint-rules/`), `Cargo.toml` `[workspace.lints.clippy]` | Static gates; bans skipped tests and tmux shortcuts in E2E code | `npm run lint`, `npx tsc --noEmit` (in `packages/tmuxy-ui`), `cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -p tmuxy-group -p tmuxy-pty -- -D warnings` | `lint` | Yes |
 | Rust unit + integration | `cargo test` (proptest, fixtures) | `#[cfg(test)]` modules in every crate; `packages/tmuxy-core/tests/` | Parser, state aggregator, reflow, command routing, server/Tauri seams; five core integration tests drive a real `tmux -CC` | `cargo test --workspace` (needs `tmux` on PATH) | `rust-tests` | Yes |
 | UI unit | Vitest + Testing Library, jsdom | `packages/tmuxy-ui/src/**/__tests__/`, `src/test/` (setup: `src/test/setup.ts`, config: `vite.config.ts`) | Pure logic, machine state handlers, adapters, a few mocked component renders | `npm test -- --run` (plain `npm test` watches) | `unit-tests` | Yes |
 | CLI | Jest, mocked binaries | `tests/cli/` (`mocks/tmux`, `mocks/tmuxy-server`) | `bin/tmuxy-cli` dispatch and argv; asserts every tmux call carries the dedicated socket flag | `npm run test:cli` | `cli-tests` | Yes |
@@ -115,7 +115,7 @@ A push that changes only prose — `docs/**` or any `*.md` — runs no workflow 
 
 ## Rust Tests
 
-- `cargo test --workspace` runs every crate's `#[cfg(test)]` modules plus the integration tests in `packages/tmuxy-core/tests/`. Most of the count is in `tmuxy-core`; `tmuxy-server`, `tmuxy-tauri-app`, `tmuxy-wasm` and `tmuxy-group` have smaller suites
+- `cargo test --workspace` runs every crate's `#[cfg(test)]` modules plus the integration tests in `packages/tmuxy-core/tests/`. Most of the count is in `tmuxy-core`; `tmuxy-server`, `tmuxy-tauri-app`, `tmuxy-wasm`, `tmuxy-group` and `tmuxy-pty` (whose `tests/pane.rs` drives the helper over a socket pair) have smaller suites
 - Prefer fixtures over a live tmux: `control_mode_push_api.rs` feeds recorded `tmux -CC` text through the parser and aggregator, `terminal_fidelity.rs` and `pane_reflow_parity.rs` replay byte streams through the emulator (`tests/fixtures/`), and `state_aggregator_props.rs` is a proptest suite (its regressions file is committed)
 - `initial_state.rs`, `initial_state_history.rs`, `reply_channel.rs`, `pinned_split_race.rs` and `enforced_settings.rs` drive a real `tmux -CC` monitor on a per-process scratch socket and need a `tmux` binary; use that pattern only when the bug depends on how tmux itself answers
 - Test code opts out of the `unwrap_used`/`expect_used` lints with an `allow` attribute

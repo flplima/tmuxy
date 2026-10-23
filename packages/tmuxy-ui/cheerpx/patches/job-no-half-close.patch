@@ -1,0 +1,20 @@
+--- a/job.c
++++ b/job.c
+@@ -328,10 +328,14 @@
+ 	log_debug("job write %p: %s, pid %ld, output left %zu", job, job->cmd,
+ 	    (long) job->pid, len);
+ 
+-	if (len == 0 && (~job->flags & JOB_KEEPWRITE)) {
+-		shutdown(job->fd, SHUT_WR);
++	/*
++	 * No shutdown(SHUT_WR) here: under CheerpX it breaks the other
++	 * direction instead, so the job's output is refused and its exit never
++	 * reads as end of file, and the job never completes. A job reading its
++	 * input to the end waits for more instead.
++	 */
++	if (len == 0 && (~job->flags & JOB_KEEPWRITE))
+ 		bufferevent_disable(job->event, EV_WRITE);
+-	}
+ }
+ 
+ /* Job buffer error callback. */
