@@ -235,6 +235,12 @@ export class GuestTmuxAdapter implements TmuxAdapter {
     }
   }
 
+  /** Read from tmux: the command's output, picked out of the control-mode
+   *  stream (empty when tmux refuses it). */
+  query(command: string): Promise<string> {
+    return this.engine.query(toControlModeCommand(command));
+  }
+
   async switchSession(sessionName: string): Promise<void> {
     // Switch the attached control client to another session (real tmux
     // switch-client), then re-sync so the new session's windows/panes populate.

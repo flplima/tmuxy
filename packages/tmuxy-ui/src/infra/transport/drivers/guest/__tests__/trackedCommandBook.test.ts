@@ -63,7 +63,7 @@ describe('CaptureBook', () => {
   it('sends its markers as their own lines', () => {
     const book = new CaptureBook();
     const sent: string[] = [];
-    void book.captureScrollback('%4', -100, -1, (line) => sent.push(line));
+    void book.capture('capture-pane -t %4 -p -e -S -100 -E -1', (line) => sent.push(line));
     expect(sent).toEqual([
       "display-message -p 'TMUXY_CAP_START_1'",
       'capture-pane -t %4 -p -e -S -100 -E -1',
@@ -73,7 +73,7 @@ describe('CaptureBook', () => {
 
   it('a capture of a pane that is gone resolves empty, not with the error text as history', async () => {
     const book = new CaptureBook();
-    const text = book.captureScrollback('%9', -10, -1, () => {});
+    const text = book.capture('capture-pane -t %9 -p -e -S -10 -E -1', () => {});
     book.scanChunk(
       [
         '%begin 1 1 1',
@@ -93,7 +93,7 @@ describe('CaptureBook', () => {
 
   it('a capture that succeeds keeps every line between its markers', async () => {
     const book = new CaptureBook();
-    const text = book.captureScrollback('%2', -2, -1, () => {});
+    const text = book.capture('capture-pane -t %2 -p -e -S -2 -E -1', () => {});
     book.scanChunk('%begin 1 1 1\r\nTMUXY_CAP_START_1\r\n%end 1 1 1\r\n%begin 1 2 1\r\nfirst\r\n');
     book.scanChunk('second\r\n%end 1 2 1\r\n%begin 1 3 1\r\nTMUXY_CAP_END_1\r\n%end 1 3 1\r\n');
     await expect(text).resolves.toBe('first\nsecond');

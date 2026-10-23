@@ -128,14 +128,15 @@ export abstract class GuestEngine {
    * Run `capture-pane -p -e -S start -E end` and resolve with the raw captured
    * text. Client-side copy mode calls this to fetch scrollback history in the
    * fully-in-browser deployment, where there is no HTTP scrollback RPC.
-   *
-   * The capture is bracketed by two unique `display-message` markers so its
-   * lines can be picked out of the control-mode stream regardless of what else
-   * interleaves. Commands are streamed to the guest in order, so at most one
-   * capture is collecting at a time. Falls back to empty text on timeout.
    */
   captureScrollback(paneId: string, start: number, end: number): Promise<string> {
-    return this.captureBook.captureScrollback(paneId, start, end, (cmd) => this.send(cmd));
+    return this.query(`capture-pane -t ${paneId} -p -e -S ${start} -E ${end}`);
+  }
+
+  /** Run a tmux command and resolve with what it printed (see `CaptureBook`):
+   *  empty when it fails or tmux does not answer in time. */
+  query(command: string): Promise<string> {
+    return this.captureBook.capture(command, (cmd) => this.send(cmd));
   }
 
   /**

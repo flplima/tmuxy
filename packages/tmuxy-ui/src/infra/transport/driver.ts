@@ -54,8 +54,7 @@ export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
    * resolves null on every transport. A query rides the same control-mode
    * connection as mutations and is answered in-band, so it needs no place in
    * the client-side serial queue — ordering against queued window/pane
-   * commands is tmux's, not ours. Absent on the in-browser sandboxes (demo,
-   * v86), which never enumerate sessions.
+   * commands is tmux's, not ours. Absent on the stories' recorded fixtures.
    */
   query?(command: string): Promise<string>;
   /**

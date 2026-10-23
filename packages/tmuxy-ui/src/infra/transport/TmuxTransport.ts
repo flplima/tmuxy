@@ -39,7 +39,7 @@ export interface TmuxTransportService {
     schema: Schema.Schema<A, I>,
     args?: Record<string, unknown>,
   ) => Effect.Effect<A, AdapterError>;
-  /** Read from tmux (see `TmuxAdapter.query`); a TransportError where it cannot (demo, v86). */
+  /** Read from tmux (see `TmuxAdapter.query`); a TransportError where it cannot (recorded fixtures). */
   readonly query: (command: string) => Effect.Effect<string, AdapterError>;
   /** Stage a preview pane's page (see `TmuxAdapter.stagePreview`); its frame's URL. */
   readonly stagePreview: (paneId: string, html: string) => Effect.Effect<string, AdapterError>;

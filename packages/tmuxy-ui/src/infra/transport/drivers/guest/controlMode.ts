@@ -76,6 +76,12 @@ export async function loadWasmModule(): Promise<WasmModule> {
   return wasm;
 }
 
+/**
+ * Command output picked out of the control-mode stream: a command is
+ * bracketed by two unique `display-message` markers, and the lines between
+ * them are what it printed, whatever else interleaves. Commands reach tmux in
+ * order, so at most one capture is collecting at a time.
+ */
 export class CaptureBook {
   private captureSeq = 0;
   private captures = new Map<
@@ -89,12 +95,9 @@ export class CaptureBook {
     return this.captures.size > 0;
   }
 
-  captureScrollback(
-    paneId: string,
-    start: number,
-    end: number,
-    send: (cmd: string) => void,
-  ): Promise<string> {
+  /** Run `command` and resolve with what it printed: empty when it fails, or
+   *  when tmux does not answer within 15s. */
+  capture(command: string, send: (cmd: string) => void): Promise<string> {
     const id = String(++this.captureSeq);
     const startMark = `TMUXY_CAP_START_${id}`;
     const endMark = `TMUXY_CAP_END_${id}`;
@@ -107,10 +110,11 @@ export class CaptureBook {
       }, 15000);
       this.captures.set(id, { lines: [], resolve, timer });
       // Three lines, as `reply_wrapped_lines` sends them (invariant A6): a
-      // capture of a pane that is gone fails, tmux stops a `;` list at its
-      // first error, and an END marker on the same line would never run.
+      // command can fail (a capture of a pane that is gone), tmux stops a
+      // `;` list at its first error, and an END marker on the same line would
+      // never run.
       send(`display-message -p '${startMark}'`);
-      send(`capture-pane -t ${paneId} -p -e -S ${start} -E ${end}`);
+      send(command);
       send(`display-message -p '${endMark}'`);
     });
   }
