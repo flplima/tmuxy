@@ -54,8 +54,13 @@ for (const conf of GUEST_CONF_ASSETS) {
 // A pane runs on a socket pair (patches/pane-socketpair.patch), so bash is
 // asked to be interactive and leaves line editing to tmuxy-pty.
 await writeFile(join(config, 'tmuxy.conf'), guestTmuxyConf('exec /bin/bash --noediting -i'));
-// CheerpX cannot set a hostname, so the prompt names the host itself.
-await writeFile(join(GUEST, 'root', '.bashrc'), guestBashrc('tmuxy'));
+// CheerpX cannot set a hostname, so the prompt names the host itself; and
+// tmux cannot see a pane's directory, so the prompt reports it with OSC 7
+// (patches/pane-path-from-osc7.patch): tab names and splits follow `cd`.
+await writeFile(
+  join(GUEST, 'root', '.bashrc'),
+  `${guestBashrc('tmuxy')}PROMPT_COMMAND='printf "\\033]7;%s\\007" "$PWD"'\n`,
+);
 
 console.log('… docker build (tmux from source under linux/386 emulation; minutes on first run)');
 const buildArgs = process.env.TMUX_VERSION

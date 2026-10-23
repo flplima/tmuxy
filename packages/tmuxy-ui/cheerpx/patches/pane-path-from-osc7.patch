@@ -1,0 +1,21 @@
+--- a/format.c
++++ b/format.c
+@@ -921,8 +921,16 @@
+ 		return (NULL);
+ 
+ 	cwd = osdep_get_cwd(wp->fd);
+-	if (cwd == NULL)
+-		return (NULL);
++	if (cwd == NULL) {
++		/*
++		 * A pane on a socket pair (pane-socketpair.patch) has no
++		 * foreground process group to ask, and CheerpX no
++		 * /proc/<pid>/cwd: the shell reports its directory with OSC 7.
++		 */
++		if (wp->base.path == NULL || *wp->base.path == '\0')
++			return (NULL);
++		return (xstrdup(wp->base.path));
++	}
+ 	return (xstrdup(cwd));
+ }
+ 
