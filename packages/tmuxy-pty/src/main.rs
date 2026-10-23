@@ -17,7 +17,7 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use tmuxy_pty::{translate_output, Action, LineDiscipline};
+use tmuxy_pty::{common_prefix, osc7_path, translate_output, Action, LineDiscipline};
 
 const PRELOAD: &str = "/usr/lib/tmuxy-pty.so";
 const PID_ROOT: &str = "/tmp/tmuxy-pty";
@@ -144,6 +144,10 @@ impl Pane {
         let mut buf = [0u8; 4096];
         let mut output_open = true;
         let mut redraw = Redraw::default();
+        // The shell's directory, as its prompt reports it (OSC 7), for Tab.
+        let mut cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        // The last key was a Tab that completed nothing more.
+        let mut tab_again = false;
         loop {
             if let Some(code) = self.exited() {
                 self.drain(&mut buf);
@@ -178,20 +182,39 @@ impl Pane {
                     self.signal_all(libc::SIGHUP);
                     return 0;
                 };
-                for action in ld.input(&buf[..n]) {
-                    let ok = match action {
-                        Action::ClearScreen => self.clear_screen(ld.line(), &mut redraw),
-                        other => self.apply(other),
-                    };
-                    if !ok {
-                        self.signal_all(libc::SIGHUP);
-                        return 0;
+                // A line still owed to the screen is shown before what is typed
+                // after it, or it would come after, out of order.
+                if let Some(line) = redraw.line.take() {
+                    redraw.due = None;
+                    write_all(PANE_OUT, &line);
+                }
+                // One key at a time: what Tab and Ctrl+L do depends on the line
+                // as it stands at that key, not after the rest of a paste.
+                for key in 0..n {
+                    for action in ld.input(&buf[key..=key]) {
+                        let ok = match action {
+                            Action::ClearScreen => self.clear_screen(ld.line(), &mut redraw),
+                            Action::Complete => {
+                                self.complete(&mut ld, &cwd, &mut tab_again, &mut redraw)
+                            }
+                            other => {
+                                tab_again = false;
+                                self.apply(other)
+                            }
+                        };
+                        if !ok {
+                            self.signal_all(libc::SIGHUP);
+                            return 0;
+                        }
                     }
                 }
             }
             if fds[1].revents != 0 {
                 match read(self.output, &mut buf) {
                     Some(n) => {
+                        if let Some(path) = osc7_path(&buf[..n]) {
+                            cwd = PathBuf::from(path);
+                        }
                         if !write_all(PANE_OUT, &translate_output(&buf[..n])) {
                             self.signal_all(libc::SIGHUP);
                             return 0;
@@ -218,7 +241,7 @@ impl Pane {
             Action::EndOfInput => {
                 write_all(self.input, &[EOT]);
             }
-            Action::ClearScreen => {}
+            Action::ClearScreen | Action::Complete => {}
         }
         true
     }
@@ -237,6 +260,59 @@ impl Pane {
         let shown = write_all(PANE_OUT, CLEAR);
         write_all(self.input, b"\n");
         shown
+    }
+
+    /// Tab, at a prompt: complete the word before the cursor — a file, or for
+    /// the line's first word a command — as far as every match agrees, and on
+    /// the next Tab, while it is still ambiguous, list the matches under a new
+    /// prompt.
+    /// While a command runs, a Tab is the command's to read. False once the
+    /// pane is gone.
+    fn complete(
+        &self,
+        ld: &mut LineDiscipline,
+        cwd: &Path,
+        tab_again: &mut bool,
+        redraw: &mut Redraw,
+    ) -> bool {
+        if !self.shell_idle() {
+            return self.show(ld.type_text(b"\t"));
+        }
+        let (word, first) = ld.completion_word();
+        let names = completions(&word, first, cwd);
+        let common = common_prefix(&names);
+        let mut added = common.get(word.len()..).unwrap_or("").to_string();
+        if names.len() == 1 && !common.ends_with('/') {
+            added.push(' ');
+        }
+        if !added.is_empty() {
+            // Still ambiguous: the next Tab lists what is left, as readline does.
+            *tab_again = names.len() > 1;
+            return self.show(ld.type_text(added.as_bytes()));
+        }
+        if names.len() < 2 || !*tab_again {
+            *tab_again = true;
+            return true;
+        }
+        // The list goes under the line; the shell is asked for a new prompt
+        // (an empty line does that) and the line is shown again after it.
+        *tab_again = false;
+        let shown_from = word.rfind('/').map_or(0, |at| at + 1);
+        let listed: Vec<&str> = names.iter().map(|name| &name[shown_from..]).collect();
+        ld.redrawn();
+        redraw.line = Some(ld.line().to_vec());
+        redraw.due = None;
+        let shown = write_all(
+            PANE_OUT,
+            format!("\r\n{}\r\n", listed.join("  ")).as_bytes(),
+        );
+        write_all(self.input, b"\n");
+        shown
+    }
+
+    /// Show what the line discipline echoed; false once the pane is gone.
+    fn show(&self, actions: Vec<Action>) -> bool {
+        actions.into_iter().all(|action| self.apply(action))
     }
 
     /// Whether the shell is alone in the pane: no other recorded process lives.
@@ -356,4 +432,50 @@ fn write_all(fd: i32, mut bytes: &[u8]) -> bool {
         bytes = &bytes[n as usize..];
     }
     true
+}
+
+/// Bash's builtins a command name completes to, beside what is on PATH.
+const BUILTINS: &[&str] = &[
+    "alias", "bg", "cd", "echo", "exit", "export", "fg", "history", "jobs", "kill", "pwd", "read",
+    "set", "source", "type", "unalias", "unset", "wait",
+];
+
+/// What `word` completes to, as whole names (a directory's with its `/`):
+/// the line's first word as a command, a builtin or one on PATH; anything
+/// else, and a first word with a `/`, as a file from the shell's directory.
+fn completions(word: &str, first: bool, cwd: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    if first && !word.contains('/') {
+        names.extend(
+            BUILTINS
+                .iter()
+                .filter(|b| b.starts_with(word))
+                .map(|b| b.to_string()),
+        );
+        for dir in std::env::var("PATH").unwrap_or_default().split(':') {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with(word) {
+                    names.push(name);
+                }
+            }
+        }
+    } else {
+        let (dir, prefix) = word.split_at(word.rfind('/').map_or(0, |at| at + 1));
+        let base = match dir.strip_prefix("~/") {
+            Some(rest) => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest),
+            None => cwd.join(dir),
+        };
+        for entry in std::fs::read_dir(base).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with(prefix) || (name.starts_with('.') && !prefix.starts_with('.')) {
+                continue;
+            }
+            let slash = if entry.path().is_dir() { "/" } else { "" };
+            names.push(format!("{dir}{name}{slash}"));
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
 }

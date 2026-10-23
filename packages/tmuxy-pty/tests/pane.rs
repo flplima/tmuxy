@@ -17,10 +17,16 @@ struct Pane {
 
 impl Pane {
     fn run(program: &[&str]) -> Self {
+        Self::run_in(&std::env::temp_dir(), program)
+    }
+
+    /// `run`, with the helper (and the program) started in `dir`.
+    fn run_in(dir: &std::path::Path, program: &[&str]) -> Self {
         let (socket, theirs) = UnixStream::pair().expect("socket pair");
         let theirs = OwnedFd::from(theirs);
         let helper = Command::new(env!("CARGO_BIN_EXE_tmuxy-pty"))
             .args(program)
+            .current_dir(dir)
             .stdin(Stdio::from(theirs.try_clone().expect("dup")))
             .stdout(Stdio::from(theirs))
             .spawn()
@@ -134,4 +140,31 @@ fn ctrl_l_clears_and_redraws_the_line_being_typed() {
     pane.type_keys(b"ab\x0c");
     let shown = pane.shows("prompt[]> ab");
     assert!(shown.contains("\x1b[H\x1b[2J"), "{shown:?}");
+}
+
+/// Tab at a prompt completes a file in the shell's directory: as far as the
+/// matches agree, a list of them on the next Tab, then whole with a space
+/// once only one is left.
+#[test]
+fn tab_completes_a_file_name() {
+    let dir = std::env::temp_dir().join(format!("tmuxy-pty-tab-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    std::fs::write(dir.join("alpha-one.txt"), "").expect("file");
+    std::fs::write(dir.join("alpha-two.txt"), "").expect("file");
+    let mut pane = Pane::run_in(
+        &dir,
+        &[
+            "/bin/sh",
+            "sh",
+            "-c",
+            "echo ready; while read l; do echo \"got:[$l]\"; done",
+        ],
+    );
+    pane.shows("ready");
+    pane.type_keys(b"cat alp\t\tt\t\r");
+    // The program reads the completed line (`read` drops its trailing space),
+    // after the empty line that asked a shell for its prompt again.
+    let shown = pane.shows("got:[cat alpha-two.txt]");
+    assert!(shown.contains("alpha-one.txt  alpha-two.txt"), "{shown:?}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
