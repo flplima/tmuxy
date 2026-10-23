@@ -54,13 +54,19 @@ for (const conf of GUEST_CONF_ASSETS) {
 // A pane runs on a socket pair (patches/pane-socketpair.patch), so bash is
 // asked to be interactive and leaves line editing to tmuxy-pty.
 await writeFile(join(config, 'tmuxy.conf'), guestTmuxyConf('exec /bin/bash --noediting -i'));
-// CheerpX cannot set a hostname, so the prompt names the host itself; and
-// tmux cannot see a pane's directory, so the prompt reports it with OSC 7
-// (patches/pane-path-from-osc7.patch): tab names and splits follow `cd`.
-await writeFile(
-  join(GUEST, 'root', '.bashrc'),
-  `${guestBashrc('tmuxy')}PROMPT_COMMAND='printf "\\033]7;%s\\007" "$PWD"'\n`,
-);
+// The pane shell's ~/.bashrc. CheerpX cannot set a hostname, so the prompt
+// names the host itself. tmux cannot see a pane's directory, so the prompt
+// reports it with OSC 7 (patches/pane-path-from-osc7.patch): tab names and
+// splits follow `cd`. And a shell started bare in a pane, which is no
+// terminal, would not know it is interactive and print no prompt (and ash,
+// without +m, would warn that it has no tty for job control).
+const PANE_BASHRC = [
+  `PROMPT_COMMAND='printf "\\033]7;%s\\007" "$PWD"'`,
+  'bash() { if [ $# -eq 0 ]; then command bash --noediting -i; else command bash "$@"; fi; }',
+  'sh() { if [ $# -eq 0 ]; then command sh +m -i; else command sh "$@"; fi; }',
+  '',
+].join('\n');
+await writeFile(join(GUEST, 'root', '.bashrc'), `${guestBashrc('tmuxy')}${PANE_BASHRC}`);
 
 console.log('… docker build (tmux from source under linux/386 emulation; minutes on first run)');
 const buildArgs = process.env.TMUX_VERSION
