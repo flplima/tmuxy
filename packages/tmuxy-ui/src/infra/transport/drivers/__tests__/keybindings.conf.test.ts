@@ -1,5 +1,5 @@
 /**
- * The v86 transport's key table against the tmuxy.defaults.conf the app
+ * The guest transports' key table against the tmuxy.defaults.conf the app
  * ships: the two were written by hand twice and drifted once.
  */
 
@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_KEYBINDINGS } from '../v86/defaultKeybindings';
+import { DEFAULT_KEYBINDINGS } from '../guest/defaultKeybindings';
 
 const CONF = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -56,7 +56,7 @@ function normal(command: string): string {
 const byKey = (binds: Bind[], table: string) =>
   new Map(binds.filter((b) => b.table === table).map((b) => [b.key, b.command]));
 
-describe('the v86 key table against the shipped tmuxy.defaults.conf', () => {
+describe('the guest key table against the shipped tmuxy.defaults.conf', () => {
   const conf = confBindings();
 
   it('binds exactly the root keys the conf binds, to the same commands', () => {

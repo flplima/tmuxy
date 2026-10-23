@@ -99,7 +99,7 @@ Through the v86 guest's console (tmux 3.7a on a serial line), `send-keys -l 'tex
 | `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
 | `#(date)` | `#(date)` (command formats not run) |
 
-Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/infra/transport/drivers/v86/V86TmuxAdapter.ts`).
+Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The in-browser guest clients do this in `toControlModeCommand` (`tmuxy-ui/src/infra/transport/drivers/guest/GuestTmuxAdapter.ts`).
 
 The native control-mode path does not need it: a `#{pane_id}` typed at the prompt reaches the shell verbatim on 3.8 and on every tmux the per-commit and nightly suites run, which `tests/1-input-interaction-keys.test.js` ("typed text reaches the shell verbatim") checks on each of them. Should a tmux ever expand it there, that test is where it shows.
 

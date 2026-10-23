@@ -45,7 +45,7 @@ const meta: Meta<typeof V86AppHarness> = {
   // boots (~5s), the rest restore the pinned snapshot (~1s) for an isolated clean
   // start. Switching stories in the Storybook UI is near-instant as a result.
   //
-  // Every story runs a plain 80x30 terminal (V86_DEFAULT_COLS/ROWS) — the
+  // Every story runs a plain 80x30 terminal (GUEST_DEFAULT_COLS/ROWS) — the
   // harness is sized in CELLS, not pixels, so the grid is the same on any host
   // font instead of whatever a fixed pixel box happened to measure out to. A
   // story that needs a different terminal passes `cols`/`rows`.

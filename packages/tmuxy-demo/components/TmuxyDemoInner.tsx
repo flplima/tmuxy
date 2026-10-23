@@ -3,8 +3,10 @@
 import {
   TmuxyProvider,
   TmuxyApp,
+  CheerpXTmuxAdapter,
   V86TmuxAdapter,
-  V86TransportLive,
+  GuestTransportLive,
+  cheerpxAvailable,
   useAppFocused,
   type RenderTabline,
 } from 'tmuxy-ui';
@@ -43,17 +45,19 @@ const PANE_GROUP_FILES = [
 // one the other, then back to the first, and then to the welcome tab. Run from
 // the pane's own shell with the CLI, as a user would: `group add` acts on the
 // shell's pane, and the new member is the one then showing in the features
-// tab (`m:features.`). Targets name the snapshot's session, `m`
-// (build-v86-snapshot.mjs), since a parked shell's own session is the stash.
+// tab (`m:features.`). Targets name the guest's session, `m`
+// (build-v86-snapshot.mjs, tmuxy-console), since a parked shell's own
+// session is the stash.
 // The switch to the welcome tab is the line's own last step rather than an
 // init command, which would run before the shell got to it. Otherwise targets
-// are relative: the guest's pane ids are whatever its snapshot left them at.
+// are relative: the guest's pane ids are whatever its start left them at.
 const PANE_GROUP_THEN_WELCOME = [
   `send-keys -l "clear; cat ~/pane-group-1.txt; tmuxy pane group add && tmux send-keys -t m:features. 'clear; cat ~/pane-group-2.txt' Enter && tmuxy pane group switch \\$TMUX_PANE && tmux select-window -t m:welcome"`,
   'send-keys Enter',
 ];
 
-// The guest's snapshot starts with one window of two side-by-side panes.
+// Either guest starts with one window of two side-by-side panes (the v86
+// snapshot, the CheerpX image's console relay).
 const FEATURES_TAB = [
   // Tab 2: features: left column split in two, its top pane a group
   'new-window',
@@ -86,9 +90,13 @@ const INIT_COMMANDS_MOBILE = [
 export default function TmuxyDemoInner() {
   const adapter = useMemo(() => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
-    return new V86TmuxAdapter({
-      initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP,
-    });
+    const options = { initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP };
+    // CheerpX where the page can run it (`?guest=v86` asks for v86 anyway),
+    // v86 everywhere else.
+    const askedForV86 = new URLSearchParams(window.location.search).get('guest') === 'v86';
+    return cheerpxAvailable() && !askedForV86
+      ? new CheerpXTmuxAdapter(options)
+      : new V86TmuxAdapter(options);
   }, []);
 
   const interacted = useRef(false);
@@ -109,7 +117,7 @@ export default function TmuxyDemoInner() {
     });
   }, [adapter]);
 
-  const transport = useMemo(() => V86TransportLive(adapter), [adapter]);
+  const transport = useMemo(() => GuestTransportLive(adapter), [adapter]);
 
   return (
     <div

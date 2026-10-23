@@ -144,28 +144,33 @@ See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 - Only HTTP Basic auth (`--password`) built in; for anything stronger rely on external layers (SSH, VPN, reverse proxy)
 - Latency affects typing feel — no local echo or input prediction (see [NON-GOALS.md](NON-GOALS.md))
 
-### Scenario 4: Fully Client-Side — Real tmux in the Browser (v86 + WASM)
+### Scenario 4: Fully Client-Side — Real tmux in the Browser (v86 or CheerpX + WASM)
 
-No server at all. Real tmux 3.7a runs inside a v86 x86 emulator (a small buildroot Linux restored from a pre-booted state snapshot), and its `tmux -CC` control-mode stream is parsed by **tmuxy-core compiled to WebAssembly** — the same Rust parser and state aggregator the native server runs.
+No server at all. Real tmux runs inside an in-browser guest machine, and its `tmux -CC` control-mode stream is parsed by **tmuxy-core compiled to WebAssembly** — the same Rust parser and state aggregator the native server runs. Two guests share everything but the machine:
+
+- **v86** — an x86 emulator running a small buildroot Linux restored from a pre-booted state snapshot; the control client is on its UART.
+- **CheerpX** — an x86-to-WebAssembly JIT running 32-bit Alpine binaries from an ext2 image streamed over HTTP; the control client is on its console, through the guest's `tmuxy-console` relay. Faster and with no kernel to boot, but it needs a cross-origin isolated page (COOP + COEP headers), and its kernel lacks enough that the guest's tmux is patched and every pane runs under `tmuxy-pty` (see `packages/tmuxy-ui/cheerpx/README.md`).
 
 ```
-TmuxyApp ──invoke(run_tmux_command)──> V86TmuxAdapter ──> V86Engine
-   ▲                                                          │ paced writes
-   │                                                          ▼
-onStateChange <── tmuxy-wasm (parse + aggregate) <──serial── tmux -CC in v86 guest
+TmuxyApp ──invoke(run_tmux_command)──> GuestTmuxAdapter ──> GuestEngine (V86Engine | CheerpXEngine)
+   ▲                                                              │ send
+   │                                                              ▼
+onStateChange <── tmuxy-wasm (parse + aggregate) <──stream── tmux -CC in the guest
 ```
 
-Key pieces (all under `tmuxy-ui/src/infra/transport/drivers/v86/`):
+Key pieces (under `tmuxy-ui/src/infra/transport/drivers/`):
 
 | Piece | Responsibility |
 | --- | --- |
-| `V86Engine` | Owns the emulator: a UART writer paced under the rate the guest drains its input (v86's UART queue is unbounded; the guest reads ~45 KB/s, and a slower pace turns the queue into the bottleneck behind every keystroke), serial coalescing, tick/sync timers, `%exit`→fatal detection, and a guest bootstrap re-applied on every attach (snapshot restores rewind the filesystem). Marker-bracketed commands (tracked mutations, scrollback captures) send their markers as separate lines, as the native monitor does — invariant A6 in INVARIANTS.md. |
-| `V86TmuxAdapter` | The v86 driver behind `V86TransportLive`: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally. |
-| shared engine | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s). |
+| `guest/GuestEngine` | The machine-independent control-mode client: the wasm core, tick/sync timers, `%exit`→fatal detection, the attach-and-sync loop with a per-attach guest setup, and a serialized boot/reset lifecycle. Marker-bracketed commands (tracked mutations, scrollback captures, in `guest/controlMode.ts`) send their markers as separate lines, as the native monitor does — invariant A6 in INVARIANTS.md. |
+| `guest/GuestTmuxAdapter` | The driver behind `GuestTransportLive`: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally. |
+| `v86/V86Engine` | The v86 machine: a UART writer paced under the rate the guest drains its input (v86's UART queue is unbounded; the guest reads ~45 KB/s, and a slower pace turns the queue into the bottleneck behind every keystroke) and serial coalescing. Snapshot restores rewind the filesystem, so the guest setup is re-applied on every attach. |
+| `v86` shared engine | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s). |
+| `cheerpx/CheerpXEngine` | The CheerpX machine: CheerpX from its CDN, the image with a fresh IndexedDB overlay per page load, the relay on the console. |
 
-Used by the public demo site (`packages/tmuxy-demo`) and the Storybook `v86` stories. Assets (kernel, BIOS, state snapshot, wasm bindings) are served statically; nothing leaves the browser.
+The public demo site (`packages/tmuxy-demo`) runs CheerpX where the page is cross-origin isolated (its dev server sends the headers) and v86 elsewhere; `?guest=v86` asks for v86. The Storybook `v86` stories run v86. Assets (kernel, BIOS, state snapshot, ext2 image, wasm bindings) are served statically; nothing leaves the browser.
 
-This scenario is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (cached on the build-script hash), starts a Storybook dev server, and drives the gate stories on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`); every `v86`-tagged story runs nightly in `nightly-v86.yml`. The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests.
+The v86 guest is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (cached on the build-script hash), starts a Storybook dev server, and drives the gate stories on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`); every `v86`-tagged story runs nightly in `nightly-v86.yml`. The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests. The CheerpX guest has no automated test yet.
 
 ## Additional API Endpoints
 

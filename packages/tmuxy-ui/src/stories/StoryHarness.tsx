@@ -5,9 +5,12 @@
  */
 
 import { useMemo } from 'react';
-import { TmuxyProvider, TmuxyApp, V86TmuxAdapter, V86TransportLive } from '../lib';
+import { TmuxyProvider, TmuxyApp, V86TmuxAdapter, GuestTransportLive } from '../lib';
 import { useGridBox } from './gridBox';
-import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../infra/transport/drivers/v86/V86Engine';
+import {
+  GUEST_DEFAULT_COLS,
+  GUEST_DEFAULT_ROWS,
+} from '../infra/transport/drivers/guest/GuestEngine';
 
 /**
  * Renders the full TmuxyApp against REAL tmux — running inside a v86 x86
@@ -22,8 +25,8 @@ import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../infra/transport/drivers/v
  */
 export function V86AppHarness({
   initCommands,
-  cols = V86_DEFAULT_COLS,
-  rows = V86_DEFAULT_ROWS,
+  cols = GUEST_DEFAULT_COLS,
+  rows = GUEST_DEFAULT_ROWS,
   shared = false,
 }: {
   initCommands?: string[];
@@ -36,7 +39,7 @@ export function V86AppHarness({
   shared?: boolean;
 }) {
   const transport = useMemo(
-    () => V86TransportLive(new V86TmuxAdapter({ initCommands, shared })),
+    () => GuestTransportLive(new V86TmuxAdapter({ initCommands, shared })),
     [initCommands, shared],
   );
   const box = useGridBox(cols, rows);

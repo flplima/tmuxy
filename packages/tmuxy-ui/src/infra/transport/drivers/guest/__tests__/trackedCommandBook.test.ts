@@ -1,5 +1,5 @@
 /**
- * The v86 driver's marker books hold invariant A6 on the serial transport:
+ * The guest drivers' marker books hold invariant A6 on the console transport:
  * the BEGIN marker, the command and the END marker are three lines, so the
  * END marker runs whatever the command did. tmux stops a `;` list at its
  * first error — on one line, a refused split's END marker never ran, the
@@ -7,7 +7,7 @@
  * user read "tmux did not respond" for a split tmux had refused at once.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { CaptureBook, TrackedCommandBook } from '../v86Guest';
+import { CaptureBook, TrackedCommandBook } from '../controlMode';
 
 describe('TrackedCommandBook', () => {
   it('sends its markers as their own lines, so the END marker runs whatever the command did', () => {

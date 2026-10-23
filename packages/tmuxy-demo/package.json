@@ -4,9 +4,9 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "predev": "bash ../../bin/kill-port 9003 && node scripts/stage-v86-assets.mjs",
+    "predev": "bash ../../bin/kill-port 9003 && node scripts/stage-guest-assets.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/stage-v86-assets.mjs",
+    "prebuild": "node scripts/stage-guest-assets.mjs",
     "build": "next build"
   },
   "dependencies": {

@@ -135,7 +135,7 @@ implemented per transport:
   and parses it with `parse_scrollback_to_cells` (`tmuxy-server/src/sse.rs`, `tmuxy-core`).
 - **Tauri desktop** — the `get_scrollback_cells` command mirrors the same capture + parse
   (`tmuxy-tauri-app/src/commands.rs`).
-- **Fully client-side (v86)** — there is no server, so `V86Engine.captureScrollback` runs the same
+- **Fully client-side (v86, CheerpX)** — there is no server, so `GuestEngine.captureScrollback` runs the same
   `capture-pane` over the in-browser control connection (bracketed by unique markers so its lines can
   be picked out of the stream) and hands the raw text to the core's `parse_scrollback` (a wasm export
   of `parse_scrollback_to_cells`), reusing the identical ANSI parser instead of a JS reimplementation.
@@ -222,7 +222,7 @@ types the selection into the pane. Either closes the view.
 | `packages/tmuxy-ui/src/hooks/usePaneMouse.ts` / `usePaneTouch.ts` | Mouse/touch → copy-mode enter, selection, and native scroll |
 | `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_SCROLLBACK_CELLS` → `adapter.invoke('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED` |
 | `packages/tmuxy-core/src/lib.rs` | `parse_scrollback_to_cells` (shared by server, Tauri, and the wasm core) |
-| `packages/tmuxy-ui/src/infra/transport/drivers/v86/V86Engine.ts` | `captureScrollback` (marker-bracketed capture) + `parseScrollback` for the in-browser deployment |
+| `packages/tmuxy-ui/src/infra/transport/drivers/guest/GuestEngine.ts` | `captureScrollback` (marker-bracketed capture) + `parseScrollback` for the in-browser deployment |
 
 ## Related
 

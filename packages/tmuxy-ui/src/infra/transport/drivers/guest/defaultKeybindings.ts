@@ -1,5 +1,5 @@
 /**
- * The key bindings the v86 transport reports, since its guest has no server
+ * The key bindings the guest transports report, since a guest has no server
  * to ask: the shipped tmuxy.defaults.conf (packages/tmuxy-core/assets) as
  * the keyboard actor expects it, plus the tmux defaults the guest's tmux
  * binds on its own. `__tests__/keybindings.conf.test.ts` holds this table to
@@ -45,7 +45,7 @@ export const DEFAULT_KEYBINDINGS: KeyBindings = {
   ],
   // Ctrl+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
   // `tmuxy-nav-*` command-aliases, which tmuxy.essentials.conf defines and
-  // the guest's defaults conf sources (build-v86-snapshot.mjs ships both).
+  // the guest's defaults conf sources (both guest image builds ship both).
   // Intercepted client-side so the key isn't sent to the pane as literal
   // text. Ctrl+digit is the client's own, as the conf says, so it is not
   // bound here either.

@@ -6,7 +6,7 @@
 import { Effect, Layer } from 'effect';
 import { HttpAdapter } from './drivers/HttpAdapter';
 import { TauriAdapter } from './drivers/TauriAdapter';
-import type { V86TmuxAdapter } from './drivers/v86/V86TmuxAdapter';
+import type { GuestTmuxAdapter } from './drivers/guest/GuestTmuxAdapter';
 import { isTauri } from '../../utils/platform';
 import { TmuxTransport, makeTransport } from './TmuxTransport';
 import { makeSequencedTransport } from './stateFeed';
@@ -23,9 +23,9 @@ export const TauriTransportLive = Layer.scoped(
   Effect.suspend(() => makeSequencedTransport(new TauriAdapter(), { latestPerFrame: false })),
 );
 
-/** Real tmux in a v86 guest, in the browser: the demo site and the v86 stories. */
-export const V86TransportLive = (v86: V86TmuxAdapter) =>
-  Layer.scoped(TmuxTransport, makeTransport(v86));
+/** Real tmux in an in-browser guest (v86 or CheerpX): the demo site and the v86 stories. */
+export const GuestTransportLive = (guest: GuestTmuxAdapter) =>
+  Layer.scoped(TmuxTransport, makeTransport(guest));
 
 /** The desktop app's IPC, the web server otherwise. */
 export function transportForEnvironment(): Layer.Layer<TmuxTransport> {
