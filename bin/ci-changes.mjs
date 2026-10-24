@@ -29,7 +29,7 @@
 import { execFileSync } from 'node:child_process';
 
 /** What no gated job reads: prose, agent instructions, CI plumbing of its own. */
-const PROSE = [/^docs\//, /\.md$/, /^\.agents\//, /^\.claude\//];
+const PROSE = [/^docs\//, /\.md$/, /^\.agents\//];
 const TOOLING = [
   /^bin\/.*\.mjs$/,
   /^(\.prettierrc|\.prettierignore|eslint\.config\.mjs|\.gitignore)$/,

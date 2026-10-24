@@ -2,7 +2,7 @@
 # Persist Claude Code login + onboarding state across container rebuilds.
 #
 # Two pieces of state must survive a fresh container:
-#   1. Auth — ~/.claude/.credentials.json. Already lives in the ~/.claude named
+#   1. Auth — ~/.agents/.credentials.json. Already lives in the ~/.agents named
 #      volume (CLAUDE_CONFIG_DIR points there), so it persists automatically and
 #      needs nothing from this script.
 #   2. ~/.claude.json — the onboarding flag that skips the welcome/theme screen
@@ -16,15 +16,15 @@
 #
 # Must be idempotent and safe to re-run on every container start.
 #
-# Codespaces has no ~/.claude named volume to mirror into (and manages its own
+# Codespaces has no ~/.agents named volume to mirror into (and manages its own
 # secrets), so the mirror/daemon has nothing to do there — skip it.
 set -euo pipefail
 
 if [ -n "${CODESPACES:-}" ]; then exit 0; fi
 
 HOME_FILE="$HOME/.claude.json"
-VOLUME_FILE="$HOME/.claude/.claude.json"
-DAEMON_PID_FILE="$HOME/.claude/.persist-daemon.pid"
+VOLUME_FILE="$HOME/.agents/.claude.json"
+DAEMON_PID_FILE="$HOME/.agents/.persist-daemon.pid"
 
 # Stop any prior daemon from a previous container generation. The PID file lives
 # in the volume so it survives restarts; the process does not (and PIDs aren't

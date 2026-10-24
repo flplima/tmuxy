@@ -139,7 +139,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # writable. Credentials are never mounted from the host — users log in
 # inside (gh auth login, claude login, ssh-keygen) and the volumes
 # persist that state across restarts.
-RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
+RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.agents \
     && mkdir -p -m 700 /home/user/.ssh
 
 # The single Chromium for everything Playwright-driven — the e2e suite

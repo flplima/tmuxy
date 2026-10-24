@@ -21,7 +21,7 @@ describe('which CI jobs a push can skip', () => {
   });
 
   it('a prose-only push skips the desktop and v86 jobs, and triggers nothing', () => {
-    expect(decide(['docs/TESTS.md', 'README.md', '.claude/skills/x/SKILL.md'])).toEqual({
+    expect(decide(['docs/TESTS.md', 'README.md', '.agents/skills/x/SKILL.md'])).toEqual({
       desktop: false,
       v86: false,
       'macos-rust': false,

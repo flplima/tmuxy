@@ -7,7 +7,7 @@
 # existed in the Dockerfile) is stuck root-owned, and `updateRemoteUserUID` can
 # also leave files owned by a stale UID. Either case breaks `gh auth login`,
 # `claude login`, `ssh-keygen`, and the ~/.claude.json persistence daemon (which
-# can't write into a root-owned ~/.claude volume).
+# can't write into a root-owned ~/.agents volume).
 #
 # Invoked in two contexts, hence the dual privilege handling:
 #   - bin/devcontainer's entrypoint.sh, as root: runs chown/chmod directly,
@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO=sudo; fi
 OWNER="$(id -un user 2>/dev/null || echo user)"
 
 DIRS=(
-  "$HOME/.claude"
+  "$HOME/.agents"
   "$HOME/.config/gh"
   "$HOME/.config/git"
   "$HOME/.ssh"
@@ -38,7 +38,7 @@ DIRS=(
 for d in "${DIRS[@]}"; do
   [ -d "$d" ] || continue
   # Skip the recursive chown unless the top dir is owned by someone other than
-  # `user` — avoids walking the (large) ~/.claude tree on every start.
+  # `user` — avoids walking the (large) ~/.agents tree on every start.
   if [ "$(stat -c %U "$d")" != "$OWNER" ]; then
     $SUDO chown -R "$OWNER:$OWNER" "$d"
   fi

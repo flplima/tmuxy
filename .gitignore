@@ -20,10 +20,8 @@ target/
 # Environment
 .env
 
-# Claude Code (user-specific, not checked in)
-CLAUDE.local.md
+# Agent config: only the reusable skills are tracked
 .agents/*
-# Track reusable agent skills
 !.agents/skills/
 !.agents/skills/**
 

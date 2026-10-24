@@ -125,7 +125,7 @@ prepare() {
         # Credentials are NOT mounted from host. Log in once inside the
         # container — these named volumes persist auth across runs.
         -v tmuxy-gh-config:/home/user/.config/gh
-        -v tmuxy-claude-config:/home/user/.claude
+        -v tmuxy-agents-config:/home/user/.agents
         -v tmuxy-ssh:/home/user/.ssh
         -v tmuxy-git-config:/home/user/.config/git
     )
@@ -164,7 +164,7 @@ prepare() {
         -e CONTAINER_NAME="$CONTAINER_NAME"
         -e CHROME_CDP_URL=http://host.docker.internal:9222
         -e TMUX_SESSION=dev
-        -e CLAUDE_CONFIG_DIR=/home/user/.claude
+        -e CLAUDE_CONFIG_DIR=/home/user/.agents
         -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config
         -w "$WORKSPACE"
         --user 0:0
@@ -179,7 +179,7 @@ prepare() {
     INIT_SCRIPT="
         # Restore ~/.claude.json (Claude Code onboarding flag + oauthAccount) from
         # the persisted volume copy and start the backup daemon. .claude.json lives
-        # in \$HOME, NOT in the ~/.claude volume, and CLAUDE_CONFIG_DIR does not
+        # in \$HOME, NOT in the ~/.agents volume, and CLAUDE_CONFIG_DIR does not
         # relocate it — so without this restore every fresh container re-prompts
         # for login and replays the welcome/intro screen.
         $WORKSPACE/.devcontainer/persist-claude-login.sh || true

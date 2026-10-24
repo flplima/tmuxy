@@ -206,4 +206,4 @@ Use [gitmoji](https://gitmoji.dev/) for commit messages:
 | 🔧    | Configuration            |
 | 🚀    | Version bump / release   |
 
-The release process lives in the `release` skill (`.agents/skills/release/`) — invoke it when shipping a version.
+The release process lives in the `release` skill — read `.agents/skills/release/SKILL.md` and follow it when shipping a version.

@@ -212,7 +212,7 @@ function checkDocsToScriptsConsistency() {
       if (token.includes(' ')) continue;
       if (token.includes('*') || token.includes('..') || token.includes('://')) continue;
       if (
-        !/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|\.agents|\.claude)\//.test(
+        !/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|\.agents)\//.test(
           token,
         ) &&
         !['AGENTS.md', 'Cargo.lock', 'package.json'].includes(token)

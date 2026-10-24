@@ -64,13 +64,13 @@
     "source=tmuxy-cargo-registry,target=/usr/local/cargo/registry,type=volume",
     "source=tmuxy-cargo-git,target=/usr/local/cargo/git,type=volume",
     "source=tmuxy-gh-config,target=/home/user/.config/gh,type=volume",
-    "source=tmuxy-claude-config,target=/home/user/.claude,type=volume",
+    "source=tmuxy-agents-config,target=/home/user/.agents,type=volume",
     "source=tmuxy-ssh,target=/home/user/.ssh,type=volume",
     "source=tmuxy-git-config,target=/home/user/.config/git,type=volume"
   ],
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=2048",
-    "CLAUDE_CONFIG_DIR": "/home/user/.claude",
+    "CLAUDE_CONFIG_DIR": "/home/user/.agents",
     "CHROME_CDP_URL": "http://localhost:9222",
     "TMUX_SESSION": "dev"
   },
