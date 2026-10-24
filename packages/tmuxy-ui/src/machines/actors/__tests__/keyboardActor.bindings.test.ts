@@ -425,3 +425,34 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
     actor.stop();
   });
 });
+
+describe('keyboardActor — copy and paste on ctrl+shift, as in a terminal emulator', () => {
+  it('ctrl+shift+c copies the selection and never reaches the pane as ctrl+c', () => {
+    const { actor, events } = spawnKeyboardActor(pid('%3'));
+    const copy = vi.fn(() => true);
+    document.execCommand = copy;
+
+    pressKey({ key: 'C', ctrlKey: true, shiftKey: true });
+
+    expect(copy).toHaveBeenCalledWith('copy');
+    expect(sendCommands(events)).toEqual([]);
+    actor.stop();
+  });
+
+  it('ctrl+shift+v is left to the browser, whose paste event types the clipboard', () => {
+    const { actor, events } = spawnKeyboardActor(pid('%3'));
+    const down = new KeyboardEvent('keydown', {
+      key: 'V',
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    window.dispatchEvent(down);
+
+    expect(down.defaultPrevented).toBe(false);
+    expect(sendCommands(events)).toEqual([]);
+    actor.stop();
+  });
+});

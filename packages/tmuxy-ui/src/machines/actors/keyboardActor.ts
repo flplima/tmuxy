@@ -160,6 +160,15 @@ export function createKeyboardActor() {
       if (modifierKeys.includes(event.key)) return;
       if (event.key === 'Dead') return;
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') return;
+      if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
+        const letter = event.key.toLowerCase();
+        if (letter === 'v') return;
+        if (letter === 'c') {
+          event.preventDefault();
+          document.execCommand('copy');
+          return;
+        }
+      }
 
       const snap = readLiveSnapshot(input.parent, activePaneId);
 
