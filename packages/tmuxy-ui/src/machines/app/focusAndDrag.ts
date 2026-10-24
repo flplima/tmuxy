@@ -190,7 +190,20 @@ export const focusAndDragActions = {
       ? (context.panes.find((p) => p.tmuxId === visibleId) ?? null)
       : null;
 
-    if (!group || !visiblePane || visiblePane.tmuxId === clickedPaneId) {
+    // The member already on screen has nothing to swap in, and tmux's group
+    // switch does nothing for it: the click takes the pane, as a click on its
+    // body does. Without the select the next tmux state hands the focus back.
+    if (visiblePane?.tmuxId === clickedPaneId) {
+      enqueue(
+        sendTo('tmuxStore', {
+          type: 'DISPATCH_OP' as const,
+          op: TmuxOp.SelectPane({ paneId: clickedPaneId }),
+        }),
+      );
+      return;
+    }
+
+    if (!group || !visiblePane) {
       enqueue(
         sendTo('tmux', {
           type: 'SEND_OP' as const,

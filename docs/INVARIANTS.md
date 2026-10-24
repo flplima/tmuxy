@@ -111,6 +111,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | P6 | `NewWindow` placeholders match only tab windows with a pane; the patch hides unmatched newborns. | safety | `windowOps.ts` | `ops.test.ts › stays pending until…`, `› patch hides a tab-typed-but-paneless…` |
 | P7 | Session switch clears pending ops and committed state before the new session's first state. | ordering | `tmuxStoreActor.ts`, `appMachine.ts` | `workflows.test.ts › TmuxStore — clear…` (store only; order vs. first state is —) |
 | P8 | `MoveWindow` predicts dropped strip order immediately and holds until server places the window beside its anchor. | ordering | `windowOps.ts`, `tabOverview.ts` | `ops.test.ts › MoveWindow predict…`; `tests/2-layout-navigation.test.js › a tab dragged along the strip…` |
+| P9 | A focus the client shows is one it asked tmux for: every optimistic active-pane change goes out with an op that makes tmux select that pane, so tmux's next state confirms it rather than taking it back. | safety | `focusAndDrag.ts` (`focusAndDrag_selectPaneGroupTab`, `focusAndDrag_focusPane`) | `AppPaneGroups.stories.tsx › ClickingTheShownMembersTabTakesTheFocus` [v86] (the group tab of the member on screen; other focus paths are —) |
 
 ## U, R and L — UI-mode records, read-only clients, session lifecycle
 
