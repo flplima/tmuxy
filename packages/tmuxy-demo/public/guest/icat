@@ -1,0 +1,33 @@
+#!/bin/bash
+# Show an image with the Kitty graphics protocol, as large as the pane, and
+# draw it again whenever the pane changes size; Ctrl+C ends it.
+#
+# Each chunk goes through tmux's passthrough (every ESC doubled), so tmux
+# hands it on rather than reading it as a pane title. `f=100` names a PNG;
+# tmuxy reads the format off the bytes, so a GIF keeps its animation.
+image=${1:?usage: icat IMAGE}
+data=$(base64 "$image" | tr -d '\n')
+
+draw() {
+  local keys="a=T,f=100,c=$1,r=$2" rest=$data chunk more
+  printf '\033[H'
+  while [ -n "$rest" ]; do
+    chunk=${rest:0:4096}
+    rest=${rest:4096}
+    if [ -n "$rest" ]; then more=1; else more=0; fi
+    printf '\033Ptmux;\033\033_G%s;%s\033\033\\\033\\' "$keys,m=$more" "$chunk"
+    keys="a=T"
+  done
+}
+
+trap 'printf "\033[?25h\033[H\033[2J"; exit' INT TERM
+printf '\033[?25l\033[H\033[2J'
+size=
+while :; do
+  now=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_width} #{pane_height}')
+  if [ "$now" != "$size" ]; then
+    size=$now
+    draw $now
+  fi
+  sleep 1
+done

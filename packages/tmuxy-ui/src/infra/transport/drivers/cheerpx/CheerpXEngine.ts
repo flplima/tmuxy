@@ -14,7 +14,9 @@ import {
   GUEST_DEFAULT_COLS,
   GUEST_DEFAULT_ROWS,
   GuestEngine,
+  GUEST_FILES_DIR,
   type AttachTiming,
+  type GuestFile,
 } from '../guest/GuestEngine';
 
 /** CheerpX's runtime, from Leaning Technologies' CDN (its license allows the
@@ -41,6 +43,10 @@ const TIMING: AttachTiming = { settleMs: 500, attachMs: 0, attemptMs: 2000, dead
 interface CheerpXDevice {
   readonly __device: unique symbol;
 }
+/** An in-memory folder the page writes into. */
+interface CheerpXDataDevice extends CheerpXDevice {
+  writeFile(path: string, data: Uint8Array): Promise<void>;
+}
 interface CheerpXLinux {
   setCustomConsole(
     write: (bytes: Uint8Array) => void,
@@ -56,6 +62,7 @@ interface CheerpXLinux {
 interface CheerpXModule {
   HttpBytesDevice: { create(url: string): Promise<CheerpXDevice> };
   IDBDevice: { create(name: string): Promise<CheerpXDevice> };
+  DataDevice: { create(): Promise<CheerpXDataDevice> };
   OverlayDevice: { create(base: CheerpXDevice, overlay: CheerpXDevice): Promise<CheerpXDevice> };
   Linux: {
     create(opts: {
@@ -72,9 +79,11 @@ export function cheerpxAvailable(): boolean {
 
 export class CheerpXEngine extends GuestEngine {
   private consoleSend: ((byte: number) => void) | null = null;
+  /** Mounted at `GUEST_FILES_DIR`; it lives as long as the machine. */
+  private files: CheerpXDataDevice | null = null;
   private readonly encoder = new TextEncoder();
 
-  protected async doBoot(initCommands: string[]): Promise<void> {
+  protected async doBoot(initCommands: string[], files: GuestFile[]): Promise<void> {
     if (!cheerpxAvailable()) {
       throw new Error('CheerpX needs a cross-origin isolated page (COOP and COEP headers)');
     }
@@ -92,6 +101,7 @@ export class CheerpXEngine extends GuestEngine {
     }
     const writes = await CheerpX.IDBDevice.create(`${OVERLAY_PREFIX}${Date.now()}`);
     const root = await CheerpX.OverlayDevice.create(disk, writes);
+    this.files = await CheerpX.DataDevice.create();
     const cx = await CheerpX.Linux.create({
       mounts: [
         { type: 'ext2', path: '/', dev: root },
@@ -101,6 +111,7 @@ export class CheerpXEngine extends GuestEngine {
         { type: 'devpts', path: '/dev/pts' },
         { type: 'proc', path: '/proc' },
         { type: 'sys', path: '/sys' },
+        { type: 'dir', path: GUEST_FILES_DIR, dev: this.files },
       ],
     });
     const decoder = new TextDecoder();
@@ -113,16 +124,22 @@ export class CheerpXEngine extends GuestEngine {
     void cx.run(RELAY, [], { env: GUEST_ENV, cwd: '/root', uid: 0, gid: 0 }).then(() => {
       if (this.booted) this.sink?.onFatal('the guest console exited');
     });
+    await this.putFiles(files);
     await this.start(initCommands, null, TIMING);
+  }
+
+  private async putFiles(files: GuestFile[]): Promise<void> {
+    for (const { name, bytes } of files) await this.files?.writeFile(`/${name}`, bytes);
   }
 
   /** CheerpX has no snapshot to rewind to: a reset re-syncs a fresh core
    *  against the running guest, whose tmux keeps what the last adapter left. */
-  protected async doReset(initCommands: string[]): Promise<void> {
-    if (!this.booted) return this.doBoot(initCommands);
+  protected async doReset(initCommands: string[], files: GuestFile[]): Promise<void> {
+    if (!this.booted) return this.doBoot(initCommands, files);
     this.attached = false;
     this.failInFlight('engine reset');
     await this.freshCore();
+    await this.putFiles(files);
     await this.start(initCommands, null, TIMING);
   }
 
@@ -135,5 +152,6 @@ export class CheerpXEngine extends GuestEngine {
 
   protected teardown(): void {
     this.consoleSend = null;
+    this.files = null;
   }
 }

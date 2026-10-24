@@ -9,7 +9,7 @@
  * It owns exactly one v86 emulator, one persistent serial pump and one paced
  * writer; the control-mode side is `GuestEngine`'s.
  */
-import { GuestEngine, type AttachTiming } from '../guest/GuestEngine';
+import { GuestEngine, type AttachTiming, type GuestFile } from '../guest/GuestEngine';
 import {
   ATTACH,
   createDetachedScreen,
@@ -56,7 +56,7 @@ export class V86Engine extends GuestEngine {
 
   /** Cold boot: create the emulator, register the persistent serial pump,
    *  restore the snapshot, then attach + sync + run `initCommands`. */
-  protected async doBoot(initCommands: string[]): Promise<void> {
+  protected async doBoot(initCommands: string[], files: GuestFile[]): Promise<void> {
     await this.freshCore();
 
     // Start the snapshot fetch now so it overlaps machine init.
@@ -90,7 +90,15 @@ export class V86Engine extends GuestEngine {
     await loaded;
     await emu.restore_state((await snapshotBytes).slice(0));
     await emu.run();
+    await this.putFiles(files);
     await this.start(initCommands, ATTACH, COLD);
+  }
+
+  /** Into the 9p share, which the restored guest has mounted at
+   *  `GUEST_FILES_DIR`. A restore rewinds the share too, so each start writes
+   *  them again. */
+  private async putFiles(files: GuestFile[]): Promise<void> {
+    for (const { name, bytes } of files) await this.emu?.create_file(name, bytes);
   }
 
   /** Fetch the machine snapshot (cached — reset() reuses the bytes). */
@@ -102,10 +110,10 @@ export class V86Engine extends GuestEngine {
   }
 
   /** Reuse path: restore the pinned snapshot, install a fresh core, re-attach. */
-  protected async doReset(initCommands: string[]): Promise<void> {
+  protected async doReset(initCommands: string[], files: GuestFile[]): Promise<void> {
     // Call doBoot directly (not boot) — we're already inside the lifecycle
     // queue, and re-enqueuing would deadlock behind ourselves.
-    if (!this.emu) return this.doBoot(initCommands);
+    if (!this.emu) return this.doBoot(initCommands, files);
     // Stop feeding the (old) core while the machine rewinds.
     this.attached = false;
     this.byteBuf = '';
@@ -114,6 +122,7 @@ export class V86Engine extends GuestEngine {
     // restore_state consumes the buffer; hand it a fresh copy each reset.
     await this.emu.restore_state(bytes.slice(0));
     await this.freshCore();
+    await this.putFiles(files);
     await this.start(initCommands, ATTACH, WARM);
   }
 

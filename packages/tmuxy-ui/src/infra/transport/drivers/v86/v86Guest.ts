@@ -16,6 +16,8 @@ export interface V86Emulator {
   add_listener(event: string, cb: (arg: number) => void): void;
   serial0_send(data: string): void;
   restore_state(state: ArrayBuffer): Promise<void>;
+  /** Write a file into the 9p share, by its path from the share's root. */
+  create_file(file: string, data: Uint8Array): Promise<void>;
   /** Start the CPU. Used to boot from an explicitly-restored snapshot (the
    *  constructor runs with `autostart: false`; see doBoot). */
   run(): Promise<void>;

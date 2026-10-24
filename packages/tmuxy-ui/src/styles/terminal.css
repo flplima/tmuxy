@@ -132,6 +132,10 @@
 .terminal-image {
   object-fit: contain;
   image-rendering: auto;
+  /* The placement's size is its cells. A page embedding the app may cap
+     every image at its container's width (Tailwind's reset does), and the
+     placements' container has none: the picture was 0px wide. */
+  max-width: none;
 }
 
 .terminal-content {

@@ -38,9 +38,26 @@ import {
 export const GUEST_DEFAULT_COLS = 80;
 export const GUEST_DEFAULT_ROWS = 30;
 
+/**
+ * Where the page's files land in the guest: v86's 9p share, which the
+ * snapshot mounts there, and a CheerpX in-memory device mounted at the same
+ * path.
+ */
+export const GUEST_FILES_DIR = '/mnt';
+
+/** A file the page puts in `GUEST_FILES_DIR`, by its name there. */
+export interface GuestFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
 /** How long after output the metadata re-sync runs (the native monitor's
  *  METADATA_SYNC_DELAY). */
 const OUTPUT_SYNC_DELAY_MS = 500;
+
+/** How long `waitForOption` waits for the option, and how often it looks. */
+const OPTION_WAIT_DEADLINE_MS = 15000;
+const OPTION_POLL_MS = 100;
 
 /** Where the engine forwards reconstructed state + clipboard writes. */
 export interface EngineSink {
@@ -89,10 +106,12 @@ export abstract class GuestEngine {
 
   /** Queue a control-mode command (one line, or several) for the guest. */
   abstract send(cmd: string): void;
-  /** Bring the machine up and attach; runs inside the lifecycle queue. */
-  protected abstract doBoot(initCommands: string[]): Promise<void>;
-  /** Give the next adapter a clean start; runs inside the lifecycle queue. */
-  protected abstract doReset(initCommands: string[]): Promise<void>;
+  /** Bring the machine up and attach; runs inside the lifecycle queue. Puts
+   *  `files` in the guest's `GUEST_FILES_DIR` before `initCommands` run. */
+  protected abstract doBoot(initCommands: string[], files: GuestFile[]): Promise<void>;
+  /** Give the next adapter a clean start; runs inside the lifecycle queue.
+   *  Puts `files` in `GUEST_FILES_DIR` before `initCommands` run. */
+  protected abstract doReset(initCommands: string[], files: GuestFile[]): Promise<void>;
   /** Release the machine. */
   protected abstract teardown(): void;
 
@@ -146,6 +165,37 @@ export abstract class GuestEngine {
   }
 
   /**
+   * Wait (at most `OPTION_WAIT_DEADLINE_MS`) until the global tmux option
+   * `option` is set, then until the state it leaves has reached the core: a
+   * re-sync, and a round trip behind it. What the init commands start can
+   * outlive them (a shell line typed into a pane runs on the shell's time),
+   * and an option is how it says it is done: a control client blocked in
+   * `wait-for` could be released by nothing but the signal.
+   */
+  async waitForOption(option: string): Promise<void> {
+    const t0 = Date.now();
+    while (Date.now() - t0 < OPTION_WAIT_DEADLINE_MS) {
+      if ((await this.query(`show-options -gqv ${option}`)).trim()) break;
+      await wait(OPTION_POLL_MS);
+    }
+    await this.synced();
+  }
+
+  /** Size the control client to `cols`x`rows`; resolves once the state at
+   *  that size has reached the core. */
+  async resize(cols: number, rows: number): Promise<void> {
+    this.send(`refresh-client -C ${cols}x${rows}`);
+    await this.synced();
+  }
+
+  /** A re-sync, and a round trip behind it: everything tmux has done so far
+   *  is in the core's state when it resolves. */
+  private async synced(): Promise<void> {
+    this.resync();
+    await this.query('display-message -p synced');
+  }
+
+  /**
    * Serializes boot/reset so overlapping lifecycle calls can't run two
    * machine transitions at once. A story switch on a shared engine calls the
    * next adapter's `connect()` (→ reset) before the previous story's
@@ -162,14 +212,14 @@ export abstract class GuestEngine {
   }
 
   /** Cold boot, then attach + sync + run `initCommands`. Serialized. */
-  boot(initCommands: string[]): Promise<void> {
-    return this.enqueue(() => this.doBoot(initCommands));
+  boot(initCommands: string[], files: GuestFile[] = []): Promise<void> {
+    return this.enqueue(() => this.doBoot(initCommands, files));
   }
 
   /** A clean start for the next adapter (boots when not booted). Serialized
    *  behind any in-flight boot/reset. */
-  reset(initCommands: string[]): Promise<void> {
-    return this.enqueue(() => this.doReset(initCommands));
+  reset(initCommands: string[], files: GuestFile[] = []): Promise<void> {
+    return this.enqueue(() => this.doReset(initCommands, files));
   }
 
   /**

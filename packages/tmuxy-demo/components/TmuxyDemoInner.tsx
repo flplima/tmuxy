@@ -45,31 +45,53 @@ const PANE_GROUP_FILES = [
 // one the other, then back to the first, and then to the welcome tab. Run from
 // the pane's own shell with the CLI, as a user would: `group add` acts on the
 // shell's pane, and the new member is the one then showing in the features
-// tab (`m:features.`). Targets name the guest's session, `m`
-// (build-v86-snapshot.mjs, tmuxy-console), since a parked shell's own
-// session is the stash.
+// tab (`tmuxy:features.`). Targets name the demo's session, which the
+// init renames from the guest's `m` (build-v86-snapshot.mjs, tmuxy-console),
+// since a parked shell's own session is the stash.
 // The switch to the welcome tab is the line's own last step rather than an
-// init command, which would run before the shell got to it. Otherwise targets
-// are relative: the guest's pane ids are whatever its start left them at.
+// init command, which would run before the shell got to it, and the line ends
+// by setting INIT_DONE, which the app waits for before its first frame.
+// Otherwise targets are relative: the guest's pane ids are whatever its start
+// left them at.
+const SESSION = 'tmuxy';
+const INIT_DONE = '@tmuxy-demo-ready';
 const PANE_GROUP_THEN_WELCOME = [
-  `send-keys -l "clear; cat ~/pane-group-1.txt; tmuxy pane group add && tmux send-keys -t m:features. 'clear; cat ~/pane-group-2.txt' Enter && tmuxy pane group switch \\$TMUX_PANE && tmux select-window -t m:welcome"`,
+  `send-keys -l "clear; cat ~/pane-group-1.txt; tmuxy pane group add && tmux send-keys -t ${SESSION}:features. 'clear; cat ~/pane-group-2.txt' Enter && tmuxy pane group switch \\$TMUX_PANE && tmux select-window -t ${SESSION}:welcome; tmux set -g ${INIT_DONE} 1"`,
   'send-keys Enter',
 ];
+
+// What the features tab's other two panes show, from files the page puts in
+// the guest's /mnt: the old demo's nyan cat, drawn with the Kitty graphics
+// protocol (public/guest/icat), and a markdown document in a preview.
+const guestFiles = () => ({
+  icat: new URL('/guest/icat', window.location.href),
+  'tmuxy.md': new URL('/guest/tmuxy.md', window.location.href),
+  'nyan-cat.gif': new URL(
+    'https://gist.githubusercontent.com/brudnak/aba00c9a1c92d226f68e8ad8ba1e0a40/raw/nyan-cat.gif',
+  ),
+});
+const typeLine = (line: string) => [`send-keys -l "${line}"`, 'send-keys Enter'];
 
 // Either guest starts with one window of two side-by-side panes (the v86
 // snapshot, the CheerpX image's console relay).
 const FEATURES_TAB = [
-  // Tab 2: features: left column split in two, its top pane a group
+  // Tab 2: features: left column split in two, its top pane a group, the
+  // nyan cat under it and the markdown on the right
   'new-window',
   'rename-window features',
   'split-window -h',
+  // Typed before the shell is up, so its output starts on the prompt's line;
+  // `clear` puts the preview's marker at the start of one, where it is read.
+  ...typeLine('clear; cd /mnt && tmuxy open tmuxy.md'),
   'select-pane -L',
   'split-window -v',
+  ...typeLine('bash /mnt/icat /mnt/nyan-cat.gif'),
   'select-pane -U',
   ...PANE_GROUP_THEN_WELCOME,
 ];
 
 const INIT_COMMANDS_DESKTOP = [
+  `rename-session ${SESSION}`,
   ...PANE_GROUP_FILES,
   // Tab 1: welcome: the two panes, the right one split in two
   'rename-window welcome',
@@ -79,6 +101,7 @@ const INIT_COMMANDS_DESKTOP = [
 ];
 
 const INIT_COMMANDS_MOBILE = [
+  `rename-session ${SESSION}`,
   ...PANE_GROUP_FILES,
   // Tab 1: welcome: the two panes stacked, for narrow screens
   'rename-window welcome',
@@ -90,7 +113,11 @@ const INIT_COMMANDS_MOBILE = [
 export default function TmuxyDemoInner() {
   const adapter = useMemo(() => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
-    const options = { initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP };
+    const options = {
+      initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP,
+      initDoneOption: INIT_DONE,
+      files: guestFiles(),
+    };
     // CheerpX where the page can run it (`?guest=v86` asks for v86 anyway),
     // v86 everywhere else.
     const askedForV86 = new URLSearchParams(window.location.search).get('guest') === 'v86';

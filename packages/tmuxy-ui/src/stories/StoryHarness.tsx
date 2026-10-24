@@ -25,11 +25,14 @@ import {
  */
 export function V86AppHarness({
   initCommands,
+  initDoneOption,
   cols = GUEST_DEFAULT_COLS,
   rows = GUEST_DEFAULT_ROWS,
   shared = false,
 }: {
   initCommands?: string[];
+  /** The tmux option the init sets when it is done (`GuestTmuxAdapterOptions`). */
+  initDoneOption?: string;
   /** Terminal width in columns. */
   cols?: number;
   /** Terminal height in rows. */
@@ -39,8 +42,8 @@ export function V86AppHarness({
   shared?: boolean;
 }) {
   const transport = useMemo(
-    () => GuestTransportLive(new V86TmuxAdapter({ initCommands, shared })),
-    [initCommands, shared],
+    () => GuestTransportLive(new V86TmuxAdapter({ initCommands, initDoneOption, shared })),
+    [initCommands, initDoneOption, shared],
   );
   const box = useGridBox(cols, rows);
   if (!box) return null;

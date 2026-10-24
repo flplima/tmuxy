@@ -36,6 +36,7 @@ import {
   GUEST_DEFAULT_ROWS,
   type EngineSink,
   type GuestEngine,
+  type GuestFile,
 } from './GuestEngine';
 
 /** Theme names bundled with tmuxy (mirrors the server's `get_themes_list`). */
@@ -87,10 +88,43 @@ function toControlModeLine(line: string): string {
 export interface GuestTmuxAdapterOptions {
   /** tmux commands run once after attach (splits, new-window, …). */
   initCommands?: string[];
+  /**
+   * A global tmux option the init sets once everything it started is done
+   * (`tmux set -g <option> 1` at the end of a shell line it typed, say).
+   * connect() resolves only then, so the app's first frame is the finished
+   * layout rather than every step on the way to it.
+   */
+  initDoneOption?: string;
+  /**
+   * Files the guest has in `GUEST_FILES_DIR` (`/mnt`) before the init runs,
+   * by name: a string is the file's text, a URL is fetched by the page. A
+   * fetch that fails leaves its file out rather than failing the start.
+   */
+  files?: Record<string, string | URL>;
+}
+
+/** The bytes of each file the options name; one that cannot be fetched is left out. */
+export async function loadGuestFiles(files: Record<string, string | URL>): Promise<GuestFile[]> {
+  const loaded = await Promise.all(
+    Object.entries(files).map(async ([name, source]): Promise<GuestFile | null> => {
+      if (typeof source === 'string') return { name, bytes: new TextEncoder().encode(source) };
+      try {
+        const response = await fetch(source);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return { name, bytes: new Uint8Array(await response.arrayBuffer()) };
+      } catch (err) {
+        console.warn(`[guest] ${name} is left out: ${source.href}:`, err);
+        return null;
+      }
+    }),
+  );
+  return loaded.filter((file): file is GuestFile => file !== null);
 }
 
 export class GuestTmuxAdapter implements TmuxAdapter {
   private readonly initCommands: string[];
+  private readonly initDoneOption: string | null;
+  private readonly files: Record<string, string | URL>;
   /** The sink this adapter installed on the engine (null when detached). */
   private sink: EngineSink | null = null;
 
@@ -103,6 +137,8 @@ export class GuestTmuxAdapter implements TmuxAdapter {
     options?: GuestTmuxAdapterOptions,
   ) {
     this.initCommands = options?.initCommands ?? [];
+    this.initDoneOption = options?.initDoneOption ?? null;
+    this.files = options?.files ?? {};
   }
 
   async connect(): Promise<void> {
@@ -119,7 +155,14 @@ export class GuestTmuxAdapter implements TmuxAdapter {
     // otherwise,
     // and queues behind any transition still in flight (a story switch can
     // call connect() before the previous story's boot/reset finished).
-    await this.engine.reset(this.initCommands);
+    // The option is cleared first, so a value left by an earlier start does
+    // not end the wait at once.
+    const done = this.initDoneOption;
+    await this.engine.reset(
+      done ? [`set -gu ${done}`, ...this.initCommands] : this.initCommands,
+      await loadGuestFiles(this.files),
+    );
+    if (done) await this.engine.waitForOption(done);
 
     // Install our sink only AFTER the reset settled. Installing it before
     // would let the still-attached PREVIOUS story's core stream its final
@@ -155,8 +198,16 @@ export class GuestTmuxAdapter implements TmuxAdapter {
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     switch (cmd) {
-      case 'get_initial_state':
+      case 'get_initial_state': {
+        // Sized to the client's viewport first, as the native server does, so
+        // the first frame is drawn at the size it stays at.
+        const cols = args?.cols;
+        const rows = args?.rows;
+        if (typeof cols === 'number' && typeof rows === 'number' && cols > 0 && rows > 0) {
+          await this.engine.resize(cols, rows);
+        }
         return decodeServerStateOrThrow(this.engine.getLastState()) as T;
+      }
       case 'set_client_size': {
         const cols = (args?.cols as number) || GUEST_DEFAULT_COLS;
         const rows = (args?.rows as number) || GUEST_DEFAULT_ROWS;
