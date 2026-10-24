@@ -6,8 +6,17 @@ ext2 image streamed over HTTP, with no kernel to boot and no snapshot to
 download. A bash loop runs about ten times faster than in the v86 guest.
 
 **Status:** the demo site runs on it where the page is cross-origin isolated
-(`CheerpXTmuxAdapter`, in `src/infra/transport/drivers/cheerpx/`); the smoke
-page drives the bare control-mode stream.
+(`CheerpXTmuxAdapter`, in `src/infra/transport/drivers/cheerpx/`): under
+`next dev`, which sends the headers, and on the deployed site, where a service
+worker adds them (`packages/tmuxy-demo/public/coi-sw.js`). The deploy builds
+the image (`.github/workflows/deploy-demo.yml`). The smoke page drives the
+bare control-mode stream.
+
+**License:** CheerpX's Community License covers open-source projects run by
+individuals, loading the runtime from Leaning Technologies' CDN
+(`cxrtnc.leaningtech.com`, which `CheerpXEngine.ts` does) with their copyright
+notice shown; the demo page credits them. Self-hosting the runtime, or a
+company running the demo, needs a commercial license.
 
 ## Layout
 

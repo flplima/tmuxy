@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import './globals.css';
 
@@ -42,7 +43,11 @@ const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark theme-dark">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {/* Before the demo loads: it waits on this to choose its guest. */}
+        <Script src="/coi-register.js" strategy="beforeInteractive" />
+        {children}
+      </body>
       {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
     </html>
   );

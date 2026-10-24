@@ -1,8 +1,9 @@
 import type { NextConfig } from 'next';
 
 // The CheerpX guest needs SharedArrayBuffer, which only a cross-origin isolated
-// page has. `next dev` sends the two headers that isolate it; the static export
-// is served without them, and its page runs the v86 guest instead.
+// page has. `next dev` sends the two headers that isolate it. The static export
+// is served by a host that sends no headers of its own (GitHub Pages), so there
+// a service worker adds them (public/coi-sw.js, registered by coi-register.js).
 const crossOriginIsolation = async () => [
   {
     source: '/:path*',
