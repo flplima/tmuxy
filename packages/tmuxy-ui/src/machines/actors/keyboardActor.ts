@@ -19,6 +19,7 @@ import {
   isTextKey,
   realPaneId,
   STICKY_CLIENT_KEYS,
+  windowShortcut,
 } from './keyboard/keyFormatting';
 import { handleModalOrCopyKeyDown, readLiveSnapshot } from './keyboard/modalAndCopyKeys';
 import { setupImeClipboardAndFocusListeners } from './keyboard/imeAndClipboard';
@@ -159,16 +160,9 @@ export function createKeyboardActor() {
       const modifierKeys = ['Shift', 'Control', 'Alt', 'Meta'];
       if (modifierKeys.includes(event.key)) return;
       if (event.key === 'Dead') return;
+      // Paste keys are the browser's: its paste event types the clipboard.
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') return;
-      if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
-        const letter = event.key.toLowerCase();
-        if (letter === 'v') return;
-        if (letter === 'c') {
-          event.preventDefault();
-          document.execCommand('copy');
-          return;
-        }
-      }
+      if (windowShortcut(event) && event.code === 'KeyV') return;
 
       const snap = readLiveSnapshot(input.parent, activePaneId);
 
@@ -181,6 +175,15 @@ export function createKeyboardActor() {
           setPendingCopyText: imeClipboard.setPendingCopyText,
         })
       ) {
+        return;
+      }
+
+      // Ctrl+Shift+C copies the page's selection, as in a terminal emulator.
+      // After the copy keys above, which copy a client selection (select-all,
+      // the scroll view) with the same key.
+      if (windowShortcut(event) && !event.metaKey && event.code === 'KeyC') {
+        event.preventDefault();
+        document.execCommand('copy');
         return;
       }
 

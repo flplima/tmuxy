@@ -120,4 +120,30 @@ async function selectionRect(page) {
   });
 }
 
-module.exports = { runRect, shownRunRect, dragSelect, selectedText, selectionRect };
+/**
+ * Records what each copy puts on the clipboard, read off the copy event after
+ * the app's own handler has set it: the system clipboard needs a permission no
+ * headless browser grants. `copiedText` is null until a copy happens.
+ */
+async function recordCopies(page) {
+  await page.evaluate(() => {
+    window.__copied = null;
+    window.addEventListener('copy', (e) => {
+      window.__copied = e.clipboardData.getData('text/plain');
+    });
+  });
+}
+
+async function copiedText(page) {
+  return await page.evaluate(() => window.__copied);
+}
+
+module.exports = {
+  runRect,
+  shownRunRect,
+  dragSelect,
+  selectedText,
+  selectionRect,
+  recordCopies,
+  copiedText,
+};

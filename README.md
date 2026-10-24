@@ -131,11 +131,12 @@ Without the prefix:
 | `Ctrl` / `Cmd` `+` `-`        | Font size (`Cmd+0` resets it)       |
 | `Ctrl+Shift+A`                | Select the pane's scrollback        |
 | `Ctrl+Shift+C`                | Copy the selection                  |
+| `Ctrl+Shift+V`                | Paste                               |
 | `Ctrl+Shift+N`                | New window (desktop app)            |
 | `Ctrl+Shift+1`…`9`            | Focus window 1…9 (desktop app)      |
 
-On macOS the last four are the `Cmd` shortcuts you would expect: `Cmd+A`,
-`Cmd+C`, `Cmd+N` and `Cmd+1`…`9`. A _window_ here is an OS window — several can
+On macOS the last five are the `Cmd` shortcuts you would expect: `Cmd+A`,
+`Cmd+C`, `Cmd+V`, `Cmd+N` and `Cmd+1`…`9`. A _window_ here is an OS window — several can
 watch one session, each on its own tab (Window ▸ New Window).
 
 With the prefix (`Ctrl+a`):

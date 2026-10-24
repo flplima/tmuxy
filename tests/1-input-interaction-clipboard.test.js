@@ -9,6 +9,8 @@ const {
   getTerminalText,
   waitForTerminalText,
   runCommand,
+  typeInTerminal,
+  pressEnter,
   DELAYS,
   assertContentMatch,
   getCopyModeState,
@@ -17,7 +19,14 @@ const {
   enterCopyModeAndWait,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
-const { runRect, shownRunRect, dragSelect, selectedText } = require('./helpers/selection-drag');
+const {
+  runRect,
+  shownRunRect,
+  dragSelect,
+  selectedText,
+  recordCopies,
+  copiedText,
+} = require('./helpers/selection-drag');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -96,11 +105,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
 
     // 2. Copying blinks the copied text: boxes laid over the selection, which
     //    go away on their own.
-    await ctx.page.evaluate(() => {
-      window.addEventListener('copy', (e) => {
-        window.__copied = e.clipboardData.getData('text/plain');
-      });
-    });
+    await recordCopies(ctx.page);
     await ctx.page.keyboard.press('Meta+c');
     const flash = await ctx.page.evaluate(() =>
       [...document.querySelectorAll('.copy-flash')].map((el) => {
@@ -127,7 +132,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     );
     // The selection is still there; copying did not take it away.
     expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
-    expect(await ctx.page.evaluate(() => window.__copied)).toBe('DRAG_SELECT_ME');
+    expect(await copiedText(ctx.page)).toBe('DRAG_SELECT_ME');
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
     // With the selection gone the pane catches up with the job's output.
     await waitForTerminalText(ctx.page, 'LATE_OUTPUT');
@@ -141,12 +146,10 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     await ctx.page.keyboard.press('Meta+c');
     await waitForCondition(
       ctx.page,
-      () => ctx.page.evaluate(() => window.__copied === 'RED_RUN PLAIN_RUN'),
+      () => copiedText(ctx.page).then((text) => text === 'RED_RUN PLAIN_RUN'),
       5000,
       async () =>
-        `Cmd+C to copy the row as one line (copied: ${JSON.stringify(
-          await ctx.page.evaluate(() => window.__copied),
-        )})`,
+        `Cmd+C to copy the row as one line (copied: ${JSON.stringify(await copiedText(ctx.page))})`,
     );
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
 
@@ -203,6 +206,48 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     expect(fills.end.shown).toBe(false);
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
   }, 120000);
+
+  test('Ctrl+Shift+C copies a drag selection and leaves the running program alone', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // `cat` runs until it reads Ctrl+C or end of input, and echoes each line
+    // it is given: a line typed after the copy that comes back twice is a cat
+    // still running, the way a terminal emulator leaves it.
+    await runCommand(ctx.page, 'echo "CTRL_SHIFT_PICK and more"', 'CTRL_SHIFT_PICK');
+    await typeInTerminal(ctx.page, 'cat');
+    await pressEnter(ctx.page);
+    await dragSelect(
+      ctx.page,
+      await shownRunRect(ctx.page, '.pane-layout-item', 'CTRL_SHIFT_PICK'),
+    );
+    expect(await selectedText(ctx.page)).toBe('CTRL_SHIFT_PICK');
+
+    await recordCopies(ctx.page);
+    await ctx.page.keyboard.press('Control+Shift+C');
+    await waitForCondition(
+      ctx.page,
+      async () => (await copiedText(ctx.page)) !== null,
+      5000,
+      'Ctrl+Shift+C to copy the selection',
+    );
+    expect(await copiedText(ctx.page)).toBe('CTRL_SHIFT_PICK');
+
+    await typeInTerminal(ctx.page, 'CAT_STILL_HERE');
+    await pressEnter(ctx.page);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await getTerminalText(ctx.page))
+          .split('\n')
+          .filter((line) => line.trim() === 'CAT_STILL_HERE').length === 2,
+      10000,
+      async () =>
+        `cat to echo the line back (screen: ${JSON.stringify(await getTerminalText(ctx.page))})`,
+    );
+    await ctx.page.keyboard.press('Control+d');
+    await runCommand(ctx.page, 'echo AFTER_CAT', 'AFTER_CAT');
+  }, 60000);
 
   test('in copy mode a drag copies on release, blinks, and leaves copy mode', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -311,128 +356,130 @@ describe('Scenario 7e: Selecting the whole scrollback', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Cmd+A selects every row of scrollback, on screen and off, and Cmd+C copies all of it', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-    await focusPage(ctx.page);
+  test.each([
+    { keys: 'Cmd', mod: 'Meta' },
+    { keys: 'Ctrl+Shift', mod: 'Control+Shift' },
+  ])(
+    '$keys+A selects every row of scrollback, on screen and off, and $keys+C copies all of it',
+    async ({ mod }) => {
+      if (ctx.skipIfNotReady()) return;
+      await ctx.setupPage();
+      await focusPage(ctx.page);
 
-    // History taller than the viewport, so most of what gets selected has no
-    // DOM node to select — the point of a client selection over the browser's.
-    await runCommand(ctx.page, 'seq 1 300', '300');
-    await assertContentMatch(ctx.page, 'Scenario 7e setup');
+      // History taller than the viewport, so most of what gets selected has no
+      // DOM node to select — the point of a client selection over the browser's.
+      await runCommand(ctx.page, 'seq 1 300', '300');
+      await assertContentMatch(ctx.page, 'Scenario 7e setup');
 
-    // What the copy actually put on the clipboard: read off the copy event,
-    // after the app's own handler has set it.
-    await ctx.page.evaluate(() => {
-      window.__copied = null;
-      window.addEventListener('copy', (e) => {
-        window.__copied = e.clipboardData.getData('text/plain');
+      // What the copy actually put on the clipboard: read off the copy event,
+      // after the app's own handler has set it.
+      await recordCopies(ctx.page);
+
+      await ctx.page.keyboard.press(`${mod}+a`);
+
+      // The scroll view opens on the pane and the selection covers it whole: the
+      // first row of history to the last row on screen.
+      //
+      // `totalLines > height` is part of the WAIT, not an assertion after it.
+      // The pane's `history_size` arrives on its own schedule, and until it does
+      // the view knows only the rows on screen — where a selection from row 0 to
+      // `totalLines - 1` is perfectly self-consistent and covers the screen
+      // alone. Asserting it separately afterwards meant a slow runner caught
+      // that honest intermediate state and read it as select-all missing the
+      // scrollback (`Expected: > 26, Received: 26` in CI).
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const cs = await getCopyModeState(ctx.page);
+          return (
+            cs?.mode === 'scroll' &&
+            cs.selectionMode === 'line' &&
+            cs.selectionAnchor?.row === 0 &&
+            cs.totalLines > cs.height &&
+            cs.cursorRow === cs.totalLines - 1
+          );
+        },
+        15000,
+        async () => {
+          const cs = await getCopyModeState(ctx.page);
+          return `select-all to cover the whole scrollback (saw ${JSON.stringify({
+            mode: cs?.mode,
+            selectionMode: cs?.selectionMode,
+            anchorRow: cs?.selectionAnchor?.row,
+            cursorRow: cs?.cursorRow,
+            totalLines: cs?.totalLines,
+            height: cs?.height,
+          })})`;
+        },
+      );
+      const selected = await getCopyModeState(ctx.page);
+      // The whole backlog, not just the screen: `seq 1 300` scrolled 300 lines
+      // past a viewport of a few dozen.
+      expect(selected.totalLines).toBeGreaterThan(selected.height);
+
+      // The copy reads the rows the client has loaded, so wait for the backlog to
+      // arrive — a row still on its way has no text, and "not loaded yet" is never
+      // "done". The pane's `history_size` can itself still be catching up when the
+      // view opens, so the wait is on the 300 printed lines being there, not on a
+      // load merely having finished.
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const cs = await getCopyModeState(ctx.page);
+          return (
+            !!cs &&
+            !cs.loading &&
+            cs.loadedRanges?.[0]?.[0] === 0 &&
+            cs.totalLines > 300 &&
+            cs.cursorRow === cs.totalLines - 1
+          );
+        },
+        30000,
+        'the whole scrollback to load under the select-all',
+      );
+
+      // And it is visible: the rows on screen are painted as selected, each
+      // filled to the width of the grid rather than stopping at its last
+      // character, which is what a selected blank line looks like.
+      const painted = await ctx.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('[data-scroll-mode="true"] .terminal-line')]
+          .filter((row) => row.getBoundingClientRect().height > 0)
+          .filter((row) => row.textContent.trim().length > 0);
+        const widths = rows.map((row) => {
+          const spans = [...row.querySelectorAll('.terminal-selected')];
+          const boxes = spans.map((s) => s.getBoundingClientRect()).filter((b) => b.height > 0);
+          if (boxes.length === 0) return 0;
+          return Math.max(...boxes.map((b) => b.right)) - Math.min(...boxes.map((b) => b.left));
+        });
+        return { rows: rows.length, unselected: widths.filter((w) => w === 0).length };
       });
-    });
+      expect(painted.rows).toBeGreaterThan(5);
+      expect(painted.unselected).toBe(0);
 
-    await ctx.page.keyboard.press('Meta+a');
+      // The copy key takes every selected row — including the ones far above the
+      // viewport, which is the whole reason the copy is read from the loaded
+      // rows and not from the document.
+      await ctx.page.keyboard.press(`${mod}+c`);
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const text = await copiedText(ctx.page);
+          return typeof text === 'string' && text.length > 0;
+        },
+        15000,
+        'the selection to reach the clipboard',
+      );
+      const copied = await copiedText(ctx.page);
+      const lines = copied.split('\n').map((l) => l.trim());
+      expect(lines).toContain('1');
+      expect(lines).toContain('150');
+      expect(lines).toContain('300');
 
-    // The scroll view opens on the pane and the selection covers it whole: the
-    // first row of history to the last row on screen.
-    //
-    // `totalLines > height` is part of the WAIT, not an assertion after it.
-    // The pane's `history_size` arrives on its own schedule, and until it does
-    // the view knows only the rows on screen — where a selection from row 0 to
-    // `totalLines - 1` is perfectly self-consistent and covers the screen
-    // alone. Asserting it separately afterwards meant a slow runner caught
-    // that honest intermediate state and read it as select-all missing the
-    // scrollback (`Expected: > 26, Received: 26` in CI).
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const cs = await getCopyModeState(ctx.page);
-        return (
-          cs?.mode === 'scroll' &&
-          cs.selectionMode === 'line' &&
-          cs.selectionAnchor?.row === 0 &&
-          cs.totalLines > cs.height &&
-          cs.cursorRow === cs.totalLines - 1
-        );
-      },
-      15000,
-      async () => {
-        const cs = await getCopyModeState(ctx.page);
-        return `select-all to cover the whole scrollback (saw ${JSON.stringify({
-          mode: cs?.mode,
-          selectionMode: cs?.selectionMode,
-          anchorRow: cs?.selectionAnchor?.row,
-          cursorRow: cs?.cursorRow,
-          totalLines: cs?.totalLines,
-          height: cs?.height,
-        })})`;
-      },
-    );
-    const selected = await getCopyModeState(ctx.page);
-    // The whole backlog, not just the screen: `seq 1 300` scrolled 300 lines
-    // past a viewport of a few dozen.
-    expect(selected.totalLines).toBeGreaterThan(selected.height);
-
-    // The copy reads the rows the client has loaded, so wait for the backlog to
-    // arrive — a row still on its way has no text, and "not loaded yet" is never
-    // "done". The pane's `history_size` can itself still be catching up when the
-    // view opens, so the wait is on the 300 printed lines being there, not on a
-    // load merely having finished.
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const cs = await getCopyModeState(ctx.page);
-        return (
-          !!cs &&
-          !cs.loading &&
-          cs.loadedRanges?.[0]?.[0] === 0 &&
-          cs.totalLines > 300 &&
-          cs.cursorRow === cs.totalLines - 1
-        );
-      },
-      30000,
-      'the whole scrollback to load under the select-all',
-    );
-
-    // And it is visible: the rows on screen are painted as selected, each
-    // filled to the width of the grid rather than stopping at its last
-    // character, which is what a selected blank line looks like.
-    const painted = await ctx.page.evaluate(() => {
-      const rows = [...document.querySelectorAll('[data-scroll-mode="true"] .terminal-line')]
-        .filter((row) => row.getBoundingClientRect().height > 0)
-        .filter((row) => row.textContent.trim().length > 0);
-      const widths = rows.map((row) => {
-        const spans = [...row.querySelectorAll('.terminal-selected')];
-        const boxes = spans.map((s) => s.getBoundingClientRect()).filter((b) => b.height > 0);
-        if (boxes.length === 0) return 0;
-        return Math.max(...boxes.map((b) => b.right)) - Math.min(...boxes.map((b) => b.left));
-      });
-      return { rows: rows.length, unselected: widths.filter((w) => w === 0).length };
-    });
-    expect(painted.rows).toBeGreaterThan(5);
-    expect(painted.unselected).toBe(0);
-
-    // Cmd+C copies every selected row — including the ones far above the
-    // viewport, which is the whole reason the copy is read from the loaded
-    // rows and not from the document.
-    await ctx.page.keyboard.press('Meta+c');
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const text = await ctx.page.evaluate(() => window.__copied);
-        return typeof text === 'string' && text.length > 0;
-      },
-      15000,
-      'the selection to reach the clipboard',
-    );
-    const copied = await ctx.page.evaluate(() => window.__copied);
-    const lines = copied.split('\n').map((l) => l.trim());
-    expect(lines).toContain('1');
-    expect(lines).toContain('150');
-    expect(lines).toContain('300');
-
-    // The copy ends the view, as a yank does, and the pane is live again.
-    await waitForCopyMode(ctx.page, false);
-    await runCommand(ctx.page, 'echo SELECT_ALL_OK', 'SELECT_ALL_OK');
-    await assertContentMatch(ctx.page, 'Scenario 7e end');
-  }, 180000);
+      // The copy ends the view, as a yank does, and the pane is live again.
+      await waitForCopyMode(ctx.page, false);
+      await runCommand(ctx.page, 'echo SELECT_ALL_OK', 'SELECT_ALL_OK');
+      await assertContentMatch(ctx.page, 'Scenario 7e end');
+    },
+    180000,
+  );
 });

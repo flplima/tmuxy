@@ -5,7 +5,17 @@ import { createActor, createMachine, assign, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
 import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
 
-function spawnKeyboardActor(activePaneId = pid('%3')) {
+// Each actor listens on window, so one left running answers every later
+// test's keys too; every spawned actor is stopped after its test.
+const running: AnyActorRef[] = [];
+afterEach(() => {
+  running.splice(0).forEach((actor) => actor.stop());
+});
+
+function spawnKeyboardActor(
+  activePaneId = pid('%3'),
+  copyModeStates: Record<string, unknown> = {},
+) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const keyboardActor = createKeyboardActor();
   const parent = createMachine({
@@ -13,7 +23,7 @@ function spawnKeyboardActor(activePaneId = pid('%3')) {
       context: { activePaneId: string; copyModeStates: Record<string, unknown> };
       events: { type: string; [k: string]: unknown };
     },
-    context: { activePaneId, copyModeStates: {} },
+    context: { activePaneId, copyModeStates },
     invoke: {
       id: 'keyboard',
       src: 'keyboardActor',
@@ -30,6 +40,7 @@ function spawnKeyboardActor(activePaneId = pid('%3')) {
 
   const actor = createActor(parent);
   actor.start();
+  running.push(actor);
   const child = actor.getSnapshot().children.keyboard as AnyActorRef;
   child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: activePaneId });
   return { actor, child, events };
@@ -149,6 +160,7 @@ function spawnWithLiveContext(initial = pid('%1')) {
 
   const actor = createActor(parent);
   actor.start();
+  running.push(actor);
   const child = actor.getSnapshot().children.keyboard as AnyActorRef;
   child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: initial });
   return { actor, child, events };
@@ -182,6 +194,7 @@ describe('keyboardActor — active-pane target uses the live snapshot', () => {
     }).provide({ actors: { keyboardActor }, actions: {} } as never);
     const actor = createActor(parent);
     actor.start();
+    running.push(actor);
     const child = actor.getSnapshot().children.keyboard as AnyActorRef;
     child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%7') });
 
@@ -263,7 +276,6 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     pressKey({ key: '%', shiftKey: true });
 
     expect(lastSendCommand(events)).toBe('split-window -h');
-    actor.stop();
   });
 
   it('derives the window from the pinned pane when the machine has none yet', () => {
@@ -286,7 +298,6 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     expect(lastSendCommand(events)).toBe(
       'select-window -t @1 \\; select-pane -t %3 \\; split-window -h',
     );
-    actor.stop();
   });
 });
 
@@ -368,7 +379,7 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
     events.filter((e) => e.type === 'KEY_TABLE_CHANGE').map((e) => e.table);
 
   it('prefix p enters PANE; a key that re-enters it repeats, and the switch never reaches tmux', () => {
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
+    const { child, events } = spawnWithLiveContext(pid('%1'));
     child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: 'p' });
@@ -384,11 +395,10 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
     expect(tableChanges(events)).toEqual(['pane', null]);
     pressKey({ key: 'x' });
     expect(lastSendCommand(events)).toBe("send-keys -t %1 -l -- 'x'");
-    actor.stop();
   });
 
   it('a binding that names no table, or a key the table does not bind, leaves it', () => {
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
+    const { child, events } = spawnWithLiveContext(pid('%1'));
     child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
     pressKey({ key: 'a', ctrlKey: true });
     pressKey({ key: 'p' });
@@ -402,11 +412,10 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
     pressKey({ key: 'q' });
     expect(sendCommands(events)).toHaveLength(sent);
     expect(tableChanges(events)).toEqual(['pane', null, 'pane', null]);
-    actor.stop();
   });
 
   it('prefix s toggles the left column once, and the next s is typed like any key', () => {
-    const { actor, child, events } = spawnWithLiveContext(pid('%1'));
+    const { child, events } = spawnWithLiveContext(pid('%1'));
     child.send({ type: 'UPDATE_KEYBINDINGS', keybindings });
     const toggles = () => events.filter((e) => e.type === 'TOGGLE_LEFT_SIDEBAR');
 
@@ -422,37 +431,65 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
     pressKey({ key: 's' });
     expect(toggles()).toHaveLength(2);
     expect(sendCommands(events)).not.toContain('send-keys -t %1 C-a');
-    actor.stop();
   });
 });
 
 describe('keyboardActor — copy and paste on ctrl+shift, as in a terminal emulator', () => {
-  it('ctrl+shift+c copies the selection and never reaches the pane as ctrl+c', () => {
-    const { actor, events } = spawnKeyboardActor(pid('%3'));
-    const copy = vi.fn(() => true);
+  const execCommand = document.execCommand;
+  let copy = vi.fn<typeof document.execCommand>();
+  beforeEach(() => {
+    copy = vi.fn<typeof document.execCommand>(() => true);
     document.execCommand = copy;
+  });
+  afterEach(() => {
+    document.execCommand = execCommand;
+  });
 
-    pressKey({ key: 'C', ctrlKey: true, shiftKey: true });
+  const ctrlShift = (key: string) => ({
+    key,
+    code: `Key${key}`,
+    ctrlKey: true,
+    shiftKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+
+  it('ctrl+shift+c copies the selection and never reaches the pane as ctrl+c', () => {
+    const { events } = spawnKeyboardActor(pid('%3'));
+
+    pressKey(ctrlShift('C'));
 
     expect(copy).toHaveBeenCalledWith('copy');
     expect(sendCommands(events)).toEqual([]);
-    actor.stop();
+  });
+
+  it('ctrl+shift+c copies a select-all in the scroll view and closes it, as cmd+c does', () => {
+    const { events } = spawnKeyboardActor(pid('%3'), {
+      [pid('%3')]: {
+        mode: 'scroll',
+        lines: new Map([[0, [{ c: '1' }]]]),
+        width: 80,
+        cursorRow: 0,
+        cursorCol: 0,
+        selectionMode: 'line',
+        selectionAnchor: { row: 0, col: 0 },
+      },
+    });
+
+    pressKey(ctrlShift('C'));
+
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(events.filter((e) => e.type === 'COPY_SELECTION')).toHaveLength(1);
+    expect(sendCommands(events)).toEqual([]);
   });
 
   it('ctrl+shift+v is left to the browser, whose paste event types the clipboard', () => {
-    const { actor, events } = spawnKeyboardActor(pid('%3'));
-    const down = new KeyboardEvent('keydown', {
-      key: 'V',
-      ctrlKey: true,
-      shiftKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
+    const { events } = spawnKeyboardActor(pid('%3'));
+    const down = new KeyboardEvent('keydown', ctrlShift('V'));
 
     window.dispatchEvent(down);
 
     expect(down.defaultPrevented).toBe(false);
     expect(sendCommands(events)).toEqual([]);
-    actor.stop();
   });
 });

@@ -22,7 +22,14 @@
 
 const { webkit } = require('playwright');
 const { createOwnBrowserContext } = require('./helpers/own-browser');
-const { runRect, dragSelect, selectedText, selectionRect } = require('./helpers/selection-drag');
+const {
+  runRect,
+  dragSelect,
+  selectedText,
+  selectionRect,
+  recordCopies,
+  copiedText,
+} = require('./helpers/selection-drag');
 const {
   runCommand,
   typeInTerminal,
@@ -83,20 +90,15 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
     // 3. Cmd+C copies what is selected, and copying does not take it away.
     //    The copy EVENT is the assertion (the system clipboard needs a
     //    permission no headless browser grants), plus the blink the user sees.
-    await ctx.page.evaluate(() => {
-      window.__copied = null;
-      window.addEventListener('copy', (e) => {
-        window.__copied = e.clipboardData.getData('text/plain');
-      });
-    });
+    await recordCopies(ctx.page);
     await ctx.page.keyboard.press('Meta+c');
     await waitForCondition(
       ctx.page,
-      async () => (await ctx.page.evaluate(() => window.__copied)) !== null,
+      async () => (await copiedText(ctx.page)) !== null,
       5000,
       'Cmd+C to fire a copy carrying the selected text',
     );
-    expect(await ctx.page.evaluate(() => window.__copied)).toBe(TOKEN);
+    expect(await copiedText(ctx.page)).toBe(TOKEN);
     const flash = await ctx.page.evaluate(() =>
       [...document.querySelectorAll('.copy-flash')].map((el) => {
         const r = el.getBoundingClientRect();
