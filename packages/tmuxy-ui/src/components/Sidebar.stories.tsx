@@ -276,3 +276,49 @@ export const TogglesKeepTheirPlace: Story = {
     expect(place()).toEqual(closed);
   },
 };
+
+// ---------------------------------------------------------------------------
+// Chrome an embedder adds around the header (the demo's traffic lights) does
+// not push either cluster's divider off its column's
+// ---------------------------------------------------------------------------
+
+export const DividersLineUpUnderEmbedderChrome: Story = {
+  args: {
+    fixture: asFixture(bothColumns),
+    start: 'closed',
+    transitions: [
+      { match: OPEN_TREE, to: 'left-open' },
+      { match: OPEN_DOCK, to: 'both-open' },
+    ],
+    renderTabline: ({ children }) => (
+      <>
+        <span style={{ width: 60, flexShrink: 0 }} data-testid="lead" />
+        {children}
+        <span style={{ width: 40, flexShrink: 0 }} data-testid="trail" />
+      </>
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
+    await userEvent.click(await canvas.findByRole('button', { name: /toggle tree sidebar/i }));
+    await userEvent.click(await canvas.findByRole('button', { name: /toggle terminal sidebar/i }));
+    const edge = (selector: string, side: 'left' | 'right') => {
+      const el = canvasElement.querySelector(selector);
+      return el ? Math.round(el.getBoundingClientRect()[side]) : null;
+    };
+    await waitFor(
+      () => {
+        expect(edge('.sidebar-column-left', 'right')).not.toBeNull();
+        expect(edge('.statusbar-cluster-left.is-docked', 'right')).toBe(
+          edge('.sidebar-column-left', 'right'),
+        );
+        expect(edge('.sidebar-column-right', 'left')).not.toBeNull();
+        expect(edge('.statusbar-cluster-right.is-docked', 'left')).toBe(
+          edge('.sidebar-column-right', 'left'),
+        );
+      },
+      { timeout: 8000 },
+    );
+  },
+};

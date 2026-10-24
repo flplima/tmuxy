@@ -15,7 +15,7 @@
  * those buttons stay centred on it.
  */
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { RenderTabline } from '../App';
 import { useAppSelector, useReadOnly } from '../machines/appHooks';
 import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
@@ -88,15 +88,40 @@ export const StatusBar = memo(function StatusBar({
   const dockedLeft = leftOpen;
   const windowStyle = useWindowStyle();
   const dockedRight = rightOpen;
-  // The bar's own 12px inset already covers the gap between the window edge and
-  // the column's outer edge, so a cluster spans the column MINUS that inset in
-  // order to end exactly on the column's divider.
-  const leftCluster = leftWidth - CONTAINER_PADDING_X;
-  const rightCluster = rightWidth - CONTAINER_PADDING_X;
+  // A cluster spans its column minus whatever sits between the window's edge
+  // and the cluster: the bar's own 12px inset, and anything an embedder's
+  // `renderTabline` puts there (the demo's traffic lights) — so it ends
+  // exactly on the column's divider. Neither depends on the clusters' widths,
+  // so measuring them once laid out cannot feed back.
+  const innerRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const [inset, setInset] = useState({ left: CONTAINER_PADDING_X, right: CONTAINER_PADDING_X });
+  useLayoutEffect(() => {
+    const inner = innerRef.current;
+    if (!inner) return;
+    const measure = () => {
+      const bar = inner.getBoundingClientRect();
+      const left = leftRef.current?.getBoundingClientRect().left;
+      const right = rightRef.current?.getBoundingClientRect().right;
+      const next = {
+        left: left === undefined ? CONTAINER_PADDING_X : left - bar.left,
+        right: right === undefined ? CONTAINER_PADDING_X : bar.right - right,
+      };
+      setInset((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [dockedLeft, dockedRight]);
+  const leftCluster = leftWidth - inset.left;
+  const rightCluster = rightWidth - inset.right;
 
   const defaultContent = (
     <>
       <div
+        ref={leftRef}
         className={`statusbar-cluster statusbar-cluster-left${dockedLeft ? ' is-docked' : ''}${
           dockedLeft && leftFocused ? ' is-focused' : ''
         }`}
@@ -129,6 +154,7 @@ export const StatusBar = memo(function StatusBar({
         <TabOverviewToggle />
       </div>
       <div
+        ref={rightRef}
         className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}${
           dockedRight && rightFocused ? ' is-focused' : ''
         }`}
@@ -143,7 +169,7 @@ export const StatusBar = memo(function StatusBar({
   return (
     <LogProfiler id="StatusBar">
       <div ref={reportTitlebarHeight} className="statusbar" onMouseDown={handleMouseDown}>
-        <div className="statusbar-inner">
+        <div ref={innerRef} className="statusbar-inner">
           {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
         </div>
       </div>
