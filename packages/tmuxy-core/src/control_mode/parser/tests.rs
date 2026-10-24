@@ -289,3 +289,17 @@ fn response_keeps_leading_blank_lines() {
         other => panic!("expected a CommandResponse, got {other:?}"),
     }
 }
+
+/// tmux names the session a rename is about by id, then gives its new name,
+/// which may hold spaces.
+#[test]
+fn a_session_rename_carries_the_session_id_apart_from_the_name() {
+    let mut parser = Parser::new();
+    match parser.parse_line("%session-renamed $0 my work") {
+        Some(ControlModeEvent::SessionRenamed { session_id, name }) => {
+            assert_eq!(session_id, "$0");
+            assert_eq!(name, "my work");
+        }
+        other => panic!("Expected SessionRenamed, got {other:?}"),
+    }
+}

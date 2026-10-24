@@ -63,8 +63,8 @@ pub enum ControlModeEvent {
         session_name: String,
     },
 
-    /// Session renamed
-    SessionRenamed { name: String },
+    /// A session renamed: any session on the server, not only the attached one
+    SessionRenamed { session_id: String, name: String },
 
     /// Session window changed (active window in session)
     SessionWindowChanged {
@@ -283,10 +283,12 @@ impl Parser {
             return self.parse_session_changed(line);
         }
 
-        // %session-renamed name
+        // %session-renamed $session name
         if let Some(rest) = line.strip_prefix(ev::SESSION_RENAMED) {
+            let (session_id, name) = rest.split_once(' ')?;
             return Some(ControlModeEvent::SessionRenamed {
-                name: rest.trim().to_string(),
+                session_id: session_id.to_string(),
+                name: name.to_string(),
             });
         }
 

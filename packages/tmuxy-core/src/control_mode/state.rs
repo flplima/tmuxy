@@ -177,6 +177,10 @@ pub struct StateAggregator {
     even_out_pending: Vec<WindowId>,
     /// Session name (e.g., "tmuxy")
     session_name: String,
+    /// The attached session's id (`$0`), from `%session-changed`: tmux tells
+    /// every control client of every session's rename, so this is what picks
+    /// out ours. Unknown on a core started after the attach.
+    session_id: Option<String>,
 
     /// Pane states indexed by pane ID
     panes: HashMap<PaneId, PaneState>,
@@ -318,6 +322,7 @@ impl StateAggregator {
     pub fn with_session_name(session_name: &str) -> Self {
         Self {
             session_name: session_name.to_string(),
+            session_id: None,
             pane_reports: 0,
             panes: HashMap::new(),
             scrollback_rows: crate::constants::REFLOW_SCROLLBACK_ROWS,

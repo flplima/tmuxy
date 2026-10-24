@@ -287,3 +287,22 @@ fn window_extent_is_none_for_a_window_with_no_panes() {
     let agg = StateAggregator::new();
     assert_eq!(agg.window_extent(&wid("@9")), None);
 }
+
+/// tmux tells every control client of every session's rename: the attached
+/// session takes its new name (not `$0 tmuxy`), and another session's rename
+/// leaves it alone.
+#[test]
+fn only_the_attached_sessions_rename_names_it() {
+    let mut agg = StateAggregator::new();
+    let mut parser = crate::control_mode::Parser::new();
+    for line in [
+        "%session-changed $0 m",
+        "%session-renamed $0 tmuxy",
+        "%session-renamed $1 stash",
+    ] {
+        if let Some(event) = parser.parse_line(line) {
+            agg.process_event(event);
+        }
+    }
+    assert_eq!(agg.to_tmux_state().session_name, "tmuxy");
+}

@@ -224,7 +224,11 @@ impl StateAggregator {
                 // causing spurious updates in the user's UI).
                 ProcessEventResult::default()
             }
-            ControlModeEvent::SessionChanged { session_name, .. } => {
+            ControlModeEvent::SessionChanged {
+                session_id,
+                session_name,
+            } => {
+                self.session_id = Some(session_id);
                 self.session_name = session_name;
                 ProcessEventResult {
                     state_changed: true,
@@ -232,7 +236,14 @@ impl StateAggregator {
                     ..Default::default()
                 }
             }
-            ControlModeEvent::SessionRenamed { name, .. } => {
+            ControlModeEvent::SessionRenamed { session_id, name } => {
+                if self
+                    .session_id
+                    .as_ref()
+                    .is_some_and(|ours| *ours != session_id)
+                {
+                    return ProcessEventResult::default();
+                }
                 self.session_name = name;
                 ProcessEventResult {
                     state_changed: true,
