@@ -4,7 +4,9 @@ type GtagEvent =
   | { name: 'demo_pane_group_click' }
   | { name: 'github_click' }
   | { name: 'share_click' }
-  | { name: 'deepwiki_click' };
+  | { name: 'deepwiki_click' }
+  | { name: 'install_copy'; params: { os: string } }
+  | { name: 'releases_click' };
 
 export function trackEvent(event: GtagEvent) {
   const gtag = (window as unknown as { gtag?: (...args: unknown[]) => void }).gtag;

@@ -3,6 +3,13 @@
 import { useEffect, useState } from 'react';
 import { MacWindow } from '@/components/MacWindow';
 import { TmuxyDemo } from '@/components/TmuxyDemo';
+import {
+  COMMANDS,
+  CopyButton,
+  InstallCommand,
+  type Os,
+  RELEASES_URL,
+} from '@/components/InstallCommand';
 import { trackEvent } from '@/lib/analytics';
 
 export default function Home() {
@@ -69,6 +76,7 @@ export default function Home() {
           <TmuxyDemo />
         </MacWindow>
       </div>
+      <InstallCommand />
 
       <div
         className="w-full max-w-3xl py-16"
@@ -126,11 +134,41 @@ export default function Home() {
           ok, I got you. where&apos;s the download button?
         </h2>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          There isn&apos;t one yet. tmuxy is fully vibe coded on spare time. I haven&apos;t reviewed
-          a single line of code Claude has generated. It&apos;s not ready for a stable release.
+          Install it with Homebrew:
+        </p>
+        <ul className="mb-3 flex flex-col gap-2">
+          {(Object.keys(COMMANDS) as Os[]).map((os) => (
+            <li key={os} className="flex flex-wrap items-center gap-x-3">
+              <span style={{ minWidth: '4rem' }}>{COMMANDS[os].label}</span>
+              <span
+                className="flex items-center gap-3 rounded px-2 py-1 text-sm"
+                style={{
+                  background: 'var(--bg-black, #000)',
+                  border: '1px solid var(--border-medium, #333)',
+                }}
+              >
+                <code className="break-words">{COMMANDS[os].command}</code>
+                <CopyButton os={os} />
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mb-3" style={{ lineHeight: '1.7' }}>
+          Or get a DMG, .deb or AppImage from the{' '}
+          <a
+            href={RELEASES_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing-github-link"
+            style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+            onClick={() => trackEvent({ name: 'releases_click' })}
+          >
+            <span style={{ textDecoration: 'underline' }}>Releases page</span> {'\uF08E'}
+          </a>
+          .
         </p>
         <p style={{ lineHeight: '1.7' }}>
-          But if you&apos;ve read this far about a tmux GUI, you probably want to help build it. The
+          If you&apos;ve read this far about a tmux GUI, you probably want to help build it. The
           code is on{' '}
           <a
             href="https://github.com/flplima/tmuxy"
