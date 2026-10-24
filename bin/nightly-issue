@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# The tracking issue a nightly workflow keeps: one open issue per workflow,
+# labelled ci-nightly and found by its exact title.
+#
+#   bin/nightly-issue report  "<title>"   comment $BODY on the open issue, or
+#                                         open one with it
+#   bin/nightly-issue resolve "<title>"   close the open issue, unless this
+#                                         run ($RUN_URL) reported into it
+#
+# Every report carries its run's URL, so an issue with no comment from this
+# run means nothing in it failed: `resolve` runs only when the run's jobs
+# passed, and still checks, because a soft failure (tmux HEAD in the matrix)
+# reports without failing its job. Without `resolve` an issue stayed open
+# after the fix landed and the next run passed, until someone closed it by
+# hand.
+#
+# Needs GH_TOKEN and GH_REPO, as every gh call in a workflow does.
+set -euo pipefail
+
+verb=${1:-}
+title=${2:-}
+if [ -z "$title" ] || { [ "$verb" != report ] && [ "$verb" != resolve ]; }; then
+  echo "usage: nightly-issue report|resolve <title>" >&2
+  exit 2
+fi
+: "${RUN_URL:?RUN_URL is the URL of this run}"
+
+# `--search` is fuzzy, so the title is matched exactly here.
+open_issue() {
+  TITLE=$title gh issue list --state open --label ci-nightly --search "$title in:title" \
+    --json number,title --jq 'map(select(.title == env.TITLE)) | .[0].number // empty'
+}
+
+issue=$(open_issue)
+
+if [ "$verb" = report ]; then
+  : "${BODY:?BODY is the report}"
+  if [ -n "$issue" ]; then
+    gh issue comment "$issue" --body "$BODY"
+  else
+    gh label create ci-nightly --color B60205 \
+      --description "Opened by the nightly CI sweep" 2>/dev/null || true
+    gh issue create --title "$title" --label ci-nightly --body "$BODY"
+  fi
+  exit 0
+fi
+
+if [ -z "$issue" ]; then
+  echo "no open issue titled \"$title\""
+  exit 0
+fi
+reported=$(gh issue view "$issue" --json body,comments \
+  --jq '[.body, .comments[].body] | any(contains(env.RUN_URL))')
+if [ "$reported" = true ]; then
+  echo "this run reported into #$issue, so it stays open"
+  exit 0
+fi
+gh issue close "$issue" --comment "Passed on $RUN_URL (commit ${GITHUB_SHA:-unknown}), so this is closed. The next failing run opens a new issue."
