@@ -329,13 +329,16 @@ export function appMenuSpec(
     },
     options.windowMenu,
     { kind: 'submenu', id: 'menu-view', label: 'View', children: viewMenuSpec(ctx, env) },
-    !env.readOnly && {
-      kind: 'submenu',
-      id: 'menu-debug',
-      label: 'Debug',
-      onOpen: event({ type: 'FETCH_TRACE_SETTINGS' }),
-      children: debugMenuSpec(ctx, env),
-    },
+    // The trace is a developer's tool for their own machine; the demo's
+    // visitors have nothing to trace it into.
+    !env.readOnly &&
+      !env.isDemo && {
+        kind: 'submenu',
+        id: 'menu-debug',
+        label: 'Debug',
+        onOpen: event({ type: 'FETCH_TRACE_SETTINGS' }),
+        children: debugMenuSpec(ctx, env),
+      },
     separator,
     ...appItemsSpec(env, 'hamburger'),
   ]);

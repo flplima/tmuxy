@@ -191,6 +191,7 @@ describe('appMenuSpec', () => {
     const demo = appMenuSpec(ctx(), { ...WEB, isDemo: true });
     expect(disabled(demo, 'session-kill')).toBe(true);
     expect(itemIds(demo)).not.toContain('session-reload-config');
+    expect(itemIds(demo)).not.toContain('menu-debug');
   });
 
   it('the macOS app section is About, the app items, then the platform items', () => {
