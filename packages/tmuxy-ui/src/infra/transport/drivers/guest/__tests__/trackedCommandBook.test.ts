@@ -98,4 +98,50 @@ describe('CaptureBook', () => {
     book.scanChunk('second\r\n%end 1 2 1\r\n%begin 1 3 1\r\nTMUXY_CAP_END_1\r\n%end 1 3 1\r\n');
     await expect(text).resolves.toBe('first\nsecond');
   });
+
+  // As the guest's tmux sends it: run-shell's block closes empty, and what
+  // the job printed follows outside any block — where tmux's notifications go
+  // too, another pane's output among them.
+  it("keeps tmux's notifications out of the reply: another pane's output is not the file", async () => {
+    const book = new CaptureBook();
+    const text = book.capture("run-shell 'cat -- /mnt/tmuxy.md'", () => {});
+    book.scanChunk(
+      [
+        '%begin 1 1 1',
+        'TMUXY_CAP_START_1',
+        '%end 1 1 1',
+        '%begin 1 2 1',
+        '%end 1 2 1',
+        '%output %5 \\033\\033\\134\\033\\134',
+        '# Title',
+        '%layout-change @1 abcd,80x24,0,0,4',
+        '%end of a line that only looks like framing',
+        '%begin 1 3 1',
+        'TMUXY_CAP_END_1',
+        '%end 1 3 1',
+        '',
+      ].join('\r\n'),
+    );
+    await expect(text).resolves.toBe('# Title\n%end of a line that only looks like framing');
+  });
+
+  it('keeps a line inside a block, even one shaped like a notification', async () => {
+    const book = new CaptureBook();
+    const text = book.capture('show-options -gqv @x', () => {});
+    book.scanChunk(
+      [
+        '%begin 1 1 1',
+        'TMUXY_CAP_START_1',
+        '%end 1 1 1',
+        '%begin 1 2 1',
+        '%output is what this option holds',
+        '%end 1 2 1',
+        '%begin 1 3 1',
+        'TMUXY_CAP_END_1',
+        '%end 1 3 1',
+        '',
+      ].join('\r\n'),
+    );
+    await expect(text).resolves.toBe('%output is what this option holds');
+  });
 });

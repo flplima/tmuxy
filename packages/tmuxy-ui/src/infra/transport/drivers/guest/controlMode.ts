@@ -76,11 +76,19 @@ export async function loadWasmModule(): Promise<WasmModule> {
   return wasm;
 }
 
+/** The notifications tmux's control mode sends (tmux(1), CONTROL MODE). */
+const TMUX_NOTIFICATION =
+  /^%(?:client-detached|client-session-changed|config-error|continue|exit|extended-output|layout-change|message|output|pane-mode-changed|paste-buffer-changed|paste-buffer-deleted|pause|session-changed|session-renamed|session-window-changed|sessions-changed|subscription-changed|unlinked-window-add|unlinked-window-close|unlinked-window-renamed|window-add|window-close|window-pane-changed|window-renamed)(?: |$)/;
+
 /**
  * Command output picked out of the control-mode stream: a command is
- * bracketed by two unique `display-message` markers, and the lines between
- * them are what it printed, whatever else interleaves. Commands reach tmux in
- * order, so at most one capture is collecting at a time.
+ * bracketed by two unique `display-message` markers, and what it printed is
+ * what came between them, less tmux's notifications. Those arrive between
+ * output blocks (`%begin` … `%end`), never inside one — and so does what a
+ * `run-shell` job prints, after its block has closed empty, so a line between
+ * blocks is the command's unless it is a notification: another pane's
+ * `%output` arriving meanwhile is not. Commands reach tmux in order, so at
+ * most one capture is collecting at a time.
  */
 export class CaptureBook {
   private captureSeq = 0;
@@ -89,11 +97,10 @@ export class CaptureBook {
     { lines: string[]; resolve: (text: string) => void; timer: ReturnType<typeof setTimeout> }
   >();
   private activeId: string | null = null;
+  /** The arguments of the open output block's `%begin` (time, number,
+   *  flags), which its `%end` or `%error` repeats; null between blocks. */
+  private block: string | null = null;
   private lineBuf = '';
-
-  hasPending(): boolean {
-    return this.captures.size > 0;
-  }
 
   /** Run `command` and resolve with what it printed: empty when it fails, or
    *  when tmux does not answer within 15s. */
@@ -120,10 +127,11 @@ export class CaptureBook {
   }
 
   /**
-   * Scan a raw control-mode chunk for scrollback-capture markers and collect
-   * the lines between them. Skips control-mode framing (`%begin`/`%end`/…) so
-   * only real captured content is kept; a capture that fails (`%error`) is
-   * history nobody has, so tmux's message is dropped rather than shown as it.
+   * Scan a raw control-mode chunk for capture markers and collect what the
+   * command printed between them. A block closes on the `%end` or `%error`
+   * that repeats its `%begin`'s arguments, so a printed line that merely
+   * starts with `%end` is content. A capture that fails (`%error`) is history
+   * nobody has, so tmux's message is dropped rather than shown as it.
    */
   scanChunk(chunk: string): void {
     this.lineBuf += chunk;
@@ -132,6 +140,20 @@ export class CaptureBook {
     this.lineBuf = parts.pop() ?? '';
     for (const raw of parts) {
       const line = raw.replace(/\r$/, '');
+      if (this.block === null) {
+        if (line.startsWith('%begin ')) {
+          this.block = line.slice('%begin '.length);
+          continue;
+        }
+        if (TMUX_NOTIFICATION.test(line)) continue;
+      } else if (line === `%end ${this.block}` || line === `%error ${this.block}`) {
+        this.block = null;
+        if (line.startsWith('%error') && this.activeId !== null) {
+          this.captures.get(this.activeId)?.lines.splice(0);
+          this.activeId = null;
+        }
+        continue;
+      }
       const startIdx = line.indexOf('TMUXY_CAP_START_');
       if (startIdx !== -1) {
         this.activeId = line.slice(startIdx + 'TMUXY_CAP_START_'.length).trim();
@@ -149,13 +171,7 @@ export class CaptureBook {
         if (this.activeId === id) this.activeId = null;
         continue;
       }
-      if (this.activeId === null) continue;
-      if (line.startsWith('%error')) {
-        this.captures.get(this.activeId)?.lines.splice(0);
-        this.activeId = null;
-      } else if (!/^%(begin|end)\b/.test(line)) {
-        this.captures.get(this.activeId)?.lines.push(line);
-      }
+      if (this.activeId !== null) this.captures.get(this.activeId)?.lines.push(line);
     }
   }
 
@@ -163,6 +179,7 @@ export class CaptureBook {
     const captures = [...this.captures.values()];
     this.captures.clear();
     this.activeId = null;
+    this.block = null;
     this.lineBuf = '';
     for (const c of captures) {
       clearTimeout(c.timer);

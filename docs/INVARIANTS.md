@@ -39,6 +39,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | A9 | Moved panes hold `%output` until capture lands and drop old content; others keep content during capture. | safety | `state.rs` (refill) | — |
 | A10 | Stray `%end`/`%error` without `%begin` never produces a command response. | safety | `parser.rs` | `parser.rs › stray_end_without_begin_is_ignored`; `pane_bytes_props.rs › …arbitrary_lines`, `› …hostile_notifications` (properties) |
 | A11 | A pane's output bytes reach the emulator exactly, wherever tmux cut its `%output` lines — a character split across lines included; pane output is never read as text. | safety | `parser.rs` (`parse_line`), `connection/spawn.rs` | `pane_bytes_props.rs › output_cut_anywhere_carries_the_bytes` (property); `control_mode_push_api.rs › a_character_split_across_output_lines_reaches_the_screen_whole` |
+| A12 | An in-browser guest's query reply is what came between its markers less tmux's notifications: another pane's `%output` arriving meanwhile stays out, a `run-shell` job's lines (printed after its block closed) stay in, and a block closes only on the `%end`/`%error` that repeats its `%begin`. | safety | `guest/controlMode.ts` (`CaptureBook`) | `trackedCommandBook.test.ts › keeps tmux's notifications out of the reply…`, `› keeps a line inside a block…` |
 
 ## M — monitor dispatch
 

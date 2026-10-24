@@ -205,7 +205,9 @@ export abstract class GuestEngine {
   /** Feed a chunk of the control-mode stream the guest wrote. */
   protected receive(chunk: string): void {
     if (!chunk || !this.attached || !this.core) return;
-    if (this.captureBook.hasPending()) this.captureBook.scanChunk(chunk);
+    // Every chunk, not only while a capture waits: the book follows the
+    // stream's blocks, and a capture can start while one is open.
+    this.captureBook.scanChunk(chunk);
     this.emit(this.core.feed(chunk));
     // Output changes what no event announces — a pane's history size (which
     // decides whether the wheel scrolls it or the page), its title, its
