@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 // so the rules that decide which CI jobs a push may skip are tested from here.
 import { decide } from '../../../bin/ci-changes.mjs';
 
-const EVERYTHING = { desktop: true, v86: true, 'macos-rust': true, audit: true };
+const EVERYTHING = {
+  desktop: true,
+  v86: true,
+  'macos-rust': true,
+  audit: true,
+  'nightly-e2e': true,
+};
 
 describe('which CI jobs a push can skip', () => {
   it('runs everything when the base cannot be reached', () => {
@@ -20,7 +26,26 @@ describe('which CI jobs a push can skip', () => {
       v86: false,
       'macos-rust': false,
       audit: false,
+      'nightly-e2e': false,
     });
+  });
+
+  it('a web E2E suite or helper adds the nightly tier; app code, the CLI and desktop suites do not', () => {
+    for (const file of [
+      'tests/4-session-connectivity-multi.test.js',
+      'tests/helpers/browser.js',
+      'tests/e2e-suites.json',
+      'bin/e2e-plan.mjs',
+    ]) {
+      expect(decide([file]), file).toMatchObject({ 'nightly-e2e': true });
+    }
+    for (const file of [
+      'tests/tauri/tauri-app-ipc.test.js',
+      'tests/cli/pane.test.sh',
+      'packages/tmuxy-ui/src/components/SessionMenu.tsx',
+    ]) {
+      expect(decide([file]), file).toMatchObject({ 'nightly-e2e': false });
+    }
   });
 
   it('a UI component change runs both, a story-only change only the v86 probe', () => {

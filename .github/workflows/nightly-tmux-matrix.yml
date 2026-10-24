@@ -312,16 +312,7 @@ jobs:
 
           The server log for this version is attached to that run as an artifact."
 
-          EXISTING=$(gh issue list --state open --label ci-nightly \
-            --search "$TITLE in:title" --json number --jq '.[0].number // empty')
-
-          if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --body "$BODY"
-          else
-            gh label create ci-nightly --color B60205 \
-              --description "Opened by the nightly CI sweep" 2>/dev/null || true
-            gh issue create --title "$TITLE" --label ci-nightly --body "$BODY"
-          fi
+          BODY="$BODY" bin/nightly-issue report "$TITLE"
 
       # The released versions gate; HEAD only reports.
       - name: Gate on the result
@@ -347,3 +338,22 @@ jobs:
 
           echo "::error title=tmux ${{ matrix.tmux.name }}::failed:$failed"
           exit 1
+
+  # Every released version passed, so the tracking issue is closed, unless a
+  # HEAD failure reported into it on this run (bin/nightly-issue). A manual
+  # run counts: re-running the matrix after a fix is how one is confirmed.
+  resolve-issue:
+    needs: suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Close the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bin/nightly-issue resolve "Nightly tmux version matrix is failing"

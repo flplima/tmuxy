@@ -41,6 +41,20 @@ describe('the E2E plan', () => {
     expect(full.find((s) => s.name === '2-layout-a').pattern).toMatch(/^\^Scenario /);
   });
 
+  // A push that edited the suites gets the [nightly] tests too, on one more
+  // runner, matched as the nightly matches them; the full tier has them all
+  // already, so it gets no second copy.
+  it('--with-nightly adds one runner for every [nightly] test, on the commit tier only', () => {
+    const commit = plan(suites, 'commit');
+    const withNightly = plan(suites, 'commit', { withNightly: true });
+    expect(withNightly.slice(0, -1)).toEqual(commit);
+    const extra = withNightly.at(-1);
+    expect(extra.path).toBe('tests/');
+    expect(new RegExp(extra.pattern).test('Scenario 24 › creates a session [nightly]')).toBe(true);
+    expect(new RegExp(extra.pattern).test('Scenario 7d › a drag selects text')).toBe(false);
+    expect(plan(suites, 'full', { withNightly: true })).toEqual(plan(suites, 'full'));
+  });
+
   it('no entry carries the tier field the workflow does not read', () => {
     for (const suite of plan(suites, 'full')) expect(suite).not.toHaveProperty('tier');
   });

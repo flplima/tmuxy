@@ -5,7 +5,8 @@
 //! socket pair), and everything between the two goes through the line
 //! discipline in the library.
 //!
-//! The program runs with `preload.c` LD_PRELOAD'ed. Ctrl+C needs every
+//! The program runs with `preload.c` LD_PRELOAD'ed (in the guest image, the
+//! one place it is installed). Ctrl+C needs every
 //! process in the pane, and CheerpX has neither process groups nor parent
 //! pids in /proc, so each process records its pid in a directory of this
 //! pane's. Ctrl+D is an EOT byte on the input pipe, which the preload turns
@@ -54,11 +55,16 @@ fn main() {
         std::process::exit(1);
     }
     std::env::set_var("TMUXY_PTY_PIDS", &pids);
-    let preload = match std::env::var("LD_PRELOAD") {
-        Ok(other) if !other.is_empty() => format!("{PRELOAD}:{other}"),
-        _ => PRELOAD.to_string(),
-    };
-    std::env::set_var("LD_PRELOAD", preload);
+    // The guest image installs the preload. Anywhere else (a Linux test run)
+    // ld.so would print that it cannot load it from every program the pane
+    // starts, into the pane.
+    if Path::new(PRELOAD).exists() {
+        let preload = match std::env::var("LD_PRELOAD") {
+            Ok(other) if !other.is_empty() => format!("{PRELOAD}:{other}"),
+            _ => PRELOAD.to_string(),
+        };
+        std::env::set_var("LD_PRELOAD", preload);
+    }
 
     let pane = match spawn(&args[0], &args[1..], pids) {
         Ok(pane) => pane,
