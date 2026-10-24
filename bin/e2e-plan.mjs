@@ -5,6 +5,11 @@
  *
  *   bin/e2e-plan.mjs commit   every suite except the nightly-only files, with
  *                             a jest name pattern that skips [nightly] tests
+ *   bin/e2e-plan.mjs commit --with-nightly
+ *                             the same, plus one runner for every [nightly]
+ *                             test: for a push that changed the E2E suites
+ *                             (bin/ci-changes.mjs), so a nightly test it broke
+ *                             fails the push rather than the next night
  *   bin/e2e-plan.mjs full     every suite, every test — the tag build
  *
  * Each entry comes out of tests/e2e-suites.json with a `pattern` added: the
@@ -23,14 +28,22 @@ export const TIERS = {
   full: '',
 };
 
-/** The matrix entries for `tier`, each with its jest name `pattern`. */
-export function plan(suites, tier) {
-  return suites
+/** Every [nightly] test in every file on one runner, as the nightly runs them. */
+export const NIGHTLY_TIER = { name: 'nightly-tier', path: 'tests/', pattern: '\\[nightly\\]' };
+
+/**
+ * The matrix entries for `tier`, each with its jest name `pattern`; with
+ * `withNightly`, the commit tier also gets NIGHTLY_TIER (the full tier has
+ * those tests already).
+ */
+export function plan(suites, tier, { withNightly = false } = {}) {
+  const entries = suites
     .filter((suite) => tier === 'full' || suite.tier !== 'nightly')
     .map(({ tier: _tier, filter, ...suite }) => {
       const body = `${TIERS[tier]}${filter ?? ''}`;
       return { ...suite, pattern: body ? `^${body}` : '' };
     });
+  return tier === 'commit' && withNightly ? [...entries, NIGHTLY_TIER] : entries;
 }
 
 if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file://').href) {
@@ -39,7 +52,8 @@ if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file://').h
     console.error(`unknown tier ${JSON.stringify(tier)}; one of: ${Object.keys(TIERS).join(', ')}`);
     process.exit(2);
   }
+  const withNightly = process.argv.slice(3).includes('--with-nightly');
   const file = resolve(import.meta.dirname, '../tests/e2e-suites.json');
   const { suites } = JSON.parse(readFileSync(file, 'utf8'));
-  process.stdout.write(JSON.stringify(plan(suites, tier)));
+  process.stdout.write(JSON.stringify(plan(suites, tier, { withNightly })));
 }

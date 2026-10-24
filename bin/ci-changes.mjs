@@ -7,7 +7,9 @@
  * and a push that touched only the E2E suites, the demo site or a workflow
  * ran both for nothing. `audit` is the other way round: it was red for
  * advisories that no push had anything to do with, so it now runs only when
- * a lockfile moved (the Sunday sweep covers the rest of the week).
+ * a lockfile moved (the Sunday sweep covers the rest of the week). And the
+ * [nightly] E2E tier, which a push skips, runs on one more runner when the
+ * push edited the suites it lives in.
  *
  * The rules are data here, so they can be read and tested
  * (packages/tmuxy-ui/scripts/ci-changes.test.mjs) rather than buried in a
@@ -67,6 +69,15 @@ export const TRIGGERED = {
     /^package-lock\.json$/,
     /^Cargo\.lock$/,
     /^\.cargo\/audit\.toml$/,
+    /^\.github\/workflows\/lint-and-tests\.yml$/,
+  ],
+  // The [nightly] E2E tier on one more runner (bin/e2e-plan.mjs
+  // --with-nightly): a push that edits the web suites or their helpers is
+  // the one most likely to break a nightly test, and otherwise the next
+  // night's run is the first to say so.
+  'nightly-e2e': [
+    /^tests\/(?!cli\/|tauri\/)/,
+    /^bin\/e2e-plan\.mjs$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],
 };

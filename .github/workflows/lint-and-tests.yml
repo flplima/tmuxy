@@ -43,7 +43,8 @@ jobs:
 
   # What this push touched, for the jobs below that need not run on every
   # push: the desktop build, the v86 probe, the Mac cargo test and the
-  # dependency audit each skip a push that changed nothing they cover. The
+  # dependency audit each skip a push that changed nothing they cover, and the
+  # [nightly] E2E tier runs only for a push that edited the web suites. The
   # rules are bin/ci-changes.mjs (tested from the UI package); a base this
   # checkout cannot reach — a force-push, a tag build — runs everything.
   changes:
@@ -54,6 +55,7 @@ jobs:
       v86: ${{ steps.changes.outputs.v86 }}
       macos-rust: ${{ steps.changes.outputs.macos-rust }}
       audit: ${{ steps.changes.outputs.audit }}
+      nightly-e2e: ${{ steps.changes.outputs.nightly-e2e }}
     steps:
       - uses: actions/checkout@v7
       - id: changes
@@ -202,15 +204,21 @@ jobs:
   # and every test. A tiny job of its own so the list is data a script can
   # test, and so the list and the patterns are composed in one place
   # (bin/e2e-plan.mjs) rather than once per matrix entry here.
+  # A push that edited the web suites also gets the [nightly] tier, on one
+  # more runner (the `changes` job decides).
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    needs: changes
     outputs:
       suites: ${{ steps.plan.outputs.suites }}
     steps:
       - uses: actions/checkout@v7
       - id: plan
-        run: echo "suites=$(node bin/e2e-plan.mjs '${{ inputs.e2e-tier || 'commit' }}')" >> "$GITHUB_OUTPUT"
+        env:
+          TIER: ${{ inputs.e2e-tier || 'commit' }}
+          WITH_NIGHTLY: ${{ needs.changes.outputs.nightly-e2e == 'true' && '--with-nightly' || '' }}
+        run: echo "suites=$(node bin/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
 
   # E2E + snapshot suites run in parallel — one matrix entry per suite,
   # one runner per suite. Previously these were serial inside a single
