@@ -174,6 +174,21 @@ pub async fn set_send_ask(window: tauri::WebviewWindow, enabled: bool) -> Result
     tmuxy_core::theme::set_send_ask(&tx, enabled).await
 }
 
+/// `@tmuxy-transparency`, from View ▸ Enable Window Transparency (macOS).
+/// The settings are pushed straight after, so every window repaints its
+/// surfaces and its blur follows without waiting for a config reload.
+#[tauri::command]
+pub async fn set_transparency(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    let tx = windows::monitor_for(&window)?.connected_tx()?;
+    tmuxy_core::theme::set_transparency(&tx, enabled).await?;
+    crate::monitor::emit_theme_settings(&app, &tx).await;
+    Ok(())
+}
+
 /// `@tmuxy-gesture-swipe-tabs` as the page sees it (docs/DESKTOP.md): the
 /// shell claims a two-finger slide only while this is on.
 #[tauri::command]

@@ -33,6 +33,10 @@ pub struct Appearance {
     pub active_text_opacity: f64,
     pub inactive_text_opacity: f64,
     pub blur: bool,
+    /// Whether the window is see-through at all (`@tmuxy-transparency`):
+    /// off, the surfaces paint opaque and there is no blur, whatever the
+    /// opacities and `blur` say.
+    pub transparency: bool,
     /// Layout animations on or off (`@tmuxy-animations`).
     pub animations: bool,
     /// Whether the cursor blinks when the application has not asked for a
@@ -66,6 +70,7 @@ impl Default for Appearance {
             active_text_opacity: 1.0,
             inactive_text_opacity: 0.7,
             blur: true,
+            transparency: true,
             animations: true,
             cursor_blink: true,
             send_ask: true,
@@ -112,7 +117,7 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
 
 /// Every option the theme settings are read from, in the order the query
 /// prints them.
-const SETTINGS_OPTIONS: [&str; 16] = [
+const SETTINGS_OPTIONS: [&str; 17] = [
     tmux_options::THEME,
     tmux_options::THEME_MODE,
     tmux_options::OPACITY,
@@ -121,6 +126,7 @@ const SETTINGS_OPTIONS: [&str; 16] = [
     tmux_options::ACTIVE_TEXT_OPACITY,
     tmux_options::INACTIVE_TEXT_OPACITY,
     tmux_options::BLUR,
+    tmux_options::TRANSPARENCY,
     tmux_options::ANIMATIONS,
     tmux_options::CURSOR_BLINK,
     tmux_options::SEND_ASK,
@@ -216,6 +222,7 @@ fn parse_settings(output: &str) -> serde_json::Value {
             defaults.inactive_text_opacity,
         ),
         blur: parse_flag(value(tmux_options::BLUR), defaults.blur),
+        transparency: parse_flag(value(tmux_options::TRANSPARENCY), defaults.transparency),
         animations: parse_flag(value(tmux_options::ANIMATIONS), defaults.animations),
         cursor_blink: parse_flag(value(tmux_options::CURSOR_BLINK), defaults.cursor_blink),
         send_ask: parse_flag(value(tmux_options::SEND_ASK), defaults.send_ask),
@@ -299,7 +306,11 @@ pub async fn set_cursor_blink(
 ) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
     set_options(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
-    if let Err(e) = session::write_managed_state(None, None, Some(enabled), None, None) {
+    let changes = session::ManagedState {
+        cursor_blink: Some(enabled),
+        ..Default::default()
+    };
+    if let Err(e) = session::write_managed_state(changes) {
         tracing::warn!(error = %e, "could not persist the cursor blink to tmuxy.state.json");
     }
     Ok(())
@@ -310,8 +321,30 @@ pub async fn set_cursor_blink(
 pub async fn set_send_ask(tx: &MonitorCommandSender, enabled: bool) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
     set_options(tx, &[(tmux_options::SEND_ASK, value)], "send ask").await?;
-    if let Err(e) = session::write_managed_state(None, None, None, Some(enabled), None) {
+    let changes = session::ManagedState {
+        send_ask: Some(enabled),
+        ..Default::default()
+    };
+    if let Err(e) = session::write_managed_state(changes) {
         tracing::warn!(error = %e, "could not persist the send ask to tmuxy.state.json");
+    }
+    Ok(())
+}
+
+/// Make the window see-through or opaque, and remember the choice, the way
+/// [`set_cursor_blink`] does. The opacities and the blur keep their values.
+pub async fn set_transparency(
+    tx: &MonitorCommandSender,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    let value = if enabled { "on" } else { "off" };
+    set_options(tx, &[(tmux_options::TRANSPARENCY, value)], "transparency").await?;
+    let changes = session::ManagedState {
+        transparency: Some(enabled),
+        ..Default::default()
+    };
+    if let Err(e) = session::write_managed_state(changes) {
+        tracing::warn!(error = %e, "could not persist the transparency to tmuxy.state.json");
     }
     Ok(())
 }
@@ -329,7 +362,12 @@ pub async fn set_theme(
         options.push((tmux_options::THEME_MODE, m));
     }
     set_options(tx, &options, "theme").await?;
-    if let Err(e) = session::write_managed_state(Some(name), mode, None, None, None) {
+    let changes = session::ManagedState {
+        theme: Some(name.to_string()),
+        theme_mode: mode.map(str::to_string),
+        ..Default::default()
+    };
+    if let Err(e) = session::write_managed_state(changes) {
         tracing::warn!(error = %e, "could not persist theme to tmuxy.state.json");
     }
     Ok(())
@@ -338,7 +376,11 @@ pub async fn set_theme(
 /// Set only the mode (dark/light) and persist it.
 pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
     set_options(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
-    if let Err(e) = session::write_managed_state(None, Some(mode), None, None, None) {
+    let changes = session::ManagedState {
+        theme_mode: Some(mode.to_string()),
+        ..Default::default()
+    };
+    if let Err(e) = session::write_managed_state(changes) {
         tracing::warn!(error = %e, "could not persist theme mode to tmuxy.state.json");
     }
     Ok(())

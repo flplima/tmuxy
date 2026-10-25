@@ -85,6 +85,42 @@ describe('uiPrefs state', () => {
     expect(root.getPropertyValue('--inactive-text-opacity')).toBe('0.3');
   });
 
+  it('THEME_SETTINGS_RECEIVED with transparency off paints the surfaces opaque, and keeps the text dim', () => {
+    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    const appearance = {
+      opacity: 0.5,
+      activePaneOpacity: 0.8,
+      inactivePaneOpacity: 0.4,
+      activeTextOpacity: 0.9,
+      inactiveTextOpacity: 0.3,
+      blur: true,
+      animations: true,
+    };
+    const root = document.documentElement.style;
+    const off = sendAndGetContext(actor, {
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'default',
+      mode: 'dark',
+      appearance: { ...appearance, transparency: false },
+    });
+    expect(off.transparency).toBe(false);
+    expect(root.getPropertyValue('--app-opacity')).toBe('1');
+    expect(root.getPropertyValue('--active-pane-opacity')).toBe('1');
+    expect(root.getPropertyValue('--inactive-pane-opacity')).toBe('1');
+    expect(root.getPropertyValue('--active-text-opacity')).toBe('0.9');
+    expect(root.getPropertyValue('--inactive-text-opacity')).toBe('0.3');
+    // Back on, the configured opacities return: the switch never rewrote them.
+    const on = sendAndGetContext(actor, {
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'default',
+      mode: 'dark',
+      appearance: { ...appearance, transparency: true },
+    });
+    expect(on.transparency).toBe(true);
+    expect(root.getPropertyValue('--app-opacity')).toBe('0.5');
+    expect(root.getPropertyValue('--inactive-pane-opacity')).toBe('0.4');
+  });
+
   it('THEME_SETTINGS_RECEIVED carries the config’s animation switch', () => {
     const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
     const appearance = {

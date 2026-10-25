@@ -39,12 +39,14 @@ fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
         (tmux_options::THEME, "nord"),
         (tmux_options::OPACITY, "0.5"),
         (tmux_options::BLUR, "off"),
+        (tmux_options::TRANSPARENCY, "off"),
         (tmux_options::TAB_OVERVIEW_COLS, "40"),
     ]));
     assert_eq!(settings["theme"], "nord");
     assert_eq!(settings["mode"], DEFAULT_MODE);
     assert_eq!(settings["appearance"]["opacity"], 0.5);
     assert_eq!(settings["appearance"]["blur"], false);
+    assert_eq!(settings["appearance"]["transparency"], false);
     assert_eq!(
         settings["appearance"]["tabOverviewCols"],
         MAX_TAB_OVERVIEW_COLS
@@ -56,6 +58,7 @@ fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
     let fresh = parse_settings("@tmuxy-opacity=0.7\n@tmuxy-active-pane-opacity=1\n");
     assert_eq!(fresh["theme"], DEFAULT_THEME);
     assert_eq!(fresh["appearance"]["opacity"], 0.7);
+    assert_eq!(fresh["appearance"]["transparency"], true);
 
     let empty = parse_settings("");
     assert_eq!(empty["theme"], DEFAULT_THEME);

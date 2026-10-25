@@ -78,6 +78,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-active-text-opacity`     | 1       | The active pane's header and text.                                  |
 | `@tmuxy-inactive-text-opacity`   | 0.7     | Every other pane's header and text — the focus cue.                 |
 | `@tmuxy-blur`                    | on      | Native blur behind the window (macOS; ignored elsewhere).           |
+| `@tmuxy-transparency`            | on      | Off: opaque window, no blur (View ▸ Enable Window Transparency).   |
 | `@tmuxy-animations`              | on      | Layout animations: pane morphs, swaps, resizes, float keyframes.    |
 | `@tmuxy-cursor-blink`            | on      | Blinking cursor, unless an application asks for a steady one.       |
 | `@tmuxy-send-ask`               | on      | `tmuxy pane send` into another pane asks there first.               |

@@ -7,17 +7,28 @@
 
 import type { Appearance } from '../domain/wire';
 
-const VARIABLES: Array<[keyof Appearance, string]> = [
-  ['opacity', '--app-opacity'],
-  ['activePaneOpacity', '--active-pane-opacity'],
-  ['inactivePaneOpacity', '--inactive-pane-opacity'],
-  ['activeTextOpacity', '--active-text-opacity'],
-  ['inactiveTextOpacity', '--inactive-text-opacity'],
+type OpacityKey =
+  | 'opacity'
+  | 'activePaneOpacity'
+  | 'inactivePaneOpacity'
+  | 'activeTextOpacity'
+  | 'inactiveTextOpacity';
+
+/** Each opacity's variable, and whether it is a surface the window shows through. */
+const VARIABLES: Array<[OpacityKey, string, boolean]> = [
+  ['opacity', '--app-opacity', true],
+  ['activePaneOpacity', '--active-pane-opacity', true],
+  ['inactivePaneOpacity', '--inactive-pane-opacity', true],
+  ['activeTextOpacity', '--active-text-opacity', false],
+  ['inactiveTextOpacity', '--inactive-text-opacity', false],
 ];
 
 export function applyAppearance(appearance: Appearance): void {
   const root = document.documentElement.style;
-  for (const [key, variable] of VARIABLES) {
-    root.setProperty(variable, String(appearance[key]));
+  // With transparency off the surfaces paint opaque; the text's dim is the
+  // focus cue, not transparency, and stays.
+  const opaque = appearance.transparency === false;
+  for (const [key, variable, surface] of VARIABLES) {
+    root.setProperty(variable, opaque && surface ? '1' : String(appearance[key]));
   }
 }

@@ -194,6 +194,20 @@ describe('appMenuSpec', () => {
     expect(itemIds(demo)).not.toContain('menu-debug');
   });
 
+  it('Enable Window Transparency is the macOS desktop app’s, checked as the config says', () => {
+    expect(find(appMenuSpec(ctx(), MAC), 'view-transparency')).toMatchObject({
+      kind: 'checkbox',
+      label: 'Enable Window Transparency',
+      checked: true,
+    });
+    expect(find(appMenuSpec(ctx({ transparency: false }), MAC), 'view-transparency')).toMatchObject(
+      { checked: false },
+    );
+    for (const env of [WEB, LINUX, { ...MAC, readOnly: true }]) {
+      expect(find(appMenuSpec(ctx(), env), 'view-transparency')).toBeUndefined();
+    }
+  });
+
   it('the macOS app section is About, the app items, then the platform items', () => {
     const bar = appItemsSpec(MAC, 'native-bar');
     expect(

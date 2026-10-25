@@ -15,8 +15,8 @@ use tmuxy_core::session::session_name as get_session;
 pub use tmuxy_core::session::ConnectTarget;
 
 pub use emitter::{
-    apply_config_change, emit_config_settings, lookup_image, poll_connect_requests, ImageStore,
-    KeyBindingsState, TauriEmitter,
+    apply_config_change, emit_config_settings, emit_theme_settings, lookup_image,
+    poll_connect_requests, ImageStore, KeyBindingsState, TauriEmitter,
 };
 use emitter::{emit_detached, emit_fatal};
 

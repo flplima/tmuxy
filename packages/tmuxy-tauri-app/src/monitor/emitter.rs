@@ -324,8 +324,9 @@ pub async fn apply_config_change(
 }
 
 /// Push the theme + appearance settings so the frontend re-applies them, and
-/// put every window's blur where `@tmuxy-blur` now says.
-async fn emit_theme_settings(app: &AppHandle, tx: &MonitorCommandSender) {
+/// put every window's blur where `@tmuxy-blur` now says — none while
+/// `@tmuxy-transparency` is off, since an opaque window shows no blur.
+pub async fn emit_theme_settings(app: &AppHandle, tx: &MonitorCommandSender) {
     let settings = match tmuxy_core::theme::get_theme_settings(tx).await {
         Ok(settings) => settings,
         Err(e) => {
@@ -333,7 +334,9 @@ async fn emit_theme_settings(app: &AppHandle, tx: &MonitorCommandSender) {
             return;
         }
     };
-    let blur = settings["appearance"]["blur"].as_bool().unwrap_or(true);
+    let appearance = &settings["appearance"];
+    let blur = appearance["blur"].as_bool().unwrap_or(true)
+        && appearance["transparency"].as_bool().unwrap_or(true);
     for window in app.webview_windows().values() {
         crate::gui::apply_blur(window, blur);
     }

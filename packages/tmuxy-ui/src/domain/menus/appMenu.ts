@@ -144,6 +144,17 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       checked: ctx.sendAsk,
       action: event({ type: 'TOGGLE_SEND_ASK' }),
     },
+    // The native blur only exists on macOS, and only the desktop app has a
+    // window to make see-through.
+    !env.readOnly &&
+      env.isTauri &&
+      env.isMac && {
+        kind: 'checkbox',
+        id: 'view-transparency',
+        label: 'Enable Window Transparency',
+        checked: ctx.transparency,
+        action: event({ type: 'TOGGLE_TRANSPARENCY' }),
+      },
   ]);
 }
 
