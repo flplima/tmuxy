@@ -5,7 +5,6 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from './actionTypes';
-import { notReadOnly } from './readOnlyGuard';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { PHONE_COLS, PHONE_ROWS } from '../../utils/phoneLayout';
 import { gridExtent } from './helpers';
@@ -17,7 +16,6 @@ export const connectionGlobalEvents = {
   SESSIONS_UPDATED: { actions: 'connection_sessionsUpdated' },
   SNAPSHOTS_UPDATED: { actions: 'connection_snapshotsUpdated' },
   RESTORE_SESSION: {
-    guard: notReadOnly,
     actions: 'connection_restoreSession',
   },
   SESSION_MENU_OPENED: {
@@ -42,7 +40,6 @@ export const connectionGlobalEvents = {
   },
   CONNECTION_INFO: { actions: 'connection_connectionInfo' },
   CREATE_TAB: {
-    guard: notReadOnly,
     actions: 'connection_createTab',
   },
   CONNECT_SERVER: {
@@ -52,7 +49,6 @@ export const connectionGlobalEvents = {
     actions: 'connection_reconnectNow',
   },
   DETACH_CLIENT: {
-    guard: notReadOnly,
     actions: 'connection_detachClient',
   },
   SWITCH_SESSION: { actions: 'connection_switchSession' },
@@ -155,10 +151,7 @@ export const connectionActions = {
       rows: context.totalHeight,
     });
     const shouldResize =
-      !context.readOnly &&
-      context.connected &&
-      grid.cols > 0 &&
-      (cols !== grid.cols || rows !== grid.rows);
+      context.connected && grid.cols > 0 && (cols !== grid.cols || rows !== grid.rows);
     if (shouldResize) {
       enqueue(
         sendTo('tmux', {
@@ -206,9 +199,7 @@ export const connectionActions = {
   }),
 
   connection_connectionInfo: assignCtx(({ event }) =>
-    event.type === 'CONNECTION_INFO'
-      ? { defaultShell: event.defaultShell, readOnly: event.readOnly }
-      : {},
+    event.type === 'CONNECTION_INFO' ? { defaultShell: event.defaultShell } : {},
   ),
 
   connection_createTab: act(({ enqueue }) => {

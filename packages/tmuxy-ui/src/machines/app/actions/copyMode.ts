@@ -36,10 +36,9 @@ export const copyModeActions = {
    */
   copyMode_enter: act(({ event, context, enqueue }) => {
     if (event.type !== 'ENTER_COPY_MODE') return;
-    const mode = context.readOnly ? 'scroll' : 'copy';
     const pane = context.panes.find((p) => p.tmuxId === event.paneId);
     if (!pane || !selectPaneTakesCopyMode(context, event.paneId)) return;
-    const record = buildScrollbackState(pane, mode, event);
+    const record = buildScrollbackState(pane, 'copy', event);
 
     enqueue(
       assign({
@@ -47,14 +46,12 @@ export const copyModeActions = {
       }),
     );
 
-    if (!context.readOnly) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_OP' as const,
-          op: TmuxOp.EnterCopyMode({ paneId: event.paneId }),
-        }),
-      );
-    }
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_OP' as const,
+        op: TmuxOp.EnterCopyMode({ paneId: event.paneId }),
+      }),
+    );
 
     fetchHistory(enqueue, event.paneId, record);
   }),

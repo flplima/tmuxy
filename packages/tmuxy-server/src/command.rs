@@ -16,8 +16,7 @@
 //! camelCase (`paneId`) is remapped explicitly with `#[serde(rename = "...")]`.
 //!
 //! Adding a command is a variant here and an arm in `handle_command`; the
-//! compiler enforces the rest. A viewer's server refuses it until
-//! `serve_viewer` names it.
+//! compiler enforces the rest.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -61,7 +60,7 @@ pub enum ClientCommand {
     /// A `preview` pane's document (`path` absent) or a resource it links
     /// (`path` relative to it). The pane names nothing on disk: what it may
     /// read is the pane's own `@tmuxy-pane-preview`, asked of tmux on every
-    /// call (`tmuxy_core::preview`). Write-only: a viewer is not served files.
+    /// call (`tmuxy_core::preview`).
     ReadPreview {
         #[serde(rename = "paneId")]
         pane_id: tmuxy_core::PaneId,
@@ -80,8 +79,7 @@ pub enum ClientCommand {
     /// that would let anyone reaching the server probe the filesystem.
     ListGitWorktrees,
     /// The sessions that have a snapshot to restore from (`session_snapshot`):
-    /// `[{ name, savedAt }]`. Write-only: a snapshot names working
-    /// directories and commands, which a viewer is not shown.
+    /// `[{ name, savedAt }]`.
     ListSnapshots,
     /// Rebuild a session from its latest snapshot, through this session's
     /// control-mode client. Refused when the session is already running.

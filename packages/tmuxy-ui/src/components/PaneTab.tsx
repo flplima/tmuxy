@@ -18,7 +18,6 @@ export const PaneTab = memo(function PaneTab({
   widgetName,
   renaming,
   onRenameEnd,
-  disabled,
   onClick,
   onContextMenu,
   controls,
@@ -34,8 +33,7 @@ export const PaneTab = memo(function PaneTab({
   renaming: boolean;
   /** The new title, or null if the edit was abandoned. */
   onRenameEnd: (name: string | null) => void;
-  /** Shown but not selectable: a parked group member, to a client that cannot swap it in. */
-  disabled: boolean;
+
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   /**
@@ -59,13 +57,12 @@ export const PaneTab = memo(function PaneTab({
 
   return (
     <div
-      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''} ${disabled ? 'pane-tab-disabled' : ''} ${dropMark ? `pane-tab-drop-${dropMark}` : ''} ${dragging ? 'pane-tab-dragging' : ''}`}
-      onClick={disabled ? undefined : onClick}
-      aria-disabled={disabled}
+      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''} ${dropMark ? `pane-tab-drop-${dropMark}` : ''} ${dragging ? 'pane-tab-dragging' : ''}`}
+      onClick={onClick}
       onContextMenu={onContextMenu}
       role="tab"
       // The strip's one tab stop is the tab it shows.
-      tabIndex={isSelectedTab && !disabled ? 0 : -1}
+      tabIndex={isSelectedTab ? 0 : -1}
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
       data-pane-tab={pane.tmuxId}

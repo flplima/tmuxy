@@ -6,11 +6,10 @@
  * spinning up Effect at all.
  */
 
-import type { TmuxClientModel, TmuxSnapshot, PendingOp, OpId, Patch, ViewFocus } from './types';
+import type { TmuxClientModel, TmuxSnapshot, PendingOp, OpId, Patch } from './types';
 import type { TmuxOp } from '../commands';
 import { EMPTY_SNAPSHOT, OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from './types';
 import { reconcile as opReconcile } from './ops';
-import { gridExtent } from '../../machines/app/helpers';
 import type { PaneId, WindowId } from '../ids';
 
 let opIdCounter = 0;
@@ -30,70 +29,7 @@ export function recomputeDerived(model: TmuxClientModel): TmuxClientModel {
     if (op.status === 'failed') continue;
     derived = op.patch(derived);
   }
-  return { ...model, derived: applyViewFocus(derived, model.viewFocus) };
-}
-
-/**
- * The view a read-only client keeps once `snapshot` is the truth: unchanged
- * while its pane is there, moved to the tab's own active pane when the pane is
- * gone, and dropped — back to following the server — when the tab is.
- */
-export function settleViewFocus(view: ViewFocus | null, snapshot: TmuxSnapshot): ViewFocus | null {
-  if (!view) return null;
-  const viewed = snapshot.windows.find((w) => w.id === view.windowId);
-  if (!viewed || viewed.windowType !== 'tab') return null;
-  const panes = snapshot.panes.filter((p) => p.windowId === viewed.id);
-  if (panes.some((p) => p.tmuxId === view.paneId)) return view;
-  const paneId = (panes.find((p) => p.tmuxId === viewed.activePaneId) ?? panes[0])?.tmuxId ?? null;
-  return { windowId: viewed.id, paneId };
-}
-
-let activeWindowsMemo: {
-  windows: TmuxSnapshot['windows'];
-  windowId: WindowId;
-  result: TmuxSnapshot['windows'];
-} | null = null;
-
-/**
- * `windows` with the active flag moved to `windowId`. Remembers its last
- * answer: the overlay is re-applied on every update, and a fresh array each
- * time would re-render the tab strip on every frame of terminal output.
- */
-function windowsWithActive(
-  windows: TmuxSnapshot['windows'],
-  windowId: WindowId,
-): TmuxSnapshot['windows'] {
-  if (activeWindowsMemo?.windows === windows && activeWindowsMemo.windowId === windowId) {
-    return activeWindowsMemo.result;
-  }
-  const result = windows.map((w) =>
-    w.active === (w.id === windowId) ? w : { ...w, active: w.id === windowId },
-  );
-  activeWindowsMemo = { windows, windowId, result };
-  return result;
-}
-
-/** Lay a read-only client's own tab and pane over what the server has active. */
-function applyViewFocus(snapshot: TmuxSnapshot, view: ViewFocus | null): TmuxSnapshot {
-  const settled = settleViewFocus(view, snapshot);
-  if (!settled) return snapshot;
-  const extent = gridExtent(snapshot.panes, settled.windowId, {
-    cols: snapshot.totalWidth,
-    rows: snapshot.totalHeight,
-  });
-  return {
-    ...snapshot,
-    windows: windowsWithActive(snapshot.windows, settled.windowId),
-    activeWindowId: settled.windowId,
-    activePaneId: settled.paneId,
-    totalWidth: extent.cols,
-    totalHeight: extent.rows,
-  };
-}
-
-/** Point a read-only client's view somewhere else (`null` follows the server again). */
-export function setViewFocus(model: TmuxClientModel, view: ViewFocus | null): TmuxClientModel {
-  return recomputeDerived({ ...model, viewFocus: view });
+  return { ...model, derived };
 }
 
 /**
@@ -224,7 +160,6 @@ export function applyServerSnapshot(
     ops: keepers,
     derived: committed,
     paneKeyOverrides,
-    viewFocus: settleViewFocus(model.viewFocus, committed),
   };
   return { model: recomputeDerived(newModel), matched, rolledBack };
 }
@@ -257,7 +192,6 @@ export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
     ops: [],
     derived: EMPTY_SNAPSHOT,
     paneKeyOverrides: {},
-    viewFocus: null,
   });
 }
 

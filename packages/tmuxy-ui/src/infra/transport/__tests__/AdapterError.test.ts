@@ -31,11 +31,13 @@ describe('classifyAdapterError', () => {
   it('names the refusal for invalid and forbidden commands', () => {
     for (const kind of ['invalid', 'forbidden'] as const) {
       const result = classifyAdapterError(
-        { error: 'read-only server', kind },
+        { error: 'resize-window must go through set_client_size', kind },
         { command: 'set_theme' },
       );
       expect(result._tag).toBe('TransportError');
-      expect(formatAdapterError(result)).toBe(`set_theme refused (${kind}): read-only server`);
+      expect(formatAdapterError(result)).toBe(
+        `set_theme refused (${kind}): resize-window must go through set_client_size`,
+      );
     }
   });
 

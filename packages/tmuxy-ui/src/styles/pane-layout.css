@@ -10,13 +10,6 @@
   inset: 0 12px 4px;
 }
 
-/* Read-only: the pane area is zoomed to fit (PaneFit in App.tsx). Covers the
-   container's padding box, as .pane-layout's own inset expects. */
-.pane-fit {
-  position: absolute;
-  inset: 0;
-}
-
 .pane-layout-item {
   overflow: hidden;
   /* Every pane paints the theme's terminal background at its own alpha

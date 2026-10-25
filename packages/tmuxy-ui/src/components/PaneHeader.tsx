@@ -9,13 +9,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { TmuxOp } from '../domain/commands';
 import { selectDraggedPaneId, selectGroupDrop } from '../machines/selectors/layout';
-import {
-  useAppSelector,
-  useAppSend,
-  usePane,
-  usePaneGroup,
-  useReadOnly,
-} from '../machines/appHooks';
+import { useAppSelector, useAppSend, usePane, usePaneGroup } from '../machines/appHooks';
 import { PaneContextMenu } from './PaneContextMenu';
 import { PaneTab } from './PaneTab';
 import { Tooltip } from './Tooltip';
@@ -53,7 +47,6 @@ export function PaneHeader({
   onFloatClose,
 }: PaneHeaderProps) {
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
   const groupDrop = useAppSelector(selectGroupDrop);
@@ -88,20 +81,16 @@ export function PaneHeader({
     }
   }, [activePaneId]);
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, targetPaneId: PaneId) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (readOnly) return;
-      setContextMenu({
-        visible: true,
-        x: e.clientX,
-        y: e.clientY,
-        targetPaneId,
-      });
-    },
-    [readOnly],
-  );
+  const handleContextMenu = useCallback((e: React.MouseEvent, targetPaneId: PaneId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      targetPaneId,
+    });
+  }, []);
 
   const handleMenuClick = useCallback(
     (e: React.MouseEvent, forPaneId?: PaneId) => {
@@ -166,7 +155,7 @@ export function PaneHeader({
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.tagName === 'BUTTON' || readOnly) return;
+    if (target.tagName === 'BUTTON') return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -323,31 +312,30 @@ export function PaneHeader({
   // A member's ⋮ and ✕ sit inside its tab, which may hold no control of its
   // own: they are pointer targets, hidden from assistive technology. The tab's
   // context menu (right-click, or the menu key) carries the same actions.
-  const controlsFor = (forPaneId: PaneId) =>
-    readOnly ? null : (
-      <span className="pane-tab-controls" aria-hidden="true">
-        <Tooltip label="Pane menu">
-          <span className="pane-header-menu" onClick={(e) => handleMenuClick(e, forPaneId)}>
-            ⋮
-          </span>
-        </Tooltip>
-        <Tooltip label="Close pane">
-          <span
-            className="pane-header-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              // In a float, ✕ closes the FLOAT — but only on the member the
-              // float is showing. A parked member's ✕ still closes that
-              // member, or it would take the whole float down with it.
-              if (isFloat && forPaneId === activeTabId) onFloatClose?.();
-              else handleClosePane(e, forPaneId);
-            }}
-          >
-            ✕
-          </span>
-        </Tooltip>
-      </span>
-    );
+  const controlsFor = (forPaneId: PaneId) => (
+    <span className="pane-tab-controls" aria-hidden="true">
+      <Tooltip label="Pane menu">
+        <span className="pane-header-menu" onClick={(e) => handleMenuClick(e, forPaneId)}>
+          ⋮
+        </span>
+      </Tooltip>
+      <Tooltip label="Close pane">
+        <span
+          className="pane-header-close"
+          onClick={(e) => {
+            e.stopPropagation();
+            // In a float, ✕ closes the FLOAT — but only on the member the
+            // float is showing. A parked member's ✕ still closes that
+            // member, or it would take the whole float down with it.
+            if (isFloat && forPaneId === activeTabId) onFloatClose?.();
+            else handleClosePane(e, forPaneId);
+          }}
+        >
+          ✕
+        </span>
+      </Tooltip>
+    </span>
+  );
 
   const menuPaneId = contextMenu.visible ? contextMenu.targetPaneId : null;
 
@@ -383,9 +371,6 @@ export function PaneHeader({
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
-              // A parked member has no content on the wire; showing it takes a
-              // swap in tmux, which a read-only client cannot ask for.
-              disabled={readOnly && !isSelectedTab}
               renaming={renamingPaneId === tabPane.tmuxId}
               onRenameEnd={(name) => {
                 send({ type: 'PANE_RENAME_END' });
@@ -420,7 +405,7 @@ export function PaneHeader({
       {/* Ungrouped: the buttons belong to the one pane the header is for, so
           they sit at the header's right edge as they always have. A group's
           are inside each member's share instead. */}
-      {!isGroup && !readOnly && (
+      {!isGroup && (
         <>
           <Tooltip label="Pane menu">
             <button

@@ -20,9 +20,8 @@ import { selectVisibleWindows } from '../../selectors/panesAndSidebars';
 import { reorderOp } from '../../../utils/tabOverview';
 import { TmuxOp } from '../../../domain/commands';
 
-/** Slot count including the trailing "+" slot — which a read-only client, with nothing to create, does not have. */
-const slotCount = (context: Ctx) =>
-  selectVisibleWindows(context).length + (context.readOnly ? 0 : 1);
+/** Slot count including the trailing "+" slot. */
+const slotCount = (context: Ctx) => selectVisibleWindows(context).length + 1;
 
 /** The slot of the current tab, where the keyboard cursor starts. */
 const activeSlot = (context: Ctx) => {

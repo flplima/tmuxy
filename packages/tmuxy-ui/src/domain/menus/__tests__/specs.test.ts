@@ -18,10 +18,9 @@ import { sessionSwitcherSpec } from '../sessionSwitcher';
 import { windowMenuSpec } from '../windowMenu';
 import { itemIds, tidy, type MenuEnv, type MenuNode, type MenuSpec } from '../spec';
 
-const WEB: MenuEnv = { readOnly: false, isDemo: false, isTauri: false, isMac: false };
+const WEB: MenuEnv = { isDemo: false, isTauri: false, isMac: false };
 const MAC: MenuEnv = { ...WEB, isTauri: true, isMac: true };
 const LINUX: MenuEnv = { ...WEB, isTauri: true };
-const VIEWER: MenuEnv = { ...WEB, readOnly: true };
 
 function pane(id: string, windowId: string, marked = false): TmuxPane {
   return {
@@ -133,7 +132,7 @@ describe('paneMenuSpec', () => {
 
 describe('tabMenuSpec', () => {
   it('a context menu leaves navigation out and acts on its own tab', () => {
-    const spec = tabMenuSpec(ctx(), WEB, { windowId: wid('@2'), navigation: false });
+    const spec = tabMenuSpec(ctx(), { windowId: wid('@2'), navigation: false });
     const ids = itemIds(spec);
     expect(ids).not.toContain('tab-next');
     expect(ids).toEqual(['tab-new', 'tab-overview', 'tab-stack-toggle', 'tab-rename', 'tab-close']);
@@ -142,20 +141,11 @@ describe('tabMenuSpec', () => {
   });
 
   it('the app menu disables navigation on a single tab and reads Stacked Panes off the active tab', () => {
-    const spec = tabMenuSpec(ctx({ windows: [win('@1', true)] }), WEB, { windowId: null });
+    const spec = tabMenuSpec(ctx({ windows: [win('@1', true)] }), { windowId: null });
     expect(disabled(spec, 'tab-next')).toBe(true);
     const stacked = find(spec, 'tab-stack-toggle');
     expect(stacked?.kind).toBe('checkbox');
     if (stacked?.kind === 'checkbox') expect(stacked.checked).toBe(true);
-  });
-
-  it('a viewer gets nothing that changes the session', () => {
-    expect(itemIds(tabMenuSpec(ctx(), VIEWER, { windowId: null }))).toEqual([
-      'tab-overview',
-      'tab-next',
-      'tab-previous',
-      'tab-last',
-    ]);
   });
 });
 
@@ -182,12 +172,7 @@ describe('appMenuSpec', () => {
     expect(mac).not.toContain('quit');
   });
 
-  it('a viewer or the demo sees only what it can do', () => {
-    const viewer = appMenuSpec(ctx(), VIEWER);
-    expect(
-      viewer.filter((n) => n.kind === 'submenu').map((n) => n.kind === 'submenu' && n.label),
-    ).toEqual(['Tab', 'View']);
-    expect(itemIds(viewer)).not.toContain('session-reload-config');
+  it('the demo sees only what it can do', () => {
     const demo = appMenuSpec(ctx(), { ...WEB, isDemo: true });
     expect(disabled(demo, 'session-kill')).toBe(true);
     expect(itemIds(demo)).not.toContain('session-reload-config');
@@ -203,7 +188,7 @@ describe('appMenuSpec', () => {
     expect(find(appMenuSpec(ctx({ transparency: false }), MAC), 'view-transparency')).toMatchObject(
       { checked: false },
     );
-    for (const env of [WEB, LINUX, { ...MAC, readOnly: true }]) {
+    for (const env of [WEB, LINUX]) {
       expect(find(appMenuSpec(ctx(), env), 'view-transparency')).toBeUndefined();
     }
   });
@@ -265,12 +250,11 @@ describe('themeMenuSpec and debugMenuSpec', () => {
 });
 
 describe('selection, session switcher and window menus', () => {
-  it('a viewer can copy but not type', () => {
-    expect(itemIds(selectionMenuSpec(WEB))).toEqual(['selection-copy', 'selection-send-keys']);
-    expect(itemIds(selectionMenuSpec(VIEWER))).toEqual(['selection-copy']);
+  it('copies and types the selection', () => {
+    expect(itemIds(selectionMenuSpec())).toEqual(['selection-copy', 'selection-send-keys']);
   });
 
-  it('lists sessions with the current one marked, restorable ones for a writer, servers on the desktop', () => {
+  it('lists sessions with the current one marked, restorable ones, servers on the desktop', () => {
     const c = ctx({
       sessionName: 'main',
       sessions: [{ sessionName: 'main' }, { sessionName: 'work' }] as AppMachineContext['sessions'],
@@ -287,7 +271,7 @@ describe('selection, session switcher and window menus', () => {
       label: '● main',
       data: { 'session-name': 'main', current: 'true' },
     });
-    expect(itemIds(sessionSwitcherSpec(c, VIEWER))).toEqual(['session:main', 'session:work']);
+
     expect(itemIds(sessionSwitcherSpec(c, MAC))).toEqual([
       'session:main',
       'session:work',

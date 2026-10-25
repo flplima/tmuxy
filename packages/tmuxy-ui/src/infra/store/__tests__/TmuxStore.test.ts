@@ -13,7 +13,6 @@ import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../../../domain/store/parseCommand';
 import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
 import { pid, wid, wireState } from '../../../test/wire';
-import { dispatchRaw } from '../../../test/store';
 import { fakeTransport } from '../../../test/transport';
 import type { TmuxClientModel } from '../../../domain/store/types';
 
@@ -200,105 +199,5 @@ describe('notify granularity', () => {
     );
     expect(notifies).toBe(1);
     unsubscribe();
-  });
-
-  describe('read-only', () => {
-    /** Two tabs: @0 holds %0 and %1 side by side, @1 holds %2. tmux has @0/%0 active. */
-    function twoTabs(over: Partial<ServerStateEncoded> = {}): ServerState {
-      const base = blankServerState();
-      const pane = base.panes[0];
-      return blankServerState({
-        panes: [
-          { ...pane, width: 40 },
-          { ...pane, id: 1, tmux_id: pid('%1'), x: 41, width: 39, active: false },
-          {
-            ...pane,
-            id: 2,
-            tmux_id: pid('%2'),
-            window_id: wid('@1'),
-            width: 120,
-            height: 40,
-            active: false,
-          },
-        ],
-        windows: [
-          { ...base.windows[0], active_pane_id: pid('%0') },
-          {
-            id: wid('@1'),
-            index: 1,
-            name: 'logs',
-            active: false,
-            window_type: 'tab',
-            active_pane_id: pid('%2'),
-          },
-        ],
-        ...over,
-      });
-    }
-
-    async function readOnlyStore() {
-      const fake = fakeTransport({ readOnly: true });
-      const store = makeTmuxStore();
-      store.reconcile(twoTabs());
-      return { fake, store };
-    }
-
-    it('a tab switch moves only this client, and outlives what the server reports', async () => {
-      const { fake, store } = await readOnlyStore();
-
-      await fake.runtime.runPromise(dispatchRaw(store, 'select-window -t @1'));
-      expect(fake.invocations).toHaveLength(0);
-      expect(store.getModel().ops).toHaveLength(0);
-      expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
-      expect(store.getModel().derived.activePaneId).toBe(pid('%2'));
-      expect(store.getModel().derived.windows.map((w) => w.active)).toEqual([false, true]);
-      // The grid drawn is the viewed tab's, not the one tmux has active.
-      expect(store.getModel().derived.totalWidth).toBe(120);
-      expect(store.getModel().derived.totalHeight).toBe(40);
-
-      // tmux still says @0 — and keeps saying it on every update.
-      store.reconcile(twoTabs());
-      store.reconcile(twoTabs({ active_pane_id: pid('%1') }));
-      expect(store.getModel().committed.activeWindowId).toBe(wid('@0'));
-      expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
-    });
-
-    it('pane focus is kept locally, by id and by direction', async () => {
-      const { fake, store } = await readOnlyStore();
-
-      await fake.runtime.runPromise(dispatchRaw(store, 'select-pane -t %1'));
-      expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
-      store.reconcile(twoTabs());
-      expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
-
-      await fake.runtime.runPromise(dispatchRaw(store, 'select-pane -L'));
-      expect(store.getModel().derived.activePaneId).toBe(pid('%0'));
-      expect(fake.invocations).toHaveLength(0);
-    });
-
-    it('falls back to the server when the viewed tab is closed', async () => {
-      const { fake, store } = await readOnlyStore();
-      await fake.runtime.runPromise(dispatchRaw(store, 'select-window -t @1'));
-
-      const closed = twoTabs();
-      store.reconcile({
-        ...closed,
-        panes: closed.panes.filter((p) => p.window_id !== wid('@1')),
-        windows: closed.windows.filter((w) => w.id !== wid('@1')),
-      });
-      expect(store.getModel().viewFocus).toBeNull();
-      expect(store.getModel().derived.activeWindowId).toBe(wid('@0'));
-    });
-
-    it('refuses anything that would change the session, unpredicted and unsent', async () => {
-      const { fake, store } = await readOnlyStore();
-      for (const command of ['split-window -h', 'kill-pane -t %1', 'send-keys -t %0 -l x']) {
-        const exit = await fake.runtime.runPromiseExit(dispatchRaw(store, command));
-        expect(exit._tag).toBe('Failure');
-      }
-      expect(fake.invocations).toHaveLength(0);
-      expect(store.getModel().ops).toHaveLength(0);
-      expect(store.getModel().derived.panes).toHaveLength(3);
-    });
   });
 });

@@ -41,11 +41,10 @@ impl StateAggregator {
 
         // Check if this is a new pane
         let is_new_pane = !self.panes.contains_key(&pane_id);
-        let scrollback_rows = self.scrollback_rows;
-
-        let pane = self.panes.entry(pane_id.clone()).or_insert_with(|| {
-            PaneState::new(pane_id.clone(), width, height).with_scrollback_rows(scrollback_rows)
-        });
+        let pane = self
+            .panes
+            .entry(pane_id.clone())
+            .or_insert_with(|| PaneState::new(pane_id.clone(), width, height));
 
         if is_new_pane {
             let early_bytes = pane.replay_early_output(&mut self.early_output);

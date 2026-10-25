@@ -100,7 +100,7 @@ Reconnection flow: the adapter (`HttpAdapter` / `TauriAdapter`) fires `onReconne
 
 See [STATE-MANAGEMENT-ACTORS.md](STATE-MANAGEMENT-ACTORS.md) for these sections: Machine Context; Actors; Child Machines; How the app machine is split; Domain and infrastructure.
 
-See [STATE-MANAGEMENT-UPDATES.md](STATE-MANAGEMENT-UPDATES.md) for these sections: Optimistic Updates — TmuxClientModel; Read-only view focus; Keystroke-routing contract; Errors and messages the user sees; React Integration; Pane enter/leave animations (component-local).
+See [STATE-MANAGEMENT-UPDATES.md](STATE-MANAGEMENT-UPDATES.md) for these sections: Optimistic Updates — TmuxClientModel; Keystroke-routing contract; Errors and messages the user sees; React Integration; Pane enter/leave animations (component-local).
 
 ## How Backend and Frontend Stay in Sync
 

@@ -6,8 +6,7 @@ use axum::{
 use tower::ServiceExt;
 
 fn app() -> Router {
-    api_routes(HostPolicy::Loopback { allowed: vec![] }, false)
-        .with_state(Arc::new(AppState::new()))
+    api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::new()))
 }
 
 /// The POST a hostile page can make without a preflight: `text/plain`,
@@ -22,76 +21,6 @@ fn forged_command(origin: &'static str, site: &'static str) -> Request<Body> {
             r#"{"cmd":"run_tmux_command","args":{"command":"run-shell 'touch /tmp/pwned'"}}"#,
         ))
         .unwrap()
-}
-
-fn same_origin_command(body: &'static str) -> Request<Body> {
-    Request::post("/commands")
-        .header("host", "localhost:9000")
-        .header("origin", "http://localhost:9000")
-        .header("sec-fetch-site", "same-origin")
-        .header("content-type", "application/json")
-        .header("x-connection-id", "1")
-        .body(Body::from(body))
-        .unwrap()
-}
-
-#[tokio::test]
-async fn a_read_only_server_refuses_every_write() {
-    let state = Arc::new(AppState::new().with_read_only(true));
-    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
-    for body in [
-        r#"{"cmd":"run_tmux_command","args":{"command":"kill-server"}}"#,
-        r#"{"cmd":"query_tmux","args":{"command":"list-panes"}}"#,
-        r#"{"cmd":"set_client_size","args":{"cols":10,"rows":5}}"#,
-        r#"{"cmd":"set_cursor_blink","args":{"enabled":false}}"#,
-        r#"{"cmd":"set_send_ask","args":{"enabled":false}}"#,
-        // A read, but one that answers with the server's home path.
-        r#"{"cmd":"get_trace_settings"}"#,
-        // A read of a file on the server's disk.
-        r#"{"cmd":"read_preview","args":{"paneId":"%1"}}"#,
-    ] {
-        let response = app
-            .clone()
-            .oneshot(same_origin_command(body))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{body}");
-    }
-    // A viewer's tree has no repositories: the answer is empty, and no
-    // `git` ran for it.
-    let response = app
-        .clone()
-        .oneshot(same_origin_command(r#"{"cmd":"list_git_worktrees"}"#))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(parsed["result"], serde_json::json!([]));
-    // `/trace` writes to the server's disk; a viewer's server has no
-    // such route at all.
-    let trace = Request::post("/trace")
-        .header("host", "localhost:9000")
-        .header("origin", "http://localhost:9000")
-        .header("sec-fetch-site", "same-origin")
-        .body(Body::from("[]"))
-        .unwrap();
-    let response = app.clone().oneshot(trace).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    // Nor a preview's page, staged or served.
-    for method in ["GET", "POST"] {
-        let request = Request::builder()
-            .method(method)
-            .uri("/api/preview/1")
-            .header("host", "localhost:9000")
-            .header("sec-fetch-site", "same-origin")
-            .body(Body::from("<p>x</p>"))
-            .unwrap();
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method}");
-    }
 }
 
 fn preview_page_request(site: &'static str) -> Request<Body> {
@@ -117,7 +46,7 @@ async fn a_staged_page_is_served_sandboxed_and_offline() {
             false,
         )
         .unwrap();
-    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, false).with_state(state);
+    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
 
     let response = app
         .clone()
@@ -168,7 +97,7 @@ async fn a_staged_page_is_served_sandboxed_and_offline() {
 #[tokio::test]
 async fn a_page_is_not_staged_for_a_pane_tmux_has_not_authorised() {
     let state = Arc::new(AppState::new());
-    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, false).with_state(state.clone());
+    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state.clone());
     let request = Request::post("/api/preview/3")
         .header("host", "localhost:9000")
         .header("origin", "http://localhost:9000")
@@ -192,23 +121,6 @@ async fn a_page_is_not_staged_for_a_pane_tmux_has_not_authorised() {
         .preview_pages
         .page(&tmuxy_core::PaneId::parse("%3").unwrap())
         .is_none());
-}
-
-/// The pictures that are part of the screen still have a route on a
-/// read-only server (a missing one is a 404 from the handler, not from the
-/// router; the point is that the route answers as itself).
-#[tokio::test]
-async fn a_read_only_server_still_serves_the_screens_pictures() {
-    let state = Arc::new(AppState::new().with_read_only(true));
-    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
-
-    let request = Request::get("/api/images/%251/1")
-        .header("host", "localhost:9000")
-        .header("sec-fetch-site", "same-origin")
-        .body(Body::empty())
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    assert_ne!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
 #[tokio::test]
@@ -286,11 +198,11 @@ fn cross_origin_request_for(route: &str) -> Option<Request<Body>> {
     )
 }
 
-/// The route table as `api_routes` and the two builders under it declare
-/// it, read out of this file's own source.
+/// The route table as `api_routes` declares it, read out of this file's own
+/// source.
 ///
-/// The guard is the `.layer()` in `api_routes`, and it covers whatever
-/// `writable_routes` / `viewer_routes` built. A route added anywhere else
+/// The guard is the `.layer()` in `api_routes`, and it covers the routes
+/// declared above it. A route added anywhere else
 /// — or a whole new route nobody thought to test — is served with no
 /// origin check at all, which on this API means a remote shell. So the
 /// routes are enumerated rather than listed by hand: a new one that the
@@ -380,40 +292,6 @@ async fn every_route_refuses_a_rebound_host_on_a_loopback_bind() {
             StatusCode::FORBIDDEN,
             "route {route} served a rebound domain"
         );
-    }
-}
-
-/// Blocking the buttons in the UI is not enforcement: a viewer can POST
-/// whatever it likes. Every write must be refused by the server.
-#[tokio::test]
-async fn a_read_only_server_refuses_keystrokes_and_resizes() {
-    let state = Arc::new(AppState::new().with_read_only(true));
-    let app = api_routes(HostPolicy::Loopback { allowed: vec![] }, true).with_state(state);
-    for body in [
-        // Typing into a pane — the write a viewer most obviously wants.
-        r#"{"cmd":"run_tmux_command","args":{"command":"send-keys -t %1 'rm -rf ~' Enter"}}"#,
-        r#"{"cmd":"run_tmux_command","args":{"command":"send-keys -l x"}}"#,
-        // A read-shaped tmux command still rides the same channel, and
-        // nothing here can tell a read from a write.
-        r#"{"cmd":"query_tmux","args":{"command":"list-panes"}}"#,
-        // Resizing changes the session under whoever is writing in it.
-        r#"{"cmd":"set_client_size","args":{"cols":10,"rows":5}}"#,
-        // Anything that writes a tmux option.
-        r#"{"cmd":"set_theme","args":{"name":"nord"}}"#,
-        r#"{"cmd":"set_theme_mode","args":{"mode":"dark"}}"#,
-        r#"{"cmd":"set_trace_enabled","args":{"enabled":true}}"#,
-    ] {
-        let response = app
-            .clone()
-            .oneshot(same_origin_command(body))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{body}");
-        let bytes = axum::body::to_bytes(response.into_body(), 4096)
-            .await
-            .unwrap();
-        let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(parsed["error"], "read-only server", "{body}");
     }
 }
 

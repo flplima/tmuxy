@@ -147,10 +147,9 @@ fn a_routable_address_needs_a_password_or_no_auth() {
 }
 
 /// SEC-15: the allowed list was kept only on a loopback bind, so
-/// `--allowed-host` (and `TMUXY_ALLOWED_HOSTS`, which the public demo
-/// builds it from) silently did nothing on the routable bind that actually
-/// needed it — while `deploy/public-demo/README.md` said every other call
-/// would answer 403.
+/// `--allowed-host` (and `TMUXY_ALLOWED_HOSTS`) silently did nothing on the
+/// routable bind that actually needed it, where every other `Host` should
+/// answer 403.
 #[test]
 fn a_routable_bind_keeps_the_allowed_hosts_it_was_given() {
     let policy = resolve_listen("0.0.0.0", true, false, vec!["demo.example".into()])
@@ -171,33 +170,6 @@ fn a_host_that_is_not_an_address_is_an_error_rather_than_every_interface() {
     assert!(resolve_listen("my-laptop", true, false, vec![]).is_err());
 }
 
-/// SEC-11/12: a viewer's server shows the session it was started for and
-/// refuses the rest. A writable one stays unpinned — its client can run
-/// `new-session` itself, and switching sessions is the feature.
-#[test]
-fn only_a_read_only_server_is_pinned_to_one_session() {
-    assert_eq!(
-        resolve_session_pin(Some("shared".into()), true),
-        Ok(Some("shared".to_string()))
-    );
-    assert_eq!(
-        resolve_session_pin(None, true),
-        Ok(Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string()))
-    );
-    assert_eq!(resolve_session_pin(Some("shared".into()), false), Ok(None));
-    assert_eq!(resolve_session_pin(None, false), Ok(None));
-    // A pin no `?session=` could ever match is refused up front.
-    assert!(resolve_session_pin(Some("shared session".into()), true).is_err());
-}
-
-#[test]
-fn a_blank_session_flag_falls_back_to_the_default_name() {
-    assert_eq!(
-        resolve_session_pin(Some("   ".into()), true),
-        Ok(Some(tmuxy_core::DEFAULT_SESSION_NAME.to_string()))
-    );
-}
-
 #[test]
 fn allowed_hosts_ride_along_on_a_loopback_bind() {
     let listen =
@@ -208,7 +180,7 @@ fn allowed_hosts_ride_along_on_a_loopback_bind() {
 /// The app exactly as `serve` assembles it for the embedded frontend,
 /// optionally behind the password layer.
 fn served_app(password: Option<&str>) -> axum::Router {
-    let app = crate::state::api_routes(loopback(vec![]), false)
+    let app = crate::state::api_routes(loopback(vec![]))
         .fallback(serve_embedded)
         .with_state(Arc::new(AppState::new()));
     with_optional_auth(app, password.map(str::to_string))

@@ -25,7 +25,7 @@ function mountSidebars(context: Partial<AppMachineContext>) {
   });
   // Opening the tree column also asks the servers actor for a refresh.
   const servers = fromCallback(() => () => {});
-  const actor = mountState(sidebarState, sidebarsActions, { notReadOnly: () => true }, context, {
+  const actor = mountState(sidebarState, sidebarsActions, {}, context, {
     extraActors: { tmux, servers },
   });
   return { actor, sent };

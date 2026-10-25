@@ -86,53 +86,12 @@ fn inline_images_scroll_with_content_and_survive_primary_screen_resize() {
     assert_eq!(pane.image_parser.placements[0].row, -3);
 }
 
-/// SEC-11. A viewer's scroll used to cost three in-band control-mode
-/// queries on the writer's own connection. An observer's panes keep the
-/// history themselves, so the rows come back with no tmux involved at
-/// all — and a pane at the reflow default cannot answer for history it
-/// never kept, which is what makes the raised capacity load-bearing.
-#[test]
-fn an_observers_pane_answers_scrollback_from_its_own_history() {
-    let feed = |pane: &mut PaneState| {
-        for n in 0..600 {
-            pane.process_output(format!("line {n}\r\n").as_bytes());
-        }
-    };
-
-    let mut viewer = PaneState::new(pid("%1"), 40, 10)
-        .with_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
-    feed(&mut viewer);
-    let (rows, depth) = viewer.scrollback_cells(-400, -391);
-    assert_eq!(rows.len(), 10, "ten rows were asked for");
-    assert!(
-        depth >= 400,
-        "the observer's pane kept its history: {depth}"
-    );
-    let text: String = rows[0].iter().map(|c| c.char.clone()).collect();
-    assert!(
-        text.trim_end().ends_with("line 191"),
-        "row -400 of a 600-line feed on a 10-row screen is `line 191`, got {text:?}"
-    );
-
-    // The reflow default keeps far less, so the same request is clamped to
-    // what exists rather than reaching back 400 rows.
-    let mut writer = PaneState::new(pid("%1"), 40, 10);
-    feed(&mut writer);
-    let (_, shallow) = writer.scrollback_cells(-400, -391);
-    assert!(
-        shallow < 400,
-        "a writer's pane keeps only the reflow minimum, got {shallow}"
-    );
-}
-
 /// A capture rebuilds the screen from what tmux shows now; the rows that
-/// scrolled off before are kept. For an observer they are the whole history
-/// a viewer can scroll to, and a resize's capture used to erase them — the
-/// viewer's scroll view then opened over nothing.
+/// scrolled off before are kept, so a later reflow still has them to pull
+/// back down.
 #[test]
 fn a_capture_keeps_the_history_that_scrolled_off_before_it() {
-    let mut pane = PaneState::new(pid("%1"), 40, 10)
-        .with_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
+    let mut pane = PaneState::new(pid("%1"), 40, 10);
     for n in 0..80 {
         pane.process_output(format!("line {n}\r\n").as_bytes());
     }
@@ -156,16 +115,6 @@ fn a_capture_keeps_the_history_that_scrolled_off_before_it() {
         text.starts_with("line "),
         "the rows above the screen are still the lines that scrolled off: {text:?}"
     );
-}
-
-/// The membership check a viewer's request relies on: an aggregator holds
-/// only the session it monitors, so a pane it does not know is a pane the
-/// viewer was never shown.
-#[test]
-fn an_aggregator_has_no_scrollback_for_a_pane_it_does_not_hold() {
-    let mut agg = StateAggregator::new();
-    agg.set_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
-    assert!(agg.pane_scrollback(&pid("%99"), -10, 0).is_none());
 }
 
 /// The geometry walk over `layout::parse` yields the same panes, in the

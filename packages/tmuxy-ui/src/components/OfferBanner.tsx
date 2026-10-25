@@ -16,7 +16,7 @@
  */
 
 import { memo } from 'react';
-import { useAppSend, usePane, useReadOnly } from '../machines/appHooks';
+import { useAppSend, usePane } from '../machines/appHooks';
 import { paneOfferFor } from '../utils/paneAsk';
 import type { PaneId } from '../domain/ids';
 import './OfferBanner.css';
@@ -24,7 +24,6 @@ import './OfferBanner.css';
 export const OfferBanner = memo(function OfferBanner({ paneId }: { paneId: PaneId }) {
   const pane = usePane(paneId);
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const offer = paneOfferFor(pane);
 
   if (!offer) return null;
@@ -40,13 +39,7 @@ export const OfferBanner = memo(function OfferBanner({ paneId }: { paneId: PaneI
       // The pane keeps the keyboard, so Enter and Escape still reach it.
       onMouseDown={(e) => e.preventDefault()}
     >
-      <button
-        type="button"
-        className="offer-banner-run"
-        tabIndex={-1}
-        disabled={readOnly}
-        onClick={() => answer(true)}
-      >
+      <button type="button" className="offer-banner-run" tabIndex={-1} onClick={() => answer(true)}>
         ↵ to run:
       </button>
       <span className="offer-banner-command">{offer.command}</span>
@@ -54,7 +47,6 @@ export const OfferBanner = memo(function OfferBanner({ paneId }: { paneId: PaneI
         type="button"
         className="offer-banner-dismiss"
         tabIndex={-1}
-        disabled={readOnly}
         onClick={() => answer(false)}
       >
         · esc to dismiss

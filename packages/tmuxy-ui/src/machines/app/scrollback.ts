@@ -186,11 +186,11 @@ export function reconcilePaneMode(
   prevPane: Pick<TmuxPane, 'inMode'> | undefined,
   newPane: Pick<TmuxPane, 'tmuxId' | 'inMode'>,
   record: Pick<CopyModeState, 'copiedAt' | 'tmuxSeen'> | undefined,
-  options: { readOnly: boolean; now: number },
+  options: { now: number },
 ): PaneModeReconciliation {
   if (newPane.inMode) {
     if (record) return record.tmuxSeen ? 'none' : 'confirm';
-    if (options.readOnly || prevPane?.inMode) return 'none';
+    if (prevPane?.inMode) return 'none';
     const exitTime = copyModeExitTimes.get(newPane.tmuxId);
     if (exitTime !== undefined && options.now - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
       return 'none';

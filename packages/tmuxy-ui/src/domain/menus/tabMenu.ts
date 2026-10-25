@@ -12,16 +12,7 @@ import {
 import { TmuxOp } from '../commands';
 import type { WindowId } from '../ids';
 import { keyHint } from './keyHint';
-import {
-  action,
-  event,
-  local,
-  separator,
-  tidy,
-  type MenuEnv,
-  type MenuNode,
-  type MenuSpec,
-} from './spec';
+import { action, event, local, separator, tidy, type MenuNode, type MenuSpec } from './spec';
 
 export interface TabMenuOptions {
   /** The tab the menu is about; null for the app menu, which acts on the active one. */
@@ -30,11 +21,7 @@ export interface TabMenuOptions {
   navigation?: boolean;
 }
 
-export function tabMenuSpec(
-  ctx: AppMachineContext,
-  env: MenuEnv,
-  options: TabMenuOptions,
-): MenuSpec {
+export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): MenuSpec {
   const { keybindings } = ctx;
   const tabs = ctx.windows.filter((w) => w.windowType === 'tab');
   const single = tabs.length <= 1;
@@ -54,7 +41,7 @@ export function tabMenuSpec(
   });
 
   return tidy([
-    !env.readOnly && {
+    {
       kind: 'item',
       id: 'tab-new',
       label: 'New Tab',
@@ -75,10 +62,10 @@ export function tabMenuSpec(
     navigation && nav('tab-next', 'Next Tab'),
     navigation && nav('tab-previous', 'Previous Tab'),
     navigation && nav('tab-last', 'Last Tab'),
-    !env.readOnly && separator,
+    separator,
     // A window option, so a checkbox: on, only the row holding the active
     // pane stays expanded (docs/TMUX.md).
-    !env.readOnly && {
+    {
       kind: 'checkbox',
       id: 'tab-stack-toggle',
       label: 'Stacked Panes',
@@ -88,7 +75,7 @@ export function tabMenuSpec(
     },
     // Renaming happens in the tab itself — the strip owns the field, because
     // that is where the name is.
-    !env.readOnly && {
+    {
       kind: 'item',
       id: 'tab-rename',
       label: 'Rename Tab',
@@ -96,8 +83,8 @@ export function tabMenuSpec(
       keyHint: keyHint(keybindings, TAB_RENAME_KEY_OP),
       action: contextMenu ? local('tab-rename') : action('tab-rename'),
     },
-    !env.readOnly && separator,
-    !env.readOnly && {
+    separator,
+    {
       kind: 'item',
       id: 'tab-close',
       label: 'Close Tab',

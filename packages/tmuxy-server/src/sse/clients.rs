@@ -4,8 +4,7 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig};
 use tracing::{debug, info, instrument, trace, warn};
 
-use super::monitor::start_monitoring;
-use crate::state::{AppState, SessionConnections};
+use crate::state::AppState;
 
 /// `tmuxy_core::session::session_exists` off the async worker threads (it
 /// runs a synchronous `has-session`, which would otherwise block a tokio
@@ -20,49 +19,13 @@ pub(super) async fn session_exists(session: &str) -> bool {
 }
 
 /// The monitor settings this server watches `session` with.
-///
-/// `create_session` is the SEC-11 line: a read-only server never brings a
-/// session into being, so a viewer inventing `?session=` names cannot spawn a
-/// live shell per name. `observer` keeps it from resizing what it watches.
-pub(super) fn monitor_config(session: &str, state: &AppState) -> MonitorConfig {
+pub(super) fn monitor_config(session: &str) -> MonitorConfig {
     MonitorConfig {
         session: session.to_string(),
-        create_session: !state.read_only,
+        create_session: true,
         working_dir: Some(crate::state::find_workspace_root()),
-        observer: state.read_only,
         ..Default::default()
     }
-}
-
-/// How long a viewer's monitor waits between looks for a session that is not
-/// there. Long enough not to be a `has-session` treadmill, short enough that
-/// a session made while people are watching shows up while they still are.
-pub(super) const VIEWER_ATTACH_RETRY: Duration = Duration::from_secs(2);
-
-/// Start the one monitor a `--read-only` server has, on the session it is
-/// pinned to. Called by the server before it listens, never by a client.
-///
-/// SEC-11. A read-only server used to be the writable one with a command
-/// filter: every `/events` made a session entry, started a monitor if none was
-/// running, and the last viewer leaving shut it down — so viewers decided when
-/// tmux was attached to, and a name they invented was created. Now the server
-/// owns the entry and the monitor from startup: viewers subscribe to its
-/// broadcast (`sse_handler`) and hold nothing (`cleanup_connection`).
-pub async fn start_viewer_monitor(state: &Arc<AppState>) {
-    let Some(session) = state.session_pin.clone().filter(|_| state.read_only) else {
-        return;
-    };
-    let mut sessions = state.sessions.write().await;
-    let conns = sessions
-        .entry(session.clone())
-        .or_insert_with(SessionConnections::new);
-    let broadcast = conns.broadcast.clone();
-    let monitor_state = Arc::clone(state);
-    let monitor_session = session.clone();
-    conns.monitor_handle = Some(tokio::spawn(async move {
-        start_monitoring(broadcast, monitor_session, monitor_state).await;
-    }));
-    info!(%session, "viewer monitor started with the server");
 }
 
 /// Compute the minimum (cols, rows) across all connected clients
@@ -179,11 +142,6 @@ pub(super) async fn set_client_size(
 
 /// Remove a connection and resize tmux to remaining clients' minimum viewport
 pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) {
-    // A viewer was never counted: it reported no viewport, and the monitor's
-    // life is the server's (`start_viewer_monitor`), not the viewers'.
-    if state.read_only {
-        return;
-    }
     let (resize_to, command_tx, needs_deferred_cleanup) = {
         let mut sessions = state.sessions.write().await;
 

@@ -1,23 +1,16 @@
-# Invariants — UI-mode records, read-only clients, session lifecycle
+# Invariants — UI-mode records, session lifecycle
 
-The `U`, `R` and `L` rows of the ledger in [INVARIANTS.md](INVARIANTS.md), which holds the column legend, the seam prefixes and the other rows. Same rules: cite a row in a commit on its seam, and a row's enforcer is a test title that exists.
+The `U` and `L` rows of the ledger in [INVARIANTS.md](INVARIANTS.md), which holds the column legend, the seam prefixes and the other rows. Same rules: cite a row in a commit on its seam, and a row's enforcer is a test title that exists.
 
 ## U — UI-mode records
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| U1 | At most one copy-mode record per pane; exit closes only if seen in mode, cooldown ignores stale `in_mode`, and viewers never auto-enter. | ordering | `copyMode.ts`, `docs/COPY-MODE.md` | `reconcilePaneMode.test.ts › a snapshot…`, `› is ignored…`, `› never happens…`; `copyMode.test.ts › the end of a blink…` (examples) |
+| U1 | At most one copy-mode record per pane; exit closes only if seen in mode, and cooldown ignores stale `in_mode`. | ordering | `copyMode.ts`, `docs/COPY-MODE.md` | `reconcilePaneMode.test.ts › a snapshot…`, `› is ignored…`; `copyMode.test.ts › the end of a blink…` (examples) |
 | U2 | Resize preview holds for two matching quiet updates or a 2 s fallback that never clobbers newer resizes. | liveness | `appMachine.ts`, `layout.ts` | `layout.test.ts › the 2s RESIZE_COMPLETED…`, `› …does not clobber…` (two-quiet-updates hold is —) |
 | U3 | Only the latest scrollback fetch per pane applies; different panes fetch concurrently without cancelling. | ordering | `tmuxActor.ts` | `tmuxActor.test.ts › interrupts the previous fetch…`, `› different paneId fetches…` |
 | U4 | Group switch holds swap over stale snapshots, drops if a pane dies, and never selects parked/stash panes. | safety | `appMachine.ts`, `windowOps.ts` | `tests/7-regression-bugs.test.js › Clicking three pane-group tabs…` [nightly] (E2E only) |
 | U5 | Every menu renders a `domain/menus/` spec and dispatches via `executeMenuAction` or machine events. | safety | `domain/menus/`, `SpecMenu.tsx`, `nativeMenu.ts` | `specs.test.ts`; `menuActions.test.ts › sends the op of every op-backed item…` |
-
-## R — read-only clients
-
-| Id | Invariant | Kind | Stated in | Enforced by |
-| --- | --- | --- | --- | --- |
-| R1 | Read-only clients allow only read commands, cancel mutations, and never send a viewport. | safety | `readOnly.ts`, `HttpAdapter.ts`, `stateFeed.ts` | `HttpAdapter.test.ts › a read-only server…`; `tests/10-read-only.test.js › viewer follows output…`, `› a viewer cannot reach…` |
-| R2 | Read-only store predicts only local focus, and `notReadOnly` drops mutating events before side effects. | safety | `TmuxStore.ts`, `readOnlyGuard.ts`, `tmuxActor.ts` | `TmuxStore.test.ts › refuses anything…`, `› a tab switch…`, `› pane focus is kept…`; guard is E2E only (`tests/10-read-only.test.js`) |
 
 ## L — session lifecycle
 

@@ -12,7 +12,7 @@ See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs
 See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback rendering and native browser scrolling in copy mode.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
-See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, read-only) and the test that holds each one.
+See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, session lifecycle) and the test that holds each one.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
@@ -122,7 +122,7 @@ Tag every bug-fix commit (`🐛`) with the test layer that should have caught th
 
 ### Bug-Fix Commit Tagging: Invariant
 
-A bug on a seam between layers — the aggregator's effect order, the server stream, the client's sequencer or model, read-only gating, session restore — broke a promise one layer makes to another. Those promises are listed in [docs/INVARIANTS.md](docs/INVARIANTS.md), each with the test that holds it. A bug-fix commit on a seam cites the row it violated, or adds one:
+A bug on a seam between layers — the aggregator's effect order, the server stream, the client's sequencer or model, session restore — broke a promise one layer makes to another. Those promises are listed in [docs/INVARIANTS.md](docs/INVARIANTS.md), each with the test that holds it. A bug-fix commit on a seam cites the row it violated, or adds one:
 
 - Format: `🐛 <description> [missed-by: <layer>] [invariant: <id>]`
 - An existing id means the claim was written down but its enforcer let the bug through: strengthen that row's test (an ordering or liveness row wants a property or interleaving test, not one more scripted run) and keep the row's `Enforced by` cell current.

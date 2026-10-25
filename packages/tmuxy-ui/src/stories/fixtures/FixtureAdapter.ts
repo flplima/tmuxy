@@ -126,7 +126,7 @@ export class FixtureAdapter implements TmuxAdapter {
   }
 
   async connect(): Promise<void> {
-    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', readOnly: false }));
+    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash' }));
     this.events.emit(TransportEvent.KeyBindings({ keybindings: this.fixture.keybindings }));
   }
 

@@ -130,7 +130,7 @@ describe('TmuxTransport over a driver', () => {
       Effect.scoped(
         Effect.gen(function* () {
           const events = yield* (yield* TmuxTransport).subscribe;
-          transport.emit(TransportEvent.ConnectionInfo({ defaultShell: 'zsh', readOnly: false }));
+          transport.emit(TransportEvent.ConnectionInfo({ defaultShell: 'zsh' }));
           transport.emit(TransportEvent.Error({ message: 'boom' }));
           return yield* Stream.runCollect(Stream.take(events, 2));
         }),

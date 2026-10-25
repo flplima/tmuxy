@@ -31,20 +31,14 @@ pub(super) async fn session_with_fake_monitor(
 }
 
 /// `get_initial_state` carrying a viewport, dispatched the way the HTTP
-/// layer dispatches it — by role. A viewer's server never reaches the
-/// writable implementation at all, so asking it directly would prove
-/// nothing about what a viewer can do.
+/// layer dispatches it.
 pub(super) async fn initial_state_with_viewport(state: &Arc<AppState>) {
     let cmd = ClientCommand::GetInitialState {
         cols: Some(40),
         rows: Some(12),
     };
     // The fake monitor never answers with a state; only the sizing matters.
-    if state.read_only {
-        let _ = serve_viewer(cmd, "s", state).await;
-    } else {
-        let _ = handle_command(cmd, "s", state, Some(1)).await;
-    }
+    let _ = handle_command(cmd, "s", state, Some(1)).await;
 }
 
 fn query(name: Option<&str>) -> SessionQuery {
@@ -53,45 +47,23 @@ fn query(name: Option<&str>) -> SessionQuery {
     }
 }
 
-fn rejection_status(state: &AppState, name: Option<&str>) -> StatusCode {
-    match query(name).session(state) {
+fn rejection_status(name: Option<&str>) -> StatusCode {
+    match query(name).session() {
         Ok(_) => StatusCode::OK,
         Err(rejection) => rejection.into_response().status(),
     }
 }
 
-/// SEC-12: the documented viewer setup is a `--read-only` server beside a
-/// writer **on the same socket**, so a name the viewer picks used to hand
-/// it any other session's screen.
-#[test]
-fn a_pinned_server_serves_its_own_session_and_no_other() {
-    let state = AppState::new()
-        .with_read_only(true)
-        .with_session_pin(Some("shared".into()));
-    assert_eq!(
-        query(Some("shared")).session(&state).unwrap(),
-        "shared".to_string()
-    );
-    assert_eq!(
-        rejection_status(&state, Some("felipes-private-work")),
-        StatusCode::NOT_FOUND
-    );
-    // A request naming nothing asks for the default name, which is not the
-    // pinned one here — it gets the same refusal, not a silent redirect.
-    assert_eq!(rejection_status(&state, None), StatusCode::NOT_FOUND);
-}
-
 /// A writable server's client can run `new-session` itself, so pinning it
 /// would only break switching sessions.
 #[test]
-fn a_writable_server_serves_every_session_name() {
-    let state = AppState::new();
+fn a_server_serves_every_session_name() {
     assert_eq!(
-        query(Some("anything")).session(&state).unwrap(),
+        query(Some("anything")).session().unwrap(),
         "anything".to_string()
     );
     assert_eq!(
-        query(None).session(&state).unwrap(),
+        query(None).session().unwrap(),
         tmuxy_core::DEFAULT_SESSION_NAME.to_string()
     );
 }
@@ -99,27 +71,12 @@ fn a_writable_server_serves_every_session_name() {
 /// A name that would end the control-mode command line is refused before
 /// the pin is consulted — it is malformed, not merely someone else's.
 #[test]
-fn an_unwritable_session_name_is_still_a_400() {
-    let state = AppState::new();
-    assert_eq!(rejection_status(&state, Some("")), StatusCode::BAD_REQUEST);
+fn an_unwritable_session_name_is_a_400() {
+    assert_eq!(rejection_status(Some("")), StatusCode::BAD_REQUEST);
     assert_eq!(
-        rejection_status(&state, Some("a\nkill-server")),
+        rejection_status(Some("a\nkill-server")),
         StatusCode::BAD_REQUEST
     );
-}
-
-/// SEC-11: `create_session` was hard-coded true, so every distinct
-/// `?session=` a viewer invented became a live shell that outlived them.
-#[test]
-fn a_read_only_server_never_creates_the_session_it_watches() {
-    let viewer = AppState::new().with_read_only(true);
-    let config = monitor_config("invented-by-a-viewer", &viewer);
-    assert!(!config.create_session);
-    assert!(config.observer);
-
-    let writer = monitor_config("tmuxy", &AppState::new());
-    assert!(writer.create_session);
-    assert!(!writer.observer);
 }
 
 /// A monitor whose reported grid catches up with a resize LATE — the real
@@ -263,66 +220,6 @@ async fn a_client_that_sets_no_size_waits_for_nothing() {
     assert_eq!(answer["total_width"], 200, "{answer}");
 }
 
-/// SEC-11. A viewer's server has one monitor, started with the server;
-/// a stream is answered from it or told there is nothing to show. It
-/// never starts a monitor of its own, and no `has-session` runs for it.
-#[tokio::test]
-async fn a_viewer_stream_is_refused_until_the_servers_monitor_is_attached() {
-    let state = Arc::new(
-        AppState::new()
-            .with_read_only(true)
-            .with_session_pin(Some("shared".into())),
-    );
-    let ask = |state: &Arc<AppState>| {
-        sse_handler(
-            State(Arc::clone(state)),
-            Query(query(Some("shared"))),
-            HeaderMap::new(),
-        )
-    };
-
-    // Nothing attached yet: not found, and nothing was made.
-    assert_eq!(ask(&state).await.status(), StatusCode::NOT_FOUND);
-    assert!(state.sessions.read().await.is_empty());
-
-    // The server's monitor is up: the stream is served from it.
-    session_with_fake_monitor(&state, "shared").await;
-    assert_eq!(ask(&state).await.status(), StatusCode::OK);
-
-    // The monitor lost the session (it clears its sender): nothing to
-    // show again, and the entry is the server's, still there.
-    state
-        .sessions
-        .write()
-        .await
-        .get_mut("shared")
-        .unwrap()
-        .monitor_command_tx = None;
-    assert_eq!(ask(&state).await.status(), StatusCode::NOT_FOUND);
-    assert!(state.sessions.read().await.contains_key("shared"));
-}
-
-/// SEC-11. A viewer leaving is not "the last client left": the monitor's
-/// life is the server's, so no grace-period task is scheduled and nothing
-/// is torn down.
-#[tokio::test]
-async fn a_viewer_leaving_does_not_touch_the_servers_monitor() {
-    let state = Arc::new(
-        AppState::new()
-            .with_read_only(true)
-            .with_session_pin(Some("shared".into())),
-    );
-    session_with_fake_monitor(&state, "shared").await;
-    let tasks_before = state.join_set.lock().await.len();
-    cleanup_connection(&state, "shared", 7).await;
-    // The deferred cleanup a writable server would schedule lives in the
-    // join set; none was.
-    assert_eq!(state.join_set.lock().await.len(), tasks_before);
-    let sessions = state.sessions.read().await;
-    let conns = sessions.get("shared").expect("the server's entry is gone");
-    assert!(conns.monitor_command_tx.is_some());
-}
-
 /// A session whose monitor answers every query with `output`, counting
 /// the queries it is asked.
 async fn session_answering_queries(
@@ -376,88 +273,4 @@ async fn a_session_keeps_the_bindings_it_last_broadcast() {
         kept.expect("kept for the next greeting").prefix_key,
         "C-space"
     );
-}
-
-/// SEC-11. `serve_viewer` is the whole of what a viewer's server serves:
-/// the five reads, and a refusal for everything else. The refusal is the
-/// default, so a command variant added later is viewer-safe until someone
-/// writes down how a viewer should be served it.
-#[tokio::test]
-async fn a_viewer_is_served_the_reads_and_refused_everything_else() {
-    let viewer = Arc::new(AppState::new().with_read_only(true));
-
-    let parse = |v: serde_json::Value| -> ClientCommand {
-        serde_json::from_value(v).expect("should parse")
-    };
-
-    // Served — reached the dispatch, whatever each one then answers.
-    for body in [
-        serde_json::json!({ "cmd": "get_initial_state", "args": { "cols": 80, "rows": 24 } }),
-        serde_json::json!({ "cmd": "get_scrollback_cells", "args": { "paneId": "%1" } }),
-        serde_json::json!({ "cmd": "get_theme_settings" }),
-        serde_json::json!({ "cmd": "get_themes_list" }),
-        serde_json::json!({ "cmd": "list_git_worktrees" }),
-    ] {
-        assert!(
-            serve_viewer(parse(body.clone()), "watched", &viewer)
-                .await
-                .is_some(),
-            "a viewer is served {body}"
-        );
-    }
-
-    // Refused — a 403, before anything runs.
-    for body in [
-        serde_json::json!({ "cmd": "set_client_size", "args": { "cols": 80, "rows": 24 } }),
-        serde_json::json!({ "cmd": "run_tmux_command", "args": { "command": "kill-server" } }),
-        serde_json::json!({ "cmd": "query_tmux", "args": { "command": "list-panes" } }),
-        serde_json::json!({ "cmd": "set_theme", "args": { "name": "default" } }),
-        serde_json::json!({ "cmd": "set_theme_mode", "args": { "mode": "dark" } }),
-        serde_json::json!({ "cmd": "set_cursor_blink", "args": { "enabled": true } }),
-        serde_json::json!({ "cmd": "set_send_ask", "args": { "enabled": false } }),
-        serde_json::json!({ "cmd": "set_trace_enabled", "args": { "enabled": true } }),
-        serde_json::json!({ "cmd": "set_trace_level", "args": { "level": "debug" } }),
-        serde_json::json!({ "cmd": "get_trace_settings" }),
-        // A preview reads a file on the server's disk; a viewer is shown the
-        // session's screen, not its files.
-        serde_json::json!({ "cmd": "read_preview", "args": { "paneId": "%1" } }),
-        serde_json::json!({ "cmd": "read_preview", "args": { "paneId": "%1", "path": "a.css" } }),
-    ] {
-        assert!(
-            serve_viewer(parse(body.clone()), "watched", &viewer)
-                .await
-                .is_none(),
-            "a viewer is refused {body}"
-        );
-    }
-}
-
-/// SEC-11. `GetThemeSettings` read fourteen tmux options per request, and
-/// a viewer's client asks on every reconnect. A viewer's server sources no
-/// config, so nothing it serves can change: it reads once, over its
-/// monitor, and answers every later request from that value.
-#[tokio::test]
-async fn a_viewers_server_reads_its_theme_settings_once() {
-    let viewer = Arc::new(
-        AppState::new()
-            .with_read_only(true)
-            .with_session_pin(Some("shared".into())),
-    );
-    let queries = session_answering_queries(
-        &viewer,
-        "shared",
-        "@tmuxy-theme=nord\n@tmuxy-theme-mode=light\n",
-    )
-    .await;
-
-    let first = theme_settings_for(&viewer, "shared").await.unwrap();
-    let second = theme_settings_for(&viewer, "shared").await.unwrap();
-
-    assert_eq!(
-        queries.load(Ordering::SeqCst),
-        1,
-        "a viewer's second request must cost no tmux call"
-    );
-    assert_eq!(first["theme"], "nord");
-    assert_eq!(first, second);
 }

@@ -185,12 +185,6 @@ pub struct StateAggregator {
     /// Pane states indexed by pane ID
     panes: HashMap<PaneId, PaneState>,
 
-    /// Rows of history each pane keeps. Raised to
-    /// `constants::VIEWER_SCROLLBACK_ROWS` on an observer's aggregator, whose
-    /// clients are viewers and must be served scrollback without touching
-    /// tmux; the reflow minimum otherwise.
-    scrollback_rows: usize,
-
     /// Window states indexed by window ID
     windows: HashMap<WindowId, WindowState>,
 
@@ -290,34 +284,6 @@ impl StateAggregator {
         Self::with_session_name(crate::DEFAULT_SESSION_NAME)
     }
 
-    /// Keep `rows` of history per pane instead of the reflow minimum.
-    ///
-    /// Set by an observer's monitor at construction, before any pane exists,
-    /// so every pane this aggregator creates can answer a viewer's scrollback
-    /// request from memory.
-    pub fn set_scrollback_rows(&mut self, rows: usize) {
-        self.scrollback_rows = rows;
-    }
-
-    /// A pane's history as rendered rows, from `start` to `end` inclusive
-    /// (row `0` is the top of the screen, negative rows are history), plus
-    /// its width and how many rows of history it holds.
-    ///
-    /// `None` when this aggregator has no such pane — which is also the
-    /// membership check a viewer's request needs, since an aggregator only
-    /// ever holds the session it monitors.
-    pub fn pane_scrollback(
-        &mut self,
-        pane_id: &PaneId,
-        start: i64,
-        end: i64,
-    ) -> Option<(crate::PaneContent, usize, u32)> {
-        let pane = self.panes.get_mut(pane_id)?;
-        let width = pane.width;
-        let (rows, depth) = pane.scrollback_cells(start, end);
-        Some((rows, depth, width))
-    }
-
     /// Create with a specific session name
     pub fn with_session_name(session_name: &str) -> Self {
         Self {
@@ -325,7 +291,6 @@ impl StateAggregator {
             session_id: None,
             pane_reports: 0,
             panes: HashMap::new(),
-            scrollback_rows: crate::constants::REFLOW_SCROLLBACK_ROWS,
             windows: HashMap::new(),
             active_window_id: None,
             pending_captures: std::collections::VecDeque::new(),

@@ -1,34 +1,5 @@
 use super::*;
 
-/// SEC-12: a `--read-only` viewer beside a writer on the same socket used
-/// to get `list-panes -a` — the repo path and branch of every pane in
-/// every session on the tmux server, not just the one it was shown.
-#[test]
-fn a_pinned_server_only_lists_its_own_sessions_panes() {
-    assert_eq!(
-        list_pane_paths_cmd(Some("shared")),
-        "list-panes -s -t 'shared' -F '#{pane_current_path}'"
-    );
-}
-
-#[test]
-fn an_unpinned_server_still_lists_every_pane() {
-    assert_eq!(
-        list_pane_paths_cmd(None),
-        "list-panes -a -F '#{pane_current_path}'"
-    );
-}
-
-/// The name is quoted for the same reason SEC-14 quotes it: the listing is
-/// a control-mode command line, where `;` starts another command.
-#[test]
-fn a_session_name_is_quoted_into_the_listing() {
-    assert_eq!(
-        list_pane_paths_cmd(Some("a ; kill-server")),
-        "list-panes -s -t 'a ; kill-server' -F '#{pane_current_path}'"
-    );
-}
-
 #[test]
 fn empty_paths_never_fall_back_to_an_ambient_scan() {
     assert_eq!(list_git_worktrees(Vec::new()), Ok(Vec::new()));

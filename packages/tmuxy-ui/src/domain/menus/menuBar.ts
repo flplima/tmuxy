@@ -29,14 +29,9 @@ export function menuBarSpec(
   });
   return tidy([
     top('menu-app', 'tmuxy', appItemsSpec(env, 'native-bar')),
-    !env.readOnly &&
-      top(
-        'menu-pane',
-        'Pane',
-        paneMenuSpec(ctx, { paneId: null, widgetItems: options.widgetItems }),
-      ),
-    top('menu-tab', 'Tab', tabMenuSpec(ctx, env, { windowId: null })),
-    !env.readOnly && top('menu-session', 'Session', sessionMenuSpec(ctx, env)),
+    top('menu-pane', 'Pane', paneMenuSpec(ctx, { paneId: null, widgetItems: options.widgetItems })),
+    top('menu-tab', 'Tab', tabMenuSpec(ctx, { windowId: null })),
+    top('menu-session', 'Session', sessionMenuSpec(ctx, env)),
     top('menu-view', 'View', viewMenuSpec(ctx, env)),
     // No Select All: over a terminal grid it selects the whole document,
     // which means nothing.
@@ -45,6 +40,6 @@ export function menuBarSpec(
       { kind: 'predefined', which: 'paste' },
     ]),
     options.windowMenu,
-    !env.readOnly && top('menu-debug', 'Debug', debugMenuSpec(ctx, env)),
+    top('menu-debug', 'Debug', debugMenuSpec(ctx, env)),
   ]);
 }

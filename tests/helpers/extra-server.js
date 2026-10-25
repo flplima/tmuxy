@@ -1,8 +1,8 @@
 /**
  * Extra tmuxy servers beside the suite's own, on the same tmux socket.
  *
- * Some behaviour is a property of the server process — `--read-only`,
- * `--allowed-host` — so a test of it needs its own server on its own port.
+ * Some behaviour is a property of the server process — `--allowed-host`, a
+ * config directory — so a test of it needs its own server on its own port.
  */
 
 const fs = require('fs');

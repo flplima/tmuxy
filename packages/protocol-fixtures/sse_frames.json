@@ -3,7 +3,6 @@
     "data": {
       "connection_id": 3,
       "default_shell": "/bin/zsh",
-      "read_only": false,
       "trace_enabled": true
     },
     "event": "connection-info"

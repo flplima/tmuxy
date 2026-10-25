@@ -151,10 +151,8 @@ impl PaneState {
             std::cmp::Ordering::Greater => {
                 let d = delta as u32;
                 self.osc_parser.shift_rows_up(d);
-                let max_sb = self
-                    .scrollback_rows
-                    .max(crate::constants::VIEWER_SCROLLBACK_ROWS);
-                self.image_parser.shift_rows_up(d, max_sb);
+                self.image_parser
+                    .shift_rows_up(d, crate::constants::IMAGE_HISTORY_ROWS);
             }
             std::cmp::Ordering::Less => {
                 let d = delta.unsigned_abs() as u32;
@@ -287,9 +285,7 @@ impl PaneState {
         // A fresh terminal clears every mode and attribute the capture cannot
         // carry; the history is kept across it. A capture is the screen as it
         // is now, and the rows that scrolled off it before are still the rows
-        // that scrolled off it — for an observer, which answers a viewer's
-        // scroll from this grid alone, they are all the history there is, and
-        // a resize's capture used to take it away.
+        // that scrolled off it, which a later reflow pulls back down.
         let history = self.terminal.screen_mut().take_scrollback();
         self.terminal = self.fresh_terminal();
         self.terminal.screen_mut().restore_scrollback(history);
@@ -347,7 +343,7 @@ impl PaneState {
     pub(super) fn fresh_terminal(&self) -> vt100::Parser {
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
-        let mut terminal = vt100::Parser::new(h, w, self.scrollback_rows);
+        let mut terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
         if self.alternate_on {
             terminal.process(b"\x1b[?1049h");
         }

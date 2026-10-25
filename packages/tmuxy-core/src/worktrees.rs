@@ -20,22 +20,9 @@ use thiserror::Error;
 /// this is comfortably above normal use while bounding filesystem/Git work.
 pub const MAX_DISCOVERY_PATHS: usize = 256;
 
-/// The tmux listing whose output feeds discovery: one pane cwd per line.
-///
-/// `session` scopes it. A server pinned to one session (a `--read-only`
-/// viewer, which may sit on the same socket as a writer) passes its own name,
-/// so discovery reports that session's repositories rather than every pane on
-/// the tmux server. `None` lists every session, which is what a writable
-/// server — whose client can run `list-panes -a` itself — wants.
-pub fn list_pane_paths_cmd(session: Option<&str>) -> String {
-    match session {
-        Some(name) => format!(
-            "list-panes -s -t {} -F '#{{pane_current_path}}'",
-            crate::executor::tmux_quote(name)
-        ),
-        None => "list-panes -a -F '#{pane_current_path}'".to_string(),
-    }
-}
+/// The tmux listing whose output feeds discovery: one pane cwd per line, for
+/// every pane on the tmux server.
+pub const LIST_PANE_PATHS_CMD: &str = "list-panes -a -F '#{pane_current_path}'";
 
 /// The distinct, non-empty paths in a `list_pane_paths_cmd` listing, in
 /// order, capped at `MAX_DISCOVERY_PATHS` so a runaway pane count bounds the

@@ -21,7 +21,7 @@ pub enum ErrorKind {
     Unavailable,
     /// The request was malformed: the payload, or an argument in it.
     Invalid,
-    /// Refused by policy: a read-only server, or a blocked command.
+    /// Refused by policy: a blocked command.
     Forbidden,
 }
 

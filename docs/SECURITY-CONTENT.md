@@ -33,10 +33,7 @@ Where it is kept follows from that. Snapshots live under the state directory
 (`TMUXY_STATE_DIR`, else the XDG state dir), one directory per tmux socket
 (`sessions/<socket>/`, since a `tmuxy` session on `tmuxy-dev` is not the one
 on `tmuxy`), next to the trace, and no route serves them. The commands that
-touch them (`list_snapshots`, `restore_session`) are **write** commands: a
-`--read-only` server does not answer them, for the same reason it does not serve
-`/trace` (SEC-11) — a viewer is shown one session's screen, not the directories
-and commands of every pane on the machine.
+touch them are `list_snapshots` and `restore_session`.
 
 A restore runs what a snapshot says only in the sense that each pane OFFERS
 its shell line, never runs it, unless `--run` is given: the line is hung on the
@@ -98,7 +95,7 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 4. **Clipboard Poisoning (OSC 52)**
    - _Vector:_ A program writing malicious shell commands to the system clipboard via OSC 52, tricking the user into pasting and executing dangerous commands.
-   - _Policy:_ OSC 52 clipboard writes obey bounds rather than a prompt — a confirmation on every yank would break the legitimate use (nvim or tmux yanking over ssh, which is the reason the sequence is honoured at all) and train the user to click through it. The bounds: only the **active pane** may write, so a tailed log or a stray ssh session cannot replace what the user is about to paste; the decoded payload is capped (`MAX_CLIPBOARD_BYTES`); one write per pane per `MIN_CLIPBOARD_INTERVAL`, so a program writing in a loop cannot keep the clipboard from the user; and every accepted write announces itself on the status line, naming the pane and the size, so a clipboard the user did not set is never silent. tmux paste buffers, which are global to the tmux server, are mirrored only when a pane of _this_ session is in copy mode, and never on a `--read-only` server — and tmux's own OSC 52 handling is turned off on the session (`set-clipboard off`, enforced with the other settings in `control_mode/monitor.rs`), so a pane's write cannot reach the buffer mirror and arrive past the active-pane gate that way. A plain `tmux attach` to the tmuxy socket therefore does not get OSC 52 to its own terminal; tmuxy's clients do, through tmuxy. The server or client must never allow unauthorized background clipboard reads.
+   - _Policy:_ OSC 52 clipboard writes obey bounds rather than a prompt — a confirmation on every yank would break the legitimate use (nvim or tmux yanking over ssh, which is the reason the sequence is honoured at all) and train the user to click through it. The bounds: only the **active pane** may write, so a tailed log or a stray ssh session cannot replace what the user is about to paste; the decoded payload is capped (`MAX_CLIPBOARD_BYTES`); one write per pane per `MIN_CLIPBOARD_INTERVAL`, so a program writing in a loop cannot keep the clipboard from the user; and every accepted write announces itself on the status line, naming the pane and the size, so a clipboard the user did not set is never silent. tmux paste buffers, which are global to the tmux server, are mirrored only when a pane of _this_ session is in copy mode — and tmux's own OSC 52 handling is turned off on the session (`set-clipboard off`, enforced with the other settings in `control_mode/monitor.rs`), so a pane's write cannot reach the buffer mirror and arrive past the active-pane gate that way. A plain `tmux attach` to the tmuxy socket therefore does not get OSC 52 to its own terminal; tmuxy's clients do, through tmuxy. The server or client must never allow unauthorized background clipboard reads.
 
 5. **ReDoS & Parser Desynchronization**
    - _Vector:_ Pathological escape sequences designed to trigger exponential regex backtracking in parsers or desynchronize the terminal state machine.

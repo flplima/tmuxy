@@ -13,7 +13,7 @@ Tmuxy assumes:
 - **Single user** per deployment (no multi-tenant access control)
 - **Trusted network** (localhost, LAN behind firewall, or VPN)
 - **Server runs as the same user** who owns the tmux session
-- **All clients of one server are equally trusted** (no per-client permissions) — a server is either writable by everyone it serves or, with `--read-only`, by no one (see [Read-Only Server](#read-only-server))
+- **All clients of one server are equally trusted** (no per-client permissions) — a server is writable by everyone it serves
 
 It does **not** assume the user's browser is trusted: the same browser that has tmuxy open visits other sites, and any of them can try to send requests to the tmuxy server. See [Cross-Origin Requests](SECURITY-NETWORK.md#cross-origin-requests).
 
@@ -129,14 +129,13 @@ Implemented:
 - **Loopback by default** — a routable address needs a password or `--no-auth`
 - **Optional HTTP Basic auth** — `--password` / `TMUXY_PASSWORD` gates every route
 - **Cross-origin guard** — Fetch Metadata, `Origin` and `Host` checks on every API route; no CORS headers
-- **Read-only server** — `--read-only` serves viewers that cannot send input, run commands or resize the session
 
 Not yet implemented, but would improve the security posture:
 
 - **Bearer token auth** — token-based auth as an alternative to Basic
 - **TLS support** — Built-in HTTPS with certificate configuration
 - **Command allowlisting** — Restrict which tmux commands clients can execute
-- **Per-client permissions** — writers and viewers on one server, instead of one server per role
+- **Per-client permissions** — different rights for different clients of one server
 - **Audit logging** — Log all commands and client connections
 - **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional HTTP Basic Auth](SECURITY-NETWORK.md#optional-http-basic-auth))
 

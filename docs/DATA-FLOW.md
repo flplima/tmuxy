@@ -8,7 +8,7 @@ The web version uses two HTTP endpoints on the Axum server:
 
 **`GET /events?session=<name>`** — Server-Sent Events stream (server-to-client):
 
-- `connection-info` — Connection ID, default shell, and whether the server is read-only (sent on connect)
+- `connection-info` — Connection ID, default shell, and whether the server is tracing (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
 - `theme-settings` — Theme name/mode, appearance (surface opacities, blur flag) and the `@tmuxy-css-*` variables from tmux config; re-sent after a `source-file`, and after the server itself sources a saved `tmuxy.conf`
 - `css-changed` — A stylesheet under the user's config dir (`themes/*.css`, `custom.css`) was saved; the client re-fetches its stylesheets and the themes list. No payload
@@ -63,10 +63,6 @@ The frontend reaches tmux through one Effect service, `TmuxTransport` (`tmuxy-ui
 7. Client receives full state snapshot, then incremental deltas as tmux state changes. The stream (one full state, then deltas against the server's previous emission) is the client's state from its first full state on; the `get_initial_state` answer is a separate snapshot, so once the stream is synced it only fills panes the stream has not sent content for yet. It is the starting state only before the stream's first full state, after a delta sequence gap, or on a new connection (`adoptInitialState` in `tmuxy-ui/src/domain/deltaProtocol.ts`).
 8. On disconnect: server removes the client, recomputes minimum viewport, and shuts down the monitor if no clients remain
 
-### Read-only servers
-
-Against a `tmuxy server --read-only` the server side is a different shape: one monitor per server, started with it and pinned to one session, that every viewer's stream subscribes to (viewers never start, hold or stop a monitor; see [SECURITY.md](SECURITY.md#read-only-server)). On the client the lifecycle differs in one direction only: the client still opens the stream and still asks for `get_initial_state`, but without its viewport, and it never sends `set_client_size` — so steps 5 and 6 size nothing, and the viewer draws the grid the writing client sized, scaled down to fit its own window (`selectFitScale` in `tmuxy-ui/src/machines/selectors/layout.ts`). Every other command is refused by the server and never sent by the client (`tmuxy-ui/src/domain/readOnly.ts`, `HttpAdapter`). The sessions poll is a `query_tmux`, so a viewer's tree shows the attached session only. See [SECURITY.md](SECURITY.md#read-only-server).
-
 ## State Update Flow
 
 ```
@@ -110,7 +106,7 @@ Reads go the same way: scrollback, key bindings, theme settings and snapshot che
 
 **Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`SseEvent::Error` / `tmux-error`), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path and no allowlist: nothing a client sends reaches a shell.
 
-**Failures carry a kind.** A failed command answers `{ "error": "<message>", "kind": … }` on both transports (the HTTP body of `POST /commands`, the object a Tauri command rejects with): `tmux` when tmux itself refused it (a query answered with `%error`), `unavailable` (no monitor, session or channel; a timeout), `invalid` (a malformed payload or id) and `forbidden` (a read-only server, a blocked command). The client maps `tmux` to `TmuxError` and the rest to `TransportError` (`tmuxy-ui/src/infra/transport/AdapterError.ts`). See `tmuxy_core::CommandError`.
+**Failures carry a kind.** A failed command answers `{ "error": "<message>", "kind": … }` on both transports (the HTTP body of `POST /commands`, the object a Tauri command rejects with): `tmux` when tmux itself refused it (a query answered with `%error`), `unavailable` (no monitor, session or channel; a timeout), `invalid` (a malformed payload or id) and `forbidden` (a blocked command). The client maps `tmux` to `TmuxError` and the rest to `TransportError` (`tmuxy-ui/src/infra/transport/AdapterError.ts`). See `tmuxy_core::CommandError`.
 
 ```
 Frontend

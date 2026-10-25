@@ -21,18 +21,11 @@ import { TabOverview } from './components/TabOverview';
 import { GestureStage } from './components/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
 import { SessionList } from './components/SessionList';
-import {
-  useAppSelector,
-  useAppSend,
-  useAppState,
-  useAppConfig,
-  useReadOnly,
-} from './machines/appHooks';
+import { useAppSelector, useAppSend, useAppState, useAppConfig } from './machines/appHooks';
 import {
   selectPreviewPanes,
   selectContainerSize,
   selectCellMetrics,
-  selectFitScale,
   selectPhoneLayout,
   selectGridType,
 } from './machines/selectors/layout';
@@ -78,8 +71,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const isDetached = useAppState('detached');
   const tabOverviewOpen = useAppSelector((ctx) => ctx.tabOverviewOpen);
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
-  const readOnly = useReadOnly();
-  const fitScale = useAppSelector(selectFitScale);
   const cursorBlink = useAppSelector(selectCursorBlink);
   const sidebarFocused = useAppSelector(selectSidebarFocused);
   const phone = useAppSelector(selectPhoneLayout);
@@ -162,9 +153,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       style={{ position: 'relative' }}
     >
       {showLayout && (
-        // A read-only client draws the grid it is sent rather than one
-        // sized to its window, so the pane area is zoomed until it fits.
-        <PaneFit enabled={readOnly} scale={fitScale}>
+        <>
           <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
           {/* Trackpad slides and pinches, applied to this container per step */}
           <GestureStage />
@@ -172,7 +161,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           <FloatContainer />
           {/* The "all tabs" view, over panes and floats alike */}
           <TabOverview />
-        </PaneFit>
+        </>
       )}
       {/* Every binding, table by table (prefix ?) */}
       {showLayout && <KeysView />}
@@ -245,30 +234,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       {/* Dev-only latency overlay; mounted only when enabled via ?perf /
           localStorage so it and its store subscription cost nothing otherwise. */}
       {latencyTracker.isEnabled() && <PerfHud />}
-    </div>
-  );
-}
-
-/**
- * The pane area's children, zoomed to `scale` for a read-only client (the
- * wrapper stays at scale 1, so crossing it never remounts the panes). `zoom` rather
- * than a transform: it scales layout too, so boxes measured inside it — the
- * cursor's anchor, a float — come back already scaled, and the trackpad
- * gestures keep `.pane-layout`'s own transform to themselves.
- */
-function PaneFit({
-  enabled,
-  scale,
-  children,
-}: {
-  enabled: boolean;
-  scale: number;
-  children: React.ReactNode;
-}) {
-  if (!enabled) return <>{children}</>;
-  return (
-    <div className="pane-fit" style={{ zoom: scale }}>
-      {children}
     </div>
   );
 }

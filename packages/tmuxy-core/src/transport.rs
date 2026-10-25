@@ -211,16 +211,13 @@ pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
 }
 
 /// Git worktree context for the sidebar tree, discovered from the cwd of
-/// every pane on the socket — or of one session's panes, for a server pinned
-/// to it, so a viewer does not learn the repo path and branch of every pane
-/// on the tmux server. The cwds come from tmux, never from the request, and
-/// the `git` subprocesses stay off the async runtime.
+/// every pane on the socket. The cwds come from tmux, never from the request,
+/// and the `git` subprocesses stay off the async runtime.
 pub async fn git_worktrees_json(
     tx: &MonitorCommandSender,
-    session_pin: Option<&str>,
 ) -> Result<serde_json::Value, CommandError> {
-    use crate::worktrees::{list_git_worktrees, list_pane_paths_cmd, paths_from_pane_listing};
-    let listing = query(tx, &list_pane_paths_cmd(session_pin)).await?;
+    use crate::worktrees::{list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD};
+    let listing = query(tx, LIST_PANE_PATHS_CMD).await?;
     let repositories = tokio::task::spawn_blocking(move || {
         list_git_worktrees(paths_from_pane_listing(&listing))
             .map_err(|e| CommandError::unavailable(e.to_string()))

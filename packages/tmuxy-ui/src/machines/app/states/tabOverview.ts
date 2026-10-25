@@ -9,19 +9,17 @@
  * they are valid in any connected state.
  */
 
-import { notReadOnly } from '../readOnlyGuard';
-
 export const tabOverviewGlobalEvents = {
   TOGGLE_TAB_OVERVIEW: { actions: 'tabOverview_toggle' },
   CLOSE_TAB_OVERVIEW: { actions: 'tabOverview_close' },
   TAB_OVERVIEW_MOVE: { actions: 'tabOverview_move' },
   TAB_OVERVIEW_ACTIVATE: { actions: 'tabOverview_activate' },
   SELECT_TAB_BY_POSITION: { actions: 'tabOverview_selectByPosition' },
-  REORDER_TAB: { guard: notReadOnly, actions: 'tabOverview_reorder' },
-  MOVE_ACTIVE_TAB: { guard: notReadOnly, actions: 'tabOverview_moveActive' },
-  CLOSE_TAB: { guard: notReadOnly, actions: 'tabOverview_closeTab' },
-  RENAME_ACTIVE_TAB: { guard: notReadOnly, actions: 'tabOverview_rename' },
-  RENAME_TAB: { guard: notReadOnly, actions: 'tabOverview_rename' },
+  REORDER_TAB: { actions: 'tabOverview_reorder' },
+  MOVE_ACTIVE_TAB: { actions: 'tabOverview_moveActive' },
+  CLOSE_TAB: { actions: 'tabOverview_closeTab' },
+  RENAME_ACTIVE_TAB: { actions: 'tabOverview_rename' },
+  RENAME_TAB: { actions: 'tabOverview_rename' },
   TAB_RENAME_END: { actions: 'tabOverview_renameEnd' },
-  TOGGLE_STACKED_PANES: { guard: notReadOnly, actions: 'tabOverview_toggleStacked' },
+  TOGGLE_STACKED_PANES: { actions: 'tabOverview_toggleStacked' },
 } as const;

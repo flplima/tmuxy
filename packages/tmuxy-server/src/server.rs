@@ -48,23 +48,10 @@ pub struct ServerArgs {
     #[arg(long = "allowed-host", value_name = "HOST")]
     pub allowed_hosts: Vec<String>,
 
-    /// Serve viewers only: clients receive the state stream and navigate it
-    /// locally, but every mutating command is refused and no client can
-    /// resize the session. Also read from TMUXY_READ_ONLY.
-    #[arg(long)]
-    pub read_only: bool,
-
     /// Start a missing session empty even when a snapshot of it exists
     /// (`TMUXY_NO_RESTORE=1` does the same).
     #[arg(long)]
     pub no_restore: bool,
-
-    /// The session a `--read-only` server shows, and the only one it will
-    /// show — a viewer naming another gets a 404 rather than that session's
-    /// screen. Defaults to `tmuxy`. Ignored without `--read-only`, where
-    /// switching sessions is the feature. Also read from TMUXY_SESSION.
-    #[arg(long, value_name = "NAME")]
-    pub session: Option<String>,
 
     /// Run in development mode (proxy to Vite dev server)
     #[arg(long)]
@@ -87,11 +74,6 @@ fn resolve_password(flag: Option<String>) -> Option<String> {
 
 /// The port `tmuxy server` listens on unless told otherwise.
 const DEFAULT_PORT: u16 = 9000;
-
-/// A boolean env switch: set to anything but an empty string or `0`.
-fn env_flag(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|v| !v.is_empty() && v != "0")
-}
 
 /// Wrap the router in the Basic-auth layer when a password is configured.
 /// With no password the router is returned unchanged (server stays open).
@@ -162,32 +144,6 @@ fn resolve_listen(
             allowed: allowed_hosts,
         },
     })
-}
-
-/// The session a server is pinned to, if any.
-///
-/// Only a `--read-only` server is pinned: it is the one whose client cannot
-/// already run `new-session` for itself, and the one that may share a socket
-/// with a writer whose other sessions are none of a viewer's business. A
-/// writable server stays unpinned so session switching keeps working.
-fn resolve_session_pin(flag: Option<String>, read_only: bool) -> Result<Option<String>, String> {
-    if !read_only {
-        return Ok(None);
-    }
-    let name = flag
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        // The same resolution the rest of tmuxy uses: `TMUXY_SESSION`, else
-        // the default name.
-        .unwrap_or_else(tmuxy_core::session::session_name);
-    // SEC-14: `?session=` is held to the same alphabet, so a pin outside it
-    // would be a server no client could ever name a session to.
-    if !tmuxy_core::session::is_safe_session_name(&name) {
-        return Err(format!(
-            "--session {name:?}: a session name is letters, digits and _ - @ +"
-        ));
-    }
-    Ok(Some(name))
 }
 
 /// `--allowed-host` values plus the comma-separated `TMUXY_ALLOWED_HOSTS`.
@@ -297,28 +253,12 @@ pub async fn run(args: ServerArgs) {
             if args.no_restore {
                 std::env::set_var("TMUXY_NO_RESTORE", "1");
             }
-            let read_only = args.read_only || env_flag("TMUXY_READ_ONLY");
-            let session_pin = match resolve_session_pin(args.session.clone(), read_only) {
-                Ok(pin) => pin,
-                Err(message) => {
-                    eprintln!("tmuxy server: {message}");
-                    std::process::exit(2);
-                }
-            };
             let frontend = if dev_mode {
                 Frontend::Dev
             } else {
                 Frontend::Embedded
             };
-            serve(
-                frontend,
-                args.port,
-                listen,
-                password,
-                read_only,
-                session_pin,
-            )
-            .await
+            serve(frontend, args.port, listen, password).await
         }
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
@@ -339,14 +279,7 @@ enum Frontend {
 }
 
 /// Serve the API and the frontend until a shutdown signal.
-async fn serve(
-    frontend: Frontend,
-    port: u16,
-    listen: Listen,
-    password: Option<String>,
-    read_only: bool,
-    session_pin: Option<String>,
-) {
+async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<String>) {
     // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server is
     // told to bind that one, it wins the race; Vite fails silently, and the
     // `proxy_to_vite` fallback then loops back to tmuxy-server itself — browser
@@ -373,11 +306,7 @@ async fn serve(
     // `$HOME/.config/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
     tmuxy_core::session::ensure_bin_scripts();
 
-    let state = Arc::new(
-        AppState::new()
-            .with_read_only(read_only)
-            .with_session_pin(session_pin.clone()),
-    );
+    let state = Arc::new(AppState::new());
 
     let vite = match frontend {
         Frontend::Embedded => None,
@@ -392,12 +321,8 @@ async fn serve(
         }
     };
 
-    // A viewer's server attaches to its session before it listens, and keeps
-    // that one monitor for its whole life; nothing a client does starts or
-    // stops it.
-    crate::sse::start_viewer_monitor(&state).await;
     crate::sse::watch_config_dir(state.clone()).await;
-    let routes = crate::state::api_routes(listen.policy.clone(), read_only);
+    let routes = crate::state::api_routes(listen.policy.clone());
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),
         // The user's stylesheets are the server's to serve in dev mode too:
@@ -419,12 +344,6 @@ async fn serve(
         Frontend::Dev => println!("tmuxy dev server running at http://{addr}"),
     }
     announce_security(&listen, password_set);
-    if read_only {
-        println!("tmuxy server: read-only — clients can watch the session, not change it");
-        if let Some(session) = &session_pin {
-            println!("tmuxy server: pinned to session {session} — no other one is served");
-        }
-    }
     if frontend == Frontend::Dev {
         println!("[dev] Vite proxied from port {}", dev::VITE_PORT);
     }

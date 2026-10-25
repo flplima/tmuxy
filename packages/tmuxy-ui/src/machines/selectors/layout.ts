@@ -1,6 +1,6 @@
 import { smallFontSize } from '../../utils/fontSizeManager';
 import { sidebarCellMetrics } from '../../utils/cellMetrics';
-import { CHAR_HEIGHT, CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../../constants/layout';
+import { CHAR_HEIGHT } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
 import type { TmuxPane } from '../../domain/client';
 import { createMemoizedSelector } from '../../utils/memoize';
@@ -158,52 +158,19 @@ export function selectDragOffsetY(context: AppMachineContext): number {
 }
 
 // ============================================
-// Container Size & Fit Scale Selectors
+// Container Size Selectors
 // ============================================
 
-/**
- * How far a read-only client shrinks the pane area so the whole grid shows.
- * A viewer never reports its viewport — that would resize the session under
- * whoever writes — so the grid it is sent can be larger than its window. The
- * pane area is drawn at this zoom, padding included: never above 1, and 1 for
- * every client that sizes the session itself.
- */
-export function selectFitScale(context: AppMachineContext): number {
-  if (!context.readOnly) return 1;
-  const { containerWidth, containerHeight, totalWidth, totalHeight, charWidth, charHeight } =
-    context;
-  if (containerWidth <= 0 || containerHeight <= 0 || totalWidth <= 0 || totalHeight <= 0) return 1;
-  const padX = 2 * CONTAINER_PADDING_X;
-  const scale = Math.min(
-    1,
-    (containerWidth + padX) / (totalWidth * charWidth + padX),
-    (containerHeight + CONTAINER_PADDING_BOTTOM) /
-      (totalHeight * charHeight + CONTAINER_PADDING_BOTTOM),
-  );
-  return Math.floor(scale * 1000) / 1000;
-}
-
-/**
- * The content box the pane area lays itself out in. Under a fit scale that is
- * the measured box as seen from inside the zoom — larger than the window's, by
- * exactly as much as the zoom then shrinks it.
- */
+/** The content box the pane area lays itself out in. */
 export const selectContainerSize = createMemoizedSelector(
   (context: AppMachineContext) => ({
     width: context.containerWidth,
     height: context.containerHeight,
-    scale: selectFitScale(context),
   }),
-  (context: AppMachineContext): { width: number; height: number } => {
-    const { containerWidth: width, containerHeight: height } = context;
-    const scale = selectFitScale(context);
-    if (scale === 1) return { width, height };
-    const padX = 2 * CONTAINER_PADDING_X;
-    return {
-      width: (width + padX) / scale - padX,
-      height: (height + CONTAINER_PADDING_BOTTOM) / scale - CONTAINER_PADDING_BOTTOM,
-    };
-  },
+  (context: AppMachineContext): { width: number; height: number } => ({
+    width: context.containerWidth,
+    height: context.containerHeight,
+  }),
 );
 
 // ============================================

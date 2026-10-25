@@ -8,7 +8,7 @@
     "kind": "invalid"
   },
   {
-    "error": "read-only server",
+    "error": "resize-window must go through set_client_size",
     "kind": "forbidden"
   },
   {

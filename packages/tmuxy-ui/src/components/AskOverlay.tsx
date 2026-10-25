@@ -25,7 +25,7 @@
  */
 
 import { memo } from 'react';
-import { useAppSend, useAppSelector, usePane, useReadOnly } from '../machines/appHooks';
+import { useAppSend, useAppSelector, usePane } from '../machines/appHooks';
 import { paneSendFor, sentText, sentTextIsLong } from '../utils/paneAsk';
 import type { AskAnswer } from '../utils/paneAsk';
 import './AskOverlay.css';
@@ -43,7 +43,6 @@ const CHOICES: ReadonlyArray<{ answer: AskAnswer; label: string }> = [
 export const AskOverlay = memo(function AskOverlay({ paneId }: AskOverlayProps) {
   const pane = usePane(paneId);
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const selected = useAppSelector((context) => context.askSelections[paneId] ?? 'yes');
   const ask = paneSendFor(pane);
 
@@ -89,7 +88,6 @@ export const AskOverlay = memo(function AskOverlay({ paneId }: AskOverlayProps) 
               }`}
               data-ask-choice={answer}
               aria-pressed={selected === answer}
-              disabled={readOnly}
               tabIndex={-1}
               onMouseEnter={() => send({ type: 'MOVE_ASK_SELECTION', paneId, to: answer })}
               onClick={() => send({ type: 'ANSWER_ASK', paneId, answer })}

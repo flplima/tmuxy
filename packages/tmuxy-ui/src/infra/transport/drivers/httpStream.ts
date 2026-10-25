@@ -296,8 +296,7 @@ export function openSseConnection(
       // is recording; only then do we ship our own events, and only through
       // the same-origin /trace sink. The server independently rejects when
       // off, so this is a hint, not the gate.
-      const readOnly = data.read_only === true;
-      tracer.setServerEnabled(data.trace_enabled === true && !readOnly);
+      tracer.setServerEnabled(data.trace_enabled === true);
       tracer.setSink((events) => cb.shipTrace(events));
     });
 

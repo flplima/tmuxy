@@ -97,31 +97,10 @@ pub enum MonitorCommand {
     GetState {
         reply: oneshot::Sender<crate::TmuxState>,
     },
-    /// A pane's scrollback as rendered rows, from the monitor's own grid.
-    ///
-    /// SEC-11: a viewer's scrollback used to cost three in-band control-mode
-    /// queries on a connection shared with the writer's session. An observer's
-    /// aggregator keeps the history itself, so this is answered from memory.
-    /// `None` means the monitor has no such pane; a receiver that has gone
-    /// away is ignored.
-    GetScrollback {
-        pane_id: PaneId,
-        start: i64,
-        end: i64,
-        reply: oneshot::Sender<Option<ScrollbackChunk>>,
-    },
+
     /// Gracefully shutdown the monitor
     /// Sends detach-client and waits for the connection to close cleanly
     Shutdown,
-}
-
-/// One answer to [`MonitorCommand::GetScrollback`]: the requested rows, how
-/// much history the pane holds above its screen, and the pane's width.
-#[derive(Debug, Clone)]
-pub struct ScrollbackChunk {
-    pub cells: crate::PaneContent,
-    pub history_size: usize,
-    pub width: u32,
 }
 
 /// Trait for emitting state changes (adapter pattern).
@@ -194,12 +173,6 @@ pub struct MonitorConfig {
     /// run-shell commands resolve relative paths from this directory.
     pub working_dir: Option<std::path::PathBuf>,
 
-    /// Attach without sizing the session (a `--read-only` server). The initial
-    /// `resizew` exists so a session nobody has sized yet isn't tiny; an
-    /// observer joins one that a writing client already sized, and resizing it
-    /// would change the layout under that client.
-    pub observer: bool,
-
     /// Name and directory for the first window when the session is created —
     /// a session about to be rebuilt from a snapshot asks for its first window
     /// up front, so the rebuild runs onto it after attach. Ignored when the
@@ -216,7 +189,6 @@ impl Default for MonitorConfig {
             throttle_interval: Duration::from_millis(32), // ~30fps during high throughput
             first_window: None,
             working_dir: None,
-            observer: false,
         }
     }
 }
@@ -372,13 +344,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
     ) -> Self {
         Self {
             connection,
-            aggregator: {
-                let mut agg = StateAggregator::new();
-                if config.observer {
-                    agg.set_scrollback_rows(crate::constants::VIEWER_SCROLLBACK_ROWS);
-                }
-                agg
-            },
+            aggregator: StateAggregator::new(),
             config,
             command_rx,
             logged_adoption: false,

@@ -64,9 +64,9 @@ pub(super) async fn serve_embedded(uri: axum::http::Uri) -> Response {
 // PID file management
 // ============================================
 
-/// One pid file per port, so a second server beside the first (a `--read-only`
-/// one for viewers, say) neither overwrites its pid nor gets stopped in its
-/// place. The default port keeps the historical name.
+/// One pid file per port, so a second server beside the first neither
+/// overwrites its pid nor gets stopped in its place. The default port keeps
+/// the historical name.
 pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
     let dir = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))

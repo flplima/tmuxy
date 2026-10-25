@@ -319,19 +319,7 @@ async fn a_malformed_payload_or_argument_is_kind_invalid() {
 }
 
 #[tokio::test]
-async fn a_read_only_server_or_a_blocked_query_is_kind_forbidden() {
-    let viewer = Arc::new(AppState::new().with_read_only(true));
-    assert_failure(
-        post(
-            &viewer,
-            Some("s"),
-            serde_json::json!({ "cmd": "run_tmux_command", "args": { "command": "kill-server" } }),
-        )
-        .await,
-        StatusCode::FORBIDDEN,
-        "forbidden",
-    );
-
+async fn a_blocked_query_is_kind_forbidden() {
     let state = Arc::new(AppState::new());
     session_where_tmux_refuses(&state, "s").await;
     assert_failure(
@@ -343,21 +331,6 @@ async fn a_read_only_server_or_a_blocked_query_is_kind_forbidden() {
         .await,
         StatusCode::BAD_REQUEST,
         "forbidden",
-    );
-}
-
-#[tokio::test]
-async fn a_session_this_server_does_not_serve_is_kind_unavailable() {
-    let pinned = Arc::new(AppState::new().with_session_pin(Some("mine".into())));
-    assert_failure(
-        post(
-            &pinned,
-            Some("other"),
-            serde_json::json!({ "cmd": "get_themes_list" }),
-        )
-        .await,
-        StatusCode::NOT_FOUND,
-        "unavailable",
     );
 }
 

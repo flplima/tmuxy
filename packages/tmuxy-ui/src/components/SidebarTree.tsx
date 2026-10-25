@@ -53,7 +53,6 @@ import {
   useAppSelector,
   useAppSelectorShallow,
   useBindingOwnsKey,
-  useReadOnly,
 } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes } from '../machines/selectors/layout';
@@ -78,7 +77,6 @@ import { SidebarTreeRow } from './SidebarTreeRow';
 
 export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boolean }) {
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const windows = useAppSelectorShallow(selectVisibleWindows);
   const panes = useAppSelectorShallow(selectPanes);
   const sessions = useAppSelectorShallow(selectSessions);
@@ -325,7 +323,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     containerRef: treeRef,
     cardSelector: '.sidebar-tree-tab[data-window-id]',
     axis: 'y',
-    readOnly,
     onReorder: (windowId, toIndex) => send({ type: 'REORDER_TAB', windowId, toIndex }),
   });
   // A drop never doubles as a select: the click the browser fires after the
@@ -343,11 +340,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // menu's own keys) go to the menu rather than to the pane behind the column.
   const openMenu = useCallback(
     (state: Exclude<MenuState, null>) => {
-      if (readOnly) return;
       setMenu(state);
       send({ type: 'FOCUS_LEFT_SIDEBAR' });
     },
-    [send, readOnly],
+    [send],
   );
 
   // Keep the keyboard cursor in view: a long tree scrolls inside the column,
@@ -379,7 +375,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             key={row.kind === 'tab' ? `w${key}` : `p${key}`}
             row={row}
             isSelected={isSelected}
-            readOnly={readOnly}
             activeWindowId={activeWindowId}
             activePaneId={activePaneId}
             unreadPaneIds={unreadPaneIds}

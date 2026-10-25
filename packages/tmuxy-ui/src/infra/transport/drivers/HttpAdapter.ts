@@ -5,8 +5,6 @@ import { StateSequencer, type StreamPosition } from '../stateSequencer';
 import { KeyBatcher } from '../keyBatching';
 import { latencyTracker } from '../../latencyTracker';
 import { tracer } from '../../tracer';
-import { isReadCommand, READ_ONLY_REASON } from '../../../domain/readOnly';
-import { Cancelled } from '../AdapterError';
 import { Effect, Fiber, Queue, Schedule } from 'effect';
 import {
   buildEndpointUrl,
@@ -33,12 +31,7 @@ interface ConnectWaiter {
  * HTTP Adapter using SSE for server->client push and POST for client->server commands.
  */
 export class HttpAdapter implements SequencedAdapter {
-  /** The server runs `--read-only`; known from the `connection-info` greeting. */
-  readOnly = false;
-  /** Enumerating sessions is a `query_tmux`, which a read-only server refuses. */
-  get enumeratesSessions(): boolean {
-    return !this.readOnly;
-  }
+  readonly enumeratesSessions = true;
   private eventSource: EventSource | null = null;
   // The supervised reconnect fiber. One Effect.retry loop owns opening the
   // EventSource and reopening it with backoff, so there is never a rival
@@ -236,12 +229,8 @@ export class HttpAdapter implements SequencedAdapter {
           this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
         }
 
-        this.readOnly = data.read_only === true;
         this.events.emit(
-          TransportEvent.ConnectionInfo({
-            defaultShell: data.default_shell ?? 'bash',
-            readOnly: this.readOnly,
-          }),
+          TransportEvent.ConnectionInfo({ defaultShell: data.default_shell ?? 'bash' }),
         );
 
         this.resolveConnectWaiters();
@@ -304,13 +293,6 @@ export class HttpAdapter implements SequencedAdapter {
   }
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-    if (this.readOnly) {
-      if (!isReadCommand(cmd)) throw new Cancelled({ reason: READ_ONLY_REASON });
-      // A viewer never reports its viewport: the session is sized to its
-      // smallest client, and that would shrink it under whoever writes.
-      if (cmd === 'get_initial_state') args = {};
-    }
-
     // Answered raw: the stream stage decodes and adopts it.
     if (cmd === 'get_initial_state') return this.invokeInternal(cmd, args);
 
@@ -344,7 +326,6 @@ export class HttpAdapter implements SequencedAdapter {
    * mutations use, so tmux itself keeps the order.
    */
   query(command: string): Promise<string> {
-    if (this.readOnly) return Promise.reject(new Cancelled({ reason: READ_ONLY_REASON }));
     return this.invokeInternal<string>('query_tmux', { command });
   }
 
@@ -392,7 +373,6 @@ export class HttpAdapter implements SequencedAdapter {
    * Send a command in order (serialized, but caller doesn't await)
    */
   private sendCommandFireAndForget(cmd: string, args: Record<string, unknown>): void {
-    if (this.readOnly) return;
     if (!this.connected) {
       console.warn('[HttpAdapter] Not connected, cannot send command');
       return;
@@ -430,7 +410,6 @@ export class HttpAdapter implements SequencedAdapter {
   private previewVersion = 0;
 
   async stagePreview(paneId: string, html: string): Promise<string> {
-    if (this.readOnly) throw new Cancelled({ reason: READ_ONLY_REASON });
     const path = `/api/preview/${paneId.replace(/^%/, '')}`;
     await postPreviewPage(buildEndpointUrl(path, this.getEffectiveSession()), html);
     return `${buildEndpointUrl(path)}?v=${++this.previewVersion}`;

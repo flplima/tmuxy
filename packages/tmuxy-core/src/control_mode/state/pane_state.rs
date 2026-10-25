@@ -37,14 +37,6 @@ pub struct PaneState {
     /// its own counter and its own text.
     pub(super) scroll_baseline_alt: bool,
 
-    /// Rows of vt100 history this pane keeps.
-    ///
-    /// `REFLOW_SCROLLBACK_ROWS` normally, which is only enough to survive a
-    /// shrink-then-grow reflow. An OBSERVER's aggregator raises it to
-    /// `VIEWER_SCROLLBACK_ROWS` so a viewer's scrollback request is answered
-    /// from this grid instead of from tmux (see `scrollback_cells`).
-    pub(super) scrollback_rows: usize,
-
     /// Image protocol parser (iTerm2, Sixel)
     pub image_parser: super::images::ImageParser,
 
@@ -178,7 +170,7 @@ impl PaneState {
             index: 0,
             window_id: None,
             terminal: vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS),
-            scrollback_rows: crate::constants::REFLOW_SCROLLBACK_ROWS,
+
             osc_parser,
             last_scroll_delta: 0,
             scroll_baseline_alt: false,
@@ -223,27 +215,9 @@ impl PaneState {
         }
     }
 
-    /// Keep `rows` of history in this pane's grid instead of the reflow
-    /// minimum. Called at creation, before any output has been fed, because
-    /// vt100 fixes the scrollback capacity when the grid is built.
-    pub(super) fn with_scrollback_rows(mut self, rows: usize) -> Self {
-        // A writer's panes ask for the capacity they already have, and every
-        // pane goes through here: rebuilding unconditionally threw away a
-        // freshly built vt100 grid per pane for nothing, which `full_sync`
-        // measured.
-        if rows == self.scrollback_rows {
-            return self;
-        }
-        self.scrollback_rows = rows;
-        self.terminal = self.fresh_terminal();
-        self
-    }
-
     /// The pane's history as rendered rows, from `start` to `end` inclusive,
     /// where row `0` is the top of the screen and negative rows are history.
-    ///
-    /// Answers the viewer scrollback request from this grid, at zero tmux
-    /// round trips. vt100 only ever exposes one screen-sized window onto its
+    /// What the tests read the kept history through. vt100 only ever exposes one screen-sized window onto its
     /// scrollback, so the range is walked a screen at a time and the offset
     /// tmux actually granted is read back each time — asking for more history
     /// than exists clamps rather than fails, and the clamped value is what
@@ -251,6 +225,7 @@ impl PaneState {
     ///
     /// Returns the rows and the history depth (how many rows sit above the
     /// screen), or `None` if the grid holds no such pane.
+    #[cfg(test)]
     pub fn scrollback_cells(&mut self, start: i64, end: i64) -> (crate::PaneContent, usize) {
         let screen = self.terminal.screen_mut();
         let height = screen.size().0 as i64;

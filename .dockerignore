@@ -1,6 +1,4 @@
-# Keep the build context small and free of anything a public image must not see.
-# The public-demo image (deploy/public-demo/) builds from the repo root, so this
-# is what decides what can possibly reach it.
+# Keep the devcontainer image's build context (the repo root) small.
 node_modules
 target
 .git

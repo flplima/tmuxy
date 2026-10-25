@@ -25,7 +25,6 @@ import {
   useCopyModeState,
   useAppSelector,
   useAppConfig,
-  useReadOnly,
 } from '../machines/appHooks';
 import { selectCharSize } from '../machines/selectors/layout';
 import { selectKeyboardElsewhere } from '../machines/selectors/ui';
@@ -70,7 +69,6 @@ interface TerminalPaneProps {
 
 export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: TerminalPaneProps) {
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const pane = usePane(paneId);
   // The grid to draw: the pane's own, or the last real one while a capture
   // refresh leaves it momentarily empty. A pane-group switch does `swap-pane`,
@@ -198,9 +196,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
         return;
       }
       // With nothing selected, it is about the pane: the header's own menu.
-      if (!readOnly) setPaneMenu({ x: e.clientX, y: e.clientY });
+      setPaneMenu({ x: e.clientX, y: e.clientY });
     },
-    [pane?.mouseAnyFlag, copyState, readOnly],
+    [pane?.mouseAnyFlag, copyState],
   );
 
   if (!pane) return null;

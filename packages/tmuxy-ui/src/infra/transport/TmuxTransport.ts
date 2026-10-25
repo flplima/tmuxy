@@ -46,8 +46,7 @@ export interface TmuxTransportService {
   readonly switchSession: (sessionName: string) => Effect.Effect<void, AdapterError>;
   /** Retry a dropped connection now rather than at the next backoff tick. */
   readonly reconnectNow: Effect.Effect<void>;
-  /** The backend serves this client as a viewer; known once connected. */
-  readonly isReadOnly: () => boolean;
+
   /** Attached to a real tmux server whose sessions can be listed (web, desktop). */
   readonly enumeratesSessions: () => boolean;
   /** Commands queued or in flight, and keystrokes batched but unsent (`TmuxAdapter.pendingCommands`). */
@@ -120,7 +119,7 @@ export function serviceOver(
         ? attempt('switchSession', () => driver.switchSession!(sessionName))
         : unsupported('switchSession', 'switchSession'),
     reconnectNow: Effect.sync(() => driver.reconnectNow?.()),
-    isReadOnly: () => driver.readOnly === true,
+
     enumeratesSessions: () => driver.enumeratesSessions === true,
     pendingCommands: () => driver.pendingCommands?.() ?? 0,
     streamPosition: () => driver.streamPosition?.() ?? null,

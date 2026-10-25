@@ -72,8 +72,7 @@ interface UseReorderDragOptions {
    * nearest row is picked first.
    */
   axis: 'x' | 'y' | 'xy';
-  /** A viewer may press (and so click), but a press never becomes a drag. */
-  readOnly: boolean;
+
   /** An active drag ended somewhere other than where it began. */
   onReorder: (windowId: WindowId, toIndex: number) => void;
 }
@@ -82,7 +81,6 @@ export function useReorderDrag({
   containerRef,
   cardSelector,
   axis,
-  readOnly,
   onReorder,
 }: UseReorderDragOptions) {
   const [drag, setDrag] = useState<ReorderDragState | null>(null);
@@ -158,7 +156,7 @@ export function useReorderDrag({
       size: cardExtent(e.currentTarget),
     };
     setDrag(state);
-    if (e.pointerType === 'touch' && !readOnly) {
+    if (e.pointerType === 'touch') {
       clearLongPress();
       longPressRef.current = window.setTimeout(() => {
         longPressRef.current = null;
@@ -168,7 +166,7 @@ export function useReorderDrag({
   };
 
   const handlePointerMove = (e: ReactPointerEvent<HTMLElement>) => {
-    if (!drag || readOnly || e.pointerId !== drag.pointerId) return;
+    if (!drag || e.pointerId !== drag.pointerId) return;
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     let active = drag.active;

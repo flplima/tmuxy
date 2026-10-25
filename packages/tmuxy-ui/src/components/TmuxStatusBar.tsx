@@ -20,7 +20,6 @@ import {
   useAppSelectorShallow,
   useAppSend,
   useAppConfig,
-  useReadOnly,
 } from '../machines/appHooks';
 import {
   selectCommandMode,
@@ -159,7 +158,6 @@ export function TmuxStatusBar() {
   const keyTable = useAppSelector(selectKeyTable);
   const inCopyMode = useAppSelector(selectActivePaneCopyMode);
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const { isDemo } = useAppConfig();
   const switcherRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -185,13 +183,12 @@ export function TmuxStatusBar() {
   // I", so they answer with one menu rather than two prompts that knew nothing
   // of each other. It hangs from the pair and opens UPWARD — the status line
   // is the window's last row, so a menu below it would be off the screen.
-  const handleSwitcherClick =
-    isDemo || readOnly
-      ? undefined
-      : () => {
-          if (!menuOpen) send({ type: 'SESSION_MENU_OPENED' });
-          setMenuOpen(!menuOpen);
-        };
+  const handleSwitcherClick = isDemo
+    ? undefined
+    : () => {
+        if (!menuOpen) send({ type: 'SESSION_MENU_OPENED' });
+        setMenuOpen(!menuOpen);
+      };
 
   // Center area: only the client's own temporary status ("Copied …").
   // The tmux status line content is not displayed — we use hardcoded hints (left)

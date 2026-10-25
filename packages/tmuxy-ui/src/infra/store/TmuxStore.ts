@@ -31,18 +31,12 @@ import {
   generateOpId,
   makePendingOp,
   rollbackOp,
-  setViewFocus,
   type RollbackEntry,
 } from '../../domain/store/model';
 import type { PredictContext } from '../../domain/store/ops';
 import { predict } from '../../domain/store/ops';
 import type { OpError, OpId, TmuxClientModel } from '../../domain/store/types';
-import {
-  EMPTY_MODEL,
-  OpBlockedReadOnly,
-  OpRejectedByTmux,
-  OpTransportError,
-} from '../../domain/store/types';
+import { EMPTY_MODEL, OpRejectedByTmux, OpTransportError } from '../../domain/store/types';
 
 export interface DispatchOptions {
   /**
@@ -107,9 +101,6 @@ export interface TmuxStore {
   /** Update the default PredictContext (called when defaultShell / MRU change). */
   readonly setPredictContext: (ctx: PredictContext) => void;
 }
-
-/** The ops that only move focus — all a read-only client can act on, and only locally. */
-const VIEW_OPS: ReadonlySet<TmuxOp['_tag']> = new Set(['SelectWindow', 'SelectPane', 'Navigate']);
 
 export function makeTmuxStore(): TmuxStore {
   let model: TmuxClientModel = EMPTY_MODEL;
@@ -208,46 +199,14 @@ export function makeTmuxStore(): TmuxStore {
       }),
     );
 
-  /**
-   * Read-only focus: where `op` would move the focus becomes this client's
-   * view. A pane in another tab takes the view to that tab; a pane in a
-   * float or a sidebar leaves it alone, since those take the keyboard
-   * without tmux's focus moving at all.
-   */
-  const moveView = (op: TmuxOp): void => {
-    const predicted = predict(op, model.derived, predictContext, generateOpId());
-    if (!predicted) return;
-    const target = predicted.patch(model.derived);
-    const pane = target.panes.find((p) => p.tmuxId === target.activePaneId);
-    const paneWindow = target.windows.find((w) => w.id === pane?.windowId);
-    let windowId = target.activeWindowId;
-    if (paneWindow && paneWindow.id !== windowId) {
-      if (paneWindow.windowType !== 'tab') return;
-      windowId = paneWindow.id;
-    }
-    if (!windowId) return;
-    commit(setViewFocus(model, { windowId, paneId: target.activePaneId }));
-  };
-
   let appliedSeq: number | null = null;
 
   return {
     getModel: () => model,
     getAppliedSeq: () => appliedSeq,
 
-    /**
-     * A read-only session (asked at each dispatch: the transport only learns
-     * it once connected) sends tmux nothing: a focus op moves this client's
-     * own view, and every other op is refused unpredicted.
-     */
     dispatch: (op, opts) =>
       Effect.flatMap(TmuxTransport, (transport) => {
-        if (transport.isReadOnly()) {
-          const command = opts?.command ?? toTmuxCommand(op);
-          if (!VIEW_OPS.has(op._tag)) return Effect.fail(new OpBlockedReadOnly({ command }));
-          moveView(op);
-          return Effect.succeed(generateOpId());
-        }
         const { opId, command } = applyOptimistic(op, opts);
         return dispatchRemote(transport, opId, command);
       }),

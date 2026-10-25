@@ -26,7 +26,7 @@ import {
   selectPaneGroupPanes as selectPaneGroupPanesFn,
   getActivePaneInGroup,
 } from './selectors/panesAndSidebars';
-import { selectBindingOwnsKey, selectReadOnly } from './selectors/ui';
+import { selectBindingOwnsKey } from './selectors/ui';
 import type { PaneId } from '../domain/ids';
 import {
   AppActorContext,
@@ -167,11 +167,6 @@ export function usePaneGroup(paneId: PaneId): PaneGroupResult {
 export function useCopyModeState(paneId: PaneId): CopyModeState | undefined {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.copyModeStates[paneId]);
-}
-
-/** Whether this client is a viewer of a read-only session. */
-export function useReadOnly(): boolean {
-  return useAppSelector(selectReadOnly);
 }
 
 /** Get the app config flags */

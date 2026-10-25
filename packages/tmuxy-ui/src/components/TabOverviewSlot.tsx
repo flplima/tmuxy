@@ -15,7 +15,7 @@ interface TabOverviewSlotsProps {
   slots: ReturnType<typeof overviewSlots>;
   activeWindowId: WindowId | null;
   selected: number;
-  readOnly: boolean;
+
   frameSize: { width: number; height: number } | null;
   charWidth: number;
   charHeight: number;
@@ -28,7 +28,7 @@ export function TabOverviewSlots({
   slots,
   activeWindowId,
   selected,
-  readOnly,
+
   frameSize,
   charWidth,
   charHeight,
@@ -90,24 +90,22 @@ export function TabOverviewSlots({
               <span className="tab-overview-slot-label">
                 {slot.position}:{slot.window.name || `Tab ${slot.position}`}
               </span>
-              {!readOnly && (
-                <Tooltip label="Close tab">
-                  {/* A pointer shortcut for Delete on the selected slot: an
+              <Tooltip label="Close tab">
+                {/* A pointer shortcut for Delete on the selected slot: an
                       option may hold no control of its own, so this is no
                       button, and is hidden from assistive technology. */}
-                  <span
-                    className="tab-overview-slot-close"
-                    aria-hidden="true"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      send({ type: 'CLOSE_TAB', windowId: slot.window.id });
-                    }}
-                  >
-                    ✕
-                  </span>
-                </Tooltip>
-              )}
+                <span
+                  className="tab-overview-slot-close"
+                  aria-hidden="true"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    send({ type: 'CLOSE_TAB', windowId: slot.window.id });
+                  }}
+                >
+                  ✕
+                </span>
+              </Tooltip>
             </div>
             {/* The active tab's frame is the FLIP target: the live grid is
                 drawn over it, so its wireframe only shows through the
@@ -123,29 +121,27 @@ export function TabOverviewSlots({
           </div>
         );
       })}
-      {!readOnly && (
-        <div
-          id={`tab-overview-slot-${slots.length}`}
-          className={`tab-overview-slot tab-overview-slot-new${
-            selected === slots.length ? ' is-selected' : ''
-          }${dropMarkerAt === slots.length ? ' is-drop-before' : ''}`}
-          role="option"
-          aria-selected={selected === slots.length}
-          aria-label="New tab"
-          data-testid="tab-overview-new"
-          onClick={(e) => {
-            e.stopPropagation();
-            send({ type: 'TAB_OVERVIEW_ACTIVATE', index: slots.length });
-          }}
-        >
-          <div className="tab-overview-slot-header">
-            <span className="tab-overview-slot-label">New tab</span>
-          </div>
-          <div className="tab-overview-frame tab-overview-frame-new" aria-hidden="true">
-            <span className="tab-overview-plus">+</span>
-          </div>
+      <div
+        id={`tab-overview-slot-${slots.length}`}
+        className={`tab-overview-slot tab-overview-slot-new${
+          selected === slots.length ? ' is-selected' : ''
+        }${dropMarkerAt === slots.length ? ' is-drop-before' : ''}`}
+        role="option"
+        aria-selected={selected === slots.length}
+        aria-label="New tab"
+        data-testid="tab-overview-new"
+        onClick={(e) => {
+          e.stopPropagation();
+          send({ type: 'TAB_OVERVIEW_ACTIVATE', index: slots.length });
+        }}
+      >
+        <div className="tab-overview-slot-header">
+          <span className="tab-overview-slot-label">New tab</span>
         </div>
-      )}
+        <div className="tab-overview-frame tab-overview-frame-new" aria-hidden="true">
+          <span className="tab-overview-plus">+</span>
+        </div>
+      </div>
     </>
   );
 }

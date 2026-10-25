@@ -18,7 +18,7 @@ import { OfferBanner } from './OfferBanner';
 import { getWidget } from './widgets/registry';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
-import { useAppSend, useAppSelector, useReadOnly } from '../machines/appHooks';
+import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { selectCharSize, selectContainerSize } from '../machines/selectors/layout';
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
 import { LogProfiler } from '../utils/renderLog';
@@ -54,7 +54,6 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
 
   // A float is a tmux window: a viewer cannot close one, only look at it.
-  const readOnly = useReadOnly();
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
@@ -113,7 +112,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
         containerStyle={containerStyle}
         backdrop={backdrop}
         hideHeader={hideHeader}
-        closable={!readOnly}
+        closable
       >
         <div
           className="float-content"
@@ -150,7 +149,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       containerStyle={{ left, top, width: floatWidth, height: floatHeight }}
       backdrop={backdrop}
       hideHeader
-      closable={!readOnly}
+      closable
     >
       <div
         // A float can be marked too (`prefix m` in it, then `join-pane -s`

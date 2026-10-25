@@ -29,7 +29,7 @@ export function reconcileFloatAndSidebarLifecycle(
   // Detect float removal — check for session switch env var
   const prevFloatCount = Object.keys(context.floatPanes).length;
   const newFloatCount = Object.keys(floatPanes).length;
-  if (!context.readOnly && prevFloatCount > 0 && newFloatCount < prevFloatCount) {
+  if (prevFloatCount > 0 && newFloatCount < prevFloatCount) {
     enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
   }
 
@@ -160,7 +160,7 @@ export function reconcileFloatAndSidebarLifecycle(
     }
   }
 
-  if (transformed.focusRequest && !context.readOnly) {
+  if (transformed.focusRequest) {
     const request = transformed.focusRequest;
     // A request moves the keyboard into a column that is open; it never opens
     // one (a closed column keeps its window, so a script can still name it).

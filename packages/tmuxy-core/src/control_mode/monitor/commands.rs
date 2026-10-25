@@ -190,22 +190,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 self.answer_state_requests();
                 true
             }
-            Some(MonitorCommand::GetScrollback {
-                pane_id,
-                start,
-                end,
-                reply,
-            }) => {
-                let chunk = self.aggregator.pane_scrollback(&pane_id, start, end).map(
-                    |(cells, history_size, width)| ScrollbackChunk {
-                        cells,
-                        history_size,
-                        width,
-                    },
-                );
-                let _ = reply.send(chunk);
-                true
-            }
+
             Some(MonitorCommand::Shutdown) => {
                 info!("received shutdown command, gracefully closing");
                 self.connection.graceful_close().await;

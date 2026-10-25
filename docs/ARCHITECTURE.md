@@ -71,7 +71,7 @@ The user never overrides what the app bundles; they copy a built-in theme to a n
 
 ## Multi-Client Viewport Sizing
 
-Like native tmux, when multiple browser clients connect to the same session, the session is sized to the **smallest client's viewport**. Each client reports its viewport size, the server computes the minimum, and sends a resize command through the monitor's control mode connection. Resize commands must go through control mode — external `tmux resize-window` commands are ignored when a control mode client is attached. Clients of a `--read-only` server are the exception: they report no viewport and draw the session at whatever size its writers gave it, scaled to fit.
+Like native tmux, when multiple browser clients connect to the same session, the session is sized to the **smallest client's viewport**. Each client reports its viewport size, the server computes the minimum, and sends a resize command through the monitor's control mode connection. Resize commands must go through control mode — external `tmux resize-window` commands are ignored when a control mode client is attached.
 
 ## Key Design Decisions
 

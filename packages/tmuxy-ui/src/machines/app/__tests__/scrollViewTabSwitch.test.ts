@@ -81,7 +81,6 @@ const showing = (activeWindowId: WindowId, panes: TmuxPane[]) => {
     ops: [],
     derived: snapshot,
     paneKeyOverrides: {},
-    viewFocus: null,
   };
   return { type: 'TMUX_MODEL_UPDATE' as const, model };
 };

@@ -6,11 +6,9 @@
  * Action implementations live in ../actions/commandUi.ts.
  */
 
-import { notReadOnly } from '../readOnlyGuard';
-
 export const commandUiState = {
   on: {
-    RENAME_PANE: { guard: notReadOnly, actions: 'commandUi_renamePane' },
+    RENAME_PANE: { actions: 'commandUi_renamePane' },
     PANE_RENAME_END: { actions: 'commandUi_paneRenameEnd' },
     PREFIX_MODE_CHANGE: { actions: 'commandUi_setPrefixActive' },
     KEY_TABLE_CHANGE: { actions: 'commandUi_setKeyTable' },

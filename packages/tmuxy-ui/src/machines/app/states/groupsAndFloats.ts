@@ -7,17 +7,14 @@
  * layout).
  */
 
-import { notReadOnly } from '../readOnlyGuard';
-
 export const groupsAndFloatsGlobalEvents = {
   SYNC_FLOAT_FOCUS: { actions: 'groupsAndFloats_syncFloatFocus' },
   OPEN_CONNECT_FLOAT: {
-    guard: notReadOnly,
     actions: 'groupsAndFloats_openConnectFloat',
   },
 } as const;
 
 export const groupsAndFloatsIdleEvents = {
-  CLOSE_FLOAT: { guard: notReadOnly, actions: 'groupsAndFloats_closeFloat' },
-  CLOSE_TOP_FLOAT: { guard: notReadOnly, actions: 'groupsAndFloats_closeTopFloat' },
+  CLOSE_FLOAT: { actions: 'groupsAndFloats_closeFloat' },
+  CLOSE_TOP_FLOAT: { actions: 'groupsAndFloats_closeTopFloat' },
 } as const;

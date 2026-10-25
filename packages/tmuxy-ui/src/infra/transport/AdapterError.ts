@@ -17,7 +17,6 @@
  *     its context naming the refusal so the user sees why
  *   a failed connect, a non-JSON HTTP error, IPC loss → TransportError
  *   a payload that fails its schema decode           → ProtocolError
- *   a write a read-only session never sends          → Cancelled
  *
  * A mutation is acknowledged once it is written to control mode, so tmux's
  * rejection of one arrives later on the event stream (`tmux-error`); a read
@@ -42,11 +41,7 @@ export class TmuxError extends Data.TaggedError('TmuxError')<{
   readonly stderr: string;
 }> {}
 
-export class Cancelled extends Data.TaggedError('Cancelled')<{
-  readonly reason?: string;
-}> {}
-
-export type AdapterError = TransportError | ProtocolError | TmuxError | Cancelled;
+export type AdapterError = TransportError | ProtocolError | TmuxError;
 
 /** An AdapterError as the one human-readable line logs and the snackbar show. */
 export function formatAdapterError(e: AdapterError): string {
@@ -57,8 +52,6 @@ export function formatAdapterError(e: AdapterError): string {
       return e.context ? `${e.context}: ${String(e.cause)}` : String(e.cause);
     case 'ProtocolError':
       return `protocol error: ${e.reason}`;
-    case 'Cancelled':
-      return e.reason ? `cancelled: ${e.reason}` : 'cancelled';
   }
 }
 
@@ -90,8 +83,7 @@ export function classifyAdapterError(cause: unknown, context?: { command?: strin
   if (
     cause instanceof TransportError ||
     cause instanceof ProtocolError ||
-    cause instanceof TmuxError ||
-    cause instanceof Cancelled
+    cause instanceof TmuxError
   ) {
     return cause;
   }

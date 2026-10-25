@@ -6,7 +6,7 @@ use tmuxy_core::transport::{self, Attempt, Ended, GaveUp, Host, Task};
 use tmuxy_core::{executor, TmuxError};
 use tracing::{debug, error, info, warn};
 
-use super::clients::{monitor_config, session_exists, VIEWER_ATTACH_RETRY};
+use super::clients::{monitor_config, session_exists};
 use super::emitter::{encode_event, SseEmitter, SseEvent};
 use crate::state::{AppState, SessionBroadcast};
 
@@ -34,7 +34,7 @@ pub async fn start_monitoring(
         keeper.clone(),
     ));
     let host = ServerHost {
-        config: monitor_config(&session, &state),
+        config: monitor_config(&session),
         broadcast,
         session,
         state,
@@ -43,9 +43,8 @@ pub async fn start_monitoring(
     transport::supervise(host, emitter, keeper, MIN_HEALTHY_RUN).await;
 }
 
-/// What the web server does around the monitor loop: a writable session's
-/// monitor lives while clients watch it; a viewer's (`--read-only`) lives as
-/// long as the server and attaches to the session whenever it exists.
+/// What the web server does around the monitor loop: a session's monitor
+/// lives while clients watch it.
 struct ServerHost {
     config: MonitorConfig,
     broadcast: Arc<SessionBroadcast>,
@@ -90,18 +89,7 @@ impl Host for ServerHost {
             return Attempt::Stop;
         }
 
-        // A viewer's monitor lives as long as the server and attaches to the
-        // session whenever it exists: absent at start, killed and re-made
-        // later, it is watched or waited for, never created. Clients do not
-        // enter into it — there is one monitor whether none or many are
-        // watching.
-        if self.state.read_only {
-            if !session_exists(session).await {
-                debug!(%session, "session not present; looking again shortly");
-                self.first_connect = false;
-                return Attempt::Wait(VIEWER_ATTACH_RETRY);
-            }
-        } else if !self.has_clients().await {
+        if !self.has_clients().await {
             info!(%session, "no clients, stopping monitor loop");
             self.forget_session().await;
             return Attempt::Stop;
@@ -113,7 +101,7 @@ impl Host for ServerHost {
         // session died before ever running successfully (crash on startup),
         // retry with create_session=true to recreate it.
         let mut config = self.config.clone();
-        if !self.first_connect && !self.state.read_only {
+        if !self.first_connect {
             if session_exists(session).await {
                 config.create_session = false;
             } else if ever_ran {
@@ -249,15 +237,11 @@ impl Host for ServerHost {
 
     /// `SessionNotFound` after the session was already destroyed (an external
     /// `tmux kill-session`) means the user intentionally tore it down: stop
-    /// instead of looping forever trying to attach. For a viewer, gone between
-    /// the check and the attach is the absence the loop's own wait handles.
-    /// Everything else is counted and retried.
+    /// instead of looping forever trying to attach. Everything else is counted
+    /// and retried.
     async fn connect_failed(&mut self, error: &TmuxError, ever_ran: bool) -> Option<Attempt> {
         if !matches!(error, TmuxError::SessionNotFound { .. }) {
             return None;
-        }
-        if self.state.read_only {
-            return Some(Attempt::Wait(VIEWER_ATTACH_RETRY));
         }
         if ever_ran {
             info!(session = %self.session, %error, "session destroyed externally, stopping monitor loop");

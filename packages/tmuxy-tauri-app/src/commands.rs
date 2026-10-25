@@ -215,7 +215,7 @@ pub async fn get_themes_list() -> Result<Value, CommandError> {
 #[tauri::command]
 pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    transport::git_worktrees_json(&tx, None).await
+    transport::git_worktrees_json(&tx).await
 }
 
 /// The status bar is the window's title bar; it reports its rendered height

@@ -45,7 +45,6 @@ export const sidebarsActions = {
    * on every state update.
    */
   sidebars_syncDockRows: act(({ context, enqueue }) => {
-    if (context.readOnly) return;
     const dock = context.windows.find((w) => w.windowType === 'sidebar-right');
     const rows = selectDockRows(context);
     if (!dock || rows < 1) return;

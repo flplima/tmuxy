@@ -434,7 +434,6 @@ pub(super) fn every_other_sse_event() -> Vec<SseEvent> {
             connection_id: 3,
             default_shell: "/bin/zsh".to_string(),
             trace_enabled: true,
-            read_only: false,
         },
         SseEvent::Error {
             message: "unknown command: frobnicate".to_string(),
@@ -507,7 +506,7 @@ fn command_error_responses_match_their_fixture() {
     let bodies: Vec<serde_json::Value> = [
         CommandError::tmux("can't find pane: %99"),
         CommandError::invalid("invalid command payload: unknown variant `frobnicate`"),
-        CommandError::forbidden("read-only server"),
+        CommandError::forbidden("resize-window must go through set_client_size"),
         CommandError::unavailable("No monitor connection available"),
         CommandError::unavailable("tmux monitor did not answer with the initial state"),
     ]

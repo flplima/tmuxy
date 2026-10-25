@@ -8,7 +8,6 @@ import { FloatingMenu } from './floating/Menu';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { tabMenuSpec } from '../domain/menus/tabMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
-import { useMenuEnv } from './menus/menuEnv';
 import { TmuxOp } from '../domain/commands';
 import type { WindowId } from '../domain/ids';
 import { belowElement, useNativeMenu } from './menus/useNativeMenu';
@@ -37,8 +36,7 @@ export function TabContextMenu({
   onRename,
 }: TabContextMenuProps) {
   const send = useAppSend();
-  const env = useMenuEnv();
-  const spec = useAppSelector((ctx) => tabMenuSpec(ctx, env, { windowId, navigation: false }));
+  const spec = useAppSelector((ctx) => tabMenuSpec(ctx, { windowId, navigation: false }));
   const collapsible = useAppSelector((ctx) =>
     Boolean(ctx.windows.find((w) => w.id === windowId)?.collapsible),
   );

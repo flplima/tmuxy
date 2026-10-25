@@ -11,7 +11,6 @@
 import { assign, cancel, raise } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
-import { READ_ONLY_NOTICE } from '../../../domain/readOnly';
 
 export const commandUiActions = {
   /**
@@ -44,10 +43,6 @@ export const commandUiActions = {
 
   commandUi_openCommandPrompt: act(({ event, context, enqueue }) => {
     if (event.type !== 'OPEN_COMMAND_PROMPT') return;
-    if (context.readOnly) {
-      enqueue.raise({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
-      return;
-    }
     const windowName = context.windows.find((w) => w.id === context.activeWindowId)?.name ?? '';
     const expand = (text: string) =>
       text.replace(/#W/g, windowName).replace(/#S/g, context.sessionName);

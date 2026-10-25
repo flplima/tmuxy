@@ -7,14 +7,12 @@
  * cluster to their right is the dock's).
  */
 
-import { useAppSend, useReadOnly } from '../machines/appHooks';
+import { useAppSend } from '../machines/appHooks';
 import { Tooltip } from './Tooltip';
 import './NewTabButton.css';
 
 export function NewTabButton() {
   const send = useAppSend();
-  const readOnly = useReadOnly();
-  if (readOnly) return null;
   return (
     <Tooltip label="New tab">
       <button

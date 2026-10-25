@@ -174,9 +174,8 @@ export const makeSequencedTransport = (
         ),
       );
     };
-    // A viewer never reports a viewport, and its refetch needs none.
     const resync = Effect.suspend(() =>
-      !driver.readOnly && (viewport.cols === 0 || viewport.rows === 0)
+      viewport.cols === 0 || viewport.rows === 0
         ? Effect.succeedNone
         : Effect.asSome(invoke<ServerState>('get_initial_state', { ...viewport })),
     );

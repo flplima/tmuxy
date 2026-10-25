@@ -11,7 +11,7 @@
  * terminal).
  */
 
-import { useAppSend, useAppSelector, useReadOnly } from '../machines/appHooks';
+import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { SidebarGlyph } from './SidebarColumn';
 import { Tooltip } from './Tooltip';
 import './SidebarToggle.css';
@@ -31,8 +31,6 @@ export function SidebarToggle({ side }: SidebarToggleProps) {
     side === 'left' ? ctx.leftSidebarOpen : ctx.rightSidebarOpen,
   );
   const labels = LABELS[side];
-  const readOnly = useReadOnly();
-  if (readOnly) return null;
 
   return (
     <Tooltip label={labels.title}>

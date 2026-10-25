@@ -65,11 +65,7 @@ export interface AppMachineContext {
   phoneLayout: boolean;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
-  /**
-   * The server runs `--read-only`: this client watches the session and keeps
-   * its own tab and pane focus, and tmux is never told anything.
-   */
-  readOnly: boolean;
+
   /** Container dimensions for centering calculations */
   containerWidth: number;
   containerHeight: number;

@@ -26,12 +26,7 @@
 
 import { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  useAppSend,
-  useAppSelector,
-  useAppSelectorShallow,
-  useReadOnly,
-} from '../machines/appHooks';
+import { useAppSend, useAppSelector, useAppSelectorShallow } from '../machines/appHooks';
 import { selectPanes, selectCharSize, selectContainerSize } from '../machines/selectors/layout';
 import { selectAnimationsAllowed } from '../machines/selectors/ui';
 import { Tooltip } from './Tooltip';
@@ -79,7 +74,6 @@ export function TabPreview({
   onDismiss,
 }: TabPreviewProps) {
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const panes = useAppSelectorShallow(selectPanes);
   const animations = useAppSelector(selectAnimationsAllowed);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
@@ -160,23 +154,21 @@ export function TabPreview({
       {/* Its own row above the picture, so it sits in the card's padding
           rather than over the thing you are looking at. */}
       <div className="tab-preview-bar">
-        {!readOnly && (
-          <Tooltip label="Close tab">
-            <button
-              type="button"
-              className="tab-preview-close"
-              aria-label={`Close ${card.label}`}
-              data-testid="tab-preview-close"
-              onClick={(e) => {
-                // The one thing in the card that is not "open this tab".
-                e.stopPropagation();
-                send({ type: 'CLOSE_TAB', windowId: card.windowId });
-              }}
-            >
-              ✕
-            </button>
-          </Tooltip>
-        )}
+        <Tooltip label="Close tab">
+          <button
+            type="button"
+            className="tab-preview-close"
+            aria-label={`Close ${card.label}`}
+            data-testid="tab-preview-close"
+            onClick={(e) => {
+              // The one thing in the card that is not "open this tab".
+              e.stopPropagation();
+              send({ type: 'CLOSE_TAB', windowId: card.windowId });
+            }}
+          >
+            ✕
+          </button>
+        </Tooltip>
       </div>
       <div className="tab-preview-frame" aria-hidden="true">
         <TabShot

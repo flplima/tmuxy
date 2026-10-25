@@ -322,8 +322,6 @@ export const ConnectionInfo = Schema.Struct({
   connection_id: Schema.Number,
   default_shell: Schema.optional(Schema.String),
   trace_enabled: Schema.optional(Schema.Boolean),
-  /** The server runs `--read-only`: this client is a viewer. */
-  read_only: Schema.optional(Schema.Boolean),
 });
 export type ConnectionInfo = Schema.Schema.Type<typeof ConnectionInfo>;
 
@@ -445,7 +443,8 @@ export type ScrollbackCells = Schema.Schema.Type<typeof ScrollbackCells>;
  * Why the backend refused a command: `tmux` — tmux itself rejected it (a
  * query answered with `%error`); `unavailable` — no tmux connection to run
  * it on; `invalid` — the request was malformed or named an unknown command;
- * `forbidden` — the server's policy refuses it (a read-only server).
+ * `forbidden` — the server's policy refuses it (a command a client may not
+ * send, such as a direct `resize-window`).
  */
 export const CommandFailureKind = Schema.Literal('tmux', 'unavailable', 'invalid', 'forbidden');
 export type CommandFailureKind = Schema.Schema.Type<typeof CommandFailureKind>;

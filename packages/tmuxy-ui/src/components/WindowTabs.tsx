@@ -38,12 +38,7 @@
  */
 
 import { memo, useMemo, useCallback, useEffect, useRef, useState } from 'react';
-import {
-  useAppSend,
-  useAppSelector,
-  useAppSelectorShallow,
-  useReadOnly,
-} from '../machines/appHooks';
+import { useAppSend, useAppSelector, useAppSelectorShallow } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectTabDrop } from '../machines/selectors/layout';
 import { selectAnimationsAllowed } from '../machines/selectors/ui';
@@ -78,7 +73,6 @@ interface TabContextMenuState {
 
 export const WindowTabs = memo(function WindowTabs() {
   const send = useAppSend();
-  const readOnly = useReadOnly();
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
   const tabStateEntries = useAppSelectorShallow(selectTabStates);
   const tabStates = useMemo(
@@ -140,26 +134,22 @@ export const WindowTabs = memo(function WindowTabs() {
     [send],
   );
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, windowId: WindowId) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (readOnly) return;
-      // The preview TURNS INTO the menu. Right-clicking a tab you are already
-      // looking at used to draw the menu on top of its own preview — two cards
-      // about the same tab, overlapping, one of them now unreachable. Now the
-      // card's box is handed to the menu, which opens under the same tab and
-      // grows out of it: one surface about one tab, and one object rather than
-      // a disappearance and an appearance. With no card up (a tab crossed on
-      // the way past) the menu opens at the pointer, as any context menu does.
-      const pressed = pressedPreviewRef.current;
-      const morphFrom = pressed?.windowId === windowId ? pressed.rect : null;
-      const anchorEl = morphFrom ? (e.currentTarget as HTMLElement) : null;
-      dismissPreviewRef.current();
-      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId, anchorEl, morphFrom });
-    },
-    [readOnly],
-  );
+  const handleContextMenu = useCallback((e: React.MouseEvent, windowId: WindowId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // The preview TURNS INTO the menu. Right-clicking a tab you are already
+    // looking at used to draw the menu on top of its own preview — two cards
+    // about the same tab, overlapping, one of them now unreachable. Now the
+    // card's box is handed to the menu, which opens under the same tab and
+    // grows out of it: one surface about one tab, and one object rather than
+    // a disappearance and an appearance. With no card up (a tab crossed on
+    // the way past) the menu opens at the pointer, as any context menu does.
+    const pressed = pressedPreviewRef.current;
+    const morphFrom = pressed?.windowId === windowId ? pressed.rect : null;
+    const anchorEl = morphFrom ? (e.currentTarget as HTMLElement) : null;
+    dismissPreviewRef.current();
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId, anchorEl, morphFrom });
+  }, []);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false }));
@@ -250,7 +240,6 @@ export const WindowTabs = memo(function WindowTabs() {
     containerRef: listRef,
     cardSelector: '.tab-name[data-window-id]',
     axis: 'x',
-    readOnly,
     onReorder: (windowId, toIndex) => {
       haptics.trigger(10);
       send({ type: 'REORDER_TAB', windowId, toIndex });
@@ -271,7 +260,7 @@ export const WindowTabs = memo(function WindowTabs() {
     dismissPreview();
     const tab = visibleWindows[index];
     // A lone tab is the desktop window's drag handle, not a control.
-    if (!tab || isSingleTab || readOnly || e.button !== 0) return;
+    if (!tab || isSingleTab || e.button !== 0) return;
     // A tab being renamed is a field, not a thing to drag.
     if (renamingId === tab.id) return;
     if ((e.target as HTMLElement).closest('button')) return;

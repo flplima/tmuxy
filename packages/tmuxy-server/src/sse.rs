@@ -25,7 +25,6 @@ use tracing::{debug, info, trace, warn};
 use crate::command::ClientCommand;
 use crate::state::{AppState, SessionConnections};
 
-pub use clients::start_viewer_monitor;
 pub use commands::{commands_handler, trace_handler};
 pub use emitter::watch_config_dir;
 pub use monitor::start_monitoring;
@@ -33,13 +32,13 @@ pub use preview::{preview_page_handler, stage_preview_handler};
 
 use clients::cleanup_connection;
 #[cfg(test)]
-use clients::{compute_min_client_size, monitor_config, set_client_size};
+use clients::{compute_min_client_size, set_client_size};
 use commands::command_failure;
 #[cfg(test)]
-use commands::{handle_command, serve_viewer, CommandResponse};
+use commands::{handle_command, CommandResponse};
 use emitter::{encode_event, sse_event_type, SseEvent};
 #[cfg(test)]
-use emitter::{refresh_keybindings, theme_settings_for, SseEmitter};
+use emitter::{refresh_keybindings, SseEmitter};
 
 // ============================================
 // Query Parameters
@@ -55,23 +54,18 @@ pub struct SessionQuery {
 enum SessionRejection {
     /// A name the server will not write into a command line; a 400.
     Invalid,
-    /// A name other than the one this server is pinned to; a 404, which says
-    /// no more to a prober than that this server does not have it.
-    NotServed,
 }
 
 impl SessionRejection {
     fn status(&self) -> StatusCode {
         match self {
             Self::Invalid => StatusCode::BAD_REQUEST,
-            Self::NotServed => StatusCode::NOT_FOUND,
         }
     }
 
     fn message(&self) -> &'static str {
         match self {
             Self::Invalid => "invalid session name",
-            Self::NotServed => "no such session",
         }
     }
 
@@ -79,7 +73,6 @@ impl SessionRejection {
     fn into_command_failure(self) -> Response {
         let error = match self {
             Self::Invalid => CommandError::invalid(self.message()),
-            Self::NotServed => CommandError::unavailable(self.message()),
         };
         command_failure(self.status(), error)
     }
@@ -95,17 +88,12 @@ impl SessionQuery {
     /// The session the request names — the default one when it names none.
     /// The name is written into control-mode command lines, where a newline
     /// (or any control character) would end the command and start another.
-    ///
-    /// A pinned server (`AppState::session_pin`) serves that name only.
-    fn session(self, state: &AppState) -> Result<String, SessionRejection> {
+    fn session(self) -> Result<String, SessionRejection> {
         let session = self
             .session
             .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
         if !tmuxy_core::session::is_safe_session_name(&session) {
             return Err(SessionRejection::Invalid);
-        }
-        if !state.serves_session(&session) {
-            return Err(SessionRejection::NotServed);
         }
         Ok(session)
     }
@@ -135,7 +123,7 @@ pub async fn sse_handler(
     Query(query): Query<SessionQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let session = match query.session(&state) {
+    let session = match query.session() {
         Ok(session) => session,
         Err(rejection) => return rejection.into_response(),
     };
@@ -175,24 +163,7 @@ pub async fn sse_handler(
     // (which would trigger %session-changed and contaminate the original session's state).
 
     // Register connection and get/create shared session resources.
-    //
-    // A viewer's server has exactly one session and one monitor, started with
-    // the server (`start_viewer_monitor`), never by a client: a viewer is not
-    // counted among the session's connections, so it cannot start a monitor,
-    // hold one open, or shut one down. It subscribes to the broadcast that
-    // exists, or is told there is nothing to show — the monitor's own state
-    // says whether the session is attached right now, and no `has-session`
-    // subprocess runs on a viewer's behalf.
-    let (session_rx, session_broadcast) = if state.read_only {
-        let sessions = state.sessions.read().await;
-        let Some(attached) = sessions
-            .get(&session)
-            .filter(|conns| conns.monitor_command_tx.is_some())
-        else {
-            return SessionRejection::NotServed.into_response();
-        };
-        (attached.broadcast.subscribe(), attached.broadcast.clone())
-    } else {
+    let (session_rx, session_broadcast) = {
         let mut sessions = state.sessions.write().await;
         let session_conns = sessions
             .entry(session.clone())
@@ -292,7 +263,6 @@ pub async fn sse_handler(
             connection_id: conn_id,
             default_shell,
             trace_enabled: tmuxy_core::trace::is_enabled(),
-            read_only: state.read_only,
         };
         if let Some(s) = encode_event(&conn_info) {
             yield Ok::<_, std::convert::Infallible>(Event::default().event("connection-info").data(s));
@@ -420,7 +390,7 @@ mod protocol_fixtures;
 mod tests_errors;
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests_stream;
+mod tests_sessions;
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests_viewer;
+mod tests_stream;

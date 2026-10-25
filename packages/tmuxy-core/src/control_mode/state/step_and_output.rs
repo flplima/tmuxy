@@ -341,8 +341,7 @@ impl StateAggregator {
                 }
             } else {
                 // New pane discovered in layout: create with geometry
-                let mut pane = PaneState::new(lp.id.clone(), lp.width, lp.height)
-                    .with_scrollback_rows(self.scrollback_rows);
+                let mut pane = PaneState::new(lp.id.clone(), lp.width, lp.height);
                 pane.window_id = Some(window_id.clone());
                 pane.index = lp.index;
                 pane.x = lp.x;

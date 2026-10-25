@@ -15,7 +15,7 @@ const { TMUXY_PORT } = require('./config');
 const { startExtraServer } = require('./extra-server');
 const { TMUXY_CLI, tmuxRun } = require('./cli');
 
-// Clear of the suite's port and the read-only server's (TMUXY_PORT + 100).
+// Clear of the suite's port.
 const CONFIG_PORT = parseInt(process.env.TMUXY_CONFIG_PORT || String(TMUXY_PORT + 200), 10);
 const CONFIG_URL = `http://localhost:${CONFIG_PORT}`;
 

@@ -37,7 +37,7 @@ pub async fn stage_preview_handler(
     Query(query): Query<SessionQuery>,
     html: String,
 ) -> Response {
-    let session = match query.session(&state) {
+    let session = match query.session() {
         Ok(session) => session,
         Err(rejection) => return rejection.into_command_failure(),
     };

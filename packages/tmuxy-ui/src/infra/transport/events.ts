@@ -14,8 +14,6 @@ export type TransportEvent = Data.TaggedEnum<{
   State: { readonly state: ServerState; readonly seq: number | null };
   ConnectionInfo: {
     readonly defaultShell: string;
-    /** The server runs `--read-only`: this client is a viewer. */
-    readonly readOnly: boolean;
   };
   /** The channel dropped (true) or came back (false). */
   Reconnection: { readonly reconnecting: boolean };

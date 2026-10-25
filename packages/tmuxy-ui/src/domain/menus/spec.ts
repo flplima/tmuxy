@@ -88,7 +88,6 @@ export type MenuSpec = ReadonlyArray<MenuNode>;
 
 /** Where a menu is shown; what each spec builder needs to know beyond the context. */
 export interface MenuEnv {
-  readOnly: boolean;
   isDemo: boolean;
   isTauri: boolean;
   isMac: boolean;

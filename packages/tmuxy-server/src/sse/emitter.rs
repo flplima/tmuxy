@@ -134,15 +134,6 @@ impl StateEmitter for SseEmitter {
     }
 
     fn write_clipboard(&self, pane_id: Option<&tmuxy_core::PaneId>, text: String) {
-        // SEC-13: a viewer never receives the writer's clipboard. tmux paste
-        // buffers are global to the tmux SERVER, so `%paste-buffer-changed`
-        // carries a yank from any session — text a viewer was never shown —
-        // and every client that receives it writes it to its own system
-        // clipboard.
-        if self.app_state.read_only {
-            tracing::debug!(?pane_id, "read-only server: clipboard write not forwarded");
-            return;
-        }
         if !transport::clipboard_write_allowed(&text) {
             tracing::debug!(
                 ?pane_id,
@@ -174,8 +165,6 @@ pub(super) enum SseEvent {
         connection_id: u64,
         default_shell: String,
         trace_enabled: bool,
-        /// The server runs `--read-only`: this client is a viewer.
-        read_only: bool,
     },
     #[serde(rename = "state-update")]
     StateUpdate(Box<StateUpdate>),
@@ -235,24 +224,12 @@ pub(super) async fn refresh_keybindings(state: &Arc<AppState>, session: &str) {
 }
 
 /// The theme name, mode and appearance to answer a client with, read over the
-/// session's monitor: once and kept on a viewer's server
-/// (`AppState::viewer_theme_settings`), whose monitor is attached before any
-/// viewer is served; afresh on a writable one, whose own `source-file` can
-/// change it, waiting for a monitor that is still connecting.
+/// session's monitor afresh (its own `source-file` can change it), waiting
+/// for a monitor that is still connecting.
 pub(super) async fn theme_settings_for(
     state: &Arc<AppState>,
     session: &str,
 ) -> Result<serde_json::Value, CommandError> {
-    if state.read_only {
-        return state
-            .viewer_theme_settings
-            .get_or_try_init(|| async {
-                let tx = state.monitor_tx(session).await?;
-                tmuxy_core::theme::get_theme_settings(&tx).await
-            })
-            .await
-            .cloned();
-    }
     let tx = wait_for_monitor(state, session).await?;
     tmuxy_core::theme::get_theme_settings(&tx).await
 }
@@ -279,8 +256,7 @@ pub(super) async fn broadcast_theme_settings(state: &Arc<AppState>, session: &st
 /// saved stylesheet is announced to every session's clients; a saved
 /// `tmuxy.conf` is sourced on each session's monitor and followed by the
 /// bindings and theme settings it may have changed — what a client's own
-/// `source-file` gets. A viewer's server sources nothing: its clients cannot
-/// change the session, and neither should a file on its host.
+/// `source-file` gets.
 pub async fn watch_config_dir(state: Arc<AppState>) {
     let shutdown = state.shutdown.clone();
     let watcher = state.clone();
@@ -322,9 +298,6 @@ async fn apply_config_change(state: &Arc<AppState>, change: transport::ConfigCha
             }
         }
         transport::ConfigChange::Conf => {
-            if state.read_only {
-                return;
-            }
             for (session, _, tx) in &sessions {
                 let Some(tx) = tx else { continue };
                 match transport::source_config(tx).await {

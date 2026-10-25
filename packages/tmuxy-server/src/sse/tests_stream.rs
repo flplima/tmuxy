@@ -1,30 +1,8 @@
-use super::tests_viewer::{initial_state_with_viewport, session_with_fake_monitor};
+use super::tests_sessions::{initial_state_with_viewport, session_with_fake_monitor};
 use super::*;
 use std::collections::HashMap;
 use tmuxy_core::control_mode::StateEmitter;
 use tokio::sync::broadcast;
-
-/// SEC-13. tmux paste buffers are global to the tmux SERVER, so a yank or
-/// a `load-buffer secret.txt` in ANY session fires `%paste-buffer-changed`
-/// and used to reach every connected client — a `--read-only` viewer
-/// included, which then wrote the writer's text to its own system
-/// clipboard. Text the viewer was never shown.
-#[tokio::test]
-async fn a_viewer_is_never_handed_the_writers_clipboard() {
-    let broadcast = Arc::new(crate::state::SessionBroadcast::new());
-    let mut rx = broadcast.subscribe();
-    let viewer = Arc::new(AppState::new().with_read_only(true));
-    let emitter = SseEmitter::new(
-        broadcast.clone(),
-        viewer,
-        "s".to_string(),
-        Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
-    );
-
-    emitter.write_clipboard(None, "a secret someone yanked elsewhere".into());
-
-    assert!(rx.try_recv().is_err(), "nothing should have been broadcast");
-}
 
 #[tokio::test]
 async fn a_writable_server_still_forwards_a_clipboard_write() {
@@ -92,19 +70,6 @@ fn open_streams_are_capped_and_the_slot_comes_back() {
     assert!(state.claim_stream_slot().is_some());
 }
 
-/// A viewer's server is the one whose address gets handed around, so it
-/// keeps a tighter budget than the one its owner writes through.
-#[test]
-fn a_read_only_server_serves_fewer_streams_than_a_writable_one() {
-    let viewer = Arc::new(AppState::new().with_read_only(true));
-    let writer = Arc::new(AppState::new());
-    assert!(viewer.max_live_streams() < writer.max_live_streams());
-    assert!(
-        viewer.max_live_streams() >= 2,
-        "a viewer still gets to reconnect"
-    );
-}
-
 #[tokio::test]
 async fn a_writable_server_sizes_the_session_to_the_client_asking_for_state() {
     let state = Arc::new(AppState::new());
@@ -160,15 +125,6 @@ async fn a_size_that_reached_no_monitor_is_asked_for_again() {
         Some((41, 29)),
         "a delivered size IS recorded, so it is not re-sent on every tick"
     );
-}
-
-#[tokio::test]
-async fn a_read_only_server_never_counts_a_viewers_viewport() {
-    let state = Arc::new(AppState::new().with_read_only(true));
-    let resizes = session_with_fake_monitor(&state, "s").await;
-    initial_state_with_viewport(&state).await;
-    assert!(state.sessions.read().await["s"].client_sizes.is_empty());
-    assert!(resizes.lock().await.is_empty());
 }
 
 /// Round-trip the Clipboard variant so SSE consumers can rely on the

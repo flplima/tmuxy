@@ -4,7 +4,6 @@ import { ScrollbackCells, ThemeSettings, type ServerState } from '../../domain/w
 import type { TraceLevel, TraceSettings } from '../types/domain';
 import { formatAdapterError, type AdapterError } from '../../infra/transport/AdapterError';
 import { tracer } from '../../infra/tracer';
-import { isInputCommand, READ_ONLY_NOTICE, READ_ONLY_REASON } from '../../domain/readOnly';
 import type { PaneId } from '../../domain/ids';
 import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import type { AppRuntime } from '../../infra/runtime';
@@ -71,8 +70,6 @@ export function createTmuxActor(runtime: AppRuntime) {
        * run that went wrong says why.
        */
       silentFail?: boolean;
-      /** Refused by a read-only session without a notice: input, or a write nobody asked for. */
-      quietWhenReadOnly?: boolean;
     }
 
     /** `effect` with its outcome reported: onSuccess, or the failure sent to the parent. */
@@ -89,14 +86,7 @@ export function createTmuxActor(runtime: AppRuntime) {
           const failure = Cause.failureOption(exit.cause);
           if (failure._tag !== 'Some') return;
           const tagged = failure.value;
-          // A write a read-only session never sent: the user asked for a change
-          // they cannot make, which is not an error of the backend's.
-          if (tagged._tag === 'Cancelled' && tagged.reason === READ_ONLY_REASON) {
-            if (!opts.silentFail && !opts.quietWhenReadOnly) {
-              parent.send({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
-            }
-            return;
-          }
+
           // Trace the failure by its typed tag (TransportError/ProtocolError/…),
           // never the message text.
           tracer.event({ layer: 'effect', name: 'fail', code: tagged._tag });
@@ -165,8 +155,7 @@ export function createTmuxActor(runtime: AppRuntime) {
       KeyBindings: ({ keybindings }) => parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings }),
       ThemeSettings: ({ settings }) => themeSettingsReceived(settings),
       CssChanged: () => parent.send({ type: 'CSS_CHANGED' }),
-      ConnectionInfo: ({ defaultShell, readOnly }) =>
-        parent.send({ type: 'CONNECTION_INFO', defaultShell, readOnly }),
+      ConnectionInfo: ({ defaultShell }) => parent.send({ type: 'CONNECTION_INFO', defaultShell }),
       // OSC 52 clipboard requests from terminal applications.
       Clipboard: ({ paneId, text }) => parent.send({ type: 'TMUX_CLIPBOARD', paneId, text }),
       // `display-message` output: a notice in the snackbar, not an error.
@@ -207,10 +196,7 @@ export function createTmuxActor(runtime: AppRuntime) {
         logCommand(command);
         run(
           withTransport((t) => t.invoke('run_tmux_command', { command })),
-          {
-            logPrefix: command,
-            quietWhenReadOnly: isInputCommand(command),
-          },
+          { logPrefix: command },
         );
       } else if (event.type === 'INVOKE') {
         logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);

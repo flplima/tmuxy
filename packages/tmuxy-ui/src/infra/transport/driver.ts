@@ -42,11 +42,7 @@ export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
    * where no stream is sequenced (the sandboxes).
    */
   streamPosition?(): StreamPosition;
-  /**
-   * The backend serves this client as a viewer (`tmuxy server --read-only`):
-   * it answers reads and refuses everything else. Known once connected.
-   */
-  readonly readOnly?: boolean;
+
   /**
    * Run a tmux command and resolve with what it printed (`query_tmux`).
    *

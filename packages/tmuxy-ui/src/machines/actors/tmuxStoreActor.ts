@@ -28,7 +28,6 @@ import type { TmuxStore } from '../../infra/store/TmuxStore';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
 import type { ServerState } from '../../domain/wire';
 import { tracer } from '../../infra/tracer';
-import { isInputCommand, READ_ONLY_NOTICE } from '../../domain/readOnly';
 import type { AppRuntime } from '../../infra/runtime';
 
 /** Extract only content-free id/direction fields from a typed op for the trace.
@@ -107,11 +106,7 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
           const failure = Cause.failureOption(exit.cause);
           if (failure._tag === 'Some') {
             const e = failure.value;
-            if (e._tag === 'OpBlockedReadOnly') {
-              if (!isInputCommand(e.command))
-                parent.send({ type: 'NOTIFY', text: READ_ONLY_NOTICE });
-              return;
-            }
+
             // Trace the failure by its typed code — never the stderr text.
             tracer.event({ layer: 'effect', name: 'fail', code: e._tag });
             const reason =

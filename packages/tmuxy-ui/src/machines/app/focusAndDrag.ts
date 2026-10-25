@@ -5,7 +5,6 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, type Ctx } from './actionTypes';
-import { notReadOnly } from './readOnlyGuard';
 import { isPlaceholderId, type PaneId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
 import { getActivePaneInGroup, selectRightSidebarPane } from '../selectors/panesAndSidebars';
@@ -19,7 +18,6 @@ function isParkedMember(context: Ctx, paneId: PaneId): boolean {
 
 export const focusAndDragIdleEvents = {
   DRAG_START: {
-    guard: notReadOnly,
     actions: 'focusAndDrag_dragStart',
   },
   DRAG_MOVE: {
@@ -29,7 +27,6 @@ export const focusAndDragIdleEvents = {
     actions: 'focusAndDrag_dragEnd',
   },
   RESIZE_START: {
-    guard: notReadOnly,
     actions: 'focusAndDrag_resizeStart',
   },
   RESIZE_MOVE: {
@@ -42,7 +39,6 @@ export const focusAndDragIdleEvents = {
     actions: 'focusAndDrag_focusPane',
   },
   SELECT_PANE_GROUP_TAB: {
-    guard: notReadOnly,
     actions: 'focusAndDrag_selectPaneGroupTab',
   },
   COPY_SELECTION: {

@@ -130,7 +130,6 @@ describe('Phone width (390px) with a touchscreen', () => {
             totalHeight: ctx.totalHeight,
             targetRows: ctx.targetRows,
             phoneLayout: ctx.phoneLayout ?? null,
-            readOnly: ctx.readOnly ?? null,
             sidebarMotion: ctx.sidebarMotion ?? null,
             leftSidebar: ctx.leftSidebarOpen ?? null,
             rightSidebar: ctx.rightSidebarOpen ?? null,

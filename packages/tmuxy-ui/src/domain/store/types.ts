@@ -136,18 +136,6 @@ export interface TmuxClientModel {
    * id swap without unmount/remount flicker.
    */
   readonly paneKeyOverrides: Readonly<Record<PaneId, PaneId>>;
-  /**
-   * The tab and pane a read-only client is looking at, when it has chosen its
-   * own. Unlike an op it predicts nothing and waits for nothing: tmux is never
-   * told, so it is laid over `derived` for as long as the tab exists while the
-   * server goes on reporting whatever the writing client has active.
-   */
-  readonly viewFocus: ViewFocus | null;
-}
-
-export interface ViewFocus {
-  readonly windowId: WindowId;
-  readonly paneId: PaneId | null;
 }
 
 export const EMPTY_MODEL: TmuxClientModel = {
@@ -155,7 +143,6 @@ export const EMPTY_MODEL: TmuxClientModel = {
   ops: [],
   derived: EMPTY_SNAPSHOT,
   paneKeyOverrides: {},
-  viewFocus: null,
 };
 
 // ============================================
@@ -179,12 +166,7 @@ export class OpTransportError extends Data.TaggedError('OpTransportError')<{
   readonly cause: unknown;
 }> {}
 
-/** The session is read-only and the op would have changed it. Nothing was predicted or sent. */
-export class OpBlockedReadOnly extends Data.TaggedError('OpBlockedReadOnly')<{
-  readonly command: string;
-}> {}
-
-export type OpError = OpRejectedByTmux | OpTransportError | OpBlockedReadOnly;
+export type OpError = OpRejectedByTmux | OpTransportError;
 
 // ============================================
 // Op result for the reconciler

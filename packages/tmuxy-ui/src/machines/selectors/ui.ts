@@ -28,10 +28,6 @@ export function selectLog(context: AppMachineContext): LogEntry[] {
   return context.log;
 }
 
-export function selectReadOnly(context: AppMachineContext): boolean {
-  return context.readOnly;
-}
-
 export function selectSessionName(context: AppMachineContext): string {
   return context.sessionName;
 }

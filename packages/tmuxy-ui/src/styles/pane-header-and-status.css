@@ -170,14 +170,6 @@
   opacity: var(--active-text-opacity);
 }
 
-/* A group member a read-only client can see listed but not bring into view. */
-.pane-tab-disabled,
-.pane-tab-disabled:hover {
-  color: inherit;
-  opacity: 0.45;
-  cursor: default;
-}
-
 /* Selected tab in a group (but pane not active) */
 .pane-tab-selected .pane-tab-title {
   color: inherit;

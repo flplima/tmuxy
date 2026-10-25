@@ -188,32 +188,14 @@ pub struct AppState {
     /// `tokio::select!` against `shutdown.cancelled()` so it exits its
     /// long-running loop promptly.
     pub shutdown: CancellationToken,
-    /// `--read-only`: every client of this server is a viewer. Only the
-    /// commands `sse::serve_viewer` names are served, and no client's
-    /// viewport is ever recorded, so a viewer cannot resize the session.
-    pub read_only: bool,
-    /// The one session this server is allowed to show, if it is pinned.
-    ///
-    /// A `--read-only` server is pinned to the session it was started for, so
-    /// a viewer cannot name another one in `GET /events?session=` and be
-    /// handed a different screen — or, on a writable socket shared with a
-    /// writer, the whole tmux server. `None` on a writable server, where a
-    /// client can already run anything and session switching is the feature.
-    pub session_pin: Option<String>,
+
     /// Live `/events` streams, across every session.
     ///
     /// SEC-16: each one is a long-lived task holding a broadcast receiver and a
     /// place in the `sessions` map, and nothing counted them. A connection
     /// flood grew both without bound.
     pub live_streams: AtomicU64,
-    /// The theme name, mode and appearance a viewer's server answers
-    /// `GetThemeSettings` with, read from tmux once.
-    ///
-    /// SEC-11: the command ran four `read_option` round trips per request, and
-    /// a viewer's client asks on every reconnect. The value can only change
-    /// when a config is sourced, which is a writer's act on a writer's server —
-    /// a viewer's server sources nothing, so the first read is the last.
-    pub viewer_theme_settings: tokio::sync::OnceCell<serde_json::Value>,
+
     /// The pages `preview` panes frame, staged by the client and served to
     /// the pane's frame by `/api/preview/{pane}` (`tmuxy_core::preview`).
     pub preview_pages: tmuxy_core::preview::PreviewPages,
@@ -238,10 +220,7 @@ impl Default for AppState {
             image_store: RwLock::new(ImageStore::default()),
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
-            read_only: false,
-            session_pin: None,
             live_streams: AtomicU64::new(0),
-            viewer_theme_settings: tokio::sync::OnceCell::new(),
             preview_pages: tmuxy_core::preview::PreviewPages::default(),
         }
     }
@@ -252,30 +231,13 @@ impl AppState {
         Self::default()
     }
 
-    /// Serve every client of this state as a viewer (`--read-only`).
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
-        self
-    }
-
-    /// Pin this server to one session: see `AppState::session_pin`.
-    pub fn with_session_pin(mut self, session: Option<String>) -> Self {
-        self.session_pin = session;
-        self
-    }
-
     /// The most `/events` streams this server serves at once.
     ///
     /// Generous for real use — a browser opens one per tab, and tmuxy is not a
     /// broadcast service — and far below the point where the tasks and their
-    /// buffers are the problem. A viewer's server gets a tighter bound: it is
-    /// the one whose address may be handed around.
+    /// buffers are the problem.
     pub fn max_live_streams(&self) -> u64 {
-        if self.read_only {
-            8
-        } else {
-            32
-        }
+        32
     }
 
     /// Claim a slot for a new `/events` stream, or `None` when full.
@@ -319,14 +281,6 @@ impl AppState {
             .ok_or_else(|| tmuxy_core::CommandError::unavailable("No monitor connection available"))
     }
 
-    /// Whether `name` is a session this server will serve.
-    pub fn serves_session(&self, name: &str) -> bool {
-        match &self.session_pin {
-            Some(pinned) => pinned == name,
-            None => true,
-        }
-    }
-
     /// Spawn a background task into the shutdown-tracked `JoinSet`.
     ///
     /// Callers should incorporate `self.shutdown.cancelled()` into the
@@ -346,24 +300,11 @@ impl AppState {
 /// Every route answers only the app itself: `host_policy` says which `Host`
 /// names count as this server (see `request_guard`). No CORS headers are sent,
 /// so no other origin can read a response either.
-///
-/// A `--read-only` server gets [`viewer_routes`]: the same guard over a
-/// smaller surface.
-pub fn api_routes(host_policy: HostPolicy, read_only: bool) -> Router<Arc<AppState>> {
-    let routes = if read_only {
-        viewer_routes()
-    } else {
-        writable_routes()
-    };
-    routes.layer(axum::middleware::from_fn_with_state(
-        Arc::new(host_policy),
-        crate::request_guard::require_same_origin,
-    ))
-}
-
-/// Everything the app can ask of a server its owner writes through.
-fn writable_routes() -> Router<Arc<AppState>> {
-    viewer_routes()
+pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/events", get(crate::sse::sse_handler))
+        .route("/commands", post(crate::sse::commands_handler))
+        .route("/api/images/{pane_id}/{image_id}", get(image_handler))
         // Client trace ingest (docs/TRACING.md). Capped at 256 KiB/request so a
         // hostile client can't exhaust the disk in one call; the handler also
         // fails closed when tracing is off.
@@ -372,8 +313,7 @@ fn writable_routes() -> Router<Arc<AppState>> {
             post(crate::sse::trace_handler).layer(axum::extract::DefaultBodyLimit::max(256 * 1024)),
         )
         // A `preview` pane's page: POSTed by the client once it has composed
-        // it, then loaded by the pane's frame (`tmuxy_core::preview`). Not on
-        // a viewer's server, which is shown no files (SEC-11).
+        // it, then loaded by the pane's frame (`tmuxy_core::preview`).
         .route(
             "/api/preview/{pane_id}",
             get(crate::sse::preview_page_handler)
@@ -382,21 +322,10 @@ fn writable_routes() -> Router<Arc<AppState>> {
                     tmuxy_core::preview::MAX_STAGED_BYTES,
                 )),
         )
-}
-
-/// What a viewer's server serves, and all of it: the state stream, the read
-/// commands (`/commands` refuses the rest before dispatch), and the pictures
-/// that are part of the screen it shows.
-///
-/// SEC-11. "Read-only" is about the SESSION; `/trace` is a different power —
-/// it writes to the disk. A read-only server is the one meant to be handed to
-/// people who are not trusted with the machine, so that route does not exist
-/// on it rather than exist and refuse.
-fn viewer_routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/events", get(crate::sse::sse_handler))
-        .route("/commands", post(crate::sse::commands_handler))
-        .route("/api/images/{pane_id}/{image_id}", get(image_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(host_policy),
+            crate::request_guard::require_same_origin,
+        ))
 }
 
 // ============================================

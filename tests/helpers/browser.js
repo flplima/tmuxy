@@ -88,7 +88,7 @@ function surfacePageProblems(page) {
     const type = message.type();
     if (type !== 'error' && type !== 'warning') return;
     // The browser logs every refused resource as a console error. A suite that
-    // proves a route is refused (the read-only server, SEC-11) produces those
+    // proves a request is refused (an unlisted `Host`, SEC-15) produces those
     // on purpose, and they are the network log talking, not the app.
     if (message.text().startsWith('Failed to load resource')) return;
     say(`[page ${type}] ${message.text()}`);
@@ -169,9 +169,7 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       // A drawn pane — a terminal, or a widget where the pane shows one.
-      // Attached, not visible: the check below reads the text, and a
-      // read-only viewer's grid is scaled to fit its window, which Playwright
-      // does not always count as visible while it settles.
+      // Attached, not visible: the check below reads the text.
       await page.waitForSelector('.pane-layout-item[data-pane-id]', {
         state: 'attached',
         timeout: 10000,

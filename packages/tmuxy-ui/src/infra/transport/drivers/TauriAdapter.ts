@@ -171,7 +171,7 @@ export class TauriAdapter implements SequencedAdapter {
 
       this.connected = true;
 
-      this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', readOnly: false }));
+      this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash' }));
 
       // Action tracing (docs/TRACING.md): ask the local backend whether it is
       // recording; only then ship our events to it over IPC.

@@ -168,7 +168,7 @@ export const reconcileModelActions = {
     for (const newPane of transformed.panes) {
       const prevPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
       const record = context.copyModeStates[newPane.tmuxId];
-      switch (reconcilePaneMode(prevPane, newPane, record, { readOnly: context.readOnly, now })) {
+      switch (reconcilePaneMode(prevPane, newPane, record, { now })) {
         case 'confirm': {
           updatedCopyModeStates = {
             ...updatedCopyModeStates,
@@ -253,7 +253,7 @@ export const reconcileModelActions = {
 
     const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
     for (const pane of transformed.panes) {
-      if (!context.readOnly && pane.active && pane.windowId) {
+      if (pane.active && pane.windowId) {
         lastActivePaneByWindow[pane.windowId] = pane.tmuxId;
       }
     }
@@ -295,7 +295,6 @@ export const reconcileModelActions = {
     const inFront = transformed.panes.find((p) => p.tmuxId === effectiveActivePaneId);
     const wasInFront = context.panes.find((p) => p.tmuxId === effectiveActivePaneId);
     if (
-      !context.readOnly &&
       inFront &&
       normalizePaneState(inFront.paneState) === 'unread' &&
       !(
@@ -336,7 +335,6 @@ export const reconcileModelActions = {
       rows: transformed.totalHeight,
     });
     const shouldResize =
-      !context.readOnly &&
       context.targetCols > 0 &&
       context.targetRows > 0 &&
       (context.targetCols !== grid.cols || context.targetRows !== grid.rows);

@@ -19,7 +19,6 @@ Cross-layer promises, in one place, each with the test that holds it. Doc commen
 | `Q` | Client command queue and keyboard batching (`tmuxy-ui`) |
 | `P` | Client model: predictions and reconcile (`TmuxClientModel`) |
 | `U` | UI-mode records: copy mode, resize preview, scrollback, menus |
-| `R` | Read-only clients |
 | `L` | Session lifecycle: attach, restore, autosave |
 
 See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enforcer is a test title that exists.
@@ -114,9 +113,9 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | P8 | `MoveWindow` predicts dropped strip order immediately and holds until server places the window beside its anchor. | ordering | `windowOps.ts`, `tabOverview.ts` | `ops.test.ts › MoveWindow predict…`; `tests/2-layout-navigation.test.js › a tab dragged along the strip…` |
 | P9 | A focus the client shows is one it asked tmux for: every optimistic active-pane change goes out with an op that makes tmux select that pane, so tmux's next state confirms it rather than taking it back. | safety | `focusAndDrag.ts` (`focusAndDrag_selectPaneGroupTab`, `focusAndDrag_focusPane`) | `AppPaneGroups.stories.tsx › ClickingTheShownMembersTabTakesTheFocus` [v86] (the group tab of the member on screen; other focus paths are —) |
 
-## U, R and L — UI-mode records, read-only clients, session lifecycle
+## U and L — UI-mode records, session lifecycle
 
-In [INVARIANTS-UI-RO-LIFECYCLE.md](INVARIANTS-UI-RO-LIFECYCLE.md), the ledger's companion.
+In [INVARIANTS-UI-LIFECYCLE.md](INVARIANTS-UI-LIFECYCLE.md), the ledger's companion.
 
 ## What the ledger says today
 

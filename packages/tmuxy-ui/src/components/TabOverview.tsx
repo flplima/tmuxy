@@ -26,12 +26,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  useAppSend,
-  useAppSelector,
-  useAppSelectorShallow,
-  useReadOnly,
-} from '../machines/appHooks';
+import { useAppSend, useAppSelector, useAppSelectorShallow } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes, selectContainerSize, selectCharSize } from '../machines/selectors/layout';
 import { selectTabOverviewCols } from '../machines/selectors/ui';
@@ -56,7 +51,6 @@ export const TabOverview = memo(function TabOverview() {
 function TabOverviewInner() {
   const send = useAppSend();
   // A viewer picks a tab here and nothing else: no reorder, no close, no new tab.
-  const readOnly = useReadOnly();
   const selected = useAppSelector((ctx) => ctx.tabOverviewSelected);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   const windows = useAppSelectorShallow(selectVisibleWindows);
@@ -96,7 +90,7 @@ function TabOverviewInner() {
     containerRef: gridRef,
     cardSelector: '.tab-overview-slot[data-window-id]',
     axis: 'xy',
-    readOnly,
+
     onReorder: (windowId, toIndex) => send({ type: 'REORDER_TAB', windowId, toIndex }),
   });
   const { dragging } = reorder;
@@ -368,7 +362,6 @@ function TabOverviewInner() {
           slots={slots}
           activeWindowId={activeWindowId}
           selected={selected}
-          readOnly={readOnly}
           frameSize={frameSize}
           charWidth={charWidth}
           charHeight={charHeight}

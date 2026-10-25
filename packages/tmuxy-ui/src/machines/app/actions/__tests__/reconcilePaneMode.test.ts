@@ -12,7 +12,7 @@ import { pid } from '../../../../test/wire';
 import { COPY_MODE_REENTRY_COOLDOWN, copyModeExitTimes, reconcilePaneMode } from '../../scrollback';
 
 const pane = (inMode: boolean) => ({ tmuxId: pid('%1'), inMode });
-const live = { readOnly: false, now: 100_000 };
+const live = { now: 100_000 };
 
 afterEach(() => copyModeExitTimes.clear());
 
@@ -67,12 +67,6 @@ describe('reconcilePaneMode', () => {
 
     it('is not an entry when the mode was already on', () => {
       expect(reconcilePaneMode(pane(true), pane(true), undefined, live)).toBe('none');
-    });
-
-    it('never happens for a read-only viewer', () => {
-      expect(
-        reconcilePaneMode(pane(false), pane(true), undefined, { ...live, readOnly: true }),
-      ).toBe('none');
     });
   });
 });

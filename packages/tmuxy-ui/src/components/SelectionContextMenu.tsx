@@ -12,7 +12,6 @@ import { useAppSend } from '../machines/appHooks';
 import { TmuxOp } from '../domain/commands';
 import { selectionMenuSpec } from '../domain/menus/selectionMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
-import { useMenuEnv } from './menus/menuEnv';
 import { flashCopiedRange } from '../utils/copyFlash';
 import { writeClipboard } from '../utils/clipboard';
 import type { PaneId } from '../domain/ids';
@@ -59,9 +58,8 @@ export function SelectionContextMenu({
   onClose,
 }: SelectionContextMenuProps) {
   const send = useAppSend();
-  const env = useMenuEnv();
   useSelectionPinned(selectionRange);
-  const spec = selectionMenuSpec(env);
+  const spec = selectionMenuSpec();
 
   // Either action is the end of the selection's job: the scrollback view (or
   // copy mode) closes with the menu.

@@ -18,8 +18,6 @@
 //!   stylesheet.
 //!
 //! Every read is a regular file under a size cap, done off the async workers.
-//! A read-only server answers none of this (SEC-11): a viewer is shown the
-//! session's screen, not files from its disk.
 
 use std::path::{Component, Path, PathBuf};
 

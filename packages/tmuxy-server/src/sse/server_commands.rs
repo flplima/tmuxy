@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tmuxy_core::control_mode::{MonitorCommand, MonitorCommandSender};
+use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::servers::RemoteSessionInfo;
 use tmuxy_core::transport;
 use tmuxy_core::CommandError;
@@ -44,45 +44,6 @@ pub(super) async fn query_via_control_mode(
     );
     let tx = state.monitor_tx(session).await?;
     transport::query(&tx, command).await
-}
-
-/// The most rows of scrollback one request from a viewer is answered with.
-const MAX_VIEWER_SCROLLBACK_ROWS: i64 = 5000;
-
-/// A viewer's scrollback, answered from the monitor's own grid at zero tmux
-/// round trips (SEC-11/SEC-16).
-pub(super) async fn viewer_scrollback(
-    state: &Arc<AppState>,
-    session: &str,
-    pane_id: tmuxy_core::PaneId,
-    start: i64,
-    end: i64,
-) -> Result<serde_json::Value, CommandError> {
-    let tx = state.monitor_tx(session).await?;
-    let start = start.max(end.saturating_sub(MAX_VIEWER_SCROLLBACK_ROWS - 1));
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::GetScrollback {
-        pane_id: pane_id.clone(),
-        start,
-        end,
-        reply,
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
-    let chunk = rx
-        .await
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?
-        .ok_or_else(|| {
-            CommandError::invalid(format!("pane {pane_id} is not in session {session}"))
-        })?;
-
-    Ok(serde_json::json!({
-        "cells": chunk.cells,
-        "historySize": chunk.history_size,
-        "start": start,
-        "end": end,
-        "width": chunk.width
-    }))
 }
 
 async fn current_live_sessions(

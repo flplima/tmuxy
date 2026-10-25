@@ -18,7 +18,6 @@ The browser + tmux suites, the latency gate and the Tauri suite. Part of [TESTS.
 | `tests/6-nvim-performance.test.js` | One nvim boot: rendering a 500-line file, cursor shape (DECSCUSR) through insert mode, half-page scrolling, discarding the edit |
 | `tests/7-regression-bugs.test.js` | One scenario per production bug the other suites missed |
 | `tests/8-tui-alternate-screen.test.js` | Heavy alt-screen TUI (`tests/fixtures/heavy-tui.sh`) compared line by line with `capture-pane`; wheel to a mouse-tracking TUI started before attach |
-| `tests/10-read-only.test.js` | A `--read-only` server beside the writer: the viewer follows output, keeps its own tab and pane, and can neither type nor resize nor change anything |
 | `tests/11-webkit.test.js` | The same selection, copy and focus flows under Playwright WebKit — the only proxy CI has for WKWebView, where those bugs escaped. Skips loudly when WebKit is absent; `TMUXY_E2E_REQUIRE_WEBKIT=1` makes that a failure |
 | `tests/12-touch.test.js` | One phone-width (400x780) `hasTouch` context: tap to focus the hidden input, swipe to open the scroll view, tap targets in the tab strip, no horizontal overflow |
 | `tests/13-send-permission.test.js` | `tmuxy pane send -t` into another pane — the question drawn over the target, allowed from the sending pane (keys land) or declined (nothing lands), a long multi-line send in its scrolling block, and `@tmuxy-send-ask off` / `@tmuxy-send-allow` skipping it with the unread mark left behind |

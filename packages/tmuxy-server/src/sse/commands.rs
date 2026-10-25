@@ -16,7 +16,6 @@ use super::emitter::{broadcast_theme_settings, refresh_keybindings, theme_settin
 pub(super) use super::server_commands::wait_for_monitor;
 use super::server_commands::{
     handle_connect_server, handle_list_servers, initial_state_for_size, query_via_control_mode,
-    viewer_scrollback,
 };
 use super::SessionQuery;
 use crate::command::ClientCommand;
@@ -48,7 +47,7 @@ pub async fn commands_handler(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let session = match query.session(&state) {
+    let session = match query.session() {
         Ok(session) => session,
         Err(rejection) => return rejection.into_command_failure(),
     };
@@ -82,24 +81,7 @@ pub async fn commands_handler(
         }
     };
 
-    // A viewer's server has its own, total dispatch: `serve_viewer` names
-    // every command a viewer is served and refuses the rest, so the writable
-    // implementation below is never reached on this server at all.
-    let outcome = if state.read_only {
-        match serve_viewer(cmd, &session, &state).await {
-            Some(result) => result,
-            None => {
-                return command_failure(
-                    StatusCode::FORBIDDEN,
-                    CommandError::forbidden("read-only server"),
-                );
-            }
-        }
-    } else {
-        handle_command(cmd, &session, &state, conn_id).await
-    };
-
-    match outcome {
+    match handle_command(cmd, &session, &state, conn_id).await {
         Ok(result) => (StatusCode::OK, Json(CommandResponse { result })).into_response(),
         Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
     }
@@ -136,51 +118,6 @@ pub async fn trace_handler(body: axum::body::Bytes) -> StatusCode {
 // ============================================
 // Command Handler
 // ============================================
-
-/// Everything a viewer's server serves, and nothing else.
-///
-/// SEC-11. The role used to be ten `state.read_only` branches scattered
-/// through a router, a dispatch and a monitor loop, with a separate allowlist
-/// deciding what was refused — so a command added to that allowlist fell
-/// straight into the writable implementation, and a command added to neither
-/// was decided by whichever branch happened to notice.
-///
-/// This match is the whole answer instead. `None` is a refusal (403), and it
-/// is what an unlisted command gets, so a variant added later is viewer-safe
-/// by default and is served only when someone writes down how.
-///
-/// Note what is NOT here: no viewport is recorded, because recording one
-/// would resize the session under whoever is writing; nothing runs a tmux
-/// subprocess or a `git`, because a viewer's request must cost the watched
-/// host nothing.
-pub(super) async fn serve_viewer(
-    cmd: ClientCommand,
-    session: &str,
-    state: &Arc<AppState>,
-) -> Option<Result<serde_json::Value, CommandError>> {
-    Some(match cmd {
-        // The viewport that arrives with it is ignored, deliberately.
-        ClientCommand::GetInitialState { .. } => match initial_state_for_size(state, session).await
-        {
-            Ok(snapshot) => to_json(snapshot, "state"),
-            Err(e) => Err(e),
-        },
-        // From the monitor's own history, never from tmux.
-        ClientCommand::GetScrollbackCells {
-            pane_id,
-            start,
-            end,
-        } => viewer_scrollback(state, session, pane_id, start, end).await,
-        // Read from tmux once per server, not once per request.
-        ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
-        // A static list compiled in; no tmux, no host.
-        ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
-        // A viewer is shown one session's screen, not the working directory of
-        // every pane on the socket, and never makes the host run `git`.
-        ClientCommand::ListGitWorktrees => Ok(serde_json::json!([])),
-        _ => return None,
-    })
-}
 
 pub(super) async fn handle_command(
     cmd: ClientCommand,
@@ -267,12 +204,9 @@ pub(super) async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
-        // A pinned server reports only its own session's repositories —
-        // otherwise a viewer learns the repo path and branch of every pane
-        // on the tmux server, including the writer's.
         ClientCommand::ListGitWorktrees => {
             let tx = state.monitor_tx(session).await?;
-            transport::git_worktrees_json(&tx, state.session_pin.as_deref()).await
+            transport::git_worktrees_json(&tx).await
         }
         ClientCommand::SetThemeMode { mode } => {
             let tx = state.monitor_tx(session).await?;

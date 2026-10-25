@@ -22,12 +22,9 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query 
   const names = running.filter(matches);
   // A session that is not running but has a snapshot is offered beside the
   // ones that are: choosing it rebuilds the session and then switches to it.
-  // A viewer gets no such item — a rebuild is a write.
-  const exited = env.readOnly
-    ? []
-    : restorableSessions
-        .filter((r) => !running.includes(r.name) && matches(r.name))
-        .map((r) => r.name);
+  const exited = restorableSessions
+    .filter((r) => !running.includes(r.name) && matches(r.name))
+    .map((r) => r.name);
   // A desktop list always holds at least localhost, so "more than one" is
   // what makes the section worth drawing; a web client's list is empty.
   const shownServers =
@@ -76,15 +73,14 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query 
     // Reaching a new machine is the desktop app's: the backend retargets its
     // monitor at the new socket, which a web client — served by a server
     // pinned to one socket at launch — has no way to do.
-    env.isTauri && !env.readOnly && separator,
-    env.isTauri &&
-      !env.readOnly && {
-        kind: 'item',
-        id: 'session-connect',
-        label: 'Connect over SSH…',
-        icon: 'connect',
-        testId: 'session-menu-connect',
-        action: event({ type: 'OPEN_CONNECT_FLOAT' }),
-      },
+    env.isTauri && separator,
+    env.isTauri && {
+      kind: 'item',
+      id: 'session-connect',
+      label: 'Connect over SSH…',
+      icon: 'connect',
+      testId: 'session-menu-connect',
+      action: event({ type: 'OPEN_CONNECT_FLOAT' }),
+    },
   ]);
 }

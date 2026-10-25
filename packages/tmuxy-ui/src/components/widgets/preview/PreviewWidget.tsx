@@ -15,13 +15,7 @@ import { usePreviewTheme } from './previewTheme';
 import { useKeyedRequest } from './useKeyedRequest';
 import type { WidgetProps } from '../registry';
 import { parsePreviewLines } from '../../../domain/preview';
-import {
-  useAppSelector,
-  useBindingOwnsKey,
-  useIsPaneInActiveWindow,
-  usePane,
-} from '../../../machines/appHooks';
-import { selectReadOnly } from '../../../machines/selectors/ui';
+import { useBindingOwnsKey, useIsPaneInActiveWindow, usePane } from '../../../machines/appHooks';
 
 /**
  * A plain key typed at the preview is nobody's: the pane runs no program that
@@ -51,23 +45,16 @@ function useSwallowedTyping(active: boolean) {
 
 export function PreviewWidget({ paneId, lines }: WidgetProps) {
   const { rev, themed } = parsePreviewLines(lines);
-  const readOnly = useAppSelector(selectReadOnly);
+
   const source = usePreviewSource(paneId);
   const theme = usePreviewTheme();
   // Both hooks every render: a `&&` between them would make the second conditional.
   const paneActive = !!usePane(paneId)?.active;
   const inActiveWindow = useIsPaneInActiveWindow(paneId);
   const active = paneActive && inActiveWindow;
-  const doc = useKeyedRequest(rev && !readOnly ? rev : null, source.readDocument);
+  const doc = useKeyedRequest(rev || null, source.readDocument);
   useSwallowedTyping(active);
 
-  if (readOnly) {
-    return (
-      <div className="preview-message">
-        A preview reads a file on the server&apos;s disk, which read-only viewers are not shown.
-      </div>
-    );
-  }
   if (!doc.value) {
     return <div className="preview-message">{doc.error ?? 'Reading the file…'}</div>;
   }

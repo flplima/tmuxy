@@ -39,7 +39,7 @@ const badgeSpan = (badge: { text: string; title: string } | null) =>
 interface SidebarTreeRowProps {
   row: Row;
   isSelected: boolean;
-  readOnly: boolean;
+
   activeWindowId: WindowId | null;
   activePaneId: PaneId | null;
   unreadPaneIds: readonly PaneId[];
@@ -65,7 +65,7 @@ interface SidebarTreeRowProps {
 export function SidebarTreeRow({
   row,
   isSelected,
-  readOnly,
+
   activeWindowId,
   activePaneId,
   unreadPaneIds,
@@ -119,7 +119,7 @@ export function SidebarTreeRow({
         onPointerDown={(e) => {
           // The chevron folds, the field renames, a right-click menus:
           // none of them starts a drag.
-          if (readOnly || e.button !== 0 || renamingWindowId === row.window.id) return;
+          if (e.button !== 0 || renamingWindowId === row.window.id) return;
           if ((e.target as HTMLElement).closest('button')) return;
           tabReorder.handlePointerDown(e, row.window.id, tabIndex);
         }}
@@ -242,7 +242,7 @@ export function SidebarTreeRow({
       data-pane-id={row.pane.tmuxId}
       data-pane-state={state}
       data-testid={`tree-pane-${row.pane.tmuxId}`}
-      draggable={!readOnly}
+      draggable
       onClick={(e) => {
         e.stopPropagation();
         activate(row);

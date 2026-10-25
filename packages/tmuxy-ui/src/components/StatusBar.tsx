@@ -17,7 +17,7 @@
 
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { RenderTabline } from '../App';
-import { useAppSelector, useReadOnly } from '../machines/appHooks';
+import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
 import { CONTAINER_PADDING_X } from '../constants/layout';
 import { isTauri } from '../utils/platform';
@@ -59,7 +59,6 @@ export const StatusBar = memo(function StatusBar({
   renderTabline?: RenderTabline;
 }) {
   const { leftOpen, rightOpen, leftWidth, rightWidth } = useAppSelector(selectSidebarLayout);
-  const readOnly = useReadOnly();
   const leftFocused = useAppSelector((ctx) => ctx.leftSidebarFocused);
   const rightFocused = useAppSelector((ctx) => ctx.rightSidebarFocused);
 
@@ -145,11 +144,7 @@ export const StatusBar = memo(function StatusBar({
             and a button that comes and goes must not push the ones that
             do not. */}
         <TabStripScroll />
-        {readOnly && (
-          <span className="read-only-badge" role="status">
-            Read-only
-          </span>
-        )}
+
         <NewTabButton />
         <TabOverviewToggle />
       </div>

@@ -14,11 +14,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // Resize the window to the initial size to ensure panes aren't tiny.
         // When running in a background process, the PTY may start small.
         // The browser will send a proper resize once it connects.
-        if !self.config.observer {
-            self.connection
-                .send_command(&initial_resize_command(&self.config.session))
-                .await?;
-        }
+        self.connection
+            .send_command(&initial_resize_command(&self.config.session))
+            .await?;
 
         // Source tmuxy config to ensure pane-border-status and other settings are applied
         if let Some(config_path) = crate::session::get_config_path() {
@@ -39,12 +37,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
         self.enforce_settings().await?;
 
         // Tell the helper scripts which binary runs this build's server verbs
-        // (see `session::SERVER_BIN_ENV`). A viewer changes nothing on the
-        // server it watches.
-        if !self.config.observer {
-            for cmd in crate::session::server_command_env() {
-                self.connection.send_command(&cmd).await?;
-            }
+        // (see `session::SERVER_BIN_ENV`).
+        for cmd in crate::session::server_command_env() {
+            self.connection.send_command(&cmd).await?;
         }
 
         // Enable flow control (tmux 3.2+)

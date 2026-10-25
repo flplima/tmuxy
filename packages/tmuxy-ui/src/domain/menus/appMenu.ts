@@ -91,17 +91,15 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
   return tidy([
     { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
     separator,
-    ...(env.readOnly
-      ? []
-      : LAYOUTS.map(
-          (l): MenuNode => ({
-            kind: 'item',
-            id: l.id,
-            label: l.label,
-            icon: l.icon,
-            action: action(l.id),
-          }),
-        )),
+    ...LAYOUTS.map(
+      (l): MenuNode => ({
+        kind: 'item',
+        id: l.id,
+        label: l.label,
+        icon: l.icon,
+        action: action(l.id),
+      }),
+    ),
     separator,
     {
       kind: 'item',
@@ -130,14 +128,14 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
     separator,
     // One switch for the machine, written back to the tmuxy config — not a
     // per-client preference like the theme.
-    !env.readOnly && {
+    {
       kind: 'checkbox',
       id: 'view-cursor-blink',
       label: 'Blinking Cursor',
       checked: ctx.cursorBlink,
       action: event({ type: 'TOGGLE_CURSOR_BLINK' }),
     },
-    !env.readOnly && {
+    {
       kind: 'checkbox',
       id: 'view-send-ask',
       label: 'Ask Before Sending Keys',
@@ -146,8 +144,7 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
     },
     // The native blur only exists on macOS, and only the desktop app has a
     // window to make see-through.
-    !env.readOnly &&
-      env.isTauri &&
+    env.isTauri &&
       env.isMac && {
         kind: 'checkbox',
         id: 'view-transparency',
@@ -229,14 +226,13 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
  */
 export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'): MenuSpec {
   const own: MenuNode[] = tidy([
-    !env.readOnly &&
-      !env.isDemo && {
-        kind: 'item',
-        id: 'session-reload-config',
-        label: 'Reload Config',
-        icon: 'reload',
-        action: action('session-reload-config'),
-      },
+    !env.isDemo && {
+      kind: 'item',
+      id: 'session-reload-config',
+      label: 'Reload Config',
+      icon: 'reload',
+      action: action('session-reload-config'),
+    },
     env.isTauri && {
       kind: 'item',
       id: 'restart-app',
@@ -320,7 +316,7 @@ export function appMenuSpec(
   options: AppMenuOptions = {},
 ): MenuSpec {
   return tidy([
-    !env.readOnly && {
+    {
       kind: 'submenu',
       id: 'menu-pane',
       label: 'Pane',
@@ -330,9 +326,9 @@ export function appMenuSpec(
       kind: 'submenu',
       id: 'menu-tab',
       label: 'Tab',
-      children: tabMenuSpec(ctx, env, { windowId: null }),
+      children: tabMenuSpec(ctx, { windowId: null }),
     },
-    !env.readOnly && {
+    {
       kind: 'submenu',
       id: 'menu-session',
       label: 'Session',
@@ -342,14 +338,13 @@ export function appMenuSpec(
     { kind: 'submenu', id: 'menu-view', label: 'View', children: viewMenuSpec(ctx, env) },
     // The trace is a developer's tool for their own machine; the demo's
     // visitors have nothing to trace it into.
-    !env.readOnly &&
-      !env.isDemo && {
-        kind: 'submenu',
-        id: 'menu-debug',
-        label: 'Debug',
-        onOpen: event({ type: 'FETCH_TRACE_SETTINGS' }),
-        children: debugMenuSpec(ctx, env),
-      },
+    !env.isDemo && {
+      kind: 'submenu',
+      id: 'menu-debug',
+      label: 'Debug',
+      onOpen: event({ type: 'FETCH_TRACE_SETTINGS' }),
+      children: debugMenuSpec(ctx, env),
+    },
     separator,
     ...appItemsSpec(env, 'hamburger'),
   ]);

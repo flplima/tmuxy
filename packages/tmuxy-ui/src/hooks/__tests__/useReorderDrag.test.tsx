@@ -7,7 +7,7 @@ import { DRAG_THRESHOLD_PX, LONG_PRESS_MS } from '../../utils/tabOverview';
 import type { WindowId } from '../../domain/ids';
 
 /** Three cards on one row, 100px apart, each 80px wide. */
-function setup(options: { axis?: 'x' | 'xy'; readOnly?: boolean } = {}) {
+function setup(options: { axis?: 'x' | 'xy' } = {}) {
   const container = document.createElement('div');
   const ids = [wid('@1'), wid('@2'), wid('@3')];
   const cards = ids.map((id, i) => {
@@ -27,7 +27,6 @@ function setup(options: { axis?: 'x' | 'xy'; readOnly?: boolean } = {}) {
       containerRef,
       cardSelector: '.card[data-window-id]',
       axis: options.axis ?? 'x',
-      readOnly: options.readOnly ?? false,
       onReorder,
     }),
   );
@@ -119,23 +118,6 @@ describe('useReorderDrag', () => {
     expect(hook.result.current.dragging).toMatchObject({ windowId: ids[0], active: true });
     act(() => hook.result.current.handlePointerMove(touch(250)));
     expect(hook.result.current.dragging?.overIndex).toBe(2);
-  });
-
-  it('a viewer presses but never drags', () => {
-    vi.useFakeTimers();
-    const { hook, ids, cards, pointer } = setup({ readOnly: true });
-    act(() =>
-      hook.result.current.handlePointerDown(
-        pointer(cards[0], { pointerType: 'touch', x: 40 }),
-        ids[0],
-        0,
-      ),
-    );
-    act(() => {
-      vi.advanceTimersByTime(LONG_PRESS_MS);
-    });
-    act(() => hook.result.current.handlePointerMove(pointer(cards[0], { x: 250 })));
-    expect(hook.result.current.dragging).toBeNull();
   });
 
   it('a wrapped grid drops by the nearest row, a strip by x alone', () => {
