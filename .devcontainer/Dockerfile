@@ -79,9 +79,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 # the wasm-bindgen the v86 build needs. The env var above is what tells it a
 # browser is already here, so it downloads none.
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-COPY bin/install-dev-tools /tmp/install-dev-tools
+# The script reads its font list from beside itself, so both are copied.
+COPY bin/install-dev-tools bin/chromium-fonts.txt /tmp/
 RUN /tmp/install-dev-tools --full \
-    && rm /tmp/install-dev-tools \
+    && rm /tmp/install-dev-tools /tmp/chromium-fonts.txt \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 
