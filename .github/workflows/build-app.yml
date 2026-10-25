@@ -1122,6 +1122,11 @@ jobs:
       # held to that repo's checks on every release: a release that drifts from
       # them is found here, not in a review months later.
       - name: The cask passes Homebrew's own checks
+        # `brew audit --online` asks the GitHub API about the repo. Without a
+        # token it shares the runner IP's anonymous limit, which other jobs on
+        # GitHub's macOS fleet use up: v0.1.2's audit failed twice on that alone.
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           brew style --cask flplima/tap/tmuxy
