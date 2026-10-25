@@ -307,3 +307,54 @@ pane_window() {
 refresh_panes() {
   _tmux list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}' > /dev/null 2>&1
 }
+
+# The name for a session the user did not name: an adjective and a noun from
+# session-names.json (the UI draws from the same lists, in
+# tmuxy-ui/src/domain/sessionNames.ts), like `drifting-cedar`, that no session
+# on the server and no snapshot has. The pairs are tried from a random one
+# onward, so a number is added only once every pair is taken. awk reads the
+# lists, one word per line, since jq is not a dependency of the CLI.
+memorable_session_name() {
+  local file="$SCRIPTS_DIR/session-names.json" taken word
+  local adjectives=() nouns=()
+  taken=$(_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  # A snapshot's name is taken too: a session made under it would be saved
+  # over it.
+  if find_server_cmd 2>/dev/null; then
+    taken="$taken"$'\n'"$("${SERVER_CMD[@]}" session snapshots 2>/dev/null | cut -f1 || true)"
+  fi
+  while IFS= read -r word; do adjectives+=("$word"); done < <(_session_words adjectives "$file")
+  while IFS= read -r word; do nouns+=("$word"); done < <(_session_words nouns "$file")
+  local per=${#nouns[@]}
+  local count=$((${#adjectives[@]} * per))
+  local start=$(((RANDOM * 32768 + RANDOM) % count)) i pick name
+  for ((i = 0; i < count; i++)); do
+    pick=$(((start + i) % count))
+    name="${adjectives[pick / per]}-${nouns[pick % per]}"
+    if ! _name_taken "$name" "$taken"; then
+      echo "$name"
+      return
+    fi
+  done
+  local base="${adjectives[start / per]}-${nouns[start % per]}" n=2
+  while _name_taken "$base-$n" "$taken"; do n=$((n + 1)); done
+  echo "$base-$n"
+}
+
+# Whether a name is one of the newline-separated names: a pattern match, not a
+# grep per candidate, since there can be a thousand candidates.
+_name_taken() {
+  case $'\n'"$2"$'\n' in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
+# The words of one list in session-names.json, one per line.
+_session_words() {
+  awk -v list="\"$1\"" '
+    index($0, list) { on = 1; next }
+    on && /\]/ { exit }
+    on { gsub(/[",[:space:]]/, ""); if ($0 != "") print }
+  ' "$2"
+}

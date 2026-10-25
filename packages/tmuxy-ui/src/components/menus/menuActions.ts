@@ -125,20 +125,9 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       break;
 
     // Session actions
-    case 'session-new': {
-      // Create a fresh session AND switch to it so the action has a visible
-      // effect — bare `new-session -d` created a detached session with no UI
-      // feedback ("did nothing visible"). Mirrors the session picker's "new"
-      // path: create, then switch. On web the switch reconnects with
-      // ?session=<name> and the server's attach creates the session if the
-      // create command hasn't landed yet; on Tauri the create must precede
-      // switch-client, and XState delivers both events to the tmux actor in
-      // order. The name mirrors the picker's `tmuxy_<n>` convention.
-      const newSession = `tmuxy_${Date.now()}`;
-      send({ type: 'DISPATCH_OP', op: TmuxOp.NewSession({ name: newSession }) });
-      send({ type: 'SWITCH_SESSION', sessionName: newSession });
+    case 'session-new':
+      send({ type: 'NEW_SESSION' });
       break;
-    }
     case 'session-detach':
       // Goes through DETACH_CLIENT, not a raw `detach-client`: the backend has
       // to know the detach was deliberate or its monitor treats the ended

@@ -111,6 +111,10 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../tmuxy-cli/bin/tmuxy/session-switch"),
     ),
     (
+        "tmuxy/session-names.json",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/session-names.json"),
+    ),
+    (
         "tmuxy/tmuxy-widget",
         include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget"),
     ),

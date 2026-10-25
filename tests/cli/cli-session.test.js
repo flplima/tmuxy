@@ -8,7 +8,15 @@
  * The snapshot logic itself is Rust, tested in `tmuxy_core::session_snapshot`.
  */
 
+const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
+
+const WORDS = require(
+  path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy/session-names.json'),
+);
+const PAIRS = WORDS.adjectives.flatMap((adjective) =>
+  WORDS.nouns.map((noun) => `${adjective}-${noun}`),
+);
 
 describe('tmuxy session snapshots', () => {
   test('save and snapshots are reads: handed to the binary, no run-shell', () => {
@@ -81,5 +89,49 @@ describe('tmuxy pane restore-cmd', () => {
       runCLI(['pane', 'restore-cmd'], { env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' } }).exitCode,
     ).not.toBe(0);
     expect(runCLI(['pane', 'restore-cmd', 'vim'], { env: { TMUX_PANE: '' } }).exitCode).not.toBe(0);
+  });
+});
+
+describe('tmuxy session switch: new', () => {
+  /** What `new` made, from the run-shell that made it. */
+  const created = (taken, snapshots = []) => {
+    const { exitCode, tmuxCalls, stdout } = runCLI(['session', 'switch', '--float'], {
+      input: 'new\n',
+      env: {
+        MOCK_TMUX_LIST_SESSIONS: taken.join('\\n'),
+        MOCK_SERVER_SNAPSHOTS: snapshots
+          .map((name) => `${name}\\t2026-10-25 10:00\\texited`)
+          .join('\\n'),
+      },
+    });
+    expect(exitCode).toBe(0);
+    const create = tmuxCalls.find((call) => /new-session/.test(call.args[1] ?? ''));
+    expect(create.args[0]).toBe('run-shell');
+    const name = create.args[1].match(/new-session -d -s '([^']+)'$/)[1];
+    // The float hands the switch on by the same name.
+    expect(stdout).toContain(name);
+    return name;
+  };
+
+  test('names the session with an adjective and a noun from the shared lists', () => {
+    expect(PAIRS).toContain(created(['tmuxy', 'work']));
+  });
+
+  test('never takes a name a session already has', () => {
+    const free = PAIRS[PAIRS.length - 1];
+    expect(created(PAIRS.filter((name) => name !== free))).toBe(free);
+  });
+
+  /** A session made under a snapshot's name would be saved over the snapshot. */
+  test("never takes a snapshot's name either", () => {
+    // The snapshot comes first from almost any start, so only the check skips it.
+    const [saved, free] = PAIRS.slice(-2);
+    expect(created(PAIRS.slice(0, -2), [saved])).toBe(free);
+  });
+
+  test('adds a number only once every pair is taken', () => {
+    const name = created([...PAIRS, ...PAIRS.map((pair) => `${pair}-2`)]);
+    expect(name).toMatch(/^[a-z]+-[a-z]+-3$/);
+    expect(PAIRS).toContain(name.replace(/-3$/, ''));
   });
 });

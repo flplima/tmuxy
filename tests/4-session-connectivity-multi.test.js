@@ -435,7 +435,8 @@ describe('Scenario 24: Session Switcher (web)', () => {
         ctx.page,
         async () => {
           const name = await sessionName();
-          if (name === primaryName || !/^tmuxy_\d+$/.test(name ?? '')) return false;
+          // New Session names it like `drifting-cedar` (domain/sessionNames.ts).
+          if (name === primaryName || !/^[a-z]+-[a-z]+(-\d+)?$/.test(name ?? '')) return false;
           created = name;
           return true;
         },

@@ -7,4 +7,9 @@ if [ "${1:-} ${2:-}" = "agent state" ]; then
   echo "${MOCK_AGENT_STATE:-}"
   exit 0
 fi
+# The snapshot listing (`name<TAB>saved<TAB>state` per line), when a test names some.
+if [ "${1:-} ${2:-}" = "session snapshots" ] && [ -n "${MOCK_SERVER_SNAPSHOTS:-}" ]; then
+  printf '%b\n' "$MOCK_SERVER_SNAPSHOTS"
+  exit 0
+fi
 echo "mock-server-started $*"

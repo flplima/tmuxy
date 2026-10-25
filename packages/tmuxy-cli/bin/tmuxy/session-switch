@@ -53,8 +53,7 @@ echo ""
 read -rp 'Select session (number or "new"): ' choice
 
 if [ "$choice" = "new" ]; then
-  ts=$(date +%s)
-  new_name="tmuxy_${ts}"
+  new_name=$(memorable_session_name)
   _run_safe "new-session -d -s $(shquote "$new_name")"
   selected="$new_name"
 elif [[ "$choice" =~ ^[0-9]+$ ]]; then

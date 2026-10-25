@@ -249,6 +249,7 @@ export type AppMachineEvent =
 
   // Session & server events
   | { type: 'SWITCH_SESSION'; sessionName: string }
+  | { type: 'NEW_SESSION' }
   | { type: 'OPEN_CONNECT_FLOAT' }
   | { type: 'SESSIONS_UPDATED'; sessions: SessionTreeNode[] }
   | { type: 'SNAPSHOTS_UPDATED'; restorableSessions: RestorableSession[] }

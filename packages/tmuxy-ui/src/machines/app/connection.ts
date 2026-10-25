@@ -10,6 +10,7 @@ import { PHONE_COLS, PHONE_ROWS } from '../../utils/phoneLayout';
 import { gridExtent } from './helpers';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
 import { TmuxOp } from '../../domain/commands';
+import { memorableSessionName } from '../../domain/sessionNames';
 
 export const connectionGlobalEvents = {
   LOG_APPEND: { actions: 'connection_logAppend' },
@@ -52,6 +53,7 @@ export const connectionGlobalEvents = {
     actions: 'connection_detachClient',
   },
   SWITCH_SESSION: { actions: 'connection_switchSession' },
+  NEW_SESSION: { actions: 'connection_newSession' },
 } as const;
 
 export const connectionActions = {
@@ -232,6 +234,23 @@ export const connectionActions = {
         cmd: 'detach_client',
       }),
     );
+  }),
+
+  // Create a session AND switch to it, so the action has a visible effect. On
+  // web the switch reconnects with ?session=<name>, and the server's attach
+  // creates the session if the create has not landed yet; on Tauri the create
+  // must precede switch-client, which the two raised events keep in order. The
+  // name is one no session in the last poll has, nor the attached one, nor a
+  // snapshot the switcher offers to restore (a session made under a snapshot's
+  // name would be saved over it).
+  connection_newSession: act(({ context, enqueue }) => {
+    const sessionName = memorableSessionName([
+      context.sessionName,
+      ...context.sessions.map((session) => session.sessionName),
+      ...context.restorableSessions.map((session) => session.name),
+    ]);
+    enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.NewSession({ name: sessionName }) });
+    enqueue.raise({ type: 'SWITCH_SESSION' as const, sessionName });
   }),
 
   connection_switchSession: act(({ event, enqueue }) => {
