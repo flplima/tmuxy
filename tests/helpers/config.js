@@ -20,7 +20,7 @@ const CDP_PORT = Number(process.env.TMUXY_CDP_PORT || 9222);
  * as a wall of unrelated flakes — sessions that "don't exist", waits that time
  * out, a different test failing each run — rather than as a port conflict.
  *
- * 9000 belongs to a released build and `bin/dev`; this suite takes 9100, which
+ * 9000 belongs to a released build and `bin/dev-server`; this suite takes 9100, which
  * a dev server or a second agent cannot collide with by accident.
  */
 const DEFAULT_PORT = 9100;

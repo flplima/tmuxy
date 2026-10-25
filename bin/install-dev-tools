@@ -72,7 +72,7 @@ install_crate() {
 }
 
 echo "[dev-tools] cargo tools"
-# `npm start` is `bin/dev` is `cargo watch`: without it there is no dev server.
+# `npm start` is `bin/dev-server run` is `cargo watch`: without it there is no dev server.
 install_crate cargo-watch
 
 if [ "$FULL" -eq 1 ]; then

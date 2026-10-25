@@ -18,11 +18,11 @@ never collide:
 | Environment | Socket | Set by |
 | --- | --- | --- |
 | Release bundle | `tmuxy` | nothing — the `DEFAULT_TMUX_SOCKET` fallback in `tmuxy-core/src/session.rs` |
-| Development | `tmuxy-dev` | `bin/dev`, which exports it so the server it spawns agrees |
+| Development | `tmuxy-dev` | `bin/dev-server`, which exports it so the server it spawns agrees |
 | E2E tests | `tmuxy-test` | `tests/jest.setup.js` via `tests/helpers/tmux-socket.js` |
 
 The development socket is identical across bare metal, the local devcontainer
-and Codespaces: all three reach it through `bin/dev`, so none of them hardcodes
+and Codespaces: all three reach it through `bin/dev-server`, so none of them hardcodes
 a socket of its own.
 
 A `TMUX_SOCKET` value containing a slash is treated as a **full socket path** (`tmux -S <path>`); any other value is a **socket name** in tmux's default socket directory (`tmux -L <name>`). The Rust side resolves via `tmux_socket()` / `tmux_socket_args()` in `tmuxy-core/src/session.rs` and always passes the socket flag explicitly, which also overrides an inherited `$TMUX` — the server behaves identically whether launched from a terminal, a tmux pane, or Finder. Every bundled shell script sources the same resolution from `packages/tmuxy-cli/bin/tmuxy/_lib` (or defines it inline in `packages/tmuxy-cli/bin/tmuxy-cli`); none may call bare `tmux`.
