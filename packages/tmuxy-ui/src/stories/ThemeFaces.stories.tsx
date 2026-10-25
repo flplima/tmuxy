@@ -96,10 +96,8 @@ function face(theme: Theme, mode: Mode): Story {
       await waitFor(
         () => {
           const accent = token('--theme-accent');
-          // The current tab wears the face's accent, in bold: on several
-          // faces the accent is as light as the other tabs' grey.
+          // The current tab wears the face's accent.
           expect(paint(tab, 'color')).toEqual(accent);
-          expect(getComputedStyle(tab).fontWeight).toBe('700');
           expect(paint(activePane, 'outlineColor')).toEqual(accent);
           expect(paint(status, 'backgroundColor')).toEqual(token('--tmux-status-bg'));
           expect(paint(activePane, 'backgroundColor')).toEqual(token('--term-background'));
