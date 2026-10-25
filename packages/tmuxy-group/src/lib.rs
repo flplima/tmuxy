@@ -2,11 +2,11 @@
 //! as `tmuxy-server group <verb>`.
 //!
 //! The rules live in `tmuxy_core::groups`; this reads the panes once, asks it
-//! for the commands and runs them. The `bin/tmuxy/pane-group-*` scripts are
-//! its names: the UI, the key bindings and session restore call them inside
+//! for the commands and runs them. The `bin/tmuxy/pane-group` script is its
+//! name: the UI, the key bindings and session restore call it inside
 //! `tmux run-shell`, where these tmux calls are tmux-internal (see
 //! `tmuxy_core::session::tmux_output`). A refusal prints
-//! `pane-group-<verb>: <why>` and exits 1.
+//! `pane-group <verb>: <why>` and exits 1.
 
 use tmuxy_core::groups::{self, Context, Direction, Invocation, Leave, Panes, Side};
 use tmuxy_core::session::tmux_output as tmux;
@@ -101,7 +101,7 @@ pub fn run(args: GroupArgs) {
         Ok(None) => {}
         Err(Outcome::Exit(code)) => std::process::exit(code),
         Err(Outcome::Fail(message)) => {
-            eprintln!("pane-group-{name}: {message}");
+            eprintln!("pane-group {name}: {message}");
             std::process::exit(1);
         }
     }
@@ -258,10 +258,7 @@ fn context() -> Context {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     Context {
-        close_script: scripts
-            .join("pane-group-close")
-            .to_string_lossy()
-            .into_owned(),
+        close_command: format!("{} close", scripts.join("pane-group").display()),
         rev_token: format!(
             "{}.{}.{}",
             now.as_secs(),

@@ -1,6 +1,0 @@
-#!/bin/bash
-# Close pane $1; a member on screen hands its place to the next member first. Rules: tmuxy_core::groups, run by the `group close` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb close "$@"

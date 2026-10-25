@@ -352,7 +352,7 @@ export function reconcileMoveWindow(
  * Predicts the visible-slot swap of a pane-group tab click: the clicked
  * (parked) member takes the previously-visible member's window and geometry;
  * the previously-visible member parks in the clicked member's old window.
- * Mirrors the guest pane-group-switch script (resize-window ; swap-pane).
+ * Mirrors the guest pane-group switch script (resize-window ; swap-pane).
  * Replaces the machine-level groupSwitchDimOverrides freeze + its 500/550/
  * 750ms timers (review follow-up #8: one owner per optimistic hold).
  */

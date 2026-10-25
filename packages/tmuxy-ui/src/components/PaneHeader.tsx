@@ -156,7 +156,7 @@ export function PaneHeader({
   const handleClosePane = (e: React.MouseEvent, forPaneId?: PaneId) => {
     e.preventDefault();
     e.stopPropagation();
-    // Uses CLOSE_PANE which routes through pane-group-close.sh
+    // Uses CLOSE_PANE which routes through `pane-group close`
     // to handle both grouped and ungrouped panes correctly — including
     // closing a PARKED member, which is the one thing a single shared button
     // could never express.

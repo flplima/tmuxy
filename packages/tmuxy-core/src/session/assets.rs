@@ -79,44 +79,12 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../../bin/tmuxy/reap-orphan-shells"),
     ),
     (
-        "tmuxy/pane-group-add",
-        include_str!("../../../../bin/tmuxy/pane-group-add"),
-    ),
-    (
-        "tmuxy/pane-group-park",
-        include_str!("../../../../bin/tmuxy/pane-group-park"),
+        "tmuxy/pane-group",
+        include_str!("../../../../bin/tmuxy/pane-group"),
     ),
     (
         "tmuxy/paste-synced",
         include_str!("../../../../bin/tmuxy/paste-synced"),
-    ),
-    (
-        "tmuxy/pane-group-move",
-        include_str!("../../../../bin/tmuxy/pane-group-move"),
-    ),
-    (
-        "tmuxy/pane-group-join",
-        include_str!("../../../../bin/tmuxy/pane-group-join"),
-    ),
-    (
-        "tmuxy/pane-group-leave",
-        include_str!("../../../../bin/tmuxy/pane-group-leave"),
-    ),
-    (
-        "tmuxy/pane-group-close",
-        include_str!("../../../../bin/tmuxy/pane-group-close"),
-    ),
-    (
-        "tmuxy/pane-group-next",
-        include_str!("../../../../bin/tmuxy/pane-group-next"),
-    ),
-    (
-        "tmuxy/pane-group-prev",
-        include_str!("../../../../bin/tmuxy/pane-group-prev"),
-    ),
-    (
-        "tmuxy/pane-group-switch",
-        include_str!("../../../../bin/tmuxy/pane-group-switch"),
     ),
     ("tmuxy/stack", include_str!("../../../../bin/tmuxy/stack")),
     (

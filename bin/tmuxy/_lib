@@ -5,8 +5,8 @@
 # values: float | sidebar-left | sidebar-right. A window
 # without @tmuxy-window-type is a tab.
 #
-# Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group-* scripts
-# hand their arguments to the server binary's `group` verb (`group_verb`).
+# Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group script
+# hands its arguments to the server binary's `group` verb (`group_verb`).
 
 # The session hidden pane-group members are parked in. Kept out of every session
 # picker/tree (matches tmuxy-core `STASH_SESSION`).
@@ -139,9 +139,9 @@ find_server_cmd() {
   fi
 }
 
-# Run a pane-group operation: the pane-group-* scripts are its names, and keep
-# their arguments, output and exit status. TMUXY_SCRIPTS_DIR names the
-# directory whose pane-group-close a member's pane-died hook runs.
+# Run a pane-group operation: the pane-group script is its name, and keeps
+# its arguments, output and exit status. TMUXY_SCRIPTS_DIR names the
+# directory whose `pane-group close` a member's pane-died hook runs.
 # Args: $1=verb, then the script's own arguments
 group_verb() {
   find_group_cmd || exit 1

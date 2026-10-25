@@ -1,8 +1,8 @@
 /**
- * Drive a `bin/tmuxy/pane-group-*` script with a stub server binary.
+ * Drive `bin/tmuxy/pane-group <verb>` with a stub server binary.
  *
- * The scripts are names for the server binary's `group` verb; what they owe
- * their callers is the hand-off itself — the verb, the arguments untouched,
+ * The script is a name for the server binary's `group` verb; what it owes
+ * its callers is the hand-off itself — the verb, the arguments untouched,
  * the scripts directory for the pane-died hook, and the binary's own output
  * and exit status. The stub prints what it was handed and exits with
  * `STUB_EXIT`. With `standalone`, a stub `tmuxy-group` (the v86 guest's
@@ -18,13 +18,13 @@ const SCRIPTS_DIR = path.resolve(__dirname, '../../../bin/tmuxy');
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**
- * @param {string} script - Script name, e.g. `pane-group-move`
- * @param {string[]} args - The script's arguments
+ * @param {string} verb - The group verb, e.g. `move`
+ * @param {string[]} args - The verb's arguments
  * @param {Record<string, string>} [env] - Extra environment
  * @param {{ standalone?: boolean }} [opts]
  * @returns {{ stdout: string, stderr: string, exitCode: number | null }}
  */
-function runGroupScript(script, args, env = {}, { standalone = false } = {}) {
+function runGroupScript(verb, args, env = {}, { standalone = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-group-'));
   try {
     fs.writeFileSync(
@@ -44,7 +44,7 @@ function runGroupScript(script, args, env = {}, { standalone = false } = {}) {
     const base = { ...process.env };
     delete base.TMUXY_SERVER_BIN;
     delete base.TMUXY_SERVER_SUBCOMMAND;
-    const result = spawnSync('bash', [path.join(SCRIPTS_DIR, script), ...args], {
+    const result = spawnSync('bash', [path.join(SCRIPTS_DIR, 'pane-group'), verb, ...args], {
       encoding: 'utf8',
       env: { ...base, PATH: `${dir}:${MOCKS_DIR}:${process.env.PATH}`, ...env },
     });

@@ -8,12 +8,12 @@
  * right after a live swap has moved the panes.
  *
  * - A member dragged along its own group's header moves to the share under
- *   the pointer (`pane-group-move`).
+ *   the pointer (`pane-group move`).
  * - An ungrouped pane dropped on another pane's header joins that pane's
  *   group, or forms one with it, at the gap nearest the pointer
- *   (`pane-group-join`).
+ *   (`pane-group join`).
  * - A parked member dragged out of its header leaves the group: next to the
- *   pane it is dropped on, or as a tab of its own (`pane-group-leave`).
+ *   pane it is dropped on, or as a tab of its own (`pane-group leave`).
  */
 
 import type { TmuxPane } from '../domain/client';

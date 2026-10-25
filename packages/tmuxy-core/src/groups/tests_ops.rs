@@ -126,7 +126,7 @@ fn join_parks_the_pane_sized_to_the_visible_slot_at_its_place() {
             "break-pane -d -s %2 -t __tmuxy_stash:",
             "set-option -p -t %2 @tmuxy-group-id g1",
             "set-option -p -t %2 remain-on-exit on",
-            "set-hook -p -t %2 pane-died run-shell \"bash /s/pane-group-close %2\"",
+            "set-hook -p -t %2 pane-died run-shell \"bash /s/pane-group close %2\"",
             "resize-window -t %2 -x 100 -y 30",
             "set-option -p -t %1 @tmuxy-group-pos 0",
             "set-option -p -t %2 @tmuxy-group-pos 1",

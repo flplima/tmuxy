@@ -102,7 +102,7 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 | `tmuxy-ui` | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, and the v86 client-side adapter (real tmux in an in-browser x86 emulator). |
 | `tmuxy-wasm` | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script. |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
-| `tmuxy-group` | The pane-group operations the `pane-group-*` scripts run (`tmuxy-server group <verb>`), over the rules in `tmuxy_core::groups` — also built as a `tmuxy-group` binary so the v86 guest, which has no server, can run them. |
+| `tmuxy-group` | The pane-group operations the `pane-group` script runs (`tmuxy-server group <verb>`), over the rules in `tmuxy_core::groups` — also built as a `tmuxy-group` binary so the v86 guest, which has no server, can run them. |
 | `tmuxy-pty` | The terminal each pane of the CheerpX guest runs on: CheerpX gives every process one pty, so the guest's patched tmux runs a pane on a socket pair under this helper, which does the line discipline, and its LD_PRELOAD (`preload.c`) supplies the process-group behaviour CheerpX lacks. See `packages/tmuxy-ui/cheerpx/README.md`. |
 
 ## Related Documentation

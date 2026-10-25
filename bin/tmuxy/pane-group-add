@@ -1,6 +1,0 @@
-#!/bin/bash
-# A new pane in $1's group (a new group when it has none), shown in its place. Rules: tmuxy_core::groups, run by the `group add` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb add "$@"

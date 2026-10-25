@@ -10,11 +10,11 @@ use super::*;
 // Restore
 // =============================================================================
 
-/// The helper that parks a restored group member (`bin/tmuxy/pane-group-park`).
-pub(super) fn park_script() -> String {
+/// The script whose `park` verb parks a restored group member (`bin/tmuxy/pane-group`).
+pub(super) fn group_script() -> String {
     crate::session::bin_dir()
         .join("tmuxy")
-        .join("pane-group-park")
+        .join("pane-group")
         .to_string_lossy()
         .into_owned()
 }
@@ -385,7 +385,7 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
 
 /// Hidden group members, now that every visible member carries its tag:
 /// each is split off its group's visible member and parked in the stash
-/// (`pane-group-park`, the half of `pane group add` that hides a pane),
+/// (`pane-group park`, the half of `pane group add` that hides a pane),
 /// which prints the new pane's id for what follows. The split and the break
 /// leave the anchor's window as it was, but a layout is re-applied to be
 /// sure, since the select-layout of `pane_steps` ran before the split.
@@ -406,8 +406,8 @@ fn hidden_member_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mu
         let Some((w, p)) = anchor else { continue };
         let key = format!("HID{n}");
         let park = format!(
-            "bash {} {} {} {}{}",
-            shell_quote(&park_script()),
+            "bash {} park {} {} {}{}",
+            shell_quote(&group_script()),
             shell_quote(&pane_target(s, w.index, p.index)),
             shell_quote(member.group_id.as_str()),
             shell_quote(&cwd_or_fallback(&member.cwd, options)),

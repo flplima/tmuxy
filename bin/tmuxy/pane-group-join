@@ -1,6 +1,0 @@
-#!/bin/bash
-# Make pane $1 a member of $2's group, out of view. Rules: tmuxy_core::groups, run by the `group join` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb join "$@"

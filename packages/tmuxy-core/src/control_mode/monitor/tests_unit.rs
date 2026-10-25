@@ -126,13 +126,21 @@ fn a_window_with_no_panes_yet_is_still_asked() {
 fn test_is_multi_step_run_shell_matches_pane_group_scripts() {
     // Real-world commands the frontend sends through SEND_TMUX_COMMAND.
     assert!(is_multi_step_run_shell(
-        "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group-add %3 80 24\""
+        "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group add %3 80 24\""
     ));
     assert!(is_multi_step_run_shell(
-        "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group-close %3\""
+        "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group close %3\""
     ));
     assert!(is_multi_step_run_shell(
         "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/float-create lazygit\""
+    ));
+    // `tmuxy pane group …` quotes the script's path.
+    assert!(is_multi_step_run_shell(
+        "run-shell \"bash '/home/x/.config/tmuxy/bin/tmuxy/pane-group' next %3\""
+    ));
+    // Only the listed verbs are held; join is not one of them.
+    assert!(!is_multi_step_run_shell(
+        "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group join %3 %1 0\""
     ));
 }
 

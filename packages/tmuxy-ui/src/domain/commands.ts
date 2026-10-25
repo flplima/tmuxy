@@ -340,22 +340,22 @@ export function toTmuxCommand(op: TmuxOp): string {
         : `set-option -w -t ${op.windowId} @tmuxy-${op.tag} ${op.value}`;
     case 'GroupAdd':
       return op.pane
-        ? script('pane-group-add', op.pane.paneId, op.pane.width, op.pane.height)
-        : script('pane-group-add', '#{pane_id}', '#{pane_width}', '#{pane_height}');
+        ? script('pane-group', 'add', op.pane.paneId, op.pane.width, op.pane.height)
+        : script('pane-group', 'add', '#{pane_id}', '#{pane_width}', '#{pane_height}');
     case 'GroupClose':
-      return script('pane-group-close', op.paneId);
+      return script('pane-group', 'close', op.paneId);
     case 'GroupSwitch':
-      return script('pane-group-switch', op.clickedPaneId);
+      return script('pane-group', 'switch', op.clickedPaneId);
     case 'GroupStep':
-      return script(`pane-group-${op.direction}`, op.paneId ?? '#{pane_id}');
+      return script('pane-group', op.direction, op.paneId ?? '#{pane_id}');
     case 'GroupMove':
-      return script('pane-group-move', op.paneId, op.index);
+      return script('pane-group', 'move', op.paneId, op.index);
     case 'GroupJoin':
-      return script('pane-group-join', op.paneId, op.anchorPaneId, op.index);
+      return script('pane-group', 'join', op.paneId, op.anchorPaneId, op.index);
     case 'GroupLeave':
       return op.to.kind === 'tab'
-        ? script('pane-group-leave', op.paneId, '--tab')
-        : script('pane-group-leave', op.paneId, '--beside', op.to.target, op.to.side);
+        ? script('pane-group', 'leave', op.paneId, '--tab')
+        : script('pane-group', 'leave', op.paneId, '--beside', op.to.target, op.to.side);
     case 'OpenFloat':
       return chromeWindow('float', op.name, op.run, op.splitFrom, op.index);
     case 'OpenSidebar':
@@ -426,7 +426,7 @@ export function isMultiStep(op: TmuxOp): boolean {
     case 'RawCommand':
       return (
         /^run-shell\b/.test(op.command) &&
-        /pane-group-(add|close|switch|next|prev)|float-create/.test(op.command)
+        /pane-group'? (add|close|switch|next|prev)|float-create/.test(op.command)
       );
     default:
       return false;
