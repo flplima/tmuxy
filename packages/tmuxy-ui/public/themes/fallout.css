@@ -147,7 +147,6 @@
   --text-secondary: #354423; /* 93% fg */
   --text-muted: var(--fallout-light-fg-dim);
   --text-dimmed: #354423; /* 93% fg */
-  --text-strong: #1c2611;
   --text-subtle: var(--fallout-light-fg-faint);
   --text-dark: var(--fallout-light-bg);
 

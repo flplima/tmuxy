@@ -350,10 +350,11 @@
   will-change: left, top, width, height;
 }
 
-/* Ghost indicator - shows dragged pane's current grid position */
+/* Where the dragged pane would land: the theme's accent, faint, with a
+   dotted edge. */
 .pane-drag-ghost {
-  border: 1px dashed var(--accent-green);
-  background: var(--accent-green-bg);
+  border: 1px dotted var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 25%, var(--term-background));
   opacity: 0.3;
   border-radius: var(--radius-md);
   z-index: 1;

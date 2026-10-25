@@ -101,13 +101,15 @@
   color: var(--text-primary);
 }
 
-/* Active tab: the theme's white on a dark face, its opposite on a light one,
-   and no filled pill. It says which tab is current, not where you are typing:
-   the accent is the active pane's outline, or a focused column's title. */
+/* Active tab: the theme's accent, in bold, and no filled pill. Bold as well,
+   because on several faces the accent is as light as the inactive tabs'
+   grey, and on a few (tokyonight, fallout and nord light) close in hue too.
+   FiraCode keeps one advance across weights, so the strip does not shift. */
 .tab-name-active,
 .tab-name-active:hover,
 .tab-name-active.is-previewing {
-  color: var(--text-strong);
+  color: var(--theme-accent);
+  font-weight: 700;
 }
 
 /* A tab being dragged rides with the pointer above its neighbours, with no
