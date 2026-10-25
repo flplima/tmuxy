@@ -28,17 +28,35 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // do nothing, silently). Keystrokes are the hot path — one command
         // per key — and the only way they fail is a vanished pane, which the
         // layout already shows; they go out bare.
-        let waiter = match reply {
-            Some(reply) => Some(ReplyWaiter::Caller(reply)),
-            None if reports_failure(&unescaped) => Some(ReplyWaiter::ReportFailure),
-            None => None,
+        //
+        // A `run-shell` nobody waits on is relayed (`run_shell`): its output
+        // comes back inside the reply instead of in a tmux 3.4 view-mode the
+        // UI does not draw. A caller that asked for the output gets it as
+        // tmux sends it.
+        let relay_key = run_shell::relay_key(self.next_reply_id + 1);
+        let relayed = match reply {
+            Some(_) => None,
+            None => run_shell::relay_run_shell(
+                &unescaped,
+                &relay_key,
+                &crate::session_snapshot::tmux_shell_command(),
+            ),
+        };
+        let (outgoing, waiter) = match (reply, relayed) {
+            (Some(reply), _) => (unescaped.clone(), Some(ReplyWaiter::Caller(reply))),
+            (None, Some(relayed)) => (relayed, Some(ReplyWaiter::RunShell(relay_key))),
+            (None, None) if reports_failure(&unescaped) => {
+                (unescaped.clone(), Some(ReplyWaiter::ReportFailure))
+            }
+            (None, None) => (unescaped.clone(), None),
         };
         let sent = match waiter {
-            None => self.connection.send_command(&unescaped).await,
+            None => self.connection.send_command(&outgoing).await,
             Some(waiter) => {
+                // The id `relay_key` was named after.
                 self.next_reply_id += 1;
                 let id = self.next_reply_id;
-                let lines = super::state::reply_wrapped_lines(id, &unescaped);
+                let lines = super::state::reply_wrapped_lines(id, &outgoing);
                 let sent = self.connection.send_commands_batch(&lines).await;
                 match (&sent, waiter) {
                     (Ok(()), waiter) => {
@@ -53,7 +71,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                             error: Some(e.to_string()),
                         });
                     }
-                    (Err(_), ReplyWaiter::ReportFailure) => {}
+                    (Err(_), ReplyWaiter::ReportFailure | ReplyWaiter::RunShell(_)) => {}
                 }
                 sent
             }
@@ -124,7 +142,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 }
                 // A long `run-shell` is a legitimate reason for a late END
                 // marker; with nobody waiting there is nothing to report.
-                Some((ReplyWaiter::ReportFailure, _)) | None => {}
+                Some((ReplyWaiter::ReportFailure | ReplyWaiter::RunShell(_), _)) | None => {}
             }
         }
     }

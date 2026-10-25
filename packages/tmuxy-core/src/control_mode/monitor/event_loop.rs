@@ -358,17 +358,30 @@ impl<C: ControlLink> TmuxMonitor<C> {
                             let _ = reply.send(CommandReply { output, error });
                         }
                         Some((ReplyWaiter::ReportFailure, _)) => {
-                            // A `display-message` this client ran is answered
-                            // inside its own block, so it is here as output,
-                            // not as a notification. Nothing else reads this
-                            // output; a caller's reply is left as tmux sent it.
-                            for text in output.lines().filter_map(super::parser::message_line) {
-                                if !text.is_empty() {
-                                    emitter.show_message(text);
-                                }
-                            }
+                            show_messages(emitter, output.lines());
                             if let Some(error) = error {
                                 emitter.emit_error(error);
+                            }
+                        }
+                        Some((ReplyWaiter::RunShell(key), _)) => {
+                            let relayed = super::run_shell::read_relayed(&output, &key);
+                            show_messages(emitter, relayed.before.into_iter());
+                            if let Some(error) = error {
+                                emitter.emit_error(error);
+                            }
+                            match relayed.answer {
+                                Some((0, text)) if text.is_empty() => {}
+                                Some((0, text)) => {
+                                    emitter.show_message(super::run_shell::clip_output(&text))
+                                }
+                                Some((rc, text)) if text.is_empty() => {
+                                    emitter.emit_error(format!("run-shell exited with status {rc}"))
+                                }
+                                Some((rc, text)) => emitter.emit_error(format!(
+                                    "run-shell exited with status {rc}: {}",
+                                    super::run_shell::clip_output(&text)
+                                )),
+                                None => {}
                             }
                         }
                         None => debug!(id, "reply for an expired or unknown request"),
@@ -391,5 +404,17 @@ impl<C: ControlLink> TmuxMonitor<C> {
         self.answer_state_requests();
 
         true
+    }
+}
+
+/// Show the `display-message` lines of a fire-and-forget command's output. A
+/// `display-message` this client ran is answered inside its own block, so it
+/// is here as output, not as a notification. Nothing else reads this output;
+/// a caller's reply is left as tmux sent it.
+fn show_messages<'a, E: StateEmitter>(emitter: &E, lines: impl Iterator<Item = &'a str>) {
+    for text in lines.filter_map(super::parser::message_line) {
+        if !text.is_empty() {
+            emitter.show_message(text);
+        }
     }
 }

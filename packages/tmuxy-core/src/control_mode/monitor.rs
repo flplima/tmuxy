@@ -8,6 +8,7 @@
 mod commands;
 mod event_loop;
 mod resize;
+mod run_shell;
 mod sync;
 
 use super::{parser, state};
@@ -59,6 +60,9 @@ enum ReplyWaiter {
     /// `%error` is reported to the emitter so the user learns why nothing
     /// happened.
     ReportFailure,
+    /// A fire-and-forget `run-shell`, relayed through the server option it
+    /// names (`run_shell`): what it printed is shown, and a failure reported.
+    RunShell(String),
 }
 
 /// Commands that can be sent to the monitor from external code
