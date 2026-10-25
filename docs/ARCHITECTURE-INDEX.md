@@ -31,6 +31,7 @@ Feature-to-files retrieval map for agents.
 | Performance harnesses | `perf`<br>`packages/tmuxy-ui/scripts` |
 | E2E and helper layers | `tests`<br>`tests/helpers` |
 | Cross-layer invariants and the test holding each | `docs/INVARIANTS.md` |
+| Every network connection (listeners, outbound requests, the website's analytics) | `docs/TELEMETRY.md` |
 
 ## Related docs
 

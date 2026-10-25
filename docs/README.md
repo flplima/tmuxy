@@ -46,6 +46,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [SECURITY.md](SECURITY.md) | Threat model, optional password auth, loopback by default, known risks (no TLS, file access, run-shell), deployment recommendations | Deploying tmuxy, adding network-facing features, or assessing risk |
 | [SECURITY-NETWORK.md](SECURITY-NETWORK.md) | Where the server listens, what it serves, and how to deploy it | Exposing a server beyond the machine it runs on |
 | [SECURITY-CONTENT.md](SECURITY-CONTENT.md) | Previewed files, session snapshots and hostile pane output | The preview widget, snapshots, anything that renders what a program wrote |
+| [TELEMETRY.md](TELEMETRY.md) | Every network connection the server, the desktop app, the CLI and the website make: when, to where, what is sent, how to turn it off | Adding anything that talks to the network; answering "does tmuxy phone home?" |
 | [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do (no terminal emulation, no live local scrollback buffer, no local echo, no canvas rendering, etc.) | Before proposing a new feature; understanding design boundaries |
 
 ### Testing
