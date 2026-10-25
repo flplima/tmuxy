@@ -137,6 +137,9 @@
   --font-size-md: 11px;
   --font-size-base: 12px;
   --font-size-lg: 13px;
+  /* The chrome's small text — the tree sidebar, the bottom status line — at
+     80% of the pane font. fontSizeManager sets it rounded to whole pixels. */
+  --tmuxy-small-font-size: calc(var(--tmuxy-font-size, 15px) * 0.8);
 
   /* Line Heights */
   --line-height-terminal: 24px; /* CHAR_HEIGHT */

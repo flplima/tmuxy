@@ -335,7 +335,7 @@
 
 .tmux-status-bar-content {
   font-family: var(--font-mono);
-  font-size: var(--tmuxy-font-size, 15px);
+  font-size: var(--tmuxy-small-font-size);
   line-height: var(--line-height-terminal);
   white-space: pre;
   margin: 0;
@@ -357,7 +357,7 @@
 
 .tmux-command-prompt {
   font-family: var(--font-mono);
-  font-size: var(--tmuxy-font-size, 15px);
+  font-size: var(--tmuxy-small-font-size);
   line-height: var(--line-height-terminal);
   color: var(--text-dark);
   white-space: pre;
@@ -367,7 +367,7 @@
 .tmux-command-input {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: var(--tmuxy-font-size, 15px);
+  font-size: var(--tmuxy-small-font-size);
   line-height: var(--line-height-terminal);
   color: var(--text-dark);
   background: transparent;
@@ -431,7 +431,7 @@
    80 columns with 1ch either side (components/statusLineHints.ts). */
 .statusline-hints {
   color: var(--text-dark);
-  font-size: var(--tmuxy-font-size, 15px);
+  font-size: var(--tmuxy-small-font-size);
   line-height: var(--line-height-terminal);
   font-family: var(--font-mono);
   white-space: pre;
@@ -483,7 +483,7 @@
 .statusline-session {
   color: var(--text-dark);
   font-family: var(--font-mono);
-  font-size: var(--tmuxy-font-size, 15px);
+  font-size: var(--tmuxy-small-font-size);
   padding: var(--spacing-md) var(--spacing-lg);
   border-radius: var(--radius-md);
 }

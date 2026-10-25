@@ -63,9 +63,10 @@ program gives up is only a horizontal two-finger scroll.
 
 **macOS** installs an `NSEvent` local monitor for `.scrollWheel` from Rust
 (`objc2-app-kit`): it runs before `-[NSApplication sendEvent:]`, so before
-the WKWebView, and returning `nil` is what swallows an event. It honours the
-Trackpad preference "Swipe between pages" the way Safari does
-(`isSwipeTrackingFromScrollEventsEnabled`). **Linux** connects
+the WKWebView, and returning `nil` is what swallows an event. It does not
+consult the Trackpad preference "Swipe between pages": that switch is about
+page history, the two-finger scroll arrives whatever it says, and
+`@tmuxy-gesture-swipe-tabs` is the one setting for the tab slide. **Linux** connects
 `scroll-event` on the WebKitGTK widget: two-finger motion is
 `GDK_SCROLL_SMOOTH` ending in a stop event at lift-off, before any kinetic
 scrolling, and `Propagation::Stop` is what swallows it.
