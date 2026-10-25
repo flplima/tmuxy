@@ -149,7 +149,7 @@ const CHROME_WINDOW_TYPES = ['float', 'sidebar-left', 'sidebar-right'];
  * Pane groups as tmux records them: every pane tagged with the same
  * `@tmuxy-group-id`, wherever it lives (the visible member in the session, the
  * rest parked in the stash session). Members are ordered like `group_members`
- * in bin/tmuxy/_lib and `buildGroupsFromPanes` in the UI: by `@tmuxy-group-pos`
+ * in packages/tmuxy-cli/bin/tmuxy/_lib and `buildGroupsFromPanes` in the UI: by `@tmuxy-group-pos`
  * where a reorder set one, then by pane number. Only groups with a member in
  * `sessionName` and at least two members count, as in the UI.
  *

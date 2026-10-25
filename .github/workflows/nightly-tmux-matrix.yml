@@ -182,7 +182,7 @@ jobs:
         run: chmod +x target/release/tmuxy-server
 
       - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
       # Every test step below is `continue-on-error` so that ALL three suites
       # report on every version — a 3.4 crash in the core tests should not hide

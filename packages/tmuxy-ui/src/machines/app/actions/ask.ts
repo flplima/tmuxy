@@ -10,7 +10,7 @@
  * here rather than in the overlay component because the keyboard actor moves
  * it too, from outside React.
  *
- * See `utils/paneAsk.ts` for the wire format and `bin/tmuxy/ask` for the other
+ * See `utils/paneAsk.ts` for the wire format and `packages/tmuxy-cli/bin/tmuxy/ask` for the other
  * end of it.
  */
 

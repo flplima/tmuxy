@@ -123,7 +123,7 @@ class TmuxTestSession {
    * the SIGHUP, so a shell still inside its own start-up never returns from
    * opening its controlling terminal and hangs in the kernel holding a PTY
    * slave open — one orphan per pane, until the machine runs out of
-   * pseudoterminals (see `bin/tmuxy/reap-orphan-shells`).
+   * pseudoterminals (see `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells`).
    */
   async destroy() {
     if (!this.created) return;

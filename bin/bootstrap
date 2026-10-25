@@ -22,6 +22,6 @@ mkdir -p packages/tmuxy-ui/dist
 
 echo "[bootstrap] Linking tmuxy CLI"
 mkdir -p "$HOME/.local/bin"
-ln -sf "$ROOT_DIR/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
+ln -sf "$ROOT_DIR/packages/tmuxy-cli/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
 
 echo "[bootstrap] Done"

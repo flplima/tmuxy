@@ -242,7 +242,7 @@ pub enum ServerAction {
     /// Save, restore, list or forget session snapshots. Backs
     /// `tmuxy session save|restore|snapshots|forget`.
     Session(crate::session_cli::SessionArgs),
-    /// Pane-group operations. Backs the `bin/tmuxy/pane-group` script,
+    /// Pane-group operations. Backs the `packages/tmuxy-cli/bin/tmuxy/pane-group` script,
     /// which run it inside `tmux run-shell`. Hidden: `tmuxy pane group` is
     /// the user's way in.
     #[command(hide = true)]

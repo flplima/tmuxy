@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by bin/tmuxy-cli — pane and pane-group subcommands.
+# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — pane and pane-group subcommands.
 
 # --- Pane subcommands ---
 

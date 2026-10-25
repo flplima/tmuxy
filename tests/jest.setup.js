@@ -5,7 +5,7 @@ const path = require('path');
 
 // Pin the tmux socket before anything can shell out.
 //
-// The suite mutates tmux through `bin/tmuxy-cli`, which derives its socket from
+// The suite mutates tmux through `packages/tmuxy-cli/bin/tmuxy-cli`, which derives its socket from
 // $TMUX when TMUX_SOCKET is unset. Running the suite from inside a tmux pane —
 // the normal case for a tmux tool — would therefore aim every split, kill and
 // send-keys at whatever server the developer's shell is attached to, wrecking a
@@ -199,7 +199,7 @@ afterAll(async () => {
   try {
     const reaped = execFileSync(
       'bash',
-      [path.join(WORKSPACE_ROOT, 'bin/tmuxy/reap-orphan-shells')],
+      [path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells')],
       {
         encoding: 'utf-8',
         timeout: 15000,

@@ -1,6 +1,6 @@
 /**
  * The `preview` widget: a local markdown document or page, read again
- * whenever the file changes (`tmuxy open`, bin/tmuxy/tmuxy-widget-preview).
+ * whenever the file changes (`tmuxy open`, packages/tmuxy-cli/bin/tmuxy/tmuxy-widget-preview).
  *
  * The pane's widget lines carry the file's name and a rev that changes with
  * the file; a new rev is what makes the widget read the document again. The

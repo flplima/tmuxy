@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const CLI_PATH = path.resolve(__dirname, '../../../bin/tmuxy-cli');
+const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-cli');
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**
@@ -34,7 +34,7 @@ function stripSocketArgs(tmuxCalls, extraEnv = {}) {
 /**
  * Drop the CLI's pane resolution. From outside a pane the CLI opens every
  * invocation with one read-only `list-panes -a -f …` asking tmux which pane
- * it should act on (bin/tmuxy-cli, TMUX_PANE); the tests assert on the
+ * it should act on (packages/tmuxy-cli/bin/tmuxy-cli, TMUX_PANE); the tests assert on the
  * command that follows it. `cli-pane.test.js` covers the resolver itself.
  *
  * @param {Array<{args: string[]}>} tmuxCalls - Calls with the socket pair stripped
@@ -50,7 +50,7 @@ function withoutPaneResolution(tmuxCalls) {
 }
 
 /**
- * `_run_shell` (bin/tmuxy/_lib) wraps every run-shell command in the group and
+ * `_run_shell` (packages/tmuxy-cli/bin/tmuxy/_lib) wraps every run-shell command in the group and
  * redirects that bring its output and exit status back through files. The
  * wrapping is the same on every call and carries a temp path, so it is
  * stripped once here; the tests assert on the command itself.

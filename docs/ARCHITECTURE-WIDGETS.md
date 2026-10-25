@@ -9,7 +9,7 @@ tmux pane running a real process — it can be focused, navigated into, resized 
 other — but what it draws is a component, not cells.
 
 A pane declares itself a widget by printing a marker line: `__TMUXY_WIDGET__:<name>`, which
-`bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend scans pane content for
+`packages/tmuxy-cli/bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend scans pane content for
 it (`components/widgets/registry.ts`), and everything the pane prints after the marker is the
 widget's content — the channel a widget's script uses to hand it a payload. The marker alone is
 not enough: it is pane output, and anything a pane prints could forge it, so `tmuxy-widget` also
@@ -38,7 +38,7 @@ A group shares one header between its members: each gets an equal share of the w
 
 ### A parked widget's name
 
-A pane PARKED in a pane group streams no content, so there is no widget to ask for a title — all a group's tab strip has for it is tmux's `pane_title`. `bin/tmuxy/tmuxy-widget` therefore announces the widget's name over OSC 2 when it starts, so a parked member reads as `tree` rather than as the CLI's own path, and hands the title back on exit.
+A pane PARKED in a pane group streams no content, so there is no widget to ask for a title — all a group's tab strip has for it is tmux's `pane_title`. `packages/tmuxy-cli/bin/tmuxy/tmuxy-widget` therefore announces the widget's name over OSC 2 when it starts, so a parked member reads as `tree` rather than as the CLI's own path, and hands the title back on exit.
 
 ### A widget's definition
 

@@ -71,7 +71,7 @@ async function makeHome(root) {
   // The repo's CLI as `tmuxy`, for the widgets a pane runs (the tree column).
   const bin = join(root, 'bin');
   await mkdir(bin);
-  await symlink(join(REPO, 'bin', 'tmuxy-cli'), join(bin, 'tmuxy'));
+  await symlink(join(REPO, 'packages', 'tmuxy-cli', 'bin', 'tmuxy-cli'), join(bin, 'tmuxy'));
   // …and the tmux it drives, wherever this machine keeps it.
   const tmuxDir = dirname(execFileSync('sh', ['-c', 'command -v tmux']).toString().trim());
   // A pane's shell, or the command tmux hands it (`-c '<command>'`): a clean

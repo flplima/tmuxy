@@ -35,7 +35,7 @@ function tmuxSocket() {
 /**
  * Environment for any tmux or tmuxy-CLI child process.
  *
- * `bin/tmuxy-cli` derives its socket from `$TMUX` whenever `TMUX_SOCKET` is
+ * `packages/tmuxy-cli/bin/tmuxy-cli` derives its socket from `$TMUX` whenever `TMUX_SOCKET` is
  * unset, so an inherited `$TMUX` aims every mutating command at whatever server
  * the developer's shell is attached to — while the direct `tmux -L` calls above
  * still read from the test socket. Reads and writes then address two different

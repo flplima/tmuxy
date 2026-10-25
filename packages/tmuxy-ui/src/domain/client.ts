@@ -125,7 +125,7 @@ export type TmuxPane = Schema.Schema.Type<typeof TmuxPane>;
 /**
  * The members of group `groupId`, in the group's order: by `@tmuxy-group-pos`
  * (set when the user reorders the group), then — for those without one — by
- * pane-id number. The same rule as `group_members` in bin/tmuxy/_lib, so the
+ * pane-id number. The same rule as `group_members` in packages/tmuxy-cli/bin/tmuxy/_lib, so the
  * client's tab order and the shell's next/prev agree.
  */
 export function groupMembers(

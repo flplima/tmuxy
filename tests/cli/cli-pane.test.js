@@ -331,7 +331,7 @@ describe('CLI pane subcommands', () => {
       // window the user is looking at instead. The trailing select-pane hands
       // the caller's pane back: break-pane took the tab's active pane away.
       // The caller's pane rides along as the inner client's TMUX_PANE, like
-      // every run-shell mutation (_run_safe in bin/tmuxy/_lib).
+      // every run-shell mutation (_run_safe in packages/tmuxy-cli/bin/tmuxy/_lib).
       expect(lists[0].args[1]).toBe(
         'TMUX_PANE=%5 tmux -L tmuxy split-window -t %5' +
           ' \\; break-pane -d -n float -t main:2' +

@@ -23,7 +23,7 @@ const {
   waitForCondition,
 } = require('./helpers');
 
-const TMUXY_CLI = path.resolve(__dirname, '../bin/tmuxy-cli');
+const TMUXY_CLI = path.resolve(__dirname, '../packages/tmuxy-cli/bin/tmuxy-cli');
 
 /** The pane that holds the keyboard, and the other pane of the tab. */
 async function panesOfTab(page) {

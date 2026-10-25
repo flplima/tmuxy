@@ -227,7 +227,7 @@ pub struct StateAggregator {
 
     /// Latest value of the session-scoped `@tmuxy-focus-request` option, read
     /// as a column of the `list-windows` poll. A one-shot request from a shell
-    /// helper (`bin/tmuxy/nav`) for the client to move keyboard focus somewhere
+    /// helper (`packages/tmuxy-cli/bin/tmuxy/nav`) for the client to move keyboard focus somewhere
     /// no tmux command could — see `tmux_options::FOCUS_REQUEST`. The client
     /// that acts on it unsets the option, which clears this on the next poll.
     focus_request: Option<String>,

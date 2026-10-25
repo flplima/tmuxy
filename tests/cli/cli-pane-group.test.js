@@ -2,7 +2,7 @@ const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { runGroupScript } = require('./helpers/run-group-script');
 
-const SCRIPTS_DIR = path.resolve(__dirname, '../../bin/tmuxy');
+const SCRIPTS_DIR = path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy');
 const MOCKS_DIR = path.resolve(__dirname, 'mocks');
 
 describe('CLI pane group subcommands', () => {

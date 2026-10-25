@@ -5,7 +5,7 @@
 // list-panes format is TAB-separated (free-text fields may contain commas):
 // #{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}
 // list-panes format is TAB-separated (pane_current_command and the app title
-// are free text). Mirrors LIST_PANES_JSON_FMT in bin/tmuxy-cli:
+// are free text). Mirrors LIST_PANES_JSON_FMT in packages/tmuxy-cli/bin/tmuxy-cli:
 // #{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t<app title>
 // The last column is the APP-set title, empty unless a program set one — the
 // second pane here has one, so the escaping path is covered too.

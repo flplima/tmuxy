@@ -60,7 +60,7 @@ pub mod tmux_options {
     /// keyboard focus somewhere the helper cannot reach itself: `left` or
     /// `right` for the matching sidebar column, `panes` to leave one.
     ///
-    /// `bin/tmuxy/nav` sets it when a directional `select-pane` is a no-op at
+    /// `packages/tmuxy-cli/bin/tmuxy/nav` sets it when a directional `select-pane` is a no-op at
     /// the grid's edge and that edge has an open sidebar. Focusing a sidebar is
     /// a client-side concept — its pane lives in another window, so
     /// `select-pane` would switch the visible tab — which leaves no tmux
@@ -159,7 +159,7 @@ pub mod tmux_options {
     /// it has not.
     pub const CURSOR_BLINK: &str = "@tmuxy-cursor-blink";
     /// `on`/`off`: whether `tmuxy pane send` into a pane the caller does
-    /// not own asks the user there first (`bin/tmuxy/send`).
+    /// not own asks the user there first (`packages/tmuxy-cli/bin/tmuxy/send`).
     pub const SEND_ASK: &str = "@tmuxy-send-ask";
     /// Comma list of caller process names and target pane ids whose sends
     /// skip that question. Read by the CLI alone.

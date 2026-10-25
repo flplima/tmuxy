@@ -155,7 +155,7 @@ export function mouseReport(op: TmuxOpOf<'SendMouse'>): string {
 /**
  * The `split-window ; break-pane ; set-option` list that creates a chrome
  * window running `run` (the default shell when `null`) and tags it in one
- * shot — the list `bin/tmuxy/float-create` builds for a float.
+ * shot — the list `packages/tmuxy-cli/bin/tmuxy/float-create` builds for a float.
  *
  * `at` names the new window: a float by its index (picked free up front —
  * `set-option -w` with no target would land on the session's CURRENT window,

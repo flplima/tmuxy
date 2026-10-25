@@ -12,7 +12,7 @@
 //! `list-panes -a` read ([`Panes`], parsed from [`LIST_PANES_FORMAT`]) and
 //! returns the tmux commands that carry it out ([`Invocation`]s), so every rule
 //! is a value a unit test can look at. `tmuxy-server group <verb>` does the
-//! reading and the running (`group_cli.rs`), and the `bin/tmuxy/pane-group`
+//! reading and the running (`group_cli.rs`), and the `packages/tmuxy-cli/bin/tmuxy/pane-group`
 //! script is its name.
 
 use std::fmt;
@@ -38,7 +38,7 @@ const FIELD_SEPARATOR: char = ' ';
 /// only so the session does; `tail -f /dev/null` sleeps in a read, where the
 /// default interactive shell would open its controlling tty, and a shell
 /// killed mid-`init_io` hangs in the kernel forever (see
-/// `bin/tmuxy/reap-orphan-shells`).
+/// `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells`).
 pub const STASH_PAYLOAD: &str = "tail -f /dev/null";
 
 /// One pane, as [`LIST_PANES_FORMAT`] prints it.

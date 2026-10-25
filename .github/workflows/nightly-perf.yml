@@ -93,7 +93,7 @@ jobs:
         run: cargo build --release -p tmuxy-server
 
       - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
       - name: Start server
         run: |
@@ -246,7 +246,7 @@ jobs:
         run: cargo build --release -p tmuxy-server
 
       - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
       - name: Start server
         run: |
@@ -447,7 +447,7 @@ jobs:
         run: cargo build --release -p tmuxy-server
 
       - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
       # The pid is captured here rather than discovered: the harness reads
       # server RSS for it, and a wrong pid reports `not measured` rather than

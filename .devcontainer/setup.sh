@@ -25,7 +25,7 @@ CONF_DIR="$ROOT_DIR/packages/tmuxy-core/assets"
 ln -sf "$CONF_DIR/tmuxy.conf" "$HOME/.tmuxy.conf"
 ln -sf "$CONF_DIR/tmuxy.conf" "$HOME/.config/tmuxy/tmuxy.conf"
 ln -sf "$CONF_DIR/tmuxy.defaults.conf" "$HOME/.config/tmuxy/tmuxy.defaults.conf"
-ln -sf "$ROOT_DIR/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
+ln -sf "$ROOT_DIR/packages/tmuxy-cli/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
 
 # Codespaces manages git credentials, identity and the remote itself; the local
 # container logs in with `gh auth login` and needs the helper wired up, an HTTPS

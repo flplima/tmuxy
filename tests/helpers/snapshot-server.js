@@ -22,7 +22,7 @@ const { WORKSPACE_ROOT } = require('./config');
 const { waitForServer } = require('./browser');
 const { serverBinary } = require('./server-binary');
 
-const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'bin/tmuxy-cli');
+const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
 
 /** The environment every process on the isolated socket runs with. */
 function isolatedEnv({ socket, stateDir }) {

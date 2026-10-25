@@ -114,7 +114,7 @@ See [STATE-MANAGEMENT-UPDATES.md](STATE-MANAGEMENT-UPDATES.md) for these section
 
 5. **Copy mode is client-side** — the `copyMode` slice owns per-pane `CopyModeState` (loaded scrollback `lines`, cursor, selection, scrollTop). Scrollback is fetched on demand from tmux (`FETCH_SCROLLBACK_CELLS` → `get_scrollback_cells` → `COPY_MODE_CHUNK_LOADED`) and rendered in a natively-scrolling container; vi keybindings (via `COPY_MODE_KEY` → `handleCopyModeKey`), cursor movement, mouse selection, and scroll position are all client-owned. The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag and capturing history. See [COPY-MODE.md](COPY-MODE.md).
 
-6. **Group state** — Pane-group membership is intrinsic to the pane: every member carries the same `@tmuxy-group-id` pane option, the visible member lives in the attached session and the hidden ones are parked in the `__tmuxy_stash` session (see [TMUX.md](TMUX.md) "Window Tags"). The backend enumerates both on state sync and emits hidden members as pane stubs carrying `group_id`. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.
+6. **Group state** — Pane-group membership is intrinsic to the pane: every member carries the same `@tmuxy-group-id` pane option, the visible member lives in the attached session and the hidden ones are parked in the `__tmuxy_stash` session (see [TMUX.md](TMUX.md) "Window Tags"). The backend enumerates both on state sync and emits hidden members as pane stubs carrying `group_id`. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `packages/tmuxy-cli/bin/tmuxy/`.
 
 ## Related
 

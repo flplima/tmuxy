@@ -10,7 +10,7 @@ use super::*;
 // Restore
 // =============================================================================
 
-/// The script whose `park` verb parks a restored group member (`bin/tmuxy/pane-group`).
+/// The script whose `park` verb parks a restored group member (`packages/tmuxy-cli/bin/tmuxy/pane-group`).
 pub(super) fn group_script() -> String {
     crate::session::bin_dir()
         .join("tmuxy")

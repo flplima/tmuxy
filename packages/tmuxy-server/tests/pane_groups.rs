@@ -120,7 +120,7 @@ fn bin() -> &'static str {
 }
 
 fn scripts_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bin/tmuxy")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tmuxy-cli/bin/tmuxy")
 }
 
 #[test]

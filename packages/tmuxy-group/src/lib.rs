@@ -2,7 +2,7 @@
 //! as `tmuxy-server group <verb>`.
 //!
 //! The rules live in `tmuxy_core::groups`; this reads the panes once, asks it
-//! for the commands and runs them. The `bin/tmuxy/pane-group` script is its
+//! for the commands and runs them. The `packages/tmuxy-cli/bin/tmuxy/pane-group` script is its
 //! name: the UI, the key bindings and session restore call it inside
 //! `tmux run-shell`, where these tmux calls are tmux-internal (see
 //! `tmuxy_core::session::tmux_output`). A refusal prints

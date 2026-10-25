@@ -50,62 +50,77 @@ pub(super) const BUNDLED_THEMES: &[(&str, &str)] = &[
 /// to a stable absolute path under `$HOME/.config/tmuxy/bin/` and
 /// referencing them by `$HOME/...` in the config fixes both issues.
 pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
-    ("tmuxy-cli", include_str!("../../../../bin/tmuxy-cli")),
-    ("tmuxy/_lib", include_str!("../../../../bin/tmuxy/_lib")),
+    (
+        "tmuxy-cli",
+        include_str!("../../../tmuxy-cli/bin/tmuxy-cli"),
+    ),
+    (
+        "tmuxy/_lib",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/_lib"),
+    ),
     (
         "tmuxy/cli-commands.sh",
-        include_str!("../../../../bin/tmuxy/cli-commands.sh"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-commands.sh"),
     ),
     (
         "tmuxy/cli-info.sh",
-        include_str!("../../../../bin/tmuxy/cli-info.sh"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-info.sh"),
     ),
     (
         "tmuxy/cli-pane.sh",
-        include_str!("../../../../bin/tmuxy/cli-pane.sh"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-pane.sh"),
     ),
-    ("tmuxy/send", include_str!("../../../../bin/tmuxy/send")),
+    (
+        "tmuxy/send",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/send"),
+    ),
     (
         "tmuxy/agent-hook",
-        include_str!("../../../../bin/tmuxy/agent-hook"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/agent-hook"),
     ),
     (
         "tmuxy/float-create",
-        include_str!("../../../../bin/tmuxy/float-create"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/float-create"),
     ),
-    ("tmuxy/nav", include_str!("../../../../bin/tmuxy/nav")),
+    (
+        "tmuxy/nav",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/nav"),
+    ),
     (
         "tmuxy/reap-orphan-shells",
-        include_str!("../../../../bin/tmuxy/reap-orphan-shells"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/reap-orphan-shells"),
     ),
     (
         "tmuxy/pane-group",
-        include_str!("../../../../bin/tmuxy/pane-group"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/pane-group"),
     ),
     (
         "tmuxy/paste-synced",
-        include_str!("../../../../bin/tmuxy/paste-synced"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/paste-synced"),
     ),
-    ("tmuxy/stack", include_str!("../../../../bin/tmuxy/stack")),
+    (
+        "tmuxy/stack",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/stack"),
+    ),
     (
         "tmuxy/session-connect",
-        include_str!("../../../../bin/tmuxy/session-connect"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/session-connect"),
     ),
     (
         "tmuxy/session-switch",
-        include_str!("../../../../bin/tmuxy/session-switch"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/session-switch"),
     ),
     (
         "tmuxy/tmuxy-widget",
-        include_str!("../../../../bin/tmuxy/tmuxy-widget"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget"),
     ),
     (
         "tmuxy/tmuxy-widget-preview",
-        include_str!("../../../../bin/tmuxy/tmuxy-widget-preview"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget-preview"),
     ),
     (
         "tmuxy/tmuxy-widget-tree",
-        include_str!("../../../../bin/tmuxy/tmuxy-widget-tree"),
+        include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget-tree"),
     ),
 ];
 

@@ -1,5 +1,5 @@
 /**
- * Drive `bin/tmuxy/pane-group <verb>` with a stub server binary.
+ * Drive `packages/tmuxy-cli/bin/tmuxy/pane-group <verb>` with a stub server binary.
  *
  * The script is a name for the server binary's `group` verb; what it owes
  * its callers is the hand-off itself — the verb, the arguments untouched,
@@ -14,7 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const SCRIPTS_DIR = path.resolve(__dirname, '../../../bin/tmuxy');
+const SCRIPTS_DIR = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy');
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**

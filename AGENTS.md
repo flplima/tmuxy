@@ -22,7 +22,7 @@ See [docs/ARCHITECTURE-INDEX.md](docs/ARCHITECTURE-INDEX.md) for where a given c
 
 ## CLI Usage
 
-The `tmuxy` CLI is a noun-verb dispatcher at `bin/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
+The `tmuxy` CLI is a noun-verb dispatcher at `packages/tmuxy-cli/bin/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
 All mutating commands route through `tmux run-shell` for safety with control mode.
 
 Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> --help` for details.
@@ -160,7 +160,7 @@ Work out the set from what you changed:
 | `tests/**`                                  | the suites you edited, **plus** any other suite sharing their helpers                                      |
 | `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour               |
 | a `constants.rs` tmux format string         | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
-| `bin/tmuxy-cli`, `bin/tmuxy/**`             | `npm run test:cli`                                                                                         |
+| `packages/tmuxy-cli/**`                     | `npm run test:cli`                                                                                         |
 | `packages/tmuxy-tauri-app/**`               | `npm run test:tauri`                                                                                       |
 | perf harnesses, `tests/perf/**`             | `npm run perf:interactions` + `npm run perf:compare`                                                       |
 
@@ -183,7 +183,7 @@ The `docs/` directory contains architectural and design documentation. **Review 
 - **After finishing**: if your changes affect behavior described in docs, suggest updates to the user.
 - **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `tmuxy-server/src/state.rs`").
 - **Use ASCII diagrams, not Mermaid**: diagrams in docs should use plain ASCII art inside fenced code blocks. Mermaid requires a renderer and is not universally supported by all markdown viewers or AI agents.
-- **One instruction file**: this `AGENTS.md` is the only one. Rules that apply to one folder live in that folder's `README.md` — read it before working there: [tests/README.md](tests/README.md) (E2E, copy mode and scrollback), [packages/tmuxy-ui/README.md](packages/tmuxy-ui/README.md) (React + XState).
+- **One instruction file**: this `AGENTS.md` is the only one. Rules that apply to one folder live in that folder's `README.md` — read it before working there: [tests/README.md](tests/README.md) (E2E, copy mode and scrollback), [packages/tmuxy-ui/README.md](packages/tmuxy-ui/README.md) (React + XState), [packages/tmuxy-cli/README.md](packages/tmuxy-cli/README.md) (the shipped CLI and its scripts).
 
 ## Git
 

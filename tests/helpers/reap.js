@@ -6,7 +6,7 @@
  * controlling terminal, and that open never returns once the master is gone —
  * the process sleeps in the kernel forever, reparented to pid 1, holding a PTY
  * slave. Run the suite enough times and the machine cannot open a terminal at
- * all. `bin/tmuxy/reap-orphan-shells` is the same job for a whole machine; this
+ * all. `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells` is the same job for a whole machine; this
  * is the targeted version, for pids a test knows it is responsible for.
  */
 

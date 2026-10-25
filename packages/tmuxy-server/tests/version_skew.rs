@@ -219,7 +219,7 @@ fn a_body_that_is_not_json_is_refused() {
 /// working without a single test failing.
 fn tags_written_by_the_shell() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
-    let bin = repo_root().join("bin");
+    let bin = repo_root().join("packages/tmuxy-cli/bin");
     let mut files = vec![bin.join("tmuxy-cli")];
     for entry in std::fs::read_dir(bin.join("tmuxy")).expect("bin/tmuxy readable") {
         let entry = entry.expect("readable dir entry");

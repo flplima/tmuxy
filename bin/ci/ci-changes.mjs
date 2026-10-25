@@ -40,7 +40,7 @@ const TOOLING = [
 
 export const SKIPPABLE = {
   // The Tauri app links tmuxy-core and tmuxy-server and bundles the UI, the
-  // CLI (bin/tmuxy-cli, bin/tmuxy/*) and the shipped tmux confs
+  // CLI (packages/tmuxy-cli) and the shipped tmux confs
   // (packages/tmuxy-core/assets, include_str!'d by tmuxy-core). Its suites are
   // tests/tauri and tests/smoke, on tests/helpers.
   desktop: [
@@ -60,7 +60,7 @@ export const TRIGGERED = {
   'macos-rust': [
     /^packages\/tmuxy-tauri-app\//,
     /^packages\/tmuxy-core\/src\/control_mode\/connection\.rs$/,
-    /^bin\//,
+    /^packages\/tmuxy-cli\//,
     /^Cargo\.(toml|lock)$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],

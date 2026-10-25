@@ -1,5 +1,5 @@
 /**
- * Drive `bin/tmuxy/reap-orphan-shells` with a stubbed `ps`.
+ * Drive `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells` with a stubbed `ps`.
  *
  * The reaper's whole risk is *which* processes it selects — it sends SIGKILL,
  * so a shell someone is using must never match. Running it against the real
@@ -13,7 +13,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const REAPER = path.join(__dirname, '..', '..', '..', 'bin', 'tmuxy', 'reap-orphan-shells');
+const REAPER = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'packages',
+  'tmuxy-cli',
+  'bin',
+  'tmuxy',
+  'reap-orphan-shells',
+);
 
 /**
  * @param {string} psOutput  Lines of `pid ppid time comm`, as `ps` would print them.

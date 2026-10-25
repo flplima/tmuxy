@@ -314,7 +314,7 @@ jobs:
       # Put the `tmuxy` CLI on PATH so panes spawned by the server (a widget,
       # a float's command) resolve it — mirrors brew/AppImage installs.
       - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
       - name: Start server
         run: |
@@ -487,7 +487,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: packages/tmuxy-ui/v86-assets
-          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'bin/tmuxy-cli', 'bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
+          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
 
       - name: Build v86 guest assets (cache miss)
         if: steps.v86-assets-cache.outputs.cache-hit != 'true'

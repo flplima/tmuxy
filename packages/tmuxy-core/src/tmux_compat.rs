@@ -13,11 +13,11 @@
 //! - the `neww` rewrite (3.5a crash): `executor::new_window_rewrite`, applied
 //!   by `command_router::route_command` on every transport;
 //! - every mutation from a script through `run-shell`, never a second client
-//!   (3.3a–3.5a crash): `bin/tmuxy/_lib`, `transport.rs`, `theme.rs`;
+//!   (3.3a–3.5a crash): `packages/tmuxy-cli/bin/tmuxy/_lib`, `transport.rs`, `theme.rs`;
 //! - session-scoped rather than global option writes while attached (3.5a
 //!   crash): `control_mode/monitor/sync.rs`;
 //! - `run-shell` output redirected to files (3.4 shows it in view-mode):
-//!   `_run_shell` in `bin/tmuxy/_lib`, `ask_run_shell` in `session_snapshot`;
+//!   `_run_shell` in `packages/tmuxy-cli/bin/tmuxy/_lib`, `ask_run_shell` in `session_snapshot`;
 //! - the copy-mode flag asked as `#{pane_mode}`, not `#{pane_in_mode}` (3.4
 //!   put a fresh pane in view-mode): `constants::tmux_formats`;
 //! - a space as the group listing's separator (3.4 prints a control

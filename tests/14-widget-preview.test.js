@@ -24,7 +24,7 @@ const {
   waitForPrefixConsumed,
 } = require('./helpers');
 
-const TMUXY_CLI = path.resolve(__dirname, '..', 'bin/tmuxy-cli');
+const TMUXY_CLI = path.resolve(__dirname, '..', 'packages/tmuxy-cli/bin/tmuxy-cli');
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from(

@@ -77,8 +77,8 @@ describe('which CI jobs a push can skip', () => {
 
   it('the CLI and the shipped confs are baked into both', () => {
     for (const file of [
-      'bin/tmuxy-cli',
-      'bin/tmuxy/pane-float',
+      'packages/tmuxy-cli/bin/tmuxy-cli',
+      'packages/tmuxy-cli/bin/tmuxy/float-create',
       'packages/tmuxy-core/assets/tmuxy.conf',
     ]) {
       expect(decide([file]), file).toMatchObject({ desktop: true, v86: true });
