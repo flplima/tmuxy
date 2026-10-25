@@ -72,9 +72,6 @@
      tier that still reads at 4.5:1 on the chrome, so they stand back from
      the current one. A face with room below its dimmed tier sets it lower. */
   --text-quiet: var(--text-dimmed);
-  /* The current tab: the face's white on a dark face, its darkest ink on a
-     light one — the palette's bright white, which a light palette inverts. */
-  --text-strong: var(--term-bright-white);
   --text-subtle: #6a6a6a;
   --text-dark: #1e1e1e;
 

@@ -5,8 +5,7 @@
  * The theme's accent (`--theme-accent` — yellow on gruvbox) marks where you
  * are typing. With the keyboard in the panes it is the active pane's outline.
  * Move it to a sidebar and the accent goes with it: the column's title takes
- * it. The current tab never wears it — it is the theme's white, and says only
- * which tab is current.
+ * it. The current tab wears it too, wherever the keyboard is.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -44,7 +43,7 @@ export const TheAccentFollowsTheKeyboard: Story = {
       story: { inline: false, iframeHeight: 500 },
       description: {
         story:
-          'With the keyboard in the panes the active pane’s outline wears the accent; opening the tree column and focusing it hands it to the column’s title, and leaving the column takes it back. The current tab stays the theme’s white throughout. Asserted on the painted colours, with the theme’s own tokens as the expected values — a rule that never applied would pass a class check.',
+          'With the keyboard in the panes the active pane’s outline wears the accent; opening the tree column and focusing it hands it to the column’s title, and leaving the column takes it back. The current tab wears the accent throughout. Asserted on the painted colours, with the theme’s own tokens as the expected values — a rule that never applied would pass a class check.',
       },
     },
   },
@@ -63,20 +62,17 @@ export const TheAccentFollowsTheKeyboard: Story = {
     canvasElement.appendChild(probe);
     probe.style.color = style.getPropertyValue('--theme-accent').trim();
     const accentPainted = colourOf(probe);
-    probe.style.color = style.getPropertyValue('--text-strong').trim();
-    const whitePainted = colourOf(probe);
     probe.remove();
-    expect(accentPainted).not.toBe(whitePainted);
 
     const activeTab = () => canvasElement.querySelector<HTMLElement>('.tab-name-active')!;
     const activePane = () =>
       canvasElement.querySelector<HTMLElement>('.pane-layout-item.pane-active')!;
-    // Keyboard in the panes: the active pane's outline wears the accent, the
-    // current tab the white.
+    // Keyboard in the panes: the active pane's outline wears the accent, and
+    // so does the current tab.
     expect(root).not.toHaveClass('has-sidebar-focus');
     await waitFor(() => {
       expect(getComputedStyle(activePane()).outlineColor).toBe(accentPainted);
-      expect(colourOf(activeTab())).toBe(whitePainted);
+      expect(colourOf(activeTab())).toBe(accentPainted);
     });
 
     // Open the tree column and focus it.
@@ -93,9 +89,9 @@ export const TheAccentFollowsTheKeyboard: Story = {
 
     await waitFor(() => {
       expect(root).toHaveClass('has-sidebar-focus');
-      // The column's title has it now; the tab is still the white.
+      // The column's title has it now; the tab keeps it too.
       expect(colourOf(title)).toBe(accentPainted);
-      expect(colourOf(activeTab())).toBe(whitePainted);
+      expect(colourOf(activeTab())).toBe(accentPainted);
     });
 
     // Back to the panes the way the tree offers it — l / → leaves the column,
@@ -105,7 +101,7 @@ export const TheAccentFollowsTheKeyboard: Story = {
       expect(root).not.toHaveClass('has-sidebar-focus');
       expect(colourOf(title)).not.toBe(accentPainted);
       expect(getComputedStyle(activePane()).outlineColor).toBe(accentPainted);
-      expect(colourOf(activeTab())).toBe(whitePainted);
+      expect(colourOf(activeTab())).toBe(accentPainted);
     });
     document.documentElement.style.removeProperty('--theme-accent');
   },
