@@ -25,6 +25,8 @@ Predicted ops today: Split, NewWindow, SelectPane, Navigate (with the MRU tiebre
 
 Focus ops (SelectPane / Navigate) additionally **linger** after confirmation (`FOCUS_CONFIRM_LINGER_MS`): snapshots computed before the focus change can arrive after it, and dropping the op's pin on first confirmation would flap the highlight. A confirmed-then-superseded focus (the server reports a third pane past `FOCUS_SUPERSEDE_GRACE_MS`) yields to the server immediately. Placeholder ids (`__placeholder_*`) are client-only: the keyboardActor never targets them (it falls back to no pane target while a placeholder is active — commands queue FIFO, so by execution time tmux's own active pane is the pane the placeholder stands for).
 
+The XState `appMachine` is a thin bridge: `SEND_TMUX_COMMAND` routes to `tmuxStoreActor` → `store.dispatch`; `TMUX_STATE_UPDATE` routes to `tmuxStoreActor` → `store.reconcile`. Every model change fires a `TMUX_MODEL_UPDATE` event back to the parent, where context.panes/windows/activePaneId are mirrored from `model.derived`. The 600+ lines of split-anti-flicker, position-tolerance heuristics, and stale-timeout fallbacks that used to live inline in `appMachine.ts` are gone — the store owns all of it via pure reducers in `store/model.ts`.
+
 ### Keystroke-routing contract
 
 Anything that changes the user's perceived "focused pane" MUST keep three pieces of state in lockstep, or keystrokes will land in the wrong pane during the brief window before tmux confirms the change:
