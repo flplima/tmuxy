@@ -160,9 +160,11 @@ mod macos {
                 if phase.contains(NSEventPhase::Changed) {
                     match stream.get() {
                         Stream::Pending => {
+                            // The option alone decides, not the Trackpad
+                            // preference "Swipe between pages": macOS delivers
+                            // the two-finger scroll either way.
                             let claim = event.hasPreciseScrollingDeltas()
                                 && SWIPE_ENABLED.load(Ordering::Relaxed)
-                                && NSEvent::isSwipeTrackingFromScrollEventsEnabled()
                                 && horizontal(dx, dy);
                             if !claim {
                                 stream.set(Stream::Passed);

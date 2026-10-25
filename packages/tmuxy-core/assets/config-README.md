@@ -84,7 +84,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-send-ask`               | on      | `tmuxy pane send` into another pane asks there first.               |
 | `@tmuxy-send-allow`             | —       | Callers (`claude,codex`) and panes (`%3,%5`) that never ask.       |
 | `@tmuxy-tab-overview-cols`       | 3       | Cards per row in the "all tabs" view, 1–12.                         |
-| `@tmuxy-gesture-swipe-tabs`      | on      | Two-finger slide left/right switches tabs.                          |
+| `@tmuxy-gesture-swipe-tabs`      | on      | Two-finger slide left/right switches tabs, whatever macOS's swipe setting. |
 | `@tmuxy-gesture-pinch-zoom`      | on      | Pinch out zooms a pane, pinch in unzooms it.                        |
 | `@tmuxy-gesture-pinch-overview`  | on      | Pinch in on an unzoomed tab opens the "all tabs" view.              |
 | `@tmuxy-native-menus`            | on      | Desktop app: native menu bar and popups; off keeps the in-app menus. |
