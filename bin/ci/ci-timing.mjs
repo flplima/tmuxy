@@ -3,8 +3,8 @@
  * Where a `lint and tests` run spent its time: every job by wall clock, the
  * slowest steps, and the slowest individual tests read out of the job logs.
  *
- *   bin/ci-timing.mjs <run-id>             print it
- *   bin/ci-timing.mjs <run-id> --summary   markdown, for $GITHUB_STEP_SUMMARY
+ *   bin/ci/ci-timing.mjs <run-id>             print it
+ *   bin/ci/ci-timing.mjs <run-id> --summary   markdown, for $GITHUB_STEP_SUMMARY
  *
  * The run's own `timing` job writes the summary onto every run, so the
  * question "what got slower?" has an answer on the run page rather than a
@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 
 const [run, mode] = process.argv.slice(2);
 if (!run) {
-  console.error('usage: bin/ci-timing.mjs <run-id> [--summary]');
+  console.error('usage: bin/ci/ci-timing.mjs <run-id> [--summary]');
   process.exit(2);
 }
 const markdown = mode === '--summary';

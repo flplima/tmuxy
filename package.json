@@ -69,7 +69,7 @@
     "workspaces": {
       ".": {
         "entry": [
-          "bin/*.mjs",
+          "bin/**/*.mjs",
           "tests/perf/*.mjs",
           "eslint.config.mjs",
           "tests/**/*.js"

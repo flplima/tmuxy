@@ -45,7 +45,7 @@ jobs:
   # push: the desktop build, the v86 probe, the Mac cargo test and the
   # dependency audit each skip a push that changed nothing they cover, and the
   # [nightly] E2E tier runs only for a push that edited the web suites. The
-  # rules are bin/ci-changes.mjs (tested from the UI package); a base this
+  # rules are bin/ci/ci-changes.mjs (tested from the UI package); a base this
   # checkout cannot reach — a force-push, a tag build — runs everything.
   changes:
     runs-on: ubuntu-latest
@@ -61,7 +61,7 @@ jobs:
       - id: changes
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node bin/ci-changes.mjs "$BASE" >> "$GITHUB_OUTPUT"
+        run: node bin/ci/ci-changes.mjs "$BASE" >> "$GITHUB_OUTPUT"
 
   # The frontend bundle and the test server, each built ONCE and handed to
   # every job that needs them. They used to be rebuilt inside each of the e2e
@@ -203,7 +203,7 @@ jobs:
   # that skips the tagged tests; on a tag build (`e2e-tier: full`) every suite
   # and every test. A tiny job of its own so the list is data a script can
   # test, and so the list and the patterns are composed in one place
-  # (bin/e2e-plan.mjs) rather than once per matrix entry here.
+  # (bin/ci/e2e-plan.mjs) rather than once per matrix entry here.
   # A push that edited the web suites also gets the [nightly] tier, on one
   # more runner (the `changes` job decides).
   plan:
@@ -218,7 +218,7 @@ jobs:
         env:
           TIER: ${{ inputs.e2e-tier || 'commit' }}
           WITH_NIGHTLY: ${{ needs.changes.outputs.nightly-e2e == 'true' && '--with-nightly' || '' }}
-        run: echo "suites=$(node bin/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
+        run: echo "suites=$(node bin/ci/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
 
   # E2E + snapshot suites run in parallel — one matrix entry per suite,
   # one runner per suite. Previously these were serial inside a single
@@ -320,7 +320,7 @@ jobs:
         run: |
           TMUXY_TRACE_LEVEL=labeled ./target/release/tmuxy-server --port "$TMUXY_PORT" \
             --trace "$TMUXY_E2E_TRACE" 2>/tmp/tmuxy-server.log &
-          bin/wait-for-server "http://localhost:$TMUXY_PORT"
+          bin/ci/wait-for-server "http://localhost:$TMUXY_PORT"
 
       # No --forceExit: it masked leaked handles by killing the process before
       # jest could report them.
@@ -328,7 +328,7 @@ jobs:
         env:
           SUITE_PATH: ${{ matrix.suite.path }}
           # The tier's lookahead plus this suite's shard filter, composed by
-          # bin/e2e-plan.mjs; empty when every test in the file is wanted.
+          # bin/ci/e2e-plan.mjs; empty when every test in the file is wanted.
           SUITE_PATTERN: ${{ matrix.suite.pattern }}
         run: |
           set -o pipefail
@@ -401,7 +401,7 @@ jobs:
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          bin/wait-for-server http://localhost:6006/index.json 180000
+          bin/ci/wait-for-server http://localhost:6006/index.json 180000
 
       # The per-commit tier: stories tagged `nightly` (frame-sampled
       # animations, render-count budgets, language sweeps) run in the nightly
@@ -501,7 +501,7 @@ jobs:
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          bin/wait-for-server http://localhost:6006/index.json 180000
+          bin/ci/wait-for-server http://localhost:6006/index.json 180000
 
       - name: Gate stories (blocking)
         run: |
@@ -668,7 +668,7 @@ jobs:
         run: cargo audit
 
   # Where the run's time went, on the run's summary page: jobs, steps and the
-  # slowest tests, read back from the logs by bin/ci-timing.mjs. Runs after
+  # slowest tests, read back from the logs by bin/ci/ci-timing.mjs. Runs after
   # everything else whatever their result, and never fails the run itself.
   timing:
     runs-on: ubuntu-latest
@@ -694,4 +694,4 @@ jobs:
       - name: Timing summary
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node bin/ci-timing.mjs "$GITHUB_RUN_ID" --summary >> "$GITHUB_STEP_SUMMARY" || true
+        run: node bin/ci/ci-timing.mjs "$GITHUB_RUN_ID" --summary >> "$GITHUB_STEP_SUMMARY" || true

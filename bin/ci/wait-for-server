@@ -3,7 +3,7 @@
 // second; exit 1 once the deadline passes. The CI jobs start a server (or
 // Storybook) in the background and run this before the suite that needs it.
 //
-// Usage: bin/wait-for-server <url> [timeout-ms]   (default 30000)
+// Usage: bin/ci/wait-for-server <url> [timeout-ms]   (default 30000)
 
 const [url, timeoutArg] = process.argv.slice(2);
 if (!url) {

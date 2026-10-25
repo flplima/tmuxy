@@ -205,7 +205,7 @@ jobs:
         continue-on-error: true
         run: |
           ./target/release/tmuxy-server --port "$TMUXY_PORT" 2>/tmp/tmuxy-server.log &
-          bin/wait-for-server "http://localhost:$TMUXY_PORT"
+          bin/ci/wait-for-server "http://localhost:$TMUXY_PORT"
 
       - name: Snapshot suite
         id: snapshots
@@ -312,7 +312,7 @@ jobs:
 
           The server log for this version is attached to that run as an artifact."
 
-          BODY="$BODY" bin/nightly-issue report "$TITLE"
+          BODY="$BODY" bin/ci/nightly-issue report "$TITLE"
 
       # The released versions gate; HEAD only reports.
       - name: Gate on the result
@@ -340,7 +340,7 @@ jobs:
           exit 1
 
   # Every released version passed, so the tracking issue is closed, unless a
-  # HEAD failure reported into it on this run (bin/nightly-issue). A manual
+  # HEAD failure reported into it on this run (bin/ci/nightly-issue). A manual
   # run counts: re-running the matrix after a fix is how one is confirmed.
   resolve-issue:
     needs: suites
@@ -356,4 +356,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bin/nightly-issue resolve "Nightly tmux version matrix is failing"
+        run: bin/ci/nightly-issue resolve "Nightly tmux version matrix is failing"

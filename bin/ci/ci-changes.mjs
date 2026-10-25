@@ -22,7 +22,7 @@
  * A base the checkout cannot reach (a force-push, the first push of a branch,
  * a tag) runs everything: the filter only ever saves time, never coverage.
  *
- * Usage: node bin/ci-changes.mjs <base-sha>
+ * Usage: node bin/ci/ci-changes.mjs <base-sha>
  *   prints `name=true|false` lines for $GITHUB_OUTPUT, a summary on stderr.
  */
 
@@ -70,18 +70,18 @@ export const TRIGGERED = {
     /^\.cargo\/audit\.toml$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],
-  // The [nightly] E2E tier on one more runner (bin/e2e-plan.mjs
+  // The [nightly] E2E tier on one more runner (bin/ci/e2e-plan.mjs
   // --with-nightly): a push that edits the web suites or their helpers is
   // the one most likely to break a nightly test, and otherwise the next
   // night's run is the first to say so.
   'nightly-e2e': [
     /^tests\/(?!cli\/|tauri\/|perf\/)/,
-    /^bin\/e2e-plan\.mjs$/,
+    /^bin\/ci\/e2e-plan\.mjs$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],
 };
 
-const SELF = 'bin/ci-changes.mjs';
+const SELF = 'bin/ci/ci-changes.mjs';
 
 /**
  * The decision for each job: `true` to run it. `files` is the changed

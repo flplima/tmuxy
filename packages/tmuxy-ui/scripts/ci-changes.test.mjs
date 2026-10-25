@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 // The repo's one vitest root is this package; bin/ has no runner of its own,
 // so the rules that decide which CI jobs a push may skip are tested from here.
-import { decide } from '../../../bin/ci-changes.mjs';
+import { decide } from '../../../bin/ci/ci-changes.mjs';
 
 const EVERYTHING = {
   desktop: true,
@@ -17,7 +17,7 @@ describe('which CI jobs a push can skip', () => {
   });
 
   it('runs everything when the rules themselves changed', () => {
-    expect(decide(['bin/ci-changes.mjs'])).toEqual(EVERYTHING);
+    expect(decide(['bin/ci/ci-changes.mjs'])).toEqual(EVERYTHING);
   });
 
   it('a prose-only push skips the desktop and v86 jobs, and triggers nothing', () => {
@@ -35,7 +35,7 @@ describe('which CI jobs a push can skip', () => {
       'tests/4-session-connectivity-multi.test.js',
       'tests/helpers/browser.js',
       'tests/e2e-suites.json',
-      'bin/e2e-plan.mjs',
+      'bin/ci/e2e-plan.mjs',
     ]) {
       expect(decide([file]), file).toMatchObject({ 'nightly-e2e': true });
     }

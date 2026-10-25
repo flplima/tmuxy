@@ -98,7 +98,7 @@ jobs:
       - name: Start server
         run: |
           ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          bin/wait-for-server http://localhost:9000
+          bin/ci/wait-for-server http://localhost:9000
 
       # More samples than the 12 the gate job uses: this number is committed
       # and lived with, so it is worth a steadier p50.
@@ -251,7 +251,7 @@ jobs:
       - name: Start server
         run: |
           ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          bin/wait-for-server http://localhost:9000
+          bin/ci/wait-for-server http://localhost:9000
 
       - name: Measure interactions
         run: |
@@ -460,7 +460,7 @@ jobs:
         run: |
           TMUX_SOCKET=tmuxy-soak ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
           echo "TMUXY_SERVER_PID=$!" >> "$GITHUB_ENV"
-          bin/wait-for-server http://localhost:9000
+          bin/ci/wait-for-server http://localhost:9000
 
       - name: Soak the session
         run: |

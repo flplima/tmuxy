@@ -296,7 +296,7 @@ async function runPool(items, n, fn) {
         const status = quarantineStatus(result.id);
         const tag = result.ok ? 'PASS' : status.shielded ? 'FLAKY' : 'FAIL';
         const suffix = result.reason ? ` (${result.reason})` : '';
-        // The duration is what bin/ci-timing.mjs reads back out of the log.
+        // The duration is what bin/ci/ci-timing.mjs reads back out of the log.
         process.stdout.write(`  ${tag}  ${result.id}${suffix} (${result.seconds.toFixed(1)}s)\n`);
       }
     }),

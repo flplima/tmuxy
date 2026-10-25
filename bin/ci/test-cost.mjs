@@ -15,9 +15,9 @@
  *   waits for the grid…"), so the word list undercounts; the ✅ total is the
  *   upper bound.
  *
- *   bin/test-cost.mjs              the last 6 months
- *   bin/test-cost.mjs --months 12  further back (run history permitting)
- *   bin/test-cost.mjs --summary    markdown, for $GITHUB_STEP_SUMMARY
+ *   bin/ci/test-cost.mjs              the last 6 months
+ *   bin/ci/test-cost.mjs --months 12  further back (run history permitting)
+ *   bin/ci/test-cost.mjs --summary    markdown, for $GITHUB_STEP_SUMMARY
  *
  * Needs `gh` with access to the repository and the git history.
  */
@@ -28,7 +28,7 @@ const markdown = args.includes('--summary');
 const monthsArg = args.indexOf('--months');
 const months = monthsArg === -1 ? 6 : Number(args[monthsArg + 1]);
 if (!Number.isInteger(months) || months < 1) {
-  console.error('usage: bin/test-cost.mjs [--months N] [--summary]');
+  console.error('usage: bin/ci/test-cost.mjs [--months N] [--summary]');
   process.exit(2);
 }
 

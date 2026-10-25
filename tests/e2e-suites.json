@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "The web E2E matrix: one runner per entry in lint-and-tests.yml, read by bin/e2e-plan.mjs.",
+    "The web E2E matrix: one runner per entry in lint-and-tests.yml, read by bin/ci/e2e-plan.mjs.",
     "`filter` is a jest name regex (no leading ^) that splits one oversized file across runners;",
     "the second half is a negative lookahead on the first, so a new scenario always lands somewhere.",
     "`tier: nightly` marks a file whose every test is tagged [nightly]: it leaves the per-commit",

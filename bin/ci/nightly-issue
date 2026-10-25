@@ -2,9 +2,9 @@
 # The tracking issue a nightly workflow keeps: one open issue per workflow,
 # labelled ci-nightly and found by its exact title.
 #
-#   bin/nightly-issue report  "<title>"   comment $BODY on the open issue, or
+#   bin/ci/nightly-issue report  "<title>"   comment $BODY on the open issue, or
 #                                         open one with it
-#   bin/nightly-issue resolve "<title>"   close the open issue, unless this
+#   bin/ci/nightly-issue resolve "<title>"   close the open issue, unless this
 #                                         run ($RUN_URL) reported into it
 #
 # Every report carries its run's URL, so an issue with no comment from this

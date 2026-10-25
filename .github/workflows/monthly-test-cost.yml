@@ -2,7 +2,7 @@ name: monthly test cost
 
 # What the suite costs, recorded once a month so the trend is on record:
 # minutes from a push to main until main is green again, and how many commits
-# went to the tests themselves (bin/test-cost.mjs). De-flaking work is paying
+# went to the tests themselves (bin/ci/test-cost.mjs). De-flaking work is paying
 # off when to-green p90 falls and the ✅ share falls with it.
 #
 # Each run comments the last three months on one tracking issue, so the
@@ -43,7 +43,7 @@ jobs:
       - name: Report
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node bin/test-cost.mjs --months 3 --summary | tee report.md >> "$GITHUB_STEP_SUMMARY"
+        run: node bin/ci/test-cost.mjs --months 3 --summary | tee report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record it on the tracking issue
         env:

@@ -36,7 +36,7 @@ CLIPPY_CRATES=(tmuxy-core tmuxy-server tmuxy-tauri-app tmuxy-group tmuxy-pty)
 PRETTIER_SCOPE=(
   packages/tmuxy-ui/src
   'tests/**/*.js'
-  'bin/*.mjs'
+  'bin/**/*.mjs'
   'tests/perf/*.mjs'
   'packages/tmuxy-ui/scripts/**/*.mjs'
   'packages/tmuxy-ui/.storybook/*.ts'

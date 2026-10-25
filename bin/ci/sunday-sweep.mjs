@@ -15,8 +15,8 @@
  * Alert and log text is other people's: it goes to the agent fenced as data,
  * and the agent's PRs stay drafts whose workflows wait for "Approve and run".
  *
- *   bin/sunday-sweep.mjs             dispatch
- *   bin/sunday-sweep.mjs --dry-run   say what it would dispatch, change nothing
+ *   bin/ci/sunday-sweep.mjs             dispatch
+ *   bin/ci/sunday-sweep.mjs --dry-run   say what it would dispatch, change nothing
  *
  * Needs `gh` with a token that can read security alerts and start agent
  * tasks (the workflow's \`COPILOT_AGENT_PAT\`); \`GH_REPO\` names the repository.
