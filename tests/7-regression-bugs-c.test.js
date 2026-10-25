@@ -14,7 +14,7 @@ const {
   waitForCondition,
   waitForSettled,
   tmuxCommandKeyboard,
-  DELAYS,
+  waitForPrefixConsumed,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
@@ -62,7 +62,7 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
       if (shift) await page.keyboard.down('Shift');
       await page.keyboard.press(key);
       if (shift) await page.keyboard.up('Shift');
-      await delay(DELAYS.LONG);
+      await waitForPrefixConsumed(page);
     };
 
     const panesByWindow = async () => {

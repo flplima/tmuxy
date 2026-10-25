@@ -12,6 +12,7 @@
  */
 
 const { getBrowser, waitForServer, waitForSettled, delay } = require('../helpers/browser');
+const { waitForMonitorGone } = require('../helpers/monitor');
 const { TMUXY_URL } = require('../helpers/config');
 const {
   extractUIState,
@@ -151,11 +152,14 @@ beforeAll(async () => {
 afterAll(async () => {
   // Only close the page if we created it (don't close the user's tab)
   if (ownedPage && page?._context) {
+    const sessionName = await page
+      .evaluate(() => window.app?.getSnapshot()?.context?.sessionName)
+      .catch(() => null);
     await page._context.close();
-    // Wait for the server's 2s grace period to complete so the monitor
-    // and CC connection for this session are fully cleaned up before
-    // the next jest run (E2E tests) starts.
-    await delay(3000);
+    // The server keeps the monitor for a grace period after its last page
+    // goes; the next jest run (E2E tests) must not start before tmux says
+    // that client is gone.
+    await waitForMonitorGone(sessionName);
   }
 });
 

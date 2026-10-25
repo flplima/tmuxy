@@ -31,7 +31,8 @@ const {
 
 // ==================== Touch Scroll Helpers ====================
 
-async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepDelay = 16) {
+/** One finger from `startY` to `endY` in `steps` moves, a frame apart, as a thumb moves. */
+async function dispatchTouchScroll(page, startX, startY, endY, steps = 10) {
   const cdp = await page.context().newCDPSession(page);
   const deltaY = (endY - startY) / steps;
 
@@ -39,7 +40,7 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepD
     type: 'touchStart',
     touchPoints: [{ x: startX, y: startY }],
   });
-  await delay(stepDelay);
+  await delay(16);
 
   for (let i = 1; i <= steps; i++) {
     const y = startY + deltaY * i;
@@ -47,7 +48,7 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepD
       type: 'touchMove',
       touchPoints: [{ x: startX, y }],
     });
-    await delay(stepDelay);
+    await delay(16);
   }
 
   await cdp.send('Input.dispatchTouchEvent', {
@@ -288,7 +289,6 @@ describe('Scenario 21: Touch Scrolling', () => {
       paneBox.y,
       paneBox.y + paneBox.height * 0.4, // swipe down 40% of pane
       10,
-      16,
     );
     // Touch events are unreliable in headless, so fall back to keyboard entry
     // (the correct prefix from tmuxy.conf) when the swipe did not register —
@@ -331,7 +331,6 @@ describe('Scenario 21: Touch Scrolling', () => {
       paneBox.y + paneBox.height * 0.4,
       paneBox.y - paneBox.height * 0.2, // swipe up 60% of pane
       10,
-      16,
     );
 
     // Verify content changed (scrolled down in less)
@@ -395,7 +394,6 @@ describe('Scenario 21: Touch Scrolling', () => {
       secondPane.y,
       secondPane.y + secondPane.height * 0.3,
       5,
-      16,
     );
     // A touch is handled in the page; a pane it took away would be gone a
     // frame or two later.

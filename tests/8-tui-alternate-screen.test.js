@@ -15,7 +15,6 @@
 const path = require('path');
 const {
   createTestContext,
-  delay,
   waitForTerminalText,
   waitForPaneCount,
   waitForCondition,
@@ -24,7 +23,7 @@ const {
   pressEnter,
   focusPage,
   assertAltScreenMatch,
-  DELAYS,
+  waitForSettled,
   WORKSPACE_ROOT,
 } = require('./helpers');
 
@@ -70,9 +69,10 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, 'TUI_READY', 20000);
 
-    // Let the screen settle once more after READY (the script does a
-    // final sleep loop; capture-pane returns the steady-state buffer).
-    await delay(DELAYS.SYNC);
+    // TUI_READY is the last thing the script draws, and the stream arrives in
+    // order, so everything before it has landed; once the app has nothing
+    // outstanding the screen is the steady state capture-pane will report.
+    await waitForSettled(ctx.page);
 
     try {
       // Compare every visible row of the alt-screen against tmux's own
@@ -157,12 +157,14 @@ describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
     await page.mouse.move(box.x, box.y);
-    await page.mouse.wheel(0, -120);
-    await delay(DELAYS.SHORT);
-    await page.mouse.wheel(0, -120);
+    // A tick per look until one has arrived: a tick only reaches the program
+    // once the pane's wheel handling has caught up with the modes above.
     await waitForCondition(
       page,
-      async () => String(await ctx.session.query('capture-pane -p')).includes('^[[<64;'),
+      async () => {
+        await page.mouse.wheel(0, -120);
+        return String(await ctx.session.query('capture-pane -p')).includes('^[[<64;');
+      },
       10000,
       'the program to receive an SGR wheel report',
     );

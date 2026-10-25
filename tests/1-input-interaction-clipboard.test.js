@@ -5,6 +5,7 @@
 const {
   createTestContext,
   delay,
+  afterFrames,
   focusPage,
   getTerminalText,
   waitForTerminalText,
@@ -291,7 +292,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     await ctx.page.mouse.move(at.first, at.y);
     await ctx.page.mouse.down();
     await ctx.page.mouse.move(at.last, at.y, { steps: 10 });
-    await delay(120);
+    await afterFrames(ctx.page, 2);
     await ctx.page.mouse.move(at.last + 0.5, at.y);
     await waitForCondition(
       ctx.page,

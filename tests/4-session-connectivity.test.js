@@ -6,7 +6,6 @@
 
 const {
   createTestContext,
-  delay,
   focusPage,
   typeInTerminal,
   pressEnter,
@@ -221,10 +220,22 @@ describe('Scenario 12b: Connection overlay', () => {
       await waitForCondition(page, overlayShown, 20000, 'the reconnecting overlay');
     };
 
+    // Offline until two retries have failed (the backoff runs 1s, 2s, 4s…),
+    // so the next scheduled one is seconds away: coming back within 4s is the
+    // network-returned hint at work, not the schedule happening to be due.
+    const waitForFailedRetries = async (count) => {
+      const at = await page.evaluate(() => window.__eventSources.length);
+      await waitForCondition(
+        page,
+        async () => (await page.evaluate(() => window.__eventSources.length)) >= at + count,
+        20000,
+        `${count} reconnect attempts to fail while offline`,
+      );
+    };
+
     for (let drop = 1; drop <= 6; drop++) {
       await dropTheLink();
-      // Long enough offline for a few attempts to fail and the backoff to climb.
-      await delay(2500);
+      await waitForFailedRetries(2);
       const backAt = Date.now();
       await page.context().setOffline(false);
       await waitForCondition(
@@ -239,7 +250,7 @@ describe('Scenario 12b: Connection overlay', () => {
     // The button is the user's own way to say "now": visible on the overlay,
     // and pressing it opens a stream immediately rather than at the next tick.
     await dropTheLink();
-    await delay(2500);
+    await waitForFailedRetries(2);
     const retryNow = page.getByRole('button', { name: 'Retry now' });
     const box = await retryNow.boundingBox();
     expect(box.width).toBeGreaterThan(0);

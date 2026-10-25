@@ -168,6 +168,7 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
     await ctx.page.evaluate(
       ({ alphaMark, betaMark, gammaMark }) => {
         window.__rapidSwitchSamples = [];
+        window.__rapidSwitchDone = false;
         window.__rapidSwitchMutations = [];
         window.__rapidSwitchT0 = null;
 
@@ -213,6 +214,7 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
           const dt = Math.round(performance.now() - window.__rapidSwitchT0);
           window.__rapidSwitchSamples.push({ dt, panes: snapshotVisible() });
           if (dt < 700) requestAnimationFrame(sample);
+          else window.__rapidSwitchDone = true;
         }
         requestAnimationFrame(sample);
       },
@@ -245,8 +247,14 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
       if (tabs[idxs[1]]) tabs[idxs[1]].click();
     }, inactiveIdxs);
 
-    // Let watchers finish the ~700 ms sample window.
-    await delay(900);
+    // The sampler covers 700 ms of frames from the clicks, however long a
+    // slow machine takes to draw them.
+    await waitForCondition(
+      ctx.page,
+      () => ctx.page.evaluate(() => window.__rapidSwitchDone === true),
+      10000,
+      'the sampler to cover its window',
+    );
 
     const { samples, mutations } = await ctx.page.evaluate(() => ({
       samples: window.__rapidSwitchSamples,

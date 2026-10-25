@@ -182,8 +182,13 @@ describe('IPC Commands', () => {
       );
       item.querySelector('button[aria-label="Dismiss notification"]').click();
     }, message);
-    await new Promise((r) => setTimeout(r, 300));
-    expect((await snackbarTexts()).some((t) => t.includes(message))).toBe(false);
+    const dismissed = Date.now();
+    texts = await snackbarTexts();
+    while (texts.some((t) => t.includes(message)) && Date.now() - dismissed < 5000) {
+      await new Promise((r) => setTimeout(r, 100));
+      texts = await snackbarTexts();
+    }
+    expect(texts.some((t) => t.includes(message))).toBe(false);
   });
 
   test('new-window over IPC is rewritten to splitw+breakp: tmux survives and the window appears', async () => {

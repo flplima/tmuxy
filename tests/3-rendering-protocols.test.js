@@ -37,9 +37,13 @@ describe('Scenario 14: OSC Protocols', () => {
     );
 
     // TerminalLine wraps runs carrying a cell URL in <a href>. The anchor must
-    // occupy space on screen, not merely exist in the DOM.
+    // occupy space on screen, not merely exist in the DOM. Only the OSC 8
+    // anchors count: the typed command line holds the same URL as text, and
+    // its auto-link would satisfy a check on every `a[href]` with OSC 8 broken.
     const linkInfo = await ctx.page.evaluate(() => {
-      const anchors = Array.from(document.querySelectorAll('.terminal-content a[href]'));
+      const anchors = Array.from(
+        document.querySelectorAll('.terminal-content a.terminal-hyperlink'),
+      ).filter((a) => a.textContent.includes('Click Here'));
       return {
         count: anchors.length,
         hrefs: anchors.map((a) => a.getAttribute('href')),

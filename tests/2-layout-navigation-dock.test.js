@@ -18,6 +18,7 @@ const {
   afterFrames,
   waitForCondition,
   waitForShellPrompt,
+  waitForKeyboardFocus,
   cursorAnchorCenter,
   sampleCursorGlide,
   glidePositions,
@@ -161,7 +162,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       await cursorAnchorCenter(ctx.page, '[data-testid="right-sidebar-content"]'),
     );
     await ctx.page.bringToFront();
-    await delay(200);
+    await waitForKeyboardFocus(ctx.page);
     for (const char of 'echo dock-typing-works') {
       await ctx.page.keyboard.type(char);
       await delay(30);
