@@ -168,6 +168,12 @@ export interface AppMachineContext {
    */
   sendAsk: boolean;
   /**
+   * The config's `@tmuxy-transparency` switch, flipped from the View menu on
+   * the macOS desktop app and written back to `tmuxy.state.json`: off, the
+   * window is opaque and has no blur.
+   */
+  transparency: boolean;
+  /**
    * The config's `@tmuxy-tab-overview-cols`: cards per row in the "all tabs"
    * view. Defaults to 3, also on adapters without a config.
    */

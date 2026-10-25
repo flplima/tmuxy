@@ -85,6 +85,7 @@ export const uiPrefsActions = {
         animationsAllowed: event.appearance?.animations ?? true,
         cursorBlink: event.appearance?.cursorBlink ?? true,
         sendAsk: event.appearance?.sendAsk ?? true,
+        transparency: event.appearance?.transparency ?? true,
         tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
         gestureFlags: {
           swipeTabs: event.appearance?.gestureSwipeTabs ?? true,
@@ -130,6 +131,21 @@ export const uiPrefsActions = {
       sendTo('tmux', {
         type: 'INVOKE' as const,
         cmd: 'set_send_ask',
+        args: { enabled },
+      }),
+    );
+  }),
+
+  // The desktop app answers with fresh theme settings, which repaint the
+  // surfaces (applyAppearance) as it puts every window's blur on or off.
+  uiPrefs_toggleTransparency: act(({ event, context, enqueue }) => {
+    if (event.type !== 'TOGGLE_TRANSPARENCY') return;
+    const enabled = !context.transparency;
+    enqueue(assign({ transparency: enabled }));
+    enqueue(
+      sendTo('tmux', {
+        type: 'INVOKE' as const,
+        cmd: 'set_transparency',
         args: { enabled },
       }),
     );

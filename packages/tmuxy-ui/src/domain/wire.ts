@@ -363,6 +363,11 @@ export const Appearance = Schema.Struct({
   inactiveTextOpacity: Schema.Number,
   /** macOS blur behind the window; ignored elsewhere. */
   blur: Schema.Boolean,
+  /**
+   * Whether the window is see-through at all (`@tmuxy-transparency`): off
+   * paints the surfaces opaque and clears the blur. Absent from older servers.
+   */
+  transparency: Schema.optional(Schema.Boolean),
   /** Layout animations (`@tmuxy-animations`): pane morphs, swaps, resizes, float keyframes. */
   animations: Schema.Boolean,
   /** Whether the cursor blinks (`@tmuxy-cursor-blink`), unless the app asks for a steady one. */

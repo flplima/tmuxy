@@ -278,6 +278,7 @@ export type AppMachineEvent =
   | { type: 'SET_THEME_MODE'; mode: ThemeMode }
   | { type: 'TOGGLE_CURSOR_BLINK' }
   | { type: 'TOGGLE_SEND_ASK' }
+  | { type: 'TOGGLE_TRANSPARENCY' }
   | {
       type: 'THEME_SETTINGS_RECEIVED';
       theme: string;

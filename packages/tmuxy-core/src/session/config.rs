@@ -202,6 +202,10 @@ pub struct ManagedState {
     /// when the user has chosen through the app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_ask: Option<bool>,
+    /// Whether the window is see-through (`@tmuxy-transparency`), when the
+    /// user has chosen through the app.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transparency: Option<bool>,
     /// Whether to source the user's own `~/.tmux.conf` on tmuxy's socket.
     ///
     /// Off by default, and deliberately not a tmux option: it decides what goes
@@ -222,6 +226,7 @@ pub fn managed_state_commands(state: &ManagedState) -> Vec<String> {
         (tmux_options::THEME_MODE, state.theme_mode.as_deref()),
         (tmux_options::CURSOR_BLINK, flag(state.cursor_blink)),
         (tmux_options::SEND_ASK, flag(state.send_ask)),
+        (tmux_options::TRANSPARENCY, flag(state.transparency)),
     ]
     .into_iter()
     .filter_map(|(option, value)| {
@@ -253,35 +258,40 @@ pub fn read_managed_state() -> ManagedState {
     }
 }
 
-/// Update one field in the JSON state file. Reads the existing file (if
-/// any) so unspecified fields are preserved; pass `Some` for whichever
-/// fields you're updating, `None` to leave them as-is.
-pub fn write_managed_state(
-    theme: Option<&str>,
-    theme_mode: Option<&str>,
-    cursor_blink: Option<bool>,
-    send_ask: Option<bool>,
-    use_tmux_conf: Option<bool>,
-) -> std::io::Result<PathBuf> {
+/// Update the JSON state file: every field `changes` sets is written, every
+/// other kept as the file has it.
+pub fn write_managed_state(changes: ManagedState) -> std::io::Result<PathBuf> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
     let path = managed_state_path();
 
     let mut state = read_managed_state();
-    if let Some(t) = theme {
-        state.theme = Some(t.to_string());
+    // Destructured, so a field added to the state cannot be left out here.
+    let ManagedState {
+        theme,
+        theme_mode,
+        cursor_blink,
+        send_ask,
+        transparency,
+        use_tmux_conf,
+    } = changes;
+    if theme.is_some() {
+        state.theme = theme;
     }
-    if let Some(m) = theme_mode {
-        state.theme_mode = Some(m.to_string());
+    if theme_mode.is_some() {
+        state.theme_mode = theme_mode;
     }
-    if let Some(b) = cursor_blink {
-        state.cursor_blink = Some(b);
+    if cursor_blink.is_some() {
+        state.cursor_blink = cursor_blink;
     }
-    if let Some(b) = send_ask {
-        state.send_ask = Some(b);
+    if send_ask.is_some() {
+        state.send_ask = send_ask;
     }
-    if let Some(b) = use_tmux_conf {
-        state.use_tmux_conf = Some(b);
+    if transparency.is_some() {
+        state.transparency = transparency;
+    }
+    if use_tmux_conf.is_some() {
+        state.use_tmux_conf = use_tmux_conf;
     }
 
     let body = serde_json::to_string_pretty(&state).map_err(std::io::Error::other)?;

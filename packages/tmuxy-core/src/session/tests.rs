@@ -160,6 +160,7 @@ fn managed_state_serde_roundtrips() {
         theme_mode: Some("dark".into()),
         cursor_blink: Some(false),
         send_ask: Some(false),
+        transparency: Some(false),
         use_tmux_conf: Some(true),
     };
     let json = serde_json::to_string(&state).unwrap();
@@ -168,6 +169,7 @@ fn managed_state_serde_roundtrips() {
     assert_eq!(parsed.theme_mode.as_deref(), Some("dark"));
     assert_eq!(parsed.cursor_blink, Some(false));
     assert_eq!(parsed.send_ask, Some(false));
+    assert_eq!(parsed.transparency, Some(false));
     assert_eq!(parsed.use_tmux_conf, Some(true));
 
     // An older build's file has no such key; the choice is simply unmade.
@@ -196,6 +198,7 @@ fn managed_state_commands_set_only_the_chosen_options() {
         theme_mode: None,
         cursor_blink: Some(false),
         send_ask: Some(false),
+        transparency: Some(false),
         use_tmux_conf: Some(true),
     };
     assert_eq!(
@@ -204,6 +207,7 @@ fn managed_state_commands_set_only_the_chosen_options() {
             "set-option -g @tmuxy-theme 'tokyo night'".to_string(),
             "set-option -g @tmuxy-cursor-blink 'off'".to_string(),
             "set-option -g @tmuxy-send-ask 'off'".to_string(),
+            "set-option -g @tmuxy-transparency 'off'".to_string(),
         ]
     );
 }

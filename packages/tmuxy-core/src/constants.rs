@@ -147,6 +147,10 @@ pub mod tmux_options {
     pub const INACTIVE_TEXT_OPACITY: &str = "@tmuxy-inactive-text-opacity";
     /// `on`/`off`: native blur behind the window (macOS only; ignored elsewhere).
     pub const BLUR: &str = "@tmuxy-blur";
+    /// `on`/`off`: whether the window is see-through at all. Off paints the
+    /// chrome and the pane surfaces opaque and clears the blur, leaving the
+    /// opacity and blur options as they are for when it goes back on.
+    pub const TRANSPARENCY: &str = "@tmuxy-transparency";
     /// `on`/`off`: the UI's layout animations (pane morphs, swaps, resizes,
     /// float keyframes). Off draws every change in place.
     pub const ANIMATIONS: &str = "@tmuxy-animations";
