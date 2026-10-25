@@ -21,6 +21,7 @@ const {
   TMUXY_PORT,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
+const { waitForMonitorGone } = require('./helpers/monitor');
 const { startExtraServer } = require('./helpers/extra-server');
 const { startPublicNameProxy } = require('./helpers/public-name-proxy');
 
@@ -39,9 +40,12 @@ describe('Scenario 22b: Other origins cannot drive tmux', () => {
 
     const session = ctx.session.name;
     const commandsUrl = `${TMUXY_URL}/commands?session=${encodeURIComponent(session)}`;
-    const option = '@tmuxy-e2e-origin';
-    const readOption = () => tmuxExec(`show-options -t ${session} -qv ${option}`);
-    const commandBody = (value) =>
+    // Each request writes an option of its own, so the forged one can be
+    // judged after the allowed one lands: both reach tmux over the one
+    // control connection, in the order the server took them, so a forged
+    // write the server let through would be in place before the allowed one.
+    const readOption = (option) => tmuxExec(`show-options -t ${session} -qv ${option}`);
+    const commandBody = (option, value) =>
       JSON.stringify({
         cmd: 'run_tmux_command',
         args: { command: `set-option -t ${session} ${option} ${value}` },
@@ -68,14 +72,12 @@ describe('Scenario 22b: Other origins cannot drive tmux', () => {
             body,
           }).catch(() => {});
         },
-        { url: commandsUrl, body: commandBody('forged') },
+        { url: commandsUrl, body: commandBody('@tmuxy-e2e-forged', 'forged') },
       );
     } finally {
       await elsewhere.close();
       site.close();
     }
-    await delay(DELAYS.SYNC);
-    expect(readOption()).toBe('');
 
     // The same command from the app's own page goes through: what was refused
     // above was where the command came from, not the command.
@@ -88,14 +90,15 @@ describe('Scenario 22b: Other origins cannot drive tmux', () => {
           body,
         });
       },
-      { url: commandsUrl, body: commandBody('allowed') },
+      { url: commandsUrl, body: commandBody('@tmuxy-e2e-origin', 'allowed') },
     );
     await waitForCondition(
       ctx.page,
-      async () => readOption() === 'allowed',
+      async () => readOption('@tmuxy-e2e-origin') === 'allowed',
       10000,
       "the app's own command to set the option",
     );
+    expect(readOption('@tmuxy-e2e-forged')).toBe('');
   }, 180000);
 });
 
@@ -300,7 +303,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
       } catch {
         // Already gone — fine.
       }
-      await delay(500);
+      await waitForMonitorGone(siblingName);
     }
   }, 180000);
 

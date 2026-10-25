@@ -11,7 +11,7 @@
  * by the Chromium selection suite (1-input-interaction-clipboard.test.js).
  */
 
-const { delay, waitForCondition } = require('./browser');
+const { afterFrames, waitForCondition } = require('./browser');
 
 /**
  * Where the last line SHOWN containing `text` is on screen, and the two x
@@ -82,14 +82,14 @@ async function shownRunRect(page, rootSelector, text) {
 
 /**
  * Press on `from`'s first cell, sweep to `to`'s last cell (the same run when
- * `to` is omitted) and release, pausing on the end so a throttled move lands
- * there.
+ * `to` is omitted) and release, pausing on the end for two frames: the
+ * browser hands moves over once a frame, so the last one has landed by then.
  */
 async function dragSelect(page, from, to = from) {
   await page.mouse.move(from.first, from.y);
   await page.mouse.down();
   await page.mouse.move(to.last, to.y, { steps: 10 });
-  await delay(120);
+  await afterFrames(page, 2);
   await page.mouse.move(to.last + 0.5, to.y);
   await page.mouse.up();
 }

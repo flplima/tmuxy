@@ -187,7 +187,13 @@ async function run() {
     } catch {
       // already gone
     }
-    await new Promise((r) => setTimeout(r, 500));
+    // Gone before its tmux session is cleaned up under it, or 5s at most.
+    if (child.exitCode === null && child.signalCode === null) {
+      await Promise.race([
+        new Promise((resolve) => child.once('exit', resolve)),
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ]);
+    }
     cleanupTmuxSession(env);
     try {
       fs.rmSync(SANDBOX_HOME, { recursive: true, force: true });

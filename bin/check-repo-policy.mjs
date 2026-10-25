@@ -258,17 +258,18 @@ function checkDocsToScriptsConsistency() {
  * needs a wait uses `waitForCondition`, which this check does not count.
  *
  * A sleep is legitimate, and not counted, in two places: as the interval of a
- * poll loop (inside a `while`/`do` loop, or a counted `for` loop that `break`s
- * or `return`s on the condition), and as a sub-100ms beat between the parts of
- * one input gesture (keyboard.down → press → up), where there is no
+ * poll loop (inside a `while`/`do` loop, a counted `for` loop that `break`s or
+ * `return`s on the condition or tests it in its header, or the predicate a
+ * `waitForCondition` keeps calling), and as a sub-100ms beat between the parts
+ * of one input gesture (keyboard.down → press → up), where there is no
  * observable state between the halves to wait on.
  */
 const BLIND_WAIT_CEILING = {
   // Shared machinery. A blind wait here is multiplied by every test that calls
   // the helper, so this is the number that matters most.
-  'tests/helpers': 1,
+  'tests/helpers': 0,
   // Test bodies. Each one affects a single test.
-  tests: 34,
+  tests: 16,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */
@@ -319,6 +320,11 @@ function pollLoopBodies(code) {
       bodies.push([open, close]);
       continue;
     }
+    // The predicate `waitForCondition(page, async () => { … })` polls.
+    if (/\bwaitForCondition\(\s*[\w.]+\s*,\s*(?:async\s*)?\(\s*\)\s*=>$/.test(before)) {
+      bodies.push([open, close]);
+      continue;
+    }
     if (!before.endsWith(')')) continue;
     let depth = 0;
     let paren = before.length - 1;
@@ -335,8 +341,11 @@ function pollLoopBodies(code) {
     } else if (keyword === 'for') {
       const header = before.slice(paren);
       const body = code.slice(open, close);
-      if (!/\b(of|in)\b/.test(header) && /\b(break|return)\b/.test(body))
-        bodies.push([open, close]);
+      // A condition beside the count in the header (`i < 50 && !ready`) ends
+      // the loop the way a `break` on it would.
+      const condition = header.split(';')[1] ?? '';
+      const polls = /\b(break|return)\b/.test(body) || /&&|\|\|/.test(condition);
+      if (!/\b(of|in)\b/.test(header) && polls) bodies.push([open, close]);
     }
   }
   return bodies;
