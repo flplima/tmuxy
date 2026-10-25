@@ -51,6 +51,9 @@ virtual machine inside your browser tab; that machine has no network.
 | The CheerpX runtime | When your browser can run it (the page is cross-origin isolated) | `cxrtnc.leaningtech.com`, Leaning Technologies' CDN | The script request; what the runtime does after it loads is Leaning Technologies' | A browser that cannot isolate the page runs the demo on v86 instead, from the site itself |
 | The demo's nyan cat | When the demo starts | `gist.githubusercontent.com` | The image request | Block the host; the demo starts without the picture |
 
+The site also serves `/llms-full.txt` and `/search.json`, the docs for
+agents: static files from the same host, fetched only by whoever asks for them.
+
 ## Related
 
 - [SECURITY-NETWORK.md](SECURITY-NETWORK.md) — where the server listens and how to expose it safely

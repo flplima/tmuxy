@@ -10,6 +10,8 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 **For AI agents:** The project's `AGENTS.md` references these docs and includes rules about reviewing them. Key constraints (e.g., all tmux commands must go through control mode) are documented here because they prevent crashes and data loss.
 
+**On the website:** every doc here is also served by [tmuxy.sh](https://tmuxy.sh) for agents that cannot clone the repository. `/llms-full.txt` is all of them in one file, each under a header naming its canonical GitHub URL; `/search.json` is one entry per section (doc, heading, level, canonical URL with its anchor, and the section's text), for an agent to fetch once and filter itself — the site is static, so there is no query endpoint. Both are built from this directory at the site's build (`packages/tmuxy-demo/scripts/agent-docs.mjs`), and a link between docs whose anchor names no heading fails the unit tests.
+
 ## Document Guide
 
 Every file in this directory. A doc that outgrew the size cap (below) continues in companions named after it, listed under it.

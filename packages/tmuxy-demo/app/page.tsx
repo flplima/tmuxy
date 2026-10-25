@@ -227,6 +227,25 @@ export default function Home() {
           </a>{' '}
           where CheerpX cannot run.
         </p>
+        <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)', lineHeight: '1.7' }}>
+          For coding agents: every doc in one file at{' '}
+          <a
+            href="/llms-full.txt"
+            className="landing-github-link"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <span style={{ textDecoration: 'underline' }}>/llms-full.txt</span>
+          </a>
+          , and one entry per section at{' '}
+          <a
+            href="/search.json"
+            className="landing-github-link"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <span style={{ textDecoration: 'underline' }}>/search.json</span>
+          </a>
+          .
+        </p>
       </div>
     </main>
   );

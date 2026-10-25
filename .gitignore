@@ -47,6 +47,9 @@ packages/tmuxy-demo/public/v86
 packages/tmuxy-demo/public/v86-img
 packages/tmuxy-demo/public/wasm
 packages/tmuxy-demo/public/cheerpx-img
+# The docs for agents, built from docs/ (packages/tmuxy-demo/scripts/agent-docs.mjs)
+packages/tmuxy-demo/public/llms-full.txt
+packages/tmuxy-demo/public/search.json
 # The CheerpX guest image (built via `npm run build:cheerpx-image -w tmuxy-ui`)
 packages/tmuxy-ui/cheerpx-assets
 

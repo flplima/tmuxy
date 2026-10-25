@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   metadataBase: new URL(SITE_URL),
+  // The docs for agents, built from docs/ by scripts/agent-docs.mjs.
+  alternates: {
+    types: { 'text/plain': '/llms-full.txt', 'application/json': '/search.json' },
+  },
   openGraph: {
     type: 'website',
     url: SITE_URL,

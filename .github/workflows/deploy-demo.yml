@@ -21,6 +21,8 @@ on:
       - 'packages/tmuxy-cli/bin/tmuxy-cli'
       - 'packages/tmuxy-cli/bin/tmuxy/**'
       - 'packages/tmuxy-core/assets/tmuxy.defaults.conf'
+      # The docs for agents (/llms-full.txt, /search.json) are built from docs/.
+      - 'docs/**'
       - '.github/workflows/deploy-demo.yml'
   workflow_dispatch:
 
