@@ -403,6 +403,17 @@ pub fn shell_join(argv: &[String]) -> String {
         .join(" ")
 }
 
+/// tmux on tmuxy's server, as a shell command line: what a job `run-shell`
+/// starts calls to reach the server that started it.
+pub fn tmux_shell_command() -> String {
+    let [flag, socket] = crate::session::tmux_socket_args();
+    format!(
+        "{} {flag} {}",
+        shell_quote(crate::session::tmux_path()),
+        shell_quote(&socket)
+    )
+}
+
 pub fn shell_quote(word: &str) -> String {
     let plain = !word.is_empty()
         && word

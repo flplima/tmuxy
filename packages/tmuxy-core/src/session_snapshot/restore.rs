@@ -31,14 +31,12 @@ const RESTORE_ANSWER: &str = "@tmuxy-restore-answer";
 /// nothing more. So the shell writes its output into a server option, which
 /// is read back and cleared, and the shell step always succeeds (a "returned
 /// 1" is view-mode output too); a failure surfaces as an answer the next
-/// steps cannot use as a target.
+/// steps cannot use as a target. A `run-shell` a client sends is relayed the
+/// same way (`control_mode/monitor/run_shell.rs`).
 fn ask_run_shell(key: &str, shell: &str) -> Vec<Step> {
-    let [flag, socket] = crate::session::tmux_socket_args();
     let relay = format!(
-        "{} {} {} set-option -g {RESTORE_ANSWER} \"$({shell} 2>&1)\"; true",
-        shell_quote(crate::session::tmux_path()),
-        flag,
-        shell_quote(&socket),
+        "{} set-option -g {RESTORE_ANSWER} \"$({shell} 2>&1)\"; true",
+        tmux_shell_command()
     );
     vec![
         Step::Run(argv(&["run-shell", &relay])),

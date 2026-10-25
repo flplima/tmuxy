@@ -37,7 +37,7 @@
     { "name": "8-tui", "path": "tests/8-tui-alternate-screen.test.js" },
     {
       "name": "tmux-3.4",
-      "path": "tests/(snapshots/|8-tui-alternate-screen)",
+      "path": "tests/(snapshots/|8-tui-alternate-screen|7-regression-bugs-run-shell)",
       "tmux": "3.4"
     },
     { "name": "10-read-only", "path": "tests/10-read-only.test.js" },
