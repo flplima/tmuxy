@@ -14,7 +14,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const SCRIPTS_DIR = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy');
+const REPO_ROOT = path.resolve(__dirname, '../../..');
+const SCRIPTS_DIR = path.join(REPO_ROOT, 'packages/tmuxy-cli/bin/tmuxy');
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**
@@ -54,4 +55,36 @@ function runGroupScript(verb, args, env = {}, { standalone = false } = {}) {
   }
 }
 
-module.exports = { runGroupScript };
+/**
+ * Run `pane-group <verb>` from a copy of the scripts in a dev tree with
+ * nothing installed: no published binary, no server on PATH, no desktop app's
+ * launcher — only a stub `target/debug/tmuxy-server` at the tree's root. The
+ * copy keeps the scripts' depth below the repo root, which is what the lookup
+ * goes by. The stub prints `dev build …`.
+ *
+ * @param {string} verb - The group verb, e.g. `next`
+ * @param {string[]} args - The verb's arguments
+ * @returns {{ stdout: string, stderr: string, exitCode: number | null }}
+ */
+function runGroupScriptInBareTree(verb, args) {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-devtree-'));
+  try {
+    const scripts = path.join(repo, path.relative(REPO_ROOT, SCRIPTS_DIR));
+    fs.cpSync(SCRIPTS_DIR, scripts, { recursive: true });
+    fs.mkdirSync(path.join(repo, 'target', 'debug'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, 'target', 'debug', 'tmuxy-server'),
+      '#!/bin/bash\necho "dev build $*"\n',
+      { mode: 0o755 },
+    );
+    const result = spawnSync('bash', [path.join(scripts, 'pane-group'), verb, ...args], {
+      encoding: 'utf8',
+      env: { PATH: '/usr/bin:/bin', HOME: repo, XDG_CONFIG_HOME: path.join(repo, 'cfg') },
+    });
+    return { stdout: result.stdout.trim(), stderr: result.stderr, exitCode: result.status };
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+}
+
+module.exports = { runGroupScript, runGroupScriptInBareTree };

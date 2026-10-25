@@ -119,7 +119,8 @@ shquote() {
 #   4. The desktop app the `tmuxy` shorthand launches, whose server verbs are
 #      `tmuxy server <verb>`.
 find_server_cmd() {
-  local root="${SCRIPTS_DIR%/*}/.." launcher
+  # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
+  local root="${SCRIPTS_DIR%/*}/../../.." launcher
   launcher="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
   if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ]; then
     SERVER_CMD=("$TMUXY_SERVER_BIN" ${TMUXY_SERVER_SUBCOMMAND:+"$TMUXY_SERVER_SUBCOMMAND"})

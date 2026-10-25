@@ -1,6 +1,6 @@
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
-const { runGroupScript } = require('./helpers/run-group-script');
+const { runGroupScript, runGroupScriptInBareTree } = require('./helpers/run-group-script');
 
 const SCRIPTS_DIR = path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy');
 const MOCKS_DIR = path.resolve(__dirname, 'mocks');
@@ -147,6 +147,15 @@ describe('CLI pane group subcommands', () => {
       const { stdout, exitCode } = runGroupScript('next', ['%1'], {}, { standalone: true });
       expect(exitCode).toBe(0);
       expect(stdout).toBe(`standalone next %1 [scripts=${SCRIPTS_DIR}]`);
+    });
+
+    // A dev tree with nothing installed (CI): the server build is found from
+    // where the scripts sit in the repo.
+    test("finds the dev tree's own server build, from the scripts' place in the repo", () => {
+      const { stdout, stderr, exitCode } = runGroupScriptInBareTree('next', ['%1']);
+      expect(stderr).toBe('');
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe('dev build group next %1');
     });
   });
 
