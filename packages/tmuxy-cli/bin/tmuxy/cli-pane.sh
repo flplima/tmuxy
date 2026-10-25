@@ -287,8 +287,11 @@ cmd_pane_group() {
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group close [%id]"; return ;;
       esac
-      local pane_id="${1:-"#{pane_id}"}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' close '$pane_id'"
+      # The default stays a bare format for run-shell to expand; `shquote`
+      # doubles its `#`, which would hand the script the text instead.
+      local target='#{pane_id}'
+      [ -z "${1:-}" ] || target="$(shquote "$1")"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' close $target"
       ;;
 
     switch)
@@ -296,7 +299,7 @@ cmd_pane_group() {
         --help|-h) echo "Usage: tmuxy pane group switch <%id>"; return ;;
       esac
       local pane_id="${1:?Usage: tmuxy pane group switch <pane_id>}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' switch '$pane_id'"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' switch $(shquote "$pane_id")"
       ;;
 
     move)

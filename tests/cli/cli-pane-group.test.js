@@ -21,18 +21,26 @@ describe('CLI pane group subcommands', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'close']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' close");
-      // Default pane_id is #{pane_id} when no arg given
-      expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
+      // A bare format, for run-shell to expand to the current pane.
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' close #\{pane_id\}$/);
     });
 
     test('execs run-shell with pane-group close (specific pane)', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'close', '%5']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' close");
-      expect(tmuxCalls[0].args[1]).toContain('%5');
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' close '%5'$/);
     });
+  });
+
+  // run-shell hands its string to a shell, so an argument with a quote in it
+  // must reach the script as one word, never as more of the command.
+  test.each(['close', 'switch'])('pane group %s quotes the pane it is given', (verb) => {
+    const { tmuxCalls } = runCLI(['pane', 'group', verb, "%1'; id; '"]);
+    expect(tmuxCalls).toHaveLength(1);
+    expect(tmuxCalls[0].args[1]).toMatch(
+      new RegExp(`pane-group' ${verb} '%1'\\\\''; id; '\\\\'''$`),
+    );
   });
 
   describe('pane group switch', () => {
@@ -40,8 +48,7 @@ describe('CLI pane group subcommands', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'switch', '%3']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' switch");
-      expect(tmuxCalls[0].args[1]).toContain('%3');
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' switch '%3'$/);
     });
 
     test('errors with no pane id', () => {
