@@ -1,4 +1,4 @@
-import { sidebarFontSize } from '../../utils/fontSizeManager';
+import { smallFontSize } from '../../utils/fontSizeManager';
 import { sidebarCellMetrics } from '../../utils/cellMetrics';
 import { CHAR_HEIGHT, CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
@@ -234,7 +234,7 @@ export const selectSidebarCellMetrics = createMemoizedSelector(
   (context: AppMachineContext) =>
     [context.charWidth, context.cellGap, context.baseFontSize] as const,
   (context: AppMachineContext) => {
-    const fontSize = sidebarFontSize(context.baseFontSize);
+    const fontSize = smallFontSize(context.baseFontSize);
     const metrics = sidebarCellMetrics(
       { charWidth: context.charWidth || DEFAULT_CHAR_WIDTH, cellGap: context.cellGap },
       context.baseFontSize,

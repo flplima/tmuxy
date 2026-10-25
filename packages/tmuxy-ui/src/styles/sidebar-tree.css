@@ -13,7 +13,7 @@
   padding: var(--spacing-lg) 0;
   box-sizing: border-box;
   font-family: var(--font-mono);
-  font-size: var(--tmuxy-sidebar-font-size, calc(var(--tmuxy-font-size, 15px) * 0.8));
+  font-size: var(--tmuxy-small-font-size);
   color: var(--term-foreground);
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;
