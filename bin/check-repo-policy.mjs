@@ -413,7 +413,7 @@ const TOKEN_LIMIT_IGNORE = [
   /(?:^|\/)gen\//,
   /(?:^|\/)dist\//,
   /(?:^|\/)pkg\//,
-  /^vendor\//,
+  /^packages\/vt100\//,
   /^\.github\/workflows\//,
   /\.(?:woff2?|ttf|otf|png|jpg|jpeg|gif|ico|icns|webp|pdf|wasm|svg)$/i,
 ];

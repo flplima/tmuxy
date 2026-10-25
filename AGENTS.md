@@ -162,7 +162,7 @@ Work out the set from what you changed:
 | a `constants.rs` tmux format string         | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
 | `bin/tmuxy-cli`, `bin/tmuxy/**`             | `npm run test:cli`                                                                                         |
 | `packages/tmuxy-tauri-app/**`               | `npm run test:tauri`                                                                                       |
-| perf harnesses, `perf/**`                   | `npm run perf:interactions` + `npm run perf:compare`                                                       |
+| perf harnesses, `tests/perf/**`             | `npm run perf:interactions` + `npm run perf:compare`                                                       |
 
 [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) has the full job-to-command map — it is the
 source of truth for which command stands in for which job, and it works in both

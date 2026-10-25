@@ -37,13 +37,13 @@ as bytes/sec).
 Run: `cargo bench -p tmuxy-core`. These are absolute, reproducible numbers —
 the right place to catch a regression in the parse/aggregate/delta pipeline.
 
-`perf/compare-core-bench.mjs` reads criterion's output and judges it the same
+`tests/perf/compare-core-bench.mjs` reads criterion's output and judges it the same
 two ways Axis C does, for the same reason:
 
 | Signal | Compared against | On regression |
 | --- | --- | --- |
 | ratio between two benchmarks of the same run | a budget in `compare-core-bench.mjs` | **fails the job** |
-| absolute mean | `perf/core-pipeline-baseline.json`, keyed by platform | warns in the step summary |
+| absolute mean | `tests/perf/core-pipeline-baseline.json`, keyed by platform | warns in the step summary |
 
 The ratio is what makes this a gate at all. Absolute nanoseconds from a shared
 runner cannot block a merge, and a platform with no baseline recorded has
@@ -57,11 +57,11 @@ ratio catches it without anyone having recorded a number first.
 A benchmark named in a budget but missing from a run also fails, so renaming a
 bench cannot silently drop its gate.
 
-**Refreshing `perf/core-pipeline-baseline.json`.** A baseline must be measured
+**Refreshing `tests/perf/core-pipeline-baseline.json`.** A baseline must be measured
 on the platform it describes, so the file holds an entry per platform and CI
 never writes it — a baseline change is always a reviewed commit, the same rule
-as `perf/interaction-baseline.json`. For your own machine, run `cargo bench -p
-tmuxy-core --bench core_pipeline` and then `node perf/compare-core-bench.mjs
+as `tests/perf/interaction-baseline.json`. For your own machine, run `cargo bench -p
+tmuxy-core --bench core_pipeline` and then `node tests/perf/compare-core-bench.mjs
 --update-baseline`, which merges the run under its platform key. For the CI
 platform, take `core-pipeline-report.json` from the `core-pipeline-bench-<run>`
 artifact of a nightly `perf measurements` run you trust and paste
@@ -169,7 +169,7 @@ That gives two signals with very different standing, and
 | Signal | Compared against | On regression |
 | --- | --- | --- |
 | ratio to `key-echo` | a per-interaction budget in `compare-interactions.mjs` | **fails the job** |
-| absolute p50 | `perf/interaction-baseline.json`, keyed by platform | warns in the step summary |
+| absolute p50 | `tests/perf/interaction-baseline.json`, keyed by platform | warns in the step summary |
 
 Budgets are ceilings with headroom, not targets. Raising one is a deliberate
 edit that shows up in review; tightening one belongs in the commit that earns
@@ -181,8 +181,8 @@ leaves the absolute column blank and rides on the ratio gate.
 
 ```
 npm run perf:interactions -- --url http://localhost:9000 --samples 12 \
-                             --label local --out perf/interaction-report.json
-npm run perf:compare -- --report perf/interaction-report.json
+                             --label local --out tests/perf/interaction-report.json
+npm run perf:compare -- --report tests/perf/interaction-report.json
 ```
 
 Add `--cdp http://localhost:9222` to attach to the Chrome the dev environment
@@ -210,8 +210,8 @@ than a URL:
 ```
 (cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)
 npm run perf:interactions:tauri -- --samples 12 --label local \
-                                   --out perf/interaction-report-tauri.json
-npm run perf:compare -- --report perf/interaction-report-tauri.json
+                                   --out tests/perf/interaction-report-tauri.json
+npm run perf:compare -- --report tests/perf/interaction-report-tauri.json
 ```
 
 CI runs both nightly, in `nightly-perf.yml` ("perf measurements"), uploading
@@ -263,8 +263,8 @@ See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measu
   [NON-GOALS.md](NON-GOALS.md), "Local Echo / Input Prediction"). Axis B exists in part to decide, with data,
   whether a high-latency use case ever justifies revisiting that.
 - **No committed baseline for the platforms CI actually runs on.**
-  `perf/interaction-baseline.json` holds `darwin-arm64/*` only, and
-  `perf/core-pipeline-baseline.json` holds `darwin-arm64` only. Both CI perf
+  `tests/perf/interaction-baseline.json` holds `darwin-arm64/*` only, and
+  `tests/perf/core-pipeline-baseline.json` holds `darwin-arm64` only. Both CI perf
   jobs therefore ride on their ratio gates alone and leave the absolute column
   blank. That is the designed fallback, not a failure — but it means a uniform
   slowdown that inflates every number together, keystroke echo included, is

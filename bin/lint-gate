@@ -7,7 +7,7 @@
 # The hooks and the job each used to keep their own list, and the lists
 # drifted: pre-commit formatted three crates while CI checked five, clippy ran
 # in both hooks but never for the wasm target, the demo site was type-checked
-# by nothing but its CI build, and ~4,000 lines of scripts under bin/, perf/
+# by nothing but its CI build, and ~4,000 lines of scripts under bin/, tests/perf/
 # and the UI package were formatted and linted by nothing at all. A push was
 # then red for a reason no hook had looked at. Now a green `check` here IS a
 # green lint job, because they are the same commands over the same files.
@@ -37,7 +37,7 @@ PRETTIER_SCOPE=(
   packages/tmuxy-ui/src
   'tests/**/*.js'
   'bin/*.mjs'
-  'perf/*.mjs'
+  'tests/perf/*.mjs'
   'packages/tmuxy-ui/scripts/**/*.mjs'
   'packages/tmuxy-ui/.storybook/*.ts'
   'packages/tmuxy-ui/eslint-rules/*.mjs'
@@ -47,13 +47,12 @@ PRETTIER_SCOPE=(
 )
 
 # What the root ESLint config (eslint.config.mjs) lints: the E2E suites, the
-# scripts under bin/ and perf/, the demo's. ESLint resolves the config from
+# scripts under bin/ and tests/perf/, the demo's. ESLint resolves the config from
 # each file's own directory, so the UI package's scripts and lint rules are
 # its own config's, run through `npm run lint -w tmuxy-ui`.
 ESLINT_ROOT_SCOPE=(
   tests
   bin
-  perf
   eslint.config.mjs
   packages/tmuxy-demo/scripts
   packages/tmuxy-demo/postcss.config.mjs
@@ -120,7 +119,7 @@ check_clippy() {
 check_knip() {
   step knip
   # Exports nothing imports, files nothing reaches, dependencies nothing
-  # uses — over the scopes knip.json names. An export only its own file
+  # uses — over the scopes package.json's `knip` key names. An export only its own file
   # uses is not reported: it is a constant with a name, not dead code.
   npx knip --no-progress
 }

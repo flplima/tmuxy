@@ -3,7 +3,7 @@ name: perf measurements
 # The perf measurements (docs/PERFORMANCE.md has the reasoning for each):
 #
 #   interaction-baseline  on demand — measures Axis C on ubuntu-latest and
-#                         opens a PR with a refreshed perf/interaction-baseline.json
+#                         opens a PR with a refreshed tests/perf/interaction-baseline.json
 #   interaction-latency   nightly — Axis C, web and desktop: the ratio budgets
 #                         in compare-interactions.mjs fail the run
 #   core-bench            nightly — Axis A: the parse → aggregate → delta
@@ -109,7 +109,7 @@ jobs:
             --url http://localhost:9000 \
             --samples 25 \
             --label ci-baseline \
-            --out perf/interaction-report.json
+            --out tests/perf/interaction-report.json
 
       # --update-baseline merges this run into the committed file under its own
       # platform key, leaving `darwin-arm64` alone. continue-on-error because
@@ -119,7 +119,7 @@ jobs:
         continue-on-error: true
         run: |
           npm run perf:compare -- \
-            --report perf/interaction-report.json \
+            --report tests/perf/interaction-report.json \
             --update-baseline
 
       - name: Upload the refreshed baseline
@@ -128,8 +128,8 @@ jobs:
         with:
           name: interaction-baseline-${{ github.run_id }}
           path: |
-            perf/interaction-baseline.json
-            perf/interaction-report.json
+            tests/perf/interaction-baseline.json
+            tests/perf/interaction-report.json
           if-no-files-found: error
 
       # A pull request, not a commit to main: the numbers are read before they
@@ -142,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if git diff --quiet -- perf/interaction-baseline.json; then
+          if git diff --quiet -- tests/perf/interaction-baseline.json; then
             echo "Baseline unchanged - nothing to open." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -151,7 +151,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add perf/interaction-baseline.json
+          git add tests/perf/interaction-baseline.json
 
           # Bodies come from files: a -m string written inline in a YAML block
           # scalar carries the block's own indentation into the message.
@@ -170,7 +170,7 @@ jobs:
           git push --no-verify origin "$BRANCH"
 
           {
-            printf '%s\n\n' 'Refreshed `perf/interaction-baseline.json` from a measured run on `ubuntu-latest` (25 samples).'
+            printf '%s\n\n' 'Refreshed `tests/perf/interaction-baseline.json` from a measured run on `ubuntu-latest` (25 samples).'
             printf '%s\n\n' 'The script merges rather than replaces, so the existing `darwin-arm64` entry is untouched.'
             printf '%s\n' '**Before merging:** read the milliseconds. This file is what the absolute-ms'
             printf '%s\n\n' 'column compares against, so a slow runner here quietly raises the bar for every future run.'
@@ -195,7 +195,7 @@ jobs:
               echo "A PR was opened if the numbers changed; the \`interaction-baseline-${{ github.run_id }}\` artifact has them either way."
             else
               echo "Artifact only (\`open_pr\` was unchecked). Download \`interaction-baseline-${{ github.run_id }}\`,"
-              echo "review the numbers, and commit \`perf/interaction-baseline.json\` yourself."
+              echo "review the numbers, and commit \`tests/perf/interaction-baseline.json\` yourself."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -260,17 +260,17 @@ jobs:
             --url http://localhost:9000 \
             --samples 12 \
             --label ci \
-            --out perf/interaction-report.json
+            --out tests/perf/interaction-report.json
 
       - name: Compare against budgets and baseline
-        run: npm run perf:compare -- --report perf/interaction-report.json
+        run: npm run perf:compare -- --report tests/perf/interaction-report.json
 
       - name: Upload interaction report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: interaction-latency-${{ github.run_id }}
-          path: perf/interaction-report.json
+          path: tests/perf/interaction-report.json
 
       - name: Server logs (debug)
         if: failure()
@@ -349,19 +349,19 @@ jobs:
             --binary "$GITHUB_WORKSPACE/target/release/tmuxy" \
             --samples 12 \
             --label ci-desktop \
-            --out perf/interaction-report-tauri.json
+            --out tests/perf/interaction-report-tauri.json
 
       - name: Compare against budgets and baseline (desktop)
-        run: npm run perf:compare -- --report perf/interaction-report-tauri.json
+        run: npm run perf:compare -- --report tests/perf/interaction-report-tauri.json
 
-      # Also the source a human promotes into perf/interaction-baseline.json
+      # Also the source a human promotes into tests/perf/interaction-baseline.json
       # for the `linux-x64/tauri` key; CI never writes a baseline itself.
       - name: Upload desktop interaction report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: interaction-latency-desktop-${{ github.run_id }}
-          path: perf/interaction-report-tauri.json
+          path: tests/perf/interaction-report-tauri.json
 
       - name: Stop Xvfb
         if: always()
@@ -370,7 +370,7 @@ jobs:
   # Axis A: the parse → aggregate → delta pipeline, the exact code tmuxy-wasm
   # runs. The ratio budget in compare-core-bench.mjs fails the run if a
   # metadata-only delta ever costs like a full snapshot again; the absolute
-  # nanoseconds only warn against perf/core-pipeline-baseline.json.
+  # nanoseconds only warn against tests/perf/core-pipeline-baseline.json.
   core-bench:
     if: github.event_name == 'schedule' || inputs.gates
     runs-on: ubuntu-latest
@@ -394,14 +394,14 @@ jobs:
         run: cargo bench -p tmuxy-core --bench core_pipeline
 
       - name: Compare bench ratios and baseline
-        run: node perf/compare-core-bench.mjs --threshold 20
+        run: node tests/perf/compare-core-bench.mjs --threshold 20
 
       - name: Upload bench report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: core-pipeline-bench-${{ github.run_id }}
-          path: perf/core-pipeline-report.json
+          path: tests/perf/core-pipeline-report.json
           if-no-files-found: error
 
   # Axis D. `--gate` is absent on purpose: the plateau tolerances are guesses
@@ -472,7 +472,7 @@ jobs:
             --windows 8 \
             --label ci-nightly \
             --server-pid "$TMUXY_SERVER_PID" \
-            --out perf/soak-report.json \
+            --out tests/perf/soak-report.json \
             | tee /tmp/soak.log
 
       - name: Summarise
@@ -496,7 +496,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: soak-report-${{ github.run_id }}
-          path: perf/soak-report.json
+          path: tests/perf/soak-report.json
           if-no-files-found: warn
           retention-days: 30
 

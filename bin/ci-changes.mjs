@@ -32,7 +32,7 @@ import { execFileSync } from 'node:child_process';
 const PROSE = [/^docs\//, /\.md$/, /^\.agents\//];
 const TOOLING = [
   /^bin\/.*\.mjs$/,
-  /^(\.prettierrc|\.prettierignore|eslint\.config\.mjs|\.gitignore)$/,
+  /^(\.prettierignore|eslint\.config\.mjs|\.gitignore)$/,
   // Another workflow, or a dependabot/issue/PR template; this workflow and
   // the composite actions it calls are NOT here, since they shape the jobs.
   /^\.github\/(?!workflows\/lint-and-tests\.yml$|actions\/)/,
@@ -48,12 +48,11 @@ export const SKIPPABLE = {
     ...TOOLING,
     /^tests\/(?!tauri\/|smoke\/|helpers\/)/,
     /^packages\/tmuxy-(demo|wasm|group)\//,
-    /^perf\//,
     /^packages\/tmuxy-ui\/(src\/stories\/|scripts\/|\.storybook\/|eslint-rules\/)/,
   ],
   // The v86 probe runs Storybook over tmuxy-wasm (on tmuxy-core) and a guest
   // image baked from tmuxy-group, the CLI and the shipped confs.
-  v86: [...PROSE, ...TOOLING, /^tests\//, /^packages\/tmuxy-(demo|server|tauri-app)\//, /^perf\//],
+  v86: [...PROSE, ...TOOLING, /^tests\//, /^packages\/tmuxy-(demo|server|tauri-app)\//],
 };
 
 export const TRIGGERED = {
@@ -76,7 +75,7 @@ export const TRIGGERED = {
   // the one most likely to break a nightly test, and otherwise the next
   // night's run is the first to say so.
   'nightly-e2e': [
-    /^tests\/(?!cli\/|tauri\/)/,
+    /^tests\/(?!cli\/|tauri\/|perf\/)/,
     /^bin\/e2e-plan\.mjs$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],

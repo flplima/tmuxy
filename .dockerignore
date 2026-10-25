@@ -10,4 +10,4 @@ target
 packages/tmuxy-ui/dist
 packages/tmuxy-ui/storybook-static
 packages/tmuxy-ui/probe-artifacts
-perf/*-report.json
+tests/perf/*-report.json

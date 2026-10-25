@@ -92,7 +92,7 @@ jobs:
         run: |
           mkdir -p perf
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
-          PROBE_TIMINGS_JSON="$PWD/perf/v86-probe-timings.json" \
+          PROBE_TIMINGS_JSON="$PWD/tests/perf/v86-probe-timings.json" \
             npm run test-storybook:v86 -w tmuxy-ui
 
       - name: Upload probe timings
@@ -100,7 +100,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: v86-probe-timings-${{ github.run_id }}
-          path: perf/v86-probe-timings.json
+          path: tests/perf/v86-probe-timings.json
           if-no-files-found: error
 
       - name: Storybook logs (debug)

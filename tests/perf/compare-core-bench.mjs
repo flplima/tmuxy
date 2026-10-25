@@ -23,9 +23,9 @@
  *     not its speed. Exceeding one fails.
  *
  * Usage:
- *   node perf/compare-core-bench.mjs [--criterion-dir target/criterion]
- *                                    [--baseline perf/core-pipeline-baseline.json]
- *                                    [--out perf/core-pipeline-report.json]
+ *   node tests/perf/compare-core-bench.mjs [--criterion-dir target/criterion]
+ *                                    [--baseline tests/perf/core-pipeline-baseline.json]
+ *                                    [--out tests/perf/core-pipeline-report.json]
  *                                    [--threshold 20] [--update-baseline]
  */
 
@@ -41,8 +41,8 @@ const opt = (name, fallback) => {
 const has = (name) => argv.includes(name);
 
 const CRITERION_DIR = opt('--criterion-dir', 'target/criterion');
-const BASELINE = opt('--baseline', 'perf/core-pipeline-baseline.json');
-const OUT = opt('--out', 'perf/core-pipeline-report.json');
+const BASELINE = opt('--baseline', 'tests/perf/core-pipeline-baseline.json');
+const OUT = opt('--out', 'tests/perf/core-pipeline-report.json');
 const THRESHOLD = Number(opt('--threshold', '20'));
 const UPDATE = has('--update-baseline');
 
