@@ -12,6 +12,12 @@ on:
       - 'packages/tmuxy-wasm/**'
       - 'packages/tmuxy-ui/scripts/build-v86-snapshot.mjs'
       - 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs'
+      # The CheerpX guest's image, and what goes into it.
+      - 'packages/tmuxy-ui/scripts/build-cheerpx-image.mjs'
+      - 'packages/tmuxy-ui/scripts/lib/guest.mjs'
+      - 'packages/tmuxy-ui/cheerpx/**'
+      - 'packages/tmuxy-pty/**'
+      - 'packages/tmuxy-group/**'
       - 'bin/tmuxy-cli'
       - 'bin/tmuxy/**'
       - 'packages/tmuxy-core/assets/tmuxy.defaults.conf'
@@ -81,6 +87,21 @@ jobs:
           npm run fetch:v86-image -w tmuxy-ui
           npm run build:v86-snapshot -w tmuxy-ui
 
+      # The CheerpX guest the demo runs where the page is cross-origin isolated
+      # (everywhere a service worker can make it so, public/coi-sw.js): 32-bit
+      # Alpine built under Docker, which an x86-64 runner runs natively, with
+      # the i686-musl tmuxy-group and tmuxy-pty cross-compiled into it.
+      - name: Cache the CheerpX guest image
+        id: cheerpx-image-cache
+        uses: actions/cache@v6
+        with:
+          path: packages/tmuxy-ui/cheerpx-assets/tmuxy.ext2
+          key: ${{ runner.os }}-cheerpx-image-${{ hashFiles('packages/tmuxy-ui/scripts/build-cheerpx-image.mjs', 'packages/tmuxy-ui/scripts/lib/guest.mjs', 'packages/tmuxy-ui/cheerpx/**', 'packages/tmuxy-pty/**', 'packages/tmuxy-group/**', 'packages/tmuxy-core/**', 'Cargo.lock', 'bin/tmuxy-cli', 'bin/tmuxy/**') }}
+
+      - name: Build the CheerpX guest image (cache miss)
+        if: steps.cheerpx-image-cache.outputs.cache-hit != 'true'
+        run: npm run build:cheerpx-image -w tmuxy-ui
+
       - name: Build demo
         run: npm run build -w tmuxy-demo
         env:
@@ -93,6 +114,8 @@ jobs:
           test -d packages/tmuxy-demo/out || { echo "demo export missing"; exit 1; }
           test -n "$(ls -A packages/tmuxy-demo/out)" || { echo "demo export is empty"; exit 1; }
           test -s packages/tmuxy-demo/out/v86-img/tmux-state.bin.gz || { echo "demo export has no v86 snapshot"; exit 1; }
+          test -s packages/tmuxy-demo/out/cheerpx-img/tmuxy.ext2 || { echo "demo export has no CheerpX image"; exit 1; }
+          test -s packages/tmuxy-demo/out/coi-sw.js || { echo "demo export has no isolation worker"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
