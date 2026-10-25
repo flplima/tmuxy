@@ -120,7 +120,7 @@ fn bin() -> &'static str {
 }
 
 fn scripts_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bin/tmuxy")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tmuxy-cli/bin/tmuxy")
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn a_group_lives_its_whole_life_through_the_group_verb() {
     for pane in [&p1, &p2] {
         assert_eq!(s.option(pane, "remain-on-exit"), "on");
         let hooks = s.tmux(&["show-hooks", "-p", "-t", pane]);
-        assert!(hooks.contains("pane-group-close"), "{hooks}");
+        assert!(hooks.contains("pane-group close"), "{hooks}");
     }
 
     s.ok(&["add", &p2, "120", "40"]);
@@ -209,8 +209,8 @@ fn the_scripts_reach_the_verb_and_keep_its_refusals() {
     let s = Server::start("refusals");
     let pane = s.visible();
     let out = Command::new("bash")
-        .arg(scripts_dir().join("pane-group-join"))
-        .args([&pane, &pane])
+        .arg(scripts_dir().join("pane-group"))
+        .args(["join", &pane, &pane])
         .env("TMUX_SOCKET", &s.socket)
         .env("TMUXY_SERVER_BIN", bin())
         .env_remove("TMUXY_SERVER_SUBCOMMAND")
@@ -220,20 +220,20 @@ fn the_scripts_reach_the_verb_and_keep_its_refusals() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        "pane-group-join: a pane cannot join itself"
+        "pane-group join: a pane cannot join itself"
     );
 
     let out = s.group(&["move", &pane, "0"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        format!("pane-group-move: {pane} is not in a group")
+        format!("pane-group move: {pane} is not in a group")
     );
 
     let out = s.group(&["close", "not-a-pane"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        "pane-group-close: not a pane id: \"not-a-pane\""
+        "pane-group close: not a pane id: \"not-a-pane\""
     );
 }

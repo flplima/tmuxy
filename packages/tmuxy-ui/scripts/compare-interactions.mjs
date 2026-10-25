@@ -33,8 +33,8 @@ const opt = (flag, fallback) => {
 };
 const has = (flag) => argv.includes(flag);
 
-const REPORT = opt('--report', 'perf/interaction-report.json');
-const BASELINE = opt('--baseline', 'perf/interaction-baseline.json');
+const REPORT = opt('--report', 'tests/perf/interaction-report.json');
+const BASELINE = opt('--baseline', 'tests/perf/interaction-baseline.json');
 const SUMMARY = opt('--summary', process.env.GITHUB_STEP_SUMMARY || null);
 const UPDATE = has('--update-baseline');
 

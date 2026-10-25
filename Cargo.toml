@@ -52,4 +52,4 @@ lto = "thin"
 codegen-units = 16
 
 [patch.crates-io]
-vt100 = { path = "vendor/vt100" }
+vt100 = { path = "packages/vt100" }

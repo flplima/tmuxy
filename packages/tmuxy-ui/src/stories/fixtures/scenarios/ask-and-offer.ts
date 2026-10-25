@@ -4,7 +4,7 @@ import { PaneId } from '../../../domain/ids';
 
 const pane = PaneId.make('%0');
 
-/** A pane option's payload: JSON, base64-encoded, as `bin/tmuxy/send` writes it. */
+/** A pane option's payload: JSON, base64-encoded, as `packages/tmuxy-cli/bin/tmuxy/send` writes it. */
 function payload(value: object): string {
   return btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 }

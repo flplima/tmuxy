@@ -22,7 +22,7 @@
  * A base the checkout cannot reach (a force-push, the first push of a branch,
  * a tag) runs everything: the filter only ever saves time, never coverage.
  *
- * Usage: node bin/ci-changes.mjs <base-sha>
+ * Usage: node bin/ci/ci-changes.mjs <base-sha>
  *   prints `name=true|false` lines for $GITHUB_OUTPUT, a summary on stderr.
  */
 
@@ -32,7 +32,7 @@ import { execFileSync } from 'node:child_process';
 const PROSE = [/^docs\//, /\.md$/, /^\.agents\//];
 const TOOLING = [
   /^bin\/.*\.mjs$/,
-  /^(\.prettierrc|\.prettierignore|eslint\.config\.mjs|\.gitignore)$/,
+  /^(\.prettierignore|eslint\.config\.mjs|\.gitignore)$/,
   // Another workflow, or a dependabot/issue/PR template; this workflow and
   // the composite actions it calls are NOT here, since they shape the jobs.
   /^\.github\/(?!workflows\/lint-and-tests\.yml$|actions\/)/,
@@ -40,7 +40,7 @@ const TOOLING = [
 
 export const SKIPPABLE = {
   // The Tauri app links tmuxy-core and tmuxy-server and bundles the UI, the
-  // CLI (bin/tmuxy-cli, bin/tmuxy/*) and the shipped tmux confs
+  // CLI (packages/tmuxy-cli) and the shipped tmux confs
   // (packages/tmuxy-core/assets, include_str!'d by tmuxy-core). Its suites are
   // tests/tauri and tests/smoke, on tests/helpers.
   desktop: [
@@ -48,12 +48,11 @@ export const SKIPPABLE = {
     ...TOOLING,
     /^tests\/(?!tauri\/|smoke\/|helpers\/)/,
     /^packages\/tmuxy-(demo|wasm|group)\//,
-    /^perf\//,
     /^packages\/tmuxy-ui\/(src\/stories\/|scripts\/|\.storybook\/|eslint-rules\/)/,
   ],
   // The v86 probe runs Storybook over tmuxy-wasm (on tmuxy-core) and a guest
   // image baked from tmuxy-group, the CLI and the shipped confs.
-  v86: [...PROSE, ...TOOLING, /^tests\//, /^packages\/tmuxy-(demo|server|tauri-app)\//, /^perf\//],
+  v86: [...PROSE, ...TOOLING, /^tests\//, /^packages\/tmuxy-(demo|server|tauri-app)\//],
 };
 
 export const TRIGGERED = {
@@ -61,7 +60,7 @@ export const TRIGGERED = {
   'macos-rust': [
     /^packages\/tmuxy-tauri-app\//,
     /^packages\/tmuxy-core\/src\/control_mode\/connection\.rs$/,
-    /^bin\//,
+    /^packages\/tmuxy-cli\//,
     /^Cargo\.(toml|lock)$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],
@@ -71,18 +70,18 @@ export const TRIGGERED = {
     /^\.cargo\/audit\.toml$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],
-  // The [nightly] E2E tier on one more runner (bin/e2e-plan.mjs
+  // The [nightly] E2E tier on one more runner (bin/ci/e2e-plan.mjs
   // --with-nightly): a push that edits the web suites or their helpers is
   // the one most likely to break a nightly test, and otherwise the next
   // night's run is the first to say so.
   'nightly-e2e': [
-    /^tests\/(?!cli\/|tauri\/)/,
-    /^bin\/e2e-plan\.mjs$/,
+    /^tests\/(?!cli\/|tauri\/|perf\/)/,
+    /^bin\/ci\/e2e-plan\.mjs$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],
 };
 
-const SELF = 'bin/ci-changes.mjs';
+const SELF = 'bin/ci/ci-changes.mjs';
 
 /**
  * The decision for each job: `true` to run it. `files` is the changed

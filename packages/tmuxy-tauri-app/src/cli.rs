@@ -9,7 +9,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// 2. ~/.config/tmuxy/bin/tmuxy-cli (materialized by ensure_bin_scripts;
 ///    the canonical location whenever the .app has been launched at least
 ///    once on this machine)
-/// 3. Relative to binary: ../../../bin/tmuxy-cli (dev layout)
+/// 3. Relative to binary: ../../../packages/tmuxy-cli/bin/tmuxy-cli (dev layout)
 /// 4. Relative to binary: ../share/tmuxy/bin/tmuxy-cli (Linux installed layout)
 /// 5. Same directory as binary (flat fallback)
 fn find_cli_script() -> Option<PathBuf> {
@@ -32,11 +32,13 @@ fn find_cli_script() -> Option<PathBuf> {
     // Relative to binary
     if let Ok(exe) = std::env::current_exe() {
         if let Some(bin_dir) = exe.parent() {
-            // Dev layout: target/debug/tmuxy → repo/bin/tmuxy-cli
+            // Dev layout: target/debug/tmuxy → repo/packages/tmuxy-cli/bin/tmuxy-cli
             let dev = bin_dir
                 .join("..")
                 .join("..")
                 .join("..")
+                .join("packages")
+                .join("tmuxy-cli")
                 .join("bin")
                 .join("tmuxy-cli");
             if dev.exists() {

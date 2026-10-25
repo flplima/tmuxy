@@ -201,7 +201,7 @@ export const ServerState = Schema.Struct({
   /**
    * A one-shot request from a shell helper for this client to move keyboard
    * focus somewhere no tmux command could reach: `left`/`right` for a sidebar
-   * column, `panes` to leave one. Set by `bin/tmuxy/nav` when a directional
+   * column, `panes` to leave one. Set by `packages/tmuxy-cli/bin/tmuxy/nav` when a directional
    * `select-pane` is a no-op at the grid's edge. The client that acts on it
    * unsets the tmux option, which clears the field on the next poll.
    */

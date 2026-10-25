@@ -21,7 +21,7 @@ const {
   DELAYS,
 } = require('./helpers');
 
-const TMUXY_CLI = path.resolve(__dirname, '..', 'bin/tmuxy-cli');
+const TMUXY_CLI = path.resolve(__dirname, '..', 'packages/tmuxy-cli/bin/tmuxy-cli');
 
 /** Widget panes drawn with a real box, not merely mounted. */
 function visibleWidgetPanes(page) {

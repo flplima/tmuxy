@@ -9,7 +9,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
-const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'bin/tmuxy-cli');
+const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
 
 const { tmuxEnv } = require('./tmux-socket');
 

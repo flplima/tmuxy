@@ -73,24 +73,24 @@ describe('the command a release runs', () => {
   it('moves, joins, or does nothing when the member is already there', () => {
     expect(
       wire(groupDropOp({ kind: 'order', paneId: pid('%1'), from: 0, index: 2 }, pid('%1'))),
-    ).toBe(`run-shell "${SCRIPTS}/pane-group-move %1 2"`);
+    ).toBe(`run-shell "${SCRIPTS}/pane-group move %1 2"`);
     expect(
       wire(groupDropOp({ kind: 'order', paneId: pid('%1'), from: 1, index: 1 }, pid('%1'))),
     ).toBeNull();
     expect(wire(groupDropOp({ kind: 'join', anchorPaneId: pid('%1'), index: 0 }, pid('%9')))).toBe(
-      `run-shell "${SCRIPTS}/pane-group-join %9 %1 0"`,
+      `run-shell "${SCRIPTS}/pane-group join %9 %1 0"`,
     );
   });
 
   it('a parked member leaves beside a pane, into a tab, or as a tab of its own', () => {
     expect(wire(leaveOp(pid('%5'), { kind: 'beside', paneId: pid('%2'), side: 'up' }))).toBe(
-      `run-shell "${SCRIPTS}/pane-group-leave %5 --beside %2 up"`,
+      `run-shell "${SCRIPTS}/pane-group leave %5 --beside %2 up"`,
     );
     expect(wire(leaveOp(pid('%5'), { kind: 'tab', windowId: wid('@3') }))).toBe(
-      `run-shell "${SCRIPTS}/pane-group-leave %5 --beside @3 right"`,
+      `run-shell "${SCRIPTS}/pane-group leave %5 --beside @3 right"`,
     );
     expect(wire(leaveOp(pid('%5'), { kind: 'new' }))).toBe(
-      `run-shell "${SCRIPTS}/pane-group-leave %5 --tab"`,
+      `run-shell "${SCRIPTS}/pane-group leave %5 --tab"`,
     );
   });
 

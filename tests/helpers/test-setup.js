@@ -98,7 +98,7 @@ function createTestContext({ snapshot = false } = {}) {
     //     `init_io` blocks forever in the kernel opening a tty slave whose
     //     master tmux has already closed, so the old
     //     `new-session && kill-session` leaked one orphan per call (see
-    //     `bin/tmuxy/reap-orphan-shells`). `tail -f /dev/null` sleeps in a
+    //     `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells`). `tail -f /dev/null` sleeps in a
     //     read and never opens a terminal.
     const { tmuxCmd } = require('./tmux-socket');
     try {

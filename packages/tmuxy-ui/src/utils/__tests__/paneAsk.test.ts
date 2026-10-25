@@ -8,7 +8,7 @@ import {
   sentTextIsLong,
 } from '../paneAsk';
 
-/** Encode a payload the way `bin/tmuxy/send` does. */
+/** Encode a payload the way `packages/tmuxy-cli/bin/tmuxy/send` does. */
 function encode(payload: unknown): string {
   const json = JSON.stringify(payload);
   const bytes = new TextEncoder().encode(json);

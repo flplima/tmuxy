@@ -1,0 +1,14 @@
+#!/bin/bash
+# pane-group <verb> <args...>: a pane-group operation. Rules: tmuxy_core::groups, run by the server binary's `group` verb (packages/tmuxy-group has the arguments).
+#   add <%id> <w> <h>       a new pane in %id's group (a new group when it has none), shown in its place
+#   close <%id>             close the pane; a member on screen hands its place to the next member first
+#   join <%id> <%m> [i]     make %id a member of %m's group, out of view
+#   leave <%id> <--tab | --beside <target> <side>>  take %id out of its group, to a tab of its own or beside another pane
+#   move <%id> <i>          put %id at index i in its group's order
+#   next|prev <%id>         show the member after/before the one on screen (wraps)
+#   switch <%id>            show %id in its group's slot
+#   park <target> <group> <cwd> [pos]  park a new member out of view (session restore); prints its pane id
+set -euo pipefail
+source "${0%/*}/_lib"
+
+group_verb "$@"

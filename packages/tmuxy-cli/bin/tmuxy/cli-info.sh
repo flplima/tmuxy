@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by bin/tmuxy-cli — config, info, agent and skill commands.
+# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — config, info, agent and skill commands.
 
 # --- Config ---
 

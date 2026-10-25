@@ -1,47 +1,54 @@
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
-const { runGroupScript } = require('./helpers/run-group-script');
+const { runGroupScript, runGroupScriptInBareTree } = require('./helpers/run-group-script');
 
-const SCRIPTS_DIR = path.resolve(__dirname, '../../bin/tmuxy');
+const SCRIPTS_DIR = path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy');
 const MOCKS_DIR = path.resolve(__dirname, 'mocks');
 
 describe('CLI pane group subcommands', () => {
   describe('pane group add', () => {
-    test('execs run-shell with pane-group-add', () => {
+    test('execs run-shell with pane-group add', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'add']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-add');
+      expect(tmuxCalls[0].args[1]).toContain("pane-group' add");
       expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
     });
   });
 
   describe('pane group close', () => {
-    test('execs run-shell with pane-group-close (no arg)', () => {
+    test('execs run-shell with pane-group close (no arg)', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'close']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-close');
-      // Default pane_id is #{pane_id} when no arg given
-      expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
+      // A bare format, for run-shell to expand to the current pane.
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' close #\{pane_id\}$/);
     });
 
-    test('execs run-shell with pane-group-close (specific pane)', () => {
+    test('execs run-shell with pane-group close (specific pane)', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'close', '%5']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-close');
-      expect(tmuxCalls[0].args[1]).toContain('%5');
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' close '%5'$/);
     });
   });
 
+  // run-shell hands its string to a shell, so an argument with a quote in it
+  // must reach the script as one word, never as more of the command.
+  test.each(['close', 'switch'])('pane group %s quotes the pane it is given', (verb) => {
+    const { tmuxCalls } = runCLI(['pane', 'group', verb, "%1'; id; '"]);
+    expect(tmuxCalls).toHaveLength(1);
+    expect(tmuxCalls[0].args[1]).toMatch(
+      new RegExp(`pane-group' ${verb} '%1'\\\\''; id; '\\\\'''$`),
+    );
+  });
+
   describe('pane group switch', () => {
-    test('execs run-shell with pane-group-switch', () => {
+    test('execs run-shell with pane-group switch', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'switch', '%3']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-switch');
-      expect(tmuxCalls[0].args[1]).toContain('%3');
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' switch '%3'$/);
     });
 
     test('errors with no pane id', () => {
@@ -51,29 +58,29 @@ describe('CLI pane group subcommands', () => {
   });
 
   describe('pane group next', () => {
-    test('execs run-shell with pane-group-next', () => {
+    test('execs run-shell with pane-group next', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'next']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-next');
+      expect(tmuxCalls[0].args[1]).toContain("pane-group' next");
     });
   });
 
   describe('pane group prev', () => {
-    test('execs run-shell with pane-group-prev', () => {
+    test('execs run-shell with pane-group prev', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'prev']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-prev');
+      expect(tmuxCalls[0].args[1]).toContain("pane-group' prev");
     });
   });
 
   describe('pane group move', () => {
-    test('execs run-shell with pane-group-move, the pane and its new place', () => {
+    test('execs run-shell with pane-group move, the pane and its new place', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'move', '%4', '0']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group-move' '%4' '0'$/);
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' move '%4' '0'$/);
     });
 
     test('errors without a place', () => {
@@ -83,10 +90,10 @@ describe('CLI pane group subcommands', () => {
   });
 
   describe('pane group join', () => {
-    test('execs run-shell with pane-group-join, the pane, the member and the place', () => {
+    test('execs run-shell with pane-group join, the pane, the member and the place', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'join', '%9', '%4', '1']);
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group-join' '%9' '%4' '1'$/);
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' join '%9' '%4' '1'$/);
     });
 
     test('errors without a group to join', () => {
@@ -99,34 +106,34 @@ describe('CLI pane group subcommands', () => {
     test('becomes a tab of its own by default', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'leave', '%5']);
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[1]).toContain("pane-group-leave' '%5' '--tab'");
+      expect(tmuxCalls[0].args[1]).toContain("pane-group' leave '%5' '--tab'");
     });
 
     test('splits in beside a pane on the side named', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'leave', '%5', '--beside', '%2', 'down']);
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group-leave' '%5' '--beside' '%2' 'down'$/);
+      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' leave '%5' '--beside' '%2' 'down'$/);
     });
   });
 
-  describe('the pane-group scripts', () => {
+  describe('the pane-group script', () => {
     test.each([
-      ['pane-group-add', ['%1', '80', '24'], 'group add %1 80 24'],
-      ['pane-group-close', ['%5'], 'group close %5'],
-      ['pane-group-switch', ['%3'], 'group switch %3'],
-      ['pane-group-next', ['%1'], 'group next %1'],
-      ['pane-group-prev', ['%1'], 'group prev %1'],
-      ['pane-group-move', ['%4', '0'], 'group move %4 0'],
-      ['pane-group-join', ['%9', '%4', ''], 'group join %9 %4 '],
-      ['pane-group-leave', ['%5', '--beside', '%2', 'up'], 'group leave %5 --beside %2 up'],
-      ['pane-group-park', ['work:0.0', 'g1', '/tmp', '2'], 'group park work:0.0 g1 /tmp 2'],
-    ])('%s hands its arguments to the server binary', (script, args, expected) => {
-      const { stdout, exitCode } = runGroupScript(script, args);
+      ['add', ['%1', '80', '24'], 'group add %1 80 24'],
+      ['close', ['%5'], 'group close %5'],
+      ['switch', ['%3'], 'group switch %3'],
+      ['next', ['%1'], 'group next %1'],
+      ['prev', ['%1'], 'group prev %1'],
+      ['move', ['%4', '0'], 'group move %4 0'],
+      ['join', ['%9', '%4', ''], 'group join %9 %4 '],
+      ['leave', ['%5', '--beside', '%2', 'up'], 'group leave %5 --beside %2 up'],
+      ['park', ['work:0.0', 'g1', '/tmp', '2'], 'group park work:0.0 g1 /tmp 2'],
+    ])('%s hands its arguments to the server binary', (verb, args, expected) => {
+      const { stdout, exitCode } = runGroupScript(verb, args);
       expect(exitCode).toBe(0);
       expect(stdout).toBe(`server ${expected} [scripts=${SCRIPTS_DIR}]`);
     });
 
     test("keeps the binary's output and exit status", () => {
-      const { stdout, exitCode } = runGroupScript('pane-group-join', ['%1', '%1'], {
+      const { stdout, exitCode } = runGroupScript('join', ['%1', '%1'], {
         STUB_EXIT: '1',
       });
       expect(exitCode).toBe(1);
@@ -134,7 +141,7 @@ describe('CLI pane group subcommands', () => {
     });
 
     test('prefers the binary the running tmuxy published, with its subcommand', () => {
-      const { stdout } = runGroupScript('pane-group-close', ['%5'], {
+      const { stdout } = runGroupScript('close', ['%5'], {
         TMUXY_SERVER_BIN: path.join(MOCKS_DIR, 'tmuxy-server'),
         TMUXY_SERVER_SUBCOMMAND: 'server',
       });
@@ -144,14 +151,18 @@ describe('CLI pane group subcommands', () => {
     // The v86 guest has no server, only the standalone binary. nav's group
     // step goes through the same `find_group_cmd`, so it lands here too.
     test('uses the standalone tmuxy-group binary where one is installed', () => {
-      const { stdout, exitCode } = runGroupScript(
-        'pane-group-next',
-        ['%1'],
-        {},
-        { standalone: true },
-      );
+      const { stdout, exitCode } = runGroupScript('next', ['%1'], {}, { standalone: true });
       expect(exitCode).toBe(0);
       expect(stdout).toBe(`standalone next %1 [scripts=${SCRIPTS_DIR}]`);
+    });
+
+    // A dev tree with nothing installed (CI): the server build is found from
+    // where the scripts sit in the repo.
+    test("finds the dev tree's own server build, from the scripts' place in the repo", () => {
+      const { stdout, stderr, exitCode } = runGroupScriptInBareTree('next', ['%1']);
+      expect(stderr).toBe('');
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe('dev build group next %1');
     });
   });
 

@@ -1,6 +1,0 @@
-#!/bin/bash
-# Put pane $1 at index $2 in its group's order. Rules: tmuxy_core::groups, run by the `group move` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb move "$@"

@@ -127,7 +127,7 @@ async function buildBundle({ fetchBinaries }) {
     }
   }
 
-  // The pane-group operations the pane-group-* scripts run (`tmuxy-group`),
+  // The pane-group operations the pane-group script runs (`tmuxy-group`),
   // the CLI dispatcher with its helper scripts, and the config the app ships
   // (the essentials hold the `tmuxy-*` command-aliases; without them every
   // Ctrl+h/j/k/l was "unknown command") — all flat in the bundle, placed by

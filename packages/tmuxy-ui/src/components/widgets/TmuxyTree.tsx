@@ -3,7 +3,7 @@
  *
  * Registered like any other tmuxy widget, so a pane running `tmuxy widget tree`
  * renders this component instead of its terminal. It ignores the pane's content
- * entirely: `bin/tmuxy/tmuxy-widget-tree` prints the marker and then blocks,
+ * entirely: `packages/tmuxy-cli/bin/tmuxy/tmuxy-widget-tree` prints the marker and then blocks,
  * because the tree is derived from the tmux state the app already holds rather
  * than streamed through the pane.
  *

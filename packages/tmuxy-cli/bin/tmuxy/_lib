@@ -5,8 +5,8 @@
 # values: float | sidebar-left | sidebar-right. A window
 # without @tmuxy-window-type is a tab.
 #
-# Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group-* scripts
-# hand their arguments to the server binary's `group` verb (`group_verb`).
+# Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group script
+# hands its arguments to the server binary's `group` verb (`group_verb`).
 
 # The session hidden pane-group members are parked in. Kept out of every session
 # picker/tree (matches tmuxy-core `STASH_SESSION`).
@@ -119,7 +119,8 @@ shquote() {
 #   4. The desktop app the `tmuxy` shorthand launches, whose server verbs are
 #      `tmuxy server <verb>`.
 find_server_cmd() {
-  local root="${SCRIPTS_DIR%/*}/.." launcher
+  # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
+  local root="${SCRIPTS_DIR%/*}/../../.." launcher
   launcher="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
   if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ]; then
     SERVER_CMD=("$TMUXY_SERVER_BIN" ${TMUXY_SERVER_SUBCOMMAND:+"$TMUXY_SERVER_SUBCOMMAND"})
@@ -139,9 +140,9 @@ find_server_cmd() {
   fi
 }
 
-# Run a pane-group operation: the pane-group-* scripts are its names, and keep
-# their arguments, output and exit status. TMUXY_SCRIPTS_DIR names the
-# directory whose pane-group-close a member's pane-died hook runs.
+# Run a pane-group operation: the pane-group script is its name, and keeps
+# its arguments, output and exit status. TMUXY_SCRIPTS_DIR names the
+# directory whose `pane-group close` a member's pane-died hook runs.
 # Args: $1=verb, then the script's own arguments
 group_verb() {
   find_group_cmd || exit 1

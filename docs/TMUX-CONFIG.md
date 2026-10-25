@@ -9,7 +9,7 @@ Tmuxy never talks to the user's default tmux server. Every component targets a *
 | Priority | Source | Used by |
 | --- | --- | --- |
 | 1 | `TMUX_SOCKET` env var | all components — see the per-environment table below |
-| 2 | Socket derived from `$TMUX` | shell scripts running inside a pane (`bin/tmuxy-cli`, `bin/tmuxy/_lib`) — so they always target the server hosting them |
+| 2 | Socket derived from `$TMUX` | shell scripts running inside a pane (`packages/tmuxy-cli/bin/tmuxy-cli`, `packages/tmuxy-cli/bin/tmuxy/_lib`) — so they always target the server hosting them |
 | 3 | `tmuxy` (the default) | everything else — in practice a released build |
 
 One socket per environment, so a dev server, a test run and an installed build
@@ -18,14 +18,14 @@ never collide:
 | Environment | Socket | Set by |
 | --- | --- | --- |
 | Release bundle | `tmuxy` | nothing — the `DEFAULT_TMUX_SOCKET` fallback in `tmuxy-core/src/session.rs` |
-| Development | `tmuxy-dev` | `bin/dev`, which exports it so the server it spawns agrees |
+| Development | `tmuxy-dev` | `bin/dev-server`, which exports it so the server it spawns agrees |
 | E2E tests | `tmuxy-test` | `tests/jest.setup.js` via `tests/helpers/tmux-socket.js` |
 
 The development socket is identical across bare metal, the local devcontainer
-and Codespaces: all three reach it through `bin/dev`, so none of them hardcodes
+and Codespaces: all three reach it through `bin/dev-server`, so none of them hardcodes
 a socket of its own.
 
-A `TMUX_SOCKET` value containing a slash is treated as a **full socket path** (`tmux -S <path>`); any other value is a **socket name** in tmux's default socket directory (`tmux -L <name>`). The Rust side resolves via `tmux_socket()` / `tmux_socket_args()` in `tmuxy-core/src/session.rs` and always passes the socket flag explicitly, which also overrides an inherited `$TMUX` — the server behaves identically whether launched from a terminal, a tmux pane, or Finder. Every bundled shell script sources the same resolution from `bin/tmuxy/_lib` (or defines it inline in `bin/tmuxy-cli`); none may call bare `tmux`.
+A `TMUX_SOCKET` value containing a slash is treated as a **full socket path** (`tmux -S <path>`); any other value is a **socket name** in tmux's default socket directory (`tmux -L <name>`). The Rust side resolves via `tmux_socket()` / `tmux_socket_args()` in `tmuxy-core/src/session.rs` and always passes the socket flag explicitly, which also overrides an inherited `$TMUX` — the server behaves identically whether launched from a terminal, a tmux pane, or Finder. Every bundled shell script sources the same resolution from `packages/tmuxy-cli/bin/tmuxy/_lib` (or defines it inline in `packages/tmuxy-cli/bin/tmuxy-cli`); none may call bare `tmux`.
 
 ### Live socket switch (desktop app)
 
@@ -33,7 +33,7 @@ The **web server** binds its socket once at process launch (from the env), so it
 
 ### Remote servers over SSH (desktop app)
 
-A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `~/.config/tmuxy/servers.json` (`tmuxy-core/src/servers.rs`); the sidebar footer's **server picker** lists them, and `tmuxy session connect` (`bin/tmuxy/session-connect`, which the switcher's "Connect over SSH…" opens in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
+A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `~/.config/tmuxy/servers.json` (`tmuxy-core/src/servers.rs`); the sidebar footer's **server picker** lists them, and `tmuxy session connect` (`packages/tmuxy-cli/bin/tmuxy/session-connect`, which the switcher's "Connect over SSH…" opens in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
 
 `TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). The local `-f <config>` flag is skipped over SSH — that path is local-only. This means the whole app (control mode + executor reads) drives the remote tmux server transparently.
 

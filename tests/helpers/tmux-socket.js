@@ -16,7 +16,7 @@ const path = require('path');
  * The socket the E2E suite owns, when `TMUX_SOCKET` says nothing else.
  *
  * One socket per environment: `tmuxy` belongs to a released build, `tmuxy-dev`
- * to `bin/dev`, and `tmuxy-test` to this suite. It creates and kills sessions,
+ * to `bin/dev-server`, and `tmuxy-test` to this suite. It creates and kills sessions,
  * panes and windows by the hundred, and a tmux tool is normally developed from
  * inside the very session it would be tearing down — a socket of its own means
  * a suite run cannot touch the dev server or the session the developer sits in.
@@ -35,7 +35,7 @@ function tmuxSocket() {
 /**
  * Environment for any tmux or tmuxy-CLI child process.
  *
- * `bin/tmuxy-cli` derives its socket from `$TMUX` whenever `TMUX_SOCKET` is
+ * `packages/tmuxy-cli/bin/tmuxy-cli` derives its socket from `$TMUX` whenever `TMUX_SOCKET` is
  * unset, so an inherited `$TMUX` aims every mutating command at whatever server
  * the developer's shell is attached to — while the direct `tmux -L` calls above
  * still read from the test socket. Reads and writes then address two different

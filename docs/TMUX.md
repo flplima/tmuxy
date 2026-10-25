@@ -79,7 +79,7 @@ in-band, by the aggregator, on both hosts.
 | `source-file` | `session.rs`, `monitor.rs` | Source config during session creation and initial state sync |
 | `kill-session` | `session.rs` | Destroy session (no control mode attached) |
 | `show-options` | `gui.rs` (desktop setup) | The window's blur/appearance is read before the monitor starts |
-| `load-buffer -` | `bin/tmuxy-cli` (`pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
+| `load-buffer -` | `packages/tmuxy-cli/bin/tmuxy-cli` (`pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
 
 These are safe because they run **before** control mode connects. Do not add to this
 table: a read a client needs goes through `query_tmux`, and a read the core needs while
@@ -87,7 +87,7 @@ attached goes through the aggregator's in-band path.
 
 ### Shell Scripts and `run-shell`
 
-Shell scripts in `bin/tmuxy/` are executed via tmux's `run-shell` command (sent through control mode). Since `run-shell` executes within the tmux server process itself (not as an external subprocess), scripts can safely call tmux CLI commands internally — except `new-window` (see below).
+Shell scripts in `packages/tmuxy-cli/bin/tmuxy/` are executed via tmux's `run-shell` command (sent through control mode). Since `run-shell` executes within the tmux server process itself (not as an external subprocess), scripts can safely call tmux CLI commands internally — except `new-window` (see below).
 
 ## Targeting: Use Stable IDs, Not Indices
 
@@ -114,7 +114,7 @@ A pane header shows what the running application called itself, falling back to 
 | App title | `pane_title` | Set by the application over OSC 0/2 — `nvim README.md`, an ssh host, a Claude Code session summary. |
 | Process name | `pane_current_command` | Only the executable's **file name**. A version-pinned launcher symlink (`~/.local/bin/claude` → `…/versions/2.1.251`) reports the version number, which is useless as a label. |
 
-The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants.rs`, mirrored by the `list-panes` formats in `bin/tmuxy-cli` and the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`. All four must stay in step; the `constants.rs` tests guard the Rust pair. The sessions poll reads its rows through `query_tmux`, answered in-band on the control-mode connection like every other read.
+The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants.rs`, mirrored by the `list-panes` formats in `packages/tmuxy-cli/bin/tmuxy-cli` and the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`. All four must stay in step; the `constants.rs` tests guard the Rust pair. The sessions poll reads its rows through `query_tmux`, answered in-band on the control-mode connection like every other read.
 
 Downstream, an empty title unambiguously means "no app title", so every consumer resolves `title → command → 'shell'` (`getTabText` in `tmuxy-ui/src/components/paneTabDisplay.ts`). One consequence is inherent to the rule: tmux keeps the last title a pane was given, so a title can outlive the program that set it until the shell's own prompt hook replaces it.
 

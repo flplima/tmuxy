@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by bin/tmuxy-cli — tab, widget, session, nav, run and connect subcommands.
+# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — tab, widget, session, nav, run and connect subcommands.
 
 # --- Tab subcommands ---
 

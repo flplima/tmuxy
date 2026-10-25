@@ -2,13 +2,13 @@ use std::path::Path;
 
 use super::*;
 
-/// Every helper under `bin/tmuxy/` must be in the bundled list, or the
+/// Every helper under `packages/tmuxy-cli/bin/tmuxy/` must be in the bundled list, or the
 /// packaged app ships a `tmuxy-cli` that dispatches to a file that was
 /// never mirrored to `~/.config/tmuxy/bin/` (the tree sidebar shipped that
 /// way once: `tmuxy widget tree` died with "No such file or directory").
 #[test]
 fn every_helper_script_is_bundled() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/tmuxy");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tmuxy-cli/bin/tmuxy");
     let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
         .expect("bin/tmuxy readable")
         .filter_map(|e| e.ok())
@@ -24,7 +24,7 @@ fn every_helper_script_is_bundled() {
     bundled.sort();
     assert_eq!(
         on_disk, bundled,
-        "bin/tmuxy/* and BUNDLED_BIN_SCRIPTS disagree"
+        "packages/tmuxy-cli/bin/tmuxy/* and BUNDLED_BIN_SCRIPTS disagree"
     );
 }
 

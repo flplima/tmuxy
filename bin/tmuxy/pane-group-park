@@ -1,6 +1,0 @@
-#!/bin/bash
-# Park a new member of a group out of view (session restore); prints its pane id. Rules: tmuxy_core::groups, run by the `group park` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb park "$@"

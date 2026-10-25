@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by bin/tmuxy-cli — pane and pane-group subcommands.
+# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — pane and pane-group subcommands.
 
 # --- Pane subcommands ---
 
@@ -280,15 +280,18 @@ cmd_pane_group() {
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group add"; return ;;
       esac
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-add' #{pane_id} #{pane_width} #{pane_height}"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' add #{pane_id} #{pane_width} #{pane_height}"
       ;;
 
     close)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group close [%id]"; return ;;
       esac
-      local pane_id="${1:-"#{pane_id}"}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-close' '$pane_id'"
+      # The default stays a bare format for run-shell to expand; `shquote`
+      # doubles its `#`, which would hand the script the text instead.
+      local target='#{pane_id}'
+      [ -z "${1:-}" ] || target="$(shquote "$1")"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' close $target"
       ;;
 
     switch)
@@ -296,7 +299,7 @@ cmd_pane_group() {
         --help|-h) echo "Usage: tmuxy pane group switch <%id>"; return ;;
       esac
       local pane_id="${1:?Usage: tmuxy pane group switch <pane_id>}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-switch' '$pane_id'"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' switch $(shquote "$pane_id")"
       ;;
 
     move)
@@ -304,7 +307,7 @@ cmd_pane_group() {
         --help|-h|"") echo "Usage: tmuxy pane group move <%id> <index>   (0 is first)"; [ -n "${1:-}" ] && return; return 1 ;;
       esac
       local pane_id="$1" index="${2:?Usage: tmuxy pane group move <%id> <index>}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-move' $(shquote "$pane_id") $(shquote "$index")"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' move $(shquote "$pane_id") $(shquote "$index")"
       ;;
 
     join)
@@ -312,7 +315,7 @@ cmd_pane_group() {
         --help|-h|"") echo "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]"; [ -n "${1:-}" ] && return; return 1 ;;
       esac
       local pane_id="$1" anchor="${2:?Usage: tmuxy pane group join <%id> <%member-or-pane> [index]}" index="${3:-}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-join' $(shquote "$pane_id") $(shquote "$anchor") $(shquote "$index")"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' join $(shquote "$pane_id") $(shquote "$anchor") $(shquote "$index")"
       ;;
 
     leave)
@@ -326,21 +329,21 @@ cmd_pane_group() {
         return 1
       fi
       local mode="${1:---tab}" beside="${2:-}" dir="${3:-right}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-leave' $(shquote "$pane_id") $(shquote "$mode") $(shquote "$beside") $(shquote "$dir")"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' leave $(shquote "$pane_id") $(shquote "$mode") $(shquote "$beside") $(shquote "$dir")"
       ;;
 
     next)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group next"; return ;;
       esac
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-next' #{pane_id}"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' next #{pane_id}"
       ;;
 
     prev)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group prev"; return ;;
       esac
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-prev' #{pane_id}"
+      _run_shell "bash '$SCRIPTS_DIR/pane-group' prev #{pane_id}"
       ;;
 
     --help|-h)

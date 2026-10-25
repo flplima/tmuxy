@@ -241,12 +241,14 @@ pub(super) fn is_multi_step_run_shell(command: &str) -> bool {
         return false;
     }
     const MULTI_STEP_SCRIPTS: &[&str] = &[
-        "pane-group-add",
-        "pane-group-close",
-        "pane-group-switch",
-        "pane-group-next",
-        "pane-group-prev",
+        "pane-group add",
+        "pane-group close",
+        "pane-group switch",
+        "pane-group next",
+        "pane-group prev",
         "float-create",
     ];
-    MULTI_STEP_SCRIPTS.iter().any(|s| command.contains(s))
+    // The CLI quotes the script's path (`'…/pane-group' add`); the UI does not.
+    let unquoted = command.replace('\'', "");
+    MULTI_STEP_SCRIPTS.iter().any(|s| unquoted.contains(s))
 }

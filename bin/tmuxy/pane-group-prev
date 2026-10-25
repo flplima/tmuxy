@@ -1,6 +1,0 @@
-#!/bin/bash
-# Show the member before the one on screen (wraps). Rules: tmuxy_core::groups, run by the `group prev` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb prev "$@"

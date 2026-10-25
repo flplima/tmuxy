@@ -12,8 +12,8 @@
 //! `list-panes -a` read ([`Panes`], parsed from [`LIST_PANES_FORMAT`]) and
 //! returns the tmux commands that carry it out ([`Invocation`]s), so every rule
 //! is a value a unit test can look at. `tmuxy-server group <verb>` does the
-//! reading and the running (`group_cli.rs`), and the `bin/tmuxy/pane-group-*`
-//! scripts are its names.
+//! reading and the running (`group_cli.rs`), and the `packages/tmuxy-cli/bin/tmuxy/pane-group`
+//! script is its name.
 
 use std::fmt;
 
@@ -38,7 +38,7 @@ const FIELD_SEPARATOR: char = ' ';
 /// only so the session does; `tail -f /dev/null` sleeps in a read, where the
 /// default interactive shell would open its controlling tty, and a shell
 /// killed mid-`init_io` hangs in the kernel forever (see
-/// `bin/tmuxy/reap-orphan-shells`).
+/// `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells`).
 pub const STASH_PAYLOAD: &str = "tail -f /dev/null";
 
 /// One pane, as [`LIST_PANES_FORMAT`] prints it.
@@ -193,8 +193,8 @@ fn cmd(parts: &[&str]) -> Vec<String> {
 /// What a group operation needs from outside the read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Context {
-    /// The `pane-group-close` script a member's `pane-died` hook runs.
-    pub close_script: String,
+    /// The `pane-group close` command a member's `pane-died` hook runs.
+    pub close_command: String,
     /// A value no earlier `@tmuxy-group-rev` had.
     pub rev_token: String,
 }
@@ -262,7 +262,7 @@ pub fn gc(panes: &Panes) -> Vec<Invocation> {
 }
 
 /// Make a member's pane outlive the program in it, and route its death back
-/// through `pane-group-close`.
+/// through `pane-group close`.
 ///
 /// Without this, a member that ends by ITSELF — `exit`, Ctrl+D, a crash — is
 /// removed by tmux directly: the visible member's slot disappears, the parked
@@ -286,7 +286,7 @@ pub fn arm(pane: &PaneId, ctx: &Context) -> Vec<Invocation> {
             "-t",
             pane.as_str(),
             "pane-died",
-            &format!("run-shell \"bash {} {pane}\"", ctx.close_script),
+            &format!("run-shell \"bash {} {pane}\"", ctx.close_command),
         ])),
     ]
 }

@@ -24,7 +24,7 @@ The opposite mismatch also exists: a glyph that is **one** column to tmux but wi
 
 ### Cell widths must agree with tmux
 
-tmux reports cursor positions and lays out everything on **its** grid; tmuxy re-emulates the raw output with the vendored `vt100` crate. Any character whose width the two disagree on shifts every later cell on that line — the line looks fine on its own but the cursor lands two cells off, and the next absolute cursor move writes over the wrong columns. Per-code-point East Asian Width (what `unicode-width` gives) is not enough: tmux 3.4+ combines sequences into one cell in `screen_write_combine`, and the vendored `vt100` (`vendor/vt100/src/screen.rs`) mirrors those rules exactly:
+tmux reports cursor positions and lays out everything on **its** grid; tmuxy re-emulates the raw output with the vendored `vt100` crate. Any character whose width the two disagree on shifts every later cell on that line — the line looks fine on its own but the cursor lands two cells off, and the next absolute cursor move writes over the wrong columns. Per-code-point East Asian Width (what `unicode-width` gives) is not enough: tmux 3.4+ combines sequences into one cell in `screen_write_combine`, and the vendored `vt100` (`packages/vt100/src/screen.rs`) mirrors those rules exactly:
 
 | Input | tmux / tmuxy cell | Naive per-code-point width |
 | --- | --- | --- |

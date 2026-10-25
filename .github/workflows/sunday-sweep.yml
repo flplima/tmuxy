@@ -1,7 +1,7 @@
 name: sunday sweep
 
 # Every Sunday morning, hands what needs fixing to the Copilot cloud agent
-# (bin/sunday-sweep.mjs): open high/critical Dependabot and CodeQL alerts
+# (bin/ci/sunday-sweep.mjs): open high/critical Dependabot and CodeQL alerts
 # become `agent-fix` issues assigned to the agent, and a red Dependabot PR
 # gets an agent task on its own branch. At most three a run.
 #
@@ -54,7 +54,7 @@ jobs:
             exit 0
           fi
           if [ "$DRY" = "true" ]; then
-            node bin/sunday-sweep.mjs --dry-run
+            node bin/ci/sunday-sweep.mjs --dry-run
           else
-            node bin/sunday-sweep.mjs
+            node bin/ci/sunday-sweep.mjs
           fi

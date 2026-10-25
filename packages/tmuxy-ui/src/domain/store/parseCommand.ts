@@ -120,7 +120,7 @@ export function parseCommandToOp(command: string): TmuxOp {
   // Pane-group next/prev: the alias, or its expanded `run-shell` form.
   const groupStep =
     trimmed.match(/^tmuxy-pane-group-(next|prev)\b/) ??
-    trimmed.match(/^run-shell\s+.*\/pane-group-(next|prev)\b(?:\s+(%\d+))?/);
+    trimmed.match(/^run-shell\s+.*\/pane-group'?\s+(next|prev)\b(?:\s+(%\d+))?/);
   if (groupStep) {
     const paneId = groupStep[2];
     return TmuxOp.GroupStep({

@@ -1,6 +1,0 @@
-#!/bin/bash
-# Take pane $1 out of its group, to a tab of its own or beside another pane. Rules: tmuxy_core::groups, run by the `group leave` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb leave "$@"

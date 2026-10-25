@@ -173,7 +173,7 @@ export function reconcile(
 
 /**
  * Predicts the group's new order: the member leaves its place and is put
- * back at `index` among the others — what pane-group-move does before it
+ * back at `index` among the others — what pane-group move does before it
  * writes every member's `@tmuxy-group-pos`.
  */
 function predictGroupMove(op: TmuxOpOf<'GroupMove'>, snapshot: TmuxSnapshot): PredictResult | null {

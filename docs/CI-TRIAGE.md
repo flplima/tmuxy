@@ -10,14 +10,14 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 4. Re-run the smallest equivalent local check.
 5. If flaky/perf/storybook related, collect artifacts noted below.
 
-A run that is green but slow is triaged from its summary page: the `timing` job writes a table of jobs, steps and the slowest tests there, and `bin/ci-timing.mjs <run-id>` prints the same locally.
+A run that is green but slow is triaged from its summary page: the `timing` job writes a table of jobs, steps and the slowest tests there, and `bin/ci/ci-timing.mjs <run-id>` prints the same locally.
 
 ## Job-to-command map
 
 | Workflow job | Local command | Primary failure surface |
 | --- | --- | --- |
-| `lint` | `bin/lint-gate check` — the job's steps are its steps, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `perf/` and the UI package, and exports, files and dependencies nothing uses (`knip.json`) |
-| `changes` | `node bin/ci-changes.mjs <base-sha>` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip; the rules and their tests are `bin/ci-changes.mjs` and `packages/tmuxy-ui/scripts/ci-changes.test.mjs`. A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
+| `lint` | `bin/lint-gate check` — the job's steps are its steps, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `tests/perf/` and the UI package, and exports, files and dependencies nothing uses (`knip` in `package.json`) |
+| `changes` | `node bin/ci/ci-changes.mjs <base-sha>` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip; the rules and their tests are `bin/ci/ci-changes.mjs` and `packages/tmuxy-ui/scripts/ci-changes.test.mjs`. A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
 | `node-checks / unit-tests` | `npm test -- --run` | UI unit tests |
 | `node-checks / cli-tests` | `npm run test:cli` | CLI dispatcher behavior |
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
@@ -32,18 +32,18 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | nightly `tmux matrix / suites` | `npx jest tests/snapshots/` and `npx jest tests/8-tui-alternate-screen.test.js`, against the tmux version the job names | A tmux version the default CI tmux does not exercise |
 | nightly `v86 / sweep` | `npm run test-storybook:v86 -w tmuxy-ui` | The full v86 story sweep; a failure opens an issue |
 | nightly `perf measurements / interaction-latency` | `npm run perf:interactions` + `npm run perf:compare` | Web interaction budgets (the ratio gate) |
-| nightly `perf measurements / interaction-latency-desktop` | `(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)`, then `npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report perf/interaction-report-tauri.json` | Desktop interaction budgets, against the release build |
-| nightly `perf measurements / core-bench` | `cargo bench -p tmuxy-core --bench core_pipeline` + `node perf/compare-core-bench.mjs --threshold 20` | The Axis-A pipeline bench and its ratio budget |
+| nightly `perf measurements / interaction-latency-desktop` | `(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)`, then `npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report tests/perf/interaction-report-tauri.json` | Desktop interaction budgets, against the release build |
+| nightly `perf measurements / core-bench` | `cargo bench -p tmuxy-core --bench core_pipeline` + `node tests/perf/compare-core-bench.mjs --threshold 20` | The Axis-A pipeline bench and its ratio budget |
 | `perf measurements / soak` (nightly) and `interaction-baseline` (on dispatch) | `npm run perf:soak`, `npm run perf:interactions` | Report numbers for a human; none gates |
-| weekly `sunday sweep / sweep` | `GH_REPO=flplima/tmuxy node bin/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts) |
+| weekly `sunday sweep / sweep` | `GH_REPO=flplima/tmuxy node bin/ci/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts) |
 | `dependabot actions merge / merge` | nothing to run: it only merges a green `dependabot/github_actions/*` PR |
 
 ## Artifact/log entry points
 
-- `interaction-latency-*`: `perf/interaction-report.json` (nightly `perf measurements`)
-- `interaction-latency-desktop-*`: `perf/interaction-report-tauri.json` (nightly `perf measurements`)
-- `core-pipeline-bench-*`: `perf/core-pipeline-report.json` (nightly `perf measurements`)
-- `v86-probe-timings-*`: `perf/v86-probe-timings.json`
+- `interaction-latency-*`: `tests/perf/interaction-report.json` (nightly `perf measurements`)
+- `interaction-latency-desktop-*`: `tests/perf/interaction-report-tauri.json` (nightly `perf measurements`)
+- `core-pipeline-bench-*`: `tests/perf/core-pipeline-report.json` (nightly `perf measurements`)
+- `v86-probe-timings-*`: `tests/perf/v86-probe-timings.json`
 - `storybook-*-artifacts`: screenshots, DOM dumps, stack traces
 - `v86-storybook-log-*`: Storybook startup/runtime logs
 - `e2e-<suite>-attempt-<n>`: a failed E2E shard's action trace (`tmuxy-e2e-trace.ndjson`, read with `tmuxy trace --check --window "<file> › <test> › start" <file>`), server log and Jest output

@@ -1,6 +1,0 @@
-#!/bin/bash
-# Show pane $1 in its group's slot. Rules: tmuxy_core::groups, run by the `group switch` verb (packages/tmuxy-group has the arguments).
-set -euo pipefail
-source "${0%/*}/_lib"
-
-group_verb switch "$@"

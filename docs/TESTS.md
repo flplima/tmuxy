@@ -121,8 +121,8 @@ npm run test-storybook:v86 -w tmuxy-ui     # Probe v86 stories (shared engine)
 npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvfb, webkit2gtk-driver)
 
 # Interaction latency (needs a running server; --cdp reuses the dev browser)
-npm run perf:interactions -- --url http://localhost:9000 --out perf/interaction-report.json
-npm run perf:compare -- --report perf/interaction-report.json
+npm run perf:interactions -- --url http://localhost:9000 --out tests/perf/interaction-report.json
+npm run perf:compare -- --report tests/perf/interaction-report.json
 ```
 
 ## Known Gaps

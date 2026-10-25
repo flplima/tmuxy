@@ -4,7 +4,7 @@
 //! vt100 emulator, so any control sequence the emulator drops silently
 //! corrupts what the user sees — with no error anywhere. The upstream
 //! `vt100` 0.16.2 crate ignored six standard ECMA-48 sequences (HPA, HPR,
-//! HVP, CHT, CBT, REP); `vendor/vt100` adds them, wired in through
+//! HVP, CHT, CBT, REP); `packages/vt100` adds them, wired in through
 //! `[patch.crates-io]`.
 //!
 //! The conformance matrix below is the regression net: every sequence here is

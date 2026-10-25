@@ -80,7 +80,7 @@ describe('CLI info and skill commands', () => {
 
     test('the repo skill file is the guide the CLI prints, verbatim', () => {
       // `tmuxy skill` is the source: an installed CLI has no repo to read the
-      // skill file from. Regenerate with `bin/tmuxy-cli skill > .agents/skills/tmuxy/SKILL.md`.
+      // skill file from. Regenerate with `packages/tmuxy-cli/bin/tmuxy-cli skill > .agents/skills/tmuxy/SKILL.md`.
       const { stdout } = runCLI(['skill']);
       const skill = fs.readFileSync(
         path.resolve(__dirname, '../../.agents/skills/tmuxy/SKILL.md'),
@@ -103,12 +103,12 @@ describe('CLI info and skill commands', () => {
       expect(stdout).toMatch(/^tmuxy \d+\.\d+\.\d+/);
     });
 
-    test('the fallback version for an install without package.json is the current one', () => {
+    test("the version the CLI prints is package.json's", () => {
       // bump-version (.agents/skills/release/scripts) rewrites this line with
       // every release; a bump that missed it would ship a stale --version.
       const root = path.resolve(__dirname, '../..');
       const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-      const cli = fs.readFileSync(path.join(root, 'bin/tmuxy-cli'), 'utf8');
+      const cli = fs.readFileSync(path.join(root, 'packages/tmuxy-cli/bin/tmuxy-cli'), 'utf8');
       expect(cli).toContain(`TMUXY_VERSION="\${TMUXY_VERSION:-${version}}"`);
     });
 

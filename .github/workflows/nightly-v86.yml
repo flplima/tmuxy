@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: packages/tmuxy-ui/v86-assets
-          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'bin/tmuxy-cli', 'bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
+          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
 
       - name: Build v86 guest assets (cache miss)
         if: steps.v86-assets-cache.outputs.cache-hit != 'true'
@@ -83,7 +83,7 @@ jobs:
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          bin/wait-for-server http://localhost:6006/index.json 180000
+          bin/ci/wait-for-server http://localhost:6006/index.json 180000
 
       # PROBE_TIMINGS_JSON is the per-story timing record (docs/PERFORMANCE.md
       # Axis A). Nothing collected it before, so the numbers were written to a
@@ -92,7 +92,7 @@ jobs:
         run: |
           mkdir -p perf
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
-          PROBE_TIMINGS_JSON="$PWD/perf/v86-probe-timings.json" \
+          PROBE_TIMINGS_JSON="$PWD/tests/perf/v86-probe-timings.json" \
             npm run test-storybook:v86 -w tmuxy-ui
 
       - name: Upload probe timings
@@ -100,7 +100,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: v86-probe-timings-${{ github.run_id }}
-          path: perf/v86-probe-timings.json
+          path: tests/perf/v86-probe-timings.json
           if-no-files-found: error
 
       - name: Storybook logs (debug)
@@ -143,7 +143,7 @@ jobs:
       - name: Start Storybook (dev server)
         run: |
           npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook-deterministic.log &
-          bin/wait-for-server http://localhost:6006/index.json 180000
+          bin/ci/wait-for-server http://localhost:6006/index.json 180000
 
       - name: Probe every deterministic story, with the a11y pass
         env:
@@ -192,9 +192,9 @@ jobs:
 
           Per-story timings and the Storybook log are attached to that run as artifacts."
 
-          BODY="$BODY" bin/nightly-issue report "$TITLE"
+          BODY="$BODY" bin/ci/nightly-issue report "$TITLE"
 
-  # Both sweeps passed, so the tracking issue is closed (bin/nightly-issue). A
+  # Both sweeps passed, so the tracking issue is closed (bin/ci/nightly-issue). A
   # manual run counts: re-running the sweep after a fix is how one is
   # confirmed.
   resolve-issue:
@@ -211,4 +211,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bin/nightly-issue resolve "Nightly v86 sweep is failing"
+        run: bin/ci/nightly-issue resolve "Nightly v86 sweep is failing"

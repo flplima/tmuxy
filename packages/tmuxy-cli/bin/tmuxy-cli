@@ -17,13 +17,9 @@ if [ "${1:-}" = agent ] && [ "${2:-}" = hook ]; then
   shift 2
   exec "${SELF%/*}/tmuxy/agent-hook" "$@"
 fi
-REPO_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
-TMUXY_VERSION="${TMUXY_VERSION:-}"
-if [ -z "$TMUXY_VERSION" ] && [ -f "$REPO_ROOT/package.json" ]; then
-  TMUXY_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$REPO_ROOT/package.json" 2>/dev/null || true)
-fi
+# Rewritten by the release's bump-version, so it is package.json's version.
 TMUXY_VERSION="${TMUXY_VERSION:-0.1.2}"
 
 # --- Helpers ---

@@ -107,7 +107,7 @@ const SERVER_PID = opt('--server-pid', null);
 const GATE = flag('--gate');
 /** The tmux socket the server under test is serving; see the header. */
 const SOCKET = opt('--socket', process.env.TMUX_SOCKET ?? null);
-const CLI = opt('--cli', new URL('../../../bin/tmuxy-cli', import.meta.url).pathname);
+const CLI = opt('--cli', new URL('../../tmuxy-cli/bin/tmuxy-cli', import.meta.url).pathname);
 
 // Not named `URL`: that shadows the global this file uses to resolve the CLI
 // path, and the shadow is hoisted, so the resolution hits a TDZ error.

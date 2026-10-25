@@ -3,13 +3,18 @@ import globals from 'globals';
 import jest from 'eslint-plugin-jest';
 
 export default [
-  // The scripts CI and the hooks run — bin/, perf/, the demo's — under the
+  // The scripts CI and the hooks run — bin/, tests/perf/, the demo's — under the
   // recommended rules with Node's globals. No lint read them before, so a
   // typo in one was a red job rather than a lint error. The UI package's
   // scripts are its own config's (ESLint resolves the config from each
   // file's directory): packages/tmuxy-ui/eslint.config.js.
   {
-    files: ['bin/**/*.mjs', 'perf/**/*.mjs', 'eslint.config.mjs', 'packages/tmuxy-demo/**/*.mjs'],
+    files: [
+      'bin/**/*.mjs',
+      'tests/perf/**/*.mjs',
+      'eslint.config.mjs',
+      'packages/tmuxy-demo/**/*.mjs',
+    ],
     ...js.configs.recommended,
     languageOptions: { globals: globals.node },
     rules: {

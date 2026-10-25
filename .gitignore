@@ -61,10 +61,12 @@ target/
 # Local reference images (not tracked)
 split-smooth-animations.png
 
-# Interaction-latency run output (the baseline next to it IS tracked)
-perf/interaction-report.json
-perf/interaction-report-tauri.json
-perf/core-pipeline-report.json
+# Perf run output (the baselines next to it ARE tracked)
+tests/perf/interaction-report.json
+tests/perf/interaction-report-tauri.json
+tests/perf/core-pipeline-report.json
+tests/perf/soak-report.json
+tests/perf/v86-probe-timings.json
 
 # Failure screenshots, DOM dumps and stacks written by the storybook probe.
 packages/tmuxy-ui/probe-artifacts/

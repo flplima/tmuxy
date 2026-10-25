@@ -3,7 +3,7 @@ use crate::ids::test_ids::{gid, pid, wid};
 
 pub(super) fn ctx() -> Context {
     Context {
-        close_script: "/s/pane-group-close".to_string(),
+        close_command: "/s/pane-group close".to_string(),
         rev_token: "T".to_string(),
     }
 }
@@ -123,7 +123,7 @@ fn arming_holds_the_pane_open_and_hooks_its_death_to_close() {
         lines(&arm(&pid("%4"), &ctx())),
         [
             "set-option -p -t %4 remain-on-exit on",
-            "set-hook -p -t %4 pane-died run-shell \"bash /s/pane-group-close %4\"",
+            "set-hook -p -t %4 pane-died run-shell \"bash /s/pane-group close %4\"",
         ]
     );
     assert_eq!(
@@ -171,7 +171,7 @@ fn add_to_an_ungrouped_pane_opens_a_group_named_after_it() {
         [
             "set-option -p -t %1 @tmuxy-group-id g1",
             "set-option -p -t %1 remain-on-exit on",
-            "set-hook -p -t %1 pane-died run-shell \"bash /s/pane-group-close %1\"",
+            "set-hook -p -t %1 pane-died run-shell \"bash /s/pane-group close %1\"",
         ]
     );
     assert_eq!(
@@ -190,7 +190,7 @@ fn add_to_an_ungrouped_pane_opens_a_group_named_after_it() {
             "break-pane -d -s %9 -t __tmuxy_stash:",
             "set-option -p -t %9 @tmuxy-group-id g1",
             "set-option -p -t %9 remain-on-exit on",
-            "set-hook -p -t %9 pane-died run-shell \"bash /s/pane-group-close %9\"",
+            "set-hook -p -t %9 pane-died run-shell \"bash /s/pane-group close %9\"",
             "resize-window -t %9 -x 100 -y 30",
             "swap-pane -s %9 -t %1",
         ]
@@ -228,7 +228,7 @@ fn park_arms_the_anchor_splits_in_its_directory_and_keeps_the_place() {
         lines(&plan.before),
         [
             "set-option -p -t %1 remain-on-exit on",
-            "set-hook -p -t %1 pane-died run-shell \"bash /s/pane-group-close %1\"",
+            "set-hook -p -t %1 pane-died run-shell \"bash /s/pane-group close %1\"",
         ]
     );
     assert_eq!(&plan.split[plan.split.len() - 2..], ["-c", "/w d"]);

@@ -72,11 +72,12 @@ export async function crossCompileGuestBinaries(names, destDir) {
  * its helpers from.
  */
 export async function stageTmuxyScripts(destBinDir) {
+  const cliBin = join(REPO, 'packages', 'tmuxy-cli', 'bin');
   await mkdir(join(destBinDir, 'tmuxy'), { recursive: true });
-  await cp(join(REPO, 'bin', 'tmuxy-cli'), join(destBinDir, 'tmuxy-cli'));
+  await cp(join(cliBin, 'tmuxy-cli'), join(destBinDir, 'tmuxy-cli'));
   await chmod(join(destBinDir, 'tmuxy-cli'), 0o755);
-  for (const f of await readdir(join(REPO, 'bin', 'tmuxy'))) {
-    await cp(join(REPO, 'bin', 'tmuxy', f), join(destBinDir, 'tmuxy', f), { recursive: true });
+  for (const f of await readdir(join(cliBin, 'tmuxy'))) {
+    await cp(join(cliBin, 'tmuxy', f), join(destBinDir, 'tmuxy', f), { recursive: true });
     await chmod(join(destBinDir, 'tmuxy', f), 0o755);
   }
 }

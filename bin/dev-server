@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
 #
-# Run `bin/dev` in the background, stop it, and read its log.
+# The dev server: `cargo watch` over tmuxy-core and tmuxy-server, rebuilding
+# and restarting the server on a change (Vite HMR goes through the server's
+# dev-mode proxy), run in the background with a PID file and a log.
 #
-# This is what `npm start` / `npm stop` / `npm logs` call: a PID file, a log
-# file and `tail`.
+# This is what `npm start` / `npm stop` / `npm logs` call. `run` is the server
+# itself, in the foreground; `start` runs it in the background.
 #
-# The one part that is not obvious is stopping. `bin/dev` execs `cargo watch`,
+# The one part that is not obvious is stopping. `run` execs `cargo watch`,
 # which spawns the server as a CHILD, so killing the recorded PID alone leaves
 # the server running and still holding the port — the next `npm start` then
 # fails with "address in use" and nothing says why. Every descendant is walked
 # and signalled, youngest first.
 #
+# Environment variables:
+#   TMUX_SOCKET    — tmux socket name, or full socket path when it contains
+#                    a slash (default: `tmuxy-dev` — never the user's default
+#                    tmux server, and never the `tmuxy` socket a released build
+#                    serves, so a dev server cannot disturb an installed one)
+#   DEV_PORT       — port to listen on (default: 9000)
+#   TMUXY_DEV_HOST — address to bind (default: see `cmd_run`)
+#
 # Usage:
-#   bin/dev-server start     # start it, refuse if already running
+#   bin/dev-server run       # the server in the foreground
+#   bin/dev-server start     # run it in the background, refuse if already running
 #   bin/dev-server stop      # stop it and everything it spawned
 #   bin/dev-server restart
 #   bin/dev-server status
@@ -55,7 +66,7 @@ start_time_of() {
 # The PID file holds the pid AND the process's start time, and both must match.
 # A stale file outlives a crash and the number gets reused, so `kill -0` alone
 # reports a stranger's process as ours. Matching on the COMMAND LINE instead
-# does not work here: `bin/dev` ends in `exec`, so the
+# does not work here: `run` ends in `exec`, so the
 # process keeps its pid while its command line becomes `cargo …` — the check
 # then fails the moment the server is actually up, which is the worst possible
 # time to report "not running".
@@ -68,6 +79,60 @@ running_pid() {
   current="$(start_time_of "$pid")"
   [[ -n "$current" && "$current" == "${recorded:-}" ]] || return 0
   echo "$pid"
+}
+
+# The server itself, in the foreground: what `start` runs in the background.
+cmd_run() {
+  cd "$REPO_ROOT"
+  local port="${DEV_PORT:-9000}" host
+  # The dev server's own socket, `tmuxy-dev` unless TMUX_SOCKET says otherwise.
+  # The bare `tmuxy` socket belongs to the release bundle (tmuxy-core
+  # DEFAULT_TMUX_SOCKET); the dev server keeps off it so the two can run side by
+  # side, and the E2E suite owns `tmuxy-test` for the same reason. The server
+  # resolves its own socket from the env, so it is exported before `_lib`
+  # resolves the -L/-S flag for it the way every tmuxy script does.
+  export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
+  source packages/tmuxy-cli/bin/tmuxy/_lib
+
+  echo "[dev] Starting development server with hot reload..."
+  echo "[dev] Port: $port, Socket: $TMUX_SOCKET"
+  echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
+  echo ""
+
+  echo "[dev] Cleaning old Rust build artifacts..."
+  if command -v cargo-sweep >/dev/null 2>&1; then
+    cargo sweep --time 7 -r . 2>/dev/null || true
+  else
+    echo "[dev] Note: 'cargo sweep' not found. Run 'cargo install cargo-sweep' to enable automatic artifact cleanup."
+  fi
+  echo ""
+
+  # Ensure the tmux server has a session so it stays alive between test cycles.
+  _tmux has-session -t tmuxy 2>/dev/null ||
+    _tmux new-session -d -s tmuxy -x 200 -y 50
+
+  # Where to listen. In a CONTAINER the published port reaches the server on the
+  # container's own interface rather than its loopback, so it has to bind
+  # 0.0.0.0 — and only this machine can reach that published port.
+  #
+  # On a laptop that pair is a different thing entirely: `npm start` runs this
+  # same function, and 0.0.0.0 with --no-auth serves the tmuxy-dev shell to the
+  # whole LAN — a coffee-shop network included — with no password. So the
+  # container is detected rather than assumed, and everywhere else listens on
+  # loopback. TMUXY_DEV_HOST overrides it for the case this misses.
+  if [[ -n "${TMUXY_DEV_HOST:-}" ]]; then
+    host="$TMUXY_DEV_HOST"
+  elif [[ -f /.dockerenv || -n "${CONTAINER_NAME:-}" || -n "${CODESPACES:-}" ]]; then
+    host=0.0.0.0
+  else
+    host=127.0.0.1
+  fi
+  echo "   Listening on $host:$port"
+
+  exec cargo watch \
+    -w packages/tmuxy-core/src \
+    -w packages/tmuxy-server/src \
+    -x "run -p tmuxy-server -- --port $port --host $host --no-auth --dev"
 }
 
 cmd_start() {
@@ -84,7 +149,7 @@ cmd_start() {
   # Each one holds a pseudoterminal open, and a machine that has run the suite
   # enough times cannot allocate one for a new pane at all — which presents as
   # the dev server failing to create panes, not as leftover processes.
-  bash "$REPO_ROOT/bin/tmuxy/reap-orphan-shells" --quiet || true
+  bash "$REPO_ROOT/packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells" --quiet || true
 
   # Truncate rather than append: the log answers "what is it doing now", and a
   # file that only grows is one nobody reads the top of anyway.
@@ -104,7 +169,7 @@ cmd_start() {
   # the descendants of a process that no longer exists while the real server
   # keeps the port.
   cd "$REPO_ROOT"
-  nohup bash bin/dev </dev/null >>"$LOG_FILE" 2>&1 &
+  nohup bash bin/dev-server run </dev/null >>"$LOG_FILE" 2>&1 &
   local started=$!
   printf '%s\t%s\n' "$started" "$(start_time_of "$started")" >"$PID_FILE"
 
@@ -179,6 +244,7 @@ cmd_logs() {
 }
 
 case "$ACTION" in
+  run) cmd_run ;;
   start) cmd_start ;;
   stop) cmd_stop ;;
   restart)
@@ -188,7 +254,7 @@ case "$ACTION" in
   status) cmd_status ;;
   logs) cmd_logs "${@:2}" ;;
   *)
-    echo "Usage: bin/dev-server {start|stop|restart|status|logs [--no-follow]}" >&2
+    echo "Usage: bin/dev-server {run|start|stop|restart|status|logs [--no-follow]}" >&2
     exit 2
     ;;
 esac

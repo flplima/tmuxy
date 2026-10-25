@@ -107,7 +107,7 @@ if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
 fi
 
 # The pane the caller runs in, as it was before the CLI resolved a default
-# for callers outside any pane (bin/tmuxy-cli exports it).
+# for callers outside any pane (packages/tmuxy-cli/bin/tmuxy-cli exports it).
 OWN_PANE="${TMUXY_CALLER_PANE:-}"
 
 if [ -z "$TARGET" ]; then

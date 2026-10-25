@@ -275,7 +275,7 @@ fn a_hidden_group_member_is_parked_beside_its_visible_member() {
         .unwrap();
     let i_park = lines
         .iter()
-        .position(|l| l.starts_with("run: run-shell ") && l.contains("pane-group-park"))
+        .position(|l| l.starts_with("run: run-shell ") && l.contains("pane-group park"))
         .expect("the member is parked");
     assert!(i_tag < i_park, "{lines:#?}");
     // `/srv` is the member's directory; where it is gone, the fallback.
@@ -289,8 +289,8 @@ fn a_hidden_group_member_is_parked_beside_its_visible_member() {
     // the answer and cleared.
     assert!(
         lines[i_park].contains(&format!(
-            "set-option -g @tmuxy-restore-answer \"$(bash {} work:0.0 g1 {dir} 2>&1)\"; true",
-            park_script()
+            "set-option -g @tmuxy-restore-answer \"$(bash {} park work:0.0 g1 {dir} 2>&1)\"; true",
+            group_script()
         )),
         "{}",
         lines[i_park]
@@ -347,7 +347,7 @@ fn a_reordered_group_is_restored_in_its_order() {
     );
     let park = lines
         .iter()
-        .find(|l| l.contains("pane-group-park"))
+        .find(|l| l.contains("pane-group park"))
         .expect("the member is parked");
     assert!(park.contains(" 0 2>&1)"), "{park}");
 }
