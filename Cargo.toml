@@ -53,3 +53,14 @@ codegen-units = 16
 
 [patch.crates-io]
 vt100 = { path = "packages/vt100" }
+
+# Debug builds (`cargo build`, `cargo test`, clippy's check builds) keep only
+# file:line tables for this workspace's crates and no debug info for
+# dependencies: backtraces still name the line, while a fresh test build of the
+# workspace shrinks from 2.9 GB to 2.0 GB and from 75 s to 60 s. For a debugger
+# session on tmuxy's own code, build with CARGO_PROFILE_DEV_DEBUG=true.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
