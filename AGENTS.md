@@ -37,6 +37,7 @@ Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> -
 | Drive the app     | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                                                                                       |
 | The trace         | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TRACING.md](docs/TRACING.md)                                                                    |
 | Server logs       | `npm logs` (`bin/dev-server`), or the server's own stderr                                                          | `RUST_LOG` filters it                                                                                                                       |
+| Disk (`target/`)  | Nothing: `bin/trim-target` cleans it once a day when it passes 20 GB                                               | Run by the pre-push hook and `bin/dev-server run`; `TMUXY_TARGET_MAX_GB` sets the cap, `--now` skips the daily throttle                     |
 
 **Three sockets, never mixed:** a released build serves `tmuxy`, the dev server
 `tmuxy-dev`, the E2E suite `tmuxy-test`. A change of socket is a change of

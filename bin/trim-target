@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Keep target/ from growing without bound.
+#
+# Cargo never deletes build output by itself. Every branch switch, dependency
+# bump, feature change and toolchain update leaves the old artifacts beside the
+# new ones, and incremental sessions pile up: a checkout of this repo reached
+# 65 GB in target/debug that way, while a fresh build of the whole workspace's
+# tests is ~2 GB and about a minute. Cargo's own GC covers ~/.cargo only, and
+# cargo-sweep is unmaintained, so the rule here is the blunt one: at most once a
+# day, when target/ has grown past TMUXY_TARGET_MAX_GB (default 20), clean it.
+# One rebuild, instead of a disk that fills up.
+#
+# Run by the pre-push hook (through `bin/lint-gate check`) and by
+# `bin/dev-server run`. CI starts from a fresh or separately cached target/,
+# so it is skipped there.
+#
+# Usage: bin/trim-target [--now]   # --now: skip the once-a-day throttle
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+[ -z "${CI:-}" ] || exit 0
+[ -d target ] || exit 0
+
+stamp=target/.trim-target-checked
+if [ "${1:-}" != "--now" ] && [ -f "$stamp" ] && [ -n "$(find "$stamp" -mtime -1)" ]; then
+  exit 0
+fi
+
+max_gb="${TMUXY_TARGET_MAX_GB:-20}"
+size_kb=$(du -sk target | awk '{print $1}')
+size_gb=$((size_kb / 1024 / 1024))
+
+if ((size_gb >= max_gb)); then
+  echo "[trim-target] target/ is ${size_gb} GB (cap ${max_gb} GB): cleaning it; the next build starts fresh" >&2
+  cargo clean >&2
+  mkdir -p target
+fi
+touch "$stamp"

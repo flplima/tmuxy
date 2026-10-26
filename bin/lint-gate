@@ -143,7 +143,12 @@ case "${1:-}" in
   check)
     shift
     steps=("$@")
-    [ ${#steps[@]} -gt 0 ] || steps=("${ALL_STEPS[@]}")
+    if [ ${#steps[@]} -eq 0 ]; then
+      steps=("${ALL_STEPS[@]}")
+      # The full gate is the pre-push hook: a natural once-a-day point to keep
+      # target/ from outgrowing the disk (bin/trim-target).
+      bin/trim-target
+    fi
     for s in "${steps[@]}"; do
       case "$s" in
         policy) check_policy ;;
