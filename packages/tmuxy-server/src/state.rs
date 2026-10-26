@@ -30,6 +30,16 @@ mod tests;
 /// sequencer answers with a full-state refetch (S2 in `docs/INVARIANTS.md`).
 pub const EVENT_BUFFER_SIZE: usize = 128;
 
+/// The most bytes of serialized events the ring keeps per session.
+///
+/// A state delta carries the full content of every pane it changed — about
+/// 230 KB of JSON for one coloured 200x50 screen — so 128 of them after a
+/// burst of output held hundreds of MB, and kept holding it until 128 newer
+/// events pushed it out, which an idle session never sends. Past this budget
+/// the oldest events go first; a client resuming from before what is left
+/// gets a full state instead, the same as one that fell behind the count.
+pub const EVENT_BUFFER_MAX_BYTES: usize = 16 * 1024 * 1024;
+
 /// A broadcast message tagged with its monotonic per-session sequence id.
 /// The id is mirrored as the SSE `id:` field so the browser persists it
 /// across reconnects via the `Last-Event-Id` request header.
@@ -55,7 +65,8 @@ pub struct SessionBroadcast {
     /// plain number whose 0 means "nothing yet", so an id of 0 would be the
     /// one event every fresh subscriber drops.
     pub seq: AtomicU64,
-    /// Ring buffer of the most recent `EVENT_BUFFER_SIZE` tagged messages.
+    /// Ring buffer of the most recent `EVENT_BUFFER_SIZE` tagged messages,
+    /// within `EVENT_BUFFER_MAX_BYTES`.
     /// Front = oldest, back = newest. Used to resume a client that
     /// reconnected with a `Last-Event-Id` header.
     pub recent: StdMutex<VecDeque<TaggedEvent>>,
@@ -92,6 +103,14 @@ impl SessionBroadcast {
             buf.pop_front();
         }
         buf.push_back(entry.clone());
+        // The newest event always stays, however large: it is the one a
+        // lagging receiver is most likely to need.
+        let mut bytes: usize = buf.iter().map(|(_, payload)| payload.len()).sum();
+        while bytes > EVENT_BUFFER_MAX_BYTES && buf.len() > 1 {
+            if let Some((_, oldest)) = buf.pop_front() {
+                bytes -= oldest.len();
+            }
+        }
         let _ = self.tx.send(entry);
         id
     }
@@ -405,6 +424,27 @@ mod broadcast_tests {
             let expected: Vec<u64> = (1..=(4 * per_thread) as u64).collect();
             assert_eq!(seqs, expected, "the ring is out of order or has a gap");
         }
+    }
+
+    /// A burst of large deltas does not stay in memory for want of newer
+    /// events: past the byte budget the oldest go, and a client resuming from
+    /// before them is told the ring cannot serve it (`oldest_seq` moved on).
+    #[test]
+    fn the_ring_keeps_no_more_than_its_byte_budget() {
+        let b = SessionBroadcast::new();
+        let big = "x".repeat(EVENT_BUFFER_MAX_BYTES / 2 - 1);
+        for _ in 0..4 {
+            b.broadcast(big.clone());
+        }
+        let kept = b.replay_since(0);
+        assert_eq!(kept.len(), 2, "two half-budget events fit, four do not");
+        assert_eq!(b.oldest_seq(), Some(3));
+        assert_eq!(kept.iter().map(|(s, _)| *s).collect::<Vec<_>>(), [3, 4]);
+
+        // One event over the whole budget is still kept, alone.
+        b.broadcast("y".repeat(EVENT_BUFFER_MAX_BYTES + 1));
+        assert_eq!(b.replay_since(0).len(), 1);
+        assert_eq!(b.oldest_seq(), Some(5));
     }
 
     #[test]
