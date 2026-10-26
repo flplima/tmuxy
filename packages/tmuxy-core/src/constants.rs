@@ -289,6 +289,7 @@ pub mod control_events {
 /// reflow. With zero scrollback those rows are destroyed, and the pane renders
 /// permanently offset until a capture-pane refill or `clear`. A pane can never
 /// grow by more than one screen height, so a couple of hundred rows is ample.
+/// The rows are stored without their blank tails (see packages/vt100/PATCHES.md).
 pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 
 /// How far into history a pane keeps its image placements, in rows, so the

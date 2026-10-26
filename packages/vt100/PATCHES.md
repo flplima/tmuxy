@@ -27,6 +27,12 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   resize. Upstream kept a full grid per pane that had ever run a full-screen
   program, and allocated one on the first resize for panes that never had.
   Covered by `tests/terminal_fidelity.rs` in tmuxy-core.
+- **Scrollback rows keep only what they show**: a row moving off the screen
+  goes through `Grid::push_scrollback`, which drops its blank tail
+  (`Row::trim_blank_tail`); every way back onto a screen already resizes the
+  row to the grid's width. A full-width row per line of `seq` output was most
+  of a pane's memory at 256 rows of reflow history. Covered by
+  `tests/terminal_fidelity.rs` in tmuxy-core.
 - **`col_back_tab`**: moves to the previous multiple-of-8 tab stop, for CBT.
 - **`col_wrap` on degenerate grids**: saturating arithmetic and an `if let`
   instead of an `unwrap`, so a one-row or one-column grid cannot underflow or

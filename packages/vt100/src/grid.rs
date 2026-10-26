@@ -62,6 +62,21 @@ impl Grid {
         self.rows = Vec::new();
     }
 
+    /// Move a row off the screen into the scrollback, trimmed to what it shows
+    /// (a full-width row of blanks per line of `seq` output adds up across
+    /// panes), dropping the oldest row past the capacity. Nothing is kept on a
+    /// grid with no scrollback.
+    fn push_scrollback(&mut self, mut row: crate::row::Row) {
+        if self.scrollback_len == 0 {
+            return;
+        }
+        row.trim_blank_tail();
+        self.scrollback.push_back(row);
+        while self.scrollback.len() > self.scrollback_len {
+            self.scrollback.pop_front();
+        }
+    }
+
     fn new_row(&self) -> crate::row::Row {
         crate::row::Row::new(self.size.cols)
     }
@@ -144,13 +159,9 @@ impl Grid {
                 let from_top = excess - from_bottom;
 
                 self.rows.truncate(self.rows.len() - from_bottom);
-                for row in self.rows.drain(..from_top) {
-                    if self.scrollback_len > 0 {
-                        self.scrollback.push_back(row);
-                        while self.scrollback.len() > self.scrollback_len {
-                            self.scrollback.pop_front();
-                        }
-                    }
+                let scrolled: Vec<_> = self.rows.drain(..from_top).collect();
+                for row in scrolled {
+                    self.push_scrollback(row);
                 }
                 self.pos.row = self.pos.row.saturating_sub(from_top as u16);
                 self.saved_pos.row = self.saved_pos.row.saturating_sub(from_top as u16);
@@ -420,10 +431,7 @@ impl Grid {
                 self.scroll_delta += 1;
             }
             if self.scrollback_len > 0 && !self.scroll_region_active() {
-                self.scrollback.push_back(removed);
-                while self.scrollback.len() > self.scrollback_len {
-                    self.scrollback.pop_front();
-                }
+                self.push_scrollback(removed);
                 if self.scrollback_offset > 0 {
                     self.scrollback_offset =
                         self.scrollback.len().min(self.scrollback_offset + 1);

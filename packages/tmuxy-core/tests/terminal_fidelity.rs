@@ -182,3 +182,38 @@ fn leaving_the_alternate_screen_forgets_it() {
     parser.process(b"\x1b[?47l");
     assert_eq!(row(&parser), "main");
 }
+
+/// A row moving into scrollback keeps only the cells it shows — at 200
+/// columns a line of `seq` output is a few cells, not two hundred, and each
+/// pane keeps 256 such rows for reflow. A shrink-then-grow round trip still
+/// brings the text back where it was, at full width.
+#[test]
+fn scrollback_rows_keep_only_what_they_show() {
+    let mut parser = vt100::Parser::new(4, 200, 256);
+    for n in 0..10 {
+        parser.process(format!("{n}\r\n").as_bytes());
+    }
+    // Scrolled back onto the oldest rows: past their text there is no cell.
+    parser.screen_mut().set_scrollback(7);
+    assert_eq!(parser.screen().cell(0, 0).map(|c| c.contents()), Some("0"));
+    assert!(
+        parser.screen().cell(0, 1).is_none(),
+        "the blank tail was dropped"
+    );
+    parser.screen_mut().set_scrollback(0);
+
+    parser.screen_mut().set_size(2, 200);
+    parser.screen_mut().set_size(8, 200);
+    let text: Vec<String> = extract_cells_from_screen(parser.screen())
+        .iter()
+        .map(|l| {
+            l.iter()
+                .map(|c| c.char.as_str())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(text[..7], ["3", "4", "5", "6", "7", "8", "9"]);
+    assert_eq!(parser.screen().cell(0, 199).map(|c| c.contents()), Some(""));
+}

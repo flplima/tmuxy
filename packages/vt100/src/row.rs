@@ -94,6 +94,17 @@ impl Row {
         }
     }
 
+    /// Drop the default cells at the end, keeping the row's flags. A row of
+    /// scrollback then holds only what it shows; `resize` fills it back out
+    /// when it returns to a screen.
+    pub fn trim_blank_tail(&mut self) {
+        let blank = crate::Cell::new();
+        while self.cells.last() == Some(&blank) {
+            self.cells.pop();
+        }
+        self.cells.shrink_to_fit();
+    }
+
     pub fn resize(&mut self, len: u16, cell: crate::Cell) {
         self.cells.resize(usize::from(len), cell);
         self.wrapped = false;
