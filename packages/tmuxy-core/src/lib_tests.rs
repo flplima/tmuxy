@@ -363,3 +363,24 @@ mod pane_delta_marked_tests {
         assert!(PaneDelta::default().is_empty());
     }
 }
+
+/// A pane's content is kept between updates, so a line holds only the cells
+/// it shows: a short or blank row does not keep a whole row's worth of room.
+#[test]
+fn an_extracted_line_keeps_no_room_beyond_its_cells() {
+    let mut parser = vt100::Parser::new(5, 200, 0);
+    parser.process(b"hi\r\n");
+    let lines = extract_cells_from_screen(parser.screen());
+    assert_eq!(lines[0].len(), 2);
+    assert!(
+        lines[0].capacity() < 200,
+        "capacity {}",
+        lines[0].capacity()
+    );
+    assert!(lines[1].is_empty());
+    assert!(
+        lines[1].capacity() < 200,
+        "capacity {}",
+        lines[1].capacity()
+    );
+}

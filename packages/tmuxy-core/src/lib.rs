@@ -286,6 +286,10 @@ pub fn extract_cells_with_urls(
                 break;
             }
         }
+        // The line was allocated for the full width; give back what the
+        // trimmed tail held. Kept per pane between updates, a blank row would
+        // otherwise hold a row's worth of cells (64 B each) for nothing.
+        line.shrink_to_fit();
 
         lines.push(line);
     }
