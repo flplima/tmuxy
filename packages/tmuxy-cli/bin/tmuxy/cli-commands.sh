@@ -200,8 +200,17 @@ cmd_session() {
       case "${1:-}" in
         --help|-h) find_server_cmd; exec "${SERVER_CMD[@]}" session restore --help ;;
       esac
-      local quoted=""
-      for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
+      # `--run` starts every pane's saved command without offering it first.
+      # A person at a terminal can say so; a script or an agent, with no
+      # terminal, gets the restore with each command offered instead.
+      local quoted="" arg
+      for arg in "$@"; do
+        if [ "$arg" = "--run" ] && ! [ -t 0 ]; then
+          echo "Error: --run needs a terminal; without it each command is offered in its pane" >&2
+          return 1
+        fi
+        quoted="$quoted $(shquote "$arg")"
+      done
       find_server_cmd
       _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$quoted"
       ;;
@@ -266,6 +275,76 @@ cmd_nav() {
 
 # --- Run escape hatch ---
 
+# Whether `word` names one of `names` the way tmux reads a command name: the
+# name or its alias exactly, or a prefix of the name (tmux takes a unique one).
+# `set` and `show` are aliases of their own, never prefixes of the others.
+_names_command() {
+  local word="$1" name
+  shift
+  for name in "$@"; do
+    [ "$word" = "$name" ] && return 0
+    case "$word" in set|setw|show|showw) continue ;; esac
+    [ "${#word}" -ge 2 ] && [ "${name#"$word"}" != "$name" ] && [[ "$name" == *-* ]] && return 0
+  done
+  return 1
+}
+
+# The pane `-t` names in a tmux command's arguments (`-t %3`, `-t%3`, or the
+# last flag of a cluster, `-lt %3`); empty when there is none.
+_target_of() {
+  local arg rest
+  while [ $# -gt 0 ]; do
+    arg="$1"
+    shift
+    case "$arg" in
+      --) break ;;
+      -*)
+        rest="${arg#-}"
+        case "$rest" in
+          *t*)
+            rest="${rest#*t}"
+            if [ -n "$rest" ]; then printf '%s' "$rest"; else printf '%s' "${1:-}"; fi
+            return
+            ;;
+        esac
+        ;;
+    esac
+  done
+}
+
+# What `tmuxy run` will not do, as the reason it says so; nothing when the
+# command may run. The send question (`tmuxy pane send -t`) is how another
+# pane is typed into, and this is the one other door to tmux the CLI has.
+_run_refusal() {
+  local verb="$1"
+  shift
+  if _names_command "$verb" send-keys send send-prefix paste-buffer pasteb pipe-pane pipep; then
+    local target own
+    target="$(_target_of "$@")"
+    own="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
+    if [ -z "$own" ] || { [ -n "$target" ] && [ "$target" != "$own" ]; }; then
+      echo "input into another pane goes through \`tmuxy pane send -t <pane>\`, which asks the user"
+    fi
+    return
+  fi
+  if _names_command "$verb" run-shell run if-shell if respawn-pane respawnp respawn-window respawnw \
+    set-environment setenv set-hook source-file source; then
+    echo "$verb runs a shell or changes what one runs"
+    return
+  fi
+  if _names_command "$verb" set-option set set-window-option setw; then
+    local arg
+    for arg in "$@"; do
+      case "$arg" in
+        @tmuxy-ask* | @tmuxy-send-* | @tmuxy-pane-restore)
+          echo "$arg belongs to the send question and the client that answers it"
+          return
+          ;;
+      esac
+    done
+  fi
+}
+
 cmd_run() {
   case "${1:-}" in
     --help|-h) usage_run; return ;;
@@ -275,7 +354,35 @@ cmd_run() {
   local tmux_cmd="$1"
   shift
 
-  case "$tmux_cmd" in
+  # The first argument is spliced into the line run-shell hands a shell. It
+  # may be a whole command (`tmuxy run 'list-sessions -F "#{session_name}"'`),
+  # whose quotes that shell then reads, but never shell syntax of its own: no
+  # `;` to chain another command, no `$(…)`, no redirection.
+  local words=() word
+  if [[ "$tmux_cmd" == *[[:space:]]* ]]; then
+    local syntax='[;|&$`<>()\\]'
+    if [[ "$tmux_cmd" =~ $syntax ]] || [[ "$tmux_cmd" == *$'\n'* ]]; then
+      echo "Error: refused: '$tmux_cmd' holds shell syntax; pass the command's words as arguments" >&2
+      return 1
+    fi
+    # Its words as that shell will split them, for the checks below.
+    while IFS= read -r -d '' word; do words+=("$word"); done < <(printf '%s' "$tmux_cmd" | xargs printf '%s\0')
+  else
+    words=("$tmux_cmd")
+  fi
+  # The command name is one word of a command name and nothing else.
+  if ! [[ "${words[0]:-}" =~ ^[a-z][a-z-]*$ ]]; then
+    echo "Error: '$tmux_cmd' is not a tmux command name" >&2
+    return 1
+  fi
+  local refusal
+  refusal="$(_run_refusal "${words[@]}" "$@")"
+  if [ -n "$refusal" ]; then
+    echo "Error: refused: $refusal" >&2
+    return 1
+  fi
+
+  case "${words[0]}" in
     new-window|neww)
       # Intercept: new-window crashes tmux 3.5a with control mode attached.
       # `tmuxy tab create` is the one place that knows the safe shape (splitw

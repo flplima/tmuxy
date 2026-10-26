@@ -1,3 +1,6 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { LIST_PANES_OUTPUT, LIST_PANES_JSON } = require('./helpers/fixtures');
 
@@ -125,6 +128,18 @@ describe('CLI pane subcommands', () => {
     });
   });
 
+  /** Arguments are spliced into the command line, so only known ones pass. */
+  test.each([
+    [['pane', 'split', '; send-keys -t %3 id Enter #']],
+    [['pane', 'split', '-t', '%3', 'cmd']],
+    [['pane', 'resize', '-U', '5;', 'send-keys']],
+    [['pane', 'resize', '-x', '10']],
+  ])('refuses %p rather than splicing it into the command', (args) => {
+    const { exitCode, tmuxCalls } = runCLI(args);
+    expect(exitCode).not.toBe(0);
+    expect(tmuxCalls.some((call) => call.args[0] === 'run-shell')).toBe(false);
+  });
+
   describe('pane resize', () => {
     test('resizes pane in direction', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'resize', '-U']);
@@ -246,9 +261,14 @@ describe('CLI pane subcommands', () => {
 
   describe('pane send', () => {
     test('sends keys', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'send', 'ls', 'Enter']);
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'send', 'ls', 'Enter'], {
+        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%1', MOCK_TMUX_PANE_PID: String(process.pid) },
+      });
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy send-keys 'ls' 'Enter'"]);
+      expect(tmuxCalls.find((call) => call.args[0] === 'run-shell').args).toEqual([
+        'run-shell',
+        "TMUX_PANE=%1 tmux -L tmuxy send-keys -t '%1' -- 'ls' 'Enter'",
+      ]);
     });
 
     test('errors with no keys', () => {
@@ -260,13 +280,43 @@ describe('CLI pane subcommands', () => {
   });
 
   describe('pane paste', () => {
-    test('pastes text', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', 'hello world']);
+    const IN_PANE_1 = {
+      TMUX_SOCKET: 'tmuxy',
+      TMUX_PANE: '%1',
+      MOCK_TMUX_PANE_PID: String(process.pid),
+    };
+
+    test('pastes text into the caller’s own pane', () => {
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', 'hello world'], { env: IN_PANE_1 });
       expect(exitCode).toBe(0);
       // load-buffer first, then run-shell pasteb, bracketed if the pane asked
-      expect(tmuxCalls).toHaveLength(2);
-      expect(tmuxCalls[0].args).toEqual(['load-buffer', '-']);
-      expect(tmuxCalls[1].args).toEqual(['run-shell', 'tmux -L tmuxy pasteb -p']);
+      const load = tmuxCalls.findIndex((call) => call.args[0] === 'load-buffer');
+      expect(tmuxCalls[load].args).toEqual(['load-buffer', '-b', 'tmuxy-cli-paste', '-']);
+      expect(tmuxCalls[load + 1].args).toEqual([
+        'run-shell',
+        "TMUX_PANE=%1 tmux -L tmuxy pasteb -p -d -b tmuxy-cli-paste -t '%1'",
+      ]);
+    });
+
+    /** A paste into another pane is a send: the same question, first. */
+    test('asks before pasting into another pane, and pastes nothing on no', () => {
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', '-t', '%3', 'rm -rf dist'], {
+        env: { ...IN_PANE_1, MOCK_TMUX_ANSWER: 'no' },
+      });
+      expect(exitCode).toBe(1);
+      const lines = tmuxCalls.map((call) => call.args.join(' '));
+      expect(lines.some((line) => line.includes('@tmuxy-ask '))).toBe(true);
+      expect(lines.some((line) => line.includes('pasteb'))).toBe(false);
+    });
+
+    /** The terminal's own paste markers would end a bracketed paste early. */
+    test('strips bracketed-paste markers from the text, however they nest', () => {
+      const buffer = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-paste-')), 'buffer');
+      const { exitCode } = runCLI(['pane', 'paste', 'a\x1b[20\x1b[201~1~\nid'], {
+        env: { ...IN_PANE_1, MOCK_TMUX_BUFFER_FILE: buffer },
+      });
+      expect(exitCode).toBe(0);
+      expect(fs.readFileSync(buffer, 'utf8')).toBe('a\nid\n');
     });
 
     test('errors with no text', () => {

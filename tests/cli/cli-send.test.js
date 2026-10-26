@@ -26,18 +26,35 @@ function runShellCommands(tmuxCalls) {
   return tmuxCalls.filter((call) => call.args[0] === 'run-shell').map((call) => call.args[1]);
 }
 
-/** The environment of a caller running in pane %1. */
-const IN_PANE_1 = { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%1' };
+/**
+ * The environment of a caller running in pane %1: the pane's process is an
+ * ancestor of the CLI (jest itself), which is what makes the claim true.
+ */
+const IN_PANE_1 = {
+  TMUX_SOCKET: 'tmuxy',
+  TMUX_PANE: '%1',
+  MOCK_TMUX_PANE_PID: String(process.pid),
+};
 
 const send = (args, env = {}) => runCLI(['pane', 'send', ...args], { env });
 
 describe('tmuxy pane send', () => {
   describe('into the caller’s own pane', () => {
-    test('with no target the keys go at once', () => {
-      const { exitCode, tmuxCalls } = send(['ls', 'Enter']);
+    test('with no target the keys go at once, named and after --', () => {
+      const { exitCode, tmuxCalls } = send(['ls', 'Enter'], IN_PANE_1);
       expect(exitCode).toBe(0);
-      expect(runShellCommands(tmuxCalls)).toEqual(["tmux -L tmuxy send-keys 'ls' 'Enter'"]);
+      expect(runShellCommands(tmuxCalls)).toEqual([
+        "TMUX_PANE=%1 tmux -L tmuxy send-keys -t '%1' -- 'ls' 'Enter'",
+      ]);
       expect(askPayload(tmuxCalls)).toBeNull();
+    });
+
+    test('a key that looks like a flag is typed, never read as one', () => {
+      const { exitCode, tmuxCalls } = send(['--', '-t', '%3', 'id', 'Enter'], IN_PANE_1);
+      expect(exitCode).toBe(0);
+      expect(runShellCommands(tmuxCalls)).toEqual([
+        "TMUX_PANE=%1 tmux -L tmuxy send-keys -t '%1' -- '-t' '%3' 'id' 'Enter'",
+      ]);
     });
 
     test('naming its own pane asks nothing either', () => {
@@ -48,6 +65,48 @@ describe('tmuxy pane send', () => {
         true,
       );
       expect(stdout).toContain('sent to %1');
+    });
+  });
+
+  /** Every way of reaching another pane that used to skip the question. */
+  describe('no way around the question', () => {
+    test('a caller in no pane is asked before typing into the one in view', () => {
+      const { exitCode, tmuxCalls } = send(['ls', 'Enter'], {
+        TMUX_SOCKET: 'tmuxy',
+        MOCK_TMUX_CALLER_PANES: '1\\tmain\\t%2',
+        MOCK_TMUX_PANE_ID: '%2',
+        MOCK_TMUX_ANSWER: 'no',
+      });
+      expect(exitCode).toBe(1);
+      expect(askPayload(tmuxCalls)).not.toBeNull();
+      expect(runShellCommands(tmuxCalls).some((cmd) => cmd.includes('send-keys'))).toBe(false);
+    });
+
+    test('claiming the target as your own pane is not believed', () => {
+      const { exitCode, tmuxCalls } = send(['-t', '%3', 'id', 'Enter'], {
+        TMUX_SOCKET: 'tmuxy',
+        TMUX_PANE: '%3',
+        MOCK_TMUX_PANE_PID: '999999',
+        MOCK_TMUX_ANSWER: 'no',
+      });
+      expect(exitCode).toBe(1);
+      expect(askPayload(tmuxCalls)).not.toBeNull();
+    });
+
+    test('-t%3, run together, still names the target', () => {
+      const { exitCode, tmuxCalls } = send(['-t%3', 'id', 'Enter'], {
+        ...IN_PANE_1,
+        MOCK_TMUX_ANSWER: 'no',
+      });
+      expect(exitCode).toBe(1);
+      expect(askPayload(tmuxCalls)?.keys).toEqual(['id', 'Enter']);
+    });
+
+    test('an unknown flag is refused rather than handed to send-keys', () => {
+      const { exitCode, stderr, tmuxCalls } = send(['-X', 'cancel'], IN_PANE_1);
+      expect(exitCode).toBe(2);
+      expect(stderr).toContain("unknown option '-X'");
+      expect(runShellCommands(tmuxCalls)).toEqual([]);
     });
   });
 
@@ -64,7 +123,8 @@ describe('tmuxy pane send', () => {
       const payload = askPayload(tmuxCalls);
       expect(payload.keys).toEqual(keys);
       expect(payload.caller).toBeTruthy();
-      expect(payload.token).toMatch(/^3-\d+$/);
+      // Pane, pid and a random tail, so nothing can write the answer ahead.
+      expect(payload.token).toMatch(/^3-\d+-\d+$/);
     });
 
     test('marks the caller’s pane as waiting on the user, then puts back what it said', () => {
@@ -98,7 +158,7 @@ describe('tmuxy pane send', () => {
       const clearIndex = commands.findIndex((cmd) =>
         /set-option -pu -t '%3' @tmuxy-ask$/.test(cmd),
       );
-      expect(commands[sendIndex]).toContain("send-keys -t '%3' 'npm test' 'Enter'");
+      expect(commands[sendIndex]).toContain("send-keys -t '%3' -- 'npm test' 'Enter'");
       // The overlay comes down before the keys land, so the user never watches
       // the command being typed underneath a stale question.
       expect(clearIndex).toBeGreaterThan(-1);
@@ -137,7 +197,7 @@ describe('tmuxy pane send', () => {
       expect(exitCode).toBe(0);
       expect(askPayload(tmuxCalls)).toBeNull();
       const commands = runShellCommands(tmuxCalls);
-      expect(commands).toContain("tmux -L tmuxy send-keys -t '%3' 'make' 'Enter'");
+      expect(commands).toContain("tmux -L tmuxy send-keys -t '%3' -- 'make' 'Enter'");
       expect(commands).toContain("tmux -L tmuxy set-option -p -t '%3' @tmuxy-pane-state unread");
       expect(stdout).toContain('sent to %3: make Enter');
     });

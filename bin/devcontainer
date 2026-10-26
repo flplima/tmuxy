@@ -139,7 +139,11 @@ prepare() {
         HOST_GITDIR="$(sed 's/^gitdir: //' "$(pwd)/.git")"
         WORKTREE_NAME="$(basename "$HOST_GITDIR")"
         MAIN_GIT_DIR="$(cd "$HOST_GITDIR/../.." && pwd)"
-        DOTGIT_TMP="${TMPDIR:-/tmp}/tmuxy-dotgit-${CONTAINER_NAME}.git"
+        # In the user's cache rather than a shared temp dir, where a planted
+        # symlink at this predictable name would take the write below.
+        DOTGIT_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tmuxy"
+        mkdir -p "$DOTGIT_DIR"
+        DOTGIT_TMP="$DOTGIT_DIR/dotgit-${CONTAINER_NAME}.git"
         echo "gitdir: /git-main/worktrees/$WORKTREE_NAME" > "$DOTGIT_TMP"
         MOUNTS+=(
             -v "$MAIN_GIT_DIR:/git-main"

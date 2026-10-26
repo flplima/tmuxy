@@ -100,6 +100,19 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
     }
   });
 
+  // ssh runs a ProxyCommand as a local command, so an option that reaches it
+  // as the destination is code execution — pasted `ssh ` prefix or not.
+  test.each(['ssh -oProxyCommand=touch%20/tmp/owned', ' -oProxyCommand=id', 'host;id', 'a b'])(
+    'refuses %p as a destination before running ssh',
+    (dest) => {
+      const { exitCode, stderr, stdout, tmuxCalls } = runCLI(['session', 'connect', dest]);
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain('is not a [user@]host destination');
+      expect(stdout).not.toContain('✓ ssh');
+      expect(tmuxCalls).toHaveLength(0);
+    },
+  );
+
   test('prints ✗ stage and verbatim ssh stderr when ssh fails', () => {
     const { exitCode, stderr, tmuxCalls } = runCLI(['session', 'connect', 'badhost'], {
       env: {

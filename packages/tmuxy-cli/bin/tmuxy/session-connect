@@ -98,6 +98,14 @@ if [ -z "$dest" ] || [ "$dest" = "localhost" ]; then
   dest=""
 fi
 
+# A destination is `[user@]host` and nothing else. Checked after the pasted
+# `ssh ` is stripped, so `ssh -oProxyCommand=…` cannot slip an option to ssh
+# (which would run it as a local command).
+if $is_remote && ! [[ "$dest" =~ ^([A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$ ]] || [[ "$dest" == -* ]]; then
+  echo "Error: '$dest' is not a [user@]host destination" >&2
+  exit 1
+fi
+
 if [ -z "$target_socket" ]; then
   if $is_remote; then
     target_socket="tmuxy"
@@ -114,7 +122,7 @@ esac
 # --- Stage 1: ssh <dest> / localhost ---
 if $is_remote; then
   ssh_err_file=$(mktemp)
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$dest" true 2>"$ssh_err_file"; then
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 -- "$dest" true 2>"$ssh_err_file"; then
     ssh_err=$(cat "$ssh_err_file")
     rm -f "$ssh_err_file"
     echo "✗ ssh $dest" >&2
@@ -130,7 +138,7 @@ fi
 # --- Stage 2: tmux <version> on the socket <name> ---
 ver_err_file=$(mktemp)
 if $is_remote; then
-  if ! raw_ver=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$dest" tmux -V 2>"$ver_err_file"); then
+  if ! raw_ver=$(ssh -o BatchMode=yes -o ConnectTimeout=5 -- "$dest" tmux -V 2>"$ver_err_file"); then
     ver_err=$(cat "$ver_err_file")
     rm -f "$ver_err_file"
     echo "✗ tmux on the socket $target_socket" >&2
@@ -154,7 +162,7 @@ echo "✓ tmux $tmux_ver on the socket $target_socket"
 # --- Stage 3: listing sessions ---
 sess_err_file=$(mktemp)
 if $is_remote; then
-  sessions_out=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$dest" \
+  sessions_out=$(ssh -o BatchMode=yes -o ConnectTimeout=5 -- "$dest" \
     tmux "$target_sock_flag" "$target_socket" list-sessions -F '#{session_name}' 2>"$sess_err_file" || true)
 elif [ "$target_socket" = "$TMUX_SOCKET" ]; then
   sessions_out=$(_tmux list-sessions -F '#{session_name}' 2>"$sess_err_file" || true)

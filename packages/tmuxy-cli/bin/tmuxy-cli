@@ -225,12 +225,18 @@ Run any tmux command safely through run-shell.
 Safety features:
   - new-window is intercepted → split-window + break-pane
   - resize-window is blocked (crashes control mode)
+  - Input into a pane other than your own (send-keys, paste-buffer,
+    pipe-pane) is refused: use `tmuxy pane send -t`, which asks the user
+  - Commands that run a shell or change what one runs (run-shell, if-shell,
+    respawn-pane, set-environment, set-hook, source-file), and writes to the
+    send question's own options (@tmuxy-ask*, @tmuxy-send-*,
+    @tmuxy-pane-restore), are refused
   - All other commands route through run-shell
 
 Examples:
   tmuxy run swap-pane -s %0 -t %1
   tmuxy run new-window              # intercepted → safe alternative
-  tmuxy run send-keys -t %3 ls Enter
+  tmuxy run send-keys -X cancel     # your own pane
 EOF
 }
 

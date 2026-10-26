@@ -43,11 +43,32 @@ case "$TMUX_SOCKET" in
 esac
 export TMUX_SOCKET_FLAG
 
+# The caller's pane, as tmux names one (`%N`). It is spliced into commands
+# run-shell hands to a shell, so anything else in it is dropped rather than
+# trusted.
+if [ -n "${TMUX_PANE:-}" ] && ! [[ "$TMUX_PANE" =~ ^%[0-9]+$ ]]; then
+  unset TMUX_PANE
+fi
+
+# The tmux binary: TMUX_BIN when set (as tmuxy-core's `tmux_path()` reads it,
+# so a side-installed tmux is used end to end), else the one on PATH.
+TMUX_BIN="${TMUX_BIN:-tmux}"
+
+# The same binary as one word of a line run-shell hands a shell: bare when it
+# plainly is one, `shquote`d otherwise.
+tmux_word() {
+  if [[ "$TMUX_BIN" =~ ^[A-Za-z0-9._/@+-]+$ ]]; then
+    printf '%s' "$TMUX_BIN"
+  else
+    shquote "$TMUX_BIN"
+  fi
+}
+
 # Wrap tmux to target the resolved socket. Using an explicit socket flag
 # bypasses the TMUX env var, which returns corrupted list-windows results
 # inside run-shell (tmux 3.5a bug).
 _tmux() {
-  command tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"
+  command "$TMUX_BIN" "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"
 }
 
 # Run ONE shell command inside the tmux server through run-shell, and hand
@@ -83,7 +104,33 @@ _run_shell() {
 # inner client's TMUX_PANE, which tmux reads for an unattached client the way
 # it reads it for a shell in a pane.
 _run_safe() {
-  _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+  # The socket is a name or a path from the environment: bare when it is
+  # plainly one word, quoted for the shell otherwise.
+  local socket="$TMUX_SOCKET"
+  [[ "$socket" =~ ^[A-Za-z0-9._/@+-]+$ ]] || socket="$(shquote "$socket")"
+  _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }$(tmux_word) $TMUX_SOCKET_FLAG $socket $*"
+}
+
+# The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:
+# the pane whose process is an ancestor of this one. TMUX_PANE is only an
+# environment variable, so anything can claim any pane with it; what the
+# claim buys — typing into that pane without asking — is given only to a
+# process that really runs there. Prints nothing when it is not.
+verified_own_pane() {
+  local claimed="${1:-}" pane_pid
+  [ -n "$claimed" ] || return 0
+  pane_pid="$(_tmux display-message -p -t "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
+  [[ "$pane_pid" =~ ^[0-9]+$ ]] || return 0
+  # One `ps` for the whole tree, walked from this process up.
+  if ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$$" -v want="$pane_pid" '
+    { parent[$1] = $2 }
+    END {
+      p = me
+      for (i = 0; i < 128 && p > 1; i++) { if (p == want) exit 0; p = parent[p] }
+      exit 1
+    }'; then
+    printf '%s' "$claimed"
+  fi
 }
 
 # Quote arguments for interpolation into a `_run_safe` command string. Each

@@ -12,7 +12,7 @@ cmd_pane() {
       # Say how to bring this pane back after a restore (`@tmuxy-pane-restore`):
       # the program itself knows (`claude --resume <id>`, `nvim -S`, `ssh
       # host`) where `ps` can only guess. Wins over discovery at restore time.
-      local value="" target=""
+      local value="" target="" own
       for arg in "$@"; do
         case "$arg" in
           --help|-h)
@@ -29,11 +29,20 @@ cmd_pane() {
         echo "Error: command required (or --clear)" >&2
         return 1
       fi
-      target="${target:-${TMUX_PANE:-}}"
-      if [ -z "$target" ]; then
-        echo "Error: no pane to target (pass %id or run inside a pane)" >&2
+      # Only the caller's own pane: a restore offers this command in the pane
+      # (or runs it, with --run), so setting it on another pane would be
+      # typing there without asking.
+      own="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
+      if [ -z "$own" ]; then
+        echo "Error: run this inside the pane it is for" >&2
         return 1
       fi
+      if [ -n "$target" ] && [ "$target" != "$own" ]; then
+        echo "Error: a pane's restore command is its own to set (you are in $own)" >&2
+        return 1
+      fi
+      target="$own"
+
       if [ "$value" = "--clear" ]; then
         _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-restore"
       else
@@ -107,7 +116,10 @@ cmd_pane() {
         case "$arg" in
           --help) echo "Usage: tmuxy pane split [-h|-v] [--json]"; return ;;
           --json) json=true ;;
-          *) args="$args $arg" ;;
+          -h|-v) args="$args $arg" ;;
+          # Spliced into the command line: anything else could be a command
+          # for the new pane, or a `;` and a command of its own.
+          *) echo "Error: invalid argument '$arg'. Use -h, -v or --json" >&2; return 1 ;;
         esac
       done
       local out
@@ -152,6 +164,8 @@ cmd_pane() {
       for arg in "$@"; do
         case "$arg" in
           --help|-h) echo "Usage: tmuxy pane resize [-U|-D|-L|-R] [n]"; return ;;
+          -U|-D|-L|-R) args="$args $arg" ;;
+          *[!0-9]*|"") echo "Error: invalid argument '$arg'. Use -U, -D, -L, -R and a number" >&2; return 1 ;;
           *) args="$args $arg" ;;
         esac
       done
@@ -215,15 +229,28 @@ cmd_pane() {
       ;;
 
     paste)
+      local target=()
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane paste <text>"; return ;;
+        --help|-h) echo "Usage: tmuxy pane paste [-t <pane>] <text>"; return ;;
+        -t) target=(-t "${2:?-t needs a pane}"); shift 2 ;;
+      esac
+      case "${1:-}" in
         "") echo "Error: text required" >&2; return 1 ;;
       esac
-      local text="$*"
-      _tmux load-buffer - <<< "$text"
-      # -p: bracketed when the program in the pane asked for it (?2004h), so a
-      # multi-line paste is inserted rather than run a line at a time.
-      _run_safe "pasteb -p"
+      # The markers that open and close a bracketed paste are the terminal's
+      # to send: one inside the text would end the paste early and run what
+      # follows it. Stripped until none is left, since removing one can join
+      # the halves of another.
+      local text="$*" start=$'\e[200~' end=$'\e[201~' before
+      while :; do
+        before="$text"
+        text="${text//"$start"/}"
+        text="${text//"$end"/}"
+        [ "$text" = "$before" ] && break
+      done
+      # Through `send`, so a paste follows its rules: into the caller's own
+      # pane at once, into any other only once the user allows it there.
+      bash "$SCRIPTS_DIR/send" --paste ${target[@]+"${target[@]}"} -- "$text"
       ;;
 
     float)

@@ -325,8 +325,31 @@ async function tmuxCommandKeyboard(page, cmd) {
   );
 }
 
+/**
+ * Wait until the keyboard actor sends keys where the app's context says they
+ * go now. The actor hears of a focus change by message, after the context has
+ * it; the hidden input's `data-keyboard-target` (utils/mobileKeyboard.ts) is
+ * the actor saying it has caught up. `target` is a pane id, `left-sidebar`,
+ * or `focused-float` for whatever float the context has focused.
+ */
+async function waitForKeyboardTarget(page, target, timeout = 10000) {
+  await waitForCondition(
+    page,
+    () =>
+      page.evaluate((want) => {
+        const expected =
+          want === 'focused-float' ? window.app?.getSnapshot()?.context?.focusedFloatPaneId : want;
+        const input = document.querySelector('input[data-keyboard-target]');
+        return Boolean(expected) && input?.dataset.keyboardTarget === expected;
+      }, target),
+    timeout,
+    `the keyboard to send keys to ${target}`,
+  );
+}
+
 module.exports = {
   waitForKeyboardFocus,
+  waitForKeyboardTarget,
   focusTerminal,
   sendKeyCombo,
   getPrefixKey,

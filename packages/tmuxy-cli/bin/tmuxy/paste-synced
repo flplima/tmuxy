@@ -13,6 +13,6 @@ BUFFER="${2:?buffer name required}"
 
 PANES=$(_tmux list-panes -t "$TARGET" -F '#{?#{&&:#{pane_synchronized},#{?pane_in_mode,0,1}},#{pane_id},}')
 for pane in $PANES; do
-  _tmux paste-buffer -p -b "$BUFFER" -t "$pane"
+  _run_safe "paste-buffer -p -b $(shquote "$BUFFER") -t $(shquote "$pane")"
 done
-_tmux delete-buffer -b "$BUFFER"
+_run_safe "delete-buffer -b $(shquote "$BUFFER")"

@@ -44,7 +44,37 @@ function tmuxRun(command) {
   }
 }
 
+const CLI_LIB = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy/_lib');
+
+const shellQuote = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * A tmux command as the person running the suite would run it: through
+ * run-shell, like `tmuxRun`, but not through `tmuxy run`, which refuses what
+ * would get around the send question — input into another pane, a shell, a
+ * config file, the question's own options. Those are the harness setting up
+ * what a user puts in their tmux.conf or types themselves, not a test of the
+ * CLI. `#` is doubled as `tmuxy run` doubles it, so run-shell expands nothing.
+ *
+ * @param {string} command - Full tmux command, shell-quoted as for `tmuxRun`
+ * @param {Record<string, string>} [env] - The socket's environment
+ * @returns {string} Trimmed stdout
+ */
+function tmuxRunAsOperator(command, env = tmuxEnv()) {
+  return execSync(
+    `bash -c 'source "$0"; _run_safe "$1"' ${shellQuote(CLI_LIB)} ${shellQuote(command.replace(/#/g, '##'))}`,
+    {
+      cwd: WORKSPACE_ROOT,
+      encoding: 'utf-8',
+      timeout: 30000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+    },
+  ).trim();
+}
+
 module.exports = {
   tmuxRun,
+  tmuxRunAsOperator,
   TMUXY_CLI,
 };

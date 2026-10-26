@@ -170,7 +170,7 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
     // It is a STILL: output that arrives while the overview is open does not
     // reach the slot, though the live pane has it.
     const later = `${marker}-later`;
-    await ctx.session.runCommand(`send-keys -t ${markedPane} 'echo ${later}' Enter`);
+    await ctx.session.runAsOperator(`send-keys -t ${markedPane} 'echo ${later}' Enter`);
     await waitForCondition(
       page,
       () =>

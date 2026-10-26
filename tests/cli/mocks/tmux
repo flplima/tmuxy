@@ -32,9 +32,10 @@ if [ "${1:-}" = "-L" ] || [ "${1:-}" = "-S" ]; then
   shift 2
 fi
 
-# Handle stdin for load-buffer
-if [ "${1:-}" = "load-buffer" ] && [ "${2:-}" = "-" ]; then
-  cat > /dev/null
+# Handle stdin for load-buffer (`load-buffer [-b name] -`): kept in
+# MOCK_TMUX_BUFFER_FILE when a test wants to read what was loaded.
+if [ "${1:-}" = "load-buffer" ] && [ "${!#}" = "-" ]; then
+  cat > "${MOCK_TMUX_BUFFER_FILE:-/dev/null}"
   exit "$exit_code"
 fi
 
@@ -90,6 +91,9 @@ case "${1:-}" in
           printf 'tmuxy\t%%0\t@0\t120\t40\tzsh\t0\tmain\t2\n'
         fi
         ;;
+      # `verified_own_pane`: the process in the caller's pane. A test whose
+      # caller runs there names an ancestor of the CLI (jest's own pid).
+      *'#{pane_pid}'*) echo "${MOCK_TMUX_PANE_PID:-}" ;;
       *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
       *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
       *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;

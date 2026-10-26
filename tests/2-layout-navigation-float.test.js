@@ -13,7 +13,6 @@ const {
   splitPaneKeyboard,
   showsShellPrompt,
   waitForCondition,
-  DELAYS,
   verifyFloatVisible,
   waitForFloatModal,
   waitForNoModal,
@@ -22,6 +21,7 @@ const {
   CENTRE_TOLERANCE_PX,
   isCentred,
   openFloatFromCli,
+  waitForKeyboardTarget,
 } = require('./helpers/layout-helpers');
 
 // ==================== Scenario 6: Float Pane Lifecycle ====================
@@ -164,7 +164,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     // selects the background pane, breaking input isolation.
     // Wait for the keyboard actor to receive the UPDATE_FOCUSED_FLOAT event
     // (async message from XState, may lag behind context update).
-    await delay(DELAYS.SYNC);
+    await waitForKeyboardTarget(ctx.page, 'focused-float');
     await ctx.page.bringToFront();
     const TOKEN = 'FLOAT_VIS_' + Date.now();
     for (const char of `echo ${TOKEN}`) {

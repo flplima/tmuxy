@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { WORKSPACE_ROOT, waitBudget } = require('./config');
-const { tmuxRun } = require('./cli');
+const { tmuxRun, tmuxRunAsOperator } = require('./cli');
 const { tmuxCmd, tmuxExec } = require('./tmux-socket');
 const { delay, waitForCondition } = require('./browser');
 const { reapPids } = require('./reap');
@@ -63,6 +63,15 @@ class TmuxTestSession {
     return readOnly.test(command) ? tmuxExec(command) : tmuxRun(command);
   }
 
+  /**
+   * Run a mutating tmux command the CLI's `tmuxy run` refuses (input into a
+   * pane, a config file): the harness doing what the person at the keyboard
+   * would, not a path under test. See `tmuxRunAsOperator`.
+   */
+  runAsOperator(command) {
+    return tmuxRunAsOperator(command);
+  }
+
   /** Run a tmux command against this session (`-t <name>` appended). */
   async query(command) {
     return this.runCommand(`${command} -t ${this.name}`);
@@ -92,7 +101,7 @@ class TmuxTestSession {
     }
 
     try {
-      this.runCommand(`source-file ${this.configPath}`);
+      tmuxRunAsOperator(`source-file ${this.configPath}`);
     } catch (e) {
       throw new Error(`Failed to source config ${this.configPath}: ${e.message}`);
     }

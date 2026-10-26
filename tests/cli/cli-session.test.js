@@ -33,11 +33,22 @@ describe('tmuxy session snapshots', () => {
 
   /** A rebuild creates and splits, so it runs inside tmux, never beside it. */
   test('restore goes through run-shell, with its flags', () => {
-    const { exitCode, tmuxCalls } = runCLI(['session', 'restore', 'work', '--run']);
+    const { exitCode, tmuxCalls } = runCLI(['session', 'restore', 'work']);
     expect(exitCode).toBe(0);
     expect(tmuxCalls).toHaveLength(1);
     expect(tmuxCalls[0].args[0]).toBe('run-shell');
-    expect(tmuxCalls[0].args[1]).toMatch(/tmuxy-server'? session restore 'work' '--run'$/);
+    expect(tmuxCalls[0].args[1]).toMatch(/tmuxy-server'? session restore 'work'$/);
+  });
+
+  /**
+   * `--run` starts every saved command unasked. A script or an agent has no
+   * terminal; it gets the restore with the commands offered instead.
+   */
+  test('restore --run without a terminal is refused, running nothing', () => {
+    const { exitCode, stderr, tmuxCalls } = runCLI(['session', 'restore', 'work', '--run']);
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain('--run needs a terminal');
+    expect(tmuxCalls).toHaveLength(0);
   });
 
   /** `--force` kills a running session first, which is a mutation. */
@@ -60,34 +71,55 @@ describe('tmuxy session snapshots', () => {
 });
 
 describe('tmuxy pane restore-cmd', () => {
+  /** A caller that really runs in pane %7: its pane's process is the suite's. */
+  const IN_PANE_7 = {
+    TMUX_SOCKET: 'tmuxy',
+    TMUX_PANE: '%7',
+    MOCK_TMUX_PANE_PID: String(process.pid),
+  };
+
+  /** The run-shell calls, past the read that checks the caller's pane. */
+  const runShells = (tmuxCalls) => tmuxCalls.filter((call) => call.args[0] === 'run-shell');
+
   test('writes the pane option for the calling pane, through run-shell', () => {
     const { exitCode, tmuxCalls } = runCLI(['pane', 'restore-cmd', 'claude --resume abc'], {
       // The harness drops TMUX_PANE unless a socket is pinned, since the suite
       // itself usually runs inside a pane.
-      env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
+      env: IN_PANE_7,
     });
     expect(exitCode).toBe(0);
-    expect(tmuxCalls).toHaveLength(1);
-    expect(tmuxCalls[0].args).toEqual([
+    expect(runShells(tmuxCalls)).toHaveLength(1);
+    expect(runShells(tmuxCalls)[0].args).toEqual([
       'run-shell',
       "TMUX_PANE=%7 tmux -L tmuxy set-option -p -t '%7' @tmuxy-pane-restore 'claude --resume abc'",
     ]);
   });
 
-  test('targets an explicit pane and clears with --clear', () => {
-    const set = runCLI(['pane', 'restore-cmd', 'nvim -S', '%3']);
-    expect(set.tmuxCalls[0].args[1]).toContain("-t '%3' @tmuxy-pane-restore 'nvim -S'");
-    const clear = runCLI(['pane', 'restore-cmd', '--clear', '%3']);
+  test('clears with --clear, naming its own pane or not', () => {
+    const clear = runCLI(['pane', 'restore-cmd', '--clear', '%7'], { env: IN_PANE_7 });
     expect(clear.exitCode).toBe(0);
-    expect(clear.tmuxCalls[0].args[1]).toBe(
-      "tmux -L tmuxy set-option -p -u -t '%3' @tmuxy-pane-restore",
+    expect(runShells(clear.tmuxCalls)[0].args[1]).toBe(
+      "TMUX_PANE=%7 tmux -L tmuxy set-option -p -u -t '%7' @tmuxy-pane-restore",
     );
   });
 
+  /**
+   * A restore offers the command in its pane, or runs it with --run: setting
+   * one on another pane would be typing there without asking.
+   */
+  test("never writes another pane's, nor one for a caller that only claims a pane", () => {
+    const other = runCLI(['pane', 'restore-cmd', 'nvim -S', '%3'], { env: IN_PANE_7 });
+    expect(other.exitCode).not.toBe(0);
+    expect(runShells(other.tmuxCalls)).toHaveLength(0);
+    const claimed = runCLI(['pane', 'restore-cmd', 'nvim -S'], {
+      env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7', MOCK_TMUX_PANE_PID: '999999' },
+    });
+    expect(claimed.exitCode).not.toBe(0);
+    expect(runShells(claimed.tmuxCalls)).toHaveLength(0);
+  });
+
   test('refuses with nothing to write and no pane to target', () => {
-    expect(
-      runCLI(['pane', 'restore-cmd'], { env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' } }).exitCode,
-    ).not.toBe(0);
+    expect(runCLI(['pane', 'restore-cmd'], { env: IN_PANE_7 }).exitCode).not.toBe(0);
     expect(runCLI(['pane', 'restore-cmd', 'vim'], { env: { TMUX_PANE: '' } }).exitCode).not.toBe(0);
   });
 });

@@ -227,8 +227,10 @@ describe('Scenario: tmuxy pane send asks before typing into another pane', () =>
     const targetScope = `[data-pane-id="${there}"]`;
 
     try {
-      // Off: the keys go at once, the pane is marked unread.
-      await typeCommand(page, here, `${TMUXY_CLI} run set -g @tmuxy-send-ask off`);
+      // Off: the keys go at once, the pane is marked unread. The switches are
+      // the user's to set (tmux.conf, the command prompt); `tmuxy run`
+      // refuses them, so an agent cannot turn its own question off.
+      ctx.session.runAsOperator('set -g @tmuxy-send-ask off');
       await typeCommand(page, here, `${TMUXY_CLI} pane send -t ${there} 'echo sent-unasked' Enter`);
       await waitForTerminalText(page, 'sent-unasked', 20000, {
         scope: targetScope,
@@ -252,8 +254,8 @@ describe('Scenario: tmuxy pane send asks before typing into another pane', () =>
       );
 
       // Back on, with the target on the allow list: still no question.
-      await typeCommand(page, here, `${TMUXY_CLI} run set -g @tmuxy-send-ask on`);
-      await typeCommand(page, here, `${TMUXY_CLI} run set -g @tmuxy-send-allow ${there}`);
+      ctx.session.runAsOperator('set -g @tmuxy-send-ask on');
+      ctx.session.runAsOperator(`set -g @tmuxy-send-allow ${there}`);
       await typeCommand(
         page,
         here,
@@ -266,15 +268,8 @@ describe('Scenario: tmuxy pane send asks before typing into another pane', () =>
       expect(await page.$(`[data-pane-ask="${there}"]`)).toBeNull();
     } finally {
       // Global options outlive the test on the shared server.
-      await typeCommand(
-        page,
-        here,
-        `${TMUXY_CLI} run set -gu @tmuxy-send-allow; ${TMUXY_CLI} run set -g @tmuxy-send-ask on; echo send-options-reset`,
-      );
-      await waitForTerminalText(page, 'send-options-reset', 15000, {
-        scope: `[data-pane-id="${here}"]`,
-        notOnLineWith: 'echo send-options',
-      });
+      ctx.session.runAsOperator('set -gu @tmuxy-send-allow');
+      ctx.session.runAsOperator('set -g @tmuxy-send-ask on');
     }
   }, 180000);
 });

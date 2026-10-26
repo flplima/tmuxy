@@ -21,6 +21,7 @@ const { spawn, execFileSync } = require('child_process');
 const { WORKSPACE_ROOT } = require('./config');
 const { waitForServer } = require('./browser');
 const { serverBinary } = require('./server-binary');
+const { tmuxRunAsOperator } = require('./cli');
 
 const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
 
@@ -92,6 +93,13 @@ function isolatedServer({ port, socket, stateDir }) {
       child.kill('SIGTERM');
       await Promise.race([exited, new Promise((r) => setTimeout(r, 10000))]);
       child = null;
+    },
+    /**
+     * A tmux command the person at the keyboard would run, past `tmuxy run`'s
+     * refusals (`tmuxRunAsOperator`), on this server's socket.
+     */
+    asOperator(command) {
+      return tmuxRunAsOperator(command, env);
     },
     /** End the tmux server on this socket; every session on it is gone. */
     killTmux() {

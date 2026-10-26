@@ -5,14 +5,13 @@
 const fs = require('fs');
 const {
   createTestContext,
-  delay,
   runCommand,
   waitForWindowCount,
   openSidebarKeyboard,
   createWindowKeyboard,
   afterFrames,
   waitForCondition,
-  DELAYS,
+  waitForKeyboardTarget,
 } = require('./helpers/layout-helpers');
 
 // ==================== Scenario 6d: Sidebar Tree View ====================
@@ -46,8 +45,9 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     const path = require('path');
     const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-tree-git-'));
     const branch = 'tree-badge-branch';
-    // The user makes the checkout in the pane, as they would.
-    await ctx.session.runCommand(
+    // The user makes the checkout in the pane, as they would (typed by the
+    // harness as the operator: `tmuxy run` refuses input into a pane).
+    await ctx.session.runAsOperator(
       `send-keys -t ${firstPaneId} 'cd ${repoDir} && git init -q -b ${branch}' Enter`,
     );
     await waitForCondition(
@@ -220,9 +220,9 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     };
     await focusTree('leftSidebarFocused set after click');
 
-    // Give the keyboard actor time to process UPDATE_LEFT_SIDEBAR_FOCUSED (async
-    // message from XState, may lag the context update).
-    await delay(DELAYS.SYNC);
+    // The keyboard actor hears UPDATE_LEFT_SIDEBAR_FOCUSED by message, after
+    // the context has it: wait until it says the tree holds the keys.
+    await waitForKeyboardTarget(ctx.page, 'left-sidebar');
     await ctx.page.bringToFront();
 
     // Step 5: Move the selection onto the FIRST window's tab row, then Enter

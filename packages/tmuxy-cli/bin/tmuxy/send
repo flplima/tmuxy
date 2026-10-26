@@ -52,6 +52,7 @@ and this blocks until they answer.
 Options:
   -t <pane>            The pane to type into. Default: your own.
   --timeout SECONDS    Give up on an unanswered question after this long.
+  --                   Everything after it is keys, even one starting with -.
 
 Skipping the question:
   set -g @tmuxy-send-ask off            never ask
@@ -70,6 +71,9 @@ EOF
 TARGET=""
 TIMEOUT=""
 KEYS=()
+# `tmuxy pane paste` hands its text here (`--paste`), to be pasted rather than
+# typed once the same question is answered.
+PASTE=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -81,14 +85,29 @@ while [ $# -gt 0 ]; do
       TARGET="${2:?-t needs a pane}"
       shift 2
       ;;
+    # `-t%3`, which tmux's own parser reads as `-t %3`: missing it left the
+    # target empty and put the flag among the keys, where send-keys took it.
+    -t*)
+      TARGET="${1#-t}"
+      shift
+      ;;
     --timeout)
       TIMEOUT="${2:?--timeout needs a value}"
       shift 2
+      ;;
+    --paste)
+      PASTE=true
+      shift
       ;;
     --)
       shift
       KEYS+=("$@")
       break
+      ;;
+    # Any other flag would reach send-keys as one of its own options.
+    -?*)
+      echo "Error: unknown option '$1' (keys that start with '-' go after --)" >&2
+      exit 2
       ;;
     *)
       KEYS+=("$1")
@@ -107,12 +126,19 @@ if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
 fi
 
 # The pane the caller runs in, as it was before the CLI resolved a default
-# for callers outside any pane (packages/tmuxy-cli/bin/tmuxy-cli exports it).
-OWN_PANE="${TMUXY_CALLER_PANE:-}"
+# for callers outside any pane (packages/tmuxy-cli/bin/tmuxy-cli exports it),
+# and only if the caller really runs there (`verified_own_pane`).
+OWN_PANE="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
 
+# No -t: the caller's own pane. A caller in no pane (cron, ssh, a script) has
+# none, and its keys go to the pane the CLI resolved — the one the user is
+# looking at — which is someone else's, so it is asked like any other.
 if [ -z "$TARGET" ]; then
-  _run_safe "send-keys $(shquote "${KEYS[@]}")"
-  exit 0
+  TARGET="${OWN_PANE:-${TMUX_PANE:-}}"
+  if [ -z "$TARGET" ]; then
+    echo "Error: no pane to send to (pass -t)" >&2
+    exit 2
+  fi
 fi
 
 # The target has to exist before a question is hung on it — a typo'd pane id
@@ -123,8 +149,17 @@ if ! resolved="$(_tmux display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)
 fi
 [ -n "$resolved" ] && TARGET="$resolved"
 
+# Always an explicit target, and `--` before the keys: a key that looks like
+# a flag (`-t %4`) is typed, never read as one.
 send_keys() {
-  _run_safe "send-keys -t $(shquote "$TARGET") $(shquote "${KEYS[@]}")"
+  if $PASTE; then
+    _tmux load-buffer -b tmuxy-cli-paste - <<<"${KEYS[*]}"
+    # -p: bracketed when the program in the pane asked for it (?2004h), so a
+    # multi-line paste is inserted rather than run a line at a time.
+    _run_safe "pasteb -p -d -b tmuxy-cli-paste -t $(shquote "$TARGET")"
+  else
+    _run_safe "send-keys -t $(shquote "$TARGET") -- $(shquote "${KEYS[@]}")"
+  fi
   echo "sent to $TARGET: ${KEYS[*]}"
 }
 
@@ -186,8 +221,9 @@ json_escape() {
 
 # A token unique to this question. Pane ids are never reused within a server
 # and the pid is unique among live processes, so the pair cannot collide with
-# another question on the same pane.
-TOKEN="${TARGET#%}-$$"
+# another question on the same pane; the random tail keeps anything else on
+# the socket from writing an answer it could work out in advance.
+TOKEN="${TARGET#%}-$$-$RANDOM$RANDOM"
 
 KEYS_JSON=""
 for key in "${KEYS[@]}"; do

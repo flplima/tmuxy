@@ -29,9 +29,14 @@ state="$("${SERVER_CMD[@]}" agent state "$agent" "$event" 2>/dev/null)" || exit 
 [ -n "$state" ] || exit 0
 
 # Per pane, and per tmux server ($TMUX carries its pid): pane ids start again
-# with the server.
-dir="${TMPDIR:-/tmp}/tmuxy-agent-$UID/${TMUX//[^A-Za-z0-9]/_}_${TMUX_PANE#%}"
-[ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || exit 0
+# with the server. The base sits in a shared temp dir, so it has to be ours,
+# owner-only and not a symlink someone else planted.
+base="${TMPDIR:-/tmp}/tmuxy-agent-$UID"
+(umask 077 && mkdir -p "$base") 2>/dev/null || exit 0
+[ -O "$base" ] && [ ! -L "$base" ] || exit 0
+chmod 700 "$base" 2>/dev/null || exit 0
+dir="$base/${TMUX//[^A-Za-z0-9]/_}_${TMUX_PANE#%}"
+[ -d "$dir" ] || (umask 077 && mkdir -p "$dir") 2>/dev/null || exit 0
 wanted=""
 [ -f "$dir/wanted" ] && read -r wanted <"$dir/wanted"
 [ "$state" = "$wanted" ] && exit 0

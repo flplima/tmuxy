@@ -94,11 +94,12 @@ describe('Scenario 32: Session snapshots', () => {
       15000,
       'the left sidebar to open',
     );
-    // What a pane says it should come back as.
-    srv.cli(['pane', 'restore-cmd', 'echo restored-ok', '%0']);
+    // What a pane says it should come back as: set from outside the pane, as
+    // the operator, since `tmuxy pane restore-cmd` is the pane's own to call.
+    srv.asOperator("set-option -p -t %0 @tmuxy-pane-restore 'echo restored-ok'");
     // And a program that says nothing: the save finds it with `ps`. Sent
     // with tmux's own send-keys, which asks no one.
-    srv.cli(['run', 'send-keys', '-t', floatPane, 'sleep 600', 'Enter']);
+    srv.asOperator(`send-keys -t ${floatPane} 'sleep 600' Enter`);
 
     // 2. The autosave has followed every change: the latest snapshot holds
     //    the float, the group, the sidebar and the restore tags.

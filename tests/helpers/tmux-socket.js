@@ -80,10 +80,21 @@ function stateDir() {
   );
 }
 
+/**
+ * The tmux the suite runs: `TMUX_BIN` when set, as the server under test reads
+ * it (tmuxy-core `tmux_path()`) and the CLI does, so a run can target a
+ * side-installed tmux (the 3.2a floor, say) without touching the one on PATH.
+ */
+function tmuxBin() {
+  return process.env.TMUX_BIN || 'tmux';
+}
+
 /** `tmux -L <name>` / `tmux -S <path>` prefix for building shell commands. */
 function tmuxCmd() {
   const socket = tmuxSocket();
-  return `tmux ${socket.includes('/') ? '-S' : '-L'} ${socket}`;
+  const bin = tmuxBin();
+  const word = /^[\w./@+-]+$/.test(bin) ? bin : `'${bin.replace(/'/g, `'\\''`)}'`;
+  return `${word} ${socket.includes('/') ? '-S' : '-L'} ${socket}`;
 }
 
 /**
@@ -100,4 +111,4 @@ function tmuxExec(args, { timeout = 10000 } = {}) {
   return execSync(`${tmuxCmd()} ${args}`, { encoding: 'utf-8', timeout, env: tmuxEnv() }).trim();
 }
 
-module.exports = { DEFAULT_SOCKET, tmuxSocket, tmuxCmd, tmuxEnv, tmuxExec, stateDir };
+module.exports = { DEFAULT_SOCKET, tmuxSocket, tmuxBin, tmuxCmd, tmuxEnv, tmuxExec, stateDir };

@@ -247,7 +247,7 @@ else
   cat > "$WRAPPER" <<SCRIPT
 #!/bin/bash
 ${CMD} > "${TMPFILE}"
-tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET wait-for -S ${WAIT_CHAN}
+$(printf '%q' "$TMUX_BIN") $TMUX_SOCKET_FLAG $(printf '%q' "$TMUX_SOCKET") wait-for -S ${WAIT_CHAN}
 SCRIPT
   chmod +x "$WRAPPER"
 
