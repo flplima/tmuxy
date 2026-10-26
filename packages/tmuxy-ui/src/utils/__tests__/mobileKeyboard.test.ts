@@ -3,6 +3,7 @@ import { pid } from '../../test/wire';
 import {
   focusKeyboardInput,
   getMobileInput,
+  markKeyboardTarget,
   setKeyboardInputTarget,
   setupMobileKeyboard,
 } from '../mobileKeyboard';
@@ -80,5 +81,15 @@ describe('mobileKeyboard handler ownership', () => {
     insertText('n');
 
     expect(second).toHaveBeenCalledWith('n', null);
+  });
+});
+
+describe('keyboard target mark', () => {
+  it('says where keys go on the input, set before or after it exists', () => {
+    markKeyboardTarget('%4');
+    register(() => {});
+    expect(getMobileInput()?.dataset.keyboardTarget).toBe('%4');
+    markKeyboardTarget('left-sidebar');
+    expect(getMobileInput()?.dataset.keyboardTarget).toBe('left-sidebar');
   });
 });

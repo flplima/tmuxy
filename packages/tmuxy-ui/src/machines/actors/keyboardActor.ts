@@ -5,7 +5,7 @@
 
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
-import { getMobileInput } from '../../utils/mobileKeyboard';
+import { getMobileInput, markKeyboardTarget } from '../../utils/mobileKeyboard';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { splitTableSwitch } from '../../domain/keyTables';
 import { tabWalksChrome } from '../../utils/chromeTab';
@@ -368,6 +368,9 @@ export function createKeyboardActor() {
         focusedRightSidebarPaneId = event.paneId;
         imeClipboard.syncKeyboardInputTarget();
       }
+      markKeyboardTarget(
+        leftSidebarFocused ? 'left-sidebar' : (overlayPaneId() ?? activePaneId ?? ''),
+      );
     });
 
     return () => {

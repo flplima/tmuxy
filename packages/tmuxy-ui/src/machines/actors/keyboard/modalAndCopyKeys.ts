@@ -147,8 +147,15 @@ export function handleModalOrCopyKeyDown(
 
   const askSelection = (paneId: PaneId): AskAnswer => snap.liveAskSelections[paneId] ?? 'yes';
 
-  // Cmd+Enter / Ctrl+Enter: allow every send pending in the active tab
-  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.altKey) {
+  // Cmd+Enter / Ctrl+Enter: allow every send pending in the active tab. Only
+  // from the user's own keyboard: a chord a script dispatched (a preview
+  // page's replayed key, say) is not the user saying yes to every pane.
+  if (
+    event.isTrusted !== false &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key === 'Enter' &&
+    !event.altKey
+  ) {
     const anyPending = snap.livePanes.some(
       (pane) =>
         pane.windowId === snap.liveActiveWindowId && decodePaneAsk(pane.paneAsk)?.kind === 'send',

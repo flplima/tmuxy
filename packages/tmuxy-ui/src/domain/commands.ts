@@ -25,6 +25,7 @@ import {
   pastedText,
   script,
   target,
+  tmuxDoubleQuoted,
 } from './commandHelpers';
 
 /** Where the bundled scripts are installed, as tmux's `run-shell` expands it. */
@@ -229,9 +230,25 @@ export type TmuxOpOf<T extends TmuxOp['_tag']> = Extract<TmuxOp, { readonly _tag
 // Quoting
 // ============================================
 
-/** Free text as one tmux argument, single-quoted (`it's` → `'it'\''s'`). */
+/**
+ * Free text as one tmux argument, single-quoted (`it's` → `'it'\''s'`).
+ *
+ * Control mode reads one command per line, and nothing escapes inside single
+ * quotes: a newline in a name or a title would end the command there and run
+ * the rest as tmux commands of its own. Text holding any control character
+ * goes double-quoted instead, every unsafe byte an octal escape.
+ */
 export function quote(text: string): string {
+  if (hasControlCharacter(text)) return tmuxDoubleQuoted(text);
   return "'" + text.replace(/'/g, "'\\''") + "'";
+}
+
+function hasControlCharacter(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
 }
 
 /**
@@ -305,12 +322,14 @@ export function toTmuxCommand(op: TmuxOp): string {
         `set-option -p -t ${op.paneId} @tmuxy-ask-answer ${quote(`${op.token}:${op.answer}`)}`,
       ]);
     case 'AnswerOffer':
+      // The command is typed the way `literalText` types anything: `--`
+      // before it, so one starting with `-` is not read as flags.
       return op.run
-        ? list([
+        ? [
             `set-option -pu -t ${op.paneId} @tmuxy-ask`,
-            `send-keys -t ${op.paneId} -l ${quote(op.command)}`,
+            literalText(op.paneId, op.command),
             `send-keys -t ${op.paneId} Enter`,
-          ])
+          ].join('\n')
         : `set-option -pu -t ${op.paneId} @tmuxy-ask`;
     case 'ClearPaneState':
       return `set-option -pu -t ${op.paneId} @tmuxy-pane-state`;
@@ -387,19 +406,27 @@ export function toTmuxCommand(op: TmuxOp): string {
         'command-prompt',
         ...(op.prompt === null ? [] : [`-p "${op.prompt}"`]),
         ...(op.initial ? [`-I "${op.initial}"`] : []),
-        ...(op.template === null ? [] : [`"${op.template}"`]),
+        ...(op.template === null ? [] : [`"${op.template.replace(/[\\"]/g, '\\$&')}"`]),
       ].join(' ');
     case 'RawCommand':
       return op.command;
   }
 }
 
+/**
+ * What the user types into a prompt, as one double-quoted argument: tmux
+ * puts it in place of `%%%` with its quotes, `\`, `$`, `;` and `~` escaped,
+ * so a name with a quote in it stays a name. A single-quoted `'%%'` let a
+ * typed `'` end the quote and run the rest as commands.
+ */
+const PROMPT_RESPONSE = '"%%%"';
+
 /** The prompt that renames the current tab, seeded with its name. */
 export const renameWindowPrompt = (): TmuxOp =>
   TmuxOp.CommandPrompt({
     prompt: null,
     initial: '#W',
-    template: toTmuxCommand(TmuxOp.RenameWindow({ target: null, name: '%%' })),
+    template: `rename-window -- ${PROMPT_RESPONSE}`,
   });
 
 /** The prompt that renames the session, seeded with its name. */
@@ -407,7 +434,7 @@ export const renameSessionPrompt = (): TmuxOp =>
   TmuxOp.CommandPrompt({
     prompt: null,
     initial: '#S',
-    template: toTmuxCommand(TmuxOp.RenameSession({ session: null, name: '%%' })),
+    template: `rename-session -- ${PROMPT_RESPONSE}`,
   });
 
 /**

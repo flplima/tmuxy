@@ -96,7 +96,7 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.ClearPaneState({ paneId: pid('%3') }), 'set-option -pu -t %3 @tmuxy-pane-state'],
   [
     TmuxOp.AnswerOffer({ paneId: pid('%3'), command: "htop -d 5; echo 'done'", run: true }),
-    "set-option -pu -t %3 @tmuxy-ask \\; send-keys -t %3 -l 'htop -d 5; echo '\\''done'\\''' \\; send-keys -t %3 Enter",
+    "set-option -pu -t %3 @tmuxy-ask\nsend-keys -t %3 -l -- 'htop -d 5; echo '\\''done'\\'''\nsend-keys -t %3 Enter",
   ],
   [
     TmuxOp.AnswerOffer({ paneId: pid('%3'), command: 'htop', run: false }),
@@ -213,8 +213,8 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.ClearSwitchRequest(), 'set-environment -g -u TMUXY_SWITCH_TO'],
 
   // Client-side
-  [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \'%%\'"'],
-  [renameSessionPrompt(), 'command-prompt -I "#S" "rename-session -- \'%%\'"'],
+  [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \\"%%%\\""'],
+  [renameSessionPrompt(), 'command-prompt -I "#S" "rename-session -- \\"%%%\\""'],
   [TmuxOp.RawCommand({ command: 'choose-tree' }), 'choose-tree'],
 ];
 
@@ -318,6 +318,32 @@ describe('quote', () => {
     expect(quote('a b')).toBe("'a b'");
     expect(quote("it's")).toBe("'it'\\''s'");
   });
+
+  it('keeps text with a newline on one command line', () => {
+    // Control mode reads a command per line: a raw newline in a name would
+    // run what follows it as a command of its own.
+    const quoted = quote("x\nrun-shell 'id'\r");
+    expect(quoted).not.toMatch(/[\n\r]/);
+    expect(quoted).toBe('"x\\012run-shell \'id\'\\015"');
+    expect(toTmuxCommand(TmuxOp.RenameWindow({ target: null, name: 'a\nkill-server' }))).toBe(
+      'rename-window -- "a\\012kill-server"',
+    );
+  });
+});
+
+describe('AnswerOffer', () => {
+  it('types an offered command as text, never as flags or extra commands', () => {
+    const lines = toTmuxCommand(
+      TmuxOp.AnswerOffer({ paneId: pid('%3'), command: '-t %4 x\nkill-server', run: true }),
+    ).split('\n');
+    expect(lines).toEqual([
+      'set-option -pu -t %3 @tmuxy-ask',
+      "send-keys -t %3 -l -- '-t %4 x'",
+      'send-keys -t %3 Enter',
+      "send-keys -t %3 -l -- 'kill-server'",
+      'send-keys -t %3 Enter',
+    ]);
+  });
 });
 
 describe('pinPrefix', () => {
@@ -400,13 +426,23 @@ describe('binding strings round-trip through their op', () => {
     `run-shell "bash ${S}/nav left #{pane_id}"`,
     `run-shell "${S}/pane-group next #{pane_id}"`,
     `run-shell "${S}/pane-group prev %3"`,
-    'command-prompt -I "#W" "rename-window -- \'%%\'"',
+    'command-prompt -I "#W" "rename-window -- \\"%%%\\""',
   ];
 
   it.each(bindings)('%s', (binding) => {
     const op = parseCommandToOp(binding);
     expect(op._tag).not.toBe('RawCommand');
     expect(toTmuxCommand(op)).toBe(binding);
+  });
+
+  it('reads a prompt template the way list-keys prints it, escaped or as a block', () => {
+    expect(parseCommandToOp('command-prompt -I "#W" "rename-window -- \\"%%%\\""')).toEqual(
+      TmuxOp.CommandPrompt({ prompt: null, initial: '#W', template: 'rename-window -- "%%%"' }),
+    );
+    // tmux's own default `prefix ,`.
+    expect(parseCommandToOp('command-prompt -I "#S" { rename-session "%%" }')).toEqual(
+      TmuxOp.CommandPrompt({ prompt: null, initial: '#S', template: 'rename-session "%%"' }),
+    );
   });
 
   it('reads the binding behind the pin keyboardActor prepends', () => {

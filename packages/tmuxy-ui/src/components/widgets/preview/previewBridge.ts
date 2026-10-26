@@ -118,6 +118,9 @@ export function readBridgeMessage(data: unknown): BridgeMessage | null {
       // on its own is not one.
       if (!ctrlKey && !altKey) return null;
       if (MODIFIERS.has(key)) return null;
+      // Ctrl/Cmd+Enter answers the questions waiting in the tab; a page
+      // never gets to press it on the user's behalf.
+      if (key === 'Enter') return null;
       return { type: 'key', key, code, ctrlKey, altKey, shiftKey: shiftKey === true };
     }
     case 'open':

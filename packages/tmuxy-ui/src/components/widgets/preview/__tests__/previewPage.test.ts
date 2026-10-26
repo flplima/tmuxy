@@ -95,6 +95,30 @@ describe('composing a page for its frame', () => {
     expect(page.querySelector('meta[http-equiv]')).toBeNull();
   });
 
+  it('keeps an inlined stylesheet from closing its <style> or rewriting itself', async () => {
+    const { read } = folder({
+      'evil.css': text(
+        'a { color: red } </style><base href="https://evil.example/"><meta http-equiv="refresh" content="0">',
+        'text/css',
+      ),
+      'dollar.css': text('@import "money.css";', 'text/css'),
+      'money.css': text(`p::after { content: "$& $' $\`" }`, 'text/css'),
+    });
+    const page = parse(
+      await composePage(
+        '<head><link rel="stylesheet" href="evil.css"><link rel="stylesheet" href="dollar.css"></head>',
+        read,
+        { theme: null, scroll: { x: 0, y: 0 } },
+      ),
+    );
+    expect(page.querySelector('base')).toBeNull();
+    expect(page.querySelector('meta[http-equiv]')).toBeNull();
+    const css = Array.from(page.querySelectorAll('style'))
+      .map((s) => s.textContent)
+      .join('\n');
+    expect(css).toContain(`content: "$& $' $\``);
+  });
+
   it('puts the theme, then the bridge, before anything of the page', async () => {
     const { read } = folder({});
     const page = parse(

@@ -67,7 +67,7 @@ function components(source: PreviewSource, theme: PreviewTheme, net: boolean): C
     },
     code({ className, children }) {
       if (/language-mermaid/.test(className ?? '')) {
-        return <MermaidBlock chart={String(children).trimEnd()} theme={theme} />;
+        return <MermaidBlock chart={String(children).trimEnd()} theme={theme} net={net} />;
       }
       return className ? (
         <code className={className}>{children}</code>

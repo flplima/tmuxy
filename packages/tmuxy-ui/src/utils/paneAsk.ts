@@ -53,6 +53,9 @@ export type PaneAsk = SendAsk | OfferAsk;
 /** What the user chose. Written back as `<token>:<answer>`. */
 export type AskAnswer = 'yes' | 'no';
 
+/** A question's token: `<pane>-<pid>`, or `restore-<window>-<pane>`. */
+const ASK_TOKEN = /^[\w.-]+$/;
+
 /**
  * Decode a raw `@tmuxy-ask` value.
  *
@@ -77,7 +80,9 @@ export function decodePaneAsk(raw: string | null | undefined): PaneAsk | null {
     const parsed: unknown = JSON.parse(json);
     if (!parsed || typeof parsed !== 'object') return null;
     const { token, kind, caller, keys, command } = parsed as Record<string, unknown>;
-    if (typeof token !== 'string' || !token) return null;
+    // The token is written back into a tmux command; one that is not a plain
+    // word is not one tmuxy's `send` or a session restore wrote.
+    if (typeof token !== 'string' || !ASK_TOKEN.test(token)) return null;
     if (kind === 'offer') {
       if (typeof command !== 'string' || !command) return null;
       return { kind: 'offer', token, command };

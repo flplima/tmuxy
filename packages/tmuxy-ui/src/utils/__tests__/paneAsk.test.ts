@@ -66,6 +66,16 @@ describe('decodePaneAsk', () => {
     expect(decodePaneAsk(encode(['not', 'an', 'object']))).toBeNull();
   });
 
+  it('refuses a token that is not a plain word', () => {
+    // The token goes back into a tmux command when the user answers.
+    for (const token of ["t'\nkill-server", 't x', 't;id']) {
+      expect(decodePaneAsk(encode({ token, keys: ['ls'] }))).toBeNull();
+    }
+    expect(decodePaneAsk(encode({ token: 'restore-0-1', keys: ['ls'] }))?.token).toBe(
+      'restore-0-1',
+    );
+  });
+
   it('names an unknown caller rather than leaving a blank in the question', () => {
     expect(paneSendFor({ paneAsk: encode({ token: 't', keys: ['ls'] }) })?.caller).toBe('a script');
   });

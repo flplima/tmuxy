@@ -67,7 +67,9 @@ async function inlineCss(
       const resource = path ? await read(path) : null;
       if (path && resource) {
         const imported = await inlineCss(resourceText(resource), path, read, depth + 1);
-        out = out.replace(statement, imported);
+        // A function, so a `$&` or `$'` in the imported CSS stays itself
+        // rather than being read as a replacement pattern.
+        out = out.replace(statement, () => imported);
       }
     }
   }
@@ -75,9 +77,19 @@ async function inlineCss(
   for (const [whole, , ref] of urls) {
     const path = previewResourcePath(ref, from);
     const resource = path ? await read(path) : null;
-    if (resource) out = out.replace(whole, `url("${dataUrl(resource)}")`);
+    if (resource) out = out.replace(whole, () => `url("${dataUrl(resource)}")`);
   }
   return out;
+}
+
+/**
+ * CSS as the text of a `<style>`, which ends at the first `</style` wherever
+ * it appears: an inlined file holding one would close the element and put the
+ * rest in the page as markup (a `<base>`, a `<meta http-equiv>`) after those
+ * were removed. `\/` is the same `/` to CSS.
+ */
+function styleText(css: string): string {
+  return css.replace(/<\/style/gi, '<\\/style');
 }
 
 /** Attributes that name a resource the page loads, by element. */
@@ -135,7 +147,7 @@ export async function composePage(
     const style = doc.createElement('style');
     const media = link.getAttribute('media');
     if (media) style.setAttribute('media', media);
-    style.textContent = await inlineCss(resourceText(resource), path, read);
+    style.textContent = styleText(await inlineCss(resourceText(resource), path, read));
     link.replaceWith(style);
   }
 
@@ -165,7 +177,7 @@ export async function composePage(
   }
 
   for (const style of Array.from(doc.querySelectorAll('style'))) {
-    style.textContent = await inlineCss(style.textContent ?? '', '', read);
+    style.textContent = styleText(await inlineCss(style.textContent ?? '', '', read));
   }
   for (const el of Array.from(doc.querySelectorAll('[style]'))) {
     const style = el.getAttribute('style') ?? '';

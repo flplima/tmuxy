@@ -50,12 +50,21 @@ describe('commandUi state', () => {
   });
 
   it('COMMAND_MODE_SUBMIT substitutes %% in the template with the typed value', () => {
-    // The template drives the real tab-rename prompt (command-prompt -p ...
-    // "rename-window '%%'").
-    const { actor, sent } = mountRecordingSubmits("rename-window -- '%%'");
+    const { actor, sent } = mountRecordingSubmits('rename-session "%%"');
     const ctx = sendAndGetContext(actor, { type: 'COMMAND_MODE_SUBMIT', value: 'build' });
     expect(ctx.commandMode).toBeNull();
-    expect(sent).toEqual(["rename-window -- 'build'"]);
+    expect(sent).toEqual(['rename-session "build"']);
+  });
+
+  it('COMMAND_MODE_SUBMIT puts the typed value into %%% escaped, so it stays one name', () => {
+    // The template drives the real tab-rename prompt
+    // (command-prompt -I "#W" "rename-window -- \"%%%\"").
+    const { actor, sent } = mountRecordingSubmits('rename-window -- "%%%"');
+    sendAndGetContext(actor, {
+      type: 'COMMAND_MODE_SUBMIT',
+      value: `it's "x"; kill-server $HOME \\`,
+    });
+    expect(sent).toEqual([`rename-window -- "it's \\"x\\"; kill-server \\$HOME \\\\"`]);
   });
 
   it('COMMAND_MODE_SUBMIT sends nothing for a blank command', () => {

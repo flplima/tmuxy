@@ -12,6 +12,20 @@ import { assign, cancel, raise } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
 
+/**
+ * A prompt's template with what was typed put in, the way tmux's own
+ * command-prompt does it: `%%%` takes the text escaped for a double-quoted
+ * word (`"`, `\` and `$`), so a tab named `it's "x"` stays a name; `%%` takes
+ * it as typed.
+ */
+export function fillTemplate(template: string, value: string): string {
+  const escaped = value.replace(/["\\$]/g, '\\$&');
+  return template
+    .split('%%%')
+    .map((part) => part.split('%%').join(value))
+    .join(escaped);
+}
+
 export const commandUiActions = {
   /**
    * Open a pane's rename field in its header — from the header's own menu or
@@ -62,7 +76,7 @@ export const commandUiActions = {
     const mode = context.commandMode;
     if (!mode) return;
 
-    const finalCommand = mode.template ? mode.template.replace(/%%/g, event.value) : event.value;
+    const finalCommand = mode.template ? fillTemplate(mode.template, event.value) : event.value;
 
     enqueue(assign({ commandMode: null }));
 

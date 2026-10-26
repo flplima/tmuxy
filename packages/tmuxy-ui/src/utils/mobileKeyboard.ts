@@ -24,6 +24,7 @@ let isComposing = false;
 let compositionPaneId: PaneId | null = null;
 let suppressCommittedText: string | null = null;
 let clearSuppressionTimer: number | null = null;
+let keyboardTarget = '';
 
 function ensureInput(): HTMLInputElement {
   if (!input) {
@@ -36,6 +37,7 @@ function ensureInput(): HTMLInputElement {
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', 'off');
     input.spellcheck = false;
+    input.dataset.keyboardTarget = keyboardTarget;
     Object.assign(input.style, {
       position: 'fixed',
       opacity: '0',
@@ -133,6 +135,18 @@ export function getMobileInput(): HTMLInputElement | null {
 /** Updates the pane target without changing DOM focus. */
 export function setKeyboardInputTarget(paneId: PaneId | null): void {
   activePaneId = paneId;
+}
+
+/**
+ * Say where the keyboard actor sends keys now — a pane id, or `left-sidebar`
+ * when the tree holds the keyboard — as `data-keyboard-target` on this input.
+ * The actor learns of a focus change by message, after the app's context has
+ * it; a test that waits on this attribute knows the next key goes where it
+ * means, rather than sleeping and hoping.
+ */
+export function markKeyboardTarget(target: string): void {
+  keyboardTarget = target;
+  if (input) input.dataset.keyboardTarget = target;
 }
 
 function focusInput(paneId: PaneId): void {

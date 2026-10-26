@@ -52,6 +52,8 @@ describe('the preview bridge', () => {
       // Ctrl pressed on its own: the start of a chord, not one.
       wrap({ type: 'key', key: 'Control', code: 'ControlLeft', ctrlKey: true, altKey: false }),
       wrap({ type: 'key', key: 'x'.repeat(100), code: 'KeyX', ctrlKey: true, altKey: false }),
+      // Ctrl+Enter answers every question waiting in the tab.
+      wrap({ type: 'key', key: 'Enter', code: 'Enter', ctrlKey: true, altKey: false }),
       wrap({ type: 'title', title: 'x'.repeat(1000) }),
       wrap({ type: 'run', command: 'rm -rf ~' }),
     ]) {

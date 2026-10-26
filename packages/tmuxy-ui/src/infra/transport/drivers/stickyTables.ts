@@ -50,7 +50,7 @@ export const STICKY_TABLES: KeyBindings['tables'] = {
     ),
     {
       key: ',',
-      command: 'command-prompt -I "#W" "rename-window -- \'%%\'"',
+      command: 'command-prompt -I "#W" "rename-window -- \\"%%%\\""',
       description: 'Rename tab',
     },
   ],

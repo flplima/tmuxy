@@ -23,53 +23,130 @@
  * - **Every `on*` attribute goes**, whatever its case, because that is the one
  *   thing adoption would otherwise carry into the live document alive.
  * - **Elements that fetch or run go**, anywhere in the tree: `<script>`,
- *   `<iframe>`, `<object>`, `<embed>`, `<link>`, `<meta>`, `<base>`, `<form>`.
- *   A script adopted this way does not execute, but removing it costs nothing
- *   and means nobody has to remember why it was safe.
+ *   `<iframe>`, `<object>`, `<embed>`, `<link>`, `<meta>`, `<base>`, `<form>`,
+ *   and the media and filter elements that load a URL of their own
+ *   (`<audio>`, `<video>`, `<feImage>`). So do SVG's animation elements
+ *   (`<animate>`, `<set>`, `<animateTransform>`, `<animateMotion>`): one can
+ *   write `href="javascript:…"` onto a link AFTER this walk has passed it.
  *
  *   `<foreignObject>` STAYS, and that is a deliberate trade rather than an
  *   oversight. It is the door from SVG back into HTML — but mermaid's default
  *   `htmlLabels` renders every node's label through one, so removing it
- *   removes the text of the diagram. What made it dangerous is the HTML it can
- *   carry, and that HTML is walked by the same two rules as everything else:
- *   no `on*` handlers, nothing that fetches or runs. `<style>` stays too,
- *   because mermaid's theming is in it.
- * - **Only `http(s):`, `data:` and same-document `#` references survive** on
- *   `href`/`xlink:href`, the same shape of allowlist the terminal's own links
- *   use (`utils/openUrl`).
+ *   removes the text of the diagram. Inside one, only text formatting
+ *   survives (`LABEL_TAGS`); anything else is replaced by its text.
+ * - **`<style>` keeps only rules scoped to this diagram** (`#<svg id> …`, the
+ *   form mermaid writes), so a diagram cannot restyle the app around it, and
+ *   nothing in it — or in any attribute — may fetch: `url(…)` other than a
+ *   same-document `url(#…)`, `@import`, `image-set(…)` or a backslash escape
+ *   that could spell one.
+ * - **References**: a link (`<a>`) keeps `http(s):` and `#` targets; anything
+ *   else that names a URL keeps only `#…` and `data:image/…`, plus `http(s):`
+ *   when the preview was opened with `--net` (docs/SECURITY-CONTENT.md).
  *
  * Returns null when the string does not parse as SVG at all, which the caller
  * shows as a render error rather than an empty box.
  */
 
-const SAFE_REF = /^(?:https?:\/\/|data:image\/|#)/i;
+/** What can fetch or run, by lowercased local name. */
+const REMOVE = new Set([
+  'script',
+  'iframe',
+  'object',
+  'embed',
+  'link',
+  'meta',
+  'base',
+  'form',
+  'audio',
+  'video',
+  'feimage',
+  'animate',
+  'set',
+  'animatetransform',
+  'animatemotion',
+]);
 
-export function sanitizeSvg(svg: string): SVGElement | null {
+/** The HTML a `<foreignObject>` label may hold: text and its formatting. */
+const LABEL_TAGS = new Set(['div', 'span', 'p', 'b', 'i', 'strong', 'em', 'br', 'code', 'u', 's']);
+
+const LINK_REF = /^(?:https?:\/\/|#)/i;
+const LOCAL_REF = /^(?:#|data:image\/)/i;
+const NET_REF = /^https?:\/\//i;
+
+/** CSS that would fetch something, or hide what it fetches behind an escape. */
+const FETCHING_CSS = /url\(\s*['"]?\s*(?!#)|@import|image-set\(|\\/i;
+
+/**
+ * The rules of a mermaid `<style>` that apply inside the diagram `id` and
+ * fetch nothing. At-rules (`@import`, `@font-face`, `@keyframes`) go, and so
+ * does any rule with a selector that is not under `#id`.
+ */
+function scopedCss(css: string, id: string): string {
+  const prefix = `#${id}`;
+  const kept: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < css.length; i++) {
+    if (css[i] === '{') depth++;
+    else if (css[i] === '}' && --depth === 0) {
+      const rule = css.slice(start, i + 1).trim();
+      start = i + 1;
+      const open = rule.indexOf('{');
+      const selectors = rule
+        .slice(0, open)
+        .split(',')
+        .map((s) => s.trim());
+      const body = rule.slice(open);
+      // `#id` itself, or followed by a combinator, class or pseudo — never
+      // by more of a name, which would be another diagram (`#id` vs `#id0`).
+      const scoped =
+        !rule.startsWith('@') &&
+        selectors.every(
+          (s) => s.startsWith(prefix) && /^(?:$|[\s.:>~+[])/.test(s.slice(prefix.length)),
+        );
+      if (scoped && !FETCHING_CSS.test(body) && !body.slice(1).includes('{')) kept.push(rule);
+    }
+  }
+  return kept.join('\n');
+}
+
+export function sanitizeSvg(svg: string, options: { net?: boolean } = {}): SVGElement | null {
   // The HTML parser puts `<svg>` in the SVG namespace as foreign content, so
   // the element that comes out is a real SVGElement and imports as one.
   const parsed = new DOMParser().parseFromString(svg, 'text/html');
   const root = parsed.body.querySelector('svg');
   if (!root) return null;
+  const id = root.getAttribute('id');
 
-  const REMOVE = 'script, iframe, object, embed, link, meta, base, form';
-  for (const el of Array.from(root.querySelectorAll(REMOVE))) {
-    el.remove();
-  }
+  const allowedRef = (el: Element, value: string): boolean => {
+    if (el.localName.toLowerCase() === 'a') return LINK_REF.test(value);
+    return LOCAL_REF.test(value) || (options.net === true && NET_REF.test(value));
+  };
 
-  const walk = (el: Element) => {
+  const walk = (el: Element, inLabel: boolean) => {
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase();
-      if (name.startsWith('on')) {
+      const value = attr.value.trim();
+      if (name.startsWith('on') || FETCHING_CSS.test(value)) {
         el.removeAttribute(attr.name);
-        continue;
-      }
-      if (name === 'href' || name === 'xlink:href') {
-        if (!SAFE_REF.test(attr.value.trim())) el.removeAttribute(attr.name);
+      } else if ((name === 'href' || name === 'xlink:href') && !allowedRef(el, value)) {
+        el.removeAttribute(attr.name);
       }
     }
-    for (const child of Array.from(el.children)) walk(child);
+    for (const child of Array.from(el.children)) {
+      const tag = child.localName.toLowerCase();
+      if (REMOVE.has(tag)) {
+        child.remove();
+      } else if (tag === 'style') {
+        child.textContent = id ? scopedCss(child.textContent ?? '', id) : '';
+      } else if (inLabel && !LABEL_TAGS.has(tag)) {
+        child.replaceWith(parsed.createTextNode(child.textContent ?? ''));
+      } else {
+        walk(child, inLabel || tag === 'foreignobject');
+      }
+    }
   };
-  walk(root);
+  walk(root, false);
 
   return root as unknown as SVGElement;
 }

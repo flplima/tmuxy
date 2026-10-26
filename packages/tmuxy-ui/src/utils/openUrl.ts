@@ -34,11 +34,13 @@ export function safeHref(url: string): string | undefined {
 
 export function openExternalUrl(url: string): void {
   if (!isOpenableUrl(url)) return;
+  // What was checked is what is opened.
+  const link = url.trim();
   if (isTauri()) {
     void import('@tauri-apps/api/core').then(({ invoke }) =>
-      invoke('open_url', { url }).catch(failing('open_url')),
+      invoke('open_url', { url: link }).catch(failing('open_url')),
     );
     return;
   }
-  window.open(url, '_blank', 'noopener,noreferrer');
+  window.open(link, '_blank', 'noopener,noreferrer');
 }

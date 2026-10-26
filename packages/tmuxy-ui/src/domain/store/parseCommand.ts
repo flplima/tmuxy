@@ -27,12 +27,20 @@ export function stripPin(command: string): string {
   return m && m[0] ? command.slice(m[0].length) : command;
 }
 
-/** Shell-ish words: `'…'` and `"…"` are one word each, quotes removed. */
+/**
+ * Words as tmux's parser reads them: `'…'` and `"…"` are one word each, quotes
+ * removed, with `\"` and `\\` inside double quotes standing for themselves (how
+ * `list-keys` prints a template holding quotes); a `{ … }` block is one word,
+ * its contents (how it prints a template given as a block).
+ */
 function words(command: string): string[] {
   const tokens: string[] = [];
-  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
+  const re = /'([^']*)'|"((?:[^"\\]|\\.)*)"|\{\s*([^}]*?)\s*\}|(\S+)/g;
   let m;
-  while ((m = re.exec(command)) !== null) tokens.push(m[1] ?? m[2] ?? m[3]);
+  while ((m = re.exec(command)) !== null) {
+    if (m[2] !== undefined) tokens.push(m[2].replace(/\\(["\\])/g, '$1'));
+    else tokens.push(m[1] ?? m[3] ?? m[4]);
+  }
   return tokens;
 }
 
