@@ -420,6 +420,10 @@ impl Screen {
 
     fn exit_alternate_grid(&mut self) {
         self.clear_mode(MODE_ALTERNATE_SCREEN);
+        // tmux drops the alternate screen when the application leaves it;
+        // keeping its rows held a full grid per pane that ever ran a
+        // full-screen program.
+        self.alternate_grid.free_rows();
     }
 
     fn save_cursor(&mut self) {

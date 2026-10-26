@@ -153,3 +153,32 @@ fn agy_splash_matches_tmux_capture() {
         "  \u{2584}\u{2580}\u{2580}      \u{2580}\u{2580}\u{2584}"
     );
 }
+
+/// tmux drops the alternate screen when an application leaves it, so going
+/// back with `?47` (which does not clear on entry) shows a blank screen, not
+/// what the last full-screen program drew there. The emulator frees the
+/// alternate rows on exit to match — a grid per pane that once ran vim or
+/// less, otherwise held for the pane's whole life.
+#[test]
+fn leaving_the_alternate_screen_forgets_it() {
+    let row = |parser: &vt100::Parser| {
+        extract_cells_from_screen(parser.screen())[0]
+            .iter()
+            .map(|c| c.char.as_str())
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    };
+    let mut parser = vt100::Parser::new(4, 20, 0);
+    parser.process(b"main\x1b[?47hALT");
+    assert_eq!(row(&parser), "ALT");
+    parser.process(b"\x1b[?47l");
+    assert_eq!(row(&parser), "main");
+    // A resize while the alternate screen is not in use must not bring its
+    // rows back either.
+    parser.screen_mut().set_size(6, 30);
+    parser.process(b"\x1b[?47h");
+    assert_eq!(row(&parser), "", "the alternate screen comes back blank");
+    parser.process(b"\x1b[?47l");
+    assert_eq!(row(&parser), "main");
+}

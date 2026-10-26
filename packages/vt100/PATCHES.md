@@ -20,6 +20,13 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   `Vec::resize` truncated at the bottom and lost the rows for good, which
   rendered a pane empty after un-zooming. Covered by
   `tests/pane_reflow_parity.rs` and `tests/zoom_resize_probe.rs` in tmuxy-core.
+- **An unused alternate screen holds no rows**: `Grid::free_rows` drops them,
+  `Screen` calls it when the application leaves the alternate screen (tmux
+  drops it then too, so re-entering with `?47` starts blank), and `set_size`
+  leaves a grid with no rows unallocated instead of filling it on every
+  resize. Upstream kept a full grid per pane that had ever run a full-screen
+  program, and allocated one on the first resize for panes that never had.
+  Covered by `tests/terminal_fidelity.rs` in tmuxy-core.
 - **`col_back_tab`**: moves to the previous multiple-of-8 tab stop, for CBT.
 - **`col_wrap` on degenerate grids**: saturating arithmetic and an `if let`
   instead of an `unwrap`, so a one-row or one-column grid cannot underflow or

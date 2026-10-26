@@ -56,6 +56,12 @@ impl Grid {
         }
     }
 
+    /// Drop the rows, keeping the size and cursor: an unused alternate screen
+    /// holds no cells. `allocate_rows` brings them back blank.
+    pub fn free_rows(&mut self) {
+        self.rows = Vec::new();
+    }
+
     fn new_row(&self) -> crate::row::Row {
         crate::row::Row::new(self.size.cols)
     }
@@ -113,53 +119,57 @@ impl Grid {
             row.resize(size.cols, crate::Cell::new());
         }
 
-        // Reflow vertically the way a real terminal (and tmux) does. Neither
-        // edge is anchored unconditionally: what is preserved is the CURSOR.
-        //
-        // Shrinking first discards rows BELOW the cursor -- on a mostly-empty
-        // screen those are blank, and dropping them is what a real terminal
-        // does. Only once the cursor would be pushed off the bottom do rows
-        // scroll off the TOP into scrollback. Draining from the top
-        // unconditionally throws away the content and keeps the blank tail,
-        // which renders the pane empty after a shrink (e.g. un-zooming).
-        //
-        // Growing pulls rows back from scrollback, so a shrink/grow round trip
-        // restores what it scrolled away. `Vec::resize` alone would truncate
-        // and append at the bottom, leaving content offset by the height delta
-        // and permanently losing the rows it dropped.
-        if self.rows.len() > usize::from(size.rows) {
-            let excess = self.rows.len() - usize::from(size.rows);
-            // Rows strictly below the cursor can go without moving anything.
-            let below_cursor = self.rows.len().saturating_sub(usize::from(self.pos.row) + 1);
-            let from_bottom = excess.min(below_cursor);
-            let from_top = excess - from_bottom;
+        // A grid with no rows (an alternate screen not in use) stays that way:
+        // `allocate_rows` sizes them when the screen is entered.
+        if !self.rows.is_empty() {
+            // Reflow vertically the way a real terminal (and tmux) does. Neither
+            // edge is anchored unconditionally: what is preserved is the CURSOR.
+            //
+            // Shrinking first discards rows BELOW the cursor -- on a mostly-empty
+            // screen those are blank, and dropping them is what a real terminal
+            // does. Only once the cursor would be pushed off the bottom do rows
+            // scroll off the TOP into scrollback. Draining from the top
+            // unconditionally throws away the content and keeps the blank tail,
+            // which renders the pane empty after a shrink (e.g. un-zooming).
+            //
+            // Growing pulls rows back from scrollback, so a shrink/grow round trip
+            // restores what it scrolled away. `Vec::resize` alone would truncate
+            // and append at the bottom, leaving content offset by the height delta
+            // and permanently losing the rows it dropped.
+            if self.rows.len() > usize::from(size.rows) {
+                let excess = self.rows.len() - usize::from(size.rows);
+                // Rows strictly below the cursor can go without moving anything.
+                let below_cursor = self.rows.len().saturating_sub(usize::from(self.pos.row) + 1);
+                let from_bottom = excess.min(below_cursor);
+                let from_top = excess - from_bottom;
 
-            self.rows.truncate(self.rows.len() - from_bottom);
-            for row in self.rows.drain(..from_top) {
-                if self.scrollback_len > 0 {
-                    self.scrollback.push_back(row);
-                    while self.scrollback.len() > self.scrollback_len {
-                        self.scrollback.pop_front();
+                self.rows.truncate(self.rows.len() - from_bottom);
+                for row in self.rows.drain(..from_top) {
+                    if self.scrollback_len > 0 {
+                        self.scrollback.push_back(row);
+                        while self.scrollback.len() > self.scrollback_len {
+                            self.scrollback.pop_front();
+                        }
                     }
                 }
-            }
-            self.pos.row = self.pos.row.saturating_sub(from_top as u16);
-            self.saved_pos.row = self.saved_pos.row.saturating_sub(from_top as u16);
-        } else if self.rows.len() < usize::from(size.rows) {
-            let deficit = usize::from(size.rows) - self.rows.len();
-            // Only restore rows that this grid previously scrolled away; never
-            // invent history the user has not seen.
-            let restore = deficit.min(self.scrollback.len());
-            for _ in 0..restore {
-                if let Some(mut row) = self.scrollback.pop_back() {
-                    row.resize(size.cols, crate::Cell::new());
-                    self.rows.insert(0, row);
+                self.pos.row = self.pos.row.saturating_sub(from_top as u16);
+                self.saved_pos.row = self.saved_pos.row.saturating_sub(from_top as u16);
+            } else if self.rows.len() < usize::from(size.rows) {
+                let deficit = usize::from(size.rows) - self.rows.len();
+                // Only restore rows that this grid previously scrolled away; never
+                // invent history the user has not seen.
+                let restore = deficit.min(self.scrollback.len());
+                for _ in 0..restore {
+                    if let Some(mut row) = self.scrollback.pop_back() {
+                        row.resize(size.cols, crate::Cell::new());
+                        self.rows.insert(0, row);
+                    }
                 }
+                self.pos.row += restore as u16;
+                self.saved_pos.row += restore as u16;
             }
-            self.pos.row += restore as u16;
-            self.saved_pos.row += restore as u16;
+            self.rows.resize(usize::from(size.rows), self.new_row());
         }
-        self.rows.resize(usize::from(size.rows), self.new_row());
 
         if self.scroll_bottom >= size.rows {
             self.scroll_bottom = size.rows - 1;
