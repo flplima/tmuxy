@@ -103,6 +103,10 @@ If an AI agent has access to the machine where tmuxy is running, it can interact
 - Running shell commands via `run-shell`
 - Creating/destroying windows and panes
 
+**What the send question holds, and what it cannot.** Through tmuxy's CLI there is one way into another pane: `tmuxy pane send -t` (and `tmuxy pane paste -t`, which asks the same question). A caller counts as being in a pane only when that pane's process is one of its ancestors, not because it sets `TMUX_PANE`; a caller in no pane is asked before typing into the one in view. `tmuxy run` refuses input into another pane, commands that run a shell or change what one runs (`run-shell`, `if-shell`, `respawn-*`, `set-environment`, `set-hook`, `source-file`), and writes to the question's own options (`@tmuxy-ask*`, `@tmuxy-send-*`, `@tmuxy-pane-restore`); `tmuxy pane restore-cmd` sets only the caller's own pane; `tmuxy session restore --run` needs a terminal.
+
+None of that reaches a process that runs raw `tmux` on the socket as the same Unix user: tmux has no notion of which client may do what. Close that door in the agent's own permissions — for Claude Code, deny rules such as `Bash(tmux *)` and `Bash(* tmux *)` while allowing `Bash(tmuxy *)` — or run the agent as another user.
+
 ### Prompt Injection via Terminal Output
 
 Terminal output from running processes could contain text that looks like instructions to an AI agent. If the agent reads pane content and acts on it, malicious programs could manipulate the agent's behavior. This is a general risk of AI agents interacting with untrusted output.

@@ -12,12 +12,12 @@ Previewed files, session snapshots and hostile pane output. Part of [SECURITY.md
 
 **What a document may do depends on what it is.**
 
-- **Markdown is rendered by the app**, in the app's own origin, so nothing in it may execute: raw HTML in the document is not rendered at all, a link opens in the system browser only when it is `http(s)` or `mailto` and never navigates the app, and a remote image is not loaded unless the preview was opened with `--net`, since loading it tells its host the document was read. A ```mermaid fence becomes an SVG on this side of the boundary, where anything that executes can drive the API, so it is sanitized twice (SEC-20): by mermaid (`securityLevel: 'strict'`), and again at the sink (`widgets/preview/sanitizeSvg.ts`) — parsed in an inert document, every `on*` attribute and every element that fetches or runs removed, `href` narrowed to `http(s):`, `data:image/` and same-document fragments. Two passes, because mermaid has had bypasses before and the blast radius here is a shell.
+- **Markdown is rendered by the app**, in the app's own origin, so nothing in it may execute: raw HTML in the document is not rendered at all, a link opens in the system browser only when it is `http(s)` or `mailto` and never navigates the app, and a remote image is not loaded unless the preview was opened with `--net`, since loading it tells its host the document was read. A ```mermaid fence becomes an SVG on this side of the boundary, where anything that executes can drive the API, so it is sanitized twice (SEC-20): by mermaid (`securityLevel: 'strict'`), and again at the sink (`widgets/preview/sanitizeSvg.ts`) — parsed in an inert document, every `on*` attribute and every element that fetches or runs removed (SVG's animation elements too, which could write a `javascript:` link after the walk), the HTML in a label held to text formatting, `<style>` held to rules scoped to the diagram, nothing in CSS or an attribute that fetches (`url(` other than a same-document `url(#…)`), a link's `href` narrowed to `http(s):` and same-document fragments and any other reference to `data:image/` and fragments (plus `http(s):` with `--net`). A link click opens the system browser and never navigates the app. Mermaid's theme options are locked (`secure`), so a diagram's `%%{init}%%` cannot bring CSS of its own. Two passes, because mermaid has had bypasses before and the blast radius here is a shell.
 - **A page runs in a sandboxed frame**, served under a policy of its own (`page_csp`): `sandbox allow-scripts` without `allow-same-origin`, so the page has an opaque origin — no cookies, no storage, no access to the app's DOM or API; it cannot open windows, submit forms, or navigate the app — and, unless the preview was opened with `--net`, nothing may be fetched at all (`connect-src 'none'`, images and fonts from `data:` only). The resources beside it are inlined into the page by the client, through `read_preview` under the rules above, before it is staged; `<base>` and `<meta http-equiv>` are taken out, so the page can neither re-aim its references nor add a policy that overrules the served one. The page reaches tmuxy's API no more than any other site does: its requests come from an opaque origin, which the [request guard](SECURITY-NETWORK.md#cross-origin-requests) refuses.
 
   The policy is a response header rather than a `srcdoc`, because a `srcdoc` frame inherits the embedding app's policy — the desktop app forbids inline script, which would stop the page and the bridge alike — and because a meta tag is the document's to precede. So the client stages the composed page (`POST /api/preview/{pane}` on the web, `stage_preview` on the desktop), the server checks with tmux that the pane is previewing a page and takes `--net` from tmux too, never from the client, and the frame loads it from `GET /api/preview/{pane}` or the `tmuxypreview:` scheme with the policy as a header. Both routes exist only on a writable server.
 
-**The page talks to the app through one narrow bridge** (`widgets/preview/previewBridge.ts`): a script put first in the page posts where it is scrolled to (so a reload after the file changes opens in the same place), its `<title>`, a link the user followed (opened in the system browser when it is `http(s)` and leaves tmuxy), and a Ctrl or Alt chord pressed in the page — without which Ctrl+C would never reach the widget and the prefix never reach the app. Anything can post a message, so the app accepts one only from its own frame, in one of those four shapes, and replays a chord only while that frame holds the keyboard; it then moves the keyboard to the pane, so a page cannot follow one replayed chord with another, and a plain key is never replayed at all. The worst a hostile page can do through it is press one Ctrl or Alt chord each time the user clicks into it.
+**The page talks to the app through one narrow bridge** (`widgets/preview/previewBridge.ts`): a script put first in the page posts where it is scrolled to (so a reload after the file changes opens in the same place), its `<title>`, a link the user followed (opened in the system browser when it is `http(s)` and leaves tmuxy), and a Ctrl or Alt chord pressed in the page — without which Ctrl+C would never reach the widget and the prefix never reach the app. Anything can post a message, so the app accepts one only from its own frame, in one of those four shapes, and replays a chord only while that frame holds the keyboard; it then moves the keyboard to the pane, so a page cannot follow one replayed chord with another, and a plain key is never replayed at all. Ctrl/Cmd+Enter is never replayed either, and the app answers waiting `pane send` questions with it only from a trusted (user-made) key event. The worst a hostile page can do through it is press one Ctrl or Alt chord each time the user clicks into it. An inlined stylesheet cannot close its `<style>` (`</style` is escaped as CSS), so a local `.css` file cannot add markup after the page's `<base>` and `<meta http-equiv>` were removed.
 
 **What a preview does not protect.** A document opened with `--net` can tell a remote host anything it can read — which, by the rules above, is its own folder's pages, styles, scripts and pictures. A page's scripts run, in an opaque origin, which is what local reports and charts need. And a preview shows the user what the file says: a convincing fake prompt drawn by a page is a page, in a pane whose header names the file.
 
@@ -32,7 +32,9 @@ its screen. That is a map of what the user was doing, kept on disk.
 Where it is kept follows from that. Snapshots live under the state directory
 (`TMUXY_STATE_DIR`, else the XDG state dir), one directory per tmux socket
 (`sessions/<socket>/`, since a `tmuxy` session on `tmuxy-dev` is not the one
-on `tmuxy`), next to the trace, and no route serves them. The commands that
+on `tmuxy`), next to the trace, and no route serves them. The directory is
+`0700` and every snapshot `0600` (`tmuxy_core::private_files`), as are the
+trace, the desktop log and the app's managed state, whatever the umask. The commands that
 touch them are `list_snapshots` and `restore_session`.
 
 A restore runs what a snapshot says only in the sense that each pane OFFERS
@@ -41,10 +43,16 @@ pane as an `@tmuxy-ask` question of kind `offer`, shown as a one-line banner,
 and runs only when the user presses Enter on it or clicks it. Nothing is typed
 into the shell, so nothing reaches it before the user has read it. A program that
 was running when the snapshot was taken is not evidence that it should run
-again; `rm -rf …` was also running. The one exception is a window tmuxy draws
-as its own chrome: a sidebar comes back running its widget (`tmuxy widget
-tree`), because that is tmuxy's program, not the user's, and what `ps` finds
-in such a window (the helper the widget sleeps in) is never recorded. A word a
+again; `rm -rf …` was also running. The one exception is tmuxy's own chrome:
+the left sidebar comes back running its widget (`tmuxy widget tree`), and only
+that exact command, because that is tmuxy's program, not the user's; anything
+else a snapshot names for a sidebar is offered like any other command. A
+restore puts back only the options capture writes (the float and sidebar
+`@tmuxy-*` window options, a pane's group id and place), never another option
+a hand-edited file names, and a pane's scrollback reaches `run-shell` with its
+`#` doubled, so no `#(…)` in it runs. `tmuxy session restore --run` needs a
+terminal; a script or an agent gets every command offered. What `ps` finds in
+a sidebar (the helper the widget sleeps in) is never recorded. A word a
 program declared through `@tmuxy-pane-restore` is written back onto the
 restored pane as well as offered, and an offer nobody has answered is saved
 with the pane, so the next restore offers it again rather than losing it. What `ps` finds is also held to an age: a
@@ -91,7 +99,7 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 3. **Image Decoder Exploits & Memory Exhaustion**
    - _Vector:_ Protocols supporting embedded graphics (OSC 1337 iTerm2 images, Kitty graphics protocol, Sixel) transmitting malformed base64 payloads, decompression bombs, or extreme dimensions (e.g. 65535x65535 canvas).
-   - _Policy:_ Image dimensions and payload byte sizes must be strictly bounded before memory allocation or canvas creation (see [RICH-RENDERING.md](RICH-RENDERING.md)). Image decoding must occur in isolated sandboxes or off-thread decoders, and invalid image headers must fail fast without consuming excessive CPU or memory. A chunked Kitty transfer is bounded three ways (`control_mode/images.rs`): how many may be open at once, how large one may grow, and how long one may stay open without finishing — a transfer that stops sending is dropped after `MAX_CHUNKED_AGE` instead of living as long as the pane.
+   - _Policy:_ Image dimensions and payload byte sizes must be strictly bounded before memory allocation or canvas creation (see [RICH-RENDERING.md](RICH-RENDERING.md)). Image decoding must occur in isolated sandboxes or off-thread decoders, and invalid image headers must fail fast without consuming excessive CPU or memory. A Sixel image's canvas is bounded before it is decoded, from the raster attributes it declares and the columns and bands it draws (`sixel_extent`), to the same `MAX_DECODED_IMAGE_BYTES` as a Kitty or iTerm2 image. An escape split across many `%output` chunks is buffered without its earlier chunks being scanned again, and a run of unterminated escapes in one chunk is scanned once, so neither turns into quadratic work. A chunked Kitty transfer is bounded three ways (`control_mode/images.rs`): how many may be open at once, how large one may grow, and how long one may stay open without finishing — a transfer that stops sending is dropped after `MAX_CHUNKED_AGE` instead of living as long as the pane.
 
 4. **Clipboard Poisoning (OSC 52)**
    - _Vector:_ A program writing malicious shell commands to the system clipboard via OSC 52, tricking the user into pasting and executing dangerous commands.

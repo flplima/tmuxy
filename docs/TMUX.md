@@ -79,7 +79,7 @@ in-band, by the aggregator, on both hosts.
 | `source-file` | `session.rs`, `monitor.rs` | Source config during session creation and initial state sync |
 | `kill-session` | `session.rs` | Destroy session (no control mode attached) |
 | `show-options` | `gui.rs` (desktop setup) | The window's blur/appearance is read before the monitor starts |
-| `load-buffer -` | `packages/tmuxy-cli/bin/tmuxy-cli` (`pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
+| `load-buffer -` | `packages/tmuxy-cli/bin/tmuxy/send` (`pane paste`, through `send --paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
 
 These are safe because they run **before** control mode connects. Do not add to this
 table: a read a client needs goes through `query_tmux`, and a read the core needs while

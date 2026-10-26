@@ -64,7 +64,7 @@ We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compre
 
 We do NOT maintain our own `wcwidth` tables for character width calculation. Tmux renders the grid; we display it.
 
-**Exception:** If we implement custom text selection, we may need width info. Until then, tmux handles it.
+Text selection does not need one either: copy mode selects cells of the grid tmux laid out, one cell per column, where a wide glyph's second column is a cell of its own (blank). A selection's columns are therefore tmux's columns, with no width worked out on our side. See [COPY-MODE.md](COPY-MODE.md).
 
 ### 7. Canvas/WebGL Rendering
 
