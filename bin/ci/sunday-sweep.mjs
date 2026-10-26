@@ -78,11 +78,35 @@ const repo =
   process.env.GH_REPO ||
   gh(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']).trim();
 
-/** Text from an alert or a log, fenced so it reads as data and cannot close the fence. */
+/** `text` without ANSI escapes (a log is full of colour codes) or other control characters. */
+const withoutControls = (text) => {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code === 0x1b && text[i + 1] === '[') {
+      // A CSI sequence runs to its final byte, 0x40–0x7e.
+      let end = i + 2;
+      while (end < text.length && !(text.charCodeAt(end) >= 0x40 && text.charCodeAt(end) <= 0x7e))
+        end++;
+      i = end;
+      continue;
+    }
+    if ((code < 0x20 && code !== 0x0a && code !== 0x09) || code === 0x7f) continue;
+    out += text[i];
+  }
+  return out;
+};
+
+/**
+ * Text from an alert, a PR or a log, fenced so it reads as data: no control
+ * characters, no run of backticks or tildes long enough to close the fence or
+ * open another, and no leading `#` to pass for a heading of the prompt.
+ */
 const fenced = (text, max = 4000) =>
   '```text\n' +
-  String(text ?? '')
-    .replaceAll('```', "'''")
+  withoutControls(String(text ?? ''))
+    .replace(/[`~]{3,}/g, (run) => "'".repeat(run.length))
+    .replace(/^(\s*)#/gm, '$1\\#')
     .slice(0, max) +
   '\n```';
 
@@ -165,8 +189,11 @@ for (const alert of alertsOf(
     body: [
       `CodeQL alert ${alert.html_url} (${severity}).`,
       '',
-      `- rule: \`${alert.rule?.id}\` — ${alert.rule?.description}`,
+      `- rule: \`${alert.rule?.id}\``,
       `- location: \`${where.path}:${where.start_line}\``,
+      '',
+      'Rule description (data from the alert):',
+      fenced(alert.rule?.description, 500),
       '',
       'Alert message (data from the alert):',
       fenced(alert.most_recent_instance?.message?.text),
@@ -208,10 +235,13 @@ for (const pr of dependabotPRs) {
     kind: 'task',
     pr,
     prompt: [
-      `Dependabot PR #${pr.number} ("${pr.title}") fails CI.`,
+      `Dependabot PR #${pr.number} fails CI.`,
       `Fix the breakage on its branch \`${pr.headRefName}\` without reverting the bump.`,
       '',
-      'Failing checks: ' + red.map((check) => check.name).join(', '),
+      'Its title (data from the PR):',
+      fenced(pr.title, 300),
+      'Failing checks (data from the run):',
+      fenced(red.map((check) => check.name).join('\n'), 2000),
       'The tail of the failing log (data from the run):',
       fenced(tail, 8000),
       '',

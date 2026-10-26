@@ -6,10 +6,12 @@ runs:
   using: composite
   steps:
     - shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
       run: |
         set -euo pipefail
         sudo apt-get update
-        case "${{ inputs.profile }}" in
+        case "$PROFILE" in
           lint)
             sudo apt-get install -y --no-install-recommends \
               libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
@@ -22,7 +24,7 @@ runs:
               libjavascriptcoregtk-4.1-dev librsvg2-dev
             ;;
           *)
-            echo "Unknown dependency profile: ${{ inputs.profile }}" >&2
+            echo "Unknown dependency profile: $PROFILE" >&2
             exit 1
             ;;
         esac

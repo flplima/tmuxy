@@ -816,19 +816,24 @@ jobs:
       # describe what a user actually downloads, and hashing the release asset
       # is the only way that cannot drift — `verify-release` check 3 exists
       # because the two used to be computed from different files.
+      # The tag reaches the script through the environment, never spliced into
+      # it: `${{ }}` in a `run:` is pasted in before bash parses the line.
       - name: Download the published DMG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           mkdir -p dmg
-          gh release download "${{ github.event.release.tag_name }}" \
-            --repo "${{ github.repository }}" --pattern '*.dmg' --dir dmg
+          gh release download "$TAG" \
+            --repo "$REPO" --pattern '*.dmg' --dir dmg
 
       - name: Compute version + sha256
         id: meta
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
           VERSION="${TAG#v}"
           DMG=$(ls dmg/*.dmg | head -1)
           SHA=$(sha256sum "$DMG" | awk '{print $1}')
@@ -924,19 +929,21 @@ jobs:
       - name: Download the published AppImages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           mkdir -p appimage-amd64 appimage-arm64
-          TAG="${{ github.event.release.tag_name }}"
-          gh release download "$TAG" --repo "${{ github.repository }}" \
+          gh release download "$TAG" --repo "$REPO" \
             --pattern '*amd64.AppImage' --dir appimage-amd64
-          gh release download "$TAG" --repo "${{ github.repository }}" \
+          gh release download "$TAG" --repo "$REPO" \
             --pattern '*aarch64.AppImage' --dir appimage-arm64
 
       - name: Compute version + sha256
         id: meta
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
           VERSION="${TAG#v}"
           AMD=$(ls appimage-amd64/*.AppImage | head -1)
           ARM=$(ls appimage-arm64/*.AppImage | head -1)
@@ -1086,12 +1093,13 @@ jobs:
           brew install --cask flplima/tap/tmuxy
 
       - name: The installed CLI reports the tag's version and runs subcommands without launcher
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           command -v tmuxy
           VERSION_LINE=$(tmuxy --version)
           echo "$VERSION_LINE"
-          TAG="${{ github.event.release.tag_name }}"
           EXPECTED="tmuxy ${TAG#v}"
           [ "$VERSION_LINE" = "$EXPECTED" ] || {
             echo "brew installed '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
