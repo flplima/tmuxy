@@ -35,7 +35,6 @@ describe('Scenario 32: Session snapshots', () => {
   const srv = isolatedServer({
     port: SNAPSHOT_PORT,
     socket: `tmuxy-snapshot-${process.pid}`,
-    session: SESSION,
     stateDir,
   });
   let browser;

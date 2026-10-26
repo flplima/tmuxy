@@ -48,7 +48,7 @@ function isolatedEnv({ socket, stateDir }) {
  * gives it — and `killTmux()` ends the tmux server itself, so the next
  * `start()` finds no session and has to restore one.
  */
-function isolatedServer({ port, socket, session, stateDir }) {
+function isolatedServer({ port, socket, stateDir }) {
   const env = isolatedEnv({ socket, stateDir });
   const url = `http://localhost:${port}`;
   let child = null;
@@ -76,11 +76,11 @@ function isolatedServer({ port, socket, session, stateDir }) {
     async start(extraArgs = []) {
       fs.mkdirSync(stateDir, { recursive: true });
       const stderr = fs.openSync(path.join(stateDir, `server-${Date.now()}.stderr.log`), 'w');
-      child = spawn(
-        serverBinary(),
-        ['--port', String(port), '--no-auth', '--session', session, ...extraArgs],
-        { cwd: WORKSPACE_ROOT, stdio: ['ignore', 'ignore', stderr], env },
-      );
+      child = spawn(serverBinary(), ['--port', String(port), '--no-auth', ...extraArgs], {
+        cwd: WORKSPACE_ROOT,
+        stdio: ['ignore', 'ignore', stderr],
+        env,
+      });
       // The child holds its own copy; keeping ours open is an open handle
       // that stops jest from exiting.
       fs.closeSync(stderr);
