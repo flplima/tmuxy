@@ -222,6 +222,21 @@ pub async fn poll_connect_requests(monitor_state: MonitorState) {
         // Optional SSH tunnel for the target (absent → a local server).
         let ssh = take_global_env(&tx, "TMUXY_CONNECT_SSH").await;
 
+        // Anything on the server it is attached to (a remote host's, too)
+        // can write these: a request is followed only when each part is a
+        // plain name, so none of it can turn into an ssh option or a command.
+        if !tmuxy_core::session::is_safe_socket(&socket)
+            || !tmuxy_core::session::is_safe_session_name(&session)
+            || ssh
+                .as_deref()
+                .is_some_and(|d| !tmuxy_core::session::is_ssh_destination(d))
+        {
+            tracing::warn!(
+                "ignoring a connect request that is not a plain socket, session and host"
+            );
+            continue;
+        }
+
         // No-op if we're already on this exact target (socket + session + ssh).
         let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));
         if socket == tmuxy_core::session::tmux_socket()

@@ -230,11 +230,48 @@ pub fn tmux_bin() -> String {
 
 /// The session tmuxy targets: the [`connect_target`]'s, else `TMUXY_SESSION`,
 /// else the default.
+/// A `TMUXY_SESSION` that is not a safe name ([`is_safe_session_name`]) is
+/// ignored: the name goes into command lines.
 pub fn session_name() -> String {
     connect_target()
         .map(|target| target.session)
-        .or_else(|| std::env::var("TMUXY_SESSION").ok())
+        .or_else(|| {
+            std::env::var("TMUXY_SESSION")
+                .ok()
+                .filter(|s| is_safe_session_name(s))
+        })
         .unwrap_or_else(|| crate::DEFAULT_SESSION_NAME.to_string())
+}
+
+/// Whether `dest` is an ssh destination and nothing more: `[user@]host`,
+/// never an option. A `TMUXY_CONNECT_SSH` is written into the tmux server's
+/// environment by anything that can reach it, and ssh runs a
+/// `-oProxyCommand=…` as a local command.
+pub fn is_ssh_destination(dest: &str) -> bool {
+    let word = |s: &str, extra: &[u8]| {
+        !s.is_empty()
+            && s.bytes().all(|b| {
+                b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-') || extra.contains(&b)
+            })
+    };
+    if dest.starts_with('-') {
+        return false;
+    }
+    match dest.split_once('@') {
+        Some((user, host)) => word(user, b"") && word(host, b":") && !host.starts_with('-'),
+        None => word(dest, b":"),
+    }
+}
+
+/// Whether `socket` is a tmux socket name or path tmuxy will hand to tmux:
+/// no whitespace, quotes or shell syntax, since over ssh it reaches the
+/// remote shell as text.
+pub fn is_safe_socket(socket: &str) -> bool {
+    !socket.is_empty()
+        && !socket.starts_with('-')
+        && socket.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/' | b'@' | b'+')
+        })
 }
 
 /// Whether `name` is a session name the server will write into a command line.

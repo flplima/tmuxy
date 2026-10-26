@@ -138,14 +138,37 @@ pub fn check(headers: &HeaderMap, policy: &HostPolicy) -> Result<(), &'static st
 }
 
 /// Whether `name` is an address or hostname this server answers to: the
-/// literal it bound, or one the operator listed with `--allowed-host`.
+/// literal it bound, or one the operator listed with `--allowed-host`. An
+/// allowed entry is compared by its hostname, as `name` is, so one written
+/// with a port or IPv6 brackets (`example.com:8443`, `[::1]`) still matches.
 fn names_this_server(name: &str, bound: Option<IpAddr>, allowed: &[String]) -> bool {
     if let Some(bound) = bound {
         if name.parse::<IpAddr>().is_ok_and(|ip| ip == bound) {
             return true;
         }
     }
-    allowed.iter().any(|a| a.eq_ignore_ascii_case(name))
+    allowed
+        .iter()
+        .any(|a| allowed_hostname(a).eq_ignore_ascii_case(name))
+}
+
+/// An `--allowed-host` entry's hostname. A bare IPv6 literal (`::1`) is
+/// already one; anything else is read as a `host[:port]` authority.
+fn allowed_hostname(entry: &str) -> &str {
+    if entry.parse::<IpAddr>().is_ok() {
+        entry
+    } else {
+        hostname(entry)
+    }
+}
+
+/// A browser opening the server as a page of its own (the address bar, a
+/// link, a bookmark), rather than a page fetching from it or framing it.
+/// Such a request may come from another site and still be the user's.
+pub fn is_top_level_navigation(headers: &HeaderMap) -> bool {
+    let header_str = |name| headers.get(name).and_then(|v| v.to_str().ok());
+    header_str("sec-fetch-mode") == Some("navigate")
+        && header_str("sec-fetch-dest") == Some("document")
 }
 
 /// Axum middleware applying [`check`] to every API route.
@@ -327,6 +350,44 @@ mod tests {
             ("sec-fetch-site", "same-origin"),
         ]);
         assert!(check(&other, &policy).is_err());
+    }
+
+    #[test]
+    fn an_allowed_host_written_with_a_port_or_brackets_still_matches() {
+        let policy = HostPolicy::Loopback {
+            allowed: vec![
+                "example.com:8443".into(),
+                "[fd00::1]".into(),
+                "fd00::2".into(),
+            ],
+        };
+        for host in [
+            "example.com:8443",
+            "example.com",
+            "[fd00::1]:9000",
+            "[fd00::2]:9000",
+        ] {
+            assert_eq!(
+                check(&headers(&[("host", host)]), &policy),
+                Ok(()),
+                "{host}"
+            );
+        }
+        assert!(check(&headers(&[("host", "other.com:8443")]), &policy).is_err());
+    }
+
+    #[test]
+    fn only_a_page_load_is_a_top_level_navigation() {
+        let page = headers(&[
+            ("sec-fetch-mode", "navigate"),
+            ("sec-fetch-dest", "document"),
+        ]);
+        assert!(is_top_level_navigation(&page));
+        let frame = headers(&[("sec-fetch-mode", "navigate"), ("sec-fetch-dest", "iframe")]);
+        assert!(!is_top_level_navigation(&frame));
+        let image = headers(&[("sec-fetch-mode", "no-cors"), ("sec-fetch-dest", "image")]);
+        assert!(!is_top_level_navigation(&image));
+        assert!(!is_top_level_navigation(&HeaderMap::new()));
     }
 
     #[test]

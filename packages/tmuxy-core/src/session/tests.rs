@@ -222,3 +222,34 @@ fn user_conf_template_points_at_a_relocated_config_dir() {
     let default_dir = dirs::home_dir().unwrap().join(".config").join("tmuxy");
     assert_eq!(user_conf_template(&default_dir), DEFAULT_USER_CONF);
 }
+
+/// What reaches ssh as its destination is a host, never an option: ssh runs
+/// a `-oProxyCommand=…` as a local command.
+#[test]
+fn an_ssh_destination_is_a_user_and_host_and_nothing_else() {
+    for ok in ["host", "felipe@prod", "10.0.0.2", "me@my-box.local", "::1"] {
+        assert!(is_ssh_destination(ok), "{ok}");
+    }
+    for bad in [
+        "-oProxyCommand=id",
+        "ssh -oProxyCommand=id",
+        "-p 2222 host",
+        "user@-oProxyCommand=id",
+        "host;id",
+        "a b",
+        "",
+        "@host",
+    ] {
+        assert!(!is_ssh_destination(bad), "{bad}");
+    }
+}
+
+#[test]
+fn a_socket_is_a_name_or_a_path_without_shell_syntax() {
+    for ok in ["tmuxy", "tmuxy-dev", "/tmp/tmux-501/tmuxy"] {
+        assert!(is_safe_socket(ok), "{ok}");
+    }
+    for bad in ["", "-L", "a b", "x;id", "$(id)", "x'y"] {
+        assert!(!is_safe_socket(bad), "{bad}");
+    }
+}

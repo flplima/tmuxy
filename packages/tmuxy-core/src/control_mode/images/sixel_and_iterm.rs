@@ -122,6 +122,13 @@ impl ImageParser {
         };
         let sixel_payload = &body[q_pos + 1..];
 
+        // The decoder allocates the whole canvas, sized by what the payload
+        // declares or draws; a 30-byte raster attribute can ask for gigabytes.
+        let (max_width, max_height) = sixel_extent(sixel_payload);
+        if max_width.saturating_mul(max_height).saturating_mul(4) > MAX_DECODED_IMAGE_BYTES {
+            return Some((consumed, None));
+        }
+
         // icy_sixel's full-DCS decoder expects the whole envelope including
         // ESC P ... ESC \. Hand it the full slice.
         let full = &data[..consumed];
@@ -362,11 +369,81 @@ pub(super) fn undouble_escapes(body: &[u8]) -> Option<(Vec<u8>, usize)> {
     None
 }
 
-pub(super) fn has_escape_terminator(content: &[u8]) -> bool {
-    content
-        .iter()
-        .enumerate()
-        .any(|(i, &b)| b == 0x07 || (b == 0x1B && content.get(i + 1) == Some(&b'\\')))
+/// The largest canvas a Sixel payload can make the decoder allocate, in
+/// pixels: the raster attributes' `Ph;Pv`, or the furthest column a sixel
+/// (with its `!n` repeat) reaches and six rows per band, whichever is larger.
+pub(super) fn sixel_extent(payload: &[u8]) -> (usize, usize) {
+    let mut width = 0usize;
+    let mut bands = 1usize;
+    let mut declared_height = 0usize;
+    let mut x = 0usize;
+    let mut i = 0;
+    let number = |i: &mut usize| {
+        let mut n = 0usize;
+        while let Some(d) = payload.get(*i).filter(|b| b.is_ascii_digit()) {
+            n = n.saturating_mul(10).saturating_add(usize::from(d - b'0'));
+            *i += 1;
+        }
+        n
+    };
+    while i < payload.len() {
+        match payload[i] {
+            b'"' => {
+                i += 1;
+                let mut params = [0usize; 4];
+                for (k, slot) in params.iter_mut().enumerate() {
+                    *slot = number(&mut i);
+                    if k < 3 && payload.get(i) == Some(&b';') {
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                width = width.max(params[2]);
+                declared_height = declared_height.max(params[3]);
+            }
+            b'!' => {
+                i += 1;
+                let repeat = number(&mut i);
+                if payload.get(i).is_some_and(|b| (0x3F..=0x7E).contains(b)) {
+                    x = x.saturating_add(repeat.max(1));
+                    width = width.max(x);
+                    i += 1;
+                }
+            }
+            b'$' => {
+                x = 0;
+                i += 1;
+            }
+            b'-' => {
+                x = 0;
+                bands = bands.saturating_add(1);
+                i += 1;
+            }
+            0x3F..=0x7E => {
+                x = x.saturating_add(1);
+                width = width.max(x);
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    (width, bands.saturating_mul(6).max(declared_height))
+}
+
+/// Where the last escape terminator (BEL, or the ESC of ESC \\) in `content`
+/// starts.
+pub(super) fn last_terminator_start(content: &[u8]) -> Option<usize> {
+    (0..content.len())
+        .rev()
+        .find(|&i| content[i] == 0x07 || (content[i] == 0x1B && content.get(i + 1) == Some(&b'\\')))
+}
+
+/// Whether `next` holds a terminator for the escape buffered in `pending`,
+/// counting an ESC \\ split between the two.
+pub(super) fn ends_pending_escape(pending: &[u8], next: &[u8]) -> bool {
+    (pending.last() == Some(&0x1B) && next.first() == Some(&b'\\'))
+        || last_terminator_start(next).is_some()
 }
 
 /// Find the end of an OSC sequence (BEL or ESC \).

@@ -5,7 +5,7 @@
 //! *session group* — they share every window and pane, but each keeps its own
 //! current window, which is what lets window 1 sit on one tab while window 2
 //! sits on another. The first window holds the group's base session (the one
-//! `TMUXY_SESSION` names); every later window gets `<base>~<index>`.
+//! `TMUXY_SESSION` names); every later window gets `<base>+<index>`.
 //!
 //! The registry here is what turns a webview label back into the monitor behind
 //! it, so a `#[tauri::command]` serves the window it came from
@@ -192,7 +192,9 @@ pub fn open(app: &AppHandle) -> Result<String, String> {
     }
     let base = base_session(app);
     let label = format!("win{index}");
-    let session = format!("{base}~{index}");
+    // `+`, which a safe session name may hold (`is_safe_session_name`), so
+    // the window's session is snapshotted like the first one's.
+    let session = format!("{base}+{index}");
 
     let window = crate::gui::build_window(app, &label).map_err(|e| e.to_string())?;
     // The title is what the Window menu lists this window as, so it names the
@@ -259,8 +261,14 @@ pub fn watch_for_close(window: &WebviewWindow) {
             // monitor is the surviving client, so route it there.
             if let Some(main) = app.state::<GuiWindows>().get(MAIN_LABEL) {
                 tauri::async_runtime::spawn(async move {
-                    crate::monitor::run_on(&main.monitor, &format!("kill-session -t {session}"))
-                        .await;
+                    crate::monitor::run_on(
+                        &main.monitor,
+                        &format!(
+                            "kill-session -t {}",
+                            tmuxy_core::tmux_quote(&format!("={session}"))
+                        ),
+                    )
+                    .await;
                 });
             }
         }
@@ -275,7 +283,7 @@ mod tests {
         GuiWindow {
             label: label.to_string(),
             index,
-            session: Some(format!("tmuxy~{index}")),
+            session: Some(format!("tmuxy+{index}")),
             monitor: MonitorState::default(),
         }
     }
@@ -310,7 +318,7 @@ mod tests {
         windows.add(entry("win2", 2));
         assert_eq!(
             windows.get("win2").map(|w| w.session()),
-            Some("tmuxy~2".to_string())
+            Some("tmuxy+2".to_string())
         );
         assert!(windows.get("win5").is_none());
     }

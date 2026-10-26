@@ -299,6 +299,11 @@ pub async fn connect_server(
     let session = session
         .or_else(|| server.session.clone())
         .unwrap_or_else(get_session);
+    if !tmuxy_core::session::is_safe_session_name(&session) {
+        return Err(CommandError::invalid(format!(
+            "'{session}' is not a session name"
+        )));
+    }
     let _ = tmuxy_core::servers::touch_server(&id, Some(&session));
     crate::monitor::request_reconnect(
         &state,
@@ -467,10 +472,12 @@ pub fn open_url(url: String) -> Result<(), CommandError> {
     let mut cmd = std::process::Command::new("open");
     #[cfg(target_os = "linux")]
     let mut cmd = std::process::Command::new("xdg-open");
+    // Not `cmd /C start`: cmd.exe parses `&`, `|` and `%VAR%` in its
+    // arguments, and a link's query string is full of `&`.
     #[cfg(target_os = "windows")]
     let mut cmd = {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]);
+        let mut c = std::process::Command::new("rundll32.exe");
+        c.arg("url.dll,FileProtocolHandler");
         c
     };
     cmd.arg(url)

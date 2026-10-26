@@ -294,7 +294,7 @@ where
 {
     let routed = match route(command, session, size) {
         Route::Blocked(reason) => {
-            tracing::warn!(target: "tmuxy_core::transport", command, reason, "blocked command");
+            tracing::warn!(target: "tmuxy_core::transport", reason, "blocked command");
             return Ok(());
         }
         Route::ControlMode(cmd) => cmd,
@@ -323,12 +323,18 @@ where
 ///
 /// One round trip: the pane's geometry and the capture share a command list,
 /// so they describe the same moment.
+///
+/// `start` and `end` arrive from the client unchecked; they are clamped to
+/// the range tmux's `capture-pane -S/-E` accepts (`INT_MIN..=SHRT_MAX`),
+/// where its own clamp to the history that exists takes over.
 pub async fn scrollback_cells(
     tx: &MonitorCommandSender,
     pane_id: &PaneId,
     start: i64,
     end: i64,
 ) -> Result<serde_json::Value, CommandError> {
+    let start = clamp_capture_line(start);
+    let end = clamp_capture_line(end);
     let output = query(
         tx,
         &format!(
@@ -347,6 +353,11 @@ pub async fn scrollback_cells(
         "end": end,
         "width": width,
     }))
+}
+
+/// A `capture-pane -S/-E` line number inside the range tmux parses.
+fn clamp_capture_line(line: i64) -> i64 {
+    line.clamp(i64::from(i32::MIN), i64::from(i16::MAX))
 }
 
 /// `<pane_width> <history_size>`, as the scrollback query prints it.

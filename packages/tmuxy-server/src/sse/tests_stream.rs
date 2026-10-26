@@ -80,6 +80,19 @@ async fn a_writable_server_sizes_the_session_to_the_client_asking_for_state() {
     assert_eq!(*resizes.lock().await, vec![(40, 12)]);
 }
 
+/// A size sent under an id no stream owns is dropped: nothing would ever
+/// clean it up, and a 1x1 one would pin the session for every real client.
+#[tokio::test]
+async fn a_size_for_a_connection_with_no_stream_is_ignored() {
+    let state = Arc::new(AppState::new());
+    let resizes = session_with_fake_monitor(&state, "s").await;
+    set_client_size(&state, "s", Some(9999), 1, 1).await;
+    assert!(!state.sessions.read().await["s"]
+        .client_sizes
+        .contains_key(&9999));
+    assert!(resizes.lock().await.is_empty());
+}
+
 /// The 12-touch bug. `last_resize` is the record of a size that REACHED
 /// tmux, and it was written before anything was sent — so a monitor that
 /// had not registered its command channel yet meant the resize was dropped

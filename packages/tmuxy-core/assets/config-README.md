@@ -58,6 +58,8 @@ Two ways, from the most specific down:
        set -g @tmuxy-css-accent-blue '#7aa2f7'
 
    The name is the variable without its `--`; the value is one CSS value.
+   A value holding a comment, a backslash, or `url(` (anything that fetches)
+   is ignored; put those in `custom.css`.
 
 Precedence, top wins: `custom.css` → `@tmuxy-css-*` → the theme file. The
 three are loaded in the opposite order, so at equal specificity the later one

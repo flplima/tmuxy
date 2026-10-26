@@ -6,6 +6,9 @@ use crate::error::TmuxError;
 
 use super::*;
 
+mod offer;
+pub use offer::*;
+
 // =============================================================================
 // Restore
 // =============================================================================
@@ -39,7 +42,7 @@ fn ask_run_shell(key: &str, shell: &str) -> Vec<Step> {
         tmux_shell_command()
     );
     vec![
-        Step::Run(argv(&["run-shell", &relay])),
+        Step::Run(argv(&["run-shell", &run_shell_literal(&relay)])),
         Step::Ask {
             key: key.to_string(),
             argv: argv(&["show-options", "-gv", RESTORE_ANSWER]),
@@ -47,6 +50,22 @@ fn ask_run_shell(key: &str, shell: &str) -> Vec<Step> {
         Step::Run(argv(&["set-option", "-gu", RESTORE_ANSWER])),
     ]
 }
+
+/// A shell line for `run-shell`, with its `#` doubled. `run-shell` expands
+/// formats in its command before `/bin/sh` sees it, inside shell quotes too,
+/// so a snapshot's scrollback or cwd holding `#(…)` would run it, and a
+/// `#{…}` would be replaced with whatever tmux knows by that name.
+fn run_shell_literal(shell: &str) -> String {
+    shell.replace('#', "##")
+}
+
+/// The window types tmuxy itself sets; a snapshot naming another is not one
+/// it wrote.
+const WINDOW_TYPES: [&str; 3] = ["float", "sidebar-left", "sidebar-right"];
+
+/// The pane options a snapshot carries ([`capture`]): a group's id and the
+/// pane's place in it.
+const PANE_OPTION_NAMES: [&str; 2] = [tmux_options::GROUP_ID, tmux_options::GROUP_POS];
 
 #[derive(Debug, Clone, Default)]
 pub struct RestoreOptions {
@@ -164,49 +183,6 @@ fn cwd_or_fallback(cwd: &str, options: &RestoreOptions) -> String {
 
 fn argv(words: &[&str]) -> TmuxArgv {
     words.iter().map(|w| (*w).to_string()).collect()
-}
-
-/// A restored pane's command, brought back. Run at once when asked to (or
-/// for tmuxy's own sidebar widget); otherwise OFFERED: hung on the pane as an
-/// `@tmuxy-ask` question of kind `offer`, which the client draws as a
-/// one-line banner and answers by running or dropping it. Typing it instead
-/// raced the shell's start-up and showed it twice, and left nothing that said
-/// the pane still owed an answer.
-fn offer_steps(pane: &str, command: &str, run: bool, token: &str) -> Vec<Step> {
-    if run {
-        return vec![
-            Step::Run(argv(&["send-keys", "-t", pane, "-l", command])),
-            Step::Run(argv(&["send-keys", "-t", pane, "Enter"])),
-        ];
-    }
-    vec![Step::Run(argv(&[
-        "set-option",
-        "-p",
-        "-t",
-        pane,
-        tmux_options::ASK,
-        &offer_payload(token, command),
-    ]))]
-}
-
-/// The `@tmuxy-ask` value of an offer: base64 of `{token, kind, command}`,
-/// the shape `tmuxy pane send` writes for its own questions.
-pub fn offer_payload(token: &str, command: &str) -> String {
-    use base64::Engine;
-    let json = serde_json::json!({ "token": token, "kind": "offer", "command": command });
-    base64::engine::general_purpose::STANDARD.encode(json.to_string())
-}
-
-/// The command an `@tmuxy-ask` value offers, when it is an offer at all.
-pub fn offered_by(ask: &str) -> Option<String> {
-    use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(ask).ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    if value.get("kind")?.as_str()? != "offer" {
-        return None;
-    }
-    let command = value.get("command")?.as_str()?;
-    (!command.is_empty()).then(|| command.to_string())
 }
 
 /// The tmux commands that rebuild a session from its snapshot, in order.
@@ -348,7 +324,14 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
                 &restorable_layout(&w.layout),
             ])));
         }
-        if let Some(kind) = &w.window_type {
+        // Only what capture writes is put back: a snapshot is a file on
+        // disk, and a window option like `pane-border-format` set to `#(…)`
+        // would run a shell command on every redraw.
+        if let Some(kind) = w
+            .window_type
+            .as_ref()
+            .filter(|k| WINDOW_TYPES.contains(&k.as_str()))
+        {
             steps.push(Step::Run(argv(&[
                 "set-option",
                 "-w",
@@ -358,7 +341,11 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
                 kind,
             ])));
         }
-        for (name, value) in &w.options {
+        for (name, value) in w
+            .options
+            .iter()
+            .filter(|(name, _)| capture::WINDOW_OPTION_NAMES.contains(&name.as_str()))
+        {
             steps.push(Step::Run(argv(&[
                 "set-option",
                 "-w",
@@ -369,7 +356,11 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
             ])));
         }
         for p in &w.panes {
-            for (name, value) in &p.options {
+            for (name, value) in p
+                .options
+                .iter()
+                .filter(|(name, _)| PANE_OPTION_NAMES.contains(&name.as_str()))
+            {
                 steps.push(Step::Run(argv(&[
                     "set-option",
                     "-p",
@@ -492,12 +483,15 @@ fn content_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<
                         "run-shell",
                         "-t",
                         &pane,
-                        &format!("printf '%s\\n' {}", shell_quote(&text)),
+                        &run_shell_literal(&format!("printf '%s\\n' {}", shell_quote(&text))),
                     ])));
                 }
             }
             if let Some(cmd) = p.offered_command() {
-                let chrome = w.is_chrome();
+                // tmuxy's own sidebar widget runs without asking; any other
+                // command a snapshot names, in a sidebar or not, is offered.
+                let chrome =
+                    w.window_type.as_deref() == Some("sidebar-left") && cmd == LEFT_SIDEBAR_WIDGET;
                 if let (Some(word), false) = (&p.restore_command, chrome) {
                     // The program's own word outlives the offer: typed and
                     // not run, it would otherwise be gone from the next save.

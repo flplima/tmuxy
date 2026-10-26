@@ -239,7 +239,7 @@ describe('GUI windows', () => {
 
     // tmux's side of it: a second session, grouped with the first, so the
     // windows are shared rather than copied.
-    const grouped = `${sessionName}~2`;
+    const grouped = `${sessionName}+2`;
     let sessions = '';
     for (let i = 0; i < 60; i++) {
       sessions = tmuxExec("list-sessions -F '#{session_name} #{session_group} #{session_windows}'");

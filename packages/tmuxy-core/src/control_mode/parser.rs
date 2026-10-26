@@ -106,6 +106,11 @@ pub enum ControlModeEvent {
     UnlinkedWindowClose { window_id: WindowId },
 }
 
+/// The most a `%begin` … `%end` reply may hold. A whole capture of a long
+/// history fits many times over; past it the reply is answered as an error
+/// rather than grown without bound.
+const MAX_RESPONSE_BYTES: usize = 256 * 1024 * 1024;
+
 /// Parser for control mode notifications
 pub struct Parser {
     /// State for multi-line command responses
@@ -116,6 +121,9 @@ pub struct Parser {
     /// body line may itself be empty — a capture-pane whose top row is blank —
     /// and must still count, or every leading blank row is lost.
     response_has_lines: bool,
+    /// The reply outgrew `max_response_bytes` and its body was dropped.
+    response_overflowed: bool,
+    max_response_bytes: usize,
     response_timestamp: u64,
     response_command_num: u32,
 }
@@ -126,6 +134,8 @@ impl Parser {
             in_response: false,
             response_buffer: String::new(),
             response_has_lines: false,
+            response_overflowed: false,
+            max_response_bytes: MAX_RESPONSE_BYTES,
             response_timestamp: 0,
             response_command_num: 0,
         }
@@ -142,6 +152,14 @@ impl Parser {
     /// character never reached the emulator, whose UTF-8 decoder joins a
     /// character split across writes; its cursor then sat a glyph short of
     /// tmux's, and the next relative move redrew the line in the wrong place.
+    #[cfg(test)]
+    pub(crate) fn with_max_response_bytes(max: usize) -> Self {
+        Self {
+            max_response_bytes: max,
+            ..Self::new()
+        }
+    }
+
     pub fn parse_line(&mut self, line: impl AsRef<[u8]>) -> Option<ControlModeEvent> {
         use crate::constants::control_events as ev;
 
@@ -176,6 +194,14 @@ impl Parser {
 
         // If we're in a response block, accumulate the line
         if self.in_response {
+            if self.response_overflowed {
+                return None;
+            }
+            if self.response_buffer.len() + line.len() + 1 > self.max_response_bytes {
+                self.response_overflowed = true;
+                self.response_buffer = String::new();
+                return None;
+            }
             if self.response_has_lines {
                 self.response_buffer.push('\n');
             }
@@ -201,6 +227,7 @@ impl Parser {
             self.response_command_num = parts[2].parse().unwrap_or(0);
             self.response_buffer.clear();
             self.response_has_lines = false;
+            self.response_overflowed = false;
         }
         None
     }
@@ -213,11 +240,20 @@ impl Parser {
         if !self.in_response {
             return None;
         }
-        let event = ControlModeEvent::CommandResponse {
-            timestamp: self.response_timestamp,
-            command_num: self.response_command_num,
-            output: std::mem::take(&mut self.response_buffer),
-            success,
+        let event = if self.response_overflowed {
+            ControlModeEvent::CommandResponse {
+                timestamp: self.response_timestamp,
+                command_num: self.response_command_num,
+                output: format!("reply larger than {} bytes", self.max_response_bytes),
+                success: false,
+            }
+        } else {
+            ControlModeEvent::CommandResponse {
+                timestamp: self.response_timestamp,
+                command_num: self.response_command_num,
+                output: std::mem::take(&mut self.response_buffer),
+                success,
+            }
         };
         self.in_response = false;
         Some(event)

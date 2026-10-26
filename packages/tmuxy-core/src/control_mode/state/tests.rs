@@ -117,6 +117,18 @@ fn a_capture_keeps_the_history_that_scrolled_off_before_it() {
     );
 }
 
+/// A range that starts below `i64::MIN`'s negation reads as much history as
+/// exists instead of overflowing.
+#[test]
+fn a_scrollback_range_from_i64_min_reads_all_history() {
+    let mut pane = PaneState::new(pid("%1"), 40, 10);
+    for n in 0..30 {
+        pane.process_output(format!("line {n}\r\n").as_bytes());
+    }
+    let (rows, depth) = pane.scrollback_cells(i64::MIN, -1);
+    assert_eq!(rows.len(), depth, "every history row, once");
+}
+
 /// The geometry walk over `layout::parse` yields the same panes, in the
 /// same order, as the parser it replaced (output captured from the old
 /// one before it was deleted). Only the body is passed: the call sites

@@ -78,6 +78,13 @@ pub(super) async fn set_client_size(
     let (min_size, command_tx) = {
         let mut sessions = state.sessions.write().await;
         if let Some(session_conns) = sessions.get_mut(session) {
+            // A size counts only for a stream that is open: nothing would
+            // ever remove one for an id no stream owns, and it would pin the
+            // session's size for every real client until they all left.
+            if !session_conns.connections.contains(&conn_id) {
+                warn!(%session, conn_id, "ignoring client size for a connection with no open stream");
+                return;
+            }
             session_conns.client_sizes.insert(conn_id, (cols, rows));
             let sizes = &session_conns.client_sizes;
             let min = compute_min_client_size(sizes);

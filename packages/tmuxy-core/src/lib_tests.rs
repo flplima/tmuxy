@@ -384,3 +384,14 @@ fn an_extracted_line_keeps_no_room_beyond_its_cells() {
         lines[1].capacity()
     );
 }
+
+/// Control mode reads a command per line: a value holding a newline (a
+/// multi-line clipboard) must stay on one, or what follows it runs as a
+/// command of its own.
+#[test]
+fn a_quoted_value_never_spans_two_command_lines() {
+    assert_eq!(crate::tmux_quote("it's"), r"'it'\''s'");
+    let quoted = crate::tmux_quote("a\nkill-server\r$HOME \"x\"");
+    assert!(!quoted.contains(['\n', '\r']), "{quoted}");
+    assert_eq!(quoted, r#""a\012kill-server\015\$HOME \"x\"""#);
+}

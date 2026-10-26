@@ -107,7 +107,7 @@ fn open_append(path: &Path) -> Option<File> {
     // The state dir is created here rather than when the path is resolved, so
     // resolving a path for the UI leaves nothing behind while tracing is off.
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).ok()?;
+        crate::private_files::create_dir_all(dir).ok()?;
     }
     let mut opts = OpenOptions::new();
     opts.create(true).append(true);

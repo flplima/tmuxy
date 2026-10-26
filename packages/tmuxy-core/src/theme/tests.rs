@@ -99,6 +99,33 @@ fn css_variable_options_are_read_from_the_global_options() {
     assert!(settings_query().ends_with("show-options -g"));
 }
 
+/// The theme is a stylesheet path and the mode one of three words; anything
+/// else is the default. A CSS variable cannot comment out the ones after it
+/// or fetch from the network.
+#[test]
+fn a_theme_mode_or_css_value_that_is_not_one_falls_back_or_is_dropped() {
+    let output = format!(
+        "{}@tmuxy-css-a \"red /* \"\n@tmuxy-css-b url(https://x.example/beacon)\n\
+         @tmuxy-css-c \"URL( x )\"\n@tmuxy-css-d \"\\\\75 rl(x)\"\n\
+         @tmuxy-css-e \"image-set(x 1x)\"\n@tmuxy-css-f calc(1px + 2px)\n",
+        printed(&[
+            (tmux_options::THEME, "../../evil"),
+            (tmux_options::THEME_MODE, "dark\" onload=\"x"),
+        ])
+    );
+    let settings = parse_settings(&output);
+    assert_eq!(settings["theme"], DEFAULT_THEME);
+    assert_eq!(settings["mode"], DEFAULT_MODE);
+    assert_eq!(
+        settings["cssVars"],
+        serde_json::json!({ "f": "calc(1px + 2px)" })
+    );
+    assert_eq!(
+        parse_settings(&printed(&[(tmux_options::THEME_MODE, "auto")]))["mode"],
+        "auto"
+    );
+}
+
 /// Every option the app reads is documented where the user edits it.
 #[test]
 fn the_config_readme_documents_every_option() {

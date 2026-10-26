@@ -69,6 +69,22 @@ async fn scrollback_is_read_through_the_monitor_in_one_query() {
     assert!(asked[0].contains("-t %3 -S -10 -E -1"), "{}", asked[0]);
 }
 
+#[tokio::test]
+async fn scrollback_lines_out_of_range_are_clamped_to_what_tmux_parses() {
+    let (tx, asked) = answering(Ok("40 120\nhello\n".to_string()));
+    let answer = scrollback_cells(&tx, &PaneId::from_number(3), i64::MIN, i64::MAX)
+        .await
+        .unwrap();
+    assert_eq!(answer["start"], i64::from(i32::MIN));
+    assert_eq!(answer["end"], i64::from(i16::MAX));
+    let asked = asked.lock().unwrap();
+    assert!(
+        asked[0].contains(&format!("-S {} -E {}", i32::MIN, i16::MAX)),
+        "{}",
+        asked[0]
+    );
+}
+
 /// The width is tmux's or nothing: a guessed 80 re-wraps every captured
 /// line at the wrong column.
 #[tokio::test]

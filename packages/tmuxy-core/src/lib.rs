@@ -18,6 +18,8 @@ pub mod mime;
 pub mod paths;
 #[cfg(feature = "native")]
 pub mod preview;
+#[cfg(feature = "cli")]
+pub mod private_files;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]
@@ -57,8 +59,37 @@ pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
 /// silently truncate the target), a quote, or `;` (which would append extra
 /// commands to the list). Built for wasm too: the control-mode state machine
 /// writes commands of its own.
+///
+/// Control mode reads one command per line, and nothing escapes inside single
+/// quotes: a value holding a newline (a multi-line clipboard, say) would end
+/// the command there and run the rest as commands of its own. Such a value
+/// goes double-quoted instead ([`tmux_double_quoted`]).
 pub fn tmux_quote(value: &str) -> String {
+    if value.chars().any(char::is_control) {
+        return tmux_double_quoted(value);
+    }
     format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// `value` as one double-quoted tmux argument on one command line: the
+/// characters tmux's parser reads inside double quotes (`"`, `\`, `$`, and
+/// the backtick) escaped, and every control character an octal escape, so a
+/// newline cannot end the command.
+pub fn tmux_double_quoted(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for c in value.chars() {
+        match c {
+            '"' | '\\' | '$' | '`' => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if c.is_ascii_control() => out.push_str(&format!("\\{:03o}", c as u32)),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 // ============================================

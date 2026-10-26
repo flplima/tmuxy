@@ -337,11 +337,18 @@ impl OscParser {
         // open at the end of a chunk closes at that end and reopens at 0 in the
         // next call, so a hyperlink split across `%output` chunks survives.
         let mut open_at: Option<usize> = self.active_hyperlink.as_ref().map(|_| 0);
+        // Once one OSC has no terminator, none after it in the chunk has
+        // either; looking again for each was quadratic in a run of them.
+        let mut unterminated = false;
         let mut i = 0;
 
         while i < content.len() {
             // Check for ESC sequence start
-            if content[i] == 0x1B && i + 1 < content.len() && content[i + 1] == b']' {
+            if !unterminated
+                && content[i] == 0x1B
+                && i + 1 < content.len()
+                && content[i + 1] == b']'
+            {
                 // OSC sequence: ESC ] ... ST or ESC ] ... BEL
                 match self.find_osc_end(&content[i..]) {
                     Some((osc_end, osc_content)) => {
@@ -374,6 +381,7 @@ impl OscParser {
                             break;
                         }
                         // Malformed / oversized: fall through and emit as-is.
+                        unterminated = true;
                     }
                 }
             }

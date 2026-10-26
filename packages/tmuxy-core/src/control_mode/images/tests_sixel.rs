@@ -106,3 +106,77 @@ fn mime_type_detection() {
     assert_eq!(detect_mime_type(b"RIFF....WEBP"), "image/webp");
     assert_eq!(detect_mime_type(b"unknown"), "application/octet-stream");
 }
+
+/// A raster attribute is a size the decoder allocates up front: icy_sixel's
+/// own cap is 256 MiB, which 8000x8000 reaches from a 30-byte escape.
+#[test]
+fn a_sixel_declaring_a_canvas_past_the_cap_is_dropped_unallocated() {
+    let mut parser = ImageParser::new();
+    let result = parser.process(b"\x1bPq\"1;1;8000;8000#0~\x1b\\");
+    assert!(result.new_images.is_empty());
+    assert!(parser.placements.is_empty());
+    assert!(result.clean_bytes.is_empty(), "the escape is consumed");
+}
+
+/// Drawing reaches the same allocation without declaring it: a repeat of
+/// 65535 columns, over enough bands.
+#[test]
+fn a_sixel_drawing_a_canvas_past_the_cap_is_dropped() {
+    let mut payload = b"\x1bPq#0;2;100;0;0#0!65535~".to_vec();
+    payload.extend(std::iter::repeat_n(b'-', 60));
+    payload.extend_from_slice(b"~\x1b\\");
+    let mut parser = ImageParser::new();
+    let result = parser.process(&payload);
+    assert!(result.new_images.is_empty());
+    assert!(parser.placements.is_empty());
+}
+
+#[test]
+fn a_sixel_extent_counts_repeats_bands_and_the_raster() {
+    assert_eq!(sixel_and_iterm::sixel_extent(b"#0;2;100;0;0#0~~"), (2, 6));
+    assert_eq!(sixel_and_iterm::sixel_extent(b"!10~$~~-~"), (10, 12));
+    assert_eq!(sixel_and_iterm::sixel_extent(b"\"1;1;640;480~"), (640, 480));
+}
+
+/// An image arriving in many chunks is buffered without its earlier chunks
+/// being scanned again, and still decodes once its terminator arrives.
+#[test]
+fn a_sixel_split_over_many_chunks_still_decodes() {
+    let mut parser = ImageParser::new();
+    let mut payload = b"\x1bPq#0;2;100;0;0#0".to_vec();
+    payload.extend(std::iter::repeat_n(b'~', 4000));
+    payload.extend_from_slice(b"\x1b\\after");
+    let mut images = Vec::new();
+    let mut clean = Vec::new();
+    for chunk in payload.chunks(7) {
+        let result = parser.process(chunk);
+        images.extend(result.new_images);
+        clean.extend(result.clean_bytes);
+    }
+    assert_eq!(images.len(), 1);
+    assert_eq!(clean, b"after");
+}
+
+/// The terminator split between two chunks — ESC at the end of one, `\` at
+/// the start of the next — still ends the escape.
+#[test]
+fn a_terminator_split_across_chunks_ends_the_escape() {
+    let mut parser = ImageParser::new();
+    let first = parser.process(b"\x1bPq#0;2;100;0;0#0~~\x1b");
+    assert!(first.new_images.is_empty());
+    let second = parser.process(b"\\tail");
+    assert_eq!(second.new_images.len(), 1);
+    assert_eq!(second.clean_bytes, b"tail");
+}
+
+/// A run of escapes that never end, then one terminator: each used to scan
+/// the rest of the chunk for a terminator, which made the chunk quadratic.
+/// The bytes still reach vt100 unchanged.
+#[test]
+fn a_run_of_unterminated_escapes_passes_through_once() {
+    let mut parser = ImageParser::new();
+    let mut input = b"\x1b_X".repeat(20_000);
+    input.push(0x07);
+    let result = parser.process(&input);
+    assert_eq!(result.clean_bytes, input);
+}

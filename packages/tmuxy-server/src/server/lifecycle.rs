@@ -107,12 +107,32 @@ pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
 fn read_pid_file(port: u16) -> Option<u32> {
     std::fs::read_to_string(pid_file_path(port))
         .ok()
-        .and_then(|s| s.trim().parse().ok())
+        .and_then(|s| parse_pid(&s))
+}
+
+/// The pid a pid file names, if it names one other process. To kill(2), `0`
+/// is the caller's own process group and a negative `pid_t` (what `u32::MAX`
+/// becomes) is every process the user owns; `1` is init.
+fn parse_pid(text: &str) -> Option<u32> {
+    text.trim()
+        .parse::<i32>()
+        .ok()
+        .filter(|&pid| pid > 1)
+        .and_then(|pid| u32::try_from(pid).ok())
+}
+
+/// `pid` as kill(2) takes it, for a pid `parse_pid` accepted.
+#[cfg(unix)]
+fn signal_target(pid: u32) -> Option<nix::unistd::Pid> {
+    i32::try_from(pid)
+        .ok()
+        .filter(|&pid| pid > 1)
+        .map(nix::unistd::Pid::from_raw)
 }
 
 #[cfg(unix)]
 fn is_process_alive(pid: u32) -> bool {
-    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_ok()
+    signal_target(pid).is_some_and(|pid| nix::sys::signal::kill(pid, None).is_ok())
 }
 
 #[cfg(not(unix))]
@@ -132,8 +152,11 @@ pub(super) fn stop_server(port: u16) {
             #[cfg(unix)]
             {
                 use nix::sys::signal::{self, Signal};
-                use nix::unistd::Pid;
-                match signal::kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
+                let Some(target) = signal_target(pid) else {
+                    error!(pid, "refusing to signal a pid that is not one process");
+                    return;
+                };
+                match signal::kill(target, Signal::SIGTERM) {
                     Ok(_) => {
                         println!("Sent SIGTERM to server (pid {})", pid);
                         remove_pid_file(port, pid);
@@ -295,5 +318,18 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
     if let Some(vite) = vite {
         vite.kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_pid;
+
+    #[test]
+    fn a_pid_file_naming_no_single_process_is_ignored() {
+        assert_eq!(parse_pid("4242\n"), Some(4242));
+        for broadcast in ["0", "1", "-1", "4294967295", "2147483648", "", "abc"] {
+            assert_eq!(parse_pid(broadcast), None, "{broadcast:?}");
+        }
     }
 }

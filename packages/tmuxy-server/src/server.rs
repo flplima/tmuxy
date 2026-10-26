@@ -77,12 +77,17 @@ const DEFAULT_PORT: u16 = 9000;
 
 /// Wrap the router in the Basic-auth layer when a password is configured.
 /// With no password the router is returned unchanged (server stays open).
-fn with_optional_auth(app: axum::Router, password: Option<String>) -> axum::Router {
+fn with_optional_auth(
+    app: axum::Router,
+    password: Option<String>,
+    policy: HostPolicy,
+) -> axum::Router {
     match password {
         Some(pw) => app.layer(axum::middleware::from_fn_with_state(
             std::sync::Arc::new(crate::auth::AuthState {
                 password: pw,
                 throttle: crate::auth::AuthThrottle::new(),
+                policy,
             }),
             crate::auth::require_basic_auth,
         )),
@@ -336,7 +341,7 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     }
     .with_state(state.clone());
     let password_set = password.is_some();
-    let app = with_optional_auth(app, password);
+    let app = with_optional_auth(app, password, listen.policy.clone());
 
     let addr = std::net::SocketAddr::new(listen.ip, port);
     match frontend {

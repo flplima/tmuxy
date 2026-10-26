@@ -295,7 +295,7 @@ pub fn write_managed_state(changes: ManagedState) -> std::io::Result<PathBuf> {
     }
 
     let body = serde_json::to_string_pretty(&state).map_err(std::io::Error::other)?;
-    std::fs::write(&path, format!("{}\n", body))?;
+    crate::private_files::write(&path, format!("{}\n", body))?;
     Ok(path)
 }
 

@@ -115,7 +115,17 @@ pub async fn spawn_vite() -> Option<ViteChild> {
         }
     };
 
-    let pgid = child.id().unwrap_or(0) as i32;
+    // `killpg(0)` would be the server's own group: without the child's id
+    // there is no group to kill later, so the child is not kept.
+    let Some(pgid) = child
+        .id()
+        .and_then(|id| i32::try_from(id).ok())
+        .filter(|&id| id > 1)
+    else {
+        error!(%label, "dev server has no process id");
+        let _ = child.start_kill();
+        return None;
+    };
 
     let label_out = label.to_string();
     if let Some(stdout) = child.stdout.take() {

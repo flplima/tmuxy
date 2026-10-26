@@ -303,3 +303,33 @@ fn a_session_rename_carries_the_session_id_apart_from_the_name() {
         other => panic!("Expected SessionRenamed, got {other:?}"),
     }
 }
+
+/// A reply that outgrows the cap is answered as an error, and the next reply
+/// is read normally.
+#[test]
+fn a_reply_past_the_cap_is_an_error_and_the_next_one_is_whole() {
+    let mut parser = Parser::with_max_response_bytes(10);
+    parser.parse_line("%begin 1 1 0");
+    parser.parse_line("0123456789abcdef");
+    parser.parse_line("more");
+    match parser.parse_line("%end 1 1 0") {
+        Some(ControlModeEvent::CommandResponse {
+            success, output, ..
+        }) => {
+            assert!(!success);
+            assert!(output.contains("larger than 10 bytes"), "{output}");
+        }
+        other => panic!("expected CommandResponse, got {other:?}"),
+    }
+    parser.parse_line("%begin 1 2 0");
+    parser.parse_line("ok");
+    match parser.parse_line("%end 1 2 0") {
+        Some(ControlModeEvent::CommandResponse {
+            success, output, ..
+        }) => {
+            assert!(success);
+            assert_eq!(output, "ok");
+        }
+        other => panic!("expected CommandResponse, got {other:?}"),
+    }
+}

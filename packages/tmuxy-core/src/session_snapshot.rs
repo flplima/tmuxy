@@ -119,20 +119,11 @@ pub struct WindowSnapshot {
     /// restore, an index does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub float_parent_index: Option<u32>,
-    /// Every other `@tmuxy-*` window option, verbatim, restored as-is.
+    /// The float and sidebar `@tmuxy-*` window options capture reads, verbatim;
+    /// a restore puts back only those.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub options: BTreeMap<String, String>,
     pub panes: Vec<PaneSnapshot>,
-}
-
-impl WindowSnapshot {
-    /// A window tmuxy draws as its own chrome (a sidebar): what runs in it is
-    /// tmuxy's program, so a restore runs it rather than offering it.
-    pub fn is_chrome(&self) -> bool {
-        self.window_type
-            .as_deref()
-            .is_some_and(|t| t.starts_with("sidebar-"))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,7 +255,7 @@ pub fn parse(json: &str) -> Result<Snapshot, SnapshotError> {
 /// a truncated file that would block the next restore.
 pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<Option<PathBuf>, SnapshotError> {
     let io = |e: std::io::Error| SnapshotError::Io(e.to_string());
-    std::fs::create_dir_all(dir).map_err(io)?;
+    crate::private_files::create_dir_all(dir).map_err(io)?;
     let json = serde_json::to_string_pretty(snapshot)
         .map_err(|e| SnapshotError::Unreadable(e.to_string()))?;
 
@@ -280,12 +271,12 @@ pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<Option<PathBuf>, Snapsho
         ".{}.tmp",
         snapshot_file_name(&snapshot.session, snapshot.saved_at)
     ));
-    std::fs::write(&tmp, &json).map_err(io)?;
+    crate::private_files::write(&tmp, &json).map_err(io)?;
     std::fs::rename(&tmp, &target).map_err(io)?;
     // `latest` is a copy rather than a symlink: a symlink survives nothing on
     // a filesystem that has none, and a copy is one more atomic rename.
     let tmp_latest = dir.join(format!(".{}.latest.tmp", snapshot.session));
-    std::fs::write(&tmp_latest, &json).map_err(io)?;
+    crate::private_files::write(&tmp_latest, &json).map_err(io)?;
     std::fs::rename(&tmp_latest, &latest).map_err(io)?;
     prune(dir, &snapshot.session, snapshot.saved_at);
     Ok(Some(target))

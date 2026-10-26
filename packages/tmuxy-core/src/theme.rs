@@ -177,16 +177,28 @@ fn parse_css_vars<'a>(
             .and_then(|v| v.strip_suffix('"'))
             .map(|v| v.replace("\\\"", "\"").replace("\\\\", "\\"))
             .unwrap_or_else(|| value.to_string());
-        let usable = session::is_safe_css_name(name)
-            && !value.is_empty()
-            && !value
-                .chars()
-                .any(|c| c.is_control() || matches!(c, ';' | '{' | '}'));
+        let usable = session::is_safe_css_name(name) && is_safe_css_value(&value);
         if usable {
             vars.insert(name.to_string(), serde_json::Value::String(value));
         }
     }
     vars
+}
+
+/// A value that is one CSS declaration's value and nothing more: it cannot
+/// end the declaration (`;`, `{`, `}`), comment out the ones after it
+/// (`/*`), or fetch anything (`url(` and its kin, or a backslash escape that
+/// would spell one).
+fn is_safe_css_value(value: &str) -> bool {
+    const FETCHES: [&str; 3] = ["url(", "src(", "image-set("];
+    let lower = value.to_ascii_lowercase();
+    !value.is_empty()
+        && !value
+            .chars()
+            .any(|c| c.is_control() || matches!(c, ';' | '{' | '}' | '\\'))
+        && !lower.contains("/*")
+        && !lower.contains("*/")
+        && !FETCHES.iter().any(|f| lower.contains(f))
 }
 
 /// The settings from what [`settings_query`] printed, with the defaults for
@@ -247,8 +259,9 @@ fn parse_settings(output: &str) -> serde_json::Value {
     };
     let css_vars = parse_css_vars(lines.iter().copied());
     serde_json::json!({
-        "theme": if theme.is_empty() { DEFAULT_THEME } else { theme },
-        "mode": if mode.is_empty() { DEFAULT_MODE } else { mode },
+        // The theme names a stylesheet the client loads by path.
+        "theme": if session::is_safe_css_name(theme) { theme } else { DEFAULT_THEME },
+        "mode": if matches!(mode, "dark" | "light" | "auto") { mode } else { DEFAULT_MODE },
         "appearance": appearance,
         "cssVars": css_vars,
     })

@@ -346,7 +346,7 @@ fn save_prefs(enabled: bool, level: TraceLevel) {
         enabled,
         level.as_str()
     );
-    let _ = std::fs::write(&path, body);
+    let _ = crate::private_files::write(&path, body);
 }
 
 fn kill_switch() -> bool {

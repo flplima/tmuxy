@@ -8,6 +8,7 @@ mod agents;
 mod auth;
 mod command;
 mod dev;
+mod log_file;
 mod request_guard;
 pub mod server;
 mod session_cli;
@@ -36,21 +37,13 @@ pub fn init_logging() {
 const DEFAULT_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info,warn";
 
 /// `init_logging`, plus the tmuxy crates' lines at `info` and above appended
-/// to `log_file`, without colour. The desktop app's stderr goes nowhere when
+/// to `log_file`, without colour, rotated once it grows past a few MiB
+/// (`log_file::RotatingLog`). The desktop app's stderr goes nowhere when
 /// it is launched from Finder; the file is what a bug report attaches
 /// (Help ▸ Reveal Log File) and what the smoke tests read. A file that cannot
 /// be opened costs only the file: stderr and the trace are installed as usual.
 pub fn init_logging_to_file(log_file: &std::path::Path) {
-    let file = log_file
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_file)
-        });
-    match file {
+    match log_file::RotatingLog::open(log_file) {
         Ok(file) => install(DEFAULT_LOG_FILTER, Some(file)),
         Err(e) => {
             install(DEFAULT_LOG_FILTER, None);
@@ -62,7 +55,7 @@ pub fn init_logging_to_file(log_file: &std::path::Path) {
 /// What the log file keeps: tmuxy's own lines, never a dependency's.
 const FILE_LOG_FILTER: &str = "tmuxy_core=info,tmuxy_server=info,tmuxy_tauri_app=info";
 
-fn install(default_filter: &str, log_file: Option<std::fs::File>) {
+fn install(default_filter: &str, log_file: Option<log_file::RotatingLog>) {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{fmt, EnvFilter};
 

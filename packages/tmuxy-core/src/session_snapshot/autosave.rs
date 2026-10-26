@@ -69,6 +69,12 @@ where
     F: FnMut(Vec<String>) -> Fut,
     Fut: Future<Output = Result<String, TmuxError>>,
 {
+    // The name is spliced into the queries before they are split into words.
+    if !crate::session::is_safe_session_name(session) {
+        return Err(TmuxError::other(format!(
+            "'{session}' is not a session name"
+        )));
+    }
     let (qw, qp) = queries_for(session);
     let windows_out = run(split_query(&qw)).await?;
     let panes_out = run(split_query(&qp)).await?;
@@ -229,19 +235,7 @@ pub fn tmux_word(word: &str) -> String {
     {
         return word.to_string();
     }
-    let mut out = String::with_capacity(word.len() + 2);
-    out.push('"');
-    for c in word.chars() {
-        match c {
-            '"' | '\\' | '$' | '`' => {
-                out.push('\\');
-                out.push(c);
-            }
-            _ => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+    crate::tmux_double_quoted(word)
 }
 
 /// Rebuild a snapshot through a monitor's connection, step by step.

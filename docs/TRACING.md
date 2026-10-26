@@ -107,7 +107,9 @@ trace` and the snapshots, so a `--mark` lands in the
 The trace is the shared, persisted timeline. The per-layer buffers you reach
 for interactively still exist beside it: `RUST_LOG`-filtered `tracing` on
 stderr (the desktop app also appends its `info`-and-above lines to `tmuxy.log`
-in the state dir, since an app launched from Finder has no stderr anyone sees),
+in the state dir, since an app launched from Finder has no stderr anyone sees;
+it is owner-only, rotates to one `.1` backup like the trace, and names a
+refused command by the reason it was refused, never by its text),
 the in-memory SSE replay ring and control-mode tail, the in-app activity log
 (`LOG_APPEND` → `context.log`, which carries command strings and so never
 leaves the app), and the dev-gated `latencyTracker` + `PerfHud`.

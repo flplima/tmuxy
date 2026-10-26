@@ -138,10 +138,12 @@ fn password_from_header(value: &str) -> Option<Vec<u8>> {
     Some(decoded[colon + 1..].to_vec())
 }
 
-/// What the auth layer is given: the password, and the failures so far.
+/// What the auth layer is given: the password, the failures so far, and the
+/// server's request policy (`request_guard`).
 pub struct AuthState {
     pub password: String,
     pub throttle: AuthThrottle,
+    pub policy: crate::request_guard::HostPolicy,
 }
 
 /// Axum middleware enforcing HTTP Basic auth against the configured password.
@@ -151,12 +153,26 @@ pub struct AuthState {
 /// proxy the peer IS the proxy, so the delay is then shared by everyone behind
 /// it — which is why the proxy is expected to do its own limiting, and why
 /// `X-Forwarded-For` is deliberately not trusted here (anyone can send one).
+///
+/// A request the origin rules refuse is refused here first, before the
+/// password is looked at, so it costs the peer nothing: a hostile page the
+/// user has open shares the user's address, and its anonymous requests would
+/// otherwise spend the user's allowance and hold their next prompt for up to
+/// [`MAX_DELAY`]. A top-level navigation is exempt, since following a link to
+/// the server is the user's own doing.
 pub async fn require_basic_auth(
     State(state): State<Arc<AuthState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
+    if let Err(reason) = crate::request_guard::check(req.headers(), &state.policy) {
+        if !crate::request_guard::is_top_level_navigation(req.headers()) {
+            warn!(target: "tmuxy_server::auth", path = %req.uri().path(), reason, "refused request");
+            return (StatusCode::FORBIDDEN, format!("forbidden: {reason}\n")).into_response();
+        }
+    }
+
     let ok = req
         .headers()
         .get(header::AUTHORIZATION)

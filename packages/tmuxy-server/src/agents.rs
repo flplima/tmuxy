@@ -209,9 +209,13 @@ enum AgentVerb {
 
 pub fn run(args: AgentArgs) {
     if let AgentVerb::State { agent, event } = &args.verb {
+        // A hook event is a small JSON object; more than this is not one.
+        const MAX_EVENT_BYTES: u64 = 1024 * 1024;
         let mut input = String::new();
         if !std::io::stdin().is_terminal() {
-            let _ = std::io::stdin().read_to_string(&mut input);
+            let _ = std::io::stdin()
+                .take(MAX_EVENT_BYTES)
+                .read_to_string(&mut input);
         }
         let payload = serde_json::from_str(&input).unwrap_or(Value::Null);
         if let Some(state) = state(*agent, event, &payload) {

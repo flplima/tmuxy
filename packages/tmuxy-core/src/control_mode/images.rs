@@ -25,7 +25,8 @@ mod sixel_and_iterm;
 use serde::{Deserialize, Serialize};
 pub(super) use sixel_and_iterm::find_osc_end;
 use sixel_and_iterm::{
-    base64_decode, detect_mime_type, has_escape_terminator, overlaps, rgba_to_png,
+    base64_decode, detect_mime_type, ends_pending_escape, last_terminator_start, overlaps,
+    rgba_to_png,
 };
 
 // `std::time::Instant::now()` panics on wasm32; web-time backs it with
@@ -131,6 +132,11 @@ pub struct ImageParser {
     /// carried into the next `process()` call so a large payload isn't torn —
     /// its header rendered as garbage text and the image dropped.
     pending: Vec<u8>,
+    /// `pending` is one escape whose terminator has been looked for and not
+    /// found. A chunk that brings no terminator either can then only extend
+    /// it, so the chunk is appended without rescanning the whole buffer —
+    /// which, over an 8 MiB image in 4 KiB chunks, was gigabytes of scanning.
+    pending_unterminated: bool,
     /// The main screen's pictures, set aside while an application runs on the
     /// alternate screen (`Some` exactly while it does), and put back when it
     /// leaves — the way a terminal keeps the two screens apart.
@@ -213,6 +219,7 @@ impl ImageParser {
         self.cursor_row = 0;
         self.cursor_col = 0;
         self.pending.clear();
+        self.pending_unterminated = false;
     }
 
     /// Record a placement, replacing any already anchored at the same cell.
@@ -316,6 +323,15 @@ impl ImageParser {
         F: FnMut(&[u8], &mut Self),
     {
         // Prepend any incomplete image escape carried over from the last chunk.
+        // When this chunk cannot end it, it only grows the buffer.
+        if self.pending_unterminated
+            && self.pending.len() + content.len() <= MAX_PENDING_IMAGE
+            && !ends_pending_escape(&self.pending, content)
+        {
+            self.pending.extend_from_slice(content);
+            return Vec::new();
+        }
+        self.pending_unterminated = false;
         let buffered;
         let content: &[u8] = if self.pending.is_empty() {
             content
@@ -335,6 +351,13 @@ impl ImageParser {
             }
             None => content,
         };
+
+        // Where the chunk's last terminator starts: an escape at `i` has one
+        // after it exactly when that is at or past `i + 2`. Asking each escape
+        // to scan the rest of the chunk made a run of unterminated ones
+        // quadratic.
+        let last_terminator = last_terminator_start(content);
+        let terminated_after = |from: usize| last_terminator.is_some_and(|at| at >= from);
 
         let mut output = Vec::with_capacity(content.len());
         let mut new_images = Vec::new();
@@ -377,7 +400,7 @@ impl ImageParser {
                 if nxt == b'_' {
                     if !output.is_empty()
                         && content[i..].starts_with(b"\x1b_G")
-                        && has_escape_terminator(&content[i + 2..])
+                        && terminated_after(i + 2)
                     {
                         let flushed = std::mem::take(&mut output);
                         on_clean_bytes(&flushed, self);
@@ -393,7 +416,7 @@ impl ImageParser {
 
                 // Sixel: ESC P ... q ... ESC \
                 if nxt == b'P' {
-                    if !output.is_empty() && has_escape_terminator(&content[i + 2..]) {
+                    if !output.is_empty() && terminated_after(i + 2) {
                         let flushed = std::mem::take(&mut output);
                         on_clean_bytes(&flushed, self);
                     }
@@ -413,9 +436,10 @@ impl ImageParser {
                 // complete-but-non-image ESC ] — e.g. OSC 8 — DOES have a
                 // terminator here, so it falls through to pass-through below and
                 // reaches the OSC parser as before.)
-                if matches!(nxt, b']' | b'_' | b'P') && !has_escape_terminator(&content[i + 2..]) {
+                if matches!(nxt, b']' | b'_' | b'P') && !terminated_after(i + 2) {
                     let tail = &content[i..];
                     if tail.len() <= MAX_PENDING_IMAGE {
+                        self.pending_unterminated = self.pending.is_empty();
                         self.pending.extend_from_slice(tail);
                         break;
                     }

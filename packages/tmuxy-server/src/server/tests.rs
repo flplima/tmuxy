@@ -183,7 +183,7 @@ fn served_app(password: Option<&str>) -> axum::Router {
     let app = crate::state::api_routes(loopback(vec![]))
         .fallback(serve_embedded)
         .with_state(Arc::new(AppState::new()));
-    with_optional_auth(app, password.map(str::to_string))
+    with_optional_auth(app, password.map(str::to_string), loopback(vec![]))
 }
 
 /// Every path a password is meant to cover — the API, the SSE stream and
@@ -275,6 +275,41 @@ async fn a_wrong_password_is_refused_and_the_right_one_reaches_the_route() {
             "{target} rejected the correct password"
         );
     }
+}
+
+/// A hostile page the user has open sends from the user's address. Its
+/// anonymous requests are refused by origin before the password is looked at,
+/// so they cannot spend the user's allowance and hold their next prompt.
+#[tokio::test]
+async fn cross_site_requests_are_refused_without_costing_the_user_their_allowance() {
+    use tower::ServiceExt;
+    let app = served_app(Some("s3cret"));
+    for _ in 0..10 {
+        let mut request = probe("/commands", None);
+        let headers = request.headers_mut();
+        headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
+        headers.insert("sec-fetch-mode", "no-cors".parse().unwrap());
+        headers.insert("origin", "https://evil.example".parse().unwrap());
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    let prompt = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        app.clone().oneshot(probe("/", None)),
+    )
+    .await
+    .expect("the user's own prompt is not held back")
+    .unwrap();
+    assert_eq!(prompt.status(), StatusCode::UNAUTHORIZED);
+
+    // Following a link to the server from another site still gets the prompt.
+    let mut link = probe("/", None);
+    let headers = link.headers_mut();
+    headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
+    headers.insert("sec-fetch-mode", "navigate".parse().unwrap());
+    headers.insert("sec-fetch-dest", "document".parse().unwrap());
+    let response = app.oneshot(link).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

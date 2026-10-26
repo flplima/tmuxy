@@ -243,3 +243,23 @@ fn a_file_that_is_not_json_is_refused_untouched() {
     assert!(install(&places, &which(&[Agent::Claude]), false, "tmuxy").is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
+
+/// The agent runs the hook through a shell: a path with a space, or a quote,
+/// is one word there, never a second command.
+#[test]
+fn a_hook_command_quotes_the_tmuxy_path() {
+    let line = hook_command(
+        Agent::Claude,
+        "Stop",
+        "/Users/me/Application Support/tmuxy; id",
+    );
+    assert!(
+        line.starts_with("command -v '/Users/me/Application Support/tmuxy; id' >/dev/null"),
+        "{line}"
+    );
+    assert!(!line.contains(" id >"), "{line}");
+    assert_eq!(
+        hook_command(Agent::Claude, "Stop", "/bin/tmuxy"),
+        "command -v /bin/tmuxy >/dev/null 2>&1 && /bin/tmuxy agent hook claude Stop 2>/dev/null || true"
+    );
+}

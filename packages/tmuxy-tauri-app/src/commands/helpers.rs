@@ -46,18 +46,28 @@ pub(super) fn route(state: &MonitorState, session: &str, command: &str) -> Optio
     let size = state.last_client_size.read().ok().and_then(|g| *g);
     match transport::route(command, session, size) {
         Route::Blocked(reason) => {
-            tracing::warn!(target: "tmuxy_tauri_app::commands", command, reason, "blocked command");
+            tracing::warn!(target: "tmuxy_tauri_app::commands", reason, "blocked command");
             None
         }
         Route::ControlMode(cmd) => Some(cmd),
     }
 }
 
-/// Whether a link a pane printed may be handed to the browser.
+/// Whether a link a pane printed may be handed to the browser: a web or mail
+/// link, with none of the characters a URL must percent-encode (whitespace,
+/// quotes, `<>^`{}|\`), so an opener that reads it as text finds nothing to
+/// parse in it.
 pub(crate) fn is_openable_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     (lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:"))
-        && !url.chars().any(|c| c.is_control())
+        && !url.chars().any(|c| {
+            c.is_control()
+                || c.is_whitespace()
+                || matches!(
+                    c,
+                    '"' | '\'' | '<' | '>' | '^' | '`' | '{' | '}' | '|' | '\\'
+                )
+        })
 }
 
 /// Hand a path to the desktop's default opener.
@@ -103,5 +113,10 @@ mod open_url_tests {
         assert!(!is_openable_url("ssh://host"));
         assert!(!is_openable_url("https://example.com/\u{1b}[31m"));
         assert!(!is_openable_url(""));
+        // What `cmd.exe` would read as its own syntax, were one in the way.
+        assert!(is_openable_url("https://example.com/?a=1&b=2"));
+        assert!(!is_openable_url("https://example.com/\"&calc.exe"));
+        assert!(!is_openable_url("https://example.com/ x"));
+        assert!(!is_openable_url("https://example.com/^|x"));
     }
 }

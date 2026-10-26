@@ -238,7 +238,11 @@ impl PaneState {
         let mut rows: crate::PaneContent = Vec::new();
         let mut want = start;
         while want <= end {
-            let asked = if want < 0 { (-want) as usize } else { 0 };
+            let asked = if want < 0 {
+                usize::try_from(want.unsigned_abs()).unwrap_or(usize::MAX)
+            } else {
+                0
+            };
             let screen = self.terminal.screen_mut();
             screen.set_scrollback(asked);
             // What the grid granted, which is where this window really starts.

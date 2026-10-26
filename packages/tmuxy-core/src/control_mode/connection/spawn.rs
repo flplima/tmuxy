@@ -97,7 +97,7 @@ pub(super) fn spawn_parser_task(
 
         loop {
             buf.clear();
-            match buf_reader.read_until(b'\n', &mut buf).await {
+            match read_line_capped(&mut buf_reader, &mut buf, MAX_LINE_BYTES).await {
                 Ok(0) => {
                     // EOF — tmux process exited (or PTY was closed). tmux's
                     // parting words (often a `%error` or `%exit detached`
@@ -115,6 +115,8 @@ pub(super) fn spawn_parser_task(
                     }
                     break;
                 }
+                // A line past the cap, dropped whole.
+                Ok(_) if buf.is_empty() => {}
                 Ok(_) => {
                     while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
                         buf.pop();
@@ -151,6 +153,55 @@ pub(super) fn spawn_parser_task(
             }
         }
     });
+}
+
+/// The longest control-mode line kept. tmux writes a pane's output a read at
+/// a time, so a real line is a few KiB escaped; one past this is dropped
+/// whole rather than buffered without bound.
+const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+/// `read_until(b'\n')` that keeps at most `max` bytes of a line. A longer
+/// line is read to its end and left out: `buf` comes back empty for it.
+/// Returns the bytes read, `0` only at EOF.
+pub(super) async fn read_line_capped<R>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+    max: usize,
+) -> std::io::Result<usize>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    let mut read = 0;
+    let mut overflowed = false;
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            break;
+        }
+        let (chunk, done) = match available.iter().position(|&b| b == b'\n') {
+            Some(at) => (&available[..=at], true),
+            None => (available, false),
+        };
+        let len = chunk.len();
+        if !overflowed && buf.len() + len <= max {
+            buf.extend_from_slice(chunk);
+        } else if !overflowed {
+            overflowed = true;
+            buf.clear();
+        }
+        reader.consume(len);
+        read += len;
+        if done {
+            break;
+        }
+    }
+    if overflowed {
+        tracing::warn!(
+            bytes = read,
+            "parser task: dropped a control-mode line past the cap"
+        );
+    }
+    Ok(read)
 }
 
 impl ControlModeConnection {
@@ -380,5 +431,27 @@ impl ControlModeConnection {
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod read_line_tests {
+    use super::read_line_capped;
+
+    #[tokio::test]
+    async fn a_line_past_the_cap_is_dropped_and_the_next_is_read() {
+        let input: &[u8] = b"short\n0123456789abcdef\nnext\n";
+        let mut reader = tokio::io::BufReader::with_capacity(4, input);
+        let mut buf = Vec::new();
+        let mut lines = Vec::new();
+        loop {
+            buf.clear();
+            if read_line_capped(&mut reader, &mut buf, 10).await.unwrap() == 0 {
+                break;
+            }
+            lines.push(String::from_utf8(buf.clone()).unwrap());
+        }
+        assert_eq!(lines, ["short\n", "", "next\n"]);
     }
 }
