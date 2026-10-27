@@ -1,5 +1,6 @@
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
+const { runWidgetWithPaneGone } = require('./helpers/run-widget');
 
 describe('CLI widget subcommands', () => {
   // The widget exec path uses `exec` to replace the process with a widget
@@ -13,6 +14,26 @@ describe('CLI widget subcommands', () => {
       expect(stderr).toContain('Unknown widget command: badcmd');
       expect(stderr).toContain('Usage: tmuxy widget <command>');
     });
+  });
+
+  /**
+   * A widget whose pane closed under it (its session killed) runs its exit
+   * trap with a terminal that no longer takes writes. bash 3.2's `printf`
+   * keeps the bytes it could not write, and every `$( … )` after it flushed
+   * them into its own result: the title reset ESC ] 2 ; BEL landed inside the
+   * run-shell line, cut the command at its `;`, and the line's
+   * `echo $? >…status` wrote a file named ESC ] 2 into the pane's directory.
+   * Here the reader of the widget's output leaves after the marker, so the
+   * trap's writes fail the same way.
+   */
+  test('a widget whose pane is gone hands tmux a clean line on its way out', () => {
+    const { calls, files } = runWidgetWithPaneGone('%5');
+    // The mock logs an ESC byte as itself.
+    expect(calls.some((line) => line.includes('\u001b'))).toBe(false);
+    expect(calls.find((line) => line.includes('set-option -p -u'))).toContain(
+      "set-option -p -u -t '%5' @tmuxy-pane-widget",
+    );
+    expect(files).toEqual(['tmux.log']);
   });
 
   // A preview reads the file it was opened on and nothing else, so what it

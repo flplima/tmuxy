@@ -39,7 +39,20 @@ function isolatedEnv({ socket, stateDir }) {
   // the CI job's env); this server exists to do exactly those two things.
   delete env.TMUXY_NO_SNAPSHOT;
   delete env.TMUXY_NO_RESTORE;
+  // A config dir of its own, beside the state dir (`start` fills it). The
+  // server mirrors its bundled scripts into `<config>/tmuxy/bin`; in the
+  // developer's own config dir the installed app rewrites them with ITS
+  // build's copies on every `tmuxy` it answers (an agent hook, say), and a
+  // pane's `tmuxy` (the ~/.local/bin shorthand, which runs whatever
+  // `<config>/tmuxy/launcher` names) was that app too — so the panes ran an
+  // older build's scripts, not the ones under test.
+  env.XDG_CONFIG_HOME = configHome(stateDir);
   return env;
+}
+
+/** The isolated server's config home, beside its state dir. */
+function configHome(stateDir) {
+  return path.join(path.dirname(stateDir), 'config');
 }
 
 /**
@@ -76,6 +89,10 @@ function isolatedServer({ port, socket, stateDir }) {
     cli,
     async start(extraArgs = []) {
       fs.mkdirSync(stateDir, { recursive: true });
+      // A pane's `tmuxy` is the CLI under test.
+      const config = path.join(configHome(stateDir), 'tmuxy');
+      fs.mkdirSync(config, { recursive: true });
+      fs.writeFileSync(path.join(config, 'launcher'), TMUXY_CLI);
       const stderr = fs.openSync(path.join(stateDir, `server-${Date.now()}.stderr.log`), 'w');
       child = spawn(serverBinary(), ['--port', String(port), '--no-auth', ...extraArgs], {
         cwd: WORKSPACE_ROOT,

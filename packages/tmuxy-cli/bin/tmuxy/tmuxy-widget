@@ -30,7 +30,8 @@ source "$(cd "$(dirname "$0")" && pwd)/_lib"
 # it. The target is explicit — inside `run-shell` the command runs as a client
 # of its own, and "the current pane" there is whichever pane tmux last used,
 # not this one.
-_run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget $(shquote "$COMPONENT")"
+PANE="$(shquote "$TMUX_PANE")"
+_run_safe "set-option -p -t $PANE @tmuxy-pane-widget $(shquote "$COMPONENT")"
 
 # Hand the title back on the way out, so the pane does not keep the widget's
 # name once it is a shell again. Empty resets it to tmux's own default. The
@@ -46,7 +47,14 @@ _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget $(shquote
 # with Ctrl+C ignored passes that on to everything it runs. A pane with no
 # terminal to open (the CheerpX demo's) gets no new shell: the one that ran
 # the widget is back at its prompt.
-trap 'trap "" INT; printf "\033]2;\007"; _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-widget"; clear; trap - INT; if { : </dev/tty; } 2>/dev/null; then exec "${SHELL:-bash}" </dev/tty; fi' EXIT
+#
+# The title is reset from a subshell. When the pane has already closed (its
+# session killed), the write fails, and bash 3.2's `printf` keeps the bytes it
+# could not write: every `$( … )` forked after it flushes them into its own
+# result. `_run_safe` builds its line from those, so the ESC ] 2 ; BEL ended
+# the command in the middle, and its `echo $? >…status` wrote a file named
+# ESC ] 2 into whatever directory the pane had started in.
+trap 'trap "" INT; ( printf "\033]2;\007" ) 2>/dev/null; _run_safe "set-option -p -u -t $PANE @tmuxy-pane-widget"; clear; trap - INT; if { : </dev/tty; } 2>/dev/null; then exec "${SHELL:-bash}" </dev/tty; fi' EXIT
 
 printf '\033]2;%s\007' "$TITLE"
 echo "__TMUXY_WIDGET__:${COMPONENT}"
