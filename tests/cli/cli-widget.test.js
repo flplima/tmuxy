@@ -26,8 +26,8 @@ describe('CLI widget subcommands', () => {
    * Here the reader of the widget's output leaves after the marker, so the
    * trap's writes fail the same way.
    */
-  test('a widget whose pane is gone hands tmux a clean line on its way out', () => {
-    const { calls, files } = runWidgetWithPaneGone('%5');
+  test('a widget whose pane is gone hands tmux a clean line on its way out', async () => {
+    const { calls, files } = await runWidgetWithPaneGone('%5');
     // The mock logs an ESC byte as itself.
     expect(calls.some((line) => line.includes('\u001b'))).toBe(false);
     expect(calls.find((line) => line.includes('set-option -p -u'))).toContain(
